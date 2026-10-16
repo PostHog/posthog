@@ -48,12 +48,12 @@ use personhog_proto::personhog::types::v1::{
     ReleaseOutcome, SealedSourceSnapshot,
 };
 
-use crate::config::IdentityTables;
+use crate::config::{IdentityTables, OutboxWrites};
 use crate::leader::LifecycleLeader;
 use crate::lifecycle::detach::DetachedDrives;
 use crate::lifecycle::engine::{
-    advance_step_in_tx, complete_op_in_tx, Engine, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
-    STEP_COMPLETED,
+    abort_op_in_tx, advance_step_in_tx, complete_op_in_tx, Engine, OpDriver, OpRow, SagaError, Tx,
+    STEP_ABORTED, STEP_COMPLETED,
 };
 use crate::pools::{IdentityPools, Lane};
 use crate::warnings::{effective_event_uuid, MergePair, MergeWarnings, MERGE_SAGA};
@@ -362,6 +362,7 @@ pub struct MergeDriver {
     tables: IdentityTables,
     leader_call_concurrency: usize,
     warnings: MergeWarnings,
+    outbox_writes: OutboxWrites,
 }
 
 impl MergeDriver {
@@ -369,6 +370,7 @@ impl MergeDriver {
         leader: Arc<dyn LifecycleLeader>,
         tables: IdentityTables,
         leader_call_concurrency: usize,
+        outbox_writes: OutboxWrites,
     ) -> Self {
         tables.validate().expect("invalid identity table set");
         Self {
@@ -377,6 +379,7 @@ impl MergeDriver {
             // Clamped to 1: a zero-width buffered stream never polls.
             leader_call_concurrency: leader_call_concurrency.max(1),
             warnings: MergeWarnings::disabled(),
+            outbox_writes,
         }
     }
 
@@ -1166,12 +1169,11 @@ async fn abort_in_claim_tx(
     // The entrance discards flagged rows on the next presentation of the
     // op id, so a plain retry re-runs where a recorded conflict replays.
     outcome["claim_abort"] = Value::Bool(true);
-    if !complete_op_in_tx(
+    if !abort_op_in_tx(
         &mut tx,
         tables,
         op.op_id,
         MergeStep::Started.as_str(),
-        STEP_ABORTED,
         &outcome,
     )
     .await?
@@ -1297,12 +1299,11 @@ impl MergeDriver {
             abort_marks(&mut tx, &self.tables, op).await?;
             let outcome =
                 build_outcome(&mut tx, &self.tables, op, Some(AbortOutcome::Conflict)).await?;
-            if !complete_op_in_tx(
+            if !abort_op_in_tx(
                 &mut tx,
                 &self.tables,
                 op.op_id,
                 MergeStep::Claimed.as_str(),
-                STEP_ABORTED,
                 &outcome,
             )
             .await?
@@ -1378,12 +1379,11 @@ impl MergeDriver {
         abort_marks(&mut tx, &self.tables, op).await?;
         // Fence contention never reaches this abort; it retries at the step.
         let outcome = build_outcome(&mut tx, &self.tables, op, Some(AbortOutcome::Refused)).await?;
-        if !complete_op_in_tx(
+        if !abort_op_in_tx(
             &mut tx,
             &self.tables,
             op.op_id,
             from_step.as_str(),
-            STEP_ABORTED,
             &outcome,
         )
         .await?
@@ -2122,8 +2122,8 @@ impl MergeDriver {
             &self.tables,
             op.op_id,
             MergeStep::Flipped.as_str(),
-            STEP_COMPLETED,
             &outcome,
+            self.outbox_writes,
         )
         .await?
         {

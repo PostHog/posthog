@@ -1,0 +1,17 @@
+import { ALL_SDKS } from 'scenes/onboarding/sdks/allSDKs'
+
+import { SDKInstructionsMap, SDKKey } from '~/types'
+
+import { IOSSourceMapsInstructions } from './automated-technologies/IOSSourceMapsInstructions'
+import { NextJSSourceMapsInstructions } from './automated-technologies/NextJSSourceMapsInstructions'
+import { NuxtSourceMapsInstructions } from './automated-technologies/NuxtSourceMapsInstructions'
+
+export const SourceMapsSDKInstructions: SDKInstructionsMap = {
+    [SDKKey.NEXT_JS]: NextJSSourceMapsInstructions,
+    [SDKKey.NUXT_JS]: NuxtSourceMapsInstructions,
+    [SDKKey.IOS]: IOSSourceMapsInstructions,
+}
+
+export const automatedSourceMapsTechnologies = ALL_SDKS.filter((sdk) =>
+    [SDKKey.NEXT_JS, SDKKey.NUXT_JS, SDKKey.IOS].includes(sdk.key as SDKKey)
+)

@@ -3,7 +3,7 @@
 //! Each test targets one property the worker stream must hold for per-key ordering:
 //! wire order equals enqueue order, acks correlate out of order, and a
 //! failure fences everything outstanding (in order, with the messages handed
-//! back) so the dispatcher's deferral path can replay it.
+//! back) so the batcher can requeue and replay it.
 
 mod common;
 
@@ -13,9 +13,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use common::key_table_batcher;
+use common::one_message_batcher;
 use common_kafka_consumer::Partition;
-use ingestion_consumer::dispatcher::Dispatcher;
+use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport, SendOptions};
 use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::transport::{SendOutcome, TransportError};
@@ -584,7 +584,7 @@ async fn a_failure_fences_a_later_sub_batch_the_worker_already_acked(
     // Regression: with more than one un-acked sub-batch, the worker may ack
     // seq 2 before seq 1. If seq 2 resolved on its own ack, its caller would
     // release its keys and never replay it, while seq 1's later failure
-    // stashed only seq 1 — the older messages would replay after the newer
+    // requeued only seq 1 — the older messages would replay after the newer
     // ones. A failure must fence the acked-but-unresolved tail too.
     let (ack_tx, ack_rx) = mpsc::unbounded_channel();
     let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
@@ -629,11 +629,11 @@ async fn a_failure_fences_a_later_sub_batch_the_worker_already_acked(
 }
 
 #[tokio::test]
-async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
-    // Regression: a fence resolves its sends before their callers stash the
+async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_requeue() {
+    // Regression: a fence resolves its sends before their callers requeue the
     // messages. In that gap the consumer loop can still enqueue a fenced
     // key's next group; if the next stream sent it, it would reach the worker
-    // ahead of the stashed older group. The worker stream must keep fencing until
+    // ahead of the requeued older messages. The worker stream must keep fencing until
     // every fenced caller drops its guard.
     let mock = start_mock(AckMode::NackSeq(1), None).await;
     let transport = GrpcTransport::new(
@@ -663,7 +663,7 @@ async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
     ));
     assert_eq!(mock.received.lock().await.len(), 1);
 
-    // Both callers stashed: the worker stream resumes and the next send reaches the
+    // Both callers requeued: the worker stream resumes and the next send reaches the
     // worker on a fresh stream.
     drop(guard);
     drop(second_err);
@@ -823,7 +823,7 @@ async fn a_nack_fences_everything_outstanding_in_order() {
     assert_eq!(first_err.messages.len(), 1);
     assert_eq!(
         first_err.messages[0].offset, 1,
-        "messages come back for deferral"
+        "messages come back for the requeue"
     );
     assert!(matches!(
         first_err.error,
@@ -918,7 +918,7 @@ async fn a_worker_that_stops_acking_fences_after_the_watchdog_window() {
         .await
         .expect("watchdog must fence, not wait forever")
         .expect_err("un-acked send fails back to the caller");
-    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert_eq!(err.messages.len(), 1, "messages come back for the requeue");
     assert_eq!(err.messages[0].offset, 1);
 }
 
@@ -966,7 +966,7 @@ async fn a_stuck_oldest_sub_batch_fences_even_while_siblings_keep_acking() {
         .await
         .expect("stuck send must fence on its own deadline, not wait for the feed to stop")
         .expect_err("un-acked oldest send fails back to the caller");
-    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert_eq!(err.messages.len(), 1, "messages come back for the requeue");
     assert_eq!(err.messages[0].offset, 1);
 
     feeder.abort();
@@ -1007,7 +1007,7 @@ async fn removing_a_worker_fences_its_in_flight_send_with_messages() {
         .await
         .expect("reaped worker stream must fence, not hang")
         .expect_err("reaped worker fences the in-flight send");
-    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert_eq!(err.messages.len(), 1, "messages come back for the requeue");
     assert_eq!(err.messages[0].offset, 1);
 }
 
@@ -1029,7 +1029,7 @@ async fn a_busy_status_fences_as_retriable_with_messages() {
         .wait()
         .await
         .expect_err("busy fences the worker stream");
-    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert_eq!(err.messages.len(), 1, "messages come back for the requeue");
     assert!(err.error.is_retriable(), "busy is retriable backpressure");
     assert!(matches!(err.error, TransportError::WorkerStreamBusy(_)));
 }
@@ -1138,7 +1138,7 @@ fn registry_config() -> WorkerRegistryConfig {
 }
 
 #[tokio::test]
-async fn key_table_watchdog_bounds_overlapping_busy_retries() {
+async fn the_watchdog_bounds_overlapping_busy_retries() {
     let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
     let first_addr = start_controlled_busy_worker(0, attempts_tx.clone()).await;
     let second_addr = start_controlled_busy_worker(1, attempts_tx).await;
@@ -1147,14 +1147,14 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
         format!("http://{second_addr}"),
     ];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(registry, RoutingStrategy::P2c));
+    let pool_source = WorkerPoolSource::new(registry, RoutingStrategy::P2c);
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
         Duration::from_secs(30),
     ));
-    let (batcher, mut outputs) = key_table_batcher(
-        &dispatcher,
+    let (batcher, mut outputs) = one_message_batcher(
+        pool_source,
         transport,
         Duration::from_millis(100),
         Duration::from_millis(20),
@@ -1226,19 +1226,19 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
 }
 
 #[tokio::test]
-async fn key_table_retries_a_busy_send_until_it_completes() {
+async fn a_busy_send_is_retried_until_it_completes() {
     let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(registry, RoutingStrategy::P2c));
+    let pool_source = WorkerPoolSource::new(registry, RoutingStrategy::P2c);
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
         Duration::from_secs(30),
     ));
-    let (batcher, mut outputs) = key_table_batcher(
-        &dispatcher,
+    let (batcher, mut outputs) = one_message_batcher(
+        pool_source,
         transport,
         Duration::from_millis(500),
         Duration::from_millis(20),
@@ -1272,19 +1272,19 @@ async fn key_table_retries_a_busy_send_until_it_completes() {
 }
 
 #[tokio::test]
-async fn key_table_watchdog_allows_in_flight_success_after_the_deadline() {
+async fn the_watchdog_allows_in_flight_success_after_the_deadline() {
     let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(registry, RoutingStrategy::P2c));
+    let pool_source = WorkerPoolSource::new(registry, RoutingStrategy::P2c);
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
         Duration::from_secs(30),
     ));
-    let (batcher, mut outputs) = key_table_batcher(
-        &dispatcher,
+    let (batcher, mut outputs) = one_message_batcher(
+        pool_source,
         transport,
         Duration::from_millis(100),
         Duration::from_millis(20),

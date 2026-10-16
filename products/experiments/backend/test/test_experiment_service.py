@@ -799,24 +799,38 @@ class TestExperimentService(APIBaseTest):
 
         assert expected_error in str(ctx.exception)
 
-    def test_create_experiment_rejects_saved_metrics_from_another_team(self) -> None:
-        self._create_flag(key="saved-metrics-team-check")
-        other_team = Team.objects.create(organization=self.organization, name="Other Team")
-        saved_metric = ExperimentSavedMetric.objects.create(
-            team=other_team,
-            name="Other Team Metric",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "other-uuid", "event": "$pageview"},
-        )
+    @parameterized.expand(
+        [
+            (
+                "from_another_team",
+                True,
+                {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "other-uuid", "event": "$pageview"},
+                "Saved metric does not exist or does not belong to this project",
+            ),
+            (
+                "legacy_query",
+                False,
+                {"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery", "series": []}},
+                "Legacy shared metrics can't be added to an experiment: Unlinkable Metric",
+            ),
+        ]
+    )
+    def test_create_experiment_rejects_unlinkable_saved_metric(
+        self, _: str, from_other_team: bool, query: dict, expected_error: str
+    ) -> None:
+        self._create_flag(key="saved-metrics-link-check")
+        team = Team.objects.create(organization=self.organization, name="Other Team") if from_other_team else self.team
+        saved_metric = ExperimentSavedMetric.objects.create(team=team, name="Unlinkable Metric", query=query)
         service = self._service()
 
         with self.assertRaises(ValidationError) as ctx:
             service.create_experiment(
-                name="Wrong Team Metric",
-                feature_flag_key="saved-metrics-team-check",
+                name="Unlinkable Metric Experiment",
+                feature_flag_key="saved-metrics-link-check",
                 saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
             )
 
-        assert "Saved metric does not exist or does not belong to this project" in str(ctx.exception)
+        assert expected_error in str(ctx.exception)
 
     @parameterized.expand(
         [
@@ -2410,8 +2424,8 @@ class TestExperimentService(APIBaseTest):
         ctx = service._build_serializer_context()
 
         # fresh payload per call — update_experiment mutates update_data in place
-        def attach(metric_type: str) -> dict:
-            return {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": metric_type}}]}
+        def attach(role: str) -> dict:
+            return {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": role}}]}
 
         if initial_type is not None:
             service.update_experiment(experiment, attach(initial_type), serializer_context=ctx)
@@ -3919,7 +3933,7 @@ class TestExperimentService(APIBaseTest):
                         0,
                         ["forced_variant_release_condition"],
                         ["forced_variant_release_condition:some_conditions_pinned"],
-                        ["forced_variant_release_condition:some_conditions_pinned:info:"],
+                        ["forced_variant_release_condition:some_conditions_pinned:info:not_measured"],
                     )
                 ],
             ),
@@ -6370,7 +6384,7 @@ class TestExperimentService(APIBaseTest):
         _name: str,
         field: str,
         other_field: str,
-        metric_type: str,
+        role: str,
         collides: bool,
     ) -> None:
         self._create_flag(key="attach-dedup-with-saved")
@@ -6414,7 +6428,7 @@ class TestExperimentService(APIBaseTest):
         )
 
         updated = service.update_experiment(
-            experiment, {"saved_metrics_ids": [{"id": sm.id, "metadata": {"type": metric_type}}]}
+            experiment, {"saved_metrics_ids": [{"id": sm.id, "metadata": {"type": role}}]}
         )
 
         sm.refresh_from_db()
@@ -6435,7 +6449,7 @@ class TestExperimentService(APIBaseTest):
         ]
     )
     def test_update_regenerates_stored_inline_copy_that_collides_with_saved_metric_uuid(
-        self, _name: str, field: str, ordering_attr: str, metric_type: str, attach_another: bool
+        self, _name: str, field: str, ordering_attr: str, role: str, attach_another: bool
     ) -> None:
         self._create_flag(key="stored-collision")
         shared_uuid = "77bfb66a-51f5-48d0-a87e-bde2b4c958a6"
@@ -6454,7 +6468,7 @@ class TestExperimentService(APIBaseTest):
             name="Stored collision",
             feature_flag_key="stored-collision",
             allow_unknown_events=True,
-            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": metric_type}}],
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": role}}],
         )
         Experiment.objects.filter(id=experiment.id).update(
             **{
@@ -6471,9 +6485,9 @@ class TestExperimentService(APIBaseTest):
         )
         experiment.refresh_from_db()
 
-        saved_metrics_ids = [{"id": sm.id, "metadata": {"type": metric_type}}]
+        saved_metrics_ids = [{"id": sm.id, "metadata": {"type": role}}]
         if attach_another:
-            saved_metrics_ids.append({"id": self._make_saved_metric("Another").id, "metadata": {"type": metric_type}})
+            saved_metrics_ids.append({"id": self._make_saved_metric("Another").id, "metadata": {"type": role}})
             payload: dict = {"saved_metrics_ids": saved_metrics_ids}
         else:
             payload = {field: deepcopy(getattr(experiment, field))}
@@ -6526,7 +6540,7 @@ class TestExperimentService(APIBaseTest):
         ]
     )
     def test_detaching_saved_metric_keeps_uuid_its_stored_inline_copy_uses(
-        self, metric_type: str, field: str, ordering_attr: str
+        self, role: str, field: str, ordering_attr: str
     ) -> None:
         self._create_flag(key="detach-stored-collision")
         shared_uuid = "99bfb66a-51f5-48d0-a87e-bde2b4c958a6"
@@ -6542,7 +6556,7 @@ class TestExperimentService(APIBaseTest):
             name="Detach stored collision",
             feature_flag_key="detach-stored-collision",
             allow_unknown_events=True,
-            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": metric_type}}],
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": role}}],
         )
         Experiment.objects.filter(id=experiment.id).update(**{field: [metric], ordering_attr: [shared_uuid]})
         experiment.refresh_from_db()
@@ -6812,6 +6826,33 @@ class TestExperimentService(APIBaseTest):
             service.update_experiment(experiment, {"metrics": [stale, fresh]})
 
         assert "999999" in str(ctx.exception.detail)
+
+    @parameterized.expand([("inline",), ("saved_metric",)])
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_metric_action_needs_viewer_access_unless_already_referenced(self, placement: str):
+        action = Action.objects.create(team=self.team, name="restricted action", created_by=self.user)
+        AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
+        metric = {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
+        definition: dict = {"metrics": [metric], "metrics_secondary": []}
+        if placement == "saved_metric":
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=self.team, name="Restricted", query={**metric, "uuid": "restricted-sm"}, created_by=self.user
+            )
+            definition = {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": "primary"}}]}
+        experiment = self._service().create_experiment(
+            name="Restricted Action", feature_flag_key=f"restricted-action-{placement}", **definition
+        )
+        member_service = ExperimentService(team=self.team, user=self._create_user("experiment-member@example.com"))
+
+        with self.assertRaises(PermissionDenied):
+            member_service.create_experiment(
+                name="Member Restricted Action", feature_flag_key=f"member-restricted-action-{placement}", **definition
+            )
+        member_service.update_experiment(experiment, definition)
+
+        assert len(experiment.metrics or []) + experiment.experimenttosavedmetric_set.count() == 1
 
     def test_funnel_metric_with_empty_series_raises(self):
         # The experiment exposure event is prepended as step_0 at query time, so an

@@ -1,12 +1,14 @@
 ---
 name: writing-pr-descriptions
 description: >-
-  Shapes a PR body into something a reviewer understands at a glance.
-  Use ALWAYS before writing or editing a PR description, before `gh pr create` or `gh pr edit --body`, and when asked to improve an existing description.
-  Captures the actor's underlying need in Problem without presupposing the solution, puts the visible effect first in Changes and the mechanism under it, routes each remaining fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), cuts everything a reviewer does not need, then holds what survives to a checkable shape: one fact per bullet, sentences under 25 words, active voice, no idioms.
-  Makes the body stand alone, so a reader who opens no files still knows the product intent behind the PR and what it does, sizes the body to the change so a small PR reads as small, and makes every claim either linked to its evidence or labeled as unchecked.
-  Ends with a scan test over the title and the first lines of Problem and Changes.
-  Not for commit messages (see AGENTS.md, "Commit types") or user-facing product copy (see `/writing-user-facing-copy`).
+  Shapes a PR body so a reviewer can understand the problem and change quickly.
+  Use ALWAYS before writing or editing a PR description, before `gh pr create` or `gh pr edit --body`, or when asked to improve a description.
+  States who is affected and what is wrong for them in Problem, taken from a source and never invented, then the visible effect and mechanism in Changes.
+  Selects bullets, tables, diagrams, screenshots, or collapsed blocks for each fact.
+  Removes unnecessary detail and checks one fact per bullet, sentences under 25 words, active voice, and no idioms.
+  Keeps the body complete without the diff, scales its length to the change, and links evidence or marks claims as unchecked.
+  Checks the title and first lines of Problem and Changes.
+  Not for commit messages (see AGENTS.md, "Commit types") or product copy (see `/writing-user-facing-copy`).
 ---
 
 # Writing PR descriptions
@@ -37,23 +39,18 @@ gh pr edit <number> --body-file pr-body.md
 Carry every image, video, link and ticked box into the new body, under the heading it belongs to, and add the heading when your draft has none.
 Replace one only when the change made it wrong, and say in the body that you replaced it.
 
-## Pass 1: lead with the product intent
+## Pass 1: lead with the need
 
 The first line is the one line you can count on being read.
 You just spent an hour inside the mechanism, so the mechanism comes out first. Push it down and spend that line on the need that caused the work.
 
-Problem states the product intent, not the inverse of Changes.
-It names the actor who needs an outcome, the friction they face now, and why that friction matters.
-The actor can differ from the person who uses the new surface.
-The problem must stay true if the author chooses a different solution.
-
-- Line 1 of Problem says who needs a better outcome and what prevents it today. Name the affected workflow or surface. Four shapes cover almost every PR:
+- Line 1 of Problem says who is affected and what is wrong for them today. Name the surface or workflow they were on. Four shapes cover almost every PR:
   - A fix: what breaks, and for whom.
-  - A feature: the actor's goal, the current friction, and its cost. Do not define the problem as a missing version of the chosen solution.
+  - A feature: what the person is trying to get done, and what stands in the way. "Analysts who join tables in the SQL editor recompute the same derived column in every query."
   - A refactor, a chore or an enabling change: who is blocked, what it costs them, or what class of failure it removes. Nobody sees it, but somebody is waiting.
-  - A follow-up or a layer in a stack: which need the earlier PR left unmet. Link that PR and assume nobody read it.
-- Negating the first Changes bullet does not produce a problem statement. Phrases such as "there is no way", "cannot use X through Y", and "lacks a Y" usually restate the solution.
-- Ask why the capability matters until the answer describes an outcome or cost. Stop before the answer becomes a broad company goal.
+  - A follow-up or a layer in a stack: what the earlier PR left undone, and what this one adds. Link that PR and assume nobody read it.
+- Problem must stay true if the author picks a different solution. A missing version of your solution is not a problem: "there is no PDF export" is Changes with a "not" in it.
+- Take the need from a source: the request, a linked issue, a thread, a measurement. The writer of a body often has only the diff. Never invent an actor, a cost, or a frequency to make the line read better. When no source gives the reason, say so in one line, so the reviewer knows to ask.
 - If line 1 opens with a symbol, a file path, a class, or a setting, you led with the mechanism. Rewrite it.
 - Size the problem in one clause where you know it: how many teams, how often, since when.
 - The mechanism follows, in the order a reviewer has to check it.
@@ -62,7 +59,7 @@ The problem must stay true if the author chooses a different solution.
 - Say in one line which part of Changes is mechanical. A reviewer cannot otherwise tell a purely internal change from a visible one you described as internal.
 - If one part of the diff is riskier than the rest, name that part and say the rest is mechanical.
 
-Most of the time you already wrote the product intent and put it third. Move it up rather than writing a new sentence.
+Most of the time you already wrote the need and put it third. Move it up rather than writing a new sentence.
 
 Line 1 can be a bullet or a standalone sentence, whichever reads faster, but one sentence and never a paragraph.
 
@@ -70,13 +67,11 @@ Line 1 can be a bullet or a standalone sentence, whichever reads faster, but one
 
 ❌ The dashboard has no PDF export.
 
-✅ Account managers rebuild weekly dashboard summaries in slides, which delays customer updates.
+✅ Account managers rebuild weekly dashboard summaries in slides to send to customers (linked request).
 
-❌ Integrations cannot call the API through a typed TypeScript client.
+✅ The request asks for a PDF export of a dashboard and gives no reason. (No source states the need, so the body says that and invents nothing.)
 
-✅ Integration authors repeat endpoint discovery and request typing, which slows delivery and lets client behavior drift.
-
-Each good version leaves room for more than one solution. It also tells a reviewer why solving the problem has value.
+The first good version leaves room for more than one solution. The second is honest, and it tells the reviewer what to ask before approving.
 
 ### Worked example
 
@@ -100,9 +95,9 @@ Prose is the slowest form on the page. Before writing a sentence, ask what carri
 
 | The fact you have                                                                    | The form that carries it                                  |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
-| A visual change (any UI a person sees)                                               | Screenshot, before and after. Mandatory, not optional     |
+| A visual change (any UI a person sees, including a flow through screens)             | Screenshot, before and after. Mandatory, not optional     |
 | A new action and its effect, which one screenshot cannot show                        | A feature reel in place of the "after" screenshot         |
-| A change to a flow or topology (CI wiring, pipelines, state machines, request paths) | Two branded `flowchart` blocks, before first              |
+| An architecture or topology change one sentence cannot carry (defined under Mermaid) | Two branded `flowchart` blocks, before first              |
 | Several values compared across the same dimensions                                   | A markdown table                                          |
 | A config or setting change                                                           | A fenced `diff` block                                     |
 | Existing code a reviewer needs to see                                                | A line-range permalink, which GitHub renders as a snippet |
@@ -133,6 +128,13 @@ Upload with `hogli pr:upload-image <file>` and paste the markdown it prints. The
 Touching UI code without a visible change is common, and the mandate has to be dischargeable. When nothing looks different, say so in one line. A reviewer cannot tell that case from a missing screenshot, and silence reads as the second.
 
 ### Mermaid
+
+Draw a diagram only for an architecture or topology change that one sentence cannot carry.
+Architecture and topology mean CI wiring, pipelines, services and the calls between them, or module and package boundaries.
+They also mean a state machine with several states, or a request path across systems.
+A UI flow or a linear sequence of screens is not a topology.
+It gets screenshots or a reel, not a diagram.
+When one sentence states the whole change, such as one step added to a straight chain, write the sentence instead.
 
 Keep diagrams simple. A syntax error renders as an error block. Pick `TD` for tall pipelines, `LR` for wide paths. Mermaid cannot read CSS vars, so use the hex directly, and pair every `fill` with a text `color` so nodes stay legible in GitHub light and dark.
 
@@ -265,9 +267,9 @@ Run both checks over the body you just wrote, before `gh pr create` or `gh pr ed
 
 Read only the title, the first line of Problem, and the first bullet of Changes. Cover the rest.
 
-1. Do you know who needs an outcome, what friction they face, and why it matters?
+1. Do you know who is affected, and what is wrong for them today?
 2. Would the problem stay true if the implementation changed?
-3. Do you know what this PR does about the problem?
+3. Do you know what this PR does about it?
 4. Did you get there without a symbol, a file path, or a class name?
 
 A "no" anywhere means the body is ordered for the writer, not the reader. Go back to pass 1. Nothing in the line check can rescue a body that fails here.
@@ -278,7 +280,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 2. Does the size of the body track the size of the diff? A six-line change under a full-length body reads as filler.
 3. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
 4. Read the body with the diff closed. Can you say why the PR exists and what it does? If not, you cut something a reader needs.
-5. Could you write Problem by negating Changes? If yes, replace the missing capability with the underlying outcome, friction, or cost.
+5. Does Problem state a need that no source in the request, an issue, or a thread gave? Delete it, and say the reason was not given.
 6. Read Changes alone. Can you say what a person will now see or do differently, or that nothing user-visible changed? If neither, go back to pass 1.
 7. Read each bullet and name the reader who needs it. Delete the ones you cannot.
 8. Read each bullet alone. Does it state one fact? If it states two, split it.
@@ -287,7 +289,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 11. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
 12. Does the PR change anything a person sees? Include before-and-after screenshots, or say why nothing looks different.
 13. Did you rewrite an existing body? Every image, video, link and ticked box a person put there still appears.
-14. Does the PR change a flow or topology? Include branded before-and-after diagrams.
+14. Does the PR change architecture or topology in a way one sentence cannot carry, as defined under Mermaid? Include branded before-and-after diagrams. Delete any diagram of a UI flow or of what one sentence says.
 15. Does prose compare several values across the same dimensions? Replace it with a table.
 16. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
 17. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.

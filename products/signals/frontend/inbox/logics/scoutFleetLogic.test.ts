@@ -25,6 +25,7 @@ import type { ScoutCostsApi, SignalScoutConfigApi, UserBasicApi } from 'products
 import { llmSkillsNamePublishCommunityCreate } from 'products/skills/frontend/generated/api'
 
 import { SignalScoutRunSummary } from '../types'
+import { SCOUT_RUNS_FLEET_COVERAGE_LIMIT } from '../utils/scoutRunsWindow'
 import { ScoutRosterSort, scoutFleetLogic } from './scoutFleetLogic'
 
 jest.mock('posthog-js')
@@ -118,6 +119,7 @@ const OWNED_CONFIG: SignalScoutConfigApi = { ...BASE_CONFIG, scout_origin: 'cust
 function makeRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
     return {
         run_id: 'run-1',
+        total_spend: null,
         skill_name: BASE_CONFIG.skill_name,
         skill_version: 1,
         status: 'completed',
@@ -962,6 +964,44 @@ describe('scoutFleetLogic', () => {
             } finally {
                 jest.useRealTimers()
             }
+        })
+
+        it('keeps a newer single-scout read when an earlier fleet read lands after it', async () => {
+            const fleetRequest = deferred<SignalScoutRunSummary[]>()
+            mockSignalsScoutRunsRecentPerScout.mockImplementationOnce(() => fleetRequest.promise)
+            logic.actions.loadScoutRuns()
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValueOnce([makeRun({ run_id: 'run-fresh' })])
+            logic.actions.loadScoutRunsForSkill(BASE_CONFIG.skill_name)
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsForSkillSuccess'])
+
+            fleetRequest.resolve([
+                makeRun({ run_id: 'run-stale' }),
+                makeRun({ run_id: 'run-other', skill_name: 'signals-scout-surveys' }),
+            ])
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess'])
+
+            expect(logic.values.scoutRuns.map((run) => run.run_id).sort()).toEqual(['run-fresh', 'run-other'])
+        })
+
+        it('keeps a single-scout read that a fleet read past the probe bound did not cover', async () => {
+            const otherConfigs = Array.from({ length: SCOUT_RUNS_FLEET_COVERAGE_LIMIT }, (_, index) => ({
+                ...BASE_CONFIG,
+                id: `config-other-${index}`,
+                skill_name: `signals-scout-other-${index}`,
+            }))
+            logic.actions.loadScoutConfigsSuccess([BASE_CONFIG, ...otherConfigs])
+            expect(logic.values.scoutRunsCoverFleet).toBe(false)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValueOnce([makeRun({ run_id: 'run-own' })])
+            logic.actions.loadScoutRunsForSkill(BASE_CONFIG.skill_name)
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsForSkillSuccess'])
+
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValueOnce([
+                makeRun({ run_id: 'run-other', skill_name: 'signals-scout-other-0' }),
+            ])
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess'])
+
+            expect(logic.values.scoutRuns.map((run) => run.run_id).sort()).toEqual(['run-other', 'run-own'])
         })
 
         it('keeps the runs array and settled run references when a poll changes nothing', async () => {

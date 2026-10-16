@@ -187,6 +187,11 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
     Status and timestamps flow from the linked `tasks.TaskRun`.
     """
 
+    total_spend = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked runs.",
+    )
     run_id = serializers.CharField(help_text="UUID of the bridge row.")
     skill_name = serializers.CharField(
         help_text="Canonical skill name the run executed (e.g. `signals-scout-general`)."
@@ -925,6 +930,14 @@ class ScoutFleetSyncQuerySerializer(serializers.Serializer):
 class RecentRunsPerScoutQuerySerializer(serializers.Serializer):
     """Query parameters for the `recent-per-scout` action."""
 
+    skill_name = serializers.CharField(
+        required=False,
+        max_length=255,
+        help_text=(
+            "Return only this scout's runs. Omit to cover every configured scout. A single-scout "
+            "page passes it so it does not wait on the probes of the rest of the fleet."
+        ),
+    )
     per_scout_limit = serializers.IntegerField(
         required=False,
         min_value=1,

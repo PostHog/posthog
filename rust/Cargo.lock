@@ -3014,6 +3014,7 @@ dependencies = [
  "common-liveness",
  "envconfig",
  "health",
+ "lifecycle",
  "lz4",
  "metrics",
  "rdkafka",
@@ -8956,6 +8957,7 @@ dependencies = [
  "personhog-coordination",
  "personhog-proto",
  "rand 0.8.5",
+ "rdkafka",
  "rstest",
  "serde",
  "serde_json",
@@ -9122,6 +9124,7 @@ dependencies = [
  "rustls 0.23.37",
  "serde_json",
  "sqlx",
+ "tempfile",
  "tokio",
  "tonic 0.12.3",
  "tracing",
@@ -9574,7 +9577,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
