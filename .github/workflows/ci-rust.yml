@@ -85,6 +85,9 @@ jobs:
                         - 'ee/migrations/**'
                         - 'docker-compose.dev.yml'
                         - 'docker-compose.base.yml'
+                        # The rust mirror of the out-of-band domain list has a parity test
+                        # against the shared json.
+                        - '**/crosslang/**'
                         # Hypercache contract: Python serializer changes may break Rust deserialization
                         - 'posthog/api/feature_flag.py'
                         - 'posthog/models/feature_flag/flags_cache.py'

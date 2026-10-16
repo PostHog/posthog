@@ -6,6 +6,8 @@ use futures::FutureExt;
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use tokio::task::spawn_blocking;
 
+pub mod oob_domains;
+
 pub struct NoPublicIPv4Error;
 
 impl std::error::Error for NoPublicIPv4Error {}

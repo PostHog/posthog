@@ -412,7 +412,16 @@ impl UrlListConfig {
 impl S3SourceConfig {
     /// Reject endpoint URLs that point to private/internal IPs.
     /// Catches literal IP addresses that would bypass DNS-level SSRF protection.
+    ///
+    /// A listed out-of-band interaction domain is logged above the escape hatch below, so a
+    /// probe is recorded in every environment. That check refuses nothing.
     fn validate_endpoint_url(url: &str, allow_internal_ips: bool) -> Result<(), Error> {
+        if let Ok(parsed) = url::Url::parse(url) {
+            if let Some(url::Host::Domain(host)) = parsed.host() {
+                common_dns::oob_domains::note_oob_domain(host, "batch_import_s3_endpoint");
+            }
+        }
+
         if allow_internal_ips {
             return Ok(());
         }
@@ -1327,6 +1336,62 @@ mod tests {
     fn test_validate_endpoint_url_rejects_invalid_url() {
         let result = S3SourceConfig::validate_endpoint_url("not-a-url", false);
         assert!(result.is_err());
+        // The out-of-band domain check parses the url first, and must leave this input alone.
+        assert!(S3SourceConfig::validate_endpoint_url("not-a-url", true).is_ok());
+    }
+
+    fn capture_logs(work: impl FnOnce()) -> String {
+        #[derive(Clone)]
+        struct Sink(Arc<std::sync::Mutex<Vec<u8>>>);
+
+        impl std::io::Write for Sink {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Sink {
+            type Writer = Sink;
+
+            fn make_writer(&'a self) -> Self::Writer {
+                self.clone()
+            }
+        }
+
+        let sink = Sink(Arc::new(std::sync::Mutex::new(Vec::new())));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(sink.clone())
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, work);
+        let captured = sink.0.lock().unwrap().clone();
+        String::from_utf8(captured).unwrap()
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_logs_an_out_of_band_domain_and_still_accepts_it() {
+        for (url, listed) in [
+            ("https://bucket.oast.live:9000", true),
+            ("https://notoast.me:9000", false),
+        ] {
+            // The check sits above the internal-ip escape hatch, so it runs under both values.
+            for allow_internal_ips in [false, true] {
+                let logs = capture_logs(|| {
+                    assert!(
+                        S3SourceConfig::validate_endpoint_url(url, allow_internal_ips).is_ok(),
+                        "detection must not refuse {url}"
+                    );
+                });
+                let seen = logs.contains("security.oob_domain_seen")
+                    && logs.contains("batch_import_s3_endpoint");
+                assert_eq!(seen, listed, "unexpected log for {url}: {logs}");
+            }
+        }
     }
 
     #[test]

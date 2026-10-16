@@ -8,3 +8,9 @@ When emitting metrics via the `metrics` crate (`histogram!`, `counter!`, `gauge!
 - `current_client_name()` already returns `Arc<str>`, so use `.clone()` directly. Never call `.to_string()` on it.
 - When passing a dynamic label through multiple functions, pass `Arc<str>` by value, not `&str` — the downstream function will need to clone it into macros anyway.
 - Static label values (`"ok"`, `"error"`, `"unavailable"`) can be passed as `&'static str` literals directly.
+
+## Out-of-band interaction domains
+
+Call `common_dns::oob_domains::note_oob_domain(host, "<guard>")` before a crate resolves or dials a host that a customer supplied.
+`OOB_DOMAINS` in `common/dns/src/oob_domains.rs` mirrors `posthog/security/crosslang/oob_domains.json`, so edit the json first and the mirror second.
+The parity test in `common-dns` fails while the two differ.

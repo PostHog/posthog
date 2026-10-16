@@ -205,8 +205,13 @@ adapter emits `security.oob_domain_seen` and takes its team from the activity's 
 `posthog/security/url_validation.py` emits the same event with no team at all, because no team is
 in scope there, so those lines are attributable to a host and not to a project.
 
-The check runs on cloud only, and it runs before each guard's own DNS resolution, because the
-lookup alone confirms the path to whoever runs the collaborator.
+The Rust guards call `common_dns::oob_domains::note_oob_domain` and emit `security.oob_domain_seen`
+under the guard names `cymbal_sourcemap` and `batch_import_s3_endpoint`. Neither guard function
+receives a team, so those lines name a host and not a project.
+
+The Python and Node checks run on cloud only. The Rust guards run everywhere, because `rust/`
+carries no deployment gate to read. Every check runs before its guard's own DNS resolution,
+because the lookup alone confirms the path to whoever runs the collaborator.
 
 It stops the default scanner configuration. It does not stop a determined attacker, who points a
 CNAME at the collaborator or runs their own server. The IP checks and the address pinning remain
