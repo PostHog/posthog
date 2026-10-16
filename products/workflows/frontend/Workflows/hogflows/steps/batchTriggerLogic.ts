@@ -220,6 +220,12 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
             },
         ],
     })),
+    reducers({
+        blastRadius: {
+            // A stale result would keep a realtime cohort's restrictions on an audience that no longer has one.
+            loadBlastRadiusFailure: () => null,
+        },
+    }),
     listeners(({ actions, props, values }) => ({
         loadBlastRadius: () => {
             actions.loadRecipientsWithoutEmail(null)
