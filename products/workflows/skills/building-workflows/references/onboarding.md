@@ -11,7 +11,10 @@ It returns every setup step with `done`, a `next_step` and an `app_url`, plus `r
 The email steps only matter for workflows that send email.
 An SMS or push workflow sends through its own channel, so do not ask for the email channel or domain when the workflow has no email step.
 
-If every step is done, skip to the lifecycle in [SKILL.md](../SKILL.md).
+Check `email_sending_paused` first, even when every step is done.
+When it is true and the workflow sends email, tell the user that email sending is paused for the project and that they need to contact PostHog support. The workflow can still be drafted, but its emails will not send.
+
+If every step is done and sending is not paused, skip to the lifecycle in [SKILL.md](../SKILL.md).
 
 If `data_suggestions_available` is true, call `workflows-data-suggestions-list` now.
 It starts a background run, so the suggestions are ready by the time setup is done.
