@@ -307,4 +307,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "component_impacts": "Time periods in which the incident affected a component.",
         },
     },
+    "teams": {
+        "description": "A team in the incident.io organisation, with its members and the catalog entry that represents it.",
+        "docs_url": "https://api-docs.incident.io/tag/Teams-V3",
+        "columns": {
+            "id": "Unique identifier for the team.",
+            "name": "Name of the team.",
+            "members": "Members of the team.",
+            "catalog_entry": "The catalog entry that represents the team.",
+        },
+    },
+    "actions": {
+        "description": "An action item raised during the response to an incident in incident.io.",
+        "docs_url": "https://api-docs.incident.io/tag/Actions-V3",
+        "columns": {
+            "id": "Unique identifier for the action.",
+            "incident_id": "Identifier of the incident the action belongs to.",
+            "description": "Description of the action.",
+            "status": "Status of the action (outstanding, completed, deleted, or not_doing).",
+            "assignee": "The user the action is assigned to, if any.",
+            "creator": "The user, alert, API key, or workflow that created the action.",
+            "completed_at": "Time at which the action was completed.",
+            "created_at": "Time at which the action was created.",
+            "updated_at": "Time at which the action was last updated.",
+        },
+    },
+    "incident_participant_workloads": {
+        "description": "A participant of an incident in incident.io, with the role they had and the time they spent on it.",
+        "docs_url": "https://api-docs.incident.io/tag/IncidentParticipantWorkloads-V2",
+        "columns": {
+            "incident_id": "Identifier of the incident the user participated in.",
+            "user_id": "Identifier of the participating user.",
+            "user": "The participating user.",
+            "participant_type": "The role the user had in the incident (observer, collaborator, or responder).",
+            "archived_at": "Time at which the user left the incident, if they are no longer an active participant.",
+            "workload": "Minutes the user spent on the incident, in total and split into working, late, and sleeping hours.",
+        },
+    },
+    "alert_attributes": {
+        "description": "An attribute defined on alerts in incident.io. The attributes of each alert reference it by ID.",
+        "docs_url": "https://api-docs.incident.io/tag/Alert-Attributes-V2",
+        "columns": {
+            "id": "Unique identifier for the alert attribute.",
+            "name": "Unique name of the attribute.",
+            "type": "Engine resource name for the attribute's value type.",
+            "array": "Whether the attribute holds an array of values.",
+            "required": "Whether the attribute is required.",
+            "emoji": "The emoji shown alongside the attribute in chat messages, stored without colons.",
+        },
+    },
 }
