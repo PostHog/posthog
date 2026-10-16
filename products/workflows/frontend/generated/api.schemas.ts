@@ -2384,6 +2384,63 @@ export interface PeopleImportApi {
     dropped_too_large: number
 }
 
+/**
+ * * `channel` - Channel
+ * * `domain` - Domain
+ * * `opt-outs` - Opt-outs
+ * * `sending-rules` - Sending rules
+ * * `email-template` - Email template
+ * * `first-workflow` - First workflow
+ */
+export type SetupStepKeyEnumApi = (typeof SetupStepKeyEnumApi)[keyof typeof SetupStepKeyEnumApi]
+
+export const SetupStepKeyEnumApi = {
+    Channel: 'channel',
+    Domain: 'domain',
+    OptOuts: 'opt-outs',
+    SendingRules: 'sending-rules',
+    EmailTemplate: 'email-template',
+    FirstWorkflow: 'first-workflow',
+} as const
+
+export interface WorkflowSetupStepApi {
+    /** Which setup step this is. The steps come in the order the setup wizard asks for them.
+     *
+     * * `channel` - Channel
+     * * `domain` - Domain
+     * * `opt-outs` - Opt-outs
+     * * `sending-rules` - Sending rules
+     * * `email-template` - Email template
+     * * `first-workflow` - First workflow */
+    key: SetupStepKeyEnumApi
+    /** Whether the project has done this step. */
+    done: boolean
+    /** The step's name, as the app shows it. */
+    title: string
+    /** What the person does to finish the step. */
+    next_step: string
+    /** Link to the place in the app where the person does this step. */
+    app_url: string
+}
+
+export interface WorkflowSetupStatusApi {
+    /** Every messaging setup step, in order. */
+    steps: WorkflowSetupStepApi[]
+    /** Whether an email workflow can send. Needs a connected email channel on a verified domain. Automations that only post to tools like Slack or call webhooks do not need any of these steps. */
+    ready_to_send_email: boolean
+    /** The first step that is not done, or null when every step is done.
+     *
+     * * `channel` - Channel
+     * * `domain` - Domain
+     * * `opt-outs` - Opt-outs
+     * * `sending-rules` - Sending rules
+     * * `email-template` - Email template
+     * * `first-workflow` - First workflow */
+    next_open_step: SetupStepKeyEnumApi | null
+    /** Whether workflows-data-suggestions-list can suggest workflows from this project's events. */
+    data_suggestions_available: boolean
+}
+
 export type HogFlowTemplatesListParams = {
     /**
      * Number of results to return per page.

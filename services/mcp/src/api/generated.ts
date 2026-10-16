@@ -101178,6 +101178,26 @@ export namespace Schemas {
       summary: string;
     }
 
+    /**
+     * * `channel` - Channel
+     * * `domain` - Domain
+     * * `opt-outs` - Opt-outs
+     * * `sending-rules` - Sending rules
+     * * `email-template` - Email template
+     * * `first-workflow` - First workflow
+     */
+    export type SetupStepKeyEnum = typeof SetupStepKeyEnum[keyof typeof SetupStepKeyEnum];
+
+
+    export const SetupStepKeyEnum = {
+      Channel: 'channel',
+      Domain: 'domain',
+      OptOuts: 'opt-outs',
+      SendingRules: 'sending-rules',
+      EmailTemplate: 'email-template',
+      FirstWorkflow: 'first-workflow',
+    } as const;
+
     export interface SharePassword {
       readonly id: number;
       readonly created_at: string;
@@ -115165,6 +115185,44 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd: number | null;
+    }
+
+    export interface WorkflowSetupStep {
+      /** Which setup step this is. The steps come in the order the setup wizard asks for them.
+       *
+       * * `channel` - Channel
+       * * `domain` - Domain
+       * * `opt-outs` - Opt-outs
+       * * `sending-rules` - Sending rules
+       * * `email-template` - Email template
+       * * `first-workflow` - First workflow */
+      key: SetupStepKeyEnum;
+      /** Whether the project has done this step. */
+      done: boolean;
+      /** The step's name, as the app shows it. */
+      title: string;
+      /** What the person does to finish the step. */
+      next_step: string;
+      /** Link to the place in the app where the person does this step. */
+      app_url: string;
+    }
+
+    export interface WorkflowSetupStatus {
+      /** Every messaging setup step, in order. */
+      steps: WorkflowSetupStep[];
+      /** Whether an email workflow can send. Needs a connected email channel on a verified domain. Automations that only post to tools like Slack or call webhooks do not need any of these steps. */
+      ready_to_send_email: boolean;
+      /** The first step that is not done, or null when every step is done.
+       *
+       * * `channel` - Channel
+       * * `domain` - Domain
+       * * `opt-outs` - Opt-outs
+       * * `sending-rules` - Sending rules
+       * * `email-template` - Email template
+       * * `first-workflow` - First workflow */
+      next_open_step: SetupStepKeyEnum | null;
+      /** Whether workflows-data-suggestions-list can suggest workflows from this project's events. */
+      data_suggestions_available: boolean;
     }
 
     export interface WorkflowStatsRow {
