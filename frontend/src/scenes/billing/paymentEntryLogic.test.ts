@@ -238,6 +238,129 @@ describe('paymentEntryLogic', () => {
         })
     })
 
+    describe('initiateAuthorization', () => {
+        it.each([
+            ['same organization', false, 200],
+            ['another organization', true, 200],
+            ['same organization after a failure', false, 500],
+            ['another organization after a failure', true, 500],
+        ] as const)('initializes only the latest reopened flow for %s', async (_, switchOrganization, oldStatus) => {
+            const oldResponse = deferred<[number, unknown]>()
+            const currentResponse = deferred<[number, unknown]>()
+            let oldRequestPending = true
+            const overlap: boolean[] = []
+            const authorize = jest
+                .fn((_body: unknown) => {
+                    overlap.push(oldRequestPending)
+                    return currentResponse.promise
+                })
+                .mockImplementationOnce(() => oldResponse.promise)
+            useMocks({
+                post: { '/api/billing/activate/authorize': async ({ request }) => authorize(await request.json()) },
+            })
+            logic = paymentEntryLogic()
+            logic.mount()
+            const originalId = organizationLogic.values.currentOrganization!.id
+            logic.actions.beginPaymentFlow(originalId)
+            logic.actions.showPaymentEntryModal()
+            logic.actions.initiateAuthorization()
+            await waitFor(() => expect(authorize).toHaveBeenCalledTimes(1))
+
+            logic.actions.hidePaymentEntryModal()
+            logic.actions.beginPaymentFlow(OTHER_ORGANIZATION_ID)
+            logic.actions.showPaymentEntryModal()
+            logic.actions.initiateAuthorization()
+            logic.actions.hidePaymentEntryModal()
+            const currentId = switchOrganization ? OTHER_ORGANIZATION_ID : originalId
+            logic.actions.beginPaymentFlow(currentId)
+            logic.actions.showPaymentEntryModal()
+            logic.actions.initiateAuthorization()
+
+            oldRequestPending = false
+            oldResponse.resolve([oldStatus, { clientSecret: 'secret_old' }])
+            try {
+                await waitFor(() => expect(authorize).toHaveBeenCalledTimes(2))
+                expect(overlap).toEqual([false])
+                expect(authorize.mock.calls.map(([body]) => body)).toEqual([
+                    { organization_id: originalId },
+                    { organization_id: currentId },
+                ])
+                expect(logic.values.clientSecret).toBe(null)
+                expect(logic.values.apiError).toBe(null)
+                expect(logic.values.isLoading).toBe(true)
+            } finally {
+                currentResponse.resolve([200, { clientSecret: 'secret_current' }])
+                await expectLogic(logic).toFinishAllListeners()
+            }
+            expect(logic.values.paymentEntryModalOpen).toBe(true)
+            expect(logic.values.clientSecret).toBe('secret_current')
+            expect(logic.values.apiError).toBe(null)
+            expect(logic.values.isLoading).toBe(false)
+        })
+
+        it.each(['closed', 'unmounted'] as const)(
+            'does not restart authorization when the replacement flow is %s',
+            async (state) => {
+                const response = deferred<[number, unknown]>()
+                const authorize = jest.fn(() => response.promise)
+                useMocks({ post: { '/api/billing/activate/authorize': authorize } })
+                logic = paymentEntryLogic()
+                logic.mount()
+                logic.actions.beginPaymentFlow(organizationLogic.values.currentOrganization!.id)
+                logic.actions.showPaymentEntryModal()
+                logic.actions.initiateAuthorization()
+                await waitFor(() => expect(authorize).toHaveBeenCalledTimes(1))
+                logic.actions.hidePaymentEntryModal()
+                logic.actions.beginPaymentFlow(OTHER_ORGANIZATION_ID)
+                logic.actions.showPaymentEntryModal()
+                logic.actions.initiateAuthorization()
+                if (state === 'closed') {
+                    logic.actions.hidePaymentEntryModal()
+                } else {
+                    logic.unmount()
+                }
+                response.resolve([200, { clientSecret: 'secret_old' }])
+                await expectLogic(logic).toFinishAllListeners()
+                expect(authorize).toHaveBeenCalledTimes(1)
+            }
+        )
+
+        it('allows a new authorization attempt after a failure', async () => {
+            const authorize = jest
+                .fn((): [number, unknown] => [200, { clientSecret: 'secret_retry' }])
+                .mockImplementationOnce(() => [500, {}])
+            useMocks({ post: { '/api/billing/activate/authorize': authorize } })
+            logic = paymentEntryLogic()
+            logic.mount()
+            logic.actions.beginPaymentFlow(organizationLogic.values.currentOrganization!.id)
+            logic.actions.showPaymentEntryModal()
+            await expectLogic(logic, () => logic.actions.initiateAuthorization()).toFinishAllListeners()
+            expect(logic.values.apiError).toBe('Failed to initialize payment')
+            await expectLogic(logic, () => logic.actions.initiateAuthorization()).toFinishAllListeners()
+            expect(authorize).toHaveBeenCalledTimes(2)
+            expect(logic.values.clientSecret).toBe('secret_retry')
+            expect(logic.values.apiError).toBe(null)
+            expect(logic.values.isLoading).toBe(false)
+        })
+
+        it('sends one authorize request when the modal asks twice before the first answer', async () => {
+            const authorize = jest.fn(() => [200, { clientSecret: 'secret_test' }] as [number, Record<string, unknown>])
+            useMocks({ post: { '/api/billing/activate/authorize': authorize } })
+            logic = paymentEntryLogic()
+            logic.mount()
+            logic.actions.beginPaymentFlow(organizationLogic.values.currentOrganization!.id)
+
+            await expectLogic(logic, () => {
+                logic.actions.initiateAuthorization()
+                logic.actions.initiateAuthorization()
+            }).toFinishAllListeners()
+
+            expect(authorize).toHaveBeenCalledTimes(1)
+            expect(logic.values.clientSecret).toBe('secret_test')
+            expect(logic.values.apiError).toBe(null)
+        })
+    })
+
     describe('startPaymentEntryFlow — billing locked outside PostHog', () => {
         it.each<{ name: string; billing: Partial<BillingType> }>([
             {
