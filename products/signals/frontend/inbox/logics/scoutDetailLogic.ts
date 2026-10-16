@@ -142,7 +142,12 @@ export interface scoutDetailLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         scoutRunsLoadedOnce: (fleetScoutRunsLoadedOnce: boolean, ownRunsLoaded: boolean) => boolean
-        scoutRunsCoverScout: (scoutRunsCoverFleet: boolean, ownRunsLoaded: boolean) => boolean
+        scoutRunsCoverScout: (
+            scoutRunsCoverFleet: boolean,
+            ownRunsLoaded: boolean,
+            rollups: Map<string, ScoutRollup>,
+            arg: any
+        ) => boolean
         emittedRuns: (rollups: Map<string, ScoutRollup>, arg: any) => SignalScoutRunSummary[]
         emittedRunsKey: (emittedRuns: SignalScoutRunSummary[]) => string
         reportBySourceId: (emissionReports: SignalScoutEmissionReportLink[]) => Map<string, LinkedSignalReport>
@@ -339,10 +344,17 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
             (fleetScoutRunsLoadedOnce: boolean, ownRunsLoaded: boolean): boolean =>
                 fleetScoutRunsLoadedOnce || ownRunsLoaded,
         ],
-        // The single-scout read always probes this scout, so the fleet probe bound does not apply.
+        // The single-scout read always probes this scout, so the fleet probe bound does not apply. A
+        // later fleet read past that bound replaces the window and drops this scout's runs, so the
+        // own read counts only while its runs are still in the window.
         scoutRunsCoverScout: [
-            (s) => [s.scoutRunsCoverFleet, s.ownRunsLoaded],
-            (scoutRunsCoverFleet: boolean, ownRunsLoaded: boolean): boolean => scoutRunsCoverFleet || ownRunsLoaded,
+            (s) => [s.scoutRunsCoverFleet, s.ownRunsLoaded, s.rollups, (_, props) => props.skillName],
+            (
+                scoutRunsCoverFleet: boolean,
+                ownRunsLoaded: boolean,
+                rollups: Map<string, ScoutRollup>,
+                skillName: string
+            ): boolean => scoutRunsCoverFleet || (ownRunsLoaded && rollups.has(skillName)),
         ],
         // This scout's runs that emitted at least one finding, newest first, capped to the most
         // recent MAX_EMITTED_RUNS. `.filter()` returns a fresh array, so the in-place `.sort()`
