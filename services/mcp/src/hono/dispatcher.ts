@@ -24,7 +24,7 @@ import { mapErrorToAuthResponse } from '@/lib/auth-errors'
 import { isLegacyDialectOnlyClient } from '@/lib/client-detection'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { McpSessionResetRequiredError, SESSION_RESET_REQUIRED_REASON } from '@/lib/errors'
-import { advertisesMcpResourcesCapability, MCP_RESOURCES_ALL, type McpResourcesSelection } from '@/lib/mcp-resources'
+import { mcpResourcesFor, type McpResourcesSelection } from '@/lib/mcp-resources'
 import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import { getPublicUrl } from '@/lib/routing'
@@ -102,7 +102,7 @@ const BASE_SERVER_CAPABILITIES = {
 function buildServerCapabilities(resourcesSelection: McpResourcesSelection): typeof BASE_SERVER_CAPABILITIES & {
     resources?: { listChanged: false }
 } {
-    if (!advertisesMcpResourcesCapability(resourcesSelection)) {
+    if (resourcesSelection.policy === 'none') {
         return BASE_SERVER_CAPABILITIES
     }
     return {
@@ -381,9 +381,9 @@ class McpDispatcher {
                         : undefined
                 )
             case Method.ResourcesList:
-                return this.resourceCatalog.getResourcesList(props.mcpResources ?? MCP_RESOURCES_ALL)
+                return this.resourceCatalog.getResourcesList(mcpResourcesFor(props.mcpResources))
             case Method.ResourcesRead:
-                return await this.resourceCatalog.readResource(params, props.mcpResources ?? MCP_RESOURCES_ALL)
+                return await this.resourceCatalog.readResource(params, mcpResourcesFor(props.mcpResources))
             case Method.PromptsList:
                 return this.resourceCatalog.getPromptsList()
             case Method.PromptsGet:
@@ -433,7 +433,7 @@ class McpDispatcher {
 
         return {
             protocolVersion,
-            capabilities: buildServerCapabilities(props.mcpResources ?? MCP_RESOURCES_ALL),
+            capabilities: buildServerCapabilities(mcpResourcesFor(props.mcpResources)),
             serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
             ...(instructions ? { instructions } : {}),
         }
@@ -451,7 +451,7 @@ class McpDispatcher {
             // Advertising legacy versions here would invite modern clients to
             // select one via `_meta`, which we reject.
             supportedVersions: [...MODERN_PROTOCOL_VERSIONS],
-            capabilities: buildServerCapabilities(props.mcpResources ?? MCP_RESOURCES_ALL),
+            capabilities: buildServerCapabilities(mcpResourcesFor(props.mcpResources)),
             serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
             ...(instructions ? { instructions } : {}),
         }

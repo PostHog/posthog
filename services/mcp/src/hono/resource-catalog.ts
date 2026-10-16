@@ -78,6 +78,7 @@ export class ResourceCatalog {
         selection: McpResourcesSelection
     ): Promise<ReadResourceResult> {
         const uri = (params?.uri as string) ?? ''
+        // Same empty shape as an unknown URI (below); clients cannot distinguish filtered vs missing.
         if (!isResourceUriIncluded(uri, selection)) {
             return { contents: [] }
         }

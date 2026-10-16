@@ -4,6 +4,7 @@ import {
     filterResourcesBySelection,
     isResourceUriIncluded,
     parseMcpResources,
+    parseMcpResourcesFromConnection,
     resourceCategoryForUri,
 } from '@/lib/mcp-resources'
 import { parseRequestProperties } from '@/lib/request-properties'
@@ -26,6 +27,10 @@ describe('parseMcpResources', () => {
 
     it.each(cases)('parses $raw', ({ raw, expected }) => {
         expect(parseMcpResources(raw)).toEqual(expected)
+    })
+
+    it('parseMcpResourcesFromConnection prefers header over query', () => {
+        expect(parseMcpResourcesFromConnection('none', 'skills')).toEqual({ policy: 'none' })
     })
 
     it('uses header resources before URL resources in parseRequestProperties', () => {

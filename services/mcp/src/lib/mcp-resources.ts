@@ -10,6 +10,8 @@ export type McpResourcesSelection =
 
 export const MCP_RESOURCES_ALL: McpResourcesSelection = { policy: 'all' }
 
+// Context-mill manifest URIs use `posthog://skills/…` and `posthog://docs/…` (see latest
+// skills-mcp-resources.zip). UI apps use `ui://posthog/…`.
 const CATEGORY_BY_PREFIX: ReadonlyArray<{ prefix: string; category: McpResourceCategory }> = [
     { prefix: 'posthog://skills/', category: 'skills' },
     { prefix: 'posthog://docs/', category: 'docs' },
@@ -37,7 +39,7 @@ export function parseMcpResources(raw: string | null | undefined): McpResourcesS
     const categories: McpResourceCategory[] = []
     const seen = new Set<McpResourceCategory>()
     for (const part of value.split(',')) {
-        const token = part.trim().toLowerCase()
+        const token = part.trim()
         if (!token) {
             continue
         }
@@ -57,6 +59,19 @@ export function parseMcpResources(raw: string | null | undefined): McpResourcesS
         return { policy: 'all' }
     }
     return { policy: 'include', categories }
+}
+
+/** Header wins over query, matching `parseMcpMode` / `parseRequestProperties` wiring. */
+export function parseMcpResourcesFromConnection(
+    headerValue: string | null | undefined,
+    queryValue: string | null | undefined
+): McpResourcesSelection {
+    return parseMcpResources(headerValue || queryValue)
+}
+
+/** Partial test fixtures may omit `mcpResources`; production paths always parse one. */
+export function mcpResourcesFor(selection: McpResourcesSelection | undefined): McpResourcesSelection {
+    return selection ?? MCP_RESOURCES_ALL
 }
 
 export function resourceCategoryForUri(uri: string): McpResourceCategory | undefined {
@@ -87,11 +102,7 @@ export function filterResourcesBySelection<T extends { uri: string }>(
     selection: McpResourcesSelection
 ): T[] {
     if (selection.policy === 'all') {
-        return [...resources]
+        return resources as T[]
     }
     return resources.filter((r) => isResourceUriIncluded(r.uri, selection))
-}
-
-export function advertisesMcpResourcesCapability(selection: McpResourcesSelection): boolean {
-    return selection.policy !== 'none'
 }
