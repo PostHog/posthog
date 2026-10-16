@@ -89,6 +89,10 @@ class TeamExtensionDescriptor:
     """
     TRANSITIONAL: Descriptor for lazy-loading Team extension models.
 
+    The first read on a Team instance loads the extension row. Later reads on that instance
+    return the same object. refresh_from_db() does not reload the row. After code writes the row
+    through another object, read the row directly or load a new Team instance.
+
     Exists for backward compatibility with existing `team.<product>_config` accessors.
     Do NOT add new descriptors to Team — products should access their config via
     `get_or_create_team_extension()` directly. This avoids coupling the core Team model
