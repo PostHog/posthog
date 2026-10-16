@@ -491,6 +491,7 @@ export type HogFlowInvocationContext = {
     // Set by the transactional email API, which skips the trigger pipeline. The email worker counts the run as
     // `triggered` and clears this flag, so a rescheduled run does not count again.
     triggerMetricPending?: boolean
+    quotaChecked?: true
     actionStepCount: number
     // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
     customerTaskIdempotencyVersion?: 1

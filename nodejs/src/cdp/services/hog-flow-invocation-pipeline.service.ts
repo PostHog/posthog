@@ -215,6 +215,7 @@ export class HogFlowInvocationPipeline {
                 if (isQuotaLimited) {
                     return
                 }
+                item.state.quotaChecked = true
 
                 const state = states[item.hogFlow.id].state
                 if (state === HogWatcherState.disabled) {

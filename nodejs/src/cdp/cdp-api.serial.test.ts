@@ -2242,6 +2242,7 @@ describe('CDP API', () => {
                     event: { distinct_id: 'distinct_A_1', properties: { to: 'user@example.com' } },
                     variables: { reset_link: 'https://example.com/reset' },
                     triggerMetricPending: true,
+                    quotaChecked: true,
                 },
             })
             // The email worker counts the run as triggered, so a count here would count it twice.
