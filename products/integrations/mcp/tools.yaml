@@ -62,7 +62,6 @@ tools:
     integrations-github-connect-url:
         operation: integrations_github_connect_url_retrieve
         enabled: true
-        feature_flag: wizard-mcp-install
         annotations:
             readOnly: true
             destructive: false
@@ -75,6 +74,7 @@ tools:
             `url` as a link, ask them to open it in a browser where they are logged in to PostHog, and wait until they
             say they are done. Then call this tool again to confirm the connection before you continue. Do not open the
             URL yourself or retry in a loop while the user is still connecting.
+        feature_flag: wizard-mcp-install
     integrations-github-repos-retrieve:
         operation: integrations_github_repos_retrieve
         enabled: true
