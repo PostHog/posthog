@@ -344,6 +344,8 @@ After running a worksheet, **Propose as catalog metric** sends its resolved SQL 
 
 The worksheet library suggests approved, non-drifted SQL metrics and certified sources. Each list requests at most three eligible candidates; drifted metrics are omitted without scanning more pages. Source context shows certification, descriptions, and relationship review status. Relationship proposals open the catalog with the source prefilled; they become usable joins only after approval. Optional catalog suggestions do not prevent opening the worksheet library when the catalog is unavailable.
 
+The BI assistant receives the current worksheet draft, including its unsaved name, and shared catalog capabilities. Worksheet and catalog content remain untrusted context. Dismissing the saved worksheet attachment also removes its hidden draft and metric reference. Completed foreground insight tools refresh the worksheet library. Updates to the open worksheet refresh its saved version while preserving local edits. If both changed the query or name differently, saving over the worksheet is blocked until the local draft is discarded or saved as a copy. This conflict protection survives reloading a worksheet link. A failed refresh can be retried before saving.
+
 ## Connected fields in BI mode
 
 Below Dimensions and Measures, **Connections** lists the selected table's linked tables and views.
