@@ -671,14 +671,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["created_by"]["first_name"], self.user.first_name)
         self.assertEqual(response_data["creation_mode"], "default")
-        self.assertEqual(
-            response_data["restriction_level"],
-            Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
 
     def test_create_basic_dashboard(self):
         # the front end sends an empty description even if not allowed to add one
@@ -688,43 +680,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data["description"], "")
         self.assertEqual(response_data["tags"], [])
         self.assertEqual(response_data["creation_mode"], "default")
-        self.assertEqual(
-            response_data["restriction_level"],
-            Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
 
         instance = Dashboard.objects.get(id=response_data["id"])
         self.assertEqual(instance.name, "My new dashboard")
-
-    @parameterized.expand([("create",), ("update",)])
-    def test_reject_legacy_collaborator_restriction_on_write(self, operation: str) -> None:
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        if operation == "create":
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/dashboards/",
-                {
-                    "name": "legacy dashboard",
-                    "restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-                },
-            )
-            self.assertFalse(Dashboard.objects.filter(name="legacy dashboard").exists())
-        else:
-            dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
-                {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT},
-            )
-            dashboard.refresh_from_db()
-            self.assertEqual(dashboard.restriction_level, Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "restriction_level")
 
     def test_update_dashboard(self):
         dashboard = Dashboard.objects.create(
@@ -740,14 +698,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data["name"], "dashboard new name")
         self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["creation_mode"], "template")
-        self.assertEqual(
-            response_data["restriction_level"],
-            Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        )
-        self.assertEqual(
-            response_data["effective_privilege_level"],
-            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
 
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")
@@ -1090,17 +1040,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             with self.assertNumQueries(baseline + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # baseline + 11 + 9 once at least one insight materializes
+            # baseline + 11 + 8 once at least one insight materializes
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 9):
+            with self.assertNumQueries(baseline + 11 + 8):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 9):
+            with self.assertNumQueries(baseline + 11 + 8):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 9):
+        with self.assertNumQueries(baseline + 11 + 8):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     def test_insight_alerts_do_not_nplus1_dashboard_gets(self) -> None:
@@ -3761,8 +3711,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "deleted": False,
                     "derived_name": None,
                     "description": None,
-                    "effective_privilege_level": 37,
-                    "effective_restriction_level": 21,
                     "favorited": False,
                     "filter_override_context": None,
                     "filters_hash": ANY,
