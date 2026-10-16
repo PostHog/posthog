@@ -177,7 +177,8 @@ class TestValidateCredentials:
             assert message is None
         else:
             assert message is not None and message_fragment in message
-        assert len(network.requests_log) >= 1
+        # Setup waits on the probe, so a failed request gets no retry.
+        assert len(network.requests_log) == 1
 
     def test_a_non_numeric_organization_id_is_refused_without_a_request(self) -> None:
         with scripted_network([]) as network:

@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 from requests import ReadTimeout
 from requests.auth import HTTPBasicAuth
+from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
 
@@ -29,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.unity_ads.
 # windows keep each response well inside this read timeout. The retry budget matches it, so a window
 # that times out is halved after one attempt instead of being sent again at full size.
 REQUEST_TIMEOUT = (10, 240)
+# Setup waits on the probe, so it gets one attempt. Even a one-day report takes Unity a while to build.
 PROBE_TIMEOUT = 60
 
 INVALID_ORGANIZATION_ID = "The Unity organization ID must be the numeric Organization core ID"
@@ -158,7 +160,7 @@ def validate_credentials(organization_id: str, key_id: str, secret_key: str) -> 
         return False, f"{INVALID_ORGANIZATION_ID}. Find it under Settings in the Unity Ads dashboard."
     today = datetime.now(UTC).date()
     try:
-        response = make_tracked_session(redact_values=(secret_key,), allow_redirects=False).get(
+        response = make_tracked_session(redact_values=(secret_key,), allow_redirects=False, retry=Retry(total=0)).get(
             UNITY_STATS_URL.format(organization_id=organization_id.strip()),
             params={
                 "start": _iso(today - timedelta(days=1)),
