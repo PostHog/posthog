@@ -124,7 +124,12 @@ export const createEmptyInsight = (shortId: InsightShortId | `new-${string}` | '
     result: null,
 })
 
-const retainedInsights = new RetainedValues<Partial<InsightModel>>(200, RESPONSE_CACHE_TTL)
+const retainedInsights = new RetainedValues<Partial<InsightModel>>({
+    maxEntries: 500,
+    ttlMs: RESPONSE_CACHE_TTL,
+    maxTotalSize: 20_000_000,
+    sizeOf: (insight) => JSON.stringify(insight).length,
+})
 
 function getRetainedInsightForProps(props: InsightLogicProps): Partial<InsightModel> | null {
     return props.retainResponseOnUnmount && props.dashboardItemId ? retainedInsights.get(props.dashboardItemId) : null

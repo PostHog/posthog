@@ -789,8 +789,6 @@ export function RealNotebookNodeComponent({
 
 const scrollContainersByNotebook = new WeakMap<Element, Element | null>()
 
-// Every node of a notebook shares one scroll container. Looking it up once per notebook matters because
-// each computed-style read during mount forces a style recalculation after the blocks before it wrote.
 function findScrollContainer(element: Element): Element | null {
     const notebook = element.closest('.MarkdownNotebook')
     const cached = notebook ? scrollContainersByNotebook.get(notebook) : undefined

@@ -194,10 +194,18 @@ const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
 const productAnalyticsHomeConcurrencyController = new ConcurrencyController(6, { batchStart: true })
-// Matches the dashboard refresh limit, so one slow insight doesn't hold up the rest of a notebook.
 const notebookConcurrencyController = new ConcurrencyController(4)
 // The priority queue doesn't keep insertion order for equal priorities, so notebook loads count up instead.
 let notebookLoadOrder = 0
+
+async function cancelQueryOnServer(teamId: number | null, queryId: string): Promise<void> {
+    try {
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+        await api.delete(`api/projects/${teamId}/query/${queryId}/`)
+    } catch (e) {
+        console.warn('Failed cancelling query', e)
+    }
+}
 
 function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
     if (isAccountsTableQuery(query)) {
@@ -1098,12 +1106,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const inflightResponse =
                         !pollOnly && !refreshArg?.startsWith('force_') ? getInflightResponse(key) : null
                     if (inflightResponse) {
+                        inflightResponse.adopt()
+                        cache.inflightQuery = inflightResponse
                         let data: AnyResponseType | null | undefined
                         try {
-                            data = await inflightResponse
+                            data = await inflightResponse.promise
                         } catch (error: any) {
                             // A query that never started because its node unmounted while queued is run again below.
                             if (!isBreakpoint(error)) {
+                                error.queryId = queryId
+                                if (shouldCancelQuery(error)) {
+                                    actions.abortQuery({ queryId })
+                                }
+                                breakpoint()
                                 throw error
                             }
                         }
@@ -1166,9 +1181,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const abortController = new AbortController()
                     // A retained query keeps running when the node unmounts, so a remount can pick it up.
                     const keepRunningOnUnmount = !!key && !pollOnly
-                    if (keepRunningOnUnmount) {
-                        cache.abortRetainedQuery = () => abortController.abort()
-                    } else {
+                    if (!keepRunningOnUnmount) {
                         cache.disposables.add(() => () => abortController.abort(), 'query', {
                             pauseOnPageHidden: false,
                         })
@@ -1215,10 +1228,18 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 }
                             },
                         })
-                        if (keepRunningOnUnmount) {
-                            trackInflightResponse(
+                        if (key && keepRunningOnUnmount) {
+                            const teamId = values.currentTeamId
+                            cache.inflightQuery = trackInflightResponse(
                                 key,
-                                responsePromise.then(({ data }) => data as AnyResponseType | null)
+                                responsePromise.then(({ data }) => data as AnyResponseType | null),
+                                {
+                                    abort: () => abortController.abort(),
+                                    abandon: () => {
+                                        abortController.abort()
+                                        void cancelQueryOnServer(teamId, queryId)
+                                    },
+                                }
                             )
                         }
                         const response = await responsePromise
@@ -2194,17 +2215,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     listeners(({ actions, values, cache, props }) => ({
         abortAnyRunningQuery: () => {
             cache.disposables.dispose('query')
-            cache.abortRetainedQuery?.()
-            cache.abortRetainedQuery = null
+            cache.inflightQuery?.abort()
+            cache.inflightQuery = null
         },
         abortQuery: async ({ queryId }) => {
-            try {
-                const { currentTeamId } = values
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                await api.delete(`api/projects/${currentTeamId}/query/${queryId}/`)
-            } catch (e) {
-                console.warn('Failed cancelling query', e)
-            }
+            await cancelQueryOnServer(values.currentTeamId, queryId)
         },
         cancelQuery: () => {
             actions.abortAnyRunningQuery()
@@ -2335,7 +2350,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.loadData(refreshType)
         }
     }),
-    beforeUnmount(({ actions, props, values }) => {
+    beforeUnmount(({ actions, props, values, cache }) => {
+        cache.inflightQuery?.release()
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
         }

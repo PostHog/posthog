@@ -270,7 +270,13 @@ export type NotebookLogicProps = {
     cachedInlineQueryResultsByNodeId?: Record<string, AnyResponseType>
 }
 
-const retainedNotebooks = new RetainedValues<NotebookType>(20, RESPONSE_CACHE_TTL)
+const retainedNotebooks = new RetainedValues<NotebookType>({
+    maxEntries: 50,
+    ttlMs: RESPONSE_CACHE_TTL,
+    maxTotalSize: 30_000_000,
+    maxEntrySize: 10_000_000,
+    sizeOf: (notebook) => JSON.stringify(notebook.content ?? null).length,
+})
 
 function canRetainNotebook(props: NotebookLogicProps): boolean {
     return (

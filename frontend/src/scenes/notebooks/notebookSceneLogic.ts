@@ -70,9 +70,11 @@ export interface notebookSceneLogicActions {
     } // notebookLogic
     loadNotebookSuccess: (
         notebook: NotebookType | null,
-        payload?: {
-            value: true
-        }
+        payload?:
+            | {
+                  value: true
+              }
+            | undefined
     ) => {
         notebook: NotebookType | null
         payload?: {
