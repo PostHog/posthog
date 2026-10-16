@@ -2129,18 +2129,23 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             if (!values.currentProjectId || !state || state === 'ready') {
                 return
             }
-            await breakpoint(REALTIME_COHORT_STATUS_POLL_MS)
-            let refreshed: BlastRadiusApi
-            try {
-                refreshed = await hogFlowsUserBlastRadiusCreate(String(values.currentProjectId), {
-                    filters: { properties: values.audienceProperties },
-                    dedupe_key: 'email',
-                })
-            } catch {
-                return
+            for (;;) {
+                await breakpoint(REALTIME_COHORT_STATUS_POLL_MS)
+                let refreshed: BlastRadiusApi | null = null
+                try {
+                    refreshed = await hogFlowsUserBlastRadiusCreate(String(values.currentProjectId), {
+                        filters: { properties: values.audienceProperties },
+                        dedupe_key: 'email',
+                    })
+                } catch {
+                    // A failed check tries again on the next interval.
+                }
+                breakpoint()
+                if (refreshed) {
+                    actions.loadBlastRadiusSuccess(refreshed)
+                    return
+                }
             }
-            breakpoint()
-            actions.loadBlastRadiusSuccess(refreshed)
         },
         setEmail: () => {
             if (

@@ -569,8 +569,8 @@ describe('broadcastWizardLogic', () => {
         }
     )
 
-    it('refreshes the realtime cohort status until the cohort is ready', async () => {
-        const states = ['needs_attention', 'ready']
+    it('refreshes the realtime cohort status until the cohort is ready, past a failed check', async () => {
+        const states = ['needs_attention', 'error', 'ready']
         let calls = 0
         useMocks({
             post: {
@@ -581,6 +581,9 @@ describe('broadcastWizardLogic', () => {
                         return [200, { affected: 0, total: 0 }]
                     }
                     const state = states[Math.min(calls++, states.length - 1)]
+                    if (state === 'error') {
+                        return [500, { detail: 'Simulated outage' }]
+                    }
                     return [
                         200,
                         {
@@ -605,12 +608,12 @@ describe('broadcastWizardLogic', () => {
 
         jest.useFakeTimers()
         try {
-            await jest.advanceTimersByTimeAsync(10000)
+            await jest.advanceTimersByTimeAsync(20000)
             await expectLogic(logic).toDispatchActions([statusLoaded('ready')])
             expect(logic.values.blastRadius?.realtime_cohort?.state).toEqual('ready')
 
             await jest.advanceTimersByTimeAsync(30000)
-            expect(calls).toEqual(2)
+            expect(calls).toEqual(3)
         } finally {
             jest.useRealTimers()
         }

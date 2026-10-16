@@ -122,10 +122,13 @@ def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
         if wait_for_cohort and realtime_cohort is not None:
             # The cohort can finish between the check above and the park, and its ready signal then finds
             # no parked resolver. A resume check after the park covers that; it does nothing while the
-            # cohort still calculates.
+            # cohort still calculates. A failed publish only logs, because the send is already accepted and a
+            # retried request would create a second run.
             from products.workflows.backend.tasks.batch_jobs import (  # noqa: PLC0415 — the task module imports this model
                 resume_batch_jobs_waiting_for_realtime_cohort,
             )
 
             team_id, cohort_id = realtime_cohort.team_id, realtime_cohort.pk
-            transaction.on_commit(lambda: resume_batch_jobs_waiting_for_realtime_cohort.delay(team_id, cohort_id))
+            transaction.on_commit(
+                lambda: resume_batch_jobs_waiting_for_realtime_cohort.delay(team_id, cohort_id), robust=True
+            )

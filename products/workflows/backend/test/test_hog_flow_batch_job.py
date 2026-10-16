@@ -148,13 +148,21 @@ class TestHogFlowBatchJob(TestCase):
     def _realtime_audience(self, cohort: Cohort) -> dict:
         return {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]}
 
+    @parameterized.expand(
+        [
+            ("published", None),
+            # The send is already accepted, so a broker failure must not fail the request.
+            ("publish_fails", ConnectionError("broker unavailable")),
+        ]
+    )
     @patch("products.workflows.backend.tasks.batch_jobs.resume_batch_jobs_waiting_for_realtime_cohort.delay")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
     def test_hog_flow_batch_job_parks_its_resolver_while_the_cohort_calculates(
-        self, mock_create_invocation, mock_resume_task
+        self, _name, publish_error, mock_create_invocation, mock_resume_task
     ):
+        mock_resume_task.side_effect = publish_error
         cohort = self._realtime_cohort(ready=False)
 
         with self.captureOnCommitCallbacks(execute=True):
