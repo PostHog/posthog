@@ -743,9 +743,9 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.installStepReturnUrl).toBe(`${urls.onboardingWelcome()}?product=session_replay`)
         })
 
-        it('the embedded flow gives a product with no steps of its own a step that turns it on', () => {
+        it('the embedded flow opens a product with no steps of its own on the install, then a step that turns it on', () => {
             logic.actions.startEmbeddedFlow(ProductKey.CONVERSATIONS)
-            expect(flowIds()).toEqual(['configure:conversations'])
+            expect(flowIds()).toEqual(['install:conversations', 'configure:conversations'])
         })
 
         it('skipping the simple flow records the skip before landing on the welcome page', async () => {

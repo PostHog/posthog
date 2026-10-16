@@ -1,8 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonLabel } from '@posthog/lemon-ui'
-
-import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function ProjectTokenSnippet(): JSX.Element | null {
@@ -13,14 +11,16 @@ export function ProjectTokenSnippet(): JSX.Element | null {
     }
 
     return (
-        <div className="flex flex-col gap-1 min-w-0" data-attr="onboarding-project-token">
-            <LemonLabel className="mb-0">Your project token</LemonLabel>
-            <CodeSnippet compact thing="project token">
+        <div className="flex items-center gap-1.5 min-w-0 text-xs" data-attr="onboarding-project-token">
+            <span className="text-secondary shrink-0">Project token</span>
+            <CopyToClipboardInline
+                description="project token"
+                iconSize="xsmall"
+                tooltipMessage="Your SDKs send events to this project with it. It's safe to use in public apps. Click to copy."
+                className="font-mono text-secondary min-w-0"
+            >
                 {currentTeam.api_token}
-            </CodeSnippet>
-            <p className="text-xs text-muted mb-0">
-                Your SDKs send events to this project with it. Safe to use in public apps.
-            </p>
+            </CopyToClipboardInline>
         </div>
     )
 }

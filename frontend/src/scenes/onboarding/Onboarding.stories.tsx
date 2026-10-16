@@ -396,43 +396,39 @@ const CONNECTED_APP = {
     is_setup_wizard: false,
 }
 
-export const SimpleFlowConnectMcp: Story = {
-    render: () => {
-        useMountedLogic(onboardingLogic)
+// A new organization has no subscription yet, so the simple flow ends with the plan step.
+function simpleFlowStory(
+    stepKey: OnboardingStepKey,
+    connectedApps: (typeof CONNECTED_APP)[],
+    waitForLoadersToDisappear: boolean
+): Story {
+    return {
+        render: () => {
+            useMountedLogic(onboardingLogic)
 
-        useStorybookMocks({ get: { '/api/oauth/connected-apps/': [] } })
-
-        useDelayedOnMountEffect(() => {
-            router.actions.push(urls.simpleOnboarding(), {
-                step: `${OnboardingStepKey.MCP}:${ProductKey.PRODUCT_ANALYTICS}`,
+            useStorybookMocks({
+                get: { '/api/oauth/connected-apps/': connectedApps, '/api/billing/': { ...billingUnsubscribedJson } },
             })
-        })
 
-        return <App />
-    },
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test' },
-        // The step shows a spinner for as long as no agent is connected, which is the state under test.
-        testOptions: { waitForSelector: '[data-attr="wizard-command-block"]', waitForLoadersToDisappear: false },
-    },
+            useDelayedOnMountEffect(() => {
+                router.actions.push(urls.simpleOnboarding(), {
+                    step: `${stepKey}:${ProductKey.PRODUCT_ANALYTICS}`,
+                })
+            })
+
+            return <App />
+        },
+        parameters: {
+            featureFlags: { [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test' },
+            testOptions: { waitForSelector: '[data-attr="wizard-command-block"]', waitForLoadersToDisappear },
+        },
+    }
 }
 
-export const SimpleFlowMcpConnected: Story = {
-    render: () => {
-        useMountedLogic(onboardingLogic)
+// The install step's realtime check keeps a spinner up until the first event arrives.
+export const SimpleFlowInstall: Story = simpleFlowStory(OnboardingStepKey.INSTALL, [], false)
 
-        useStorybookMocks({ get: { '/api/oauth/connected-apps/': [CONNECTED_APP] } })
+// The MCP step shows a spinner for as long as no agent is connected, which is the state under test.
+export const SimpleFlowConnectMcp: Story = simpleFlowStory(OnboardingStepKey.MCP, [], false)
 
-        useDelayedOnMountEffect(() => {
-            router.actions.push(urls.simpleOnboarding(), {
-                step: `${OnboardingStepKey.MCP}:${ProductKey.PRODUCT_ANALYTICS}`,
-            })
-        })
-
-        return <App />
-    },
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test' },
-        testOptions: { waitForSelector: '[data-attr="wizard-command-block"]' },
-    },
-}
+export const SimpleFlowMcpConnected: Story = simpleFlowStory(OnboardingStepKey.MCP, [CONNECTED_APP], true)
