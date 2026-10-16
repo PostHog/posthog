@@ -440,7 +440,7 @@ const eventNameFor = ({ mapping }: TemplateCase): string => {
 
 // Secrets whose format the template checks before it sends anything.
 const SECRET_VALUES: Record<string, string> = {
-    signing_secret: `whsec_${Buffer.from('fake-signing-secret-0000').toString('base64')}`,
+    signing_secret: Buffer.from('fake-signing-secret-0000').toString('base64'),
 }
 
 const representativeValue = (schema: HogFunctionInputSchemaType): unknown => {
