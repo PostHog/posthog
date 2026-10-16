@@ -947,6 +947,7 @@ from .pivotal_tracker.source import PivotalTrackerSource
 from .piwik.source import PiwikSource
 from .plaid.source import PlaidSource
 from .plain.source import PlainSource
+from .plane.source import PlaneSource
 from .planetscale_mysql.source import PlanetScaleMySQLSource
 from .planetscale_postgres.source import PlanetScalePostgresSource
 from .planhat.source import PlanhatSource
