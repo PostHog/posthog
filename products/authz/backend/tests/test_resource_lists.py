@@ -82,15 +82,16 @@ class TestOpenFgaResourceLists(SimpleTestCase):
         assert self.fga_client.streamed_list_objects.call_args.args[0].user == "share_link:7"
         self.legacy.assert_not_called()
 
-    def test_warehouse_query_uses_query_permission(self) -> None:
-        self.fga_client.check.return_value.allowed = False
+    @parameterized.expand([("allowed", True), ("denied", False)])
+    def test_warehouse_query_uses_query_permission(self, _name: str, query_allowed: bool) -> None:
+        self.fga_client.check.return_value.allowed = True
         table_id = str(UUID(int=3))
         prefix = f"warehouse_table:{self.org_id}/1/"
 
         def objects(request: ClientListObjectsRequest, options: object) -> MagicMock:
             stream = MagicMock()
             stream.__iter__.return_value = iter(
-                [SimpleNamespace(object=prefix + table_id)] if request.relation == "can_query" else []
+                [SimpleNamespace(object=prefix + table_id)] if request.relation == "can_query" and query_allowed else []
             )
             return stream
 
@@ -101,4 +102,4 @@ class TestOpenFgaResourceLists(SimpleTestCase):
                 action=Action.QUERY,
                 subject=self.subject,
             )
-        assert result.complete and result.allows(table_id)
+        assert result.complete and result.allows(table_id) is query_allowed

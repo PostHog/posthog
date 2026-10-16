@@ -298,7 +298,7 @@ def _read_object_filter(
         if client.get_store_id() is None:
             raise RuntimeError("Bootstrap the OpenFGA store before listing authorized resources")
         reader = _Reader(client, user, type_name, prefix, cap, consistency)
-        if reader.allowed(category_key, "can_view"):
+        if action == Action.VIEW and reader.allowed(category_key, "can_view"):
             with_rule = reader.list_ids("has_rule")
             if with_rule is None:
                 return capped
