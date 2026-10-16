@@ -20,7 +20,7 @@ export default function CyclotronJobInputTaskRepository({
     onChange,
     sampleGlobalsWithInputs,
 }: CustomInputRendererProps): JSX.Element {
-    const [mode, setMode] = useState<RepositoryInputMode>(isTemplatedRepository(value) ? 'template' : 'pick')
+    const mode: RepositoryInputMode = isTemplatedRepository(value) ? 'template' : 'pick'
     // Each mode keeps its last value, so looking at the other mode never loses the author's choice.
     const [lastTemplate, setLastTemplate] = useState<TemplatedRepository>(
         isTemplatedRepository(value) ? value : EMPTY_TEMPLATED_REPOSITORY
@@ -40,7 +40,6 @@ export default function CyclotronJobInputTaskRepository({
             setLastPick(typeof value === 'string' ? value : null)
             onChange(lastTemplate)
         }
-        setMode(nextMode)
     }
 
     return (
@@ -66,7 +65,7 @@ export default function CyclotronJobInputTaskRepository({
             </div>
             {mode === 'template' && (
                 <TaskRepositoryTemplateEditor
-                    value={isTemplatedRepository(value) ? value : lastTemplate}
+                    value={value}
                     onChange={onChange}
                     globals={sampleGlobalsWithInputs ?? undefined}
                 />
