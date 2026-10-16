@@ -705,6 +705,48 @@ class TestInstagramAccountInsights:
         # only spends the account's quota.
         assert [request.param("metric") for request in result.requests].count("follows_and_unfollows") == 1
 
+    def test_breakdown_results_become_one_row_per_breakdown_value_and_day(self) -> None:
+        follows = ScriptedResponse(
+            json={
+                "data": [
+                    {
+                        "name": "follows_and_unfollows",
+                        "period": "day",
+                        "total_value": {
+                            "value": 7,
+                            "breakdowns": [
+                                {
+                                    "dimension_keys": ["follow_type"],
+                                    "results": [
+                                        {"dimension_values": ["FOLLOWER"], "value": 5},
+                                        {"dimension_values": ["NON_FOLLOWER"], "value": 2},
+                                    ],
+                                }
+                            ],
+                        },
+                    }
+                ]
+            }
+        )
+        # This start date leaves a trailing window shorter than a day, which has no requests.
+        result = _drive(
+            "account_insights_breakdowns",
+            _by_metric({"follows_and_unfollows": follows}),
+            start_date=(datetime.now(UTC) - timedelta(days=29)).date().isoformat(),
+        )
+
+        assert result.raised is None
+        assert all(request.param("breakdown") for request in result.requests)
+        today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        assert [
+            (row["metric"], row["breakdown"], row["breakdown_value"], row["value"])
+            for row in result.rows
+            if row["date"] == today.isoformat()
+        ] == [
+            ("follows_and_unfollows", "follow_type", "FOLLOWER", 5),
+            ("follows_and_unfollows", "follow_type", "NON_FOLLOWER", 2),
+        ]
+
     def test_each_finished_window_checkpoints_the_start_of_the_next(self) -> None:
         start_date = (datetime.now(UTC) - timedelta(days=75)).date().isoformat()
         result = _drive("account_insights", always(ScriptedResponse(json={"data": []})), start_date=start_date)

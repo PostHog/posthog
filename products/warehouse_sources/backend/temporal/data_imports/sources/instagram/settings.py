@@ -60,6 +60,17 @@ ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS: tuple[str, ...] = (
     "profile_links_taps",
     "follows_and_unfollows",
 )
+# `(metric, breakdown)` pairs for `account_insights_breakdowns`. Each pair is requested
+# with `metric_type=total_value` once per day, like the metrics above.
+ACCOUNT_INSIGHT_BREAKDOWNS: tuple[tuple[str, str], ...] = (
+    ("follows_and_unfollows", "follow_type"),
+    ("likes", "media_product_type"),
+    ("comments", "media_product_type"),
+    ("shares", "media_product_type"),
+    ("saves", "media_product_type"),
+    ("total_interactions", "media_product_type"),
+    ("profile_links_taps", "contact_button_type"),
+)
 
 # Per-media metrics, keyed by `media_product_type`. Stories expose a different set from
 # feed posts and reels.
@@ -167,6 +178,18 @@ INSTAGRAM_ENDPOINTS: dict[str, InstagramEndpointConfig] = {
         name="account_insights",
         edge="insights",
         primary_keys=["instagram_account_id", "metric", "date"],
+        incremental_fields=[incremental_field("date")],
+        partition_key="date",
+        sort_mode="asc",
+        supports_time_window=True,
+        timestamp_fields=("date",),
+    ),
+    # Daily account metrics split by a breakdown dimension. A separate table, so the key
+    # of `account_insights` stays the same for existing syncs.
+    "account_insights_breakdowns": InstagramEndpointConfig(
+        name="account_insights_breakdowns",
+        edge="insights",
+        primary_keys=["instagram_account_id", "metric", "breakdown", "breakdown_value", "date"],
         incremental_fields=[incremental_field("date")],
         partition_key="date",
         sort_mode="asc",
