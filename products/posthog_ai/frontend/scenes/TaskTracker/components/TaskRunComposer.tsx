@@ -22,7 +22,7 @@ import {
     pickerModels,
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
-import { ModelAccessEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { ModelAccessEnumApi, RuntimeAdapterEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
 import { AttachedContextPicker } from '../../../components/composer/AttachedContextPicker'
@@ -160,7 +160,7 @@ export function TaskRunComposer({
         phoneSheet: todayRailEnabled && phoneLayout,
     }
     const modelPicker =
-        codexBillingEnabled && !isPiTask ? (
+        codexBillingEnabled && !isPiTask && logicProps.currentRuntimeAdapter !== RuntimeAdapterEnumApi.Fx ? (
             <ComposerCodexBillingPickers
                 {...modelPickerProps}
                 lockedCodexModelAccess={
