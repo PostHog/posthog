@@ -15,9 +15,9 @@ ui_apps:
     workflow-setup-status:
         type: detail
         view_prop: data
-        link_prop: openLink
         app_name: PostHog Messaging Setup
         description: The messaging setup checklist, with a link to finish each open step.
+        link_prop: openLink
     workflow-data-suggestions:
         type: custom
         app_name: PostHog Workflow Suggestions
