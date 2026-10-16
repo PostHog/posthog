@@ -39,6 +39,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
 from products.review_hog.backend.facade.enums import ReviewRequestRefusal
+from products.review_hog.backend.facade.finished_review_hooks import FinishedReview, get_finished_review_hooks
 from products.review_hog.backend.label_reviews import comment_commands_enabled, draft_review_notice, label_commands_hint
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
@@ -151,6 +152,7 @@ from products.review_hog.backend.reviewer.status_comment import (
     finalize_status_comment,
     maybe_refresh_status_comment,
     post_failure_comment,
+    report_deep_link,
 )
 from products.review_hog.backend.reviewer.telemetry import review_event_uuid, review_routing_properties
 from products.review_hog.backend.reviewer.tools.coordinator_review import (
@@ -650,6 +652,8 @@ class TrackReviewFailedInput:
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
     review_design: str = REVIEW_DESIGN_PIPELINE
+    # The workflow retries a failed turn, and only the last failure is the outcome.
+    last_attempt: bool = True
 
 
 @frozen
@@ -2462,11 +2466,53 @@ def _track_review_completed_safe(input: TrackReviewCompletedInput) -> None:
         logger.exception("Failed to capture reviewhog_review_completed for report %s; continuing", input.report_id)
 
 
+def _notify_review_finished(
+    *,
+    team_id: int,
+    report_id: str,
+    run_index: int,
+    review_mode: str,
+    failed: bool,
+    published: bool,
+) -> None:
+    """Tell the registered callbacks how the turn ended. Like the analytics, it never fails a review."""
+    hooks = get_finished_review_hooks()
+    if not hooks:
+        return
+    try:
+        report = ReviewReport.objects.for_team(team_id).get(id=report_id)
+        if report.pr_number is None:
+            return
+        findings_count = (
+            0 if failed else len(load_valid_findings(team_id=team_id, report_id=report_id, run_index=run_index))
+        )
+    except Exception:
+        logger.exception("Could not load report %s for the finished-review callbacks; continuing", report_id)
+        return
+    finished = FinishedReview(
+        team_id=team_id,
+        report_id=report_id,
+        repository=report.repository,
+        pr_number=report.pr_number,
+        review_mode=review_mode,
+        failed=failed,
+        findings_count=findings_count,
+        published=published,
+        review_url=report_deep_link(team_id, report_id),
+    )
+    for hook in hooks:
+        try:
+            hook(finished)
+        except Exception:
+            logger.exception("A finished-review callback failed for report %s; continuing", report_id)
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def track_review_completed_activity(input: TrackReviewCompletedInput) -> None:
-    """Capture the turn's `reviewhog_review_completed` product-analytics event.
+    """Capture the turn's `reviewhog_review_completed` product-analytics event, then tell the
+    finished-review callbacks.
 
     One event per finalized turn (published or stored), across every trigger and repo — the
     per-review count product dashboards aggregate, which the step-level `task_*` events can't
@@ -2474,6 +2520,14 @@ async def track_review_completed_activity(input: TrackReviewCompletedInput) -> N
     a review, so any failure is logged, not raised.
     """
     await database_sync_to_async(_track_review_completed_safe, thread_sensitive=False)(input)
+    await database_sync_to_async(_notify_review_finished, thread_sensitive=False)(
+        team_id=input.team_id,
+        report_id=input.report_id,
+        run_index=input.run_index,
+        review_mode=input.review_mode,
+        failed=False,
+        published=input.published,
+    )
 
 
 def _track_review_failed(input: TrackReviewFailedInput) -> None:
@@ -2523,9 +2577,18 @@ async def track_review_failed_activity(input: TrackReviewFailedInput) -> None:
     counts: a parent retry can fail and then complete at the same (report_id, run_index, review_mode),
     so a turn counts as failed only when that combination has a failed event and no completed event.
     Anti-join on report_id + run_index + review_mode, treating an absent mode as Full for legacy events.
-    Best-effort, like the completed event.
+    Best-effort, like the completed event. The finished-review callbacks hear about the last failure too.
     """
     await database_sync_to_async(_track_review_failed_safe, thread_sensitive=False)(input)
+    if input.last_attempt:
+        await database_sync_to_async(_notify_review_finished, thread_sensitive=False)(
+            team_id=input.team_id,
+            report_id=input.report_id,
+            run_index=input.run_index,
+            review_mode=input.review_mode,
+            failed=True,
+            published=False,
+        )
 
 
 # --- The PR's live status comment -------------------------------------------------------------------
