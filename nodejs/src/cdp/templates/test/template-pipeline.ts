@@ -17,6 +17,7 @@ import { EmailService } from '../../services/messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../../services/messaging/recipient-tokens.service'
 import {
+    CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionInputSchemaType,
     HogFunctionInvocationGlobals,
@@ -85,7 +86,7 @@ export const casesFor = (templates: HogFunctionTemplate[]): TemplateCase[] =>
     templates
         .filter((template) => template.code_language === 'hog')
         .flatMap((template) =>
-            template.mapping_templates
+            template.mapping_templates?.length
                 ? template.mapping_templates.map((mapping) => ({
                       name: `${template.id} > ${mapping.name}`,
                       template,
@@ -201,26 +202,30 @@ export class TemplatePipeline {
 
         if (invocations.length !== 1) {
             invocationErrors.push(`expected 1 invocation, got ${invocations.length}`)
-            return {
-                invocationErrors,
-                requests: this.requests,
-                printedOutput: [],
-                sensitiveValues,
-                integrationCredentials,
-            }
         }
-
-        const result = await this.executor.executeWithAsyncFunctions(invocations[0], {
-            maxAsyncFunctions: MAX_ASYNC_FUNCTIONS,
-        })
+        const { result, error } = invocations.length === 1 ? await this.execute(invocations[0]) : {}
 
         return {
-            invocationErrors,
+            invocationErrors: error ? [...invocationErrors, error] : invocationErrors,
             result,
             requests: this.requests,
-            printedOutput: result.logs.map((log) => log.message),
+            printedOutput: result?.logs.map((log) => log.message) ?? [],
             sensitiveValues,
             integrationCredentials,
+        }
+    }
+
+    private async execute(
+        invocation: CyclotronJobInvocationHogFunction
+    ): Promise<{ result?: CyclotronJobInvocationResult; error?: string }> {
+        try {
+            return {
+                result: await this.executor.executeWithAsyncFunctions(invocation, {
+                    maxAsyncFunctions: MAX_ASYNC_FUNCTIONS,
+                }),
+            }
+        } catch (error) {
+            return { error: `execution threw: ${String(error)}` }
         }
     }
 
@@ -444,8 +449,9 @@ const SECRET_VALUES: Record<string, string> = {
 }
 
 const representativeValue = (schema: HogFunctionInputSchemaType): unknown => {
-    const hasNoDefault = schema.default === undefined || schema.default === ''
-    if (!hasNoDefault || !(schema.required || schema.secret)) {
+    const needsGeneratedValue =
+        (schema.default === undefined || schema.default === '') && (schema.required || schema.secret)
+    if (!needsGeneratedValue) {
         return schema.default
     }
     if (schema.secret) {
