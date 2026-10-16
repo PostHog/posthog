@@ -31,7 +31,6 @@ use crate::lifecycle::merge::{
 };
 use crate::lifecycle::validation::{
     is_distinct_id_illegal, is_distinct_id_oversized, validate_merge_persons, UnmergeableId,
-    MAX_MERGE_BATCH_SIZE,
 };
 use crate::storage::{AttachOutcome, IdentityStorage, Person, PersonStub, StubOutcome};
 use crate::warnings::{effective_event_uuid, MergePair, MergeWarnings, MERGE_ENTRANCE};
@@ -203,41 +202,38 @@ impl MergeEntrance {
     }
 
     fn emit_rejection_warning(&self, request: &MergePersonsRequest, id: UnmergeableId) {
-        // An illegal target warns once per source, so an over-cap batch is
-        // left out rather than fanned out past the per-call limit.
-        if !self.warnings.is_enabled() || request.sources.len() > MAX_MERGE_BATCH_SIZE {
+        if !self.warnings.is_enabled() {
             return;
         }
-        let sources: &[MergeSource] = match id {
-            UnmergeableId::Target => &request.sources,
-            UnmergeableId::Source(index) => request
-                .sources
-                .get(index)
-                .map(std::slice::from_ref)
-                .unwrap_or_default(),
+        // An illegal target is one warning about the target, whatever the
+        // batch size; the first source stands in as the other side.
+        let source: Option<&MergeSource> = match id {
+            UnmergeableId::Target => request.sources.first(),
+            UnmergeableId::Source(index) => request.sources.get(index),
         };
-        for source in sources {
-            let pair = MergePair {
-                source_distinct_id: &source.source_distinct_id,
-                target_distinct_id: &request.target_distinct_id,
-                event_uuid: effective_event_uuid(&source.event_uuid, &request.creator_event_uuid),
-                source_person_id: None,
-                source_person_uuid: None,
-                survivor_uuid: None,
-            };
-            match id {
-                UnmergeableId::Target => {
-                    self.warnings
-                        .emit_illegal_target(request.team_id, MERGE_ENTRANCE, &pair)
-                }
-                UnmergeableId::Source(_) => self.warnings.emit_verdict(
-                    request.team_id,
-                    MERGE_ENTRANCE,
-                    OUTCOME_SKIPPED_ILLEGAL,
-                    true,
-                    &pair,
-                ),
+        let Some(source) = source else {
+            return;
+        };
+        let pair = MergePair {
+            source_distinct_id: &source.source_distinct_id,
+            target_distinct_id: &request.target_distinct_id,
+            event_uuid: effective_event_uuid(&source.event_uuid, &request.creator_event_uuid),
+            source_person_id: None,
+            source_person_uuid: None,
+            survivor_uuid: None,
+        };
+        match id {
+            UnmergeableId::Target => {
+                self.warnings
+                    .emit_illegal_target(request.team_id, MERGE_ENTRANCE, &pair)
             }
+            UnmergeableId::Source(_) => self.warnings.emit_verdict(
+                request.team_id,
+                MERGE_ENTRANCE,
+                OUTCOME_SKIPPED_ILLEGAL,
+                true,
+                &pair,
+            ),
         }
     }
 

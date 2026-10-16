@@ -2772,6 +2772,11 @@ async fn invalid_merge_requests_are_rejected_before_any_work() {
             Code::InvalidArgument,
         ),
         (
+            "illegal target with two sources",
+            rpc_request(team_id, "anonymous", &["s1", "s2"], op),
+            Code::InvalidArgument,
+        ),
+        (
             "illegal target with an over-cap batch",
             rpc_request(
                 team_id,
@@ -2811,7 +2816,10 @@ async fn invalid_merge_requests_are_rejected_before_any_work() {
             ("x".repeat(400), "s".to_string()),
             ("nul\u{0000}target".to_string(), "s".to_string()),
             ("nul\u{0000}source".to_string(), "t".to_string()),
-        ]
+            ("anonymous".to_string(), "s1".to_string()),
+            ("anonymous".to_string(), "s".to_string()),
+        ],
+        "an illegal target warns once, whatever the batch size"
     );
 
     h.ctx.cleanup().await.expect("cleanup");

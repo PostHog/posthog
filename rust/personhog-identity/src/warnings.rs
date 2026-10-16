@@ -45,7 +45,7 @@ const KAFKA_LINGER_MS: u32 = 100;
 const KAFKA_QUEUE_MESSAGES: u32 = 10_000;
 const KAFKA_MESSAGE_TIMEOUT_MS: u32 = 5_000;
 const TYPE_BUDGET_PER_SECOND: NonZeroU32 = NonZeroU32::new(60).unwrap();
-/// Keys are per source distinct id, so the crate default (sized for capture's
+/// Keys are per distinct id, so the crate default (sized for capture's
 /// per-token keys) would fill within the hour a key lives and silence every
 /// team on the pod. The type budgets admit well under this many keys an hour.
 const MAX_TRACKED_SCOPES: usize = 1_000_000;
@@ -177,11 +177,14 @@ impl MergeWarnings {
         }
     }
 
+    /// Scoped by the target: it is the id the warning is about, and an SDK
+    /// that identifies every visitor as "undefined" would otherwise hold one
+    /// key per visitor and spend the pod's whole budget for this type.
     pub fn emit_illegal_target(&self, team_id: i64, source: WarningSource, pair: &MergePair<'_>) {
         if let Some(emitter) = &self.emitter {
             emitter.emit(
                 team_id,
-                pair.source_distinct_id,
+                pair.target_distinct_id,
                 source,
                 illegal_target_warning(pair),
             );
@@ -489,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn the_surface_scopes_every_row_by_the_source_distinct_id() {
+    fn the_surface_scopes_each_row_by_the_distinct_id_it_is_about() {
         let emitter = Arc::new(CollectingRowEmitter::new());
         let warnings = MergeWarnings::new(emitter.clone());
         warnings.emit_verdict(7, MERGE_ENTRANCE, OUTCOME_SKIPPED_ILLEGAL, true, &pair());
@@ -499,10 +502,15 @@ mod tests {
 
         let rows = emitter.rows();
         assert_eq!(rows.len(), 2);
-        assert!(rows.iter().all(|r| r.team_id == 7 && r.scope == "anon-1"));
+        assert!(rows.iter().all(|r| r.team_id == 7));
         assert_eq!(rows[0].source, MERGE_ENTRANCE);
         assert_eq!(rows[0].row["source"], SERVICE);
+        assert_eq!(rows[0].scope, "anon-1", "a verdict is about its source");
         assert_eq!(rows[1].details()["illegalDistinctId"], "user-1");
+        assert_eq!(
+            rows[1].scope, "user-1",
+            "an illegal target is about the target"
+        );
     }
 
     fn settings(enabled: bool, hosts: &str, topic: &str) -> WarningsSettings {
