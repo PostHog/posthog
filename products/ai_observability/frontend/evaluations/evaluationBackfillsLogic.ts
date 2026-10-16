@@ -218,6 +218,7 @@ export interface evaluationBackfillsLogicMeta {
         ) => EvaluationTargetEnumApi
         startDisabledReason: (
             hasActiveBackfill: boolean,
+            transitioningIds: string[],
             conditions: EvaluationConditionSet[],
             estimate: EvaluationBackfillEstimateApi | null,
             estimateLoading: boolean,
@@ -392,9 +393,17 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
             ): EvaluationTargetEnumApi => estimate?.unit ?? evaluation?.target ?? 'generation',
         ],
         startDisabledReason: [
-            (s) => [s.hasActiveBackfill, s.conditions, s.estimate, s.estimateLoading, s.estimateError],
+            (s) => [
+                s.hasActiveBackfill,
+                s.transitioningIds,
+                s.conditions,
+                s.estimate,
+                s.estimateLoading,
+                s.estimateError,
+            ],
             (
                 hasActiveBackfill: boolean,
+                transitioningIds: string[],
                 conditions: EvaluationConditionSet[],
                 estimate: EvaluationBackfillEstimateApi | null,
                 estimateLoading: boolean,
@@ -402,6 +411,9 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
             ): string | undefined => {
                 if (hasActiveBackfill) {
                     return 'This evaluation already has a running backfill'
+                }
+                if (transitioningIds.length > 0) {
+                    return 'Wait for the current retry or cancel to finish'
                 }
                 // Checked before the count, which reads as an empty range rather than as a 0% sample.
                 if (hasUnsetConditionRollout(conditions)) {

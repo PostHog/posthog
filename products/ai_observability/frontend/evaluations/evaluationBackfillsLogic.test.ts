@@ -650,6 +650,7 @@ describe('evaluationBackfillsLogic', () => {
                 rerun_existing: false,
             })
             expect(new Set(logic.values.transitioningIds)).toEqual(new Set([previous.id]))
+            expect(logic.values.startDisabledReason).toEqual('Wait for the current retry or cancel to finish')
             finish(backfill({ status: 'running' }))
             await expectLogic(logic).toDispatchActions(['transitionBackfillDone', 'loadBackfills'])
             expect(logic.values.transitioningIds).toEqual([])
