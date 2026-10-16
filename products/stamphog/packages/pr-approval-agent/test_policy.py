@@ -152,6 +152,9 @@ OLD_DENY_PATTERN_DEFS = {
             "^claude\\.md$",
             "^\\.github/pull_request_template\\.md$",
             "^\\.agents/skills/writing-pr-descriptions/",
+            "^\\.claude/settings\\.json$",
+            "^\\.claude/hooks/",
+            "^\\.mcp\\.json$",
         ]
     },
     "workflows_delivery": {

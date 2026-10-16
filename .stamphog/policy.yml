@@ -169,14 +169,17 @@ deny:
                 - '^tools/hogli-commands/hogli_commands/product_structure\.yaml$'
                 - '^tools/hogli-commands/hogli_commands/product/'
     agent_steering:
-        description: 'The root agent instructions and the PR authoring guidance that every agent in this repository loads.'
-        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. One edit changes how every agent-written PR reads, and the files are .md, so without this category they ride the allow-list to a T0 auto-approve. A change from outside team-devex now needs a human approval, which is where the owner discussion happens. Other skills under .agents/skills stay out on purpose, because product teams own several and edit their own. Paths are anchored, so a nested AGENTS.md stays with its folder owner.'
+        description: 'The root agent instructions, the PR authoring guidance, and the agent config that runs in every session.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. One edit changes how every agent-written PR reads, and the files are .md, so without this category they ride the allow-list to a T0 auto-approve. A change from outside team-devex now needs a human approval, which is where the owner discussion happens. .claude/settings.json and .mcp.json are .json and ride the same allow-list, but their hooks and MCP servers run commands in every agent session, so they belong here too. Other skills under .agents/skills stay out on purpose, because product teams own several and edit their own. Paths are anchored, so a nested AGENTS.md stays with its folder owner.'
         match:
             paths:
                 - '^agents\.md$'
                 - '^claude\.md$'
                 - '^\.github/pull_request_template\.md$'
                 - '^\.agents/skills/writing-pr-descriptions/'
+                - '^\.claude/settings\.json$'
+                - '^\.claude/hooks/'
+                - '^\.mcp\.json$'
         exempt_author_teams:
             - 'team-devex'
     workflows_delivery:
