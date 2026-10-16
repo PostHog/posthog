@@ -56,6 +56,16 @@ class TaskDTO:
 
 
 @dataclass(frozen=True, kw_only=True)
+class TaskAccessScope:
+    """Task IDs a user can or cannot access through channel visibility rules."""
+
+    user_id: int
+    has_resource_access: bool
+    allowed_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+
+
+@dataclass(frozen=True, kw_only=True)
 class AgentTaskRunDTO:
     """Identity and workflow handle for a newly dispatched agent task."""
 
@@ -118,6 +128,14 @@ class WizardCloudRunDTO:
     run_id: UUID
     status: str
     started_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunTokenUsage:
+    """Settled token subtotal in micro-USD and whether every request is accounted for."""
+
+    cost_microusd: int | None
+    complete: bool
 
 
 @dataclass(frozen=True)

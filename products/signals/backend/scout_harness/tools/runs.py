@@ -58,6 +58,7 @@ RUN_SUMMARY_FIELDS = (
     "emitted_report_ids",
     "edited_report_ids",
     "metadata",
+    "total_spend",
     "task_run__id",
     "task_run__task_id",
     "task_run__status",
@@ -86,7 +87,7 @@ CRON_GAP_SAMPLES = 4
 
 # Part of every `runs_version`. Bump it when `_to_summary` changes its output, so a client that
 # holds a body in the old shape fetches the new one.
-RUNS_VERSION_SCHEMA = 1
+RUNS_VERSION_SCHEMA = 2
 
 # Runaway guard on the fan-out of the per-scout probe. Deliberately a limit on *scouts* rather than
 # on rows: capping rows after the per-scout ranking would drop the slowest scouts' history, which is
@@ -116,6 +117,9 @@ DEFAULT_FINDINGS_WINDOW_HOURS = 72
 MAX_FINDINGS_WINDOW_HOURS = 168
 FLEET_FINDINGS_SUMMARY_RUN_CAP = 120
 FLEET_FINDINGS_SUMMARY_REPORT_CAP = 50
+# The completion-time sort has no index, so it only ranks this many of the newest output runs by
+# `created_at`. The slack over the run cap keeps a run that completes after newer runs in the set.
+FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS = 2 * FLEET_FINDINGS_SUMMARY_RUN_CAP
 
 # `failure_reason` is the concise, list-safe derived signal; `error` carries the full
 # `TaskRun.error_message`. Bound the derived reason so it stays cheap to scan in bulk.
@@ -159,6 +163,7 @@ class RunSummary:
     # harness-computed run flags written at finalize. Empty for default-model runs that never
     # finalized, and for rows predating the column.
     metadata: dict[str, Any] = field(default_factory=dict)
+    total_spend: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -203,6 +208,7 @@ class RunDetail:
     # harness-computed run flags written at finalize. Empty for default-model runs that never
     # finalized, and for rows predating the column.
     metadata: dict[str, Any] = field(default_factory=dict)
+    total_spend: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -524,12 +530,17 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     touched_a_report = (~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)) | (
         ~Q(edited_report_ids=[]) & ~Q(edited_report_ids__isnull=True)
     )
-    # Order by completion (fall back to creation) so the cap keeps the *most recently emitted* runs,
-    # matching the frontend's `completed_at ?? created_at` sort; `-id` tie-breaks on the time-ordered PK.
-    rows = (
+    candidate_ids = (
         SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start)
         .exclude(metadata__has_key="scout_trial")
         .filter(Q(emitted_count__gt=0) | touched_a_report)
+        .order_by("-created_at", "-id")
+        .values("id")[:FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS]
+    )
+    # Order by completion (fall back to creation) so the cap keeps the *most recently emitted* runs,
+    # matching the frontend's `completed_at ?? created_at` sort; `-id` tie-breaks on the time-ordered PK.
+    rows = (
+        SignalScoutRun.objects.filter(team_id=team_id, id__in=candidate_ids)
         .annotate(_emitted_at=Coalesce("task_run__completed_at", "created_at"))
         .order_by("-_emitted_at", "-id")
         .values_list("emitted_count", "skill_name", "_emitted_at", "emitted_report_ids", "edited_report_ids")[
@@ -657,6 +668,7 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         error=error,
         failure_reason=failure_reason,
         metadata=metadata,
+        total_spend=float(row.total_spend) if row.total_spend is not None else None,
     )
 
 

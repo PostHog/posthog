@@ -21,6 +21,7 @@ import type {
     FleetFindingsSummaryApi,
     ForgetRequestApi,
     ForgetResponseApi,
+    InboxSummaryApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
     PaginatedPauseStateResponseListApi,
@@ -215,6 +216,17 @@ export const signalsConfigCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalTeamConfigApi),
+    })
+}
+
+export const getSignalsInboxSummaryListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/inbox_summary/`
+}
+
+export const signalsInboxSummaryList = async (projectId: string, options?: RequestInit): Promise<InboxSummaryApi> => {
+    return apiMutator<InboxSummaryApi>(getSignalsInboxSummaryListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1264,7 +1276,7 @@ export const getSignalsReportsForYouRetrieveUrl = (projectId: string, params?: S
 }
 
 /**
- * One page of the open, actionable reports for the current user, and how many there are in total. The ranking picks the page and priority orders it for display. Uses the same ranking and count as the Today briefing, so this is the short list to show someone who asks what needs them. Pass `exclude` to leave out reports already on screen and `offset` to get the next page. Pass `include_unowned=false` to leave out the P0 reports nobody owns, which belong to the project rather than to this person.
+ * One page of the open, actionable reports for the current user, and how many there are in total, in the inbox priority order: priority, then status, then most recently updated. Uses the same ranking and count as the Today briefing, so this is the short list to show someone who asks what needs them. Pass `exclude` to leave out reports already on screen and `offset` to get the next page. Pass `include_unowned=false` to leave out the P0 reports nobody owns, which belong to the project rather than to this person.
  * @summary List the reports that matter most to the current user
  */
 export const signalsReportsForYouRetrieve = async (

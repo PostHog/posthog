@@ -2,8 +2,8 @@
 
 ## Problem
 
-<!-- State the product intent: who needs a better outcome, what friction they face today, and why it matters. The actor can differ from the person who uses the new surface. -->
-<!-- The problem must stay true if the implementation changes. Do not define it as the absence of the chosen solution, such as "there is no way" or "cannot use X through Y". Put the solution and code path under Changes. -->
+<!-- Who are we building for, what are their needs, why is this important? -->
+<!-- First line: who is affected and what is wrong for them today. A fix says what breaks; a feature names the goal and what stands in the way; a chore says who is blocked. It must stay true under a different solution. Take the need from the request or an issue, and say so when none gives one. The code path goes under Changes. -->
 
 <!-- Does this fix an issue? Uncomment the line below with the issue ID to automatically close it when merged -->
 <!-- Closes #ISSUE_ID -->
@@ -94,5 +94,5 @@
 - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
 - Agent-authored PRs always require human review — do not self-merge or auto-approve.
 - Do NOT claim manual testing you haven't done.
-- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: state the product intent independently of the chosen solution, then lead Changes with the effect a person sees rather than the code path behind it. Make the body stand alone for a reader who opens no files, size it to the change, link evidence rather than asserting what CI already reports, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
+- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: lead Problem with who is affected and what is wrong for them, taken from a source and true under any solution, then lead Changes with the effect a person sees rather than the code path behind it. Make the body stand alone for a reader who opens no files, size it to the change, link evidence rather than asserting what CI already reports, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
 -->

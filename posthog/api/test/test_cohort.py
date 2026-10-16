@@ -50,9 +50,10 @@ from posthog.test.persons import create_person
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key, find_behavioral_cohorts
-from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
+from products.cohorts.backend.models.util import CohortErrorCode, count_cohort_members, list_cohort_member_ids
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -549,6 +550,10 @@ email@example.org
         distinct_ids = _cohort_member_distinct_ids(cohort.team_id, cohort)
         self.assertEqual(distinct_ids, {"123", "0"})
 
+        killed_attempt = CohortCalculationHistory.objects.create(
+            team=self.team, cohort=cohort, filters={}, started_at=timezone.now() - timedelta(hours=1)
+        )
+
         # Test CSV update
         csv_update = SimpleUploadedFile(
             "example.csv",
@@ -574,6 +579,9 @@ User ID
         # Verify CSV update worked - 456 should now be included
         distinct_ids = _cohort_member_distinct_ids(cohort.team_id, cohort)
         self.assertIn("456", distinct_ids)  # New ID should be included
+        killed_attempt.refresh_from_db()
+        self.assertIsNotNone(killed_attempt.finished_at)
+        self.assertEqual(killed_attempt.error_code, CohortErrorCode.INTERRUPTED)
 
         # Test name-only update without CSV
         response = self.client.patch(

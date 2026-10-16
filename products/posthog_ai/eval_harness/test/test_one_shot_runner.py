@@ -28,6 +28,7 @@ from products.posthog_ai.eval_harness.engines.types import (
 from products.posthog_ai.eval_harness.harness.cli import parse_args
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness
+from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
 from products.posthog_ai.eval_harness.harness.trial_stats import ScorerTrialStats
 from products.posthog_ai.eval_harness.one_shot import _OneShotEvalRun
 from products.tasks.backend.facade.agents import TurnPollTimeout
@@ -63,6 +64,7 @@ class _StubReporter:
         status: str,
         trial_id: str | None = None,
         error_type: str | None = None,
+        error_detail: str | None = None,
     ) -> None:
         self.done.append((case_name, status))
 
@@ -282,7 +284,7 @@ def test_run_routes_through_the_engine(
     ):
         harness = SandboxedEvalHarness(parse_args(["--agent-model", "claude-test"]))
         with harness._stack:
-            harness._bootstrap(frozenset())
+            harness._bootstrap(frozenset(), ProgressReporter(total_suites=0))
             ctx = harness._build_context(frozenset(), reporter)  # type: ignore[arg-type]
             runs = [_build_run(tmp_path, monkeypatch, ctx, task) for _ in range(2)]
             for run in runs:

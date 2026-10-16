@@ -51,6 +51,7 @@ from products.signals.backend.report_generation.research import ActionabilityCho
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metric_query_access import query_filter_shape_allows_read
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS
+from products.signals.backend.spend import publish_report_spend
 from products.signals.backend.stack_plan import create_layer_reports, start_unblocked_layers_of_plan
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic.report import (
@@ -222,7 +223,19 @@ class SignalReportSummaryWorkflow:
             posthoganalytics.tag("team_id", inputs.team_id)
             posthoganalytics.tag("report_id", inputs.report_id)
             posthoganalytics.tag("product", "signals")
-            await self._run_impl(inputs)
+            try:
+                await self._run_impl(inputs)
+            finally:
+                if workflow.patched("signals-publish-spend-on-completion"):
+                    try:
+                        await workflow.execute_activity(
+                            publish_report_spend_activity,
+                            inputs,
+                            start_to_close_timeout=timedelta(minutes=20),
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                        )
+                    except Exception:
+                        workflow.logger.exception("Failed to publish completed report spend")
 
     async def _run_impl(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         # Bind team_id + report_id so all logs flow to the log_entries sink (the Temporal
@@ -809,7 +822,9 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             updated_fields = report.transition_to(
                 SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
             )
-            report.save(update_fields=updated_fields)
+            report.pending_triggering_signal_id = None
+            report.researching_signal_count = input.signal_count
+            report.save(update_fields=[*updated_fields, "pending_triggering_signal_id", "researching_signal_count"])
             return report.run_count, False
 
         run_count, was_already_in_progress = await database_sync_to_async(do_update, thread_sensitive=False)()
@@ -1013,7 +1028,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # If more signals arrived while the report was being processed, we want to
                 # re-promote it back to candidate and loop to also process new signals
                 candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-                report.save(update_fields=candidate_fields)
+                if report.pending_triggering_signal_id is not None:
+                    report.triggering_signal_id = report.pending_triggering_signal_id
+                report.save(update_fields=[*candidate_fields, "triggering_signal_id"])
             else:
                 # Only a pass that settles writes its checks. A pass about to be re-researched is
                 # an intermediate one, and its checks would describe prose the next pass replaces.
@@ -1458,3 +1475,9 @@ async def publish_report_completed_activity(input: PublishReportCompletedInput) 
             team_id=input.team_id,
         )
         raise
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def publish_report_spend_activity(input: SignalReportSummaryWorkflowInputs) -> None:
+    await publish_report_spend(team_id=input.team_id, report_id=input.report_id)

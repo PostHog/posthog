@@ -252,7 +252,7 @@ describe('createExperimentLogic', () => {
             button.action()
             // The retry must reopen the experiment scanner wizard on this experiment, not the generic
             // template list, or the person starts over without the experiment.
-            expect(routerPushSpy).toHaveBeenLastCalledWith('/replay-vision/new/template?experiment=123')
+            expect(routerPushSpy).toHaveBeenLastCalledWith('/replay-vision/new/details?experiment=123')
             expect(captureExceptionSpy).toHaveBeenCalledTimes(shouldCapture ? 1 : 0)
             captureExceptionSpy.mockRestore()
         })

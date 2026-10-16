@@ -7,6 +7,7 @@ module holds the DB-touching ``_*_sync`` implementations plus the pure helpers t
 import time
 import random
 import dataclasses
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -55,6 +56,7 @@ from products.experiments.backend.temporal.models import (
     RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
     TIMEOUT_MAX_METRIC_ATTEMPTS,
     ExperimentMetricToRecalculate,
+    MetricOutOfTimeFailure,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
 )
@@ -64,6 +66,11 @@ logger = structlog.get_logger(__name__)
 
 # Cap stored/returned error messages so a pathological traceback can't bloat the Temporal payload (~2 MiB cap).
 _MAX_ERROR_MESSAGE_LENGTH = 2000
+
+_OUT_OF_TIME_MESSAGE = "The calculation ran out of time."
+
+# Calculations can fill the event loop's default executor, so a query kill there waits behind the query it kills.
+_CANCELLATION_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="experiment-recalc-cancel")
 
 # ---------------------------------------------------------------------------
 # Discovery
@@ -111,23 +118,6 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
     )
 
 
-def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetricToRecalculate]:
-    """All metrics to recalculate for an experiment, in (primary, secondary, saved) order.
-
-    Single source of truth for "which metrics does this experiment have" — used both to set
-    ``total_metrics`` at recalculation-create time and by the discovery activity. Touches the DB
-    (saved-metric links), so call inside a team scope / sync context.
-
-    Note: this sync helper takes an ``Experiment``. The async Temporal activity in
-    ``recalculation_activities.py`` shares the name but takes a ``recalculation_id`` — disambiguate by
-    import path and argument type at the call site.
-    """
-    return [
-        ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, metric_type=metric.role)
-        for metric in get_metrics_for_calculation(experiment)
-    ]
-
-
 @database_sync_to_async_pool
 def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
     close_old_connections()
@@ -137,7 +127,12 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
         recalculation = ExperimentMetricsRecalculation.objects.select_related("experiment").get(id=recalculation_id)
         experiment = recalculation.experiment
 
-        metrics_to_recalculate = discover_experiment_metrics(experiment)
+        # request_recalculation sets total_metrics from the same resolver, so the run's progress count
+        # matches the metrics this activity schedules.
+        metrics_to_recalculate = [
+            ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, metric_type=metric.role)
+            for metric in get_metrics_for_calculation(experiment)
+        ]
 
         recalculation.metric_uuids = [m.metric_uuid for m in metrics_to_recalculate]
         recalculation.save(update_fields=["metric_uuids"])
@@ -350,7 +345,7 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
         experiment_duration_hours = round(hours_since_launch) if hours_since_launch is not None else None
         # Count from the discovery list that also sets total_metrics, so saved metrics count and legacy
         # metrics that the run never calculates do not.
-        roles = [metric.metric_type for metric in discover_experiment_metrics(experiment)]
+        roles = [metric.role for metric in get_metrics_for_calculation(experiment)]
         primary_metrics_count = roles.count("primary")
         secondary_metrics_count = roles.count("secondary")
         # Global client, like most Temporal workflows: the worker is long-lived, so its background flush
@@ -488,6 +483,14 @@ def _clear_retry(recalculation_id: str, metric_uuid: str) -> None:
             recalc.save(update_fields=["metric_retries"])
 
 
+def _clear_error(recalculation_id: str, metric_uuid: str) -> None:
+    with transaction.atomic():
+        recalc = ExperimentMetricsRecalculation.objects.select_for_update().get(id=recalculation_id)
+        if metric_uuid in (recalc.metric_errors or {}):
+            recalc.metric_errors.pop(metric_uuid)
+            recalc.save(update_fields=["metric_errors"])
+
+
 def _fail(
     recalculation_id: str, metric_uuid: str, step: str, message: str, *, error_type: str
 ) -> MetricRecalculationResult:
@@ -582,7 +585,7 @@ def _client_query_id(recalculation_id: str, metric_uuid: str, attempt: int) -> s
     return f"experiment_metric_recalc_{recalculation_id}_{metric_uuid}_attempt{attempt:02d}"
 
 
-@database_sync_to_async_pool
+@database_sync_to_async_pool(executor=_CANCELLATION_EXECUTOR)
 def _cancel_metric_query_sync(recalculation_id: str, metric_uuid: str, attempt: int) -> None:
     """Kill the ClickHouse query the metric's calc left running, so the abandoned attempt stops reading."""
     close_old_connections()
@@ -751,14 +754,19 @@ def _calculate_experiment_metric_for_recalculation_sync(
             result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
-            results.record_run_result(
-                recalculation_id,
-                calculation_config,
-                window=query_to_dt,
-                query_from=query_from,
-                result=result_dict,
-                query_id=client_query_id,
-            )
+            with transaction.atomic():
+                stored = results.record_run_result(
+                    recalculation_id,
+                    calculation_config,
+                    window=query_to_dt,
+                    query_from=query_from,
+                    result=result_dict,
+                    query_id=client_query_id,
+                )
+                # The workflow can record this metric as out of time while this attempt's thread still runs. The
+                # frontend shows a metric_errors entry over a result, so a result that lands later removes it.
+                if stored:
+                    _clear_error(recalculation_id, metric_uuid)
             _capture_experiment_metric_event(
                 experiment,
                 metric_uuid,
@@ -922,3 +930,64 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 # The error class cap is below MAX_METRIC_ATTEMPTS, so stop the RetryPolicy from retrying further.
                 raise ApplicationError(message, type=error_type, non_retryable=True) from e
             raise
+
+
+@database_sync_to_async_pool
+def _record_metric_out_of_time_failure_sync(failure: MetricOutOfTimeFailure) -> None:
+    close_old_connections()
+    state = _get_recalc_state(failure.recalculation_id)
+
+    with team_scope(state.team_id, canonical=True):
+        # A final attempt that ran to the end already persisted its own failure, with the real error type.
+        if ExperimentMetricsRecalculation.objects.filter(
+            id=failure.recalculation_id, metric_errors__has_key=failure.metric_uuid
+        ).exists():
+            return
+
+        experiment = Experiment.objects.filter(id=failure.experiment_id, deleted=False).first()
+        calculation_config = get_metric_calculation_config(experiment, failure.metric_uuid) if experiment else None
+        if experiment is None or calculation_config is None or not experiment.start_date or state.query_to is None:
+            _fail(
+                failure.recalculation_id, failure.metric_uuid, "calculation", _OUT_OF_TIME_MESSAGE, error_type="timeout"
+            )
+            return
+
+        results = MetricResultStore(experiment_id=experiment.id)
+        with transaction.atomic():
+            # The last attempt can write its result and die before it reports success, which Temporal sees as a
+            # timeout. Its thread can also still be running. Take the result store's run-write locks, in its order,
+            # so that no result write lands between this check and the two failure writes.
+            Experiment.objects.select_for_update(no_key=True).filter(id=experiment.id, team_id=state.team_id).exists()
+            ExperimentMetricsRecalculation.objects.select_for_update().filter(id=failure.recalculation_id).exists()
+            completed = results.has_completed(calculation_config, window=state.query_to)
+            if not completed:
+                results.record_run_failure(
+                    failure.recalculation_id,
+                    calculation_config,
+                    window=state.query_to,
+                    query_from=experiment.start_date,
+                    error_message=_OUT_OF_TIME_MESSAGE,
+                    query_id=None,
+                )
+                _record_failure(
+                    failure.recalculation_id,
+                    failure.metric_uuid,
+                    "calculation",
+                    _OUT_OF_TIME_MESSAGE,
+                    error_type="timeout",
+                    retriable=True,
+                )
+        if completed:
+            _clear_retry(failure.recalculation_id, failure.metric_uuid)
+            return
+
+        _clear_retry(failure.recalculation_id, failure.metric_uuid)
+        _capture_experiment_metric_event(
+            experiment,
+            failure.metric_uuid,
+            failure.metric_type,
+            calculation_config.definition,
+            "experiment metric error",
+            {"error_type": "timeout", "error_message": _OUT_OF_TIME_MESSAGE},
+            trigger=state.trigger,
+        )

@@ -128,6 +128,11 @@ restarting the server. A displayed invitation keeps its original campaign, copy,
 Use release conditions to assign variants, with higher-priority conditions first. One evaluation selects
 one campaign; no invitation queue is created for overlapping audiences.
 
+Every release condition for every variant must include an AND condition excluding the [shared recruitment exclusion cohort](https://us.posthog.com/project/2/cohorts/641799) (`641799` in US project `2`).
+Use `type: "cohort"`, `key: "id"`, `operator: "not_in"`, and `value: 641799` for this filter.
+Release conditions are OR alternatives, so a separate exclusion-only condition does not protect other campaigns.
+Maintain excluded users and organizations in the shared cohort, preserve this exclusion when editing the flag, and verify that excluded people receive no variant.
+
 By default, an eligible conversation must complete three successful product tool calls and have been
 observed for at least 120 seconds. The earliest invitation is before its fourth product call, once both
 thresholds are met. Discovery commands, skills, documentation lookups, private scout tools, and failed calls do not count.

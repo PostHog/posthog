@@ -239,7 +239,7 @@ def _mint_step_resume_jwt(team_id: int, origin_key: str) -> str:
 
 def resume_workflow_step(team_id: int, origin_key: str, status: str, result: dict) -> requests.Response:
     """Wake the parked workflow step that dispatched `origin_key`. 409 means the worker still holds the
-    job and the caller should retry; every other 2xx outcome is final."""
+    job and the caller should retry. A 200 carries the outcome in its body."""
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/workflow_steps/resume",
         json={"origin_key": origin_key, "status": status, "result": result},

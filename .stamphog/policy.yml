@@ -33,8 +33,6 @@ deny:
                 - 'auth/session'
                 - 'auth/token'
                 - 'permission'
-        exempt_path_prefixes:
-            - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
     crypto_secrets:
         description: 'Cryptography, secrets, and key material.'
         rationale: 'key/secret/cert/signing are too broad for titles (key matches keyboard, hotkey, localStorage key), so they are path-only with compound patterns.'
@@ -99,8 +97,6 @@ deny:
                 - 'stripe'
                 - 'invoice'
                 - 'pricing'
-        exempt_path_prefixes:
-            - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
     public_api:
         description: 'Public API contracts and schemas.'
         rationale: 'Changes to the published API surface need human review.'
@@ -136,7 +132,6 @@ deny:
                 # validates this file ships in the server image, so a deploy that still
                 # runs the previous engine needs this exact literal.
                 - 'tools/pr-approval-agent/'
-                - 'products/stamphog/backend/logic/policy_defaults/'
                 - 'packages/owners-yaml/'
                 # Transitional: branches that predate the move still carry the resolver here.
                 - 'tools/owners/'
@@ -168,6 +163,20 @@ deny:
                 - '^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\.py$'
                 - '^tools/hogli-commands/hogli_commands/product_structure\.yaml$'
                 - '^tools/hogli-commands/hogli_commands/product/'
+    agent_steering:
+        description: 'The root agent instructions, the PR authoring guidance, and the agent config that runs in every session.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. One edit changes how every agent-written PR reads, and the files are .md, so without this category they ride the allow-list to a T0 auto-approve. A change from outside team-devex now needs a human approval, which is where the owner discussion happens. .claude/settings.json and .mcp.json are .json and ride the same allow-list, but their hooks and MCP servers run commands in every agent session, so they belong here too. Other skills under .agents/skills stay out on purpose, because product teams own several and edit their own. Paths are anchored, so a nested AGENTS.md stays with its folder owner.'
+        match:
+            paths:
+                - '^agents\.md$'
+                - '^claude\.md$'
+                - '^\.github/pull_request_template\.md$'
+                - '^\.agents/skills/writing-pr-descriptions/'
+                - '^\.claude/settings\.json$'
+                - '^\.claude/hooks/'
+                - '^\.mcp\.json$'
+        exempt_author_teams:
+            - 'team-devex'
     workflows_delivery:
         description: 'CDP, Workflows and Messaging code that decides which customer configurations exist and what gets delivered.'
         rationale: "Owner-only: stamphog approves team-workflows' own changes here and refuses everyone else's. Another team's change here breaks a customer silently: the API and models decide which of a tenant's rows get listed and updated, and the plugin-server worker decides what gets delivered. Teams usually edit these paths to carve out an exception for their own rows, their tests still pass, and existing customer configurations stop appearing or stop being delivered. Product frontends stay out, because a mistake there is visible. As in CODEOWNERS, only the API test directories and `*.test.ts` files stay out. Nothing else under the worker does: the template, legacy-plugin, legacy-webhook and segment directories hold live delivery code and mutable registries."
@@ -177,11 +186,21 @@ deny:
                 - '^products/workflows/backend/(facade|presentation|models)/'
                 - '^products/messaging/backend/(api|models)/'
                 - '^nodejs/src/cdp/[\s\S]*(?<!\.test\.ts)\Z'
-        exempt_path_prefixes:
-            - 'products/cdp/backend/api/test/'
-            - 'products/messaging/backend/api/test/'
         exempt_author_teams:
             - 'team-workflows'
+deny_exceptions:
+    # Connector code does OAuth and talks to the Stripe API without touching PostHog's auth system
+    # or its billing.
+    auth:
+        - path_prefixes:
+              - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
+    billing:
+        - path_prefixes:
+              - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
+    workflows_delivery:
+        - path_prefixes:
+              - 'products/cdp/backend/api/test/'
+              - 'products/messaging/backend/api/test/'
 allow:
     path_patterns:
         - 'docs/'

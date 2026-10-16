@@ -3,12 +3,13 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import type { IntegrationType } from '~/types'
+import type { IntegrationType, TeamPublicType, TeamType } from '~/types'
 
 import { newBroadcastAgentLogic } from '../../Broadcasts/newBroadcastAgentLogic'
 import type { HogFlowTemplate } from '../../Workflows/hogflows/types'
@@ -20,12 +21,19 @@ import { WorkflowsOnboardingPath, workflowsSetupGuideLogic } from '../workflowsS
 import {
     BLANK_START_ID,
     DATA_SUGGESTION_START_ID,
+    FrequencyCap,
+    FrequencyCapChoice,
+    RECOMMENDED_FREQUENCY_CAP,
     ONBOARDING_WIZARD_TAB,
     WIZARD_STEP_COPY,
     WizardConnection,
     WizardStepKey,
+    chosenFrequencyCap,
+    customFrequencyCapError,
     firstOpenStepIndex,
+    initialFrequencyCapChoice,
     requiredConnections,
+    sendingRulesToSave,
     wizardSteps,
 } from './onboardingWizardSteps'
 
@@ -37,12 +45,20 @@ function isOnboardingPath(value: unknown): value is WorkflowsOnboardingPath {
 export interface workflowsOnboardingWizardLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     integrations: IntegrationType[] | null // integrationsLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
+    currentTeamLoading: boolean // teamLogic
     workflowTemplates: HogFlowTemplate[] // workflowTemplatesLogic
     workflowTemplatesLoading: boolean // workflowTemplatesLogic
     guideSteps: SetupGuideStep[] | null // workflowsSetupGuideLogic
+    canEditSendingRules: boolean
+    chosenFrequencyCap: FrequencyCap
     connectionsNeeded: WizardConnection[]
     continueDisabledReason: string | null
     currentStep: WizardStepKey
+    customFrequencyCap: FrequencyCap | null
+    engagementEventsChoice: boolean | null
+    frequencyCapChoice: FrequencyCapChoice | null
+    frequencyCapError: string | null
     hasPositioned: boolean
     initialized: boolean
     isLastStep: boolean
@@ -50,9 +66,13 @@ export interface workflowsOnboardingWizardLogicValues {
     offersSuggestions: boolean
     pushEnabled: boolean
     pushSetupStarted: boolean
+    savedFrequencyCap: FrequencyCap
     selectedTemplate: HogFlowTemplate | null
     selectedTemplateId: string | null
     setupCheckFailed: boolean
+    shownCustomFrequencyCap: FrequencyCap
+    shownEngagementEvents: boolean
+    shownFrequencyCapChoice: FrequencyCapChoice
     startsBlank: boolean
     stepDone: Partial<Record<WizardStepKey, boolean>> | null
     stepIndex: number
@@ -74,6 +94,7 @@ export interface workflowsOnboardingWizardLogicActions {
     createWorkflowFromTemplate: (template: HogFlowTemplate) => {
         template: HogFlowTemplate
     } // newWorkflowLogic
+    updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
     loadHasMessagingWorkflow: () => any // workflowsSetupGuideLogic
     loadHasMessagingWorkflowFailure: (
         error: string,
@@ -124,6 +145,15 @@ export interface workflowsOnboardingWizardLogicActions {
     selectTemplate: (templateId: string) => {
         templateId: string
     }
+    setCustomFrequencyCap: (cap: FrequencyCap) => {
+        cap: FrequencyCap
+    }
+    setEngagementEventsChoice: (enabled: boolean) => {
+        enabled: boolean
+    }
+    setFrequencyCapChoice: (choice: FrequencyCapChoice) => {
+        choice: FrequencyCapChoice
+    }
     setStepIndex: (index: number) => {
         index: number
     }
@@ -139,6 +169,31 @@ export interface workflowsOnboardingWizardLogicActions {
 export interface workflowsOnboardingWizardLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         pushEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        savedFrequencyCap: (currentTeam: TeamPublicType | TeamType | null) => FrequencyCap
+        shownFrequencyCapChoice: (
+            frequencyCapChoice: FrequencyCapChoice | null,
+            savedFrequencyCap: FrequencyCap,
+            canEditSendingRules: boolean
+        ) => FrequencyCapChoice
+        shownCustomFrequencyCap: (
+            customFrequencyCap: FrequencyCap | null,
+            savedFrequencyCap: FrequencyCap
+        ) => FrequencyCap
+        chosenFrequencyCap: (
+            shownFrequencyCapChoice: FrequencyCapChoice,
+            shownCustomFrequencyCap: FrequencyCap
+        ) => FrequencyCap
+        frequencyCapError: (
+            shownFrequencyCapChoice: FrequencyCapChoice,
+            shownCustomFrequencyCap: FrequencyCap,
+            canEditSendingRules: boolean
+        ) => string | null
+        shownEngagementEvents: (
+            engagementEventsChoice: boolean | null,
+            currentTeam: TeamPublicType | TeamType | null,
+            canEditSendingRules: boolean
+        ) => boolean
+        canEditSendingRules: (currentTeam: TeamPublicType | TeamType | null) => boolean
         stepKeys: (wizardPath: WorkflowsOnboardingPath, pushEnabled: boolean) => readonly WizardStepKey[]
         currentStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => WizardStepKey
         offersSuggestions: (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet) => boolean
@@ -159,13 +214,16 @@ export interface workflowsOnboardingWizardLogicMeta {
             missingConnections: 'slack'[],
             integrations: IntegrationType[] | null,
             startsBlank: boolean,
-            setupCheckFailed: boolean
+            setupCheckFailed: boolean,
+            savedFrequencyCap: FrequencyCap
         ) => Partial<Record<WizardStepKey, boolean>> | null
         continueDisabledReason: (
             currentStep: WizardStepKey,
             stepDone: Partial<Record<WizardStepKey, boolean>> | null,
             selectedTemplate: HogFlowTemplate | null,
-            startsBlank: boolean
+            startsBlank: boolean,
+            frequencyCapError: string | null,
+            currentTeamLoading: boolean
         ) => string | null
     }
 }
@@ -189,6 +247,8 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             ['featureFlags'],
             workflowTemplatesLogic,
             ['workflowTemplates', 'workflowTemplatesLoading'],
+            teamLogic,
+            ['currentTeam', 'currentTeamLoading'],
         ],
         actions: [
             newWorkflowLogic,
@@ -197,6 +257,8 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             ['startNewBroadcast'],
             workflowsSetupGuideLogic,
             ['loadHasMessagingWorkflow', 'loadHasMessagingWorkflowFailure', 'loadHasMessagingWorkflowSuccess'],
+            teamLogic,
+            ['updateCurrentTeam'],
         ],
     })),
     actions({
@@ -220,6 +282,9 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
         positionAtFirstOpenStep: (index: number) => ({ index }),
         positionIfReady: true,
         startPushSetup: true,
+        setEngagementEventsChoice: (enabled: boolean) => ({ enabled }),
+        setFrequencyCapChoice: (choice: FrequencyCapChoice) => ({ choice }),
+        setCustomFrequencyCap: (cap: FrequencyCap) => ({ cap }),
         setTemplatesShown: (shown: boolean) => ({ shown }),
         finishWithSuggestion: true,
     }),
@@ -272,6 +337,24 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 setTemplatesShown: (_, { shown }) => shown,
             },
         ],
+        frequencyCapChoice: [
+            null as FrequencyCapChoice | null,
+            {
+                setFrequencyCapChoice: (_, { choice }) => choice,
+            },
+        ],
+        customFrequencyCap: [
+            null as FrequencyCap | null,
+            {
+                setCustomFrequencyCap: (_, { cap }) => cap,
+            },
+        ],
+        engagementEventsChoice: [
+            null as boolean | null,
+            {
+                setEngagementEventsChoice: (_, { enabled }) => enabled,
+            },
+        ],
         pushSetupStarted: [
             false,
             {
@@ -291,6 +374,63 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
         pushEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS],
+        ],
+        savedFrequencyCap: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamType | null): FrequencyCap => ({
+                maxMessages: currentTeam?.workflows_config?.marketing_frequency_cap_max_messages ?? null,
+                windowDays: currentTeam?.workflows_config?.marketing_frequency_cap_window_days ?? null,
+            }),
+        ],
+        // A non-admin cannot save, so the step shows what is saved instead of the defaults.
+        shownFrequencyCapChoice: [
+            (s) => [s.frequencyCapChoice, s.savedFrequencyCap, s.canEditSendingRules],
+            (
+                frequencyCapChoice: FrequencyCapChoice | null,
+                savedFrequencyCap: FrequencyCap,
+                canEditSendingRules: boolean
+            ): FrequencyCapChoice =>
+                frequencyCapChoice ?? initialFrequencyCapChoice(savedFrequencyCap, canEditSendingRules),
+        ],
+        shownCustomFrequencyCap: [
+            (s) => [s.customFrequencyCap, s.savedFrequencyCap],
+            (customFrequencyCap: FrequencyCap | null, savedFrequencyCap: FrequencyCap): FrequencyCap =>
+                customFrequencyCap ??
+                (savedFrequencyCap.maxMessages !== null && savedFrequencyCap.windowDays !== null
+                    ? savedFrequencyCap
+                    : RECOMMENDED_FREQUENCY_CAP),
+        ],
+        chosenFrequencyCap: [
+            (s) => [s.shownFrequencyCapChoice, s.shownCustomFrequencyCap],
+            (shownFrequencyCapChoice: FrequencyCapChoice, shownCustomFrequencyCap: FrequencyCap): FrequencyCap =>
+                chosenFrequencyCap(shownFrequencyCapChoice, shownCustomFrequencyCap),
+        ],
+        frequencyCapError: [
+            (s) => [s.shownFrequencyCapChoice, s.shownCustomFrequencyCap, s.canEditSendingRules],
+            (
+                shownFrequencyCapChoice: FrequencyCapChoice,
+                shownCustomFrequencyCap: FrequencyCap,
+                canEditSendingRules: boolean
+            ): string | null =>
+                canEditSendingRules && shownFrequencyCapChoice === 'custom'
+                    ? customFrequencyCapError(shownCustomFrequencyCap)
+                    : null,
+        ],
+        shownEngagementEvents: [
+            (s) => [s.engagementEventsChoice, s.currentTeam, s.canEditSendingRules],
+            (
+                engagementEventsChoice: boolean | null,
+                currentTeam: TeamPublicType | TeamType | null,
+                canEditSendingRules: boolean
+            ): boolean =>
+                engagementEventsChoice ??
+                (canEditSendingRules || !!currentTeam?.workflows_config?.capture_workflows_engagement_events),
+        ],
+        // Matches the admin restriction on the frequency cap in project settings.
+        canEditSendingRules: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamType | null): boolean =>
+                (currentTeam?.effective_membership_level ?? -1) >= TeamMembershipLevel.Admin,
         ],
         stepKeys: [
             (s) => [s.wizardPath, s.pushEnabled],
@@ -356,6 +496,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 s.integrations,
                 s.startsBlank,
                 s.setupCheckFailed,
+                s.savedFrequencyCap,
             ],
             (
                 wizardPath: WorkflowsOnboardingPath,
@@ -364,7 +505,8 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 missingConnections: WizardConnection[],
                 integrations: IntegrationType[] | null,
                 startsBlank: boolean,
-                setupCheckFailed: boolean
+                setupCheckFailed: boolean,
+                savedFrequencyCap: FrequencyCap
             ): Partial<Record<WizardStepKey, boolean>> | null => {
                 const picked = !!selectedTemplate || startsBlank
                 if (wizardPath === 'automation') {
@@ -380,6 +522,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                     channel: !!integrations?.some((integration) => integration.kind === 'email'),
                     domain: guideDone('domain'),
                     'opt-outs': guideDone('opt-outs'),
+                    'sending-rules': savedFrequencyCap.maxMessages !== null && savedFrequencyCap.windowDays !== null,
                     push: !!integrations?.some(
                         (integration) => integration.kind === 'firebase' || integration.kind === 'apns'
                     ),
@@ -390,13 +533,28 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
         ],
         /** Why the person cannot move on from this step yet, or null when they can. */
         continueDisabledReason: [
-            (s) => [s.currentStep, s.stepDone, s.selectedTemplate, s.startsBlank],
+            (s) => [
+                s.currentStep,
+                s.stepDone,
+                s.selectedTemplate,
+                s.startsBlank,
+                s.frequencyCapError,
+                s.currentTeamLoading,
+            ],
             (
                 currentStep: WizardStepKey,
                 stepDone: Partial<Record<WizardStepKey, boolean>> | null,
                 selectedTemplate: HogFlowTemplate | null,
-                startsBlank: boolean
+                startsBlank: boolean,
+                frequencyCapError: string | null,
+                currentTeamLoading: boolean
             ): string | null => {
+                if (currentStep === 'sending-rules') {
+                    if (currentTeamLoading) {
+                        return 'Saving your sending rules'
+                    }
+                    return frequencyCapError ? 'Fix the frequency cap to continue' : null
+                }
                 if (currentStep === 'broadcast') {
                     return null
                 }
@@ -421,7 +579,26 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 path: values.wizardPath,
                 step,
                 skipped: WIZARD_STEP_COPY[step].optional && !values.stepDone?.[step],
+                ...(step === 'sending-rules'
+                    ? { frequency_cap: values.shownFrequencyCapChoice, engagement_events: values.shownEngagementEvents }
+                    : {}),
             })
+            const rulesToSave =
+                step === 'sending-rules'
+                    ? sendingRulesToSave(
+                          {
+                              ...values.savedFrequencyCap,
+                              engagementEvents:
+                                  !!values.currentTeam?.workflows_config?.capture_workflows_engagement_events,
+                          },
+                          values.chosenFrequencyCap,
+                          values.shownEngagementEvents,
+                          values.canEditSendingRules
+                      )
+                    : null
+            if (rulesToSave) {
+                actions.updateCurrentTeam({ workflows_config: rulesToSave })
+            }
             if (values.isLastStep) {
                 actions.finish()
             } else {
