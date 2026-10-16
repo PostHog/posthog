@@ -169,7 +169,7 @@ function storedAggregation(group: FlagConditionGroup, flagLevelGroupIndex: numbe
 
 /**
  * The filters under each key compare as a multiset of operator and value pairs, so a removed, added,
- * or changed filter on a key is a change.
+ * or changed filter on a key is a change. The flag evaluator reads a missing operator as `exact`.
  */
 function keepsFilters(incoming: FlagConditionGroup, source: ExistingSet): boolean {
     return [...indexProperties(incoming.properties)].every(([key, props]) => {
@@ -178,7 +178,9 @@ function keepsFilters(incoming: FlagConditionGroup, source: ExistingSet): boolea
             props.length === unmatched.length &&
             props.every((prop) => {
                 const match = unmatched.findIndex(
-                    (stored) => stored.operator === prop.operator && isDeepStrictEqual(stored.value, prop.value)
+                    (stored) =>
+                        (stored.operator ?? 'exact') === (prop.operator ?? 'exact') &&
+                        isDeepStrictEqual(stored.value, prop.value)
                 )
                 if (match === -1) {
                     return false

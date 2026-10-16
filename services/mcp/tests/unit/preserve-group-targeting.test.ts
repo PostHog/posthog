@@ -865,6 +865,20 @@ describe('preserveGroupTargetingFilters', () => {
             ],
         },
         {
+            name: 'two sets that filter on the same key keep their values and omit the exact operator',
+            existing: existingSameKeyMixedFlag,
+            incoming: {
+                groups: [
+                    { properties: [{ key: 'plan', value: 'free' }], rollout_percentage: 100 },
+                    { properties: [{ key: 'plan', value: 'enterprise' }], rollout_percentage: 100 },
+                ],
+            },
+            expected: [
+                [undefined, 'person', undefined],
+                [0, 'group', 0],
+            ],
+        },
+        {
             name: 'two sets that filter on the same key keep their values',
             existing: existingSameKeyMixedFlag,
             incoming: {
