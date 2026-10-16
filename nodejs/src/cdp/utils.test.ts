@@ -218,6 +218,18 @@ describe('Utils', () => {
                 ['*', '*', '*', '*', '*', '*', '*', '*', 'R'],
                 '{"key":"***REDACTED***"}',
             ],
+            [
+                'a Basic auth pair, keeping the encoded characters it shares with the user part',
+                ['Authorization: Basic ZmFrZS11c2VyLTAwOmZha2Utc2VjcmV0LTAwMDA=', 'ZXhhbXBsZS12YWx1ZQ=='],
+                ['fake-secret-0000'],
+                'Authorization: Basic ZmFrZS11c2VyLTAwOm***REDACTED***A=, ZXhhbXBsZS12YWx1ZQ==',
+            ],
+            [
+                'its base64url encoding',
+                ['token=ZmFrZS1zZWNyZXQtPj4-Pz8_'],
+                ['fake-secret->>>???'],
+                'token=***REDACTED***',
+            ],
         ])('should redact a sensitive value in %s', (_name, args, sensitiveValues, expected) => {
             expect(sanitizeLogMessage(args, sensitiveValues)).toBe(expected)
         })

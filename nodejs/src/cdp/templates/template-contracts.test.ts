@@ -25,20 +25,7 @@ const INTEGRATION_EXEMPTIONS: Exemptions = {}
 
 const WELL_FORMED_EXEMPTIONS: Exemptions = {}
 
-const ENCODED_IN_DEBUG_OUTPUT = 'debug output prints the Basic auth header, and masking misses its encoded form'
-const ENCODED_IN_ERROR = 'error message quotes the response body, and masking misses the encoded Basic auth form'
-
-const SECRETS_EXEMPTIONS: Exemptions = {
-    'template-twilio': ENCODED_IN_DEBUG_OUTPUT,
-    'template-accoil > Track Calls': ENCODED_IN_ERROR,
-    'template-accoil > Page Calls': ENCODED_IN_ERROR,
-    'template-accoil > Screen Calls': ENCODED_IN_ERROR,
-    'template-accoil > Identify Calls': ENCODED_IN_ERROR,
-    'template-accoil > Group Calls': ENCODED_IN_ERROR,
-    'template-appcues > Track Calls': ENCODED_IN_ERROR,
-    'template-appcues > Identify Calls': ENCODED_IN_ERROR,
-    'template-close': ENCODED_IN_ERROR,
-}
+const SECRETS_EXEMPTIONS: Exemptions = {}
 
 const FAILURES_EXEMPTIONS: Exemptions = {}
 

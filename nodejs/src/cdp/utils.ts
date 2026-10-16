@@ -430,19 +430,16 @@ export const redactSensitiveValues = (message: string, sensitiveValues?: string[
         return message
     }
 
-    const variants = new Set<string>()
-    sensitiveValues.forEach((sensitiveValue) => {
-        if (typeof sensitiveValue !== 'string' || !sensitiveValue) {
-            return
-        }
-        variants.add(sensitiveValue)
-        // Logged objects are JSON-encoded, which escapes quotes, backslashes and newlines, so a secret
-        // such as a PEM private key no longer matches its raw form inside the message.
-        variants.add(JSON.stringify(sensitiveValue).slice(1, -1))
-    })
-    if (!variants.size) {
+    const secrets = sensitiveValues.filter((value) => typeof value === 'string' && value)
+    if (!secrets.length) {
         return message
     }
+
+    // Logged objects are JSON-encoded, which escapes quotes, backslashes and newlines, so a secret
+    // such as a PEM private key no longer matches its raw form inside the message.
+    const variants = new Set(
+        secrets.flatMap((secret) => [secret, JSON.stringify(secret).slice(1, -1), ...base64Variants(secret)])
+    )
 
     // Replace every value in one pass over the original text, longest first. Replacing the values one
     // after another rescans the markers that earlier passes inserted, so a value that occurs inside
@@ -456,6 +453,22 @@ export const redactSensitiveValues = (message: string, sensitiveValues?: string[
     )
     return message.replace(pattern, REDACTED)
 }
+
+// Shorter fragments of an encoded secret are too common in ordinary base64 text to mask safely.
+const MIN_BASE64_VARIANT_LENGTH = 4
+
+// A credential often travels base64-encoded, for example in the `user:secret` pair of a Basic auth
+// header. Its encoding depends on where it starts within a 3-byte group, so this takes all three
+// alignments and keeps only the characters that the neighboring bytes do not change.
+const base64Variants = (secret: string): string[] =>
+    [0, 1, 2].flatMap((offset) => {
+        const encoded = Buffer.concat([Buffer.alloc(offset), Buffer.from(secret)]).toString('base64')
+        const stableStart = offset ? offset + 1 : 0
+        const stableEnd = Math.floor(((offset + Buffer.byteLength(secret)) * 4) / 3)
+        const stable = encoded.slice(stableStart, stableEnd)
+        const urlSafe = stable.replace(/\+/g, '-').replace(/\//g, '_')
+        return [stable, urlSafe].filter((variant) => variant.length >= MIN_BASE64_VARIANT_LENGTH)
+    })
 
 // Redacts each string before the outer JSON encoding. A value that is already a JSON string, such as a
 // request body, is otherwise escaped a second time and no longer matches the escaped secret.
