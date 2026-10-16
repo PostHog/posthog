@@ -1,4 +1,4 @@
-import type { PointClickData, TooltipConfig } from '@posthog/quill-charts'
+import type { PointClickData, Series, TooltipConfig, ValueLabelFormatter } from '@posthog/quill-charts'
 
 import { percentage } from 'lib/utils/numbers'
 
@@ -150,12 +150,43 @@ export function resolveFunnelStepClick(
     return { step, series: variant, converted: !clickData.inTrackArea }
 }
 
-export function formatFunnelStepBarLabel(ratePercent: number): string {
-    return percentage(ratePercent / RATE_TO_PERCENT, 0)
+const SMALLEST_SHOWN_RATE = 0.001
+const LARGEST_SHOWN_RATE = 0.999
+
+function formatPreciseRate(rate: number): string {
+    if (rate > 0 && rate < SMALLEST_SHOWN_RATE) {
+        return `<${percentage(SMALLEST_SHOWN_RATE, 1)}`
+    }
+    if (rate < 1 && rate > LARGEST_SHOWN_RATE) {
+        return percentage(LARGEST_SHOWN_RATE, 1)
+    }
+    return percentage(rate, 1)
 }
 
-// A narrower gap makes the chip touch the bars on both sides.
-export const STEP_CONVERSION_CHIP_MIN_GAP_PX = 48
+// Adds a decimal only where a whole percentage would hide a difference, from 0%, 100% or a neighboring step.
+export function formatFunnelStepRates(rates: number[]): string[] {
+    const wholes = rates.map((rate) => percentage(rate, 0))
+    return rates.map((rate, index) => {
+        const whole = wholes[index]
+        const hidesDifference =
+            (whole === '0%' && rate > 0) ||
+            (whole === '100%' && rate < 1) ||
+            [index - 1, index + 1].some(
+                (neighbor) => neighbor in rates && rates[neighbor] !== rate && wholes[neighbor] === whole
+            )
+        return hidesDifference ? formatPreciseRate(rate) : whole
+    })
+}
+
+export function formatFunnelStepRate(rate: number): string {
+    return formatFunnelStepRates([rate])[0]
+}
+
+export function buildFunnelStepBarLabelFormatter(series: Pick<Series, 'data'>[]): ValueLabelFormatter {
+    const labels = series.map((s) => formatFunnelStepRates(s.data.map((value) => value / RATE_TO_PERCENT)))
+    return (value, seriesIndex, dataIndex) =>
+        labels[seriesIndex]?.[dataIndex] ?? formatFunnelStepRate(value / RATE_TO_PERCENT)
+}
 
 export interface StepBandBox {
     left: number
@@ -172,11 +203,7 @@ export function placeStepConversionChips(bands: StepBandBox[]): StepConversionCh
     const placements: StepConversionChipPlacement[] = []
     for (let stepIndex = 1; stepIndex < bands.length; stepIndex++) {
         const previousRight = bands[stepIndex - 1].left + bands[stepIndex - 1].width
-        const gap = bands[stepIndex].left - previousRight
-        if (gap < STEP_CONVERSION_CHIP_MIN_GAP_PX) {
-            continue
-        }
-        placements.push({ stepIndex, centerX: previousRight + gap / 2 })
+        placements.push({ stepIndex, centerX: (previousRight + bands[stepIndex].left) / 2 })
     }
     return placements
 }

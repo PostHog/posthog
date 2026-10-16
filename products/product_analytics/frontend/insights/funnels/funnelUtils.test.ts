@@ -27,7 +27,6 @@ import {
     getBreakdownStepValues,
     getClampedFunnelStepRange,
     getIncompleteConversionWindowStartDate,
-    getLargestStepDrop,
     getLastFilledStep,
     getMeanAndStandardDeviation,
     getReferenceStep,
@@ -1244,20 +1243,5 @@ describe('dimPreviousPeriodColor', () => {
     it('leaves colors that already carry alpha or a non-hex format unchanged', () => {
         expect(dimPreviousPeriodColor('#1d4aff80')).toBe('#1d4aff80')
         expect(dimPreviousPeriodColor('rgba(29, 74, 255, 0.5)')).toBe('rgba(29, 74, 255, 0.5)')
-    })
-})
-
-describe('getLargestStepDrop', () => {
-    test.each([
-        {
-            name: 'picks the step that keeps the smallest share',
-            counts: [1000, 800, 200, 150],
-            expected: { stepIndex: 2, dropOffRate: 0.75 },
-        },
-        { name: 'skips a step after an empty step', counts: [1000, 0, 0], expected: { stepIndex: 1, dropOffRate: 1 } },
-        { name: 'returns null when no step loses anyone', counts: [500, 500], expected: null },
-        { name: 'returns null for a single step', counts: [500], expected: null },
-    ])('$name', ({ counts, expected }) => {
-        expect(getLargestStepDrop(counts.map((count) => ({ count })))).toEqual(expected)
     })
 })

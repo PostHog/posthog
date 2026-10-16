@@ -4,15 +4,15 @@ import { useMemo } from 'react'
 import { IconArrowRight } from '@posthog/icons'
 import { RATE_TO_PERCENT, useChartLayout } from '@posthog/quill-charts'
 
-import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
-import { placeStepConversionChips, type StepBandBox } from './funnelStepsBarTransforms'
+import { formatFunnelStepRate, placeStepConversionChips, type StepBandBox } from './funnelStepsBarTransforms'
 
-// Keeps the chip inside the plot when the previous bar is at 100% or close to zero.
-const CHIP_TOP_INSET_PX = 12
-const CHIP_BOTTOM_INSET_PX = 40
+const CHIP_ROW_HEIGHT_PX = 16
+const CHIP_CHROME_PX = 6
+const CHIP_EDGE_INSET_PX = 4
 
 interface StepConversionChipsProps {
     steps: FunnelStepWithConversionMetrics[]
@@ -34,8 +34,7 @@ export function StepConversionChips({ steps }: StepConversionChipsProps): JSX.El
         return null
     }
 
-    const minTop = dimensions.plotTop + CHIP_TOP_INSET_PX
-    const maxTop = dimensions.plotTop + dimensions.plotHeight - CHIP_BOTTOM_INSET_PX
+    const plotBottom = dimensions.plotTop + dimensions.plotHeight
 
     return (
         <>
@@ -45,25 +44,31 @@ export function StepConversionChips({ steps }: StepConversionChipsProps): JSX.El
                 if (!step || !previousStep) {
                     return null
                 }
-                // Anchor at the top of the previous bar, so the chip reads as the step down to the next bar.
+                const hasDropOff = step.droppedOffFromPrevious > 0
+                const chipHeight = (hasDropOff ? 2 : 1) * CHIP_ROW_HEIGHT_PX + CHIP_CHROME_PX
+                // Centers the rate row on the previous bar's top, so chips line up whether or not they show a drop-off.
                 const previousBarTop = scales.y(previousStep.conversionRates.fromBasisStep * RATE_TO_PERCENT)
-                const top = Math.min(maxTop, Math.max(minTop, previousBarTop))
+                const top = Math.min(
+                    plotBottom - chipHeight - CHIP_EDGE_INSET_PX,
+                    Math.max(
+                        dimensions.plotTop + CHIP_EDGE_INSET_PX,
+                        previousBarTop - (CHIP_ROW_HEIGHT_PX + CHIP_CHROME_PX) / 2
+                    )
+                )
                 return (
                     <div
                         key={stepIndex}
-                        className="pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5"
+                        className="pointer-events-none absolute flex -translate-x-1/2 flex-col items-center rounded-md border border-primary bg-surface-primary px-1 py-0.5 text-xs leading-4 tabular-nums shadow-sm"
                         style={{ left: centerX, top }}
                         data-attr="funnel-step-conversion-chip"
                         translate="no"
                     >
-                        <span className="flex items-center gap-0.5 rounded-full border border-primary bg-surface-primary px-1.5 text-xs font-semibold leading-5 tabular-nums">
-                            <IconArrowRight className="shrink-0 text-secondary" />
-                            <span>{percentage(step.conversionRates.fromPrevious, 0)}</span>
+                        <span className="flex items-center gap-0.5 font-semibold">
+                            <IconArrowRight className="size-3 shrink-0 text-secondary" />
+                            {formatFunnelStepRate(step.conversionRates.fromPrevious)}
                         </span>
-                        {step.droppedOffFromPrevious > 0 && (
-                            <span className="text-xs font-semibold text-danger tabular-nums">
-                                {`−${humanFriendlyLargeNumber(step.droppedOffFromPrevious)}`}
-                            </span>
+                        {hasDropOff && (
+                            <span className="text-danger">{`−${humanFriendlyLargeNumber(step.droppedOffFromPrevious)}`}</span>
                         )}
                     </div>
                 )

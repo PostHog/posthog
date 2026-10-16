@@ -4,6 +4,7 @@ import { EntityTypes, type FunnelStepWithConversionMetrics } from '~/types'
 
 import {
     buildFunnelStepsBarData,
+    formatFunnelStepRates,
     FUNNEL_STEPS_SERIES_KEY_PREFIX,
     placeStepConversionChips,
     resolveFunnelStepClick,
@@ -250,7 +251,7 @@ describe('resolveFunnelStepClick', () => {
 describe('placeStepConversionChips', () => {
     test.each([
         {
-            name: 'centers a chip in each wide gap, keyed to the step it converts into',
+            name: 'centers a chip in each gap, keyed to the step it converts into',
             bands: [
                 { left: 40, width: 100 },
                 { left: 240, width: 100 },
@@ -261,16 +262,28 @@ describe('placeStepConversionChips', () => {
                 { stepIndex: 2, centerX: 390 },
             ],
         },
-        {
-            name: 'skips a gap too narrow for the chip',
-            bands: [
-                { left: 40, width: 100 },
-                { left: 180, width: 100 },
-            ],
-            expected: [],
-        },
         { name: 'places nothing for a single step', bands: [{ left: 40, width: 100 }], expected: [] },
     ])('$name', ({ bands, expected }) => {
         expect(placeStepConversionChips(bands)).toEqual(expected)
+    })
+})
+
+describe('formatFunnelStepRates', () => {
+    test.each([
+        { name: 'keeps far-apart rates whole', rates: [1, 0.8, 0.201], expected: ['100%', '80%', '20%'] },
+        { name: 'never shows a drop-off as 100%', rates: [1, 24861 / 24873], expected: ['100%', '99.9%'] },
+        {
+            name: 'never shows a small rate as 0%',
+            rates: [1, 77 / 24873, 3 / 24873],
+            expected: ['100%', '0.3%', '<0.1%'],
+        },
+        {
+            name: 'adds a decimal to neighbors that round the same',
+            rates: [0.454, 0.451, 0.2],
+            expected: ['45.4%', '45.1%', '20%'],
+        },
+        { name: 'keeps equal neighbors whole', rates: [2071 / 24873, 2071 / 24873], expected: ['8%', '8%'] },
+    ])('$name', ({ rates, expected }) => {
+        expect(formatFunnelStepRates(rates)).toEqual(expected)
     })
 })

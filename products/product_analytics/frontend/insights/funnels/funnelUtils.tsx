@@ -92,23 +92,6 @@ export function getLastFilledStep(steps: FunnelStep[], index?: number): FunnelSt
     )
 }
 
-export function getLargestStepDrop(
-    steps: Pick<FunnelStep, 'count'>[]
-): { stepIndex: number; dropOffRate: number } | null {
-    let largest: { stepIndex: number; dropOffRate: number } | null = null
-    for (let stepIndex = 1; stepIndex < steps.length; stepIndex++) {
-        const previousCount = steps[stepIndex - 1].count
-        if (!previousCount) {
-            continue
-        }
-        const dropOffRate = 1 - steps[stepIndex].count / previousCount
-        if (dropOffRate > 0 && (largest == null || dropOffRate > largest.dropOffRate)) {
-            largest = { stepIndex, dropOffRate }
-        }
-    }
-    return largest
-}
-
 export function getBreakdownMaxIndex(breakdown?: FunnelStep[]): number | undefined {
     // Returns the index of the last nonzero breakdown item
     if (!breakdown) {
