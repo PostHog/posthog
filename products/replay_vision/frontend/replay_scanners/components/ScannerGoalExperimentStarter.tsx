@@ -77,11 +77,19 @@ export function ScannerGoalExperimentStarter({
                                         data-attr="vision-goal-starter-experiment-search"
                                     />
                                 ),
-                                options: options.map((option) => ({ value: option.id, label: option.name })),
-                                footer:
-                                    search && !experimentOptionsLoading && options.length === 0
-                                        ? 'No running experiments match your search'
-                                        : undefined,
+                                // LemonSelect drops a section with no options, and the search box with it.
+                                options:
+                                    options.length > 0
+                                        ? options.map((option) => ({ value: option.id, label: option.name }))
+                                        : [
+                                              {
+                                                  value: 0,
+                                                  label: experimentOptionsLoading
+                                                      ? 'Searching...'
+                                                      : 'No running experiments match your search',
+                                                  disabledReason: 'Try a different search',
+                                              },
+                                          ],
                             },
                         ]}
                         onChange={(id) => setExperiment(options.find((option) => option.id === id) ?? null)}
