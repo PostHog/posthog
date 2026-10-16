@@ -21,6 +21,7 @@ import { hogFlowsUserBlastRadiusCreate } from 'products/workflows/frontend/gener
 import { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { HogFlowAction } from '../types'
+import { REALTIME_COHORT_STATUS_POLL_MS, isRealtimeCohortUnresolved } from './realtimeCohortStatus'
 import { recipientEmailProperty } from './recipientEmail'
 
 export function getAudienceDedupeKey(workflow?: { actions?: HogFlowAction[] } | null): 'email' | undefined {
@@ -210,9 +211,34 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, props }) => ({
         loadBlastRadius: () => {
             actions.loadRecipientsWithoutEmail(null)
+        },
+        loadBlastRadiusSuccess: async ({ blastRadius }, breakpoint) => {
+            // Run reads the realtime cohort's status from the audience size, and the cohort can finish or recover
+            // while the popover stays open. Only the size is refreshed, not the recipient check.
+            if (!props.filters || !isRealtimeCohortUnresolved(blastRadius?.realtime_cohort)) {
+                return
+            }
+            for (;;) {
+                await breakpoint(REALTIME_COHORT_STATUS_POLL_MS)
+                let refreshed: BlastRadiusApi | null = null
+                try {
+                    refreshed = await api.hogFlows.getBatchTriggerBlastRadius(
+                        props.filters,
+                        props.dedupeKey,
+                        props.sendsEmail
+                    )
+                } catch {
+                    // A failed check tries again on the next interval.
+                }
+                breakpoint()
+                if (refreshed) {
+                    actions.loadBlastRadiusSuccess(refreshed)
+                    return
+                }
+            }
         },
         loadBlastRadiusFailure: ({ errorObject }) => {
             const apiError = errorObject as ApiError | undefined

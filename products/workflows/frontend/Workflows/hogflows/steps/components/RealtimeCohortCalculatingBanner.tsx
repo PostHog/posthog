@@ -20,8 +20,9 @@ export function RealtimeCohortCalculatingBanner({ status }: RealtimeCohortCalcul
         return (
             <LemonBanner type="info">
                 Cohort {cohort} is still calculating
-                {status.percent_complete != null ? ` (${status.percent_complete}% done)` : ''}. This send waits for it
-                and starts on its own once it's ready.
+                {/* Its own element, so page translation can't detach the text that each status refresh changes. */}
+                {status.percent_complete != null ? <span> ({status.percent_complete}% done)</span> : null}. This send
+                waits for it and starts on its own once it's ready.
             </LemonBanner>
         )
     }

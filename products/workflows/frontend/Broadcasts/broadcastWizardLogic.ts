@@ -79,6 +79,10 @@ import {
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
 import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
+import {
+    REALTIME_COHORT_STATUS_POLL_MS,
+    isRealtimeCohortUnresolved,
+} from '../Workflows/hogflows/steps/realtimeCohortStatus'
 import { recipientEmailProperty } from '../Workflows/hogflows/steps/recipientEmail'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
 import {
@@ -126,7 +130,6 @@ export type BroadcastWizardStep = 'recipients' | 'goal' | 'content' | 'schedule'
 const DEFAULT_BROADCAST_NAME = 'New broadcast'
 const EMAIL_AUTOSAVE_RETRIES = 3
 const EMAIL_AUTOSAVE_RETRY_MS = 2000
-const REALTIME_COHORT_STATUS_POLL_MS = 10000
 
 export const BROADCAST_WIZARD_STEPS: BroadcastWizardStep[] = ['recipients', 'goal', 'content', 'schedule', 'review']
 
@@ -2125,8 +2128,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         loadBlastRadiusSuccess: async ({ blastRadius }, breakpoint) => {
             // The send button reads the realtime cohort's status from the audience size, and the cohort can
             // finish or recover while the page stays open. Only the size is refreshed, not the recipient check.
-            const state = blastRadius?.realtime_cohort?.state
-            if (!values.currentProjectId || !state || state === 'ready') {
+            if (!values.currentProjectId || !isRealtimeCohortUnresolved(blastRadius?.realtime_cohort)) {
                 return
             }
             for (;;) {
