@@ -165,8 +165,8 @@ _CDP_DATE_ATTRIBUTION = (
     "A cutover must reconcile dispatches across those dates to avoid missing or double-counting them."
 )
 _LOCAL_EVALUATION_UNDERCOUNT = (
-    "Django's feature-flag list endpoint counts older SDK requests in Redis but emits no usage records. "
-    "Only the Rust definitions endpoint contributes to the record total."
+    "Historical local-evaluation records omit requests handled by Django's feature-flag list endpoint. "
+    "Validate both producers over a complete comparison window before using records as authoritative."
 )
 # Keep legacy totals authoritative until producer discrepancies are resolved or confirmed as intended billing behavior.
 RECORD_REALTIME_BLOCKERS = {
