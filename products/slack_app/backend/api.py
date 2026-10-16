@@ -138,7 +138,6 @@ from products.slack_app.backend.temporal import (
     SlackAppMentionWorkflowInputs,
     derive_mention_workflow_id,
 )
-from products.slack_app.backend.temporal.posthog_code_slack_mention import SlackAppMentionProcessingWorkflow
 from products.slack_app.backend.temporal.posthog_code_slack_mention_command import (
     PostHogCodeSlackMentionCommandWorkflow,
 )
@@ -147,6 +146,7 @@ from products.slack_app.backend.temporal.slack_app_mention import (
     SlackAppMentionWorkflow,
     derive_slack_app_mention_workflow_id,
 )
+from products.slack_app.backend.temporal.slack_app_mention_processing import SlackAppMentionProcessingWorkflow
 from products.slack_app.backend.temporal.types import SlackAppForkThreadInputs
 
 logger = structlog.get_logger(__name__)

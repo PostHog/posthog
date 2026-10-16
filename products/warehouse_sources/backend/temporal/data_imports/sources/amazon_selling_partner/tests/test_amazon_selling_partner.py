@@ -448,6 +448,26 @@ class TestInventorySummaries:
         assert [(row["marketplaceId"], row["sellerSku"]) for row in result.rows] == [("A", "sku1")]
         assert result.final_state == AmazonSellingPartnerResumeConfig(completed_marketplaces=["X", "A"])
 
+    def test_a_400_after_the_first_page_of_a_discovered_marketplace_fails_the_sync(self) -> None:
+        participations = ScriptedResponse(
+            json={"payload": [{"marketplace": {"id": "A"}, "participation": {"isParticipating": True}}]}
+        )
+        expired_token = ScriptedResponse(
+            status=400, json={"errors": [{"code": "InvalidInput", "message": "The next token has expired"}]}
+        )
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == TOKEN_PATH:
+                return TOKEN
+            if request.path == PARTICIPATIONS_PATH:
+                return participations
+            return expired_token if request.param("nextToken") else _summaries_page(["sku1"], "next")
+
+        result = _driver().run("inventory_summaries", respond)
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.final_state is None
+
     def test_a_configured_marketplace_that_amazon_rejects_fails_the_sync(self) -> None:
         def respond(request: RecordedRequest) -> ScriptedResponse:
             return TOKEN if request.path == TOKEN_PATH else ScriptedResponse(status=400, json={"errors": []})

@@ -417,7 +417,9 @@ def _spool_inventory_pages(
     marketplace_id: str,
     spool: sqlite3.Connection,
     manager: ResumableSourceManager[AmazonSellingPartnerResumeConfig],
-) -> None:
+    skip_if_not_covered: bool,
+) -> bool:
+    """Spool every page of one marketplace. False when Amazon rejects the marketplace on its first page."""
     next_token: str | None = None
     while True:
         params: dict[str, Any] = {
@@ -429,6 +431,10 @@ def _spool_inventory_pages(
         if next_token:
             params["nextToken"] = next_token
         response = session.get(url, params=params, auth=auth, timeout=REQUEST_TIMEOUT)
+        # A discovered marketplace can be a channel FBA inventory does not cover. A later page's 400
+        # is a real failure, such as an expired page token.
+        if skip_if_not_covered and next_token is None and response.status_code == 400:
+            return False
         response.raise_for_status()
         body = response.json()
         spool.executemany(
@@ -442,7 +448,7 @@ def _spool_inventory_pages(
         # The staged cursor does not cover this marketplace, so a hand-off here reads it again.
         manager.safe_point()
         if not next_token:
-            return
+            return True
 
 
 def _inventory_rows(
@@ -471,13 +477,9 @@ def _inventory_rows(
             spool = sqlite3.connect(Path(spool_dir) / "inventory.sqlite", check_same_thread=False)
             try:
                 spool.execute("CREATE TABLE inventory (seller_sku TEXT PRIMARY KEY, row TEXT NOT NULL)")
-                try:
-                    _spool_inventory_pages(session, auth, url, marketplace_id, spool, manager)
-                except requests.HTTPError as error:
-                    status = error.response.status_code if error.response is not None else None
-                    # A discovered marketplace can be a channel FBA inventory does not cover.
-                    if not discovered or status != 400:
-                        raise
+                if not _spool_inventory_pages(
+                    session, auth, url, marketplace_id, spool, manager, skip_if_not_covered=discovered
+                ):
                     logger.warning(
                         "amazon_selling_partner_inventory_marketplace_skipped", marketplace_id=marketplace_id
                     )
