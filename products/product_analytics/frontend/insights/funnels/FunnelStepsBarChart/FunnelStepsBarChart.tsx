@@ -7,6 +7,7 @@ import type { FunnelChartConfig, FunnelStepClickData, TooltipContext } from '@po
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -22,6 +23,7 @@ import {
     resolveFunnelStepClick,
     type FunnelStepsBarSeriesMeta,
 } from './funnelStepsBarTransforms'
+import { StepDropOffLabels } from './StepDropOffLabels'
 import { StepNameLabel } from './StepNameLabel'
 
 const MIN_STEP_WIDTH_PX = 144
@@ -72,6 +74,16 @@ export function FunnelStepsBarChart({
     const stepLabels = useMemo(() => steps.map((step) => String(step.custom_name ?? step.name ?? '')), [steps])
 
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
+
+    // Breakdown and compare bars are too narrow for counts, so they keep the rate only.
+    const showCounts = series.length === 1
+    const valueFormatter = useCallback(
+        (rate: number, _seriesIndex: number, stepIndex: number): string =>
+            showCounts
+                ? `${humanFriendlyNumber(steps[stepIndex]?.count)} · ${formatFunnelStepBarLabel(rate)}`
+                : formatFunnelStepBarLabel(rate),
+        [showCounts, steps]
+    )
 
     const breakdownCount = series.length
     const chartWidth = (stepWidthPx: number): number =>
@@ -136,7 +148,8 @@ export function FunnelStepsBarChart({
                     dataAttr="funnel-steps-bar-chart-canvas"
                     onError={handleChartError}
                 >
-                    <ValueLabels valueFormatter={formatFunnelStepBarLabel} offset={4} />
+                    <ValueLabels valueFormatter={valueFormatter} offset={4} />
+                    {showCounts && <StepDropOffLabels steps={steps} />}
                 </FunnelChart>
             </div>
         </ScrollableShadows>
