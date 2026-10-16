@@ -1,11 +1,12 @@
 import type { PointClickData, Series } from '@posthog/quill-charts'
 
-import { EntityTypes, type FunnelStepWithConversionMetrics } from '~/types'
+import { EntityTypes, FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
 
 import {
     buildFunnelStepsBarData,
     formatFunnelStepRates,
     FUNNEL_STEPS_SERIES_KEY_PREFIX,
+    getConversionChipStepIndexes,
     placeStepConversionChips,
     resolveFunnelStepClick,
     type FunnelStepsBarSeriesMeta,
@@ -285,5 +286,62 @@ describe('formatFunnelStepRates', () => {
         { name: 'keeps equal neighbors whole', rates: [2071 / 24873, 2071 / 24873], expected: ['8%', '8%'] },
     ])('$name', ({ rates, expected }) => {
         expect(formatFunnelStepRates(rates)).toEqual(expected)
+    })
+})
+
+describe('getConversionChipStepIndexes', () => {
+    const stepsWithCounts = (counts: number[]): FunnelStepWithConversionMetrics[] =>
+        counts.map((count) => makeStep({ fromBasisStep: count / counts[0], count }))
+
+    test.each([
+        {
+            name: 'gives every gap a chip without a breakdown',
+            counts: [1000, 600, 300],
+            hasBreakdownOrCompare: false,
+            stepReference: FunnelStepReference.total,
+            optionalStepNumbers: [],
+            expected: [1, 2],
+        },
+        {
+            name: 'gives no chips to a breakdown or compare',
+            counts: [1000, 600, 300],
+            hasBreakdownOrCompare: true,
+            stepReference: FunnelStepReference.total,
+            optionalStepNumbers: [],
+            expected: [],
+        },
+        {
+            name: 'gives no chips when bars are relative to the previous step',
+            counts: [1000, 600, 300],
+            hasBreakdownOrCompare: false,
+            stepReference: FunnelStepReference.previous,
+            optionalStepNumbers: [],
+            expected: [],
+        },
+        {
+            name: 'skips the gap after an optional step',
+            counts: [1000, 100, 600],
+            hasBreakdownOrCompare: false,
+            stepReference: FunnelStepReference.total,
+            optionalStepNumbers: [2],
+            expected: [1],
+        },
+        {
+            name: 'skips the gap after an empty step',
+            counts: [1000, 0, 0],
+            hasBreakdownOrCompare: false,
+            stepReference: FunnelStepReference.total,
+            optionalStepNumbers: [],
+            expected: [1],
+        },
+    ])('$name', ({ counts, hasBreakdownOrCompare, stepReference, optionalStepNumbers, expected }) => {
+        const isStepOptional = (stepNumber: number): boolean => optionalStepNumbers.includes(stepNumber)
+        expect(
+            getConversionChipStepIndexes(stepsWithCounts(counts), {
+                hasBreakdownOrCompare,
+                stepReference,
+                isStepOptional,
+            })
+        ).toEqual(expected)
     })
 })

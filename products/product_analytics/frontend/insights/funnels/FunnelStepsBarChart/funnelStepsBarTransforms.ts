@@ -2,7 +2,7 @@ import type { PointClickData, Series, TooltipConfig, ValueLabelFormatter } from 
 
 import { percentage } from 'lib/utils/numbers'
 
-import type { BreakdownKeyType, FunnelStepWithConversionMetrics } from '~/types'
+import { type BreakdownKeyType, FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
 
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { getVisibilityKey } from '../funnelUtils'
@@ -186,6 +186,30 @@ export function buildFunnelStepBarLabelFormatter(series: Pick<Series, 'data'>[])
     const labels = series.map((s) => formatFunnelStepRates(s.data.map((value) => value / RATE_TO_PERCENT)))
     return (value, seriesIndex, dataIndex) =>
         labels[seriesIndex]?.[dataIndex] ?? formatFunnelStepRate(value / RATE_TO_PERCENT)
+}
+
+/** Indexes of the steps that get a conversion chip in the gap before their bars. */
+export function getConversionChipStepIndexes(
+    steps: FunnelStepWithConversionMetrics[],
+    {
+        hasBreakdownOrCompare,
+        stepReference,
+        isStepOptional,
+    }: {
+        hasBreakdownOrCompare: boolean
+        stepReference: FunnelStepReference
+        isStepOptional: (stepNumber: number) => boolean
+    }
+): number[] {
+    // With bars relative to the previous step, the bar labels already show step to step conversion.
+    // A breakdown or compare puts several bars in each step, and one chip cannot describe all of them.
+    if (hasBreakdownOrCompare || stepReference !== FunnelStepReference.total) {
+        return []
+    }
+    // A step after an optional step converts from an earlier step, so a chip in that gap would misread.
+    return steps.flatMap((step, index) =>
+        index > 0 && steps[index - 1].count > 0 && !isStepOptional(index) ? [index] : []
+    )
 }
 
 export interface StepBandBox {

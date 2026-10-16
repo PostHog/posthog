@@ -16,9 +16,10 @@ const CHIP_EDGE_INSET_PX = 4
 
 interface StepConversionChipsProps {
     steps: FunnelStepWithConversionMetrics[]
+    stepIndexes: number[]
 }
 
-export function StepConversionChips({ steps }: StepConversionChipsProps): JSX.Element | null {
+export function StepConversionChips({ steps, stepIndexes }: StepConversionChipsProps): JSX.Element | null {
     const { scales, dimensions, labels } = useChartLayout()
 
     const placements = useMemo(() => {
@@ -27,8 +28,10 @@ export function StepConversionChips({ steps }: StepConversionChipsProps): JSX.El
             const width = scales.extent?.(label) ?? 0
             return { left: center - width / 2, width }
         })
-        return placeStepConversionChips(bands.slice(0, steps.length))
-    }, [scales.x, scales.extent, labels, steps.length])
+        return placeStepConversionChips(bands.slice(0, steps.length)).filter(({ stepIndex }) =>
+            stepIndexes.includes(stepIndex)
+        )
+    }, [scales, labels, steps.length, stepIndexes])
 
     if (placements.length === 0) {
         return null

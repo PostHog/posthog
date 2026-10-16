@@ -22,6 +22,7 @@ import {
     buildFunnelStepBarLabelFormatter,
     buildFunnelStepsBarData,
     FUNNEL_STEPS_BAR_TOOLTIP_CONFIG,
+    getConversionChipStepIndexes,
     resolveFunnelStepClick,
     type FunnelStepsBarSeriesMeta,
 } from './funnelStepsBarTransforms'
@@ -59,12 +60,14 @@ export function FunnelStepsBarChart({
     const hasBarLabels = !!featureFlags[FEATURE_FLAGS.FUNNEL_STEPS_BAR_LABELS]
     const { insightProps } = useValues(insightLogic)
     const {
+        stepsWithConversionMetrics,
         visibleStepsWithConversionMetrics,
         getFunnelsColor,
         breakdownFilter,
         querySource,
         insightData,
         funnelsFilter,
+        isStepOptional,
     } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
@@ -90,12 +93,18 @@ export function FunnelStepsBarChart({
     const showTime = steps.some((step) => step.average_conversion_time != null)
 
     const breakdownCount = series.length
-    // With bars relative to the previous step, the bar labels already show step to step conversion.
-    // A breakdown or compare puts several bars in each step, and one chip cannot describe all of them.
-    const showConversionChips =
-        hasBarLabels &&
-        breakdownCount === 1 &&
-        (funnelsFilter?.funnelStepReference ?? FunnelStepReference.total) === FunnelStepReference.total
+    const conversionChipStepIndexes = useMemo(
+        () =>
+            hasBarLabels
+                ? getConversionChipStepIndexes(steps, {
+                      // The visible steps always carry nested_breakdown, so check the steps before hidden values are filtered out.
+                      hasBreakdownOrCompare: stepsWithConversionMetrics[0]?.nested_breakdown != null,
+                      stepReference: funnelsFilter?.funnelStepReference ?? FunnelStepReference.total,
+                      isStepOptional,
+                  })
+                : [],
+        [hasBarLabels, steps, stepsWithConversionMetrics, funnelsFilter?.funnelStepReference, isStepOptional]
+    )
     const chartWidth = (stepWidthPx: number): number =>
         DEFAULT_MARGINS.left +
         steps.length * Math.max(stepWidthPx, breakdownCount * PER_BAR_WIDTH_PX) +
@@ -176,7 +185,9 @@ export function FunnelStepsBarChart({
                     onError={handleChartError}
                 >
                     {hasBarLabels && <ValueLabels valueFormatter={formatBarLabel} offset={4} />}
-                    {showConversionChips && <StepConversionChips steps={steps} />}
+                    {conversionChipStepIndexes.length > 0 && (
+                        <StepConversionChips steps={steps} stepIndexes={conversionChipStepIndexes} />
+                    )}
                 </FunnelChart>
             </div>
         </ScrollableShadows>
