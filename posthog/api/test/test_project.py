@@ -53,6 +53,14 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertNotIn(field_name, serializer.fields)
         self.assertFalse(any(field.read_only for field in serializer.fields.values()))
 
+    def test_conversations_settings_ai_reply_modes_requires_an_object(self):
+        # Checks that the real PATCH request runs the shared validator. test_team.py covers its other cases.
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"conversations_settings": {"ai_reply_modes": ["not", "a", "dict"]}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_projects_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, _, team_in_other_org = Organization.objects.bootstrap(self.user)
         personal_api_key = generate_random_token_personal()
