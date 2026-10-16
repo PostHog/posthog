@@ -19,7 +19,12 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
-from products.batch_exports.backend.service import BaseBatchExportInputs, BatchExportInsertInputs, BatchExportModel
+from products.batch_exports.backend.service import (
+    BaseBatchExportInputs,
+    BatchExportHogQLModel,
+    BatchExportInsertInputs,
+    BatchExportModel,
+)
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     finish_batch_export_run,
@@ -281,8 +286,8 @@ class TestErrorHandling:
             batch_export_id=str(batch_export.id),
             interval="hour",
             data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
-            batch_export_model=BatchExportModel(
-                name="hogql", schema=None, hogql_query="SELECT event AS event FROM events"
+            batch_export_model=BatchExportHogQLModel(
+                query="SELECT event AS event FROM events", user_id=1, modifiers={}
             ),
         )
         with patch(
