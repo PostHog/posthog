@@ -1277,6 +1277,7 @@ def team_api_test_factory():
             [
                 ["unchanged_soft_deleted", "soft_deleted", {}, status.HTTP_200_OK],
                 ["unchanged_access_denied", "access_denied", {}, status.HTTP_200_OK],
+                ["unchanged_string_id_access_denied", "string_id_access_denied", {}, status.HTTP_200_OK],
                 ["unchanged_renamed", "renamed", {}, status.HTTP_200_OK],
                 ["changed_key_access_denied", "access_denied", {"key": "other-key"}, status.HTTP_400_BAD_REQUEST],
                 ["added_variant_access_denied", "access_denied", {"variant": "x"}, status.HTTP_400_BAD_REQUEST],
@@ -1296,11 +1297,15 @@ def team_api_test_factory():
                 FeatureFlag.objects.filter(pk=flag.pk).update(key="renamed")
             else:
                 self._deny_flag_access(flag)
+            sent_link = stored_link
+            if case == "string_id_access_denied":
+                sent_link = {**stored_link, "id": str(flag.id)}
+                Team.objects.filter(pk=self.team.pk).update(session_recording_linked_flag=sent_link)
 
             response = self.client.patch(
                 "/api/environments/@current/",
                 {
-                    "session_recording_linked_flag": {**stored_link, **sent_changes},
+                    "session_recording_linked_flag": {**sent_link, **sent_changes},
                     "session_recording_minimum_duration_milliseconds": 1000,
                 },
             )

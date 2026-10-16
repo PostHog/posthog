@@ -55,7 +55,12 @@ def validate_session_recording_linked_flag(
     # link would reject the other edits in the same request. Accepting it reveals nothing, because a
     # GET of the team returns the stored link. The key rewrite leaves a flag that the user cannot view
     # as sent, so a match on the id alone would let a request store any key for that flag.
-    if (normalized := {**value, "id": flag_id}) == stored:
+    # A stored link can hold its id as a numeric string, so the stored id is normalized too.
+    normalized = {**value, "id": flag_id}
+    if isinstance(stored, dict) and normalized == {
+        **stored,
+        "id": settings_validation._replay_gate_flag_id(stored.get("id")),
+    }:
         return normalized
 
     # The SDKs treat a flag they cannot resolve as "do not record", so a link to a missing,

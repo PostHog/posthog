@@ -422,10 +422,8 @@ def save_replay_gate_rewrites(team_id: int, compute: Callable[[Team], ReplayGate
         # `no_key=True` because this writes no key column, so the lock does not block the
         # `KEY SHARE` that a foreign key check on this Team row takes. Two `FOR NO KEY UPDATE`
         # locks still conflict, so two calls to this function for one team stay serialized.
-        # A Team API write that stores a flag id in either column takes the same lock through
-        # `locked_replay_gate_write` when its caller can read flags. A write that stores only bare
-        # trigger-group keys takes no lock, and neither does a write from a token without
-        # `feature_flag:read`. Either write can still store a key from before a rename.
+        # A Team API write takes the same lock through `locked_replay_gate_write`. A write that
+        # its docstring exempts from the lock can still store a key from before a rename.
         team = Team.objects.select_for_update(no_key=True).filter(pk=team_id).first()
         if team is None:
             return
@@ -469,8 +467,8 @@ def relink_teams(feature_flag: FeatureFlag, *, old_key: str) -> None:
         # no ordering guarantee between them, and a rename can also land partway through this
         # loop. Every relink holding this team's row lock reads the key at this point, so they
         # converge on the stored key instead of leaving later teams on the key this callback
-        # started with. A Team API write from a caller that can read flags reads the key under the
-        # same lock, so it converges too for every reference that stores a flag id.
+        # started with. A Team API write that `locked_replay_gate_write` locks reads the key under
+        # the same lock, so it converges too for every reference that stores a flag id.
         new_key = current_flag_keys([feature_flag.pk]).get(feature_flag.pk)
         if new_key is None:
             # The row is gone entirely, not just soft-deleted, so there is no key to point this
