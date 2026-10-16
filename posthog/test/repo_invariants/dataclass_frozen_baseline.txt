@@ -1210,7 +1210,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/whop/whop.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wikipedia_pageviews/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wikipedia_pageviews/wikipedia_pageviews.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/windmill/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/windmill/windmill.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/woocommerce/woocommerce.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wordpress/settings.py
