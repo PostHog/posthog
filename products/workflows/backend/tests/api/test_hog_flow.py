@@ -36,6 +36,7 @@ from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
 from products.workflows.backend.facade.writes import update_workflow
@@ -7644,7 +7645,7 @@ class TestReplayVisionActionValidation(APIBaseTest):
             team=self.team,
             name="experiment",
             scanner_type="experiment",
-            scanner_config={"prompt": "p", "experiment_id": 1},
+            scanner_config={"prompt": "p", "experiment_id": create_experiment(self.team, "workflow-flag").id},
         )
 
         response = self._save_step({"type": "scanner", "scanner_id": str(scanner.id)})

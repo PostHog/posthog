@@ -302,7 +302,7 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
                 team=self.team,
                 name="experiment",
                 scanner_type=ScannerType.EXPERIMENT,
-                scanner_config={"prompt": "p", "experiment_id": 1},
+                scanner_config={"prompt": "p", "experiment_id": create_experiment(self.team, "workflow-flag").id},
             )
             overrides = {**overrides, "scanner_id": scanner.id}
 

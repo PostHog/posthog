@@ -236,10 +236,10 @@ def start_workflow_observation_request(
         scanner = ReplayScanner.objects.filter(team_id=team.id, id=scanner_id).first()
         if scanner is None:
             raise ObservationRequestRejected("No scanner with this ID exists in this project.", "not_found")
-        if scanner.scanner_type == ScannerType.EXPERIMENT:
-            raise ObservationRequestRejected(WORKFLOW_EXPERIMENT_SCANNER_ERROR, "invalid")
         if not _can_scan_with(access, team.id, scanner):
             raise ObservationRequestRejected("The workflow's owner can't scan with this scanner.", "forbidden")
+        if scanner.scanner_type == ScannerType.EXPERIMENT:
+            raise ObservationRequestRejected(WORKFLOW_EXPERIMENT_SCANNER_ERROR, "invalid")
     elif inline is not None:
         if not access.check_access_level_for_resource("replay_scanner", required_level="editor"):
             raise ObservationRequestRejected(
@@ -310,10 +310,10 @@ def workflow_scan_editor_error(*, user: User, team: "Team", scanner_id: UUID | N
     scanner = ReplayScanner.objects.filter(team_id=team.id, id=scanner_id).first()
     if scanner is None:
         return "No scanner with this ID exists in this project."
-    if scanner.scanner_type == ScannerType.EXPERIMENT:
-        return WORKFLOW_EXPERIMENT_SCANNER_ERROR
     if not _can_scan_with(access, team.id, scanner):
         return "You need edit access to this scanner to use it in a workflow."
+    if scanner.scanner_type == ScannerType.EXPERIMENT:
+        return WORKFLOW_EXPERIMENT_SCANNER_ERROR
     return None
 
 
