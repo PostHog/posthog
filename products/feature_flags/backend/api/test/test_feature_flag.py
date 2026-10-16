@@ -4820,7 +4820,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    def test_local_evaluation_billing_analytics_for_regular_feature_flag_list(self):
+    @patch.dict("os.environ", {"USAGE_INGESTION_ADDR": "localhost:1", "USAGE_INGESTION_REPORT_TEAMS": "*"})
+    @patch("posthog.tasks.usage_ingestion.send_usage_records.delay")
+    def test_local_evaluation_billing_analytics_for_regular_feature_flag_list(self, mock_send_usage: MagicMock) -> None:
         FeatureFlag.objects.all().delete()
 
         # old style feature flags
@@ -4855,6 +4857,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # shouldn't add to local eval requests
         self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
+        mock_send_usage.assert_not_called()
 
         self.client.logout()
         # `local_evaluation` is called by logged out clients!
@@ -4868,6 +4871,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response = self.client.get(f"/api/feature_flag/")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
             self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
+            mock_send_usage.assert_not_called()
 
             response = self.client.get(
                 f"/api/feature_flag/?token={self.team.api_token}",
@@ -4877,6 +4881,20 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(
                 client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
                 {b"165192618": b"1"},
+            )
+            records, site = mock_send_usage.call_args.args
+            self.assertEqual(site, "legacy_flag_definitions")
+            self.assertEqual(len(records), 1)
+            self.assertEqual(
+                {key: value for key, value in records[0].items() if key != "record_id"},
+                {
+                    "producer_id": "feature-flags-django",
+                    "team_id": self.team.pk,
+                    "usage_key": "feature_flag_local_evaluation_requests",
+                    "unit": "requests",
+                    "quantity": 1,
+                    "timestamp_ms": 1651926187000,
+                },
             )
 
             for _ in range(4):
@@ -4890,6 +4908,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
                 {b"165192618": b"5"},
             )
+            self.assertEqual(mock_send_usage.call_count, 5)
+            self.assertEqual(len({call.args[0][0]["record_id"] for call in mock_send_usage.call_args_list}), 5)
 
     @parameterized.expand(
         [
