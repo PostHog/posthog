@@ -44,27 +44,16 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            width: '30%',
+            width: '25%',
             render: function renderName(_, dataset) {
                 return (
-                    <div className="space-y-1 min-w-0">
-                        <Link
-                            to={datasetUrl(dataset.id)}
-                            data-testid="dataset-link"
-                            className="block truncate font-semibold"
-                        >
-                            {dataset.name}
-                        </Link>
-                        <ResourceTags
-                            entity="datasets"
-                            resourceId={dataset.id}
-                            tags={dataset.tags}
-                            onSaved={() => loadDatasets(false)}
-                            onTagClick={(tag) => setFilters({ tags: [tag] }, true, false)}
-                            userAccessLevel={toAccessControlLevel(dataset.user_access_level)}
-                            disabledReason={dataset.archived ? 'Restore this dataset to edit its tags' : undefined}
-                        />
-                    </div>
+                    <Link
+                        to={datasetUrl(dataset.id)}
+                        data-testid="dataset-link"
+                        className="block max-w-64 @max-[50rem]/datasets:max-w-32 truncate font-semibold"
+                    >
+                        {dataset.name}
+                    </Link>
                 )
             },
         },
@@ -72,7 +61,7 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
             title: 'Description',
             dataIndex: 'description',
             key: 'description',
-            width: '25%',
+            width: '20%',
             className: '@max-[50rem]/datasets:hidden',
             render: function renderDescription(description) {
                 return <span className="text-muted">{String(description) || <i>–</i>}</span>
@@ -109,6 +98,22 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
         {
             ...(updatedAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>),
             className: '@max-[50rem]/datasets:hidden',
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            width: '20%',
+            render: (_, dataset) => (
+                <ResourceTags
+                    entity="datasets"
+                    resourceId={dataset.id}
+                    tags={dataset.tags}
+                    onSaved={() => loadDatasets(false)}
+                    onTagClick={(tag) => setFilters({ tags: [tag] }, true, false)}
+                    userAccessLevel={toAccessControlLevel(dataset.user_access_level)}
+                    disabledReason={dataset.archived ? 'Restore this dataset to edit its tags' : undefined}
+                />
+            ),
         },
         {
             width: 0,

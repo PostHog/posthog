@@ -50,34 +50,25 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
         {
             title: 'Experiment',
             key: 'name',
-            className: '@max-[50rem]:w-1/2',
-            width: '26%',
+            className: '@max-[50rem]:w-1/3',
+            width: '22%',
             render: (_, experiment) => (
-                <div className="space-y-1 min-w-0">
-                    <Tooltip title={`${experiment.name} · ${experiment.id}`}>
-                        <Link
-                            to={urls.aiObservabilityOfflineEvaluationExperiment(experiment.id)}
-                            className="block font-semibold truncate"
-                            data-attr="offline-experiment-open"
-                        >
-                            {experiment.name}
-                        </Link>
-                    </Tooltip>
-                    <ResourceTags
-                        entity="experiments"
-                        resourceId={experiment.id}
-                        tags={experiment.tags}
-                        onSaved={refresh}
-                        onTagClick={(tag) => setFilters({ tags: [tag] })}
-                    />
-                </div>
+                <Tooltip title={`${experiment.name} · ${experiment.id}`}>
+                    <Link
+                        to={urls.aiObservabilityOfflineEvaluationExperiment(experiment.id)}
+                        className="block font-semibold truncate"
+                        data-attr="offline-experiment-open"
+                    >
+                        {experiment.name}
+                    </Link>
+                </Tooltip>
             ),
         },
         {
             title: 'Execution',
             key: 'execution',
             className: '@max-[50rem]:hidden',
-            width: '18%',
+            width: '14%',
             render: (_, experiment) => (
                 <div className="truncate">
                     <TZLabel time={experiment.started_at} />
@@ -98,13 +89,14 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
         {
             title: 'Upload',
             key: 'status',
-            width: '16%',
+            width: '12%',
             render: (_, experiment) => <OfflineExperimentStatus status={experiment.status} />,
         },
         {
             title: <Tooltip title="Result and scorer counts include only results you can access.">Coverage</Tooltip>,
             key: 'coverage',
-            width: '28%',
+            className: '@max-[40rem]:hidden',
+            width: '15%',
             render: (_, experiment) => (
                 <Tooltip
                     title={[
@@ -128,6 +120,20 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                         }`}
                     </span>
                 </Tooltip>
+            ),
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            width: '25%',
+            render: (_, experiment) => (
+                <ResourceTags
+                    entity="experiments"
+                    resourceId={experiment.id}
+                    tags={experiment.tags}
+                    onSaved={refresh}
+                    onTagClick={(tag) => setFilters({ tags: [tag] })}
+                />
             ),
         },
     ]

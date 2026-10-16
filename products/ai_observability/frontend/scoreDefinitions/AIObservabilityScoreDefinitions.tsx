@@ -71,7 +71,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            width: '35%',
+            width: '25%',
             render: function renderName(_, scoreDefinition) {
                 return (
                     <div className="space-y-1">
@@ -85,13 +85,6 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                         ) : (
                             <div className="text-muted">No description</div>
                         )}
-                        <ResourceTags
-                            entity="scorers"
-                            resourceId={scoreDefinition.id}
-                            tags={scoreDefinition.tags}
-                            onSaved={() => loadScoreDefinitions(false)}
-                            onTagClick={(tag) => setFilters({ tags: [tag] }, true, false)}
-                        />
                     </div>
                 )
             },
@@ -100,6 +93,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             title: 'Kind',
             dataIndex: 'kind',
             key: 'kind',
+            className: '@max-[40rem]/scorers:hidden',
             render: function renderKind(kind) {
                 return <LemonTag type="muted">{formatKindLabel(kind as ScoreDefinitionKind)}</LemonTag>
             },
@@ -108,6 +102,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             title: 'Version',
             dataIndex: 'current_version',
             key: 'current_version',
+            className: '@max-[40rem]/scorers:hidden',
             render: function renderVersion(version, scoreDefinition) {
                 return scoreDefinition.current_version_id ? (
                     <CopyToClipboardInline
@@ -140,6 +135,20 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                 keyof ScoreDefinition | undefined
             >),
             className: '@max-[50rem]/scorers:hidden',
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            width: '25%',
+            render: (_, scoreDefinition) => (
+                <ResourceTags
+                    entity="scorers"
+                    resourceId={scoreDefinition.id}
+                    tags={scoreDefinition.tags}
+                    onSaved={() => loadScoreDefinitions(false)}
+                    onTagClick={(tag) => setFilters({ tags: [tag] }, true, false)}
+                />
+            ),
         },
         {
             width: 0,
