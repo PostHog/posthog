@@ -16,7 +16,7 @@ REQUEST_TIMEOUT = (10, 60)
 @frozen
 class D1Table:
     name: str
-    # SQLite views and WITHOUT ROWID tables have no rowid to keyset on, so they page by offset.
+    # Views and WITHOUT ROWID tables have no rowid; the latter keyset on their primary key.
     has_rowid: bool
     columns: tuple[tuple[str, str, bool], ...]
     primary_keys: tuple[str, ...]
@@ -26,8 +26,8 @@ def incremental_type_for_declared_type(declared_type: str) -> IncrementalFieldTy
     """Map a SQLite declared column type to the incremental type the pipeline compares with.
 
     SQLite column affinity is decided by substrings of the declared type, so the same rules apply
-    here. Date and time types are text affinity in SQLite, and the ISO 8601 strings SQLite's own
-    date functions produce compare correctly as text, so they are offered as dates and datetimes.
+    here. Dates stored as ISO 8601 text compare correctly as text, so date and datetime columns are
+    offered as dates and datetimes.
     """
     upper = declared_type.upper()
     if "INT" in upper:

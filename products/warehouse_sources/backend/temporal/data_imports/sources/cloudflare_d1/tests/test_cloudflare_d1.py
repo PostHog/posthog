@@ -84,17 +84,12 @@ def test_full_refresh_walks_rowid_keyset_pages_to_the_short_page() -> None:
     assert result.response.rows_to_sync == 2500
 
 
-@pytest.mark.parametrize(
-    ("resume_table", "expected_first_id"),
-    [("users", 2001), ("orders", 1)],
-)
-def test_resume_continues_only_from_this_tables_saved_keys(resume_table: str, expected_first_id: int) -> None:
+def test_resume_continues_after_the_saved_keys() -> None:
     setup = "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, updated_at TEXT);" + _insert("users", 2500)
 
-    result = _driver().run("users", d1(setup), resume_state=D1ResumeConfig(table=resume_table, last_values=[2000]))
+    result = _driver().run("users", d1(setup), resume_state=D1ResumeConfig(last_values=[2000]))
 
-    assert result.rows[0]["id"] == expected_first_id
-    assert result.rows[-1]["id"] == 2500
+    assert [row["id"] for row in result.rows] == list(range(2001, 2501))
 
 
 @pytest.mark.parametrize(
@@ -240,6 +235,8 @@ def test_a_dropped_incremental_column_fails_instead_of_syncing_nothing() -> None
 def test_schemas_hide_internal_tables_and_offer_only_comparable_columns() -> None:
     setup = """
         CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, score REAL, created_at TIMESTAMP, born DATE, opens TIME, data BLOB);
+        CREATE INDEX users_created_at ON users (created_at);
+        CREATE VIEW recent_events AS SELECT 1 AS n, CURRENT_TIMESTAMP AS at;
         CREATE TABLE _cf_KV (key TEXT PRIMARY KEY, value BLOB);
         CREATE TABLE memberships (user_id INTEGER, team_id INTEGER, PRIMARY KEY (team_id, user_id));
         CREATE VIEW active_users AS SELECT id FROM users;
@@ -248,13 +245,16 @@ def test_schemas_hide_internal_tables_and_offer_only_comparable_columns() -> Non
     with scripted_network(d1(setup)):
         schemas = {schema.name: schema for schema in CloudflareD1Source().get_schemas(CONFIG, team_id=1)}
 
-    assert sorted(schemas) == ["active_users", "memberships", "users"]
-    assert [(field["field"], field["type"]) for field in schemas["users"].incremental_fields] == [
-        ("id", IncrementalFieldType.Integer),
-        ("score", IncrementalFieldType.Numeric),
-        ("created_at", IncrementalFieldType.DateTime),
-        ("born", IncrementalFieldType.Date),
+    assert sorted(schemas) == ["active_users", "memberships", "recent_events", "users"]
+    assert [(field["field"], field["type"], field["is_indexed"]) for field in schemas["users"].incremental_fields] == [
+        ("id", IncrementalFieldType.Integer, True),
+        ("score", IncrementalFieldType.Numeric, False),
+        ("created_at", IncrementalFieldType.DateTime, True),
+        ("born", IncrementalFieldType.Date, False),
     ]
+    # A view pages by offset, and an offset breaks once a later attempt moves the watermark.
+    assert schemas["recent_events"].incremental_fields == []
+    assert schemas["recent_events"].supports_incremental is False
     assert schemas["memberships"].detected_primary_keys == ["team_id", "user_id"]
     assert schemas["active_users"].detected_primary_keys is None
 

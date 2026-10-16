@@ -41,10 +41,10 @@ class D1ResumeConfig:
     """Where the next page starts: the key values of the last row handed over, or an offset.
 
     `last_values` lines up with the keyset columns: the incremental column first when there is one,
-    then the rowid or the primary key columns. A view without either pages by `offset`.
+    then the rowid or the primary key columns. A view without either pages by `offset`. The resume
+    state is kept per job, and a job syncs one table, so it needs no table name.
     """
 
-    table: str
     last_values: list[Any] | None = None
     offset: int = 0
 
@@ -136,6 +136,23 @@ class D1Client:
                 )
         return tables
 
+    def leading_index_columns(self, tables: list[str]) -> dict[str, set[str]]:
+        """The columns that lead an index, per table: a cursor on one of them can seek instead of scan."""
+        if not tables:
+            return {}
+        indexes: list[tuple[str, str]] = []
+        for start in range(0, len(tables), TABLES_PER_DISCOVERY_REQUEST):
+            chunk = tables[start : start + TABLES_PER_DISCOVERY_REQUEST]
+            listings = self.query("; ".join(f"PRAGMA index_list({quote_identifier(name)})" for name in chunk))
+            indexes.extend((name, row["name"]) for name, listing in zip(chunk, listings) for row in listing)
+        leading: dict[str, set[str]] = {name: set() for name in tables}
+        for start in range(0, len(indexes), TABLES_PER_DISCOVERY_REQUEST):
+            chunk_indexes = indexes[start : start + TABLES_PER_DISCOVERY_REQUEST]
+            infos = self.query("; ".join(f"PRAGMA index_info({quote_identifier(index)})" for _, index in chunk_indexes))
+            for (table, _), info in zip(chunk_indexes, infos):
+                leading[table].update(row["name"] for row in info if row.get("seqno") == 0 and row.get("name"))
+        return leading
+
     def count_rows(self, table: str) -> int | None:
         rows = self.query(f"SELECT count(*) AS n FROM {quote_identifier(table)}")
         return int(rows[0][0]["n"]) if rows and rows[0] else None
@@ -207,6 +224,19 @@ def _keyset(table: D1Table, incremental_field: str | None) -> list[str]:
     return ([incremental_field] if incremental_field else []) + tiebreak
 
 
+def pages_by_keyset(table: D1Table) -> bool:
+    """Whether the table has a rowid or a usable primary key. Without one it pages by offset."""
+    return bool(_keyset(table, None))
+
+
+def integer_primary_key(table: D1Table) -> str | None:
+    """The INTEGER PRIMARY KEY column, which is the rowid itself and so is always indexed."""
+    if not table.has_rowid or len(table.primary_keys) != 1:
+        return None
+    declared = {name: declared_type.upper() for name, declared_type, _ in table.columns}
+    return table.primary_keys[0] if declared.get(table.primary_keys[0]) == "INTEGER" else None
+
+
 def _page_query(
     table: D1Table,
     incremental_field: str | None,
@@ -263,6 +293,9 @@ def iter_table_rows(
         # and match nothing instead of failing.
         raise D1QueryError(f"no such column: {incremental_field}")
     keyset = _keyset(table, incremental_field)
+    if incremental_field is not None and not keyset:
+        # An offset counted under one watermark skips rows once the next attempt starts from a later one.
+        raise D1QueryError(f"incremental sync needs a rowid or a primary key on {table.name}")
     alias = rowid_alias(table)
     rowid_tag = _free_name(table, "__posthog_rowid")
     bound = None
@@ -275,11 +308,9 @@ def iter_table_rows(
         )
         rows = sample[0] if sample else []
         bound = watermark_like(rows[0]["v"] if rows else None, watermark, field_type)
-    position = D1ResumeConfig(table=table.name)
+    position = D1ResumeConfig()
     if manager.can_resume():
-        saved = manager.load_state()
-        if saved is not None and saved.table == table.name:
-            position = saved
+        position = manager.load_state() or position
     while True:
         sql, params = _page_query(table, incremental_field, bound, position, keyset, rowid_tag)
         rows = client.query(sql, params)[0]
@@ -287,11 +318,9 @@ def iter_table_rows(
             return
         last = rows[-1]
         if keyset:
-            position = D1ResumeConfig(
-                table=table.name, last_values=[last[rowid_tag] if key == alias else last[key] for key in keyset]
-            )
+            position = D1ResumeConfig(last_values=[last[rowid_tag] if key == alias else last[key] for key in keyset])
         else:
-            position = D1ResumeConfig(table=table.name, offset=position.offset + len(rows))
+            position = D1ResumeConfig(offset=position.offset + len(rows))
         if alias:
             for row in rows:
                 del row[rowid_tag]

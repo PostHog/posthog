@@ -17,7 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare
     D1Client,
     D1QueryError,
     D1ResumeConfig,
+    integer_primary_key,
     iter_table_rows,
+    pages_by_keyset,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare_d1.settings import (
     incremental_type_for_declared_type,
@@ -33,7 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudflared1 import (
     CloudflareD1SourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
 
 
 @SourceRegistry.register
@@ -136,13 +138,23 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
     ) -> list[SourceSchema]:
         client = D1Client(config.api_token, config.account_id, config.database_id)
         schemas: list[SourceSchema] = []
-        for table in client.list_tables(names):
+        tables = client.list_tables(names)
+        keyset_tables = [table for table in tables if pages_by_keyset(table)]
+        indexed = client.leading_index_columns([table.name for table in keyset_tables])
+        for table in tables:
             triples = [
                 (name, field_type, nullable)
                 for name, declared_type, nullable in table.columns
                 if (field_type := incremental_type_for_declared_type(declared_type)) is not None
             ]
-            incremental_fields = build_incremental_fields(triples)
+            incremental_fields: list[IncrementalField] = []
+            if table in keyset_tables:
+                # Every page orders by the cursor, and D1 bills each row a query reads, so the UI
+                # warns when the column leads no index.
+                indexed_columns = indexed.get(table.name, set())
+                if (rowid_key := integer_primary_key(table)) is not None:
+                    indexed_columns = indexed_columns | {rowid_key}
+                incremental_fields = build_incremental_fields(triples, indexed_columns)
             schemas.append(
                 SourceSchema(
                     name=table.name,
@@ -187,6 +199,9 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
                 client, table, incremental_field, inputs.incremental_field_type, watermark, resumable_source_manager
             ),
             primary_keys=list(table.primary_keys) or None,
-            rows_to_sync=self._count_rows(client, table.name) if incremental_field is None else None,
+            # Counting a view runs its whole query once more, so only tables get an estimate.
+            rows_to_sync=self._count_rows(client, table.name)
+            if incremental_field is None and table.has_rowid
+            else None,
             sort_mode="asc",
         )
