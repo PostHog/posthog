@@ -143,6 +143,22 @@ class MessageTemplateContentSerializer(serializers.Serializer):
     )
 
 
+class DraftEmailTemplateSerializer(EmailTemplateSerializer):
+    subject = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Email subject line. Supports Liquid templating. A draft may leave it blank until it is published.",
+    )
+
+
+class DraftMessageTemplateContentSerializer(MessageTemplateContentSerializer):
+    email = DraftEmailTemplateSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Draft email content. Replaced as a whole on update, so send the complete object.",
+    )
+
+
 @extend_schema_field(OpenApiTypes.UUID)
 class MessageTemplateCategoryField(serializers.Field):
     """A category id that must belong to the template's team. Errors match a primary key related field."""
@@ -204,6 +220,12 @@ class MessageTemplateSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The workflow that sends this template over the transactional email API. Null until the "
         "template is made transactional. Each content save writes a new version of it.",
+    )
+    draft_content = DraftMessageTemplateContentSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Unpublished edits to a transactional template's content. Sends keep using `content`. Saving "
+        "`content` publishes it and clears the draft. Set null to discard the draft.",
     )
 
     def validate(self, data: Any) -> Any:
@@ -450,6 +472,14 @@ class MessageTemplatesViewSet(
         template = self.get_object()
         serializer = self.get_serializer(self._with_creators([template])[0], data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
+        fields = serializer.validated_data
+        if fields.keys() == {"draft_content"}:
+            # Sends never read the draft, so it skips the sendability check and the workflow sync.
+            updated = update_template(self.team_id, template.id, fields)
+            self._emit_resource_edited(updated)
+            return Response(self._serialize(updated))
+        if "content" in fields:
+            fields["draft_content"] = None
         # Sends use the workflow's copy, so the template and its new workflow version are saved together,
         # under a row lock that keeps a concurrent make_transactional from slipping in between.
         with transaction.atomic():
@@ -457,10 +487,10 @@ class MessageTemplatesViewSet(
             if hog_flow_id:
                 self._require_workflow_editor(hog_flow_id)
                 try:
-                    check_transactional_update(template.id, self.team_id, serializer.validated_data)
+                    check_transactional_update(template.id, self.team_id, fields)
                 except TransactionalEmailError as e:
                     raise TransactionalEmailRejected(e) from None
-            updated = update_template(self.team_id, template.id, serializer.validated_data)
+            updated = update_template(self.team_id, template.id, fields)
             if hog_flow_id and not updated.deleted:
                 self._sync_transactional_workflow(template.id)
                 # The sync unlinks the template when its workflow was deleted.
