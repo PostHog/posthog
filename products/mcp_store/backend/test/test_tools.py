@@ -84,6 +84,34 @@ class TestBoundedUpstreamResponses(SimpleTestCase):
                 fetch_upstream_tools(installation)
         self.assertTrue(response.is_closed)
 
+    @parameterized.expand(
+        [
+            ("oversized", {}, 9 * 1024 * 1024, "size limit"),
+            ("compressed", {"Content-Encoding": "gzip"}, 1, "uncompressed"),
+        ]
+    )
+    def test_rejected_tool_results_raise_tool_call_error(
+        self, _name: str, headers: dict[str, str], body_size: int, message: str
+    ) -> None:
+        responses = [
+            httpx.Response(
+                200,
+                headers={"Mcp-Session-Id": "test-session"},
+                stream=httpx.ByteStream(b'{"jsonrpc":"2.0","id":1,"result":{}}'),
+            ),
+            httpx.Response(202, stream=httpx.ByteStream(b"")),
+            httpx.Response(200, headers=headers, stream=httpx.ByteStream(b"x" * body_size)),
+            httpx.Response(200, stream=httpx.ByteStream(b"")),
+        ]
+        installation = MCPServerInstallation(team_id=1, user_id=1, url="https://example.com/mcp", auth_type="api_key")
+        with (
+            patch("products.mcp_store.backend.tools.resolve_mcp_url_policy", return_value=ALLOWED_VERDICT),
+            patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=responses),
+            self.assertRaisesRegex(ToolCallError, message),
+        ):
+            call_upstream_tool(installation, "search", {})
+        self.assertTrue(all(response.is_closed for response in responses))
+
     @parameterized.expand([("discovery", True), ("handshake", False)])
     def test_slow_response_has_a_total_deadline(self, _name: str, discovery: bool) -> None:
         clock = [0.0]

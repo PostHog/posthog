@@ -211,6 +211,8 @@ def call_upstream_tool(
         raise ToolCallError("Upstream MCP server unreachable") from exc
     except httpx.TimeoutException as exc:
         raise ToolCallError("Upstream MCP server timed out") from exc
+    except httpx.HTTPError as exc:
+        raise ToolCallError(f"Upstream MCP tool call failed: {exc}") from exc
 
 
 def _post_with_same_origin_redirect(
