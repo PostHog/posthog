@@ -1,10 +1,12 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { createFuseSearch } from 'lib/utils/fuseSearch'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { urls } from 'scenes/urls'
 
 import {
     dataCatalogCertificationsCertifyCreate,
@@ -319,6 +321,13 @@ export const certificationsLogic = kea<certificationsLogicType>([
             },
         }
     }),
+    urlToAction(({ actions }) => ({
+        [urls.dataCatalog()]: (_, searchParams) => {
+            if (searchParams.tab === 'certifications' && typeof searchParams.table === 'string') {
+                actions.setFilters({ search: searchParams.table })
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadCertifications()
     }),
