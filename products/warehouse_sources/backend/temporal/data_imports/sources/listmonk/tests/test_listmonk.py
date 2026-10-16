@@ -62,15 +62,15 @@ class TestListmonkLists:
                     "incremental_field": "updated_at",
                     "db_incremental_field_last_value": datetime(2026, 9, 30, 8, 15, tzinfo=UTC),
                 },
-                "updated_at",
+                None,
                 "(subscribers.updated_at >= '2026-09-30T08:15:00+00:00' OR subscribers.id IN "
                 "(SELECT subscriber_id FROM subscriber_lists WHERE subscriber_lists.updated_at >= '2026-09-30T08:15:00+00:00'))",
             ),
-            ("full_refresh", {}, "created_at", None),
+            ("full_refresh", {}, None, None),
         ]
     )
     def test_subscriber_request_shaping(
-        self, _name: str, inputs: dict[str, Any], order_by: str, query: str | None
+        self, _name: str, inputs: dict[str, Any], order_by: str | None, query: str | None
     ) -> None:
         result = _driver().run("subscribers", [_page([])], **inputs)
 
@@ -113,6 +113,9 @@ class TestListmonkCampaignAnalytics:
             ("bounces", 10),
         ]
         assert {(r.param("from"), r.param("to")) for r in analytics} == {("2019-01-01", "2026-10-16")}
+        # Each request's position is staged before its rows are handed over.
+        assert result.committed_states[0] == ListmonkResumeConfig(analytics_type="views", analytics_after_id=50)
+        assert result.committed_states[-1] == ListmonkResumeConfig(analytics_type="bounces", analytics_after_id=60)
         assert [(row["type"], row["campaign_id"]) for row in result.rows] == [
             ("views", 1),
             ("views", 51),
@@ -162,7 +165,7 @@ class TestListmonkHost:
             else:
                 assert normalize_host(host) == expected
 
-    @parameterized.expand([("ok", 200, True), ("bad_token", 401, False), ("no_permission", 403, False)])
+    @parameterized.expand([("ok", 200, True), ("bad_token", 401, False), ("server_error", 500, False)])
     def test_validate_credentials_maps_probe_status(self, _name: str, status: int, expected_valid: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
             valid, message = ListmonkSource().validate_credentials(CONFIG, team_id=1)
@@ -172,9 +175,9 @@ class TestListmonkHost:
         assert {r.path for r in network.requests_log} == {"/api/lists"}
 
     def test_sync_refuses_an_internal_host_before_any_request(self) -> None:
-        config = ListmonkSourceConfig(host="http://169.254.169.254", api_user="posthog", api_token="t")
+        config = ListmonkSourceConfig(host="https://169.254.169.254", api_user="posthog", api_token="t")
         with override_settings(CLOUD_DEPLOYMENT="US"):
             result = SourceDriver(ListmonkSource(), config).run("lists", route({}))
 
-        assert result.raised is not None
+        assert "internal or private IP address" in str(result.raised)
         assert result.requests == []

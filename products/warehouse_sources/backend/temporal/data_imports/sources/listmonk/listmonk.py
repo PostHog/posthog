@@ -107,16 +107,15 @@ def _client_config(host: str, api_user: str, api_token: str) -> ClientConfig:
 
 def get_resource(config: ListmonkEndpointConfig, is_incremental: bool) -> EndpointResource:
     params: dict[str, Any] = {"per_page": PAGE_SIZE, "order": "asc", **(config.extra_params or {})}
+    if config.order_by is not None:
+        params["order_by"] = config.order_by
     if is_incremental:
-        params["order_by"] = "updated_at"
         params["query"] = {
             "type": "incremental",
             "cursor_path": "updated_at",
             "initial_value": "1970-01-01T00:00:00+00:00",
             "convert": updated_at_query,
         }
-    else:
-        params["order_by"] = config.order_by
     return {
         "name": config.name,
         "table_name": config.name,
@@ -175,7 +174,7 @@ def _campaign_analytics_rows(
             batch = remaining[offset : offset + ANALYTICS_BATCH_SIZE]
             params: dict[str, Any] = {"id": batch, "from": ANALYTICS_FROM_DATE, "to": to_date}
             response = session.get(
-                f"{base}/campaigns/analytics/{analytics_type}",
+                f"{base}{LISTMONK_ENDPOINTS['campaign_analytics'].path.format(type=analytics_type)}",
                 params=params,
                 auth=auth,
                 timeout=REQUEST_TIMEOUT,
@@ -210,6 +209,9 @@ def listmonk_source(
             name=config.name,
             items=items,
             primary_keys=config.primary_keys,
+            # Incremental rows arrive in id order, not `updated_at` order, so the watermark may only
+            # move once the whole run has been read.
+            sort_mode="desc" if is_incremental else "asc",
             partition_count=1 if config.partition_key else None,
             partition_size=1 if config.partition_key else None,
             partition_mode="datetime" if config.partition_key else None,

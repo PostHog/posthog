@@ -27,8 +27,8 @@ class ListmonkEndpointConfig:
     name: str
     path: str
     primary_keys: list[str]
-    # Listmonk accepts `order_by` only from a fixed list per resource, and `created_at` is on every list.
-    order_by: str = "created_at"
+    # Listmonk accepts `order_by` only from a fixed list per resource. None sends no `order_by`.
+    order_by: Optional[str] = "created_at"
     extra_params: Optional[dict[str, str]] = None
     incremental_fields: Optional[list[IncrementalField]] = None
     partition_key: Optional[str] = "created_at"
@@ -36,11 +36,14 @@ class ListmonkEndpointConfig:
 
 LISTMONK_ENDPOINTS: dict[str, ListmonkEndpointConfig] = {
     # The incremental filter is a SQL expression in `query`, which needs the API user to hold the
-    # `subscribers:sql_query` permission.
+    # `subscribers:sql_query` permission. With no `order_by`, Listmonk sorts by `subscribers.id`,
+    # which is unique and never changes. Paging by `updated_at` would let a row updated mid-walk,
+    # or one of thousands imported with the same timestamp, slip past the offset.
     "subscribers": ListmonkEndpointConfig(
         name="subscribers",
         path="/subscribers",
         primary_keys=["id"],
+        order_by=None,
         incremental_fields=[UPDATED_AT_INCREMENTAL_FIELD],
     ),
     "lists": ListmonkEndpointConfig(
@@ -63,6 +66,7 @@ LISTMONK_ENDPOINTS: dict[str, ListmonkEndpointConfig] = {
         name="campaign_analytics",
         path="/campaigns/analytics/{type}",
         primary_keys=["campaign_id", "type", "timestamp"],
+        order_by=None,
         partition_key=None,
     ),
 }

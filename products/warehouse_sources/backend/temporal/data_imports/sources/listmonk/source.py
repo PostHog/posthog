@@ -60,7 +60,7 @@ class ListmonkSource(ResumableSource[ListmonkSourceConfig, ListmonkResumeConfig]
             label="Listmonk",
             caption="""Sync subscribers, lists, campaigns, bounces and daily campaign analytics from your Listmonk instance.
 
-Create an API user in Listmonk under **Admin > Users** and copy its token. Incremental sync of subscribers needs the `subscribers:sql_query` permission on the user's role.""",
+Create an API user in Listmonk under **Admin > Users** and copy its token. Its role needs `subscribers:get_all`, `lists:get_all`, `campaigns:get_all`, `bounces:get` and `campaigns:get_analytics`. Incremental sync of subscribers also needs `subscribers:sql_query`.""",
             iconPath="/static/services/listmonk.png",
             docsUrl="https://posthog.com/docs/cdp/sources/listmonk",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -105,7 +105,8 @@ Create an API user in Listmonk under **Admin > Users** and copy its token. Incre
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url": "Listmonk rejected the API user or token. Create a new token under Admin > Users, then reconnect the source.",
-            "403 Client Error: Forbidden for url": "The Listmonk API user lacks a permission this table needs. Incremental subscriber sync needs subscribers:sql_query. Grant it or switch the table to full refresh.",
+            "403 Client Error: Forbidden for url": "The Listmonk API user's role lacks a permission this table needs. Check the permissions listed in the source setup, grant the missing one, or deselect the table.",
+            "internal or private IP address": "The Listmonk instance URL resolves to an internal or private IP address, which PostHog can't reach. Use your instance's public URL, then reconnect.",
             "Invalid Listmonk instance URL": "The Listmonk instance URL is not valid. Enter the address of your instance, such as https://listmonk.example.com.",
             "Listmonk instance URL must use https": "The Listmonk instance URL must use https. Update the URL, then reconnect the source.",
         }
@@ -126,7 +127,12 @@ Create an API user in Listmonk under **Admin > Users** and copy its token. Incre
             is_valid, error = self.is_database_host_valid(hostname_of(host), team_id)
         except ValueError as e:
             return str(e)
-        return None if is_valid else (error or "Invalid Listmonk instance URL")
+        if is_valid:
+            return None
+        if error and "internal or private IP address" in error:
+            # The shared message suggests an SSH tunnel, which this source does not offer.
+            return "The Listmonk instance URL resolves to an internal or private IP address, which PostHog can't reach. Use your instance's public URL."
+        return error or "Invalid Listmonk instance URL"
 
     def validate_credentials(
         self,
