@@ -114,14 +114,17 @@ export function MCPSetupModeView(props: MCPSetupModeViewProps): JSX.Element {
                 </LemonButton>
             </header>
             <div className="min-h-0 flex-1 overflow-y-auto">
-                <div className="mx-auto flex w-full max-w-[44rem] flex-col gap-6 px-4 py-8">
-                    {step ? (
-                        <StepBody {...props} step={step} />
-                    ) : (
-                        <div className="flex justify-center">
-                            <Spinner className="text-2xl" />
-                        </div>
-                    )}
+                {/* The auto margins center a short step in the window and let a tall one scroll from the top. */}
+                <div className="flex min-h-full flex-col px-4 py-8 @min-[56rem]/setup-mode:px-8">
+                    <div className="mx-auto my-auto w-full max-w-6xl">
+                        {step ? (
+                            <StepBody {...props} step={step} />
+                        ) : (
+                            <div className="flex justify-center">
+                                <Spinner className="text-2xl" />
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
