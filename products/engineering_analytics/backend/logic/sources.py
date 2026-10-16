@@ -231,6 +231,7 @@ class JobSourceTables:
     issue_events: str | None = None
     reviews: str | None = None
     source_id: str = ""
+    repository: str = ""
     depot_job_attempts: depot_ci.DepotJobAttempts | None = None
     workflow_runs_optional_columns: frozenset[str] = frozenset()
 
@@ -276,6 +277,7 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
                     issue_events=tables.get(ISSUE_EVENTS_SCHEMA),
                     reviews=tables.get(REVIEWS_SCHEMA),
                     source_id=str(source.id),
+                    repository=repository,
                     workflow_runs_optional_columns=repo_tables.workflow_runs_optional_columns,
                 )
                 entries.append((repository, entry))

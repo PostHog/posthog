@@ -129,11 +129,6 @@ _PASSTHROUGH: tuple[tuple[str, DatabaseField], ...] = (
     # ``head_branch`` for the exposed grain, and the view already carries ``created_at`` for time filtering.
     ("r.run_started_at", DateTimeDatabaseField(name="run_started_at", nullable=True)),
     ("r.head_branch", StringDatabaseField(name="run_head_branch", nullable=True)),
-    ("j.id", IntegerDatabaseField(name="id")),
-    ("j.head_sha", StringDatabaseField(name="head_sha")),
-    ("j.labels", StringDatabaseField(name="labels")),
-    ("j.provisioning_seconds", IntegerDatabaseField(name="provisioning_seconds", nullable=True)),
-    ("j.head_branch", StringDatabaseField(name="job_head_branch")),
 )
 
 BUILDER_FIELDS: dict[str, FieldOrTable] = {**FIELDS, **{field.name: field for _, field in _PASSTHROUGH}}
