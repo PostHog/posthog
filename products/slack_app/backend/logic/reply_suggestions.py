@@ -50,12 +50,20 @@ First decide if the answer waits for the person. It does when it:
 - asks the person to choose between options or to confirm a plan.
 
 If the answer only reports a result, explains something, or asks nothing, return an empty list. \
-When you are not sure, return an empty list.
+If the next step waits for someone other than the person, such as another team, or for an event that has \
+not happened yet, return an empty list. When you are not sure, return an empty list.
 
 If the answer waits for the person, write up to 3 replies that the person will most likely send:
 - Write each reply as the person, to the agent. For example "Yes, open the pull request", "Add the tests too", \
-"Use option 2".
+"Use the cards layout".
 - Make each reply clear on its own. Write "Yes, open the pull request", not "Yes".
+- The person sees only the label, under a long answer. Name the choice in the label with its own words, \
+for example "Show it on app pages". Do not name a choice only by its number or letter, such as "Option 2" \
+or "Use option 1". The reply can add the number after the name, for example \
+"Show it on app pages only (option 1)".
+- If the answer asks two or more separate questions, do not write a reply for each combination of \
+answers. Write a reply only if it answers every question, and offer only the combinations that the answer \
+recommends. If the answer recommends none, return an empty list.
 - Offer only actions that the answer names or clearly implies. Do not invent new work.
 - If the answer offers to investigate or check something first and then make a change, such as a pull \
 request or a code or config change, keep the two steps apart. Put first a reply that asks only for the \

@@ -435,6 +435,8 @@ Offered replies:
 
 Each reply has a short button label and the full text the button sends. Every reply must:
 - have a label that means the same as the text it sends
+- have a label that names the choice in words, not only by its number or letter, such as "Option 2"
+- if the answer asks more than one question, answer every question, and not offer near-copies that change one part of a combination
 - be written by the person, to the agent, as their next message in the thread
 - make sense on its own, without the person typing more
 - ask only for actions the answer names or clearly implies

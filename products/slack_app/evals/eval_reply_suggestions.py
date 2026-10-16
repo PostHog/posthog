@@ -102,6 +102,18 @@ WAITING_CASES = [
         ),
         expected=_offer(True),
     ),
+    # Buttons for every mix of the two answers would differ by one word each and leave a mix out.
+    BaseEvalCase(
+        name="two_separate_questions",
+        prompt=(
+            "The weekly digest is ready. Two things to decide:\n\n"
+            "1. **Channel:** email reaches everyone, and Slack reaches only the team that joined the "
+            "`#digest` channel. I recommend Slack, because the email list has many old addresses.\n"
+            "2. **Day:** Monday or Friday. I suggest Monday, so the numbers are fresh for the week.\n\n"
+            "Which channel and which day do you want?"
+        ),
+        expected=_offer(True),
+    ),
     BaseEvalCase(
         name="permission_in_german",
         prompt=(
@@ -143,6 +155,16 @@ BARE_CASES = [
     BaseEvalCase(
         name="polite_sign_off",
         prompt="Done. The alert now fires at 5% instead of 10%. Let me know if you need anything else.",
+        expected=_offer(False),
+    ),
+    # The reader cannot make this decision, so a button would commit to a choice for another team.
+    BaseEvalCase(
+        name="decision_waits_for_another_team",
+        prompt=(
+            "The billing team is choosing between monthly and yearly usage caps. If they pick monthly caps, "
+            "I can open the pull request for the new limit. If they pick yearly caps, the current branch is "
+            "ready to merge as it is."
+        ),
         expected=_offer(False),
     ),
     # Only the person can answer this, and a button would have to guess the repository.
