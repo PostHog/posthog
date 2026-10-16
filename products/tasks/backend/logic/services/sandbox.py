@@ -443,7 +443,10 @@ def build_bundled_skills_clear_command() -> str:
     vars, but the container environment still holds the value the launcher set.
     """
     paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
-    return f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then rm -rf {paths} && mkdir -p {paths}; fi'
+    return (
+        "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; "
+        f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then /usr/bin/rm -rf {paths} && /usr/bin/mkdir -p {paths}; fi'
+    )
 
 
 def build_agent_server_capability_probe(capability: str) -> str:
@@ -491,6 +494,9 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult: ...
+
+    def execute_in_task_filesystem(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+        return self.execute(command, timeout_seconds=timeout_seconds)
 
     @abstractmethod
     def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
@@ -560,9 +566,11 @@ class SandboxBase(ABC):
             # POSTHOG_PERSONAL_API_KEY / GITHUB_TOKEN. `env -i` drops those credentials and the
             # user PATH; the fixed PATH resolves only real system binaries (start-dockerd lives
             # in /usr/local/bin). HOME=/root covers tooling that needs it (dockerd runs as root).
-            result = self.execute(
+            result = self.execute_in_task_filesystem(
                 "[ -x /usr/local/bin/bootstrap-dev-stack ] || exit 3; "
-                "/usr/bin/env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "
+                "docker_config=$(/usr/bin/mktemp -d /run/posthog-bootstrap-docker.XXXXXX) || exit 1; "
+                '/usr/bin/env -i HOME=/root DOCKER_CONFIG="$docker_config" '
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "
                 "setsid /usr/local/bin/bootstrap-dev-stack >/var/log/bootstrap-dev-stack.log 2>&1 </dev/null &",
                 timeout_seconds=30,
             )
@@ -948,7 +956,7 @@ def build_health_check_command(
         f"SECONDS=0; i=0; max_attempts={max_attempts}; budget={budget_seconds}; while :; do "
         "  i=$((i + 1)); "
         f"{process_check}"
-        f"  body=$(curl -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
+        f"  body=$(curl -q -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
         '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '
