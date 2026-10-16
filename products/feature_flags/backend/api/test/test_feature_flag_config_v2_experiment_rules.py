@@ -4,6 +4,7 @@ These flags are invented test rows.
 """
 
 import copy
+from typing import Any
 
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ from products.feature_flags.backend.api.test.test_feature_flag_config_v2_updates
     HOLDOUT_SEED_C,
     RULE_B,
     RULE_C,
+    RULE_VALUE_DETAIL,
     SEED_B,
     SEED_C,
     AdmittedV2TestCase,
@@ -27,6 +29,11 @@ from products.feature_flags.backend.api.test.test_feature_flag_config_v2_updates
 )
 from products.feature_flags.backend.flags_cache import _get_feature_flags_for_service
 from products.feature_flags.backend.models import FeatureFlag
+
+
+def string_split(first: str, **extra: Any) -> dict:
+    variants = [{"key": "a", "weight": 50, "value": first}, {"key": "b", "weight": 50, "value": "on"}]
+    return config(experiment(variants=variants, **extra), return_type="string", default_value=None)
 
 
 class TestExperimentRules(AdmittedV2TestCase):
@@ -130,15 +137,25 @@ class TestExperimentRules(AdmittedV2TestCase):
         assert response.json()["detail"] == "filters.rules[0].experiment_id: Unknown field.", response.json()
         assert not FeatureFlag.objects.filter(team=self.team, key="split-v2").exists()
 
-    def test_reserved_strings_are_rejected_as_variant_values(self) -> None:
-        def string_split(first: str) -> dict:
-            variants = [{"key": "a", "weight": 50, "value": first}, {"key": "b", "weight": 50, "value": "on"}]
-            return config(experiment(variants=variants), return_type="string", default_value=None)
-
+    @parameterized.expand([("false", "$false"), ("true", "$true"), ("null", "null")])
+    def test_reserved_strings_are_rejected_as_variant_values(self, _name: str, value: str) -> None:
         flag = self.flag(string_split("off"))
-        response = self.patch_flag(flag, {"version": 3, "filters": string_split("$false")})
+        response = self.patch_flag(flag, {"version": 3, "filters": string_split(value)})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "filters__rules__0__variants__0__value", response.json()
+        body = response.json()
+        assert (body["attr"], body["detail"]) == ("filters__rules__0__variants__0__value", RULE_VALUE_DETAIL), body
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (string_split("off"), 3)
+
+    def test_a_null_variant_value_the_row_already_serves_is_kept_and_can_be_enabled(self) -> None:
+        flag = self.flag(string_split("null"), active=False)
+        replacement = string_split("null", paused=True)
+        response = self.patch_flag(flag, {"version": 3, "filters": replacement})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        response = self.patch_flag(flag, {"version": 4, "active": True})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.filters, flag.active, flag.version) == (replacement, True, 5)
 
     def test_a_split_above_a_lower_rule_reports_warnings_and_is_cached(self) -> None:
         flag = self.flag(config(experiment()), active=True)

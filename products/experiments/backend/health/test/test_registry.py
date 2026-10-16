@@ -41,6 +41,7 @@ RUNNING_UNEVEN_SPLIT = HealthContext(
     primary_metric_count=1,
     secondary_metric_count=0,
     exposures=UNEVEN_SPLIT_TOTALS,
+    split_history=None,
 )
 
 NO_EXPOSURES = replace(UNEVEN_SPLIT_TOTALS, total_exposures={"control": 0, "test": 0})

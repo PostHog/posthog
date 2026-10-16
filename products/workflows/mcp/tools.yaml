@@ -12,6 +12,10 @@ ui_apps:
     workflow-list:
         type: list
         detail_tool: workflows-get
+    workflow-data-suggestions:
+        type: custom
+        app_name: PostHog Workflow Suggestions
+        description: Suggested workflows built from the events a project sends, each with a Create workflow action.
 tools:
     broadcasts-create:
         operation: hog_flows_create
@@ -73,6 +77,93 @@ tools:
             cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at
             least N times over the last M days') is unsupported; reject it and explain why.
         ui_app: workflow
+    workflows-data-suggestions-create:
+        operation: workflow_data_suggestions_build
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a workflow from a suggestion
+        description: >
+            Build one suggested workflow (a suggestion id from workflows-data-suggestions-list) and save it as a draft
+            in the project. It never runs until enabled. Building takes 10 to 60 seconds: while status is 'building',
+            call this tool again with the same suggestion_id every few seconds; it does not start a second build. With
+            status 'ready' you get workflow_id and missing_inputs, the settings the draft leaves blank (a webhook URL,
+            an email sender, a branch condition), plus _posthogUrl, the editor link. Ask the user for all of them first,
+            then fill them in one workflows-patch-graph call: that tool checks the whole draft, so a patch that leaves
+            another required setting blank is rejected. Or tell them to finish it in the editor. A field that says there
+            is no verified sender means the project cannot send email yet: tell the user to add and verify a sending
+            domain under Workflows > Channels first, instead of asking for an address. Never guess credentials or URLs.
+            With status 'failed', call once more with retry true, then offer another suggestion.
+        exclude_params:
+            - save_draft
+        inject_body:
+            save_draft: true
+        ui_app: workflow-data-suggestions
+        hooks: workflows/dataSuggestionCreateHooks
+        feature_flag: workflows-data-suggestions
+        response:
+            include:
+                - status
+                - workflow_id
+                - missing_inputs
+                - uses_saved_template
+    workflows-data-suggestions-get:
+        operation: workflow_data_suggestions_current
+        enabled: true
+        title: Check suggested workflows
+        description: >
+            Read the suggested workflows without starting anything. Use it to check on a run that
+            workflows-data-suggestions-list started: while status is 'generating', call it again every few seconds, for
+            up to five minutes. 'ready' lists the suggestions, 'unavailable' or 'ai_not_approved' means there are none
+            to show. Present them the same way as workflows-data-suggestions-list.
+        ui_app: workflow-data-suggestions
+        feature_flag: workflows-data-suggestions
+        response:
+            include:
+                - status
+                - suggestions.*.id
+                - suggestions.*.name
+                - suggestions.*.description
+                - suggestions.*.reason
+                - suggestions.*.trigger_event
+                - suggestions.*.weekly_count
+                - email_sender_ready
+    workflows-data-suggestions-list:
+        operation: workflow_data_suggestions_generate
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: List suggested workflows
+        description: >
+            Up to three workflows suggested from the project's own events, such as a welcome email for a sign-up event.
+            Use it to help a user who is getting started with workflows. Returns the cached suggestions, or starts
+            making them and returns status 'generating', which takes about 10 to 30 seconds: then call
+            workflows-data-suggestions-get every few seconds until status is 'ready'. Clients that show apps render the
+            suggestions as cards with a Create workflow button, so do not list them again. Otherwise show one line per
+            suggestion, like 'Welcome new sign-ups: a welcome email, then tips (user_signed_up, 57 this week)', and ask
+            which one to create. Always let the user pick, even when they only asked to set up a workflow; create one
+            without asking only when they already named it. When email_sender_ready is false, say that first: the
+            project has no verified email sender, so email workflows can be saved as drafts but cannot send until a
+            sending domain is added and verified under Workflows > Channels. Then offer the suggestions. Never show the
+            ids; the user picks by name or number, and you pass that suggestion's id to
+            workflows-data-suggestions-create. 'ai_not_approved' means the organization has not approved AI data
+            processing; 'unavailable' means there is nothing to suggest right now.
+        ui_app: workflow-data-suggestions
+        feature_flag: workflows-data-suggestions
+        response:
+            include:
+                - status
+                - suggestions.*.id
+                - suggestions.*.name
+                - suggestions.*.description
+                - suggestions.*.reason
+                - suggestions.*.trigger_event
+                - suggestions.*.weekly_count
+                - email_sender_ready
     workflows-discard-draft:
         operation: hog_flows_discard_draft_create
         enabled: true
