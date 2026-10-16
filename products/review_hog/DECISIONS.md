@@ -198,6 +198,29 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-16 — push gate skips follow-ups that rarely surface anything (live)
+
+- **What.** Three live push gate rules run after `draft`: `late_follow_up` (the push would start review 9 or a later
+  one), `small_pr` (the PR has fewer than 150 reviewable lines, the size the lens parts use), and `quiet_small_push`
+  (the last review kept no finding and the push changes at most 30 own code lines). They take over a shadow match of an
+  earlier rule. A skipped push leaves the baseline in place, so the next review covers its changes, and skipped small
+  pushes add up until one crosses 30 lines. Every gate decision now carries `reviewable_lines` and `previous_findings`.
+- **Why.** Automatic follow-ups make up most of the Standard spend, and most of them surface nothing. The findings of
+  the previous review predict what a follow-up surfaces better than the PR size does: inside each PR size band, a
+  follow-up after a review with two or more findings surfaced three to five times the must-fix findings of a follow-up
+  after a review that kept none.
+- **Evidence.** A replay of automatic follow-ups under the current posting rules, with model cost joined per turn
+  (review-eval `experiments/2026-10-16-follow-up-value`):
+  - The three rules match about two in five of those follow-ups and about a third of their cost.
+  - They hold back about one in six follow-up must-fix labels and follow-up findings. The labels are the model's own,
+    and a skipped push stays in the next review's scope, so both shares are upper bounds.
+  - Follow-ups after a push the gate expects another push for surfaced the most per review, so `next_push_likely`
+    stays a shadow rule.
+- **Not chosen.**
+  - Skipping first reviews of small PRs: a first review of a 30 to 99 line PR still surfaces must-fix findings.
+  - System One below 0.7: it saves less per must-fix label held back than the push-size rule.
+  - A cap from review 5: it saves about half as much and holds back almost as many must-fix labels.
+
 ### ✅ BUILT 2026-10-15 — push gate: small-change deferral (shadow)
 
 - **What.** A new push gate rule, `small_change`, sits after `docs_only` and before `system_one_below_threshold`. It

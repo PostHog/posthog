@@ -15,6 +15,7 @@ It overrides `deny` and `allow`, and the differences are:
 - `ci_workflows` is an extra, owner-only category. It matches every file under `.github/workflows/` and `.depot/workflows/`, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-devex`.
 - `stamphog_policy` also matches `packages/owners-yaml/`, `owners.yaml` and `product.yaml`, because those are gate inputs here.
 - `devex_guardrails` is an extra category. It matches the semgrep rules, ratchet baselines, invariant tests and lint code that guard the house patterns, so an edit to a guard always gets a human review.
+- `agent_steering` is an extra, owner-only category. It matches the root `AGENTS.md`, the PR template, the `writing-pr-descriptions` skill, `.claude/settings.json`, `.claude/hooks/` and `.mcp.json`, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-devex`.
 - `workflows_delivery` is an extra, owner-only category. It matches the CDP, Workflows and Messaging API, models and plugin-server worker code, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-workflows`.
 - `allow` also lists `.github/CODEOWNERS`.
 - Every `rationale` records the false positives that shaped the rule in this repository.
