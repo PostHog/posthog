@@ -190,6 +190,8 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.product_analytics", "products.access_control",
+    # Facade-only: alerts declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
