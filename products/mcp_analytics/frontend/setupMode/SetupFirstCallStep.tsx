@@ -6,7 +6,10 @@ import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 
 import type { MCPActivityRecentCallApi } from '../generated/api.schemas'
+import { SetupCallsPanel } from './SetupCallsPanel'
 import { SetupStepHero } from './SetupStepHero'
+import { SetupStepLayout } from './SetupStepLayout'
+import { ToolCallHeroCard } from './ToolCallHeroCard'
 import { ToolCallRevealCard } from './ToolCallRevealCard'
 
 const HedgehogParty = pngHoggie(partyPng)
@@ -38,15 +41,13 @@ const COPY = {
     live: 'New calls keep arriving here.',
 }
 
-export function SetupFirstCallStep({
-    calls,
-    loadFailed,
-    onNext,
-}: {
+interface SetupFirstCallStepProps {
     calls: MCPActivityRecentCallApi[] | null
     loadFailed: boolean
     onNext: () => void
-}): JSX.Element {
+}
+
+function FirstCallBody({ calls, loadFailed, onNext }: SetupFirstCallStepProps): JSX.Element {
     if (calls === null) {
         return loadFailed ? (
             <LemonBanner type="error">{COPY.failedToLoad}</LemonBanner>
@@ -61,25 +62,28 @@ export function SetupFirstCallStep({
     const failed = calls.filter((call) => call.is_error).length
     const copy = failed > 0 ? COPY.failure : COPY.success
     const next = (
-        <LemonButton
-            type="primary"
-            sideIcon={<IconArrowRight />}
-            onClick={onNext}
-            data-attr="mcp-analytics-setup-mode-next"
-        >
-            {copy.next}
-        </LemonButton>
+        <div className="flex justify-end">
+            <LemonButton
+                type="primary"
+                sideIcon={<IconArrowRight />}
+                onClick={onNext}
+                data-attr="mcp-analytics-setup-mode-next"
+            >
+                {copy.next}
+            </LemonButton>
+        </div>
     )
 
     if (calls.length === 0) {
         return (
             <>
                 <SetupStepHero Hedgehog={HedgehogParty} title={COPY.none.title} lead={COPY.none.lead} />
-                <div className="flex justify-end">{next}</div>
+                {next}
             </>
         )
     }
 
+    const [newest, previous] = calls
     return (
         <>
             <SetupStepHero
@@ -87,21 +91,17 @@ export function SetupFirstCallStep({
                 title={failed > 0 ? COPY.failure.title(calls.length, failed) : COPY.success.title(calls.length)}
                 lead={copy.lead}
             />
-            <div className="flex flex-col gap-3">
-                {calls.map((call) => (
-                    <ToolCallRevealCard key={`${call.timestamp}-${call.tool}`} call={call} />
-                ))}
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <span className="flex items-center gap-2 text-sm text-secondary">
-                    <span
-                        className="size-2 rounded-full bg-success animate-pulse motion-reduce:animate-none"
-                        aria-hidden="true"
-                    />
-                    {COPY.live}
-                </span>
-                {next}
-            </div>
+            <ToolCallHeroCard call={newest} />
+            {previous ? <ToolCallRevealCard call={previous} /> : null}
+            {next}
         </>
+    )
+}
+
+export function SetupFirstCallStep(props: SetupFirstCallStepProps): JSX.Element {
+    return (
+        <SetupStepLayout aside={<SetupCallsPanel calls={props.calls} status={{ kind: 'live', text: COPY.live }} />}>
+            <FirstCallBody {...props} />
+        </SetupStepLayout>
     )
 }
