@@ -627,7 +627,7 @@ Salesflare fail:stall-budget
 Salesforce not-checkable:database
 SavvyCal fail:stall-budget
 ScaleAI fail:stall-budget
-Scaleway fail:rate-limit-budget,safe-point
+Scaleway fail:rate-limit-budget
 Scrunch fail:stall-budget
 Secoda fail:stall-budget
 Secureframe fail:stall-budget
