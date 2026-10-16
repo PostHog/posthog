@@ -81,7 +81,13 @@ import {
 import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
 import { recipientEmailProperty } from '../Workflows/hogflows/steps/recipientEmail'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
-import { audienceCohortIds, audienceCohortLaunchError, toAudienceCohort } from './audience/audienceList'
+import {
+    type AudienceCohortLaunchError,
+    audienceCohortIds,
+    audienceCohortLaunchError,
+    blockingCohortLaunchErrors,
+    toAudienceCohort,
+} from './audience/audienceList'
 import {
     AUDIENCE_PREFILL_PARAM,
     type BroadcastPrefill,
@@ -252,7 +258,7 @@ export interface broadcastWizardLogicValues {
     aiEmailDraftApplied: boolean
     aiEmailDraftLoading: boolean
     aiEmailDraftStatus: AiEmailDraftStatusProps | null
-    audienceCohortLaunchErrors: string[]
+    audienceCohortLaunchErrors: AudienceCohortLaunchError[]
     audienceProperties: AnyPropertyFilter[]
     batchJobs: HogFlowBatchJobApi[]
     batchJobsLoading: boolean
@@ -487,8 +493,8 @@ export interface broadcastWizardLogicActions {
     sendToEveryoneAfterRejectedLink: () => {
         value: true
     }
-    setAudienceCohortLaunchErrors: (errors: string[]) => {
-        errors: string[]
+    setAudienceCohortLaunchErrors: (errors: AudienceCohortLaunchError[]) => {
+        errors: AudienceCohortLaunchError[]
     }
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
@@ -609,7 +615,8 @@ export interface broadcastWizardLogicMeta {
             integrationsLoading: boolean,
             linkAudienceRejected: boolean,
             audienceProperties: AnyPropertyFilter[],
-            audienceCohortLaunchErrors: string[]
+            audienceCohortLaunchErrors: AudienceCohortLaunchError[],
+            blastRadius: BlastRadiusApi | null
         ) => Record<BroadcastWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<BroadcastWizardStep, string[]>,
@@ -670,7 +677,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         prefillFromLink: (prefill: BroadcastPrefill) => ({ prefill }),
         saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
-        setAudienceCohortLaunchErrors: (errors: string[]) => ({ errors }),
+        setAudienceCohortLaunchErrors: (errors: AudienceCohortLaunchError[]) => ({ errors }),
         rejectLinkAudience: true,
         sendToEveryoneAfterRejectedLink: true,
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
@@ -866,7 +873,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             },
         ],
         audienceCohortLaunchErrors: [
-            [] as string[],
+            [] as AudienceCohortLaunchError[],
             {
                 setAudienceCohortLaunchErrors: (_, { errors }) => errors,
             },
@@ -1196,6 +1203,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 s.linkAudienceRejected,
                 s.audienceProperties,
                 s.audienceCohortLaunchErrors,
+                s.blastRadius,
             ],
             (
                 goalEnabled: boolean,
@@ -1208,7 +1216,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 integrationsLoading: boolean,
                 linkAudienceRejected: boolean,
                 audienceProperties: AnyPropertyFilter[],
-                audienceCohortLaunchErrors: string[]
+                audienceCohortLaunchErrors: AudienceCohortLaunchError[],
+                blastRadius: BlastRadiusApi | null
             ): Record<BroadcastWizardStep, string[]> => {
                 const errors: Record<BroadcastWizardStep, string[]> = {
                     recipients: [],
@@ -1260,7 +1269,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     errors.review.push(senderError)
                 }
                 // Only launch waits for a list to match. Editing the other steps can go on meanwhile.
-                errors.review.push(...audienceCohortLaunchErrors)
+                errors.review.push(
+                    ...blockingCohortLaunchErrors(audienceCohortLaunchErrors, blastRadius?.realtime_cohort?.id)
+                )
 
                 return errors
             },
@@ -1775,8 +1786,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             const cohortErrors = await loadAudienceCohortLaunchErrors(projectId, values.audienceProperties)
             breakpoint()
             actions.setAudienceCohortLaunchErrors(cohortErrors)
-            if (cohortErrors.length > 0) {
-                lemonToast.error(cohortErrors[0])
+            const blockingErrors = blockingCohortLaunchErrors(cohortErrors, values.blastRadius?.realtime_cohort?.id)
+            if (blockingErrors.length > 0) {
+                lemonToast.error(blockingErrors[0])
                 actions.launchBroadcastFinished()
                 return
             }
@@ -2227,15 +2239,15 @@ async function createDraft(projectId: string, values: broadcastWizardLogicType['
 async function loadAudienceCohortLaunchErrors(
     projectId: string,
     audienceProperties: AnyPropertyFilter[]
-): Promise<string[]> {
+): Promise<AudienceCohortLaunchError[]> {
     const ids = audienceCohortIds(audienceProperties)
     const results = await Promise.allSettled(ids.map((id) => cohortsRetrieve(projectId, id)))
     // A cohort that fails to load doesn't block launch, so a lookup error can't stop every send.
-    return results.flatMap((result, index) =>
-        result.status === 'fulfilled'
-            ? (audienceCohortLaunchError(toAudienceCohort(ids[index], result.value)) ?? [])
-            : []
-    )
+    return results.flatMap((result, index) => {
+        const message =
+            result.status === 'fulfilled' ? audienceCohortLaunchError(toAudienceCohort(ids[index], result.value)) : null
+        return message ? [{ cohortId: ids[index], message }] : []
+    })
 }
 
 function captureLaunchFailed(

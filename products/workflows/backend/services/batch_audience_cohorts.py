@@ -45,14 +45,8 @@ def find_realtime_behavioral_cohort(project_id: int, cohort_ids: list[int | str]
     return None
 
 
-def realtime_audience_cohort(project_id: int, filters: object) -> Cohort | None:
-    """The realtime cohort an audience sends to from the realtime pipeline's membership, or None.
-
-    Only an audience of exactly one condition, "in" a realtime cohort that filters on event
-    behavior, takes this path. The membership lives in a Postgres database that holds no person
-    properties, so any other condition, a negated one, or the test account filter keeps the
-    ClickHouse audience query.
-    """
+def sole_audience_cohort_id(filters: object) -> int | str | None:
+    """The cohort ID of an audience of exactly one condition, "in" a cohort, or None. Reads no rows."""
     if not isinstance(filters, dict) or filters.get("filter_test_accounts"):
         return None
     properties = filters.get("properties")
@@ -67,7 +61,19 @@ def realtime_audience_cohort(project_id: int, filters: object) -> Cohort | None:
     ):
         return None
     cohort_id = condition.get("value")
-    if not isinstance(cohort_id, int | str):
+    return cohort_id if isinstance(cohort_id, int | str) else None
+
+
+def realtime_audience_cohort(project_id: int, filters: object) -> Cohort | None:
+    """The realtime cohort an audience sends to from the realtime pipeline's membership, or None.
+
+    Only an audience of exactly one condition, "in" a realtime cohort that filters on event
+    behavior, takes this path. The membership lives in a Postgres database that holds no person
+    properties, so any other condition, a negated one, or the test account filter keeps the
+    ClickHouse audience query.
+    """
+    cohort_id = sole_audience_cohort_id(filters)
+    if cohort_id is None:
         return None
     return find_realtime_behavioral_cohort(project_id, [cohort_id])
 

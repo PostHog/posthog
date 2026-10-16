@@ -22,6 +22,7 @@ from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.services.batch_audience_cohorts import (
     realtime_audience_cohort,
     realtime_cohort_is_ready,
+    sole_audience_cohort_id,
 )
 
 logger = structlog.get_logger(__name__)
@@ -157,7 +158,12 @@ def resume_batch_jobs_waiting_for_cohort(*, team_id: int, cohort_id: int) -> Non
     ).select_related("team", "hog_flow")
     errors: list[Exception] = []
     for job in waiting.iterator(chunk_size=500):
-        audience_cohort = realtime_audience_cohort(job.team.project_id, batch_job_audience_filters(job))
+        # Each ready cohort scans the project's waiting runs, so a run that waits for another cohort is
+        # skipped before any cohort query.
+        filters = batch_job_audience_filters(job)
+        if str(sole_audience_cohort_id(filters)) != str(cohort_id):
+            continue
+        audience_cohort = realtime_audience_cohort(job.team.project_id, filters)
         if audience_cohort is None or audience_cohort.pk != cohort_id:
             continue
         try:
@@ -175,6 +181,9 @@ def resume_batch_jobs_waiting_for_cohort(*, team_id: int, cohort_id: int) -> Non
             HogFlowBatchJob.objects.filter(pk=job.pk, status=HogFlowBatchJobState.WAITING).update(
                 status=HogFlowBatchJobState.QUEUED, updated_at=timezone.now()
             )
+        elif outcome == "job_running" or response.status_code >= 500:
+            # The resolver is busy or the API failed, so a later attempt can still wake the run.
+            errors.append(RuntimeError(f"Batch run {job.id} was not resumed: {outcome}"))
         else:
             logger.warning("realtime_cohort_resume_not_delivered", batch_job_id=str(job.id), outcome=outcome)
     if errors:

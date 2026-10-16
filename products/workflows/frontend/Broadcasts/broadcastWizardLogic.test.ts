@@ -569,15 +569,34 @@ describe('broadcastWizardLogic', () => {
         }
     )
 
-    it('stops a launch while an uploaded list in the audience is still matching', async () => {
+    const dynamicCohort = { id: 42, name: 'Upgraded', is_static: false, is_calculating: true }
+    it.each([
+        [
+            'an uploaded list that is still matching',
+            { id: 42, name: 'Spring list', is_static: true, is_calculating: true },
+            null,
+            ['"Spring list" is still matching people. You can launch when it finishes.'],
+        ],
+        [
+            'a cohort before its first calculation',
+            dynamicCohort,
+            null,
+            [`"Upgraded" is still calculating who's in it. You can launch when it finishes.`],
+        ],
+        [
+            'a realtime cohort the send waits for',
+            dynamicCohort,
+            { id: 42, name: 'Upgraded', state: 'building', percent_complete: null },
+            [],
+        ],
+    ])('checks the audience cohorts at launch: %s', async (_desc, cohort, realtimeCohort, expectedErrors) => {
         useMocks({
-            get: {
-                '/api/projects/:team_id/cohorts/:id/': {
-                    id: 42,
-                    name: 'Spring list',
-                    is_static: true,
-                    is_calculating: true,
-                },
+            get: { '/api/projects/:team_id/cohorts/:id/': cohort },
+            post: {
+                '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
+                    200,
+                    { affected: 0, total: 0, realtime_cohort: realtimeCohort },
+                ],
             },
         })
         logic.actions.setEmail({
@@ -589,17 +608,16 @@ describe('broadcastWizardLogic', () => {
         logic.actions.setAudienceProperties([
             { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
         ])
+        await expectLogic(logic, () => {
+            logic.actions.loadBlastRadius()
+        }).toDispatchActions(['loadBlastRadiusSuccess'])
         logic.actions.setStep('review')
 
         await expectLogic(logic, () => {
             logic.actions.launchBroadcast()
-        })
-            .toDispatchActions(['setAudienceCohortLaunchErrors', 'launchBroadcastFinished'])
-            .toNotHaveDispatchedActions(['saveBroadcastFinished'])
+        }).toDispatchActions(['setAudienceCohortLaunchErrors'])
 
-        expect(logic.values.stepValidationErrors.review).toEqual([
-            '"Spring list" is still matching people. You can launch when it finishes.',
-        ])
+        expect(logic.values.stepValidationErrors.review).toEqual(expectedErrors)
     })
 
     it.each([

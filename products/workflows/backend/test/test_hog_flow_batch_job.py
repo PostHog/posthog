@@ -1,10 +1,13 @@
+from contextlib import nullcontext
 from datetime import UTC, datetime
 
+import pytest
 from unittest.mock import patch
 
 from django.db.models.signals import post_save
 from django.test import TestCase, override_settings
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 
 from posthog.models.user import User
@@ -171,15 +174,18 @@ class TestHogFlowBatchJob(TestCase):
 
     @parameterized.expand(
         [
-            ("resumed", "calculated", "resumed", "queued", True),
+            ("resumed", "calculated", 200, "resumed", "queued", True, False),
             # A second wake of the same run is a no-op on the CDP side.
-            ("already_resumed", "calculated", "already_resumed", "queued", True),
-            ("still_calculating", "calculating", "resumed", "waiting", False),
+            ("already_resumed", "calculated", 200, "already_resumed", "queued", True, False),
+            ("still_calculating", "calculating", 200, "resumed", "waiting", False, False),
             # The stamps are set, but the pipeline doesn't keep the membership current for this team.
-            ("team_off_realtime_allowlist", "off_allowlist", "resumed", "waiting", False),
-            # The resolver isn't parked, so the CDP API didn't wake it.
-            ("resolver_running", "calculated", "job_running", "waiting", True),
-            ("another_cohort", "another_cohort", "resumed", "waiting", False),
+            ("team_off_realtime_allowlist", "off_allowlist", 200, "resumed", "waiting", False, False),
+            # A running resolver can still need the wake, so the task retries.
+            ("resolver_running", "calculated", 409, "job_running", "waiting", True, True),
+            ("cdp_api_error", "calculated", 503, None, "waiting", True, True),
+            # The resolver already ran, so there is nothing left to wake.
+            ("resolver_finished", "calculated", 200, "job_completed", "waiting", True, False),
+            ("another_cohort", "another_cohort", 200, "resumed", "waiting", False, False),
         ]
     )
     @patch("products.workflows.backend.services.batch_jobs.resume_hog_flow_batch_job")
@@ -190,9 +196,11 @@ class TestHogFlowBatchJob(TestCase):
         self,
         _name,
         cohort_state,
+        resume_status,
         resume_outcome,
         expected_status,
         expect_resume,
+        expect_retry,
         _mock_create_invocation,
         mock_resume,
     ):
@@ -206,11 +214,16 @@ class TestHogFlowBatchJob(TestCase):
                 last_backfill_person_properties_at=datetime(2026, 1, 1, tzinfo=UTC),
             )
         ready_cohort = self._realtime_cohort(ready=True) if cohort_state == "another_cohort" else cohort
-        mock_resume.return_value.status_code = 200
-        mock_resume.return_value.json.return_value = {"outcome": resume_outcome}
+        mock_resume.return_value.status_code = resume_status
+        mock_resume.return_value.json.return_value = (
+            {"outcome": resume_outcome} if resume_outcome else {"error": "unavailable"}
+        )
 
         allowlist = "none" if cohort_state == "off_allowlist" else "all"
-        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=allowlist):
+        with (
+            override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=allowlist),
+            pytest.raises(Retry) if expect_retry else nullcontext(),
+        ):
             realtime_cohort_ready.send(sender=Cohort, team_id=self.team.pk, cohort_id=ready_cohort.pk)
 
         job.refresh_from_db()

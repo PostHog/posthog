@@ -119,6 +119,22 @@ export function audienceCohortLaunchError(cohort: AudienceCohort): string | null
     return null
 }
 
+export interface AudienceCohortLaunchError {
+    cohortId: number
+    message: string
+}
+
+/**
+ * The launch errors that still stop a send. A realtime cohort the send waits for doesn't, because its run
+ * starts on its own once the cohort finishes calculating.
+ */
+export function blockingCohortLaunchErrors(
+    errors: AudienceCohortLaunchError[],
+    realtimeCohortId: number | null | undefined
+): string[] {
+    return errors.filter((error) => error.cohortId !== realtimeCohortId).map((error) => error.message)
+}
+
 /** What an upload added, and which rows it skipped and why, so a short list is never a surprise. */
 export function peopleImportMessage(cohortName: string, summary: PeopleImportApi): string {
     const parts = [`Added "${cohortName}" to the audience.`]
