@@ -763,6 +763,15 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert {row["run_id"] for row in response.json()} == {str(busy[-1].id), str(quiet.id)}
 
+    def test_skill_name_returns_only_that_scouts_runs(self) -> None:
+        for skill_name in ("signals-scout-errors", "signals-scout-surveys"):
+            SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        wanted = _make_run(self.team, skill_name="signals-scout-errors")
+        _make_run(self.team, skill_name="signals-scout-surveys")
+        response = self.client.get(self._url(), data={"skill_name": "signals-scout-errors"})
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["run_id"] for row in response.json()] == [str(wanted.id)]
+
     def test_rejects_a_per_scout_limit_over_the_cap(self) -> None:
         response = self.client.get(self._url(), data={"per_scout_limit": 5000})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -864,6 +873,24 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         # The errors scout's only touched report fell outside the cap — it must not count either,
         # or the callout advertises a scout the findings page's filter won't show.
         assert body["scout_count"] == 1
+
+    def test_summary_caps_runs_by_completion_among_the_newest_candidates(self) -> None:
+        # The page keeps the most recently *completed* runs, so a run that completes after a newer
+        # one must win the cap. Runs older than the candidate set are never ranked.
+        now = timezone.now()
+        timings = {"outside": (3, 0), "late": (2, 1), "newest": (1, 50)}
+        for emitted_count, (name, (created_hours_ago, completed_minutes_ago)) in zip((4, 2, 1), timings.items()):
+            run = _make_run(self.team, skill_name=f"signals-scout-{name}", emitted_count=emitted_count)
+            SignalScoutRun.objects.filter(id=run.id).update(created_at=now - timedelta(hours=created_hours_ago))
+            run.task_run.completed_at = now - timedelta(minutes=completed_minutes_ago)
+            run.task_run.save(update_fields=["completed_at"])
+        with (
+            patch("products.signals.backend.scout_harness.tools.runs.FLEET_FINDINGS_SUMMARY_RUN_CAP", 1),
+            patch("products.signals.backend.scout_harness.tools.runs.FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS", 2),
+        ):
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
 
     def test_summary_excludes_runs_outside_the_window(self) -> None:
         # Guards the `created_at` window filter: a finding emitted before the lookback must not count,

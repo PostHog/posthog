@@ -38,6 +38,7 @@ from products.tasks.backend.feature_flags import is_dev_stack_image_bake_enabled
 from products.tasks.backend.logic.services.dev_stack_image_refresh import reconcile_dev_stack_image
 from products.tasks.backend.logic.services.dev_stack_image_state import DevStackImageState
 from products.tasks.backend.logic.services.sandbox import SandboxConfig, SandboxTemplate, get_sandbox_class
+from products.tasks.backend.logic.services.task_filesystem import TASK_FILESYSTEM_SCRIPT, read_task_filesystem_script
 from products.tasks.backend.metrics import observe_dev_stack_image_bake
 from products.tasks.backend.redis import get_tasks_cache
 
@@ -209,6 +210,9 @@ def bake_dev_stack_image(
         )
     )
     try:
+        result = sandbox.write_file(TASK_FILESYSTEM_SCRIPT, read_task_filesystem_script())
+        if result.exit_code != 0:
+            raise DevStackImageBakeError("Failed to install task filesystem image preparation")
         sandbox.write_file(BAKE_SCRIPT_SANDBOX_PATH, script.encode())
 
         log_tail: deque[bytes] = deque()

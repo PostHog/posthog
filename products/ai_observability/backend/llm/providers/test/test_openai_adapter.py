@@ -20,7 +20,7 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
-from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
+from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
 
 
 class TestOpenAIRecommendedModels:
@@ -148,6 +148,33 @@ def _cross_field_error() -> ValidationError:
     except ValidationError as e:
         return e
     raise AssertionError("expected ValidationError")
+
+
+class TestOpenAIStreamOutputSchema:
+    def _stream_kwargs(self, output_schema: OutputSchema | None) -> dict:
+        request = CompletionRequest(
+            model="gpt-4.1",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="openai",
+            output_schema=output_schema,
+        )
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = iter([])
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            list(OpenAIAdapter().stream(request, api_key="sk-test", analytics=AnalyticsContext(capture=False)))
+        return mock_client.chat.completions.create.call_args.kwargs
+
+    def test_output_schema_is_sent_as_strict_json_schema_response_format(self):
+        schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+
+        kwargs = self._stream_kwargs(OutputSchema(schema=schema, name="verdict"))
+
+        assert kwargs["response_format"] == {
+            "type": "json_schema",
+            "json_schema": {"name": "verdict", "schema": schema, "strict": True},
+        }
+        assert "response_format" not in self._stream_kwargs(None)
 
 
 class TestOpenAIAdapterErrorMapping:

@@ -182,7 +182,8 @@ const EXPECTATIONS: Expectation[] = [
             }
         )
     ),
-    backend(
+    // The master push runs on Depot CI: the per-commit checks and the schema dump, no matrices.
+    depotBackend(
         { name: 'master push', github: push() },
         {
             runs: [
@@ -190,12 +191,14 @@ const EXPECTATIONS: Expectation[] = [
                 'repo-checks',
                 'sdk-major-guard',
                 'check-migrations',
-                'mirror-schema-cache',
+                'check-openapi-types',
                 'django_tests',
             ],
             skipped: [
-                'dynamic-ci-filter',
+                'cancel-superseded-runs',
                 'detect-snapshot-mode',
+                'turbo-discover',
+                'prime-schema-cache',
                 'turbo-tests',
                 'django',
                 'get_clickhouse_versions',

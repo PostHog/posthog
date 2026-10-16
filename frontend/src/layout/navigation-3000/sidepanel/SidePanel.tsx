@@ -1,16 +1,14 @@
 import './SidePanel.scss'
 
 import { useActions, useValues } from 'kea'
-import { Suspense, useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 
 import { IconApps, IconChat, IconLock, IconLogomark, IconNotebook, IconPulse } from '@posthog/icons'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 const NotebookPanel = lazyWithRetry(() =>
     import('scenes/notebooks/NotebookPanel/NotebookPanel').then((m) => ({ default: m.NotebookPanel }))
@@ -41,7 +39,6 @@ const SidePanelActivity = lazyWithRetry(() =>
 
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidePanelTab } from '~/types'
@@ -53,8 +50,8 @@ import { SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion
 import { SidePanelExportsIcon } from './panels/exports/SidePanelExportsIcon'
 import { SidePanelInfo, SidePanelInfoIcon } from './panels/info/SidePanelInfo'
 import { SidePanelMax } from './panels/max/SidePanelMax'
+import { SidePanelContent } from './SidePanelContent'
 import { sidePanelLogic } from './sidePanelLogic'
-import { SidePanelNavigation } from './SidePanelNavigation'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
@@ -123,7 +120,7 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
 const DEFAULT_WIDTH = 512
 const SIDE_PANEL_MIN_WIDTH_COMPACT = 330
 
-export function SidePanel({ className }: { className?: string }): JSX.Element | null {
+export const SidePanel = memo(function SidePanel({ className }: { className?: string }): JSX.Element | null {
     const { theme } = useValues(themeLogic)
     const { enabledTabs, visibleTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
@@ -148,8 +145,7 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
     }
 
     const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
-    const { setMainContentRect, setSidePanelWidth } = useActions(panelLayoutLogic)
-    const { mainContentRef } = useValues(panelLayoutLogic)
+    const { setSidePanelWidth } = useActions(panelLayoutLogic)
 
     useEffect(() => {
         setSidePanelAvailable(true)
@@ -157,13 +153,6 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
             setSidePanelAvailable(false)
         }
     }, [setSidePanelAvailable])
-
-    // Trigger scene width recalculation when SidePanel size changes
-    useEffect(() => {
-        if (mainContentRef?.current) {
-            setMainContentRect(mainContentRef.current.getBoundingClientRect())
-        }
-    }, [desiredSize, sidePanelOpen, setMainContentRect, mainContentRef])
 
     // A tab is unavailable both when the scene will never offer it and while the scene is still
     // loading the object it describes. Staying open renders nothing until the tab resolves, which
@@ -197,6 +186,7 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
                 sidePanelOpenAndAvailable && 'SidePanel3000--open justify-end',
                 isResizeInProgress && 'SidePanel3000--resizing',
                 '@container/side-panel bg-surface-secondary absolute top-0 right-0 bottom-0 h-full flex flex-col border-t-none',
+                '[--side-panel-width:initial] [--scene-layout-rect-width:initial] [--scene-layout-rect-right:initial]',
                 !sidePanelOpen && 'hidden',
                 className
             )}
@@ -225,18 +215,7 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
                 </>
             )}
 
-            {PanelContent && (
-                <SidePanelNavigation activeTab={activeTab as SidePanelTab} onTabChange={(tab) => openSidePanel(tab)}>
-                    <ErrorBoundary>
-                        {/* Keep chunk-load failures out of the panel error reporter so stale assets reload once instead. */}
-                        <ChunkLoadErrorBoundary>
-                            <Suspense fallback={<Spinner className="text-4xl mx-auto mt-16" />}>
-                                <PanelContent />
-                            </Suspense>
-                        </ChunkLoadErrorBoundary>
-                    </ErrorBoundary>
-                </SidePanelNavigation>
-            )}
+            {PanelContent && <SidePanelContent activeTab={activeTab as SidePanelTab} Content={PanelContent} />}
         </div>
     )
-}
+})

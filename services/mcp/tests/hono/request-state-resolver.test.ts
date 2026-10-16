@@ -143,6 +143,7 @@ vi.mock('@/hono/request-context', () => {
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
@@ -490,7 +491,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
-    it.each([MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INTERVIEW_RECRUITMENT_FLAG])(
+    it.each([MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INTERVIEW_RECRUITMENT_FLAG, MCP_INTENT_PROMPT_FLAG])(
         'evaluates %s even though no generated tool declares it',
         async (flag) => {
             vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ flags: { [flag]: true }, payloads: {} })
@@ -544,6 +545,9 @@ describe('RequestStateResolver MCP client contexts', () => {
             expect(result.oauthClientId).toBe(input.oauthClientId)
         }
         expect(result.interviewRecruitmentConfig).toBeUndefined()
+        expect(result.interviewRecruitmentUnavailableReason).toBe(
+            input.oauthClientId || input.mcpConsumer ? 'surface_excluded' : input.scopes ? 'internal_run' : 'task_bound'
+        )
     })
 
     it.each([
@@ -596,11 +600,44 @@ describe('RequestStateResolver MCP client contexts', () => {
             const state = await makeResolver().resolve(makeProps())
             if (expected) {
                 expect(state.interviewRecruitmentConfig).toMatchObject(expected)
+                expect(state.interviewRecruitmentUnavailableReason).toBeUndefined()
             } else {
                 expect(state.interviewRecruitmentConfig).toBeUndefined()
+                expect(state.interviewRecruitmentUnavailableReason).toBe(
+                    value === false ? 'flag_disabled' : 'invalid_configuration'
+                )
             }
         }
     )
+
+    it.each([
+        { value: true, enabled: true },
+        { value: 'test-1', enabled: true },
+        { value: false, enabled: false },
+        { value: undefined, enabled: false },
+        { value: '', enabled: false },
+        { value: true, missingPayload: true, enabled: false },
+        { value: true, payload: { prompt: ' ' }, enabled: false },
+        { value: true, payload: { prompt: 'x'.repeat(2001) }, enabled: false },
+        { value: true, impersonated: true, enabled: false },
+        { value: true, suppressed: true, enabled: false },
+        { value: true, consumer: 'posthog-cli', enabled: false },
+    ])('resolves the intent prompt only for an eligible configured request: %j', async (input) => {
+        const prompt = {
+            prompt: 'State the task objective before the tool action. Omit identifying details.',
+        }
+        mockApiKey.is_impersonated = input.impersonated
+        mockApiKey.suppress_analytics = input.suppressed
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
+            flags: { [MCP_INTENT_PROMPT_FLAG]: input.value },
+            payloads: {
+                [MCP_INTENT_PROMPT_FLAG]: input.missingPayload ? undefined : { ...prompt, ...input.payload },
+            },
+        })
+        const state = await makeResolver().resolve(makeProps({ mcpConsumer: input.consumer }))
+
+        expect(state.intentPrompt).toEqual(input.enabled ? prompt.prompt : undefined)
+    })
 
     it('honors a dev/test flag override even when evaluation returns nothing', async () => {
         // Evaluation stays empty (analytics client disabled, as in local dev/evals);

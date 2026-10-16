@@ -214,13 +214,20 @@ def _one_series(result: ExtractionResult, series: ComparableSeries) -> Extractio
 
 @frozen
 class SeriesEvaluation:
+    # What per-series state is keyed on. `label` is for display, and two series can share one.
+    identity: str
     label: str
     result: AlertEvaluationResult
 
 
-def check_alert_per_series(
-    alert: AlertConfiguration,
-) -> tuple[SeriesEvaluation, ...] | AlertEvaluationResult:
+@frozen
+class PerSeriesEvaluation:
+    series: tuple[SeriesEvaluation, ...]
+    # The breakdown limit folded some values into "Other", so a value not in `series` may still breach.
+    truncated: bool = False
+
+
+def check_alert_per_series(alert: AlertConfiguration) -> PerSeriesEvaluation | AlertEvaluationResult:
     """Each series' own verdict for a threshold alert, rather than one verdict for the insight.
 
     `check_alert_for_insight` stops at the first series that breaches, because one alert holds one
@@ -236,16 +243,25 @@ def check_alert_per_series(
     except DelayedEvaluationUnavailable as err:
         return AlertEvaluationResult(value=None, breaches=[], skipped_reason=str(err))
     if extracted is None:
-        return ()
-    return tuple(
-        SeriesEvaluation(
-            label=series.label,
-            result=describe_delayed_evaluation(
-                evaluate_threshold(_one_series(extracted.result, series), extracted.condition, extracted.threshold),
-                extracted.result,
-            ),
-        )
-        for series in extracted.result.series
+        return PerSeriesEvaluation(series=())
+    result = extracted.result
+    if result.is_breakdown and result.empty_query_result:
+        # The extractor stands in a zero series for a query with no rows. A breakdown with no rows
+        # has no values, so that series is not a breakdown value and must not become a group.
+        return PerSeriesEvaluation(series=())
+    return PerSeriesEvaluation(
+        series=tuple(
+            SeriesEvaluation(
+                identity=series.identity or series.label,
+                label=series.label,
+                result=describe_delayed_evaluation(
+                    evaluate_threshold(_one_series(result, series), extracted.condition, extracted.threshold),
+                    result,
+                ),
+            )
+            for series in result.series
+        ),
+        truncated=result.truncated,
     )
 
 

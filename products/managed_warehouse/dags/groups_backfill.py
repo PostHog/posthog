@@ -81,21 +81,13 @@ GROUPS_COLUMN_TYPES = {
 def groups_snapshot_select_sql(team_id: int) -> str:
     if team_id <= 0:
         raise ValueError("Groups backfill requires a positive team ID")
-    # Unmerged updates can leave multiple versions of the same group in ClickHouse.
     return f"""
         SELECT team_id, group_type_index, group_key,
-            tupleElement(latest, 1) AS group_properties,
-            tupleElement(latest, 2) AS created_at,
-            toDateTime64(tupleElement(latest, 3), 6) AS _timestamp,
+            group_properties, created_at,
+            toDateTime64(_timestamp, 6) AS _timestamp,
             now64(6) AS _inserted_at
-        FROM (
-            SELECT team_id, group_type_index, group_key,
-                argMax(tuple(group_properties, created_at, _timestamp), tuple(_timestamp, _offset)) AS latest
-            FROM groups
-            WHERE team_id = {int(team_id)}
-            GROUP BY team_id, group_type_index, group_key
-        )
-        ORDER BY group_type_index, group_key
+        FROM groups FINAL
+        WHERE team_id = {int(team_id)}
     """
 
 
@@ -114,10 +106,10 @@ def export_groups_to_duckling_s3(
 
     settings = {
         **DEFAULT_CLICKHOUSE_SETTINGS,
+        "max_memory_usage": 100 * 1024**3,
         **settings_with_log_comment(context),
         **(config.clickhouse_settings or {}),
     }
-    settings.setdefault("max_bytes_before_external_group_by", 10 * 1024**3)
     settings.update(PARQUET_WRITER_SETTINGS)
     row_count = client.execute(
         "SELECT count() FROM groups WHERE team_id = %(team_id)s", {"team_id": target.team_id}, settings=settings

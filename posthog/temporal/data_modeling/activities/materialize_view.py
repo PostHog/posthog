@@ -663,17 +663,29 @@ async def hogql_table(
         "IPv6": ("toString", ()),
     }
 
+    def _conversion_target(ch_type: str) -> str:
+        # Arrays are converted per element, so only the element's own type name can select a conversion.
+        # Matching the whole string would also hit names nested deeper, e.g. the `uuid` field of
+        # `Array(Tuple(uuid String))`, and wrongly stringify structures Arrow already supports.
+        if not ch_type.lower().startswith("array("):
+            return ch_type
+        element = ch_type[len("array(") : -1].strip()
+        while element.lower().startswith(("nullable(", "lowcardinality(")):
+            element = element[element.index("(") + 1 : -1].strip()
+        return element.split("(", 1)[0]
+
     def _needs_conversion(ch_type: str) -> bool:
-        # Skip array types from conversion — they are already properly typed by ClickHouse
-        # and attempting to convert them causes errors like:
-        # "Illegal type Array(DateTime) of argument of function toTimezone"
-        is_array_type = ch_type.lower().startswith("array(")
-        if is_array_type:
-            return False
-        return any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion)
+        target = _conversion_target(ch_type).lower()
+        return any(uat.lower() in target for uat in arrow_type_conversion)
 
     get_call_tuple = lambda ch_type: next(
-        iter([call_tuple for uat, call_tuple in arrow_type_conversion.items() if uat.lower() in ch_type.lower()])
+        iter(
+            [
+                call_tuple
+                for uat, call_tuple in arrow_type_conversion.items()
+                if uat.lower() in _conversion_target(ch_type).lower()
+            ]
+        )
     )
 
     try:
@@ -706,15 +718,30 @@ async def hogql_table(
         select_fields: list[ast.Expr] = []
         for column_name, ch_type, call_tuple in query_typings:
             if call_tuple is not None:
-                await logger.adebug(
-                    f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
-                )
-                select_fields.append(
-                    ast.Alias(
-                        expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=[column_name]), *call_tuple[1]]),
-                        alias=column_name,
+                if ch_type.lower().startswith("array("):
+                    await logger.adebug(
+                        f"Converting {column_name} of type {ch_type} using arrayMap with {call_tuple[0]}(..)"
                     )
-                )
+                    element_conversion = ast.Lambda(
+                        args=["x"],
+                        expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=["x"]), *call_tuple[1]]),
+                    )
+                    select_fields.append(
+                        ast.Alias(
+                            expr=ast.Call(name="arrayMap", args=[element_conversion, ast.Field(chain=[column_name])]),
+                            alias=column_name,
+                        )
+                    )
+                else:
+                    await logger.adebug(
+                        f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
+                    )
+                    select_fields.append(
+                        ast.Alias(
+                            expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=[column_name]), *call_tuple[1]]),
+                            alias=column_name,
+                        )
+                    )
             else:
                 select_fields.append(ast.Field(chain=[column_name]))
         query_node = ast.SelectQuery(select=select_fields, select_from=ast.JoinExpr(table=query_node))
