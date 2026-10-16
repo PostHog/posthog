@@ -98,6 +98,39 @@ export const EVALUATION_TEMPLATE_EXAMPLES: Record<string, EvaluationTemplateExam
         reasoning: 'The answer claims SSO is on every plan, which the context does not support.',
         distribution: passFail(86),
     },
+    conciseness: {
+        messages: [
+            user('What port does the dev server run on?'),
+            assistant(
+                'Great question! Ports are an important part of local development. The dev server runs on port 8010 by default. You can change it in your settings.'
+            ),
+        ],
+        result: { ...NO_RESULT, score: 3 },
+        reasoning: 'The answer is correct, but two opening sentences of filler come before it.',
+        distribution: [
+            { label: '5', percent: 38, passes: true },
+            { label: '4', percent: 29, passes: true },
+            { label: '3', percent: 21, passes: false },
+            { label: '2', percent: 9, passes: false },
+            { label: '1', percent: 3, passes: false },
+        ],
+    },
+    trajectory_efficiency: {
+        messages: [
+            user('Book a table for two at 8pm tomorrow.'),
+            assistant('Booked a table for two at 8pm tomorrow. Your confirmation code is ABC123.'),
+        ],
+        metrics: [{ label: 'Tool calls', value: 'search_restaurants, check_availability ×3, create_booking' }],
+        result: { ...NO_RESULT, score: 3 },
+        reasoning: 'The booking succeeded, but the agent checked the same time slot three times before booking.',
+        distribution: [
+            { label: '5', percent: 34, passes: true },
+            { label: '4', percent: 33, passes: true },
+            { label: '3', percent: 20, passes: false },
+            { label: '2', percent: 9, passes: false },
+            { label: '1', percent: 4, passes: false },
+        ],
+    },
     task_outcome: {
         messages: [
             user('Cancel my order 4417 and refund it to my card.'),

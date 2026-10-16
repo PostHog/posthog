@@ -13,6 +13,8 @@ import {
     IconStar,
     IconThumbsDown,
     IconTarget,
+    IconTextWidth,
+    IconUserPaths,
     IconThumbsUp,
     IconWarning,
     IconWrench,
@@ -58,6 +60,10 @@ function TemplateIconGlyph({ icon }: { icon: EvaluationTemplate['icon'] }): JSX.
             return <IconPiggyBank className={ICON_CLASS} />
         case 'clock':
             return <IconClock className={ICON_CLASS} />
+        case 'text-width':
+            return <IconTextWidth className={ICON_CLASS} />
+        case 'paths':
+            return <IconUserPaths className={ICON_CLASS} />
         default: {
             const exhaustiveCheck: never = icon
             return exhaustiveCheck
@@ -65,9 +71,20 @@ function TemplateIconGlyph({ icon }: { icon: EvaluationTemplate['icon'] }): JSX.
     }
 }
 
+// Tailwind's blue, green and purple scales are single colors in this repo, so the tints use sky, emerald and violet.
+const CATEGORY_TONES: Record<EvaluationTemplate['category'], string> = {
+    quality: 'bg-sky-500/10 text-sky-600',
+    safety: 'bg-red-500/10 text-red-500',
+    agents: 'bg-violet-500/10 text-violet-500',
+    users: 'bg-emerald-500/10 text-emerald-600',
+    cost_speed: 'bg-orange-500/10 text-orange-500',
+}
+
 export function TemplateIcon({ template }: { template: EvaluationTemplate }): JSX.Element {
     return (
-        <div className="flex items-center justify-center size-10 shrink-0 rounded-lg bg-primary-3000/10 text-primary-3000">
+        <div
+            className={`flex items-center justify-center size-10 shrink-0 rounded-lg ${CATEGORY_TONES[template.category]}`}
+        >
             <TemplateIconGlyph icon={template.icon} />
         </div>
     )
