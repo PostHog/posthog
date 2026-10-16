@@ -92,7 +92,7 @@ export interface wizardCloudRunLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         githubIntegration: (integrations: IntegrationType[] | null) => IntegrationType | null
         isGithubConnected: (githubIntegration: IntegrationType | null) => boolean
-        connectGitHubUrl: (installStepReturnUrl: any) => string
+        connectGitHubUrl: (installStepReturnUrl: string) => string
         skillId: (selectedSDK: SDK | null) => string | undefined
     }
 }
