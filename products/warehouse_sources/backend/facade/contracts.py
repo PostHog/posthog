@@ -307,3 +307,12 @@ class GitHubSourceCredential:
 
     integration_id: int | None = None
     personal_access_token: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
+class FailingSource:
+    source_id: UUID
+    source_type: str
+    source_label: str | None
+    failures: int
+    latest_error: str | None

@@ -20,12 +20,14 @@ exception is ``soft_delete_tables``: consumers may not iterate the model to call
 
 from collections import defaultdict
 from collections.abc import Collection
+from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
+from products.warehouse_sources.backend import failing_sources
 from products.warehouse_sources.backend.file_uploads import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
@@ -94,6 +96,7 @@ __all__ = [
     "list_jobs_for_source",
     "list_column_statistics",
     "get_sync_alert_context",
+    "list_failing_sources",
     # framework-free helper transforms
     "effective_source_status",
     "clickhouse_columns_to_dwh_columns",
@@ -650,3 +653,9 @@ def get_sync_alert_context(
     )
 
     return build_sync_alert_context(team_id, schema_id, job_id, include_error=include_error)
+
+
+def list_failing_sources(
+    team_id: int, created_by_id: int, *, since: datetime, limit: int
+) -> list[contracts.FailingSource]:
+    return failing_sources.list_failing_sources(team_id, created_by_id, since=since, limit=limit)

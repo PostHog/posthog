@@ -17,6 +17,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     # Kept on the model so the nested names stay unchanged.
     Status = ExternalDataJobStatus
     PipelineVersion = ExternalDataJobPipelineVersion
+    USER_CANCELLED_ERROR = "Sync cancelled by user"
 
     # Overridden from CreatedMetaFields. Import workflows create every job row, so the column is
     # always NULL, and its index only cost a write per insert. With no index, a user delete would
