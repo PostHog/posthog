@@ -58,6 +58,8 @@ import {
 import type { BIQueryBuildResult } from './biEditorTypes'
 import { mergeBITableSettings } from './biMeasureSettings'
 import { applyBIDateRange, mergeBIQuerySource } from './biQueryFilters'
+import { getBIVisualizationSource } from './biQueryResults'
+import { getBIScatterAxisOptions } from './biScatter'
 
 export interface BISceneLogicProps {
     tabId: string
@@ -97,6 +99,7 @@ export interface biSceneLogicValues {
     chartSettingsDefaults: ChartSettings | null
     copyDisabledReason: string | undefined
     dataNodeKey: string
+    displayedQueryIsCurrent: boolean
     exportViewName: string
     exportViewOpen: boolean
     exportedView: Awaited<ReturnType<typeof warehouseSavedQueriesCreate>> | null
@@ -109,6 +112,10 @@ export interface biSceneLogicValues {
     loadError: string | null
     name: string
     saveDisabledReason: string | undefined
+    sqlEditorUrl: string | null
+    sqlPreviewOpen: boolean
+    sqlPreviewQuery: BIVisualizationNode | null
+    sqlPreviewVersion: 'current' | 'last_run'
     visualization: BIVisualizationNode
     worksheet: BIVisualizationNode
 }
@@ -165,6 +172,9 @@ export interface biSceneLogicActions {
     ) => {
         insight: InsightApi
         payload?: string
+    }
+    navigateHierarchy: (worksheet: BIVisualizationNode) => {
+        worksheet: BIVisualizationNode
     }
     openWorksheet: () => {
         value: true
@@ -233,6 +243,19 @@ export interface biSceneLogicActions {
     setName: (name: string) => {
         name: string
     }
+    setScatterAxis: (
+        axis: 'x' | 'y',
+        column: string
+    ) => {
+        axis: 'x' | 'y'
+        column: string
+    }
+    setSqlPreviewOpen: (open: boolean) => {
+        open: boolean
+    }
+    setSqlPreviewVersion: (version: 'current' | 'last_run') => {
+        version: 'current' | 'last_run'
+    }
     setVisualization: (visualization: VisualizationNode) => {
         visualization: VisualizationNode
     }
@@ -251,6 +274,13 @@ export interface biSceneLogicActions {
 export interface biSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        sqlPreviewQuery: (
+            sqlPreviewVersion: 'current' | 'last_run',
+            worksheet: BIVisualizationNode,
+            lastRunQuery: BIVisualizationNode | null
+        ) => BIVisualizationNode | null
+        sqlEditorUrl: (sqlPreviewQuery: BIVisualizationNode | null) => string | null
+        displayedQueryIsCurrent: (lastRunQuery: BIVisualizationNode | null, worksheet: BIVisualizationNode) => boolean
         canUndo: (history: BIWorksheetHistory) => boolean
         canRedo: (history: BIWorksheetHistory) => boolean
         copyDisabledReason: (generatedQuery: BIQueryBuildResult | null, name: string) => string | undefined
@@ -301,9 +331,11 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         redo: true,
         restoreHistory: true,
         restoreWorksheet: (worksheet: BIVisualizationNode) => ({ worksheet }),
+        navigateHierarchy: (worksheet: BIVisualizationNode) => ({ worksheet }),
         setVisualization: (visualization: VisualizationNode) => ({ visualization }),
         setChartSettings: (chartSettings: ChartSettings) => ({ chartSettings }),
         setChartSettingsDefaults: (defaults: ChartSettings | undefined) => ({ defaults }),
+        setScatterAxis: (axis: 'x' | 'y', column: string) => ({ axis, column }),
         setName: (name: string) => ({ name }),
         runQuery: true,
         cancelQuery: true,
@@ -316,6 +348,8 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         selectConnection: (connectionId: string | null) => ({ connectionId }),
         setExportViewName: (name: string) => ({ name }),
         setExportViewOpen: (open: boolean) => ({ open }),
+        setSqlPreviewOpen: (open: boolean) => ({ open }),
+        setSqlPreviewVersion: (version: 'current' | 'last_run') => ({ version }),
     }),
     loaders(({ values, actions }) => ({
         insight: [
@@ -420,6 +454,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             null as ChartSettings | null,
             {
                 setChartSettingsDefaults: (_, { defaults }) => defaults ?? null,
+                navigateHierarchy: () => null,
                 restoreWorksheet: () => null,
                 setVisualization: () => null,
             },
@@ -428,6 +463,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             emptyWorksheet(),
             {
                 restoreWorksheet: (_, { worksheet }) => worksheet,
+                navigateHierarchy: (_, { worksheet }) => worksheet,
                 setChartSettings: (state, { chartSettings }) => ({ ...state, chartSettings }),
                 setVisualization: (state, { visualization }) => ({
                     ...state,
@@ -445,8 +481,41 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         ],
         exportViewName: ['', { setExportViewName: (_, { name }) => name }],
         exportViewOpen: [false, { setExportViewOpen: (_, { open }) => open }],
+        sqlPreviewOpen: [false, { setSqlPreviewOpen: (_, { open }) => open, restoreWorksheet: () => false }],
+        sqlPreviewVersion: ['current' as 'current' | 'last_run', { setSqlPreviewVersion: (_, { version }) => version }],
     }),
     selectors({
+        sqlPreviewQuery: [
+            (s) => [s.sqlPreviewVersion, s.worksheet, s.lastRunQuery],
+            (
+                version: 'current' | 'last_run',
+                worksheet: BIVisualizationNode,
+                lastRun: BIVisualizationNode | null
+            ): BIVisualizationNode | null => {
+                const query = version === 'current' ? worksheet : lastRun
+                return query?.source.query ? { ...query, source: getBIVisualizationSource(query) } : null
+            },
+        ],
+        sqlEditorUrl: [
+            (s) => [s.sqlPreviewQuery],
+            (query: BIVisualizationNode | null): string | null =>
+                query
+                    ? urls.sqlEditor({
+                          query: {
+                              kind: NodeKind.DataVisualizationNode,
+                              source: query.source,
+                              display: ChartDisplayType.ActionsTable,
+                          },
+                      })
+                    : null,
+        ],
+        displayedQueryIsCurrent: [
+            (s) => [s.lastRunQuery, s.worksheet],
+            (lastRunQuery: BIVisualizationNode | null, worksheet: BIVisualizationNode): boolean =>
+                !!lastRunQuery &&
+                equal(lastRunQuery.source, worksheet.source) &&
+                equal(lastRunQuery.config, worksheet.config),
+        ],
         canUndo: [(s) => [s.history], (history: BIWorksheetHistory): boolean => history.past.length > 0],
         canRedo: [(s) => [s.history], (history: BIWorksheetHistory): boolean => history.future.length > 0],
         copyDisabledReason: [
@@ -479,7 +548,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                     visualization.chartSettings,
                     generatedQuery?.node.chartSettings,
                     chartSettingsDefaults ?? buildBIQuery(visualization.config)?.node.chartSettings,
+                    config.chartType === ChartDisplayType.ScatterPlot,
                     config.chartType === ChartDisplayType.ScatterPlot
+                        ? getBIScatterAxisOptions(config).map(({ value }) => value)
+                        : []
                 ),
                 tableSettings: mergeBITableSettings(
                     visualization.tableSettings,
@@ -521,6 +593,11 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
+        setSqlPreviewOpen: ({ open }) => {
+            if (open) {
+                actions.setSqlPreviewVersion(values.generatedQuery ? 'current' : 'last_run')
+            }
+        },
         recordWorksheet: ({ reset }) => {
             if (!cache.restoringHistory) {
                 actions.pushHistory(
@@ -551,6 +628,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             } finally {
                 cache.restoringHistory = false
             }
+            actions.runAfterChange()
+        },
+        navigateHierarchy: ({ worksheet }) => {
+            actions.restoreState({ editorView: BIEditorView.BI, config: worksheet.config })
             actions.runAfterChange()
         },
         setName: () => actions.recordWorksheet(),
@@ -684,7 +765,8 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             if (values.autoUpdate && values.generatedQuery) {
                 const dataLogic = dataNodeLogic.findMounted({ key: values.dataNodeKey })
                 if (
-                    !equal(values.lastRunQuery?.source, values.worksheet.source) ||
+                    !values.lastRunQuery ||
+                    !equal(getBIVisualizationSource(values.lastRunQuery), getBIVisualizationSource(values.worksheet)) ||
                     (!dataLogic?.values.responseLoading &&
                         (!dataLogic?.values.response ||
                             dataLogic.values.responseError ||
@@ -696,24 +778,81 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 }
             }
         },
+        setChartType: () => {
+            if (
+                !values.autoUpdate &&
+                values.lastRunQuery &&
+                equal({ ...values.lastRunQuery.config, chartType: values.config.chartType }, values.config) &&
+                equal(getBIVisualizationSource(values.lastRunQuery), getBIVisualizationSource(values.worksheet))
+            ) {
+                actions.setLastRunQuery(values.worksheet)
+            }
+        },
         runQuery: () => {
             if (!values.generatedQuery) {
                 return
             }
             captureBIEditorQueryRun({ editorView: BIEditorView.BI, config: values.config })
-            const unchanged = equal(values.lastRunQuery?.source, values.worksheet.source)
+            const unchanged =
+                !!values.lastRunQuery &&
+                equal(getBIVisualizationSource(values.lastRunQuery), getBIVisualizationSource(values.worksheet))
             actions.setLastRunQuery(values.worksheet)
             if (unchanged) {
                 dataNodeLogic.findMounted({ key: values.dataNodeKey })?.actions.loadData('force_async')
             }
         },
         cancelQuery: () => dataNodeLogic.findMounted({ key: values.dataNodeKey })?.actions.cancelQuery(),
+        setScatterAxis: ({ axis, column }) => {
+            const options = getBIScatterAxisOptions(values.config)
+            const option = options.find((option) => option.value === column)
+            if (!option) {
+                return
+            }
+            const settings = values.worksheet.chartSettings ?? {}
+            const previousY = settings.yAxis?.find((item) => item.column === column)
+            if (axis === 'x') {
+                const swap = previousY && settings.xAxis
+                actions.setChartSettings({
+                    ...settings,
+                    xAxis: previousY ?? { column },
+                    xAxisLabel:
+                        previousY && settings.yAxis?.length === 1
+                            ? (settings.leftYAxisSettings?.label ?? option.label)
+                            : option.label,
+                    yAxis: swap
+                        ? settings.yAxis?.map((item) => (item.column === column ? settings.xAxis! : item))
+                        : settings.yAxis,
+                    leftYAxisSettings: {
+                        ...settings.leftYAxisSettings,
+                        label:
+                            swap && settings.yAxis?.length === 1
+                                ? settings.xAxisLabel
+                                : settings.leftYAxisSettings?.label,
+                    },
+                })
+            } else if (column !== settings.xAxis?.column) {
+                actions.setChartSettings({
+                    ...settings,
+                    yAxis: [previousY ?? { column }],
+                    leftYAxisSettings: { ...settings.leftYAxisSettings, label: option.label },
+                })
+            }
+        },
         setChartSettings: ({ chartSettings }) => {
             actions.setChartSettingsDefaults(
                 buildBIQuery(values.lastRunQuery?.config ?? values.config)?.node.chartSettings
             )
             if (values.lastRunQuery) {
-                actions.setLastRunQuery({ ...values.lastRunQuery, chartSettings })
+                const availableColumns = new Set(
+                    getBIScatterAxisOptions(values.lastRunQuery.config).map(({ value }) => value)
+                )
+                const axes = [chartSettings.xAxis, ...(chartSettings.yAxis ?? [])].filter((axis) => axis !== undefined)
+                if (
+                    values.lastRunQuery.config.chartType !== ChartDisplayType.ScatterPlot ||
+                    axes.every((axis) => availableColumns.has(axis.column))
+                ) {
+                    actions.setLastRunQuery({ ...values.lastRunQuery, chartSettings })
+                }
             }
             actions.syncWorksheetUrl()
             actions.recordWorksheet()

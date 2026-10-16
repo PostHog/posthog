@@ -4,6 +4,7 @@ person into the person that holds its distinct ids now, or merge two live person
 from __future__ import annotations
 
 import json
+import time
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -339,8 +340,8 @@ def fold(rows: list[dict[str, Any]], context: VerbContext) -> None:
     Light fold: send A's ClickHouse-only properties to B as $set_once ($identify when only A is identified).
     A later run that finds them on B points A's ids at B in both stores and tombstones A. B keeps its created_at.
 
-    Neither fold rewrites a diverged id before ingestion confirmed the merge or the properties, so a rescan finds
-    any group a run did not finish.
+    Neither fold rewrites a diverged id before ingestion applied the merge or the properties. A full fold waits for
+    the merge and then points those ids at B; a rescan finds any group a run did not finish.
     """
     for row in rows:
         if not (row.get("group") or "").startswith("fold:"):
@@ -349,10 +350,14 @@ def fold(rows: list[dict[str, Any]], context: VerbContext) -> None:
         for row in rows:
             context.action(row, "skipped_person_processing_off")
         return
+    pending: list[_PendingMerge] = []
     for pair, group_rows in _pairs(rows, "fold").items():
-        repairs._retry_transient(
+        sent = repairs._retry_transient(
             partial(_fold_pair, pair, group_rows, context), what=f"fold {pair.old}>{pair.new}", log=context.log
         )
+        if sent is not None:
+            pending.append(sent)
+    _confirm_merges(context, pending, done="folded")
 
 
 @frozen
@@ -382,7 +387,7 @@ def _absent_in_postgres(team_id: int, distinct_ids: list[str]) -> list[str]:
     return [d for d in distinct_ids if d not in present]
 
 
-def _fold_pair(pair: _Pair, rows: list[dict[str, Any]], context: VerbContext) -> None:
+def _fold_pair(pair: _Pair, rows: list[dict[str, Any]], context: VerbContext) -> _PendingMerge | None:
     old, new = pair.old, pair.new
     person_rows = [r for r in rows if r["kind"] == "person"]
     diverged = [r for r in rows if r["kind"] == "mapping" and r["flavor"] == "diverged"]
@@ -392,24 +397,25 @@ def _fold_pair(pair: _Pair, rows: list[dict[str, Any]], context: VerbContext) ->
     if survivor is None or (old in states and states[old].is_deleted):
         for row in rows:
             context.action(row, "skipped_changed")
-        return
+        return None
     ghost_ids = _absent_in_postgres(context.team_id, [r["key"] for r in ghosts])
     if old in states:
         # An earlier full fold restored A and stopped before the merge landed: finish A's ids, then send it again.
         absent = [r for r in ghosts if r["key"] in ghost_ids]
         if absent and context.apply:
             _write_mappings(context, absent, {r["key"]: old for r in absent}, "restored")
-        _send_fold_merge(context, old, new, [r for r in rows if r not in absent], survivor)
-        return
+        return _send_fold_merge(context, old, new, [r for r in rows if r not in absent], survivor)
     payload = _live_payloads(context.team_id, [old]).get(old)
     if payload is not None and ghost_ids and (payload.is_identified or survivor.is_identified):
         for row in ghosts:
             if row["key"] not in ghost_ids:
                 context.action(row, "skipped_changed")
         live_ghosts = [r for r in ghosts if r["key"] in ghost_ids]
-        _full_fold(context, old, new, person_rows, live_ghosts, [*person_rows, *diverged, *live_ghosts], survivor)
-    else:
-        _light_fold(context, old, new, payload, person_rows, diverged, ghosts, ghost_ids, survivor)
+        return _full_fold(
+            context, old, new, person_rows, live_ghosts, [*person_rows, *diverged, *live_ghosts], survivor
+        )
+    _light_fold(context, old, new, payload, person_rows, diverged, ghosts, ghost_ids, survivor)
+    return None
 
 
 def _full_fold(
@@ -420,16 +426,16 @@ def _full_fold(
     ghost_rows: list[dict[str, Any]],
     rows: list[dict[str, Any]],
     survivor: _Survivor,
-) -> None:
+) -> _PendingMerge | None:
     if not context.apply:
         for row in rows:
             context.action(row, "would_repair", mode="full", target_person=new)
-        return
+        return None
     restored_ids = _restore_persons(person_rows, ghost_rows, context).restored.get(old)
     if not restored_ids:
         # A exists again, or every ghost id was claimed since the scan: the next scan names its new state.
-        return
-    _send_fold_merge(
+        return None
+    return _send_fold_merge(
         context,
         old,
         new,
@@ -446,19 +452,23 @@ def _send_fold_merge(
     rows: list[dict[str, Any]],
     survivor: _Survivor,
     alias: str | None = None,
-) -> None:
+) -> _PendingMerge | None:
     alias = alias or _any_live_distinct_id(context.team_id, old)
     target = next((d for d in survivor.distinct_ids if d != alias), None)
     if alias is None or target is None or not _owned_on_primary(context.team_id, {alias: old, target: new}):
         for row in rows:
             context.action(row, "skipped_no_alias")
-        return
+        return None
     if not context.apply:
         for row in rows:
             context.action(row, "would_repair", mode="merge", target_person=new)
-        return
+        return None
     outcome = _send_merge(context, distinct_id=target, alias=alias)
-    _report_merge(context, old, new, f"fold:{old}>{new}", rows, outcome)
+    group = f"fold:{old}>{new}"
+    if outcome == "merge_sent":
+        return _PendingMerge(old=old, new=new, group=group, rows=rows)
+    _report_merge(context, old, new, group, rows, outcome)
+    return None
 
 
 def _report_merge(
@@ -518,13 +528,16 @@ def _light_fold(
         for row in [*person_rows, *moving]:
             context.action(row, "would_repair", mode="light", target_person=new)
         return
-    # B holds A's properties now. Burying A first means a run stopped here leaves diverged ids, which a rescan
-    # reports as a fold with nothing left to carry, rather than a ghost of A that restore could revive.
+    # B holds A's properties now. A's ids with no Postgres row move before A is buried, because a rescan accepts
+    # them as a deleted person's ids afterwards. The diverged ids move after, so a run stopped at any step leaves
+    # either a fold with nothing to carry or diverged ids for republish, never a live A with no ids.
+    absent = [r for r in moving if r["flavor"] == "ghost"]
+    _write_mappings(context, absent, {r["key"]: new for r in absent}, "moved")
     orphans = find_orphaned_ch_persons(context.team_id, [old]) if payload is not None else []
     if orphans:
         context.pacer.before_write()
         tombstone_orphaned_ch_persons(context.team_id, orphans, dry_run=False)
-    _write_mappings(context, moving, {r["key"]: new for r in moving}, "moved")
+    _write_mappings(context, diverged, {r["key"]: new for r in diverged}, "moved")
     for row in person_rows:
         context.action(row, "folded", target_person=new, buried=bool(orphans), **carry)
 
@@ -549,6 +562,61 @@ def _send_light_fold_event(
         event_name="$identify",
         extra_properties={"$anon_distinct_id": survivor.distinct_ids[1]},
     )
+
+
+# Ingestion applies a merge within seconds, so a merge still pending after this wait is left for the next scan.
+_MERGE_CONFIRM_SECONDS = 60.0
+_MERGE_POLL_MAX_SECONDS = 8.0
+_sleep = time.sleep
+_monotonic = time.monotonic
+
+
+@frozen
+class _PendingMerge:
+    old: str
+    new: str
+    group: str
+    rows: list[dict[str, Any]]
+
+
+def _confirm_merges(context: VerbContext, pending: list[_PendingMerge], *, done: str) -> None:
+    """Wait for ingestion to merge each old person away, then point its diverged ids at the survivor.
+
+    Republishing those ids only after the merge landed means a merge that never lands leaves them diverged, so the
+    next scan finds the group again instead of a silent split. The wait polls one batched replica read at a time.
+    """
+    deadline = _monotonic() + _MERGE_CONFIRM_SECONDS
+    wait = 1.0
+    while pending:
+        _sleep(wait)
+        wait = min(wait * 2, _MERGE_POLL_MAX_SECONDS)
+        states = repairs._retry_transient(
+            partial(observe.pg_person_states, context.team_id, [p.old for p in pending]),
+            what="merge confirm",
+            log=context.log,
+        )
+        landed = [p for p in pending if p.old not in states or states[p.old].is_deleted]
+        for merge in landed:
+            repairs._retry_transient(
+                partial(_finish_merge, context, merge, done), what=f"finish {merge.old}>{merge.new}", log=context.log
+            )
+        pending = [p for p in pending if p not in landed]
+        if _monotonic() >= deadline:
+            break
+    for merge in pending:
+        _report_merge(context, merge.old, merge.new, merge.group, merge.rows, "merge_sent")
+
+
+def _finish_merge(context: VerbContext, merge: _PendingMerge, done: str) -> None:
+    diverged = [r for r in merge.rows if r["kind"] == "mapping" and r["flavor"] == "diverged"]
+    _write_mappings(context, diverged, {r["key"]: merge.new for r in diverged}, "moved")
+    for row in merge.rows:
+        if row["kind"] == "person":
+            context.action(row, done, survivor=merge.new)
+        elif row not in diverged:
+            context.action(row, done, target_person=merge.new)
+    if not any(r["kind"] == "person" and r["key"] == merge.old for r in merge.rows):
+        context.emit_extra(kind="person", key=merge.old, group=merge.group, outcome=done, survivor=merge.new)
 
 
 def _send_merge(context: VerbContext, *, distinct_id: str, alias: str) -> str:
@@ -582,8 +650,8 @@ def merge(rows: list[dict[str, Any]], context: VerbContext) -> None:
     """Merge a live old person A into the live person B that holds A's distinct ids in Postgres, through ingestion:
     send $merge_dangerously on a B id with an A id as the alias, so B survives.
 
-    The diverged ids stay as they are until ingestion merged A: a later scan then reports them for republish, or
-    reports the merge again if it did not land.
+    Once ingestion merged A, the same run points the diverged ids at B. A merge that does not land within the wait
+    leaves them diverged, so a later scan reports the merge again.
     """
     for row in rows:
         if not (row.get("group") or "").startswith("merge:"):
@@ -592,6 +660,7 @@ def merge(rows: list[dict[str, Any]], context: VerbContext) -> None:
         for row in rows:
             context.action(row, "skipped_person_processing_off")
         return
+    pending: list[_PendingMerge] = []
     for pair, group_rows in _pairs(rows, "merge").items():
         old, new = pair.old, pair.new
         states = observe.pg_person_states(context.team_id, [old, new])
@@ -619,4 +688,8 @@ def merge(rows: list[dict[str, Any]], context: VerbContext) -> None:
         outcome = repairs._retry_transient(
             partial(_send_merge, context, distinct_id=target, alias=alias), what=f"merge {old}>{new}", log=context.log
         )
-        _report_merge(context, old, new, group_rows[0]["group"], group_rows, outcome)
+        if outcome == "merge_sent":
+            pending.append(_PendingMerge(old=old, new=new, group=group_rows[0]["group"], rows=group_rows))
+        else:
+            _report_merge(context, old, new, group_rows[0]["group"], group_rows, outcome)
+    _confirm_merges(context, pending, done="merged")

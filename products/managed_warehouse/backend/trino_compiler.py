@@ -174,15 +174,26 @@ def prepare_hogql_to_trino_compiler(
         raise TrinoTargetUnavailable("The physical table mapping does not match the requested project")
 
     additional_tables = catalog_manifest.tables if catalog_manifest is not None else ()
-    if any(table.logical_name in {"events", "persons"} for table in additional_tables):
+    if any(table.logical_name in {"events", "persons", "groups", "raw_groups"} for table in additional_tables):
         _reject_pure_compilation(
             TrinoLoweringError(
                 "TRINO_PURE_CORE_TABLE_OVERRIDE",
                 "core table manifest",
-                detail="Managed warehouse compilation owns the events and persons physical mappings.",
+                detail="Managed warehouse compilation owns the core table physical mappings.",
             ),
             feature_code="TRINO_PURE_CORE_TABLE_OVERRIDE",
         )
+    groups_tables = (
+        tuple(
+            TrinoManifestTable(
+                logical_name=logical_name,
+                locator=(catalog_name, "posthog", membership.table_names.groups_table),
+            )
+            for logical_name in ("groups", "raw_groups")
+        )
+        if membership.table_names.groups_table is not None
+        else ()
+    )
     pure_manifest = TrinoCatalogManifest(
         tables=(
             TrinoManifestTable(
@@ -193,6 +204,7 @@ def prepare_hogql_to_trino_compiler(
                 logical_name="persons",
                 locator=(catalog_name, "posthog", membership.table_names.persons_table),
             ),
+            *groups_tables,
             *additional_tables,
         ),
         timezone=team.timezone,

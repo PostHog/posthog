@@ -32,6 +32,8 @@ with workflow.unsafe.imports_passed_through():
         SourceKind,
         SourceOutcomeInputs,
     )
+    from products.alerts_platform.backend.facade.payload import outcome_chunks
+    from products.alerts_platform.backend.facade.platform_metrics import increment_checks_unfinished, safe_record
     from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout, start_deliveries
 
 PLAN_START_TO_CLOSE = dt.timedelta(seconds=10)
@@ -54,6 +56,8 @@ ADMISSION_POLL_INTERVAL = dt.timedelta(seconds=2)
 # the batch costs the admission rounds plus one check's budget, not one per check.
 EVALUATION_BUDGET = PLAN_SCHEDULE_TO_CLOSE + ADMISSION_RUN_BUDGET + CHECK_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE
 _PATCH_READMISSION = "platform-insight-readmission-2026-10"
+# Runs started before it recorded every outcome in one activity, and replay must schedule the same.
+_PATCH_CHUNKED_RECORD = "platform-insight-chunked-record-2026-10"
 
 
 @frozen
@@ -163,19 +167,24 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             workflow.logger.warning(
                 "%d of %d platform insight checks reached no outcome", len(settled) - len(outcomes), len(settled)
             )
+            safe_record(increment_checks_unfinished, SourceKind.INSIGHT.value, len(settled) - len(outcomes))
         if not outcomes:
             return 0
 
-        await workflow.execute_activity(
-            RECORD_OUTCOMES_ACTIVITY,
-            SourceOutcomeInputs(team_id=inputs.batch_key.team_id, cutoff=inputs.cutoff, outcomes=outcomes),
-            start_to_close_timeout=RECORD_START_TO_CLOSE,
-            schedule_to_close_timeout=RECORD_SCHEDULE_TO_CLOSE,
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        # Started only after the record, because a delivery reads the history row the record writes.
-        await start_deliveries(deliveries)
+        # Each check's result fits a payload on its own, but the batch's together may not. A chunk's
+        # deliveries start after its own record, so a later chunk that fails cannot strand them.
+        chunks = outcome_chunks(outcomes) if workflow.patched(_PATCH_CHUNKED_RECORD) else [outcomes]
+        for chunk in chunks:
+            await workflow.execute_activity(
+                RECORD_OUTCOMES_ACTIVITY,
+                SourceOutcomeInputs(team_id=inputs.batch_key.team_id, cutoff=inputs.cutoff, outcomes=chunk),
+                start_to_close_timeout=RECORD_START_TO_CLOSE,
+                schedule_to_close_timeout=RECORD_SCHEDULE_TO_CLOSE,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            # Started only after the record, because a delivery reads the history row the record writes.
+            recorded = {str(outcome.configuration_id) for outcome in chunk}
+            await start_deliveries([delivery for delivery in deliveries if delivery.configuration_id in recorded])
         return len(outcomes)
 
     async def _plan(

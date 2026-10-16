@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import json
+import stat
 import time
 import hashlib
 import dataclasses
@@ -214,11 +215,17 @@ def key_hash(key: str) -> int:
     return int.from_bytes(hashlib.blake2b(key.encode(), digest_size=8).digest(), "little")
 
 
-def _private_dir(scan_dir: Path) -> None:
-    """Create the scan directory readable only by its owner, because its rows hold raw customer keys."""
-    if not scan_dir.exists():
+def _private_dir(scan_dir: Path, *, create: bool = False) -> None:
+    """Check that the scan directory is a real directory that only this user owns and can read, because its rows
+    hold raw customer keys. With `create`, a missing directory is created that way first."""
+    if create and not os.path.lexists(scan_dir):
         scan_dir.mkdir(mode=0o700, parents=True)
-    elif scan_dir.stat().st_mode & 0o077:
+    info = scan_dir.lstat()
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise ScanError(f"{scan_dir} is not a directory; choose a new directory for the scan")
+    if info.st_uid != os.geteuid():
+        raise ScanError(f"{scan_dir} is owned by another user; choose a new directory for the scan")
+    if info.st_mode & 0o077:
         raise ScanError(f"{scan_dir} is readable by other users; choose a new directory for the scan")
 
 
@@ -236,6 +243,8 @@ def load_plan(scan_dir: Path) -> ScanPlan:
     path = scan_dir / PLAN_FILE
     if not path.exists():
         raise ScanError(f"{path} does not exist; create a plan first")
+    # Every run and verb loads the plan, so each re-checks the directory before it writes or reads rows.
+    _private_dir(scan_dir)
     return ScanPlan.from_json(json.loads(path.read_text()))
 
 
@@ -286,7 +295,7 @@ def create_plan(
     chunk run of the scan shares the same bounds."""
     if (scan_dir / PLAN_FILE).exists():
         raise ScanError(f"{scan_dir / PLAN_FILE} already exists")
-    _private_dir(scan_dir)
+    _private_dir(scan_dir, create=True)
     if chunks > 1:
         bounds = _chunks_from_bounds(
             _sample_bounds(team_id, "persons", chunks), _sample_bounds(team_id, "mappings", chunks), chunks
@@ -902,7 +911,8 @@ def finalize(scan_dir: Path, *, partial: bool = False) -> dict[str, Any]:
         "complete": complete,
         "unfinished_runs": unfinished,
         "finalized_at": _now(),
-        "plan": plan.to_json(),
+        # Chunk bounds are sampled keys, so the summary keeps only how many chunks the plan has.
+        "plan": {**{k: v for k, v in plan.to_json().items() if k != "chunks"}, "chunks": len(plan.chunks)},
         "report": REPORT_FILE,
         # Postgres runs split by id range cover the team only if their ranges do; check them here.
         "postgres_runs": [f.cursor.name.removesuffix(".cursor.json") for f in postgres],

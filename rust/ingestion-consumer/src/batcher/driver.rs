@@ -1,28 +1,35 @@
 //! Runs the batcher state machine on one task and performs its effects.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{AssignmentEpoch, GroupCompletion};
 use futures::future::{BoxFuture, FutureExt};
 use futures::stream::{FuturesUnordered, StreamExt};
 use metrics::{counter, histogram};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::error;
 
 use super::in_flight::RequestId;
-use super::key_queues::KeyRun;
-use super::state_machine::{BatcherStateMachine, Effects, FailureCause, SendRequest};
+use super::key_queues::{payload_bytes, KeyRun};
+use super::state_machine::{
+    BatcherSnapshot, BatcherStateMachine, Effects, FailureCause, SendRequest,
+};
 use super::worker_pool::WorkerPoolSource;
 use super::{make_batch_id, BatcherOutputs};
-use crate::grpc_transport::GrpcTransport;
+use crate::debug_recorder::{partition_offsets, record_if, DebugEventKind, DebugRecorder};
+use crate::grpc_transport::{GrpcTransport, SendOptions};
 use crate::order_sentinel::{KeyOrderSentinel, SendKind, SentinelBatch};
-use crate::transport::SendError;
+use crate::transport::{SendError, SendOutcome};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 use crate::worker_registry::WorkerId;
+
+/// A task that does not answer within this is wedged; the debug API then
+/// falls back to the totals the task last published.
+const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub(super) struct StateMachineDriver {
     inputs: mpsc::UnboundedSender<Input>,
@@ -39,6 +46,8 @@ enum Input {
     },
     PartitionsRevoked(Vec<(String, i32)>),
     Shutdown,
+    /// Answered between two actions, so the snapshot is consistent.
+    Snapshot(oneshot::Sender<BatcherSnapshot>),
 }
 
 #[derive(Debug, Default)]
@@ -50,6 +59,21 @@ pub(super) struct Load {
 
 pub(super) struct RevokeSender(mpsc::UnboundedSender<Input>);
 
+#[derive(Clone)]
+pub(super) struct SnapshotSender(mpsc::UnboundedSender<Input>);
+
+impl SnapshotSender {
+    /// `None` when the task is gone or does not answer in time.
+    pub(super) async fn snapshot(&self) -> Option<BatcherSnapshot> {
+        let (reply, response) = oneshot::channel();
+        self.0.send(Input::Snapshot(reply)).ok()?;
+        tokio::time::timeout(SNAPSHOT_TIMEOUT, response)
+            .await
+            .ok()?
+            .ok()
+    }
+}
+
 pub(super) trait RequestSender: Send + Sync + 'static {
     fn assignment_epoch(&self) -> AssignmentEpoch;
 
@@ -57,8 +81,8 @@ pub(super) trait RequestSender: Send + Sync + 'static {
         &self,
         worker: &WorkerId,
         messages: Vec<SerializedKafkaMessage>,
-        replay: bool,
-    ) -> BoxFuture<'static, Result<u32, SendError>>;
+        options: SendOptions,
+    ) -> BoxFuture<'static, Result<SendOutcome, SendError>>;
 }
 
 pub(super) trait Workers: Send + 'static {
@@ -79,9 +103,9 @@ impl RequestSender for GrpcTransport {
         &self,
         worker: &WorkerId,
         messages: Vec<SerializedKafkaMessage>,
-        replay: bool,
-    ) -> BoxFuture<'static, Result<u32, SendError>> {
-        self.begin_send(worker, &make_batch_id(), messages, replay)
+        options: SendOptions,
+    ) -> BoxFuture<'static, Result<SendOutcome, SendError>> {
+        self.begin_send_with(worker, &make_batch_id(), messages, options)
             .wait()
             .boxed()
     }
@@ -104,7 +128,7 @@ impl Workers for WorkerPoolSource {
     }
 }
 
-type Response = BoxFuture<'static, (RequestId, Result<u32, SendError>)>;
+type Response = BoxFuture<'static, (RequestId, Result<SendOutcome, SendError>)>;
 
 struct BatcherTask<S, W> {
     inputs: mpsc::UnboundedReceiver<Input>,
@@ -116,11 +140,14 @@ struct BatcherTask<S, W> {
     completions: mpsc::UnboundedSender<GroupCompletion>,
     errors: mpsc::UnboundedSender<String>,
     load: Arc<Load>,
+    recorder: Option<Arc<DebugRecorder>>,
+    /// The worker of each request sent while a recorder is present.
+    debug_requests: HashMap<RequestId, WorkerId>,
 }
 
 enum Event {
     Input(Input),
-    Response(RequestId, Result<u32, SendError>),
+    Response(RequestId, Result<SendOutcome, SendError>),
     Wakeup,
 }
 
@@ -129,6 +156,7 @@ impl StateMachineDriver {
         state: BatcherStateMachine,
         workers: W,
         sender: Arc<S>,
+        recorder: Option<Arc<DebugRecorder>>,
     ) -> (Self, BatcherOutputs) {
         let (inputs_tx, inputs_rx) = mpsc::unbounded_channel();
         let (completions_tx, completions_rx) = mpsc::unbounded_channel();
@@ -146,6 +174,8 @@ impl StateMachineDriver {
             completions: completions_tx,
             errors: errors_tx,
             load: Arc::clone(&load),
+            recorder,
+            debug_requests: HashMap::new(),
         };
         let task = tokio::spawn(task.run(state));
         (
@@ -173,6 +203,10 @@ impl StateMachineDriver {
 
     pub(super) fn revoke_sender(&self) -> RevokeSender {
         RevokeSender(self.inputs.clone())
+    }
+
+    pub(super) fn snapshot_sender(&self) -> SnapshotSender {
+        SnapshotSender(self.inputs.clone())
     }
 
     pub(super) fn submit(&self, accumulator: Accumulator) -> u64 {
@@ -243,6 +277,14 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
     }
 
     fn handle(&mut self, state: BatcherStateMachine, event: Event) -> BatcherStateMachine {
+        // A snapshot changes nothing and must not replace the pending wakeup.
+        let event = match event {
+            Event::Input(Input::Snapshot(reply)) => {
+                let _ = reply.send(state.snapshot());
+                return state;
+            }
+            event => event,
+        };
         // Read through tokio, so tests on paused time control the clock.
         let now = tokio::time::Instant::now().into_std();
         let mut assigned = false;
@@ -261,8 +303,26 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
                 state.on_partitions_revoked(now, &partitions)
             }
             Event::Input(Input::Shutdown) => state.on_shutdown(now, &self.workers.candidates()),
-            Event::Response(request, Ok(accepted)) => {
+            Event::Input(Input::Snapshot(_)) => unreachable!("answered above"),
+            Event::Response(request, Ok(SendOutcome::Accepted(accepted))) => {
+                self.record_resolved(request, accepted, 0);
                 state.on_request_succeeded(now, &self.workers.candidates(), request, accepted)
+            }
+            Event::Response(
+                request,
+                Ok(SendOutcome::Partial {
+                    accepted,
+                    unfinished,
+                }),
+            ) => {
+                self.record_resolved(request, accepted, unfinished.len());
+                state.on_request_partial(
+                    now,
+                    &self.workers.candidates(),
+                    request,
+                    accepted,
+                    unfinished,
+                )
             }
             Event::Response(request, Err(failure)) => {
                 // Backpressure is transient, not a worker fault.
@@ -271,6 +331,7 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
                 } else {
                     FailureCause::Fault
                 };
+                self.record_failed(request, cause, failure.messages.len());
                 let requeued = state.on_request_failed(
                     now,
                     &self.workers.candidates(),
@@ -361,15 +422,70 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
         } else {
             SendKind::Fresh
         };
+        let routing_keys = send.runs.len();
         let mut messages = Vec::new();
         for run in send.runs {
             sentinel.note_sent(&run.routing_key, &run.messages, kind);
             messages.extend(run.messages);
         }
-        let response = self.sender.send(&send.worker, messages, send.class.replay);
+        counter!(
+            "ingestion_consumer_batcher_requests_sent_total",
+            "worker" => send.worker.clone()
+        )
+        .increment(1);
+        counter!(
+            "ingestion_consumer_batcher_messages_sent_total",
+            "worker" => send.worker.clone()
+        )
+        .increment(messages.len() as u64);
+        if self.recorder.is_some() {
+            self.debug_requests
+                .insert(send.request, send.worker.clone());
+        }
+        record_if(&self.recorder, || DebugEventKind::RequestSent {
+            request_id: send.request.as_u64(),
+            worker: send.worker.to_string(),
+            messages: messages.len(),
+            routing_keys,
+            bytes: payload_bytes(&messages),
+            replay: send.class.replay,
+            budgeted: send.soft_budget.is_some(),
+            assignment_epoch: send.class.assignment_epoch,
+            spans: partition_offsets(&messages),
+        });
+        let options = SendOptions {
+            replay: send.class.replay,
+            soft_budget: send.soft_budget,
+        };
+        let response = self.sender.send(&send.worker, messages, options);
         let request = send.request;
         self.responses
             .push(async move { (request, response.await) }.boxed());
+    }
+
+    fn record_resolved(&mut self, request: RequestId, accepted: u32, unfinished: usize) {
+        if let Some(worker) = self.debug_requests.remove(&request) {
+            record_if(&self.recorder, || DebugEventKind::RequestResolved {
+                request_id: request.as_u64(),
+                worker: worker.to_string(),
+                accepted,
+                unfinished,
+            });
+        }
+    }
+
+    fn record_failed(&mut self, request: RequestId, cause: FailureCause, messages: usize) {
+        if let Some(worker) = self.debug_requests.remove(&request) {
+            record_if(&self.recorder, || DebugEventKind::RequestFailed {
+                request_id: request.as_u64(),
+                worker: worker.to_string(),
+                cause: match cause {
+                    FailureCause::Busy => "busy",
+                    FailureCause::Fault => "fault",
+                },
+                messages,
+            });
+        }
     }
 }
 
@@ -382,16 +498,15 @@ async fn sleep_until(wakeup: Option<Instant>) {
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroUsize;
+    use std::num::{NonZeroU32, NonZeroUsize};
     use std::time::Duration;
-
-    use tokio::sync::oneshot;
 
     use super::*;
     use crate::batcher::packer::{PackTargets, Packer};
     use crate::batcher::retry_policy::RetryPolicy;
+    use crate::batcher::state_machine::RequestBudget;
     use crate::batcher::test_support::{message, offsets};
-    use crate::batcher::worker_assigner::WorkerAssigner;
+    use crate::batcher::worker_assigner::{WorkerAssigner, WorkerInFlight};
     use crate::routing::{Router, RoutingStrategy};
     use crate::transport::{FenceGuard, TransportError};
 
@@ -404,8 +519,9 @@ mod tests {
         worker: WorkerId,
         offsets: Vec<i64>,
         replay: bool,
+        soft_budget: Option<Duration>,
         fence_released: Option<bool>,
-        reply: oneshot::Sender<Result<u32, SendError>>,
+        reply: oneshot::Sender<Result<SendOutcome, SendError>>,
     }
 
     struct FakeSender {
@@ -423,8 +539,8 @@ mod tests {
             &self,
             worker: &WorkerId,
             messages: Vec<SerializedKafkaMessage>,
-            replay: bool,
-        ) -> BoxFuture<'static, Result<u32, SendError>> {
+            options: SendOptions,
+        ) -> BoxFuture<'static, Result<SendOutcome, SendError>> {
             let fence_released = self
                 .fence
                 .lock()
@@ -435,7 +551,8 @@ mod tests {
             self.sent.lock().unwrap().push(Sent {
                 worker: worker.clone(),
                 offsets: offsets(&messages),
-                replay,
+                replay: options.replay,
+                soft_budget: options.soft_budget,
                 fence_released,
                 reply,
             });
@@ -480,11 +597,40 @@ mod tests {
 
     impl Harness {
         fn new(workers: &[&str], max_requests_per_worker: usize) -> Self {
-            let assigner = WorkerAssigner::new(
-                Router::new(RoutingStrategy::BinPack),
+            Self::build(workers, max_requests_per_worker, None, None)
+        }
+
+        fn budgeted(
+            workers: &[&str],
+            max_requests_per_worker: usize,
+            budget: Option<RequestBudget>,
+        ) -> Self {
+            Self::build(workers, max_requests_per_worker, budget, None)
+        }
+
+        fn recorded(
+            workers: &[&str],
+            max_requests_per_worker: usize,
+        ) -> (Self, Arc<DebugRecorder>) {
+            let recorder = DebugRecorder::new(64, Duration::from_secs(60));
+            let harness = Self::build(
+                workers,
                 max_requests_per_worker,
-            )
-            .expect("valid request cap");
+                None,
+                Some(Arc::clone(&recorder)),
+            );
+            (harness, recorder)
+        }
+
+        fn build(
+            workers: &[&str],
+            max_requests_per_worker: usize,
+            budget: Option<RequestBudget>,
+            recorder: Option<Arc<DebugRecorder>>,
+        ) -> Self {
+            let assigner =
+                WorkerAssigner::new(Router::new(RoutingStrategy::P2c), max_requests_per_worker)
+                    .expect("valid request cap");
             let retry = RetryPolicy::new(FAULT_DELAY, BUSY_DELAY, NO_WORKER_DELAY)
                 .expect("valid retry policy");
             let packer = Packer::new(PackTargets {
@@ -499,7 +645,8 @@ mod tests {
                 STALL,
                 tokio::time::Instant::now().into_std(),
             )
-            .expect("valid stall timeout");
+            .expect("valid stall timeout")
+            .with_request_budget(budget);
             let fake_workers = FakeWorkers::default();
             fake_workers.set_candidates(workers);
             let sender = Arc::new(FakeSender {
@@ -508,7 +655,7 @@ mod tests {
                 fence: Mutex::new(None),
             });
             let (driver, outputs) =
-                StateMachineDriver::new(state, fake_workers.clone(), Arc::clone(&sender));
+                StateMachineDriver::new(state, fake_workers.clone(), Arc::clone(&sender), recorder);
             Self {
                 driver,
                 outputs,
@@ -594,11 +741,51 @@ mod tests {
         assert!(!sent[0].replay);
 
         let send = sent.into_iter().next().unwrap();
-        send.reply.send(Ok(1)).unwrap();
+        send.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
         settle().await;
         assert_eq!(h.completed_offsets(), vec![1]);
         assert_eq!(h.workers.outcomes(), vec![(WorkerId::from("w"), false)]);
         assert_eq!(h.workers.idle(), vec![WorkerId::from("w")]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_partial_response_resends_its_unfinished_messages_at_once_as_replay() {
+        let budget = Duration::from_millis(250);
+        let mut h = Harness::budgeted(
+            &["w"],
+            4,
+            Some(RequestBudget {
+                soft_budget: budget,
+                attempts: NonZeroU32::new(3).expect("nonzero attempts"),
+            }),
+        );
+        h.submit(vec![run("a", &[1])]);
+        settle().await;
+        let send = h.take_sent().pop().unwrap();
+        assert_eq!(send.soft_budget, Some(budget));
+
+        send.reply
+            .send(Ok(SendOutcome::Partial {
+                accepted: 0,
+                unfinished: vec![message("a", 0, 1)],
+            }))
+            .unwrap();
+        settle().await;
+        assert!(h.completed_offsets().is_empty());
+        assert_eq!(h.workers.outcomes(), vec![(WorkerId::from("w"), false)]);
+        let resend = h.take_sent();
+        assert_eq!(resend.len(), 1, "the resend waits for no retry delay");
+        assert!(resend[0].replay);
+        assert_eq!(resend[0].offsets, vec![1]);
+        assert_eq!(
+            resend[0].soft_budget, None,
+            "a request that finished nothing resends without a budget"
+        );
+
+        let resend = resend.into_iter().next().unwrap();
+        resend.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
+        settle().await;
+        assert_eq!(h.completed_offsets(), vec![1]);
     }
 
     #[tokio::test(start_paused = true)]
@@ -671,7 +858,7 @@ mod tests {
         settle().await;
         let send = h.take_sent().pop().unwrap();
 
-        send.reply.send(Ok(1)).unwrap();
+        send.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
         h.driver
             .revoke_sender()
             .purge_revoked(&[("events".to_string(), 0)]);
@@ -722,13 +909,13 @@ mod tests {
         let accepted = |send: &Sent| send.offsets.len() as u32;
         let first = sent.remove(0);
         let count = accepted(&first);
-        first.reply.send(Ok(count)).unwrap();
+        first.reply.send(Ok(SendOutcome::Accepted(count))).unwrap();
         settle().await;
         assert!(!load.busy_workers.lock().unwrap().is_empty());
 
         let last = sent.remove(0);
         let count = accepted(&last);
-        last.reply.send(Ok(count)).unwrap();
+        last.reply.send(Ok(SendOutcome::Accepted(count))).unwrap();
         settle().await;
         assert!(load.busy_workers.lock().unwrap().is_empty());
         assert_eq!(load.in_flight_messages.load(Ordering::Relaxed), 0);
@@ -740,7 +927,7 @@ mod tests {
         h.submit(vec![run("a", &[1])]);
         settle().await;
         let send = h.take_sent().pop().unwrap();
-        send.reply.send(Ok(2)).unwrap();
+        send.reply.send(Ok(SendOutcome::Accepted(2))).unwrap();
         settle().await;
         assert!(h.outputs.errors.try_recv().is_ok());
     }
@@ -753,5 +940,95 @@ mod tests {
         drop(h);
         settle().await;
         assert_eq!(Arc::strong_count(&sender), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_snapshot_answers_through_the_task_with_the_live_load() {
+        let h = Harness::new(&["w"], 4);
+        let snapshots = h.driver.snapshot_sender();
+        h.submit(vec![run("a", &[1]), run("b", &[2])]);
+        settle().await;
+
+        let snapshot = snapshots.snapshot().await.expect("the task answers");
+        assert_eq!(snapshot.keys, 2);
+        assert_eq!(snapshot.claimed_keys, 2);
+        assert_eq!(snapshot.in_flight_requests, 2);
+        assert_eq!(snapshot.in_flight_messages, 2);
+        assert_eq!(snapshot.pending_messages, 0);
+        assert_eq!(
+            snapshot.per_worker,
+            vec![WorkerInFlight {
+                worker: WorkerId::from("w"),
+                requests: 2,
+                messages: 2,
+            }]
+        );
+
+        drop(h);
+        settle().await;
+        assert!(
+            snapshots.snapshot().await.is_none(),
+            "a dropped batcher answers nothing"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn request_events_follow_a_failed_send_and_its_replay() {
+        let (h, recorder) = Harness::recorded(&["w"], 4);
+        h.submit(vec![run("a", &[1])]);
+        settle().await;
+        let send = h.take_sent().pop().unwrap();
+        let failure = busy(&send, None);
+        send.reply.send(Err(failure)).unwrap();
+        settle().await;
+        tokio::time::advance(BUSY_DELAY).await;
+        settle().await;
+        let replay = h.take_sent().pop().unwrap();
+        replay.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
+        settle().await;
+
+        let events: Vec<String> = recorder
+            .backlog()
+            .into_iter()
+            .map(|event| match event.kind {
+                DebugEventKind::RequestSent {
+                    request_id,
+                    worker,
+                    messages,
+                    routing_keys,
+                    replay,
+                    spans,
+                    ..
+                } => format!(
+                    "sent #{request_id} {worker} {messages} msgs {routing_keys} keys replay={replay} spans={:?}",
+                    spans
+                        .iter()
+                        .map(|span| (span.partition, span.ranges.clone()))
+                        .collect::<Vec<_>>()
+                ),
+                DebugEventKind::RequestFailed {
+                    request_id,
+                    worker,
+                    cause,
+                    messages,
+                } => format!("failed #{request_id} {worker} {cause} {messages} msgs"),
+                DebugEventKind::RequestResolved {
+                    request_id,
+                    worker,
+                    accepted,
+                    unfinished,
+                } => format!("resolved #{request_id} {worker} {accepted}/{unfinished}"),
+                _ => "other".to_string(),
+            })
+            .collect();
+        assert_eq!(
+            events,
+            vec![
+                "sent #0 w 1 msgs 1 keys replay=false spans=[(0, [(1, 1)])]",
+                "failed #0 w busy 1 msgs",
+                "sent #1 w 1 msgs 1 keys replay=true spans=[(0, [(1, 1)])]",
+                "resolved #1 w 1/0",
+            ]
+        );
     }
 }

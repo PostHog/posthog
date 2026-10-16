@@ -30,6 +30,9 @@ if TYPE_CHECKING:
 # name is spelled out here rather than imported.
 FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
 
+# Keep it equal to FLAG_EVALUATIONS_TABLE in frontend/src/scenes/feature-flags/flagEvaluationsTable.ts.
+FLAG_EVALUATIONS_HOGQL_TABLE = "posthog.flag_evaluations"
+
 
 # The expression the events table uses under the persons-on-events modes that apply overrides. This table
 # applies it for every team instead of following the mode, because the mode decides where person properties

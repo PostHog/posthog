@@ -37,6 +37,7 @@ DONE_OUTCOMES = frozenset(
         "moved",
         "already_moved",
         "folded",
+        "merged",
     }
 )
 

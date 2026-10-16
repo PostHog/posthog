@@ -4,6 +4,7 @@ import { IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 
@@ -53,7 +54,6 @@ export function WatchFeedTab(): JSX.Element {
         tagsFilter,
         tagOptions,
         createdByFilter,
-        createdByOptions,
         search,
         hasFeedFilters,
         emptyReason,
@@ -119,13 +119,12 @@ export function WatchFeedTab(): JSX.Element {
                         value={scannerIdsFilter}
                         onChange={setScannerIdsFilter}
                     />
-                    <FilterPill<string>
-                        label="Created by"
-                        dataAttr="vision-watch-feed-created-by-filter"
-                        options={createdByOptions}
-                        value={createdByFilter}
-                        onChange={setCreatedByFilter}
-                    />
+                    <span data-attr="vision-watch-feed-created-by-filter">
+                        <MemberSelectMultiplePopover
+                            value={createdByFilter.map(Number)}
+                            onChange={(ids) => setCreatedByFilter(ids.map(String))}
+                        />
+                    </span>
                     <FilterPill<string>
                         label="Tags"
                         dataAttr="vision-watch-feed-tags-filter"

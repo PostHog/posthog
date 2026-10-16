@@ -192,9 +192,20 @@ class TestWorkflowDispatchPersistence(TestCase):
         self.assertEqual([row.id for row in claimed], [dispatch.id])
         client = Mock(start_workflow=AsyncMock())
 
-        with self.captureOnCommitCallbacks(execute=True):
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch("products.tasks.backend.temporal.metrics.posthoganalytics.capture") as capture,
+        ):
             async_to_sync(Command()._process)(client, claimed[0], "dispatcher-1", asyncio.Semaphore(1))
 
+        dispatch_event = next(
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.args
+            and call.args[0] == "task_startup_step_completed"
+            and call.kwargs["properties"]["step"] == "dispatch"
+        )
+        self.assertEqual(dispatch_event["status"], "FAILED" if scheduled and (limited or deactivated) else "COMPLETED")
         dispatch.refresh_from_db()
         self.task_run.refresh_from_db()
         if scheduled and (limited or deactivated):

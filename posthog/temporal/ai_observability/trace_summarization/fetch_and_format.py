@@ -20,7 +20,7 @@ from posthog.temporal.ai_observability.trace_summarization.models import (
     FetchAndFormatResult,
     FetchResult,
 )
-from posthog.temporal.ai_observability.trace_summarization.queries import fetch_trace
+from posthog.temporal.ai_observability.trace_summarization.queries import fetch_trace, fetch_trace_size
 from posthog.temporal.ai_observability.trace_summarization.state import generate_redis_key, store_text_repr
 from posthog.temporal.ai_observability.trace_summarization.utils import format_datetime_for_clickhouse
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -50,6 +50,23 @@ def _fetch_and_format_trace(
     Returns FetchResult with text_repr=None if oversized, or None if not found.
     """
     team = Team.objects.get(id=team_id)
+    raw_size_limit = max_raw_trace_size if max_raw_trace_size is not None else MAX_RAW_TRACE_SIZE
+
+    # A multi-GB trace runs the worker out of memory during the load, before the checks below.
+    trace_size = fetch_trace_size(team, trace_id)
+    if trace_size.payload_chars > raw_size_limit or (
+        max_trace_events is not None and trace_size.event_count > max_trace_events
+    ):
+        logger.warning(
+            "Skipping oversized trace before fetch",
+            trace_id=trace_id,
+            team_id=team_id,
+            event_count=trace_size.event_count,
+            payload_chars=trace_size.payload_chars,
+            max_raw_size=raw_size_limit,
+            max_trace_events=max_trace_events,
+        )
+        return FetchResult(text_repr=None, event_count=trace_size.event_count)
 
     llm_trace = fetch_trace(team, trace_id, window_start, window_end)
     if llm_trace is None:
@@ -67,7 +84,6 @@ def _fetch_and_format_trace(
         return FetchResult(text_repr=None, event_count=event_count)
 
     raw_size = sum(len(str(e.properties)) for e in llm_trace.events)
-    raw_size_limit = max_raw_trace_size if max_raw_trace_size is not None else MAX_RAW_TRACE_SIZE
     if raw_size > raw_size_limit:
         logger.warning(
             "Skipping oversized trace",

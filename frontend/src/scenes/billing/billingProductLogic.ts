@@ -1,17 +1,15 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import React from 'react'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import type { FeatureFlagKey } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { userLogic } from 'scenes/userLogic'
 
 import {
     BillingPlan,
@@ -28,6 +26,7 @@ import {
     calculateFreeTier,
     canHaveBillingLimit,
     createGaugeItems,
+    getHeldCompanions,
     isAddonVisible,
     isProductVariantPrimary,
 } from './billing-utils'
@@ -35,11 +34,16 @@ import { getBillingLimitConfig } from './billingLimitConfig'
 import type { BillingLimitConfig } from './billingLimitConfig'
 import { billingLogic } from './billingLogic'
 import type { BillingAlertConfig, SwitchPlanPayload, UnsubscribeError } from './billingLogic'
+import { billingProductRowDisplayName } from './billingProductDisplayName'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
+
+// Rounds a dollar amount to the cent the same way humanFriendlyCurrency displays it.
+const roundToCents = (amount: number): number =>
+    parseFloat(amount.toLocaleString('en-US', { maximumFractionDigits: 2, useGrouping: false }))
 
 type UnsubscribeReason = {
     reason: string
@@ -98,6 +102,7 @@ export interface billingProductLogicValues {
     isUnlicensedDebug: boolean // billingLogic
     platformAddons: BillingProductV2AddonType[] // billingLogic
     scrollToProductKey: ProductKey | null // billingLogic
+    selfServeBillingNotice: string | null // billingLogic
     timeRemainingInSeconds: number // billingLogic
     timeTotalInSeconds: number // billingLogic
     unsubscribeError: UnsubscribeError | null // billingLogic
@@ -143,6 +148,7 @@ export interface billingProductLogicValues {
     freeTier: number
     hasCustomLimitSet: boolean
     hedgehogSatisfied: boolean
+    heldCompanions: BillingProductV2Type[]
     isAddonProduct: boolean
     isBillingLimitInputSubmitting: boolean
     isBillingLimitInputValid: boolean
@@ -154,6 +160,11 @@ export interface billingProductLogicValues {
     isProductWithVariants: boolean
     isProrated: boolean
     isSubscribedToAnotherAddon: boolean
+    noLimitCompanionAmounts: {
+        companion: BillingProductV2Type
+        currentAmount: number
+        projectedAmount: number
+    }[]
     productVariants: Array<{
         displayName: string
         key: string
@@ -168,6 +179,10 @@ export interface billingProductLogicValues {
     surveyResponse: {
         $survey_response: string
         $survey_response_2: string[]
+    }
+    totalsIncludingCompanions: {
+        currentTotal: number
+        projectedTotal: number
     }
     trialCancelReasonQuestions: string
     trialLoading: boolean
@@ -222,6 +237,13 @@ export interface billingProductLogicActions {
             [key: string]: number | null
         }
     } // billingLogic
+    upgradeProducts: (
+        products: string,
+        redirectPath: string | null
+    ) => {
+        products: string
+        redirectPath: string | null
+    } // paymentEntryLogic
     activateTrial: () => {
         value: true
     }
@@ -496,6 +518,44 @@ export interface billingProductLogicMeta {
             rawCurrentTotal: string
             rawProjectedTotal: string
         }) => BillingGaugeItemType[]
+        heldCompanions: (
+            billing: BillingType | null,
+            product: BillingProductV2AddonType | BillingProductV2Type
+        ) => BillingProductV2Type[]
+        noLimitCompanionAmounts: (
+            heldCompanions: BillingProductV2Type[],
+            combinedMonetaryData: {
+                billingLimit: number | null
+                currentTotal: number
+                discountPercent: number
+                projectedTotal: number
+                rawCurrentTotal: string
+                rawProjectedTotal: string
+            },
+            featureFlags: FeatureFlagsSet
+        ) => {
+            companion: BillingProductV2Type
+            currentAmount: number
+            projectedAmount: number
+        }[]
+        totalsIncludingCompanions: (
+            combinedMonetaryData: {
+                billingLimit: number | null
+                currentTotal: number
+                discountPercent: number
+                projectedTotal: number
+                rawCurrentTotal: string
+                rawProjectedTotal: string
+            },
+            noLimitCompanionAmounts: {
+                companion: BillingProductV2Type
+                currentAmount: number
+                projectedAmount: number
+            }[]
+        ) => {
+            currentTotal: number
+            projectedTotal: number
+        }
         currentAmountTotalActual: (
             isProductWithVariants: boolean,
             product: BillingProductV2AddonType | BillingProductV2Type,
@@ -528,11 +588,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'timeRemainingInSeconds',
                 'timeTotalInSeconds',
                 'unusedPlatformAddonAmount',
+                'selfServeBillingNotice',
             ],
             featureFlagLogic,
             ['featureFlags'],
         ],
         actions: [
+            paymentEntryLogic,
+            ['upgradeProducts'],
             billingLogic,
             [
                 'updateBillingLimits',
@@ -1012,15 +1075,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return null
                 }
 
-                const displayNameOverrides: Record<string, string> = {
-                    session_replay: 'Web session replay',
-                    data_warehouse: 'Synced rows',
-                    data_warehouse_historical: 'Free historical synced rows',
-                    logs: 'Logs ingestion (14-day retention)',
-                    logs_retention_30d: '30-day retention',
-                    logs_retention_custom: 'Custom retention',
-                }
-
                 const mainProduct = product as BillingProductV2Type
                 const variants: Array<{
                     key: string
@@ -1030,7 +1084,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     {
                         key: mainProduct.type,
                         product: mainProduct as BillingProductV2Type | BillingProductV2AddonType,
-                        displayName: displayNameOverrides[mainProduct.type] || mainProduct.name,
+                        displayName: billingProductRowDisplayName(mainProduct),
                     },
                 ]
 
@@ -1043,7 +1097,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     variants.push({
                         key: addon.type,
                         product: addon as BillingProductV2Type | BillingProductV2AddonType,
-                        displayName: displayNameOverrides[addon.type] || addon.name,
+                        displayName: billingProductRowDisplayName(addon),
                     })
                 })
 
@@ -1097,6 +1151,56 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     },
                 ].filter(Boolean) as BillingGaugeItemType[]
             },
+        ],
+        heldCompanions: [
+            (s, p) => [s.billing, p.product],
+            (
+                billing: BillingType | null,
+                product: BillingProductV2Type | BillingProductV2AddonType
+            ): BillingProductV2Type[] => getHeldCompanions(billing?.products, product.type),
+        ],
+        noLimitCompanionAmounts: [
+            (s) => [s.heldCompanions, s.combinedMonetaryData, s.featureFlags],
+            (
+                heldCompanions: BillingProductV2Type[],
+                monetaryData: { discountPercent: number },
+                featureFlags: FeatureFlagsSet
+            ): { companion: BillingProductV2Type; currentAmount: number; projectedAmount: number }[] => {
+                const discountMultiplier = 1 - monetaryData.discountPercent / 100
+                // A companion that can have its own billing limit gets its own look later.
+                return heldCompanions
+                    .filter((companion) => !canHaveBillingLimit(companion))
+                    .filter(
+                        (companion) => featureFlags[`billing_hide_product_${companion.type}` as FeatureFlagKey] !== true
+                    )
+                    .map((companion) => ({
+                        companion,
+                        currentAmount: roundToCents(
+                            parseFloat(companion.current_amount_usd || '0') * discountMultiplier
+                        ),
+                        projectedAmount: roundToCents(
+                            parseFloat(companion.projected_amount_usd || '0') * discountMultiplier
+                        ),
+                    }))
+            },
+        ],
+        totalsIncludingCompanions: [
+            (s) => [s.combinedMonetaryData, s.noLimitCompanionAmounts],
+            (
+                monetaryData: { currentTotal: number; projectedTotal: number },
+                noLimitCompanionAmounts: { currentAmount: number; projectedAmount: number }[]
+            ): { currentTotal: number; projectedTotal: number } =>
+                // Sum the amounts as the card shows them, in cents, so the total matches the figures above it.
+                noLimitCompanionAmounts.reduce(
+                    (totals, amounts) => ({
+                        currentTotal: totals.currentTotal + amounts.currentAmount,
+                        projectedTotal: totals.projectedTotal + amounts.projectedAmount,
+                    }),
+                    {
+                        currentTotal: roundToCents(monetaryData.currentTotal),
+                        projectedTotal: roundToCents(monetaryData.projectedTotal),
+                    }
+                ),
         ],
         currentAmountTotalActual: [
             (s, p) => [s.isProductWithVariants, p.product, s.visibleAddons],
@@ -1202,32 +1306,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
         },
         handleProductUpgrade: async ({ products, redirectPath }) => {
             try {
-                const body: Record<string, string> = { products }
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingActivateCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                const response = await api.create('api/billing/activate', body)
-
-                if (response.success) {
-                    await billingLogic.asyncActions.loadBilling()
-                    if (redirectPath) {
-                        window.location.pathname = redirectPath
-                    } else {
-                        router.actions.push(router.values.location.pathname, {
-                            ...router.values.searchParams,
-                            upgraded: 'true',
-                            products,
-                        })
-                        organizationLogic.actions.loadCurrentOrganization()
-                        userLogic.actions.loadUser()
-                    }
-                } else if (response.must_setup_payment) {
-                    paymentEntryLogic.actions.setRedirectPath(redirectPath || null)
-                    paymentEntryLogic.actions.showPaymentEntryModal()
-                } else {
-                    lemonToast.error(response.error || 'Failed to activate subscription')
+                if (values.selfServeBillingNotice) {
+                    lemonToast.info(values.selfServeBillingNotice)
+                    return
                 }
-            } catch (error) {
-                posthog.captureException(new Error('payment entry api error - product upgrade error', { cause: error }))
-                lemonToast.error('Failed to activate subscription. Please try again.')
+                await paymentEntryLogic.asyncActions.upgradeProducts(products, redirectPath || null)
             } finally {
                 actions.setBillingProductLoading(null)
             }

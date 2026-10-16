@@ -43,7 +43,7 @@ class ExperimentSavedMetricService:
     ) -> ExperimentSavedMetric:
         """Create a saved metric with full business-logic validation."""
         normalized_query = self.normalize_query_for_write(query)
-        validate_metric_action_ids([normalized_query], self.team.id)
+        validate_metric_action_ids([normalized_query], self.team, user=self.user)
         enforce_warehouse_metric_access([normalized_query], team=self.team, user=self.user)
 
         return ExperimentSavedMetric.objects.create(
@@ -65,7 +65,9 @@ class ExperimentSavedMetricService:
                 update_data["query"], existing_query=saved_metric.query
             )
             _, stored_action_ids = extract_entity_nodes([saved_metric.query] if saved_metric.query else [])
-            validate_metric_action_ids([update_data["query"]], self.team.id, known_action_ids=stored_action_ids)
+            validate_metric_action_ids(
+                [update_data["query"]], self.team, user=self.user, known_action_ids=stored_action_ids
+            )
             enforce_warehouse_metric_access([update_data["query"]], team=self.team, user=self.user)
 
         for attr, value in update_data.items():
