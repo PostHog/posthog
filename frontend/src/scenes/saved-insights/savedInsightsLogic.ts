@@ -833,7 +833,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 return
             }
 
-            if (searchParams.tab === SavedInsightsTabs.Home && !values.showHomeTab) {
+            const isUnknownTab =
+                searchParams.tab && !Object.values(SavedInsightsTabs).includes(searchParams.tab as SavedInsightsTabs)
+            if (isUnknownTab || (searchParams.tab === SavedInsightsTabs.Home && !values.showHomeTab)) {
                 const insightsSearchParams = { ...searchParams }
                 delete insightsSearchParams.tab
                 router.actions.replace(urls.savedInsights(), insightsSearchParams, hashParams)
