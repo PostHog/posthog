@@ -18,7 +18,7 @@ export function TodayTopBarSearch(): JSX.Element {
             data-attr="today-top-bar-search"
         >
             <IconSearch className="size-3.5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-start">Search the whole project</span>
+            <span className="min-w-0 flex-1 truncate text-start">Search this project</span>
             <Kbd className="shrink-0">{isMac() ? '⌘K' : 'Ctrl+K'}</Kbd>
         </Button>
     )
