@@ -42,10 +42,15 @@ export function ProjectLogoUpload(): JSX.Element {
                             size="xlarge"
                             outlinedLettermark
                         />
-                        <div className="flex items-center gap-1 text-muted text-xs">
-                            <IconUpload className="text-sm" />
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            icon={<IconUpload />}
+                            disabledReason={restrictionReason}
+                            data-attr="project-logo-upload"
+                        >
                             Upload
-                        </div>
+                        </LemonButton>
                     </div>
                 }
             />
