@@ -36,7 +36,7 @@ DEFAULT_SORT_FIELD = "updated_at"
 VALID_SORT_FIELDS = ("created_at", "updated_at")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class RecurlyResumeConfig:
     # Top-level endpoints: the cursor of the next page.
     next_cursor: str = ""
