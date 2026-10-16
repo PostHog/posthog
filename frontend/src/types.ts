@@ -487,6 +487,7 @@ export interface NotificationSettings {
     project_api_key_exposed?: boolean
     ai_evaluation_disabled?: boolean
     workflow_suggestions?: boolean
+    workflow_batch_run_not_sent?: boolean
     materialized_view_sync_failed?: boolean
     materialized_view_sync_failed_daily?: boolean
     materialized_view_sync_failed_immediate?: boolean

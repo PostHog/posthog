@@ -38,6 +38,7 @@ enum NotificationBlock {
     MaterializedViewSync = 'materialized-view-sync',
     AiEvaluationDisabled = 'ai-evaluation-disabled',
     WorkflowSuggestions = 'workflow-suggestions',
+    WorkflowBatchRunNotSent = 'workflow-batch-run-not-sent',
 }
 
 const NOTIFICATION_BLOCK_ORDER = Object.values(NotificationBlock)
@@ -59,6 +60,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     project_api_key_exposed: true,
     ai_evaluation_disabled: true,
     workflow_suggestions: true,
+    workflow_batch_run_not_sent: true,
     materialized_view_sync_failed: false,
     materialized_view_sync_failed_daily: true,
     materialized_view_sync_failed_immediate: false,
@@ -375,6 +377,7 @@ export function UpdateEmailPreferences(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { searchParams } = useValues(router)
     const workflowSuggestionsEnabled = useFeatureFlag('SELF_OPTIMISING_WORKFLOWS')
+    const workflowCohortWaitEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
     const highlight = searchParams.highlight as NotificationBlock | undefined
     const dataLoaded = !userLoading && !currentOrganizationLoading && !!user && !!currentOrganization
 
@@ -635,6 +638,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                 />
             </div>
         ),
+        [NotificationBlock.WorkflowBatchRunNotSent]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="workflow_batch_run_not_sent"
+                    label="Unsent workflow runs"
+                    description="Get an email when a send you started waits for its cohort and then doesn't go out"
+                    dataAttr="workflow_batch_run_not_sent_enabled"
+                />
+            </div>
+        ),
         [NotificationBlock.MaterializedViewSync]: (
             <div className="border rounded p-4 space-y-3">
                 <SimpleSwitch
@@ -651,7 +664,8 @@ export function UpdateEmailPreferences(): JSX.Element {
     const visibleBlocks = NOTIFICATION_BLOCK_ORDER.filter(
         (block) =>
             (block !== NotificationBlock.Approvals || hasAvailableFeature(AvailableFeature.APPROVALS)) &&
-            (block !== NotificationBlock.WorkflowSuggestions || workflowSuggestionsEnabled)
+            (block !== NotificationBlock.WorkflowSuggestions || workflowSuggestionsEnabled) &&
+            (block !== NotificationBlock.WorkflowBatchRunNotSent || workflowCohortWaitEnabled)
     )
     const highlightedBlock = highlight && visibleBlocks.includes(highlight) ? highlight : null
     const highlightRef = useRef<HTMLDivElement>(null)

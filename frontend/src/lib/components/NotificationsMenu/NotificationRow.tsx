@@ -81,6 +81,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Workflow suggestions',
         description: 'When PostHog suggests a change to a workflow you set up',
     },
+    workflow_batch_run_not_sent: {
+        label: 'Unsent workflow runs',
+        description: "When a send you started waits for its cohort and then doesn't go out",
+    },
 }
 
 export function NotificationTitle({

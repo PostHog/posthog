@@ -145,6 +145,7 @@ from products.workflows.backend.facade.batch_jobs import (
     create_batch_job,
     get_batch_job,
     list_batch_jobs,
+    notify_waiting_batch_job_ended,
     set_batch_job_status,
 )
 from products.workflows.backend.facade.blast_radius import (
@@ -524,6 +525,14 @@ def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
     property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
     if any(prop.type == "flag" for prop in property_groups.flat):
         raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
+
+
+def _notify_waiting_batch_job_ended(team_id: int, batch_job_id: uuid_mod.UUID, *, ended_by_user_id: int | None) -> None:
+    try:
+        notify_waiting_batch_job_ended(team_id=team_id, batch_job_id=batch_job_id, ended_by_user_id=ended_by_user_id)
+    except Exception as error:
+        # The status is already written, so a failed notification must not fail the request.
+        capture_exception(error)
 
 
 def _validation_error_message(error: exceptions.ValidationError) -> str:
@@ -6655,7 +6664,10 @@ class HogFlowViewSet(
                 from_statuses=non_terminal,
             )
 
+        was_waiting = batch_job.status == HogFlowBatchJobState.WAITING
         batch_job = get_batch_job(team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=str(batch_job.id))
+        if was_waiting and batch_job.status == HogFlowBatchJobState.CANCELLED:
+            _notify_waiting_batch_job_ended(self.team_id, batch_job.id, ended_by_user_id=self._actor_id())
         self._report_workflow_action(
             "hog_flow_batch_job_cancel_requested",
             hog_flow,
@@ -7043,6 +7055,9 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             set_batch_job_status(team_id=team.id, batch_job_id=batch_job.id, status=HogFlowBatchJobState(new_status))
+            if batch_job.status == HogFlowBatchJobState.WAITING and new_status == HogFlowBatchJobState.FAILED:
+                # The resolver fails a run that still waits at its deadline: the cohort never finished.
+                _notify_waiting_batch_job_ended(team.id, batch_job.id, ended_by_user_id=None)
             return Response(
                 InternalBatchJobStatusSerializer(
                     {

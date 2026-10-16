@@ -2489,6 +2489,7 @@ class TestUserAPI(APIBaseTest):
                 "project_api_key_exposed": True,
                 "ai_evaluation_disabled": True,
                 "workflow_suggestions": True,
+                "workflow_batch_run_not_sent": True,
                 "materialized_view_sync_failed": True,
                 "materialized_view_sync_failed_daily": True,
                 "materialized_view_sync_failed_immediate": False,
@@ -2517,6 +2518,7 @@ class TestUserAPI(APIBaseTest):
                 "project_api_key_exposed": True,
                 "ai_evaluation_disabled": True,
                 "workflow_suggestions": True,
+                "workflow_batch_run_not_sent": True,
                 "materialized_view_sync_failed": True,
                 "materialized_view_sync_failed_daily": True,
                 "materialized_view_sync_failed_immediate": False,
@@ -2793,6 +2795,7 @@ class TestUserAPI(APIBaseTest):
                 "project_api_key_exposed": True,  # Default value
                 "ai_evaluation_disabled": True,  # Default value
                 "workflow_suggestions": True,  # Default value
+                "workflow_batch_run_not_sent": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value
                 "materialized_view_sync_failed_daily": True,  # Default value
                 "materialized_view_sync_failed_immediate": False,  # Default value
