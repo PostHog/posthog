@@ -32,6 +32,7 @@ function session(overrides: Partial<Session> = {}): Session {
         history: { status: 'idle', error: null },
         isSending: false,
         isStopping: false,
+        canSteer: false,
         start: async () => true,
         send: async () => true,
         answer: async () => undefined,

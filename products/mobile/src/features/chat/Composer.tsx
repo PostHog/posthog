@@ -90,6 +90,7 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
     },
     ref
 ): ReactElement {
+    const typed = text.trim().length > 0
     return (
         <View style={[styles.card, shadows.popover]}>
             {chips ? <View style={styles.chips}>{chips}</View> : null}
@@ -150,13 +151,15 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
                     <Pressable44
                         onPress={onStop}
                         accessibilityLabel="Stop the reply"
-                        pressedBackground={colors.inkHover}
-                        style={[styles.send, styles.sendReady]}
+                        pressedBackground={typed ? colors.pressed : colors.inkHover}
+                        style={[styles.send, typed ? styles.stopSecondary : styles.sendReady]}
                         testID="chat-stop"
                     >
-                        <View style={styles.stopSquare} />
+                        <View style={[styles.stopSquare, typed && styles.stopSquareSecondary]} />
                     </Pressable44>
-                ) : (
+                ) : null}
+                {/* While the agent works, Send queues the message, so it shows beside Stop once there is text. */}
+                {!isStreaming || typed ? (
                     <Pressable44
                         onPress={onSend}
                         disabled={!canSend}
@@ -167,7 +170,7 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
                     >
                         <ArrowUpIcon size={iconSizes.control} color={colors.white} />
                     </Pressable44>
-                )}
+                ) : null}
             </View>
         </View>
     )
@@ -270,10 +273,18 @@ const styles = StyleSheet.create({
     sendIdle: {
         backgroundColor: colors.border,
     },
+    stopSecondary: {
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.background,
+    },
     stopSquare: {
         width: 12,
         height: 12,
         borderRadius: 2,
         backgroundColor: colors.white,
+    },
+    stopSquareSecondary: {
+        backgroundColor: colors.ink,
     },
 })

@@ -71,7 +71,7 @@ import {
     withStreamModeReport,
 } from './sessionRun'
 import { SessionTurnTracker } from './sessionTurn'
-import type { Session, SessionDecision, SessionHistory, SessionPhase } from './types'
+import type { SendOptions, Session, SessionDecision, SessionHistory, SessionPhase } from './types'
 
 // Drives a sandbox task run in the chat sheet through the tasks API. Stream handling follows `docs/HANDOFF.md`.
 
@@ -249,6 +249,20 @@ async function sendConfigOption(run: RunRef, params: SetConfigOptionParams, sign
             }
             throw error
         }
+    }
+}
+
+type SendDelivery = 'steer' | 'queue' | 'direct'
+
+/** The `delivery` and `queued_count` of `mobile_session_sent`. */
+function deliveryProperties(
+    steered: boolean,
+    sendOptions: SendOptions
+): { delivery: SendDelivery; queued_count: number } {
+    const queuedCount = sendOptions.queuedCount ?? 0
+    return {
+        delivery: steered ? 'steer' : queuedCount > 0 ? 'queue' : 'direct',
+        queued_count: queuedCount,
     }
 }
 
@@ -517,6 +531,7 @@ export function useSession(options: SessionOptions): Session {
     const cursors = useRef(new Map<string, CursorEntry>())
     /** Runs the stream showed generating. Cancelling before that would drop the run's first message. */
     const generating = useRef(new Set<string>())
+    const canSteerRef = useRef(false)
     const sendingRef = useRef(false)
     const stoppingRef = useRef(false)
     const stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1011,12 +1026,18 @@ export function useSession(options: SessionOptions): Session {
     )
 
     const followUp = useCallback(
-        async (text: string, context: ChatContext, options: ChatRunOptions): Promise<boolean> => {
+        async (
+            text: string,
+            context: ChatContext,
+            options: ChatRunOptions,
+            sendOptions: SendOptions
+        ): Promise<boolean> => {
             const taskId = taskIdRef.current
             const trimmed = text.trim()
             if (!taskId || !trimmed || sendingRef.current) {
                 return false
             }
+            const steer = sendOptions.steer === true && canSteerRef.current
             const content = chatPrompt(trimmed, context)
             const reportCount = context.kind === 'reports' ? context.reports.length : 0
             const localId = `local-${randomUUID()}`
@@ -1041,14 +1062,20 @@ export function useSession(options: SessionOptions): Session {
                     resumed_run: false,
                     report_count: reportCount,
                     ...sentOptionProperties(options, options.permissionMode),
+                    ...deliveryProperties(steer, sendOptions),
                 })
-                turnTracker.begin(liveRef.current)
+                if (steer) {
+                    turnTracker.join(liveRef.current)
+                } else {
+                    turnTracker.begin(liveRef.current)
+                }
                 await playDemoFrames(demoReplyFrames(DEMO_REPLY), controller.signal)
                 return true
             }
             sendingRef.current = true
             setSending(true)
             let resumed = false
+            let steered = false
             try {
                 const current = liveRef.current ?? (await adoptLatestRun(taskId, controller.signal, mine))
                 if (epoch.current !== mine) {
@@ -1068,11 +1095,14 @@ export function useSession(options: SessionOptions): Session {
                         ended = true
                     }
                     if (!ended) {
+                        // `ended` (a 409) falls through to a resume run, which has no live turn to steer.
                         const outcome = await sendUserMessage(run, content, {
                             id: randomUUID(),
                             signal: controller.signal,
+                            steer,
                         })
                         delivered = outcome === 'queued'
+                        steered = delivered && steer
                         if (delivered && epoch.current === mine) {
                             // The agent works on the message now; the stream confirms it when the turn starts.
                             updateLive(current.runId, (state) => ({ ...state, turnEnded: false }))
@@ -1089,8 +1119,13 @@ export function useSession(options: SessionOptions): Session {
                         resumed_run: resumed,
                         report_count: reportCount,
                         ...sentOptionProperties(options, permissionMode),
+                        ...deliveryProperties(steered, sendOptions),
                     })
-                    turnTracker.begin(liveRef.current)
+                    if (steered) {
+                        turnTracker.join(liveRef.current)
+                    } else {
+                        turnTracker.begin(liveRef.current)
+                    }
                 }
             } catch (error) {
                 if (epoch.current !== mine || controller.signal.aborted) {
@@ -1113,7 +1148,12 @@ export function useSession(options: SessionOptions): Session {
     )
 
     const startNew = useCallback(
-        async (text: string, context: ChatContext, options: ChatRunOptions): Promise<boolean> => {
+        async (
+            text: string,
+            context: ChatContext,
+            options: ChatRunOptions,
+            sendOptions: SendOptions
+        ): Promise<boolean> => {
             const trimmed = text.trim()
             if (taskIdRef.current || !trimmed || sendingRef.current) {
                 return false
@@ -1124,6 +1164,7 @@ export function useSession(options: SessionOptions): Session {
                 resumed_run: false,
                 report_count: context.kind === 'reports' ? context.reports.length : 0,
                 ...sentOptionProperties(options, requests.fields.initial_permission_mode),
+                ...deliveryProperties(false, sendOptions),
             }
             const localId = `local-${randomUUID()}`
             const mine = epoch.current
@@ -1220,8 +1261,15 @@ export function useSession(options: SessionOptions): Session {
     )
 
     const submit = useCallback(
-        (text: string, context: ChatContext, options: ChatRunOptions = DEFAULT_CHAT_RUN_OPTIONS): Promise<boolean> =>
-            taskIdRef.current ? followUp(text, context, options) : startNew(text, context, options),
+        (
+            text: string,
+            context: ChatContext,
+            options: ChatRunOptions = DEFAULT_CHAT_RUN_OPTIONS,
+            sendOptions: SendOptions = {}
+        ): Promise<boolean> =>
+            taskIdRef.current
+                ? followUp(text, context, options, sendOptions)
+                : startNew(text, context, options, sendOptions),
         [followUp, startNew]
     )
 
@@ -1384,6 +1432,13 @@ export function useSession(options: SessionOptions): Session {
         phase = 'working'
     }
 
+    // `phase` is `working` only after a live frame showed the agent generating, which is the guard `stop` keeps in
+    // `generating`. A replayed backlog leaves `phase` idle, because the agent may not have taken its first message yet.
+    const canSteer = demo
+        ? demoPlaying && !decision
+        : phase === 'working' && live?.status === 'in_progress' && !decision && !isSending && !isStopping
+    canSteerRef.current = canSteer
+
     const stage = live ? displayStage(live) : undefined
     const config = live ? configFor(live.runId) : undefined
     return {
@@ -1418,6 +1473,7 @@ export function useSession(options: SessionOptions): Session {
             : {}),
         start: submit,
         send: submit,
+        canSteer,
         answer,
         stop,
         reloadHistory,

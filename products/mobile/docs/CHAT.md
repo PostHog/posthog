@@ -16,9 +16,11 @@ The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteraction
 | `src/features/chat/session/sessionRun.ts` | Pure request bodies: the create shapes, run fields, the `set_config_option` plan, the tracked run config |
 | `src/features/chat/session/sessionReducer.ts` | Folds run log lines and stream frames into the thread, as the web's `foldLogFromCheckpoint` does |
 | `src/features/chat/session/sessionDisplay.ts` | Groups thoughts and tool calls into activity rows, error copy |
-| `src/features/chat/session/sessionTurn.ts` | `SessionTurnTracker`: one `mobile_session_finished` per sent message |
+| `src/features/chat/session/sessionTurn.ts` | `SessionTurnTracker`: one `mobile_session_finished` per turn the person started |
 | `src/features/chat/session/SessionThread.tsx` | The thread, its rows, the PR card and the status line |
 | `src/features/chat/session/SessionDecisionPanel.tsx` | The notice line and a pending question, plan approval or permission |
+| `src/features/chat/messageQueue.ts` | The queue reducer, the hold, and the queue, drain and Send now rules |
+| `src/features/chat/QueuedMessages.tsx` | The queue banner above the composer: count, rows, remove and Send now |
 | `src/features/chat/chatRunOptions.ts` | `ChatRunOptions` (model and permission mode), its reducer, the chip label, seeding from a run |
 | `src/features/chat/ChatOptionsSheet.tsx` | The Model and Mode pages in a sheet over the chat |
 | `src/features/chat/contextPrompt.ts` | The leading context blocks, `bareQuestion`, `stripInjectedContext` |
@@ -178,11 +180,28 @@ On the next message to a live run, `useSession` first sends one command per chan
 - **Ended run, or a 409 on `user_message`.** `POST tasks/{t}/run/` with `mode: "interactive"`, `resume_from_run_id`, `pending_user_message`, and the run fields.
   An untouched model sends no triple, so the server keeps the previous run's selection; the mode maps onto the previous run's harness.
   No `branch`: a resumed run keeps its base branch.
-- One send at a time. While the agent works, Stop replaces Send.
-- `mobile_session_sent` is captured with `new_task`, `resumed_run`, `report_count`, `model`, `reasoning_effort` and `permission_mode`.
+- **Queue.** A message sent while the agent works, while a send or an answer is in flight, while a decision waits, or behind earlier queued messages goes into a queue above the composer instead (`messageQueue.ts`, `QueuedMessages.tsx`), as on the web.
+  The banner shows "N queued" and one row per message, each with a remove control.
+  The queue lives in memory only.
+  While the agent works and the input has text, Send shows beside Stop, which turns into an outline button.
+- **Automatic drain.** When the turn ends and nothing else is in flight or waiting, the queued rows go out as one message, joined by blank lines.
+  A run that has ended takes the queue too: the send resumes it, as for any follow-up.
+- **Send now.** Sends the queue into the live turn at once with `params.steer: true` on `user_message`, when the session reports `canSteer`; otherwise it goes as an ordinary follow-up.
+  It is disabled with "Answer the agent first" while a decision waits, and with "Wait for the agent to start" while the turn runs but the stream has not shown the agent generating yet.
+  The reason shows under the banner, because a phone has no tooltip.
+- **Hold.** Stop holds the queue, so it does not go out when the stopped turn ends; the banner then says "N queued, not sent yet".
+  A new message lifts that hold.
+  A failed delivery puts its rows back in front of anything queued since and holds them; only Send now sends them again, because the failed send may have reached the agent.
+- Closing the sheet, an Android back, or New chat puts the queued messages back in front of the composer text, so the draft keeps them.
+- `mobile_session_queued` is captured with `queue_length` when a message joins the queue, `mobile_session_queue_removed` with `queue_length` after a row is removed,
+  and `mobile_session_queue_sent_now` with `queued_count` and `steer` (the session could steer at the tap).
+- `mobile_session_sent` is captured with `new_task`, `resumed_run`, `report_count`, `model`, `reasoning_effort`, `permission_mode`,
+  `delivery` (`steer` when the agent accepted a steered message, `queue` for a drained queue, else `direct`) and `queued_count`.
+  Model and mode changes still go out as `set_config_option` before a steered message, as on the web.
 - `mobile_session_send_failed` is captured with `code` and `new_task` when a send shows a notice.
   `code` is `config_rejected`, `command_failed`, `run_not_started`, `warm_run_unavailable`, or the `ChatError` kind from `chatErrors.ts`.
-- `mobile_session_finished` is captured once per sent message, with `status`, `duration_s` (from the accepted send) and `had_decision`.
+- `mobile_session_finished` is captured once per turn the person started, with `status`, `duration_s` (from the accepted send) and `had_decision`.
+  A steered message joins the turn it steers, so it adds no event of its own.
   `status` is `completed` (the turn ended), `failed` (the run failed, or the turn ended with a new run error), `cancelled` (the run was cancelled without Stop),
   `stopped` (the turn or run ended after Stop) or `abandoned` (the sheet closed or New chat dropped the chat first).
 

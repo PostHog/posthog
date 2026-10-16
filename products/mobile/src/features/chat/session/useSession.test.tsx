@@ -3,6 +3,7 @@ import { AppState } from 'react-native'
 import { ApiError } from '@/api/client'
 import type { TaskApi, TaskCreateResponseApi, TaskRunApi } from '@/api/tasks'
 import * as tasks from '@/api/tasks'
+import { setAnalyticsClient } from '@/lib/analytics'
 
 import type { ChatRunOptions } from '../chatRunOptions'
 import { chatPrompt } from '../contextPrompt'
@@ -115,6 +116,13 @@ function liveStream(caughtUp = true): {
 function sentCommands(): unknown[] {
     return mocked.sendTaskRunCommand.mock.calls.map(([, , command]) => command)
 }
+
+const LIVE_TOOL_CALL = logLine({
+    sessionUpdate: 'tool_call',
+    toolCallId: 'live-tool',
+    title: 'Run regression tests',
+    status: 'in_progress',
+})
 
 describe('useSession', () => {
     const originalAppState = AppState.currentState
@@ -690,14 +698,7 @@ describe('useSession', () => {
         expect(result.current?.isStopping).toBe(false)
         expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
         act(() => {
-            stream.push(
-                logLine({
-                    sessionUpdate: 'tool_call',
-                    toolCallId: 'live-tool',
-                    title: 'Run regression tests',
-                    status: 'in_progress',
-                })
-            )
+            stream.push(LIVE_TOOL_CALL)
         })
         await waitFor(() => expect(result.current.phase).toBe('working'))
         act(() => {
@@ -708,5 +709,84 @@ describe('useSession', () => {
             stream.push({ type: 'notification', notification: { method: '_posthog/turn_complete', params: {} } })
         })
         await waitFor(() => expect(result.current.isStopping).toBe(false))
+    })
+
+    test('a steer joins the live turn only once the stream shows the agent generating', async () => {
+        const capture = jest.fn()
+        setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
+        const stream = liveStream(false)
+        stream.push(LIVE_TOOL_CALL, 'log-0')
+        stream.push({}, undefined, 'keepalive')
+        mocked.openTaskRunStream.mockResolvedValueOnce(stream.response)
+        mocked.getTask.mockResolvedValue(
+            task(run({ status: 'in_progress', runtime_adapter: 'claude', state: { initial_permission_mode: 'auto' } }))
+        )
+        mocked.sendTaskRunCommand.mockResolvedValue({ jsonrpc: '2.0', result: { queued: true } })
+        try {
+            const { result } = renderHook(() => useSession({ taskId: TASK_ID }))
+            await waitFor(() => expect(result.current.history.status).toBe('idle'))
+            expect(result.current.canSteer).toBe(false)
+            await act(async () => {
+                await result.current.send('Check the logs', { kind: 'none' }, DEFAULT_AUTO, {
+                    steer: true,
+                    queuedCount: 1,
+                })
+            })
+
+            act(() => {
+                stream.push(LIVE_TOOL_CALL)
+            })
+            await waitFor(() => expect(result.current.canSteer).toBe(true))
+            await act(async () => {
+                await result.current.send('Also cover refunds', { kind: 'none' }, DEFAULT_AUTO, {
+                    steer: true,
+                    queuedCount: 2,
+                })
+            })
+
+            expect(sentCommands()).toEqual([
+                { method: 'user_message', params: { content: 'Check the logs' } },
+                { method: 'user_message', params: { content: 'Also cover refunds', steer: true } },
+            ])
+            const sent = capture.mock.calls.filter(([event]) => event === 'mobile_session_sent')
+            expect(sent.map(([, properties]) => properties)).toEqual([
+                expect.objectContaining({ delivery: 'queue', queued_count: 1 }),
+                expect.objectContaining({ delivery: 'steer', queued_count: 2 }),
+            ])
+        } finally {
+            setAnalyticsClient(null)
+        }
+    })
+
+    test('a steer to a run that ended resumes it as an ordinary follow-up', async () => {
+        const stream = liveStream()
+        mocked.openTaskRunStream.mockResolvedValueOnce(stream.response)
+        mocked.getTask.mockResolvedValue(
+            task(run({ status: 'in_progress', runtime_adapter: 'claude', state: { initial_permission_mode: 'auto' } }))
+        )
+        mocked.sendTaskRunCommand.mockRejectedValue(new ApiError(409, { code: 'run_ended' }))
+        const successor = run({ id: 'run-2', status: 'queued' })
+        mocked.startTaskRun.mockResolvedValue({ ...task(successor), run: successor })
+
+        const { result } = renderHook(() => useSession({ taskId: TASK_ID }))
+        await waitFor(() => expect(result.current.history.status).toBe('idle'))
+        act(() => {
+            stream.push(LIVE_TOOL_CALL)
+        })
+        await waitFor(() => expect(result.current.canSteer).toBe(true))
+        await act(async () => {
+            await result.current.send('Also cover refunds', { kind: 'none' }, DEFAULT_AUTO, { steer: true })
+        })
+
+        expect(mocked.startTaskRun).toHaveBeenCalledWith(
+            TASK_ID,
+            expect.objectContaining({ pending_user_message: 'Also cover refunds', resume_from_run_id: 'run-1' }),
+            expect.anything()
+        )
+        expect(result.current.runId).toBe('run-2')
+        expect(result.current.notice).toBeUndefined()
+        expect(result.current.items.filter((item) => item.kind === 'user')).toEqual([
+            expect.objectContaining({ text: 'Also cover refunds' }),
+        ])
     })
 })

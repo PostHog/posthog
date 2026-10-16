@@ -101,7 +101,7 @@ export async function deliverPermissionResponse(
 export async function sendUserMessage(
     run: RunRef,
     content: string,
-    options: { id: string; signal?: AbortSignal; clock?: Clock }
+    options: { id: string; signal?: AbortSignal; clock?: Clock; steer?: boolean }
 ): Promise<'queued' | 'ended'> {
     const clock = options.clock ?? realClock
     try {
@@ -110,7 +110,7 @@ export async function sendUserMessage(
                 sendTaskRunCommand(
                     run.taskId,
                     run.runId,
-                    { method: 'user_message', params: { content } },
+                    { method: 'user_message', params: { content, ...(options.steer ? { steer: true } : {}) } },
                     { id: options.id, signal: options.signal }
                 ),
             options.signal,
