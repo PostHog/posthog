@@ -170,6 +170,12 @@ class TestMCPEventDelivery(MCPEventServiceTestCase):
                 {"type": "hogql", "key": "`$group_0` = 'example'"},
                 "$groups.organization",
             ),
+            (
+                "group_key",
+                PropertyDefinition.Type.EVENT,
+                {"type": "group", "group_type_index": 0, "key": "$group_key", "operator": "exact", "value": "hidden"},
+                "$groups.organization",
+            ),
         ]
     )
     def test_property_restrictions_apply_to_creation_and_delivery(
@@ -213,8 +219,20 @@ class TestMCPEventDelivery(MCPEventServiceTestCase):
         with self.assertRaises(PermissionDenied):
             self.subscribe()
 
-    @parameterized.expand(["test_account", "action", "child_action", "event_action", "child_event_action"])
-    def test_filter_refresh_authorizes_new_filters_and_rejects_stale_queued_filters(self, source: str) -> None:
+    @parameterized.expand(
+        [
+            ("test_account", False),
+            ("action", False),
+            ("action", True),
+            ("child_action", False),
+            ("event_action", False),
+            ("event_action", True),
+            ("child_event_action", False),
+        ]
+    )
+    def test_filter_refresh_authorizes_new_filters_and_rejects_stale_queued_filters(
+        self, source: str, numeric_id: bool
+    ) -> None:
         original = [{"key": "plan", "type": "event", "operator": "exact", "value": "internal"}]
         updated = [{"key": "next_plan", "type": "event", "operator": "exact", "value": "internal"}]
         if source != "test_account":
@@ -222,7 +240,9 @@ class TestMCPEventDelivery(MCPEventServiceTestCase):
                 team=self.team, name="Example action", steps_json=[{"event": "example_event", "properties": original}]
             )
             filters: dict[str, JsonValue] = {
-                "events" if "event_action" in source else "actions": [{"id": str(action.id), "type": "actions"}]
+                "events" if "event_action" in source else "actions": [
+                    {"id": action.id if numeric_id else str(action.id), "type": "actions"}
+                ]
             }
         else:
             self.team.test_account_filters = original
