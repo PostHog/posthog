@@ -227,15 +227,12 @@ Three policies exist, and a change lands in whichever one covers the page:
 
 Add the source to the policy that covers the document, which is not always `CSPMiddleware`.
 An app or admin page takes the matching list in `CSPMiddleware`.
-On PostHog Cloud, the app policy's `script-src` and `connect-src` name each PostHog host instead of `*.posthog.com`.
-A script or request that goes to another PostHog subdomain needs its host in the lists that `CSPMiddleware` passes to `narrowed_app_policy()`.
+On PostHog Cloud, the app policy's `script-src`, `connect-src`, `style-src` and `font-src` name each PostHog host instead of `*.posthog.com`.
+A script, stylesheet or font from another PostHog subdomain, or a request to one, needs its host in the lists that `CSPMiddleware` passes to `narrowed_app_policy()`.
 Local runs, E2E runs and self-hosted installs keep the wildcards, so a missing host breaks only production.
 On PostHog Cloud, each app document also sends a report-only policy that holds only `img-src`, without `https:` and with each PostHog host named instead of `*.posthog.com`.
 It blocks nothing, and its reports (`$csp_version` 7) list the image hosts that only `https:` or `*.posthog.com` admits.
 An image from another PostHog subdomain needs its host in the list in `img_src_shadow_policy()`, or each load of it reports.
-A second report-only policy holds only `style-src` and `font-src`, with each PostHog host named instead of `*.posthog.com`.
-Its reports (`$csp_version` 6) list the PostHog stylesheet and font hosts that the named list misses.
-A stylesheet or font from another PostHog subdomain needs its host in the list that `CSPMiddleware` passes to `style_font_shadow_policy()`.
 Name a new image host in `img-src` anyway, so that removing `https:` later does not break it.
 A canvas artifact takes `artifact_csp()` in `products/canvas/backend/contract.py`, and a workflow message asset takes the header its endpoint sets in `products/workflows/backend/presentation/views/hog_flow.py`.
 `CSPMiddleware` returns a view-set header untouched, so widening the app policy does nothing for those two.
