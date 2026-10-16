@@ -12,8 +12,6 @@ response they become.
 """
 
 import re
-import json
-import math
 from collections.abc import Collection, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -105,40 +103,32 @@ class HomeDashboardTile:
 
 @dataclass(frozen=True)
 class HomeDashboardInsights:
-    dashboard_id: int
     filters: dict[str, Any]
     variables: dict[str, Any] | None
     tiles: tuple[HomeDashboardTile, ...]
 
 
 def home_dashboard_insights(*, team: "Team", user: User, limit: int) -> HomeDashboardInsights | None:
-    home = UserHomeSettings.objects.filter(team=team, user=user).values_list("homepage", flat=True).first()
-    match = re.search(r"/dashboard/(\d+)", json.dumps(home) if home else "")
+    homepage = UserHomeSettings.objects.filter(team=team, user=user).values_list("homepage", flat=True).first()
+    match = re.search(r"/dashboard/(\d+)", str((homepage or {}).get("pathname") or ""))
     dashboard_id = int(match.group(1)) if match else team.primary_dashboard_id
-    if dashboard_id is None or viewable_dashboard_ref(dashboard_id, team=team, user=user) is None:
+    if dashboard_id is None:
         return None
-    dashboard = Dashboard.objects.filter(team_id=team.id, pk=dashboard_id).values("filters", "variables").first()
-    if dashboard is None:
+    dashboard = Dashboard.objects.filter(team_id=team.id, pk=dashboard_id).first()
+    access = UserAccessControl(user=user, team=team)
+    if dashboard is None or not access.check_access_level_for_object(dashboard, "viewer"):
         return None
-    tiles = sorted(
-        DashboardTile.objects.filter(
-            dashboard_id=dashboard_id, insight__isnull=False, insight__deleted=False
-        ).values_list("id", "insight__short_id", "filters_overrides", "layouts"),
-        key=lambda tile: (_sm_layout(tile[3]).get("y", math.inf), _sm_layout(tile[3]).get("x", math.inf), tile[0]),
-    )
+    insight_tiles = DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
+    tiles = DashboardTile.sort_tiles_by_layout(insight_tiles.select_related("insight"))
     return HomeDashboardInsights(
-        dashboard_id=dashboard_id,
-        filters=dashboard["filters"] or {},
-        variables=dashboard["variables"] or None,
+        filters=dashboard.filters or {},
+        variables=dashboard.variables or None,
         tiles=tuple(
-            HomeDashboardTile(insight_short_id=short_id, filters_overrides=overrides or None)
-            for _id, short_id, overrides, _layouts in tiles[:limit]
+            HomeDashboardTile(insight_short_id=tile.insight.short_id, filters_overrides=tile.filters_overrides or None)
+            for tile in tiles[:limit]
+            if tile.insight is not None
         ),
     )
-
-
-def _sm_layout(layouts: Any) -> dict[str, Any]:
-    return (layouts or {}).get("sm") or {}
 
 
 def viewable_dashboard_ref(dashboard_id: int, *, team: "Team", user: User) -> DashboardRef | None:

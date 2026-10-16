@@ -14,7 +14,6 @@ from posthog.models import FileSystemViewLog
 
 from products.dashboards.backend.facade.api import HomeDashboardInsights, HomeDashboardTile
 from products.product_analytics.backend.facade.contracts import InsightSeries
-from products.today.backend.logic.highlight_registry import load_sources
 from products.today.backend.logic.highlight_rules import human, short
 from products.today.backend.logic.highlight_sources import home, routine
 from products.today.backend.logic.highlight_trends import MONEY
@@ -136,9 +135,7 @@ class TestHomeTiles(SimpleTestCase):
                 guard=lambda _name, provider, _default: provider(),
             ),
         )
-        registered = next(s for s in load_sources() if s.name == "home")
         home_tiles = HomeDashboardInsights(
-            dashboard_id=1,
             filters={},
             variables=None,
             tiles=(HomeDashboardTile(insight_short_id="abc", filters_overrides=None),),
@@ -148,7 +145,7 @@ class TestHomeTiles(SimpleTestCase):
             patch.object(home, "home_dashboard_insights", return_value=home_tiles),
             patch.object(home, "get_insight_series", return_value=found_insight),
         ):
-            found = registered.find(context).items
+            found = home.find(context).items
 
         self.assertEqual([(c.title, c.detail) for c in found], [expected] if expected else [])
 
@@ -176,12 +173,9 @@ class TestRoutineInsights(BaseTest):
         )
         points = [(TODAY - timedelta(days=d), 2.0 if d <= 7 else 1.0) for d in range(14, 0, -1)]
         found_insight = insight({"exported_report": points}, name="Files opened", value_format="currency")
-        registered = next(s for s in load_sources() if s.name == "routine")
 
-        with (
-            patch.object(routine, "get_insight_series", return_value=found_insight),
-        ):
-            pulse = registered.find(Context(self.team, self.user, TODAY)).pulse
+        with patch.object(routine, "get_insight_series", return_value=found_insight):
+            pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
 
         self.assertEqual(
             [

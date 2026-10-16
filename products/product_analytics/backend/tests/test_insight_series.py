@@ -39,9 +39,10 @@ class TestTableSeries(SimpleTestCase):
     def test_a_table_with_a_date_column_becomes_a_series(
         self, _name: str, rows: list[list[Any]], period: str, total: float
     ) -> None:
-        series, found = _table_series(["day", "value"], rows)
+        found = _table_series(["day", "value"], rows)
 
-        self.assertEqual((found, sum(v for _, v in series["value"])), (period, total))
+        assert found is not None
+        self.assertEqual((found.period, sum(v for _, v in found.series["value"])), (period, total))
 
 
 class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):

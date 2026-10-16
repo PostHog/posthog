@@ -9,14 +9,8 @@ from ..highlight_rules import exact, pretty, short, usable_series
 from ..highlight_trends import BAD_METRIC, MONEY, UNKNOWN_DIRECTION, detect
 from ..highlight_types import Candidate, Context, Found, Source
 
-HOME_WORSE = {
-    True: "‘{name}’ increased by {pct}% last {period}",
-    False: "‘{name}’ decreased by {pct}% last {period}",
-}
-HOME_WORSE_SERIES = {
-    True: "‘{name}’ ({series}) increased by {pct}% last {period}",
-    False: "‘{name}’ ({series}) decreased by {pct}% last {period}",
-}
+HOME_WORSE = "‘{name}’ {moved} by {pct}% last {period}"
+HOME_WORSE_SERIES = "‘{name}’ ({series}) {moved} by {pct}% last {period}"
 CHANGE = "{before} → {now}"
 CHANGE_DAILY = "{before} → {now} a day on average"
 
@@ -58,14 +52,12 @@ def _tile(context: Context, short_id: str, dashboard: InsightDashboardContext) -
     period = insight.period
     name, points = max(series.items(), key=lambda item: sum(abs(v) for _, v in item[1]))
     average = period == "day" and name in insight.averaged_series
-    detections, values = detect(points, period, context.today, average)
-    if len(values) < 2 or values[-1] == 0 or (values[-2] and values[-1] / values[-2] <= 0.02):
+    _, values = detect(points, period, context.today, average)
+    if len(values) < 2 or not values[-1] or not values[-2] or values[-1] / values[-2] <= 0.02:
         return None
     label = f"{insight.name} {name} {insight.event_name}"
     money = bool(MONEY.search(label))
     if abs(values[-1]) < 10 and not money:
-        return None
-    if not values[-2] or (detections and all(d.kind == "flatline" for d in detections)):
         return None
     change = (values[-1] / values[-2] - 1) * 100
     bad = bool(BAD_METRIC.search(label))
@@ -80,10 +72,11 @@ def _tile(context: Context, short_id: str, dashboard: InsightDashboardContext) -
         family="home",
         importance=0.6,
         relevance=1.0,
-        title=(HOME_WORSE_SERIES if measured else HOME_WORSE)[change > 0].format(
+        title=(HOME_WORSE_SERIES if measured else HOME_WORSE).format(
             name=short(insight.name or pretty(name), 60),
             series=measured,
-            pct=f"{abs(round(change, 1)):.0f}",
+            moved="increased" if change > 0 else "decreased",
+            pct=f"{abs(change):.0f}",
             period="month" if period == "month" else "week",
         ),
         detail=(CHANGE_DAILY if average else CHANGE).format(now=exact(values[-1]), before=exact(values[-2])),
