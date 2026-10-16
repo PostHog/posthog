@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
 import {
@@ -23,6 +24,7 @@ import {
     InsightShortId,
     PropertyFilterType,
     PropertyOperator,
+    PropertyType,
 } from '~/types'
 
 import { CohortEdit } from './CohortEdit'
@@ -820,8 +822,38 @@ describe('cohortEditLogic', () => {
     })
 
     it('prefills a complete recent person filter during cohort creation', async () => {
+        const definitions = propertyDefinitionsModel.build()
+        definitions.mount()
+        definitions.actions.updatePropertyDefinitions({
+            'person/birth_date': { id: 'birth_date', name: 'birth_date', property_type: PropertyType.DateTime },
+        })
         const recentFilters = recentTaxonomicFiltersLogic.build()
         recentFilters.mount()
+        recentFilters.actions.clearRecentFilters()
+        recentFilters.actions.recordRecentFilter({
+            groupType: TaxonomicFilterGroupType.PersonProperties,
+            groupName: 'Person properties',
+            value: '$os',
+            item: { name: '$os' },
+            propertyFilter: {
+                type: PropertyFilterType.Person,
+                key: '$os',
+                operator: PropertyOperator.StartsWith,
+                value: 'Mac',
+            },
+        })
+        recentFilters.actions.recordRecentFilter({
+            groupType: TaxonomicFilterGroupType.PersonProperties,
+            groupName: 'Person properties',
+            value: 'birth_date',
+            item: { name: 'birth_date' },
+            propertyFilter: {
+                type: PropertyFilterType.Person,
+                key: 'birth_date',
+                operator: PropertyOperator.IsSet,
+                value: null,
+            },
+        })
         recentFilters.actions.recordRecentFilter({
             groupType: TaxonomicFilterGroupType.PersonProperties,
             groupName: 'Person properties',
@@ -861,6 +893,7 @@ describe('cohortEditLogic', () => {
         await userEvent.click(await screen.findByText('Choose person property'))
         await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
         await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-recent_filters'))
+        await waitFor(() => expect(screen.getAllByTestId(/^prop-filter-recent_filters-/)).toHaveLength(2))
         await userEvent.click(await screen.findByTestId('prop-filter-recent_filters-1'))
 
         await waitFor(() => {
@@ -876,6 +909,7 @@ describe('cohortEditLogic', () => {
             expect(screen.getByText('Chrome')).toBeInTheDocument()
         })
         recentFilters.unmount()
+        definitions.unmount()
         cleanup()
     })
 
