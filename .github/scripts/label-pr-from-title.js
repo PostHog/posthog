@@ -78,6 +78,16 @@ function labelsForTitle(title, rules) {
     return Array.from(labels)
 }
 
+const PATH_PATTERN_TOKENS = { '**/': '(?:.*/)?', '**': '.*', '*': '[^/]*' }
+
+function pathPatternToRegExp(pattern) {
+    const source = pattern
+        .split(/(\*\*\/|\*\*|\*)/)
+        .map((part) => PATH_PATTERN_TOKENS[part] ?? part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+        .join('')
+    return new RegExp(`^${source}${pattern.endsWith('/') ? '' : '$'}`)
+}
+
 function labelsForFiles(files, rules) {
     const filenames = files.flatMap((file) =>
         file.status === 'renamed' && file.previous_filename ? [file.filename, file.previous_filename] : [file.filename]
@@ -85,7 +95,8 @@ function labelsForFiles(files, rules) {
     const labels = new Set()
 
     for (const rule of rules) {
-        if ((rule.paths || []).some((prefix) => filenames.some((filename) => filename.startsWith(prefix)))) {
+        const patterns = (rule.paths || []).map(pathPatternToRegExp)
+        if (patterns.some((pattern) => filenames.some((filename) => pattern.test(filename)))) {
             for (const label of rule.labels || []) {
                 labels.add(label)
             }
