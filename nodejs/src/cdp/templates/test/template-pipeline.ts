@@ -1,4 +1,10 @@
+import { SESv2Client } from '@aws-sdk/client-sesv2'
+import type { NodeHttpHandler } from '@smithy/node-http-handler'
+import { Resolver } from 'node:dns/promises'
+import { Readable } from 'node:stream'
+
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
+import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import * as requestModule from '~/common/utils/request'
@@ -8,22 +14,37 @@ import { createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
-import { insertIntegration } from '../../_tests/fixtures'
+import { FixtureHogFlowBuilder } from '../../_tests/builders/hogflow.builder'
+import { insertHogFunctionTemplate, insertIntegration } from '../../_tests/fixtures'
 import { HogTransformerService, createHogTransformerService } from '../../hog-transformations/hog-transformer.service'
+import { PostgresCohortMembershipRepository } from '../../services/cohorts/postgres-cohort-membership-repository'
 import { HogExecutorAsyncService } from '../../services/hog-executor-async.service'
 import { HogExecutorService } from '../../services/hog-executor.service'
 import { HogInputsService } from '../../services/hog-inputs.service'
+import { HogFlowExecutorService } from '../../services/hogflows/hogflow-executor.service'
+import { HogFlowFunctionsService } from '../../services/hogflows/hogflow-functions.service'
+import { HogFunctionTemplateManagerService } from '../../services/managers/hog-function-template-manager.service'
+import { RecipientsManagerService } from '../../services/managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from '../../services/managers/team-workflows-config.service'
+import {
+    EmailSuppressionService,
+    emailSuppressionConfigFromEnv,
+} from '../../services/messaging/email-suppression.service'
+import { EmailValidationService } from '../../services/messaging/email-validation.service'
 import { EmailService } from '../../services/messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../services/messaging/helpers/tracking-code'
+import { RecipientPreferencesService } from '../../services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../../services/messaging/recipient-tokens.service'
 import {
-    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
     HogFunctionInputSchemaType,
     HogFunctionInvocationGlobals,
     HogFunctionMappingTemplate,
     HogFunctionTemplate,
     HogFunctionType,
+    InvocationBuildFailure,
 } from '../../types'
 import { buildHogFunctionInvocations } from '../../utils/invocation-utils'
 import { PosthogJwtAudience } from '../../utils/jwt-utils'
@@ -66,10 +87,23 @@ export type PipelineRun = {
     integrationCredentials: string[]
 }
 
+const PRODUCTION_SITE_URL = 'https://us.posthog.com'
 const EXECUTION_BUDGET_MS = 5000
 // Django compiles filters to bytecode. The event name already targets the mapping, so matching everything is safe.
 const MATCH_ALL_FILTERS = { bytecode: ['_h', 29] }
+const MATCH_ALL_TRIGGER = { type: 'event' as const, filters: { events: [], actions: [], ...MATCH_ALL_FILTERS } }
 const MAX_ASYNC_FUNCTIONS = 10
+
+type WorkflowStepType = Extract<HogFlowAction['type'], 'function' | 'function_email'>
+
+const WORKFLOW_ONLY_STEP_TYPES: Record<string, WorkflowStepType> = {
+    'template-email': 'function_email',
+    'template-posthog-classify': 'function',
+    'template-posthog-create-customer-task': 'function',
+    'template-posthog-create-task': 'function',
+    'template-posthog-run-scout': 'function',
+    'template-posthog-send-ticket-message': 'function',
+}
 
 // Mirrors the input types validation.py compiles to bytecode. Every other type reaches the VM as its raw value.
 const TRANSPILED_INPUT_TYPES = new Set<HogFunctionInputSchemaType['type']>([
@@ -105,14 +139,34 @@ export class TemplatePipeline {
         private hub: Hub,
         private team: Team,
         private executor: HogExecutorAsyncService,
+        private hogFlowExecutor: HogFlowExecutorService,
         private hogInputsService: HogInputsService,
         private transformer: HogTransformerService
     ) {}
 
     static async start(): Promise<TemplatePipeline> {
-        const hub = await createHub()
+        const hub = await createHub({ SITE_URL: PRODUCTION_SITE_URL })
         const { team } = await createTestTeamFixture(hub.postgres)
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const recipientsManager = new RecipientsManagerService(hub.postgres)
+        const emailSuppressionService = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+        const emailService = new EmailService(
+            {
+                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                sesRegion: hub.SES_REGION,
+                sesEndpoint: hub.SES_ENDPOINT,
+                sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+            },
+            hub.integrationManager,
+            new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+            hub.ENCRYPTION_SALT_KEYS,
+            hub.SITE_URL,
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+            emailSuppressionService,
+            recipientsManager
+        )
         const hogInputsService = new HogInputsService(
             hub.integrationManager,
             recipientTokensService,
@@ -139,33 +193,28 @@ export class TemplatePipeline {
                     'fake-jwt-secret'
                 ),
                 hogInputsService,
-                emailService: new EmailService(
-                    {
-                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                        sesRegion: hub.SES_REGION,
-                        sesEndpoint: hub.SES_ENDPOINT,
-                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
-                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                    },
-                    hub.integrationManager,
-                    undefined as any,
-                    hub.ENCRYPTION_SALT_KEYS,
-                    hub.SITE_URL,
-                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                    undefined as any,
-                    undefined as any
-                ),
+                emailService,
                 recipientTokensService,
                 pushNotificationService: undefined as any,
             }
+        )
+        const hogFlowExecutor = new HogFlowExecutorService(
+            new HogFlowFunctionsService(hub.SITE_URL, new HogFunctionTemplateManagerService(hub.postgres), executor),
+            new RecipientPreferencesService(recipientsManager, emailSuppressionService),
+            new EmailValidationService(null),
+            new PostgresCohortMembershipRepository(hub.postgres),
+            hub.integrationManager,
+            undefined,
+            undefined,
+            { awaitedStepsEnabled: hub.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
         )
         const transformer = createHogTransformerService(
             { ...hub, TRANSFORMATIONS_HOG_TIMEOUT_MS: EXECUTION_BUDGET_MS, CDP_HOG_RUST_VM_EXECUTION_ENABLED: false },
             { ...hub, monitoringOutputs: createTestMonitoringOutputs(undefined as unknown as KafkaProducerWrapper) }
         )
-        const pipeline = new TemplatePipeline(hub, team, executor, hogInputsService, transformer)
+        const pipeline = new TemplatePipeline(hub, team, executor, hogFlowExecutor, hogInputsService, transformer)
         pipeline.interceptNetwork()
+        emailService.sesV2Client = pipeline.sesClientOverInterceptedNetwork()
         return pipeline
     }
 
@@ -195,17 +244,10 @@ export class TemplatePipeline {
             }
         }
 
-        const { invocations, buildFailures } = await buildHogFunctionInvocations(
-            this.hogInputsService,
-            [hogFunction],
-            globals
-        )
-        const invocationErrors = buildFailures.map((failure) => `${failure.step}: ${failure.error}`)
-
-        if (invocations.length !== 1) {
-            invocationErrors.push(`expected 1 invocation, got ${invocations.length}`)
-        }
-        const { result, thrown } = invocations.length === 1 ? await this.execute(invocations[0]) : {}
+        const stepType = WORKFLOW_ONLY_STEP_TYPES[templateCase.template.id]
+        const { invocationErrors, result, thrown } = stepType
+            ? await this.runAsWorkflowStep(templateCase.template, stepType, hogFunction, globals)
+            : await this.runAsHogFunction(hogFunction, globals)
 
         return {
             invocationErrors,
@@ -218,31 +260,101 @@ export class TemplatePipeline {
         }
     }
 
-    private async execute(
-        invocation: CyclotronJobInvocationHogFunction
-    ): Promise<{ result?: CyclotronJobInvocationResult; thrown?: string }> {
+    private async runAsHogFunction(
+        hogFunction: HogFunctionType,
+        globals: HogFunctionInvocationGlobals
+    ): Promise<Execution> {
+        const { invocations, buildFailures } = await buildHogFunctionInvocations(
+            this.hogInputsService,
+            [hogFunction],
+            globals
+        )
+        return await this.executeSingle(invocations, buildFailures, (invocation) =>
+            this.executor.executeWithAsyncFunctions(invocation, { maxAsyncFunctions: MAX_ASYNC_FUNCTIONS })
+        )
+    }
+
+    private async runAsWorkflowStep(
+        template: HogFunctionTemplate,
+        stepType: WorkflowStepType,
+        hogFunction: HogFunctionType,
+        globals: HogFunctionInvocationGlobals
+    ): Promise<Execution> {
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(this.team.id)
+            .withWorkflow({
+                actions: {
+                    trigger: { type: 'trigger', config: MATCH_ALL_TRIGGER },
+                    step: {
+                        type: stepType,
+                        // A failed step then fails the run, which is where the invariants read the outcome.
+                        on_error: 'abort',
+                        config: {
+                            template_id: await this.registerTemplate(template),
+                            inputs: { ...hogFunction.inputs, ...hogFunction.encrypted_inputs },
+                        },
+                    } as SimpleHogFlowAction,
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'step', type: 'continue' },
+                    { from: 'step', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        const { invocations, buildFailures } = await this.hogFlowExecutor.buildHogFlowInvocations([hogFlow], globals)
+        return await this.executeSingle(invocations, buildFailures, (invocation) =>
+            this.executeHogFlowAcrossQueueSwitches(invocation)
+        )
+    }
+
+    private async executeHogFlowAcrossQueueSwitches(
+        invocation: CyclotronJobInvocationHogFlow
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
+        const logs: CyclotronJobInvocationResult['logs'] = []
+        let result = await this.hogFlowExecutor.execute(invocation)
+        logs.push(...result.logs)
+        while (!result.finished && result.invocation.state.currentAction?.routingOnlyReschedule) {
+            result = await this.hogFlowExecutor.execute(result.invocation)
+            logs.push(...result.logs)
+        }
+        return { ...result, logs }
+    }
+
+    private async registerTemplate(template: HogFunctionTemplate): Promise<string> {
+        // Templates are global rows, so a per-run id keeps other suites and earlier runs from serving stale bytecode.
+        const { template_id } = await insertHogFunctionTemplate(this.hub.postgres, {
+            ...template,
+            id: `${template.id}-contract-${this.team.id}`,
+        })
+        return template_id
+    }
+
+    private async executeSingle<T extends CyclotronJobInvocation>(
+        invocations: T[],
+        buildFailures: InvocationBuildFailure[],
+        execute: (invocation: T) => Promise<CyclotronJobInvocationResult<T>>
+    ): Promise<Execution> {
+        const invocationErrors = buildFailures.map((failure) => `${failure.step}: ${failure.error}`)
+        if (invocations.length !== 1) {
+            invocationErrors.push(`expected 1 invocation, got ${invocations.length}`)
+            return { invocationErrors }
+        }
         try {
-            return {
-                result: await this.executor.executeWithAsyncFunctions(invocation, {
-                    maxAsyncFunctions: MAX_ASYNC_FUNCTIONS,
-                }),
-            }
+            return { invocationErrors, result: await execute(invocations[0]) }
         } catch (error) {
-            return { thrown: `execution threw: ${String(error)}` }
+            return { invocationErrors, thrown: `execution threw: ${String(error)}` }
         }
     }
 
     private interceptNetwork(): void {
         const respond = (url: string, options: FetchOptions = {}): Promise<FetchResponse> => {
-            const request: OutgoingRequest = {
+            const { status, body } = this.record({
                 url,
                 method: options.method ?? 'GET',
                 headers: (options.headers as Record<string, string>) ?? {},
                 body: typeof options.body === 'string' ? options.body : undefined,
-            }
-            this.requests.push(request)
-            const { status, echoRequest } = this.response
-            const body = echoRequest ? { error: 'Request rejected', request } : this.response.body
+            })
             return Promise.resolve({
                 status,
                 headers: { 'content-type': 'application/json' },
@@ -253,6 +365,39 @@ export class TemplatePipeline {
         }
         jest.spyOn(requestModule, 'fetch').mockImplementation(respond)
         jest.spyOn(requestModule, 'internalFetch').mockImplementation(respond)
+        jest.spyOn(Resolver.prototype, 'resolveMx').mockResolvedValue([{ exchange: 'mx.example.com', priority: 10 }])
+    }
+
+    private record(request: OutgoingRequest): { status: number; body: unknown } {
+        this.requests.push(request)
+        const { status, echoRequest } = this.response
+        return { status, body: echoRequest ? { error: 'Request rejected', request } : this.response.body }
+    }
+
+    private sesClientOverInterceptedNetwork(): SESv2Client {
+        return new SESv2Client({
+            region: this.hub.SES_REGION,
+            endpoint: this.hub.SES_ENDPOINT,
+            credentials: { accessKeyId: 'fake-ses-access-key-id', secretAccessKey: 'fake-ses-secret-access-key' },
+            requestHandler: {
+                handle: (request: SesHttpRequest) => {
+                    const { status, body } = this.record({
+                        url: urlOf(request),
+                        method: request.method,
+                        headers: request.headers,
+                        body: typeof request.body === 'string' ? request.body : undefined,
+                    })
+                    const responseBody = status < 300 ? { MessageId: 'example-message-id' } : body
+                    return Promise.resolve({
+                        response: {
+                            statusCode: status,
+                            headers: { 'content-type': 'application/json' },
+                            body: Readable.from([Buffer.from(JSON.stringify(responseBody))]),
+                        },
+                    })
+                },
+            },
+        })
     }
 
     private async createHogFunction(
@@ -268,6 +413,8 @@ export class TemplatePipeline {
                 const credentials = fakeIntegrationCredentials(schema.key)
                 integrationCredentials.push(...Object.values(credentials))
                 values[schema.key] = await this.insertIntegration(schema, credentials)
+            } else if (schema.type === 'native_email') {
+                values[schema.key] = { ...EMAIL_MESSAGE, from: { integrationId: await this.insertEmailSender() } }
             } else {
                 values[schema.key] =
                     options.debug && schema.type === 'boolean' && /debug/i.test(schema.key)
@@ -332,6 +479,20 @@ export class TemplatePipeline {
         return integration.id
     }
 
+    private async insertEmailSender(): Promise<number> {
+        const integration = await insertIntegration(this.hub.postgres, this.team.id, {
+            kind: 'email',
+            config: {
+                email: 'orders@example.com',
+                name: 'Example Shop',
+                domain: 'example.com',
+                verified: true,
+                provider: 'ses',
+            },
+        })
+        return integration.id
+    }
+
     private sensitiveInputValues(hogFunction: HogFunctionType): string[] {
         return Object.values(hogFunction.encrypted_inputs ?? {})
             .map((input) => input.value)
@@ -339,7 +500,7 @@ export class TemplatePipeline {
     }
 
     private representativeGlobals(templateCase: TemplateCase): HogFunctionInvocationGlobals {
-        const projectUrl = `https://us.posthog.com/project/${this.team.id}`
+        const projectUrl = `${PRODUCTION_SITE_URL}/project/${this.team.id}`
         const eventName = eventNameFor(templateCase)
         return {
             project: { id: this.team.id, name: 'Example project', url: projectUrl },
@@ -396,12 +557,34 @@ export class TemplatePipeline {
     }
 }
 
+type SesHttpRequest = Parameters<NodeHttpHandler['handle']>[0]
+type Execution = Pick<PipelineRun, 'invocationErrors' | 'result' | 'thrown'>
+type SimpleHogFlowAction = Parameters<FixtureHogFlowBuilder['withWorkflow']>[0]['actions'][string]
+
+const EMAIL_MESSAGE = {
+    to: { email: '{{ person.properties.email }}', name: '{{ person.properties.name }}' },
+    replyTo: '',
+    cc: '',
+    bcc: '',
+    subject: 'Your order {{ event.properties.order_id }} is confirmed',
+    preheader: '',
+    text: 'Hi {{ person.properties.first_name }}, thanks for your order.',
+    html: '<p>Hi {{ person.properties.first_name }}, thanks for your order.</p>',
+}
+
 // The non-secret part of a connection that templates read, keyed by integration kind.
 const INTEGRATION_CONFIGS: Record<string, Record<string, unknown>> = {
     github: { account: { name: 'example-org' } },
     gitlab: { hostname: 'https://gitlab.example.com', project_id: 1001 },
     slack: { scope: 'chat:write,chat:write.customize', team: { id: 'T0000EXAMPLE', name: 'Example workspace' } },
     twilio: { account_sid: 'ACexample0000' },
+}
+
+const urlOf = (request: SesHttpRequest): string => {
+    const url = new URL(`${request.protocol}//${request.hostname}${request.path}`)
+    url.port = request.port ? String(request.port) : ''
+    Object.entries(request.query ?? {}).forEach(([key, value]) => url.searchParams.append(key, String(value)))
+    return url.href
 }
 
 const pluginEventFrom = (globals: HogFunctionInvocationGlobals): PluginEvent => ({
@@ -411,7 +594,7 @@ const pluginEventFrom = (globals: HogFunctionInvocationGlobals): PluginEvent => 
     properties: { ...globals.event.properties },
     timestamp: globals.event.timestamp,
     ip: String(globals.event.properties.$ip),
-    site_url: 'https://us.posthog.com',
+    site_url: PRODUCTION_SITE_URL,
     team_id: globals.project.id,
     now: globals.event.timestamp,
 })

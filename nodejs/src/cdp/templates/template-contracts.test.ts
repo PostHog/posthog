@@ -5,20 +5,19 @@ import '~/cdp/async-functions'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { OutgoingRequest, PipelineRun, TemplateCase, TemplatePipeline, casesFor } from './test/template-pipeline'
+import {
+    OutgoingRequest,
+    PipelineRun,
+    ResponseScenario,
+    TemplateCase,
+    TemplatePipeline,
+    casesFor,
+} from './test/template-pipeline'
 
 type Exemptions = Record<string, string>
 
-const WORKFLOW_ONLY = 'workflow action, needs a workflow invocation to run'
-
 const RUNS_EXEMPTIONS: Exemptions = {
-    'template-email': 'needs an email sender integration in its email input',
     'template-native-push': 'needs a push notification service, and the harness builds no integration_multi input',
-    'template-posthog-classify': WORKFLOW_ONLY,
-    'template-posthog-create-customer-task': WORKFLOW_ONLY,
-    'template-posthog-create-task': WORKFLOW_ONLY,
-    'template-posthog-run-scout': WORKFLOW_ONLY,
-    'template-posthog-send-ticket-message': WORKFLOW_ONLY,
 }
 
 const INTEGRATION_EXEMPTIONS: Exemptions = {}
@@ -45,7 +44,15 @@ const FAILURES_EXEMPTIONS: Exemptions = {}
 const DESTINATION_CASES = casesFor(HOG_FUNCTION_TEMPLATES_DESTINATIONS)
 const TRANSFORMATION_CASES = casesFor(HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS)
 
-const OK = { status: 200, body: {} }
+// Success bodies whose shape a template checks before it reports success.
+const SUCCESS_BODIES: Record<string, unknown> = {
+    'template-posthog-create-customer-task': { id: '01920000-0000-7000-8000-000000000005' },
+}
+
+const okFor = ({ template }: TemplateCase): ResponseScenario => ({
+    status: 200,
+    body: SUCCESS_BODIES[template.id] ?? {},
+})
 const REJECTED = { status: 401, body: {}, echoRequest: true }
 const CLIENT_ERROR = { status: 400, body: { error: 'Bad request' } }
 const SERVER_ERROR = { status: 500, body: { error: 'Internal error' } }
@@ -191,7 +198,7 @@ const hasSensitiveValues = ({ template }: TemplateCase): boolean =>
     template.inputs_schema.some((schema) => schema.secret || schema.type === 'integration')
 
 // Every other async function reaches the network, including the helpers that call PostHog's internal API.
-const ASYNC_FUNCTIONS_WITHOUT_HTTP = new Set(['sendEmail', 'sendPushNotification', 'produceToWarehouseWebhooks'])
+const ASYNC_FUNCTIONS_WITHOUT_HTTP = new Set(['sendPushNotification', 'produceToWarehouseWebhooks'])
 const HTTP_ASYNC_FUNCTIONS = getRegisteredAsyncFunctionNames().filter((name) => !ASYNC_FUNCTIONS_WITHOUT_HTTP.has(name))
 
 const sendsHttpRequests = ({ template }: TemplateCase): boolean =>
@@ -261,14 +268,14 @@ describe('template contracts', () => {
 
     describe.each(DESTINATION_CASES.map((c) => [c.name, c] as const))('%s', (_name, templateCase: TemplateCase) => {
         it('runs on a representative event', async () => {
-            const run = await pipeline.run(templateCase, OK)
+            const run = await pipeline.run(templateCase, okFor(templateCase))
 
             expectInvariant(templateCase, RUNS_EXEMPTIONS, runsWithoutError(run))
         })
 
         if (checksRequests(templateCase)) {
             it('sends well-formed requests', async () => {
-                const run = await pipeline.run(templateCase, OK)
+                const run = await pipeline.run(templateCase, okFor(templateCase))
 
                 expectInvariant(templateCase, WELL_FORMED_EXEMPTIONS, requestsAreWellFormed(run))
             })
@@ -286,7 +293,7 @@ describe('template contracts', () => {
         if (checksSecrets(templateCase)) {
             it('keeps sensitive values out of its output, also when a request is rejected', async () => {
                 const runs = [
-                    await pipeline.run(templateCase, OK, { debug: true }),
+                    await pipeline.run(templateCase, okFor(templateCase), { debug: true }),
                     await pipeline.run(templateCase, REJECTED, { debug: true }),
                 ]
 
@@ -296,7 +303,7 @@ describe('template contracts', () => {
 
         if (checksIntegration(templateCase)) {
             it('sends the integration credential loaded from its connection', async () => {
-                const run = await pipeline.run(templateCase, OK)
+                const run = await pipeline.run(templateCase, okFor(templateCase))
 
                 expectInvariant(templateCase, INTEGRATION_EXEMPTIONS, integrationCredentialsReachTheWire(run))
             })
@@ -305,14 +312,14 @@ describe('template contracts', () => {
 
     describe.each(TRANSFORMATION_CASES.map((c) => [c.name, c] as const))('%s', (_name, templateCase: TemplateCase) => {
         it('runs on a representative event', async () => {
-            const run = await pipeline.run(templateCase, OK)
+            const run = await pipeline.run(templateCase, okFor(templateCase))
 
             expectInvariant(templateCase, RUNS_EXEMPTIONS, runsWithoutError(run))
         })
 
         if (checksSecrets(templateCase)) {
             it('keeps sensitive values out of its output', async () => {
-                const run = await pipeline.run(templateCase, OK, { debug: true })
+                const run = await pipeline.run(templateCase, okFor(templateCase), { debug: true })
 
                 expectInvariant(templateCase, SECRETS_EXEMPTIONS, secretsStayOutOfOutput(run))
             })
