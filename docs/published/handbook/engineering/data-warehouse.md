@@ -338,6 +338,10 @@ BI chart settings preserve custom scatter axes and implicit count formatting. Nu
 
 ## Connected fields in BI mode
 
+Catalog SQL metrics can open as BI query snapshots. Their dates, grouping, and bound values come from the metric definition; shelf edits, worksheet date filters, pivots, and result drilling are unavailable. Changing the chart changes the presentation of those results. Saved snapshots do not follow later catalog edits.
+
+After running a worksheet, **Propose as catalog metric** sends its resolved SQL and date window through catalog review. A pending or failed query cannot be proposed. Proposing an existing metric name updates its definition for review. Direct-connection worksheets cannot be proposed as catalog metrics.
+
 Below Dimensions and Measures, **Connections** lists the selected table's linked tables and views.
 Expand a connection to load its dimensions, measures, and nested connections. Inside connections,
 fields and further links appear without section headings.

@@ -200,6 +200,16 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
     }
 
     const actions: MetricAction[] = [
+        ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE] && definitionSql
+            ? [
+                  {
+                      key: 'explore-bi',
+                      label: 'Explore in BI',
+                      icon: <IconGraph />,
+                      onClick: () => router.actions.push(urls.businessIntelligenceNew(), { metric: metric.name }),
+                  },
+              ]
+            : []),
         ...(isApproved
             ? []
             : [
