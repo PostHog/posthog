@@ -371,3 +371,46 @@ export const RankingScoreNarrow: Story = {
         ),
     ],
 }
+
+export const ReportVerdicts: Story = {
+    args: {
+        artefacts: [
+            {
+                id: 'resolved-manually',
+                type: 'dismissal',
+                created_at: '2026-09-17T09:00:00Z',
+                content: {
+                    state: 'resolved',
+                    reason: 'fixed_outside_posthog',
+                    note: 'Implemented the change in the request handler.',
+                },
+            },
+            {
+                id: 'resolved-no-action',
+                type: 'dismissal',
+                created_at: '2026-09-17T08:00:00Z',
+                content: {
+                    state: 'resolved',
+                    reason: 'no_action_needed',
+                    note: 'Useful context. No implementation is needed.',
+                },
+            },
+            {
+                id: 'dismissed',
+                type: 'dismissal',
+                created_at: '2026-09-17T07:00:00Z',
+                content: {
+                    state: 'suppressed',
+                    reason: 'analysis_wrong',
+                    note: 'The finding describes an unreachable code path.',
+                },
+            },
+            {
+                id: 'legacy-feedback',
+                type: 'dismissal',
+                created_at: '2026-09-17T06:00:00Z',
+                content: { reason: 'already_fixed' },
+            },
+        ],
+    },
+}

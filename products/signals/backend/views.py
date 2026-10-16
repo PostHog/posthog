@@ -5,7 +5,7 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, timedelta
 from functools import cached_property, partial
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -677,6 +677,7 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
     ("wontfix_intentional", "Won't fix - intentional behavior"),
     ("wontfix_irrelevant", "Won't fix - issue is real but insignificant"),
     ("fixed_outside_posthog", "Fixed outside PostHog"),
+    ("no_action_needed", "No action needed"),
     ("pr_merged", "PR was merged"),
     ("other", "Something else…"),
 ]
@@ -684,11 +685,12 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
 _DISMISSAL_REASON_HELP_TEXT = (
     "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, "
     "report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, "
-    "fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a "
+    "fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a "
     "labelled chip rather than a raw code. When the work this report asked for is done, the honest "
     "transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), "
     "'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), "
-    "or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing "
+    "or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with "
+    "state='resolved' when the report was useful but needs no implementation. A report that failed in processing "
     "resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three "
     "codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked "
     "to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. "
@@ -794,6 +796,8 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
+        if attrs.get("dismissal_reason") == "no_action_needed" and attrs.get("state") != SignalReportState.RESOLVED:
+            raise serializers.ValidationError({"dismissal_reason": "No action needed requires state 'resolved'."})
         if (
             attrs.get("state") == SignalReportState.POTENTIAL
             and attrs.get("dismissal_reason") in FIXED_DISMISSAL_REASONS
@@ -3498,6 +3502,11 @@ class SignalReportViewSet(
             writes_dismissal_feedback = target in ("suppressed", "potential", "resolved") and bool(
                 dismissal_reason or dismissal_note
             )
+            feedback_state = (
+                None
+                if report.status == SignalReport.Status.SUPPRESSED and target == "potential"
+                else cast(Literal["resolved", "suppressed", "potential"], target)
+            )
 
             if not already_holds_verdict:
                 try:
@@ -3561,6 +3570,7 @@ class SignalReportViewSet(
                     team_id=self.team.id,
                     report_id=str(report.id),
                     content=Dismissal(
+                        state=feedback_state,
                         reason=dismissal_reason,
                         note=dismissal_note,
                         selected_repository=selected_repository,
@@ -3570,6 +3580,11 @@ class SignalReportViewSet(
                     ),
                     attribution=self._request_attribution(),
                 )
+                if target_status == SignalReport.Status.RESOLVED and dismissal_reason == "no_action_needed":
+                    for check in SignalReportCheck.objects.for_team(self.team.id).filter(
+                        report_id=report.id, status__in=SignalReportCheck.OPEN_STATUSES
+                    ):
+                        cancel_check(check, reason="stopped_by_person", attribution=self._request_attribution())
                 if is_wrong_repo:
                     self._apply_wrong_repo_selection(report, corrected_repository)
                     # The wrong-repo path just wrote a new repo_selection artefact; drop the
@@ -3832,6 +3847,7 @@ class SignalReportViewSet(
                 team_id=self.team.id,
                 report_id=str(report.id),
                 content=Dismissal(
+                    state="resolved" if resolved_via_merged_pr else "suppressed",
                     reason="refunded",
                     note=note or None,
                     user_id=user.id if user.is_authenticated else None,

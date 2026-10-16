@@ -2,6 +2,7 @@ import { type ComponentType, Fragment, useState } from 'react'
 
 import {
     IconActivity,
+    IconCheckCircle,
     IconHide,
     IconCode,
     IconComment,
@@ -39,6 +40,7 @@ import type { SignalReportPullRequestApi } from 'products/signals/frontend/gener
 import { INBOX_RANKING_SCORES, PRIORITY_TAG_TYPE, rankingScoreForHead } from '../../filterOptions'
 import { SignalCard } from '../../SignalCard'
 import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, SignalReportArtefact } from '../../types'
+import { dismissalReasonLabel } from '../../utils/dismissalReasons'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { formatRankingLift, formatRankingProbability } from '../cards/rankingFormat'
 import { RankingLiftBar } from '../cards/RankingLiftBar'
@@ -173,7 +175,7 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
 }
 
 function dismissReasonLabel(reason: string): string {
-    return DISMISS_REASON_LABELS[reason] ?? prettify(reason)
+    return DISMISS_REASON_LABELS[reason] ?? dismissalReasonLabel(reason) ?? prettify(reason)
 }
 
 /** A short relevance / context note above a code block. */
@@ -897,7 +899,10 @@ function ArtefactRow({
         renderArtefactBody({ reportId, artefact, knownTasks, knownPullRequests })
     )
     const bodyHasOwnCard = artefact.type === 'signal_finding' || artefact.type === 'commit'
-    const MarkerIcon = ARTEFACT_MARKER[artefact.type] ?? IconActivity
+    const MarkerIcon =
+        artefact.type === 'dismissal' && (artefact.content as DismissalContent).state === 'resolved'
+            ? IconCheckCircle
+            : (ARTEFACT_MARKER[artefact.type] ?? IconActivity)
 
     return (
         <div className="relative flex gap-3 pb-4 last:pb-0">

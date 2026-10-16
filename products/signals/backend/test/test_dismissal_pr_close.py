@@ -203,6 +203,11 @@ class TestClosePrWhenReportDismissed(BaseTest):
             report.refresh_from_db()
             assert report.status == SignalReport.Status.SUPPRESSED
             assert fixed_dismissal_at(report) is None
+            feedback = SignalReportArtefact.latest_content(
+                team_id=self.team.id, report_id=str(report.id), model=Dismissal
+            )
+            assert feedback is not None
+            assert feedback.state == "suppressed"
 
     def test_unrelated_save_of_suppressed_report_does_not_enqueue(self):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)

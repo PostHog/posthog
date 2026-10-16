@@ -55,6 +55,7 @@ export interface SignalFindingContent {
 }
 
 export interface DismissalContent {
+    state?: 'resolved' | 'suppressed' | 'potential' | null
     reason?: string
     note?: string
 }
@@ -337,7 +338,7 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     signal_finding: 'Signal investigated',
     suggested_reviewers: 'Reviewers suggested',
     repo_selection: 'Repo selected',
-    dismissal: 'Report dismissed',
+    dismissal: 'Report feedback added',
     video_segment: 'Video segment',
     title_change: 'Title edited',
     summary_change: 'Summary edited',

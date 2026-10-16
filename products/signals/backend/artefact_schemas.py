@@ -489,12 +489,16 @@ DISMISSAL_IDENTITY_MAX_LENGTH = 128
 
 
 class Dismissal(BaseModel):
-    """Content schema for a `dismissal` artefact: feedback captured when a report is dismissed/snoozed.
+    """Feedback records retain their verdict because the report can change state later.
 
     The user fields predate row-level attribution and are kept for compatibility with existing
     rows and readers; new rows also carry attribution on the artefact row itself.
     """
 
+    state: Literal["resolved", "suppressed", "potential"] | None = Field(
+        default=None,
+        description="Report verdict when this feedback was recorded. Null on legacy feedback with no recorded verdict.",
+    )
     reason: str | None = Field(
         default=None, max_length=DISMISSAL_REASON_MAX_LENGTH, description="Caller-owned dismissal reason code."
     )
