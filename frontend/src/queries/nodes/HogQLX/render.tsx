@@ -12,6 +12,8 @@ import { LightErrorBoundary } from '~/layout/ErrorBoundary/ErrorBoundary'
 
 import { BrandMarkLabel } from 'products/mcp_analytics/frontend/components/BrandMarkLabel'
 
+import { imageDimension, imageSource } from './image'
+
 // NB!!! Sync this list with posthog/hogql/hogqlx.py
 // These tags only get the `key` and `children` attributes.
 const HOGQLX_TAGS_NO_ATTRIBUTES = [
@@ -145,6 +147,23 @@ export function renderHogQLX(value: any): JSX.Element {
                 <LightErrorBoundary>
                     <BrandMarkLabel label={label} mark={primitiveString(rest.mark) ?? ''} />
                 </LightErrorBoundary>
+            )
+        } else if (tag === 'img') {
+            const src = imageSource(rest.src)
+            const alt = typeof rest.alt === 'string' ? rest.alt : ''
+            if (!src) {
+                return <>{alt}</>
+            }
+            return (
+                <img
+                    src={src}
+                    alt={alt}
+                    style={{ width: imageDimension(rest.width), height: imageDimension(rest.height) }}
+                    className="inline-block max-w-full object-contain align-middle"
+                    loading="lazy"
+                    decoding="async"
+                    referrerPolicy="no-referrer"
+                />
             )
         } else if (tag === 'a') {
             const { href, children, source, target } = rest
