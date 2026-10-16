@@ -76,6 +76,12 @@ pub const DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL: &str = "durable_restore_partiti
 /// from the committed offset (counter).
 pub const DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL: &str =
     "durable_restore_partitions_wiped_stale_total";
+/// Partitions adopted as complete by opening a store without coverage records (counter).
+pub const SLICES_ADOPTED_TOTAL: &str = "cohort_slices_adopted_total";
+/// Slices that began without earlier history (counter). Runs with an earlier boundary withhold.
+pub const SLICES_BEGUN_TOTAL: &str = "cohort_slices_begun_total";
+/// When each slice began, in epoch seconds, by `partition` (gauge). `0` if complete or unowned.
+pub const SLICE_COVERED_SINCE_SECONDS: &str = "cohort_slice_covered_since_seconds";
 /// `cf_behavioral` keys re-seeded into a worker's `EvictionQueue` on spawn during a durable restart,
 /// labelled by `partition` (counter). Re-fires a dormant person's `Left`.
 pub const EVICTION_QUEUE_REBUILT_KEYS_TOTAL: &str = "eviction_queue_rebuilt_keys_total";
@@ -91,16 +97,35 @@ pub const CHECKPOINT_DURATION_SECONDS: &str = "checkpoint_duration_seconds";
 pub const CHECKPOINT_SIZE_BYTES: &str = "checkpoint_size_bytes";
 /// File count in a freshly-taken checkpoint directory (histogram).
 pub const CHECKPOINT_FILE_COUNT: &str = "checkpoint_file_count";
-/// Checkpoint S3 uploads, labelled by `result` (`success`|`error`|`cancelled`|`unavailable`); when
-/// `result=cancelled`, an additional `cause` label (`rebalance`|`shutdown`|`unknown`) (counter).
+/// Checkpoint S3 uploads, labelled by `result` (`success`|`error`|`cancelled`|`unavailable`) and
+/// `trigger` (`periodic`|`final`), plus checkpoint ticks skipped by a failed WAL fsync
+/// (`result=flush_failed`) (counter). A cancelled final upload ran out of its budget.
 pub const CHECKPOINT_UPLOADS_TOTAL: &str = "checkpoint_uploads_total";
+/// Bytes a successful upload sent, labelled by `kind` (`full`|`incremental`) (counter). Sizes the
+/// bucket's growth for its expiry setting.
+pub const CHECKPOINT_UPLOADED_BYTES_TOTAL: &str = "checkpoint_uploaded_bytes_total";
+/// Unix time of the last captured manifest (gauge, seconds). Starts at the sweeper's start, so a
+/// staleness alert fires only after its threshold passes.
+pub const CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS: &str =
+    "checkpoint_last_capture_timestamp_seconds";
+/// Unix time of the last successful upload (gauge, seconds). Starts at the sweeper's start.
+/// **Alert on staleness**: no restorable checkpoint is getting newer.
+pub const CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS: &str =
+    "checkpoint_last_upload_timestamp_seconds";
+/// `full_upload_at` of the newest upload: when its chain of incrementals began (gauge, seconds).
+pub const CHECKPOINT_LAST_FULL_UPLOAD_TIMESTAMP_SECONDS: &str =
+    "checkpoint_last_full_upload_timestamp_seconds";
+/// Checkpoint ticks skipped before the checkpoint, labelled by `reason` (`positions`|`incomplete`)
+/// (counter).
+pub const CHECKPOINT_CAPTURE_FAILURES_TOTAL: &str = "checkpoint_capture_failures_total";
 /// Wall-clock duration of one checkpoint S3 upload, labelled by `result` (histogram, seconds).
 pub const CHECKPOINT_UPLOAD_DURATION_SECONDS: &str = "checkpoint_upload_duration_seconds";
 /// Individual checkpoint files uploaded to S3, labelled by `status` (`success`|`error`|`cancelled`)
 /// (counter).
 pub const CHECKPOINT_FILES_UPLOADED_TOTAL: &str = "checkpoint_files_uploaded_total";
 /// Individual checkpoint files downloaded from S3, labelled by `status`
-/// (`success`|`error`|`cancelled`) (counter).
+/// (`success`|`error`|`cancelled`|`not_found`) (counter). `not_found` is mostly the `metadata.json`
+/// of an upload that never finished.
 pub const CHECKPOINT_FILES_DOWNLOADED_TOTAL: &str = "checkpoint_files_downloaded_total";
 /// Files seen during incremental checkpoint planning, labelled by `action`
 /// (`added`|`replaced`|`retained`) (counter).
@@ -114,17 +139,24 @@ pub const CHECKPOINT_FILE_FETCH_STORE_DURATION_SECONDS: &str =
     "checkpoint_file_fetch_store_duration_seconds";
 /// Latency of listing a checkpoint's recent attempt folders from S3 (histogram, seconds).
 pub const CHECKPOINT_LIST_DURATION_SECONDS: &str = "checkpoint_list_duration_seconds";
-/// Boot restores, labelled by `source` (`reopen_live`|`pvc`|`s3`|`cold`) (counter).
+/// Boot store choices, labelled by `source` (`reopen_live`|`pending`|`local`|`s3`|`cold`) (counter).
 pub const CHECKPOINT_RESTORE_TOTAL: &str = "checkpoint_restore_total";
+/// Checkpoint candidates a boot restore tried, labelled by `verdict`
+/// (`published`|`unusable`|`failed`) (counter).
+pub const CHECKPOINT_RESTORE_CANDIDATES_TOTAL: &str = "checkpoint_restore_candidates_total";
+/// Slices a checkpoint restore deleted because the broker cannot replay them, labelled by `reason`
+/// (`not_in_checkpoint`|`replay_out_of_range`) (counter). Each one begins again behind the coverage
+/// fence.
+pub const CHECKPOINT_RESTORE_SLICES_RESET_TOTAL: &str = "checkpoint_restore_slices_reset_total";
+/// 1 while the boot retries a restore that cannot finish, else 0 (gauge). **Alert on it**: the pod
+/// never reads ready until the logged cause is fixed. Before a restore publishes, turning
+/// `CHECKPOINT_ENABLED` off also ends it.
+pub const CHECKPOINT_RESTORE_BLOCKED: &str = "checkpoint_restore_blocked";
 /// Wall-clock duration of one boot restore (histogram, seconds).
 pub const CHECKPOINT_RESTORE_DURATION_SECONDS: &str = "checkpoint_restore_duration_seconds";
-/// End-to-end checkpoint import (list + metadata + files + fallbacks), labelled by `result`
-/// (`success`|`failed`|`cancelled`|`timeout`) (histogram, seconds).
+/// Download of one checkpoint candidate's files, labelled by `result` (`success`|`failed`)
+/// (histogram, seconds).
 pub const CHECKPOINT_IMPORT_DURATION_SECONDS: &str = "checkpoint_import_duration_seconds";
-/// Duration of one import attempt (one checkpoint's files), labelled by `result`
-/// (`success`|`failed`) (histogram, seconds).
-pub const CHECKPOINT_IMPORT_ATTEMPT_DURATION_SECONDS: &str =
-    "checkpoint_import_attempt_duration_seconds";
 
 /// RocksDB batch commits, labelled by `op` (counter).
 pub const STORE_WRITE_BATCH_TOTAL: &str = "store_write_batch_total";
@@ -655,9 +687,13 @@ pub const RECONCILE_JOBS_ENQUEUED_TOTAL: &str = "cohort_reconcile_jobs_enqueued_
 pub const RECONCILE_JOBS_COMPLETED_TOTAL: &str = "cohort_reconcile_jobs_completed_total";
 /// Queued jobs replaced by a higher Kafka offset for the same team, cohort, and `kind` (counter).
 pub const RECONCILE_JOBS_SUPERSEDED_TOTAL: &str = "cohort_reconcile_jobs_superseded_total";
-/// Reconcile jobs invalidated by a drain-time guard, labelled by bounded `reason` and `kind`
+/// Reconcile jobs withheld by the drain-time guard, labelled by bounded `reason` and `kind`
 /// (counter).
-pub const RECONCILE_JOBS_DISCARDED_TOTAL: &str = "cohort_reconcile_jobs_discarded_total";
+pub const RECONCILE_JOBS_WITHHELD_TOTAL: &str = "cohort_reconcile_jobs_discarded_total";
+/// Reconcile jobs the guard would discard against a catalog snapshot older than the job, held until
+/// a refresh that began after the job's admission, labelled by `reason` and `kind`. Counted once per
+/// job (counter). Each one is a catalog race the processor absorbed instead of stranding the run.
+pub const RECONCILE_JOBS_DEFERRED_TOTAL: &str = "cohort_reconcile_jobs_deferred_total";
 /// Stage 2 rows read by reconcile and durably settled, counted once per committed page (counter). A
 /// page that fails its produce or commit and retries is not double-counted.
 pub const RECONCILE_ROWS_SCANNED_TOTAL: &str = "cohort_reconcile_rows_scanned_total";
@@ -695,11 +731,11 @@ pub const RECONCILE_PAGE_DURATION_SECONDS: &str = "cohort_reconcile_page_duratio
 pub const RECONCILE_ROWS_EMITTED_TOTAL: &str = "cohort_reconcile_rows_emitted_total";
 /// Stale Stage 2 bits durably fixed, labelled by `direction` (counter).
 pub const RECONCILE_BITS_FIXED_TOTAL: &str = "cohort_reconcile_bits_fixed_total";
-/// Reconcile completion markers acknowledged by Kafka, labelled by `kind` (counter).
+/// Reconcile markers acknowledged by Kafka, labelled by `kind` and `marker` (counter).
 pub const RECONCILE_MARKERS_EMITTED_TOTAL: &str = "cohort_reconcile_markers_emitted_total";
-/// Failed completion-marker produces, labelled by `kind` (counter). A permanently failing produce —
-/// a missing or mis-provisioned marker topic — otherwise only shows up as a seed offset that never
-/// advances.
+/// Failed reconcile-marker produce attempts, labelled by `kind` and `marker` (counter). A
+/// permanently failing produce — a missing or mis-provisioned marker topic — otherwise only shows
+/// up as a seed offset that never advances.
 pub const RECONCILE_MARKER_PRODUCE_ERRORS: &str = "cohort_reconcile_marker_produce_errors_total";
 /// Partition-local reconcile queue depth, labelled by `partition` (gauge).
 pub const RECONCILE_QUEUE_DEPTH: &str = "cohort_reconcile_queue_depth";
@@ -794,12 +830,44 @@ mod tests {
             "checkpoint_import_duration_seconds",
         );
         assert_eq!(
-            CHECKPOINT_IMPORT_ATTEMPT_DURATION_SECONDS,
-            "checkpoint_import_attempt_duration_seconds",
+            CHECKPOINT_UPLOADED_BYTES_TOTAL,
+            "checkpoint_uploaded_bytes_total"
         );
+        assert_eq!(
+            CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS,
+            "checkpoint_last_capture_timestamp_seconds",
+        );
+        assert_eq!(
+            CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS,
+            "checkpoint_last_upload_timestamp_seconds",
+        );
+        assert_eq!(
+            CHECKPOINT_LAST_FULL_UPLOAD_TIMESTAMP_SECONDS,
+            "checkpoint_last_full_upload_timestamp_seconds",
+        );
+        assert_eq!(
+            CHECKPOINT_CAPTURE_FAILURES_TOTAL,
+            "checkpoint_capture_failures_total",
+        );
+        assert_eq!(
+            CHECKPOINT_RESTORE_CANDIDATES_TOTAL,
+            "checkpoint_restore_candidates_total",
+        );
+        assert_eq!(
+            CHECKPOINT_RESTORE_SLICES_RESET_TOTAL,
+            "checkpoint_restore_slices_reset_total",
+        );
+        assert_eq!(CHECKPOINT_RESTORE_BLOCKED, "checkpoint_restore_blocked");
         assert_eq!(
             DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL,
             "durable_restore_pending_transfers_recovered_partitions_total",
+        );
+        // Alerts select on these.
+        assert_eq!(SLICES_ADOPTED_TOTAL, "cohort_slices_adopted_total");
+        assert_eq!(SLICES_BEGUN_TOTAL, "cohort_slices_begun_total");
+        assert_eq!(
+            SLICE_COVERED_SINCE_SECONDS,
+            "cohort_slice_covered_since_seconds"
         );
     }
 
@@ -1084,8 +1152,12 @@ mod tests {
             "cohort_reconcile_jobs_superseded_total",
         );
         assert_eq!(
-            RECONCILE_JOBS_DISCARDED_TOTAL,
+            RECONCILE_JOBS_WITHHELD_TOTAL,
             "cohort_reconcile_jobs_discarded_total",
+        );
+        assert_eq!(
+            RECONCILE_JOBS_DEFERRED_TOTAL,
+            "cohort_reconcile_jobs_deferred_total",
         );
         assert_eq!(
             RECONCILE_ROWS_SCANNED_TOTAL,

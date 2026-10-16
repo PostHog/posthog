@@ -1,13 +1,24 @@
 import uuid
+from datetime import timedelta
 
 import pytest
+import time_machine
+from posthog.test.base import NonAtomicBaseTest
+from unittest.mock import patch
 
+from django.utils import timezone
+
+from asgiref.sync import async_to_sync
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
+from products.experiments.backend.temporal.scheduled_recalculation_activities import (
+    discover_scheduled_recalculation_candidates,
+)
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     ScheduledRecalculationCandidate,
     ScheduledRecalculationDiscovery,
@@ -15,8 +26,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
 from products.experiments.backend.temporal.scheduled_recalculation_workflow import (
     ScheduledExperimentRecalculationWorkflow,
 )
-
-pytestmark = pytest.mark.asyncio
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 def _candidates(*experiment_ids: int) -> list[ScheduledRecalculationCandidate]:
@@ -30,6 +40,10 @@ async def _run(discover, exposures, start, hour: int = 2) -> dict:
     async def discover_activity() -> ScheduledRecalculationDiscovery:
         return ScheduledRecalculationDiscovery(hour=hour, candidates=discover(hour))
 
+    return await _execute(discover_activity, exposures, start)
+
+
+async def _execute(discover_activity, exposures, start) -> dict:
     @activity.defn(name="check_experiment_exposures")
     async def exposures_activity(experiment_id: int, hour: int) -> bool:
         return exposures(experiment_id)
@@ -54,11 +68,13 @@ async def _run(discover, exposures, start, hour: int = 2) -> dict:
             )
 
 
+@pytest.mark.asyncio
 async def test_no_candidates_returns_zeroes():
     result = await _run(lambda hour: [], lambda eid: True, lambda eid: None)
     assert result == {"hour": 2, "candidates": 0, "started": 0, "skipped": 0}
 
 
+@pytest.mark.asyncio
 async def test_every_candidate_starts():
     started: list[int] = []
 
@@ -75,6 +91,7 @@ async def test_every_candidate_starts():
     assert sorted(started) == [1, 2, 3]
 
 
+@pytest.mark.asyncio
 async def test_exposure_gate_stops_the_start_activity():
     started: list[int] = []
 
@@ -88,6 +105,7 @@ async def test_exposure_gate_stops_the_start_activity():
     assert result["skipped"] == 1
 
 
+@pytest.mark.asyncio
 async def test_one_failing_candidate_does_not_stop_the_others():
     def exposures(experiment_id: int) -> bool:
         if experiment_id == 2:
@@ -103,9 +121,50 @@ async def test_one_failing_candidate_does_not_stop_the_others():
     assert result["skipped"] == 1
 
 
+@pytest.mark.asyncio
 async def test_discovery_failure_fails_the_workflow():
     def discover(hour: int) -> list[ScheduledRecalculationCandidate]:
         raise RuntimeError("postgres is down")
 
     with pytest.raises(WorkflowFailureError):
         await _run(discover, lambda eid: True, lambda eid: None)
+
+
+# Non-atomic, because the real discovery activity reads from a worker thread that cannot see
+# an uncommitted test transaction.
+@time_machine.travel("2026-09-15T02:30:00Z", tick=True)
+class TestScheduledRecalculationWorkflowDiscovery(NonAtomicBaseTest):
+    def _experiment(self, rollout_percentage: int) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"flag-{uuid.uuid4()}",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": rollout_percentage}]},
+        )
+        return Experiment.objects.create(
+            team=self.team,
+            name="exp",
+            feature_flag=flag,
+            start_date=timezone.now() - timedelta(days=2),
+            metrics=[{"kind": "ExperimentMetric", "metric_type": "mean", "uuid": str(uuid.uuid4())}],
+        )
+
+    def test_a_skipped_experiment_never_reaches_the_exposure_check(self):
+        candidate = self._experiment(rollout_percentage=100)
+        self._experiment(rollout_percentage=0)
+        checked: list[int] = []
+
+        def exposures(experiment_id: int) -> bool:
+            checked.append(experiment_id)
+            return False
+
+        with (
+            patch(
+                "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false",
+                return_value=True,
+            ),
+            patch("products.experiments.backend.temporal.scheduled_recalculation_activities.posthoganalytics"),
+        ):
+            result = async_to_sync(_execute)(discover_scheduled_recalculation_candidates, exposures, lambda eid: None)
+        assert checked == [candidate.id]
+        assert result["candidates"] == 1

@@ -56,6 +56,75 @@ class TestWaydevSourceResumeBehavior:
         assert result.params("page") == ["1"]
 
 
+class TestWaydevListEndpoints:
+    @pytest.mark.parametrize(
+        ("endpoint", "script", "expected_pages", "expected_ids", "expected_query"),
+        [
+            (
+                "Repositories",
+                [
+                    ScriptedResponse(json={"count": 3, "values": [{"id": 11}, {"id": 12}]}),
+                    ScriptedResponse(json={"count": 3, "values": [{"id": 13}]}),
+                    ScriptedResponse(json={"count": 3, "values": []}),
+                ],
+                ["1", "2", "3"],
+                [11, 12, 13],
+                {"state": "all", "limit": "500"},
+            ),
+            (
+                "Teams",
+                [
+                    ScriptedResponse(json={"current_page": 1, "last_page": 2, "data": [{"id": 21}, {"id": 22}]}),
+                    ScriptedResponse(json={"current_page": 2, "last_page": 2, "data": [{"id": 23}]}),
+                ],
+                ["1", "2"],
+                [21, 22, 23],
+                {"limit": "100"},
+            ),
+            (
+                "Teams",
+                [ScriptedResponse(json={"current_page": 1, "last_page": 1, "data": []})],
+                ["1"],
+                [],
+                {"limit": "100"},
+            ),
+            (
+                "Contributors",
+                [
+                    ScriptedResponse(
+                        json={
+                            "count": 2,
+                            "contributors": [
+                                {"id": 31, "official_name": "dev.one", "teams": [], "merged_developers": []},
+                                {"id": 32, "official_name": "dev.two", "teams": ["Core"], "merged_developers": []},
+                            ],
+                        }
+                    )
+                ],
+                [None],
+                [31, 32],
+                {},
+            ),
+        ],
+    )
+    def test_walks_pages_and_extracts_rows(
+        self,
+        endpoint: str,
+        script: list[ScriptedResponse],
+        expected_pages: list[str | None],
+        expected_ids: list[int],
+        expected_query: dict[str, str],
+    ) -> None:
+        result = SourceDriver(WaydevSource(), WaydevSourceConfig(api_key="test-key")).run(endpoint, script)
+
+        assert result.raised is None
+        assert result.paths == [f"/v2/{endpoint.lower()}"] * len(expected_pages)
+        assert result.params("page") == expected_pages
+        for name, value in expected_query.items():
+            assert set(result.params(name)) == {value}
+        assert [row["id"] for row in result.rows] == expected_ids
+
+
 class TestValidateCredentials:
     def test_ok(self) -> None:
         with scripted_network([ScriptedResponse(json=[])]) as network:

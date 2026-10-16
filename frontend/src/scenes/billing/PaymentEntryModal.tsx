@@ -80,7 +80,7 @@ export const PaymentForm = (): JSX.Element => {
                 <LemonButton disabled={isLoading} type="secondary" onClick={hidePaymentEntryModal}>
                     Cancel
                 </LemonButton>
-                <LemonButton loading={isLoading} type="primary" onClick={handleSubmit}>
+                <LemonButton loading={isLoading || !stripe || !elements} type="primary" onClick={handleSubmit}>
                     Submit
                 </LemonButton>
             </div>

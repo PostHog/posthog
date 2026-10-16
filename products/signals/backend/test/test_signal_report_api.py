@@ -957,15 +957,34 @@ class TestSignalReportListAPI(APIBaseTest):
         self.user.is_staff = is_staff
         self.user.save()
         report = self._create_report()
-        artefact = self._ranking_score_artefact(report)
+        full_heads = [
+            {"head": "open", "readable": True, "refit_classification_threshold": 0.25, "holdout": {"auc": 0.7}},
+            {"head": "merged", "readable": False},
+        ]
+        artefact = self._ranking_score_artefact(report, heads=full_heads)
+        SignalReportArtefact.objects.create(
+            team=self.team, report=report, type=SignalReportArtefact.ArtefactType.NOTE, content=json.dumps({})
+        )
         url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
-        assert [row["type"] for row in response.json()["results"]] == expected_types
+        rows = response.json()["results"]
+        assert [row["type"] for row in rows] == ["note", *expected_types]
 
         detail = self.client.get(f"{url}{artefact.id}/")
         assert detail.status_code == (status.HTTP_200_OK if is_staff else status.HTTP_404_NOT_FOUND)
+        if is_staff:
+            served_key = "report_embeddings@2026-09-01"
+            listed = rows[1]["content"]["results"][served_key]
+            assert listed["scores"] == {"open": 0.5, "merged": 0.2}
+            assert listed["metadata"] == {
+                "heads": [
+                    {"head": "open", "readable": True, "refit_classification_threshold": 0.25},
+                    {"head": "merged", "readable": False},
+                ]
+            }
+            assert detail.json()["content"]["results"][served_key]["metadata"] == {"heads": full_heads}
 
     def test_filter_by_channel_id_narrows_to_that_space(self):
         channel = Channel.objects.create(team=self.team, name="Reports")
@@ -1605,7 +1624,6 @@ class TestSignalReportListAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        # Neither report has a score or a priority, so the newest comes first.
         assert [row["id"] for row in body["results"]] == [str(reviewing.id)]
         assert body["count"] == 2
 
@@ -1656,6 +1674,41 @@ class TestSignalReportListAPI(APIBaseTest):
         assert everything["count"] == 4
         assert [row["id"] for row in page["results"]] == [by_priority[None]]
         assert page["count"] == 2
+
+    def test_for_you_uses_the_inbox_control_order_without_joining_the_sort_experiment(self):
+        titles: dict[str, str] = {}
+        for title, priority, open_score in [
+            ("P0 low score", "P0", 0.15),
+            ("P2 high score", "P2", 0.85),
+            ("P1 unscored", "P1", None),
+        ]:
+            report = self._create_report(title=title)
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+            )
+            self._priority_artefact(report, priority=priority)
+            if open_score is not None:
+                self._ranking_score_artefact(report, scores={"open": open_score})
+            titles[str(report.id)] = title
+        flag = "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag"
+
+        with patch(flag, return_value="control"):
+            inbox = self.client.get(self._list_url(sort="recommended", suggested_reviewers=str(self.user.uuid)))
+        with patch(flag, return_value="open") as get_flag:
+            for_you = self.client.get(f"{self._list_url()}for_you/?limit=20")
+
+        assert inbox.status_code == status.HTTP_200_OK
+        assert for_you.status_code == status.HTTP_200_OK
+        get_flag.assert_not_called()
+        assert [titles[row["id"]] for row in for_you.json()["results"]] == [
+            "P0 low score",
+            "P1 unscored",
+            "P2 high score",
+        ]
+        assert for_you.json()["results"] == inbox.json()["results"]
 
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
         # suggested_reviewers is append-only: an older row listing the user must not keep them

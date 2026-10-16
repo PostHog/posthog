@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.cache import cache
 
 import structlog
+import posthoganalytics
 
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, InternalCHQueryError
@@ -28,6 +29,7 @@ from products.workflows.backend.facade.contracts import (
     DataSuggestionsResult,
     MissingInput,
 )
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.data_suggestions import team_context
 from products.workflows.backend.services.data_suggestions.builder import (
     BuildContext,
@@ -83,6 +85,8 @@ _GENERATING = DataSuggestionsResult(status="generating", suggestions=())
 _BUILDING = BuiltSuggestion(status="building")
 _BUILD_FAILED = BuiltSuggestion(status="failed")
 _UNAVAILABLE = DataSuggestionsResult(status="unavailable", suggestions=())
+# pinned: feature flag key - the frontend gates the same surfaces on it
+FEATURE_FLAG_KEY = "workflows-data-suggestions"
 _ONCE_PER_PERSON_STAGES = frozenset({"signup", "onboarding"})
 # A project without a verified sender cannot pick one yet, so the field says what to do first.
 NO_SENDER_FIELD = "Email sender (no verified sender yet: add a sending domain under Workflows > Channels)"
@@ -97,6 +101,28 @@ def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
     if cache.get(_generation_lock_key(team)) is not None:
         return _GENERATING
     return _read_cache(team) or _UNAVAILABLE
+
+
+def is_data_suggestions_enabled(user: User, organization_id: str) -> bool:
+    return bool(
+        user.distinct_id
+        and posthoganalytics.feature_enabled(
+            FEATURE_FLAG_KEY,
+            user.distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+        )
+    )
+
+
+def count_waiting_data_suggestions(*, team: Team, user: User) -> int:
+    """The ideas this person would see on the empty workflows page. Like `get_data_suggestions`, it never runs a model."""
+    if HogFlow.objects.filter(team_id=team.id).exclude(status=HogFlow.State.ARCHIVED).exists():
+        return 0
+    if not is_data_suggestions_enabled(user, str(team.organization_id)):
+        return 0
+    result = get_data_suggestions(team=team)
+    return len(result.suggestions) if result.status == "ready" else 0
 
 
 def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[str], None]) -> DataSuggestionsResult:

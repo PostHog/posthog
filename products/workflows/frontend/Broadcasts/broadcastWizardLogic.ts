@@ -89,7 +89,12 @@ import {
     parseBroadcastAudiencePrefill,
     SOURCE_PREFILL_PARAM,
 } from './broadcastAudiencePrefill'
-import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
+import {
+    confirmArchiveBroadcast,
+    confirmDeleteBroadcast,
+    confirmOpenInWorkflowEditor,
+    restoreBroadcast,
+} from './broadcastLifecycle'
 import {
     BroadcastStatus,
     StoppableBroadcast,
@@ -449,6 +454,12 @@ export interface broadcastWizardLogicActions {
     nextStep: () => {
         value: true
     }
+    openInWorkflowEditor: () => {
+        value: true
+    }
+    openInWorkflowEditorConfirmed: () => {
+        value: true
+    }
     prefillFromLink: (prefill: BroadcastPrefill) => {
         prefill: BroadcastPrefill
     }
@@ -699,6 +710,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         moveToDraftFinished: true,
         duplicateBroadcast: true,
         archiveBroadcast: true,
+        openInWorkflowEditor: true,
+        openInWorkflowEditorConfirmed: true,
         restoreBroadcast: true,
         deleteBroadcast: true,
         duplicateBroadcastFinished: true,
@@ -1003,6 +1016,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             false,
             {
                 continueStep: () => true,
+                openInWorkflowEditorConfirmed: () => true,
                 saveBroadcastFinished: () => false,
             },
         ],
@@ -1512,6 +1526,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // wizard from the saved copy, so an unsaved email edit moves it only once its autosave lands.
             if (
                 props.id === 'new' &&
+                !cache.handedOffToWorkflowEditor &&
                 !cache.emailEditPending &&
                 values.broadcastId &&
                 values.broadcast?.status === 'draft'
@@ -1549,8 +1564,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 return
             }
             await breakpoint(1000)
-            if (!values.broadcastId || !values.currentProjectId || values.broadcast?.status !== 'draft') {
-                // Launch saves this edit instead.
+            if (
+                cache.handedOffToWorkflowEditor ||
+                !values.broadcastId ||
+                !values.currentProjectId ||
+                values.broadcast?.status !== 'draft'
+            ) {
+                // Launch, or the save before the workflow editor opens, saves this edit instead.
                 clearPending()
                 return
             }
@@ -1839,19 +1859,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     } as any)
                     lemonToast.success('Broadcast is sending')
                 } else {
-                    const schedule: Partial<HogFlowScheduleApi> = {
-                        rrule:
-                            values.scheduleMode === 'recurring' && values.recurringRepeating
-                                ? stateToRRule(values.scheduleState, values.recurringStartsAt)
-                                : ONE_TIME_RRULE,
-                        starts_at: (values.scheduleMode === 'recurring' ? values.recurringStartsAt : values.sendAt)!,
-                        timezone: values.effectiveTimezone,
-                        // The wizard has no variables step, so keep any overrides the old schedule carried.
-                        ...(values.broadcast?.schedules?.[0]?.variables
-                            ? { variables: values.broadcast.schedules[0].variables }
-                            : {}),
-                    }
-                    await hogFlowsSchedulesCreate(projectId, broadcastId, schedule as any)
+                    await hogFlowsSchedulesCreate(projectId, broadcastId, wizardSchedule(values) as any)
                     for (const id of oldScheduleIds) {
                         await hogFlowsSchedulesDestroy(projectId, broadcastId, id)
                     }
@@ -1961,6 +1969,66 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 )
             }
             actions.moveToDraftFinished()
+        },
+        openInWorkflowEditor: () => {
+            confirmOpenInWorkflowEditor(actions.openInWorkflowEditorConfirmed)
+        },
+        openInWorkflowEditorConfirmed: async (_, breakpoint) => {
+            if ((!values.broadcastId && props.id !== 'new') || !values.currentProjectId) {
+                actions.saveBroadcastFinished(null)
+                return
+            }
+            // The editor loads the saved workflow, so the latest edits must land first, as on Continue.
+            cache.autosaveConflict = false
+            const saves = getSaveQueue(cache, values)
+            await saves.whenIdle()
+            breakpoint()
+            if (cache.autosaveConflict) {
+                actions.saveBroadcastFinished(null)
+                return
+            }
+            const projectId = String(values.currentProjectId)
+            let broadcastId = values.broadcastId
+            try {
+                // The email stays editable while the save runs, so save again until a save carries the latest edit.
+                let savedEditGeneration: number | undefined
+                do {
+                    const saved = await saves.run(() => {
+                        savedEditGeneration = cache.emailEditGeneration
+                        // The stepper can reach Review before any Continue created the draft.
+                        return broadcastId
+                            ? saveWithoutClobbering(projectId, broadcastId, values)
+                            : createDraft(projectId, values)
+                    })
+                    if (!broadcastId && values.entrySource) {
+                        saveEntrySource(saved.id, values.entrySource)
+                    }
+                    broadcastId = saved.id
+                    actions.draftAutosaved(saved)
+                } while (cache.emailEditGeneration !== savedEditGeneration)
+                cache.emailEditPending = false
+                await saveDraftSchedule(projectId, broadcastId, values)
+                actions.saveBroadcastFinished(values.broadcast)
+            } catch (error: any) {
+                actions.saveBroadcastFinished(null)
+                if (error instanceof EditedElsewhereError) {
+                    actions.applyExternalEdit(error.latest, values.broadcast)
+                    lemonToast.info(
+                        'This broadcast changed while you were editing it. Review the latest version first.'
+                    )
+                    return
+                }
+                lemonToast.error(`Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
+                return
+            }
+            // An autosave still waiting would save again and move the page back to the broadcast.
+            cache.handedOffToWorkflowEditor = true
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('broadcast opened in workflow editor', {
+                broadcast_id: broadcastId,
+                step: values.currentStep,
+            })
+            router.actions.push(urls.workflow(broadcastId, 'workflow'))
         },
         archiveBroadcast: () => {
             if (values.currentProjectId && values.broadcast) {
@@ -2103,6 +2171,47 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         }
     }),
 ])
+
+function wizardSchedule(values: broadcastWizardLogicType['values']): Partial<HogFlowScheduleApi> {
+    return {
+        rrule:
+            values.scheduleMode === 'recurring' && values.recurringRepeating
+                ? stateToRRule(values.scheduleState, values.recurringStartsAt)
+                : ONE_TIME_RRULE,
+        starts_at: (values.scheduleMode === 'recurring' ? values.recurringStartsAt : values.sendAt)!,
+        timezone: values.effectiveTimezone,
+        // The wizard has no variables step, so keep any overrides the old schedule carried.
+        ...(values.broadcast?.schedules?.[0]?.variables ? { variables: values.broadcast.schedules[0].variables } : {}),
+    }
+}
+
+/** Stores the timing picked in the wizard on the draft, so the workflow editor opens with it. The scheduler skips drafts. */
+async function saveDraftSchedule(
+    projectId: string,
+    broadcastId: string,
+    values: broadcastWizardLogicType['values']
+): Promise<void> {
+    if (values.stepValidationErrors.schedule.length > 0) {
+        return
+    }
+    const existing = values.broadcast?.schedules ?? []
+    const wanted = values.scheduleMode === 'now' ? null : wizardSchedule(values)
+    const unchanged = wanted
+        ? existing.length === 1 &&
+          existing[0].rrule === wanted.rrule &&
+          dayjs(existing[0].starts_at).isSame(dayjs(wanted.starts_at)) &&
+          existing[0].timezone === wanted.timezone
+        : existing.length === 0
+    if (unchanged) {
+        return
+    }
+    if (wanted) {
+        await hogFlowsSchedulesCreate(projectId, broadcastId, wanted as any)
+    }
+    for (const schedule of existing) {
+        await hogFlowsSchedulesDestroy(projectId, broadcastId, schedule.id)
+    }
+}
 
 async function createDraft(projectId: string, values: broadcastWizardLogicType['values']): Promise<HogFlowApi> {
     const created = await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
