@@ -92,8 +92,10 @@ class GroupingSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> Grouping:
+        # A partial update makes every nested field optional, but a grouping is replaced whole.
+        if "mode" not in attrs:
+            raise ValidationError({"mode": "This field is required."})
         try:
-            # A grouping is replaced whole, so a partial update that sends one gets the defaults too.
             return Grouping(
                 mode=GroupingMode(attrs["mode"]),
                 keys=tuple(attrs.get("keys", ())),
