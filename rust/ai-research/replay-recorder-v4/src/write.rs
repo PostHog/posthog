@@ -6,9 +6,10 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
-use posthog_replay_anonymizer::scan::write_json_string;
+use posthog_replay_anonymizer::scan::{self, write_json_string};
 use rand::Rng;
-use replay_core_v4::envelope::{seal_frame, Codec, Context, Version};
+use replay_core_v4::envelope::{seal_frame, seal_json_envelope, Codec, Context, Version};
+use replay_core_v4::inspect::rrweb::META;
 use replay_core_v4::keys::batch::{FlushKeys, SessionId, SessionKey as Key};
 use replay_core_v4::keys::rows::key_day;
 use replay_core_v4::scan::cv::extract_event_images;
@@ -16,7 +17,9 @@ use replay_core_v4::scan::images::{Image, ImageLimits, ImageSink};
 use replay_core_v4::seal::image_content_key;
 
 use crate::batch::{Block, SessionKey};
-use crate::index::{image_index, write_parquet, ImageIndexRow, IndexError};
+use crate::index::{
+    block_index, image_index, write_parquet, BlockIndexRow, ImageIndexRow, IndexError,
+};
 use crate::store::{BlobStore, StoreError};
 
 /// zstd level for blocks: raw data lives 7 days, so CPU matters more than the last few percent of size.
@@ -244,15 +247,117 @@ pub async fn write_blocks(
     Ok(written)
 }
 
+/// The pages a block visited, from its Meta events, in order and without repeats in a row.
+pub fn block_urls(block: &Block) -> Vec<String> {
+    let mut urls: Vec<String> = Vec::new();
+    for message in &block.messages {
+        for event in message.events.iter().filter(|e| e.kind == Some(META)) {
+            let Some(data) = event.data.filter(|&d| scan::is_object(&message.inner, d)) else {
+                continue;
+            };
+            let Ok(entries) = scan::object_entries(&message.inner, data) else {
+                continue;
+            };
+            let href = entries
+                .filter_map(Result::ok)
+                .find(|e| !e.key_escaped && &message.inner[e.key.0..e.key.1] == b"href")
+                .filter(|e| scan::is_string(&message.inner, e.value))
+                .and_then(|e| scan::unescape(&message.inner, e.value).ok());
+            if let Some(href) = href {
+                if urls.last().map(String::as_str) != Some(&*href) {
+                    urls.push(href.into_owned());
+                }
+            }
+        }
+    }
+    urls
+}
+
+/// Writes one block index file for the flush, after its blocks, so no row points at a block that is not stored.
+pub async fn write_block_index(
+    blocks: &[Block],
+    written: &[Written],
+    keys: &FlushKeys,
+    rrweb_bucket: &str,
+    store: &dyn BlobStore,
+    at: DateTime<Utc>,
+) -> Result<usize, WriteError> {
+    let by_session: BTreeMap<&SessionKey, &Block> =
+        blocks.iter().map(|b| (&b.session, b)).collect();
+    let mut rows = Vec::with_capacity(written.len());
+    for written in written {
+        let Some(block) = by_session.get(&written.session) else {
+            continue;
+        };
+        let id = SessionId {
+            team_id: written.session.team_id,
+            session_id: written.session.session_id.clone(),
+        };
+        let Some(key) = keys.sessions.get(&id) else {
+            continue;
+        };
+        let urls = block_urls(block);
+        let urls = if urls.is_empty() {
+            None
+        } else {
+            let context = Context {
+                team_id: id.team_id,
+                session_id: Some(id.session_id.clone()),
+                key_day: Some(key.key_day.clone()),
+                kind: "index".to_owned(),
+                reference: Some("urls".to_owned()),
+                ..Context::default()
+            };
+            let json = serde_json::to_vec(&urls).map_err(|e| WriteError::Seal(e.to_string()))?;
+            Some(
+                seal_json_envelope(&key.key, Version::V4, &context, &json)
+                    .map_err(|e| WriteError::Seal(e.to_string()))?
+                    .to_string(),
+            )
+        };
+        let first = block.messages.first();
+        rows.push(BlockIndexRow {
+            written,
+            stats: &block.stats,
+            moments: &block.moments,
+            snapshot_source: first.and_then(|m| m.snapshot_source.as_deref()),
+            snapshot_library: first.and_then(|m| m.library.as_deref()),
+            urls,
+        });
+    }
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let index_key = format!(
+        "index/blocks/dt={}/{}.parquet",
+        key_day(at),
+        unique_suffix(at)
+    );
+    store
+        .put_new(
+            rrweb_bucket,
+            &index_key,
+            write_parquet(&block_index(&rows)?)?,
+        )
+        .await?;
+    Ok(rows.len())
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
     use std::sync::Mutex;
 
+    use aes_gcm::aead::{Aead, KeyInit, Payload};
+    use aes_gcm::{Aes256Gcm, Nonce};
+    use arrow_array::{Array, ListArray, StringArray, StructArray, UInt64Array};
     use async_trait::async_trait;
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
+    use bytes::Bytes;
+    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
     use replay_core_v4::envelope::open_frame;
+    use replay_core_v4::inspect::session::Moment;
     use replay_core_v4::inspect::stats::BlockStats;
     use replay_core_v4::scan::message::read_message;
     use serde_json::{json, Value};
@@ -308,6 +413,7 @@ mod tests {
     #[tokio::test]
     async fn stores_images_once_and_blocks_that_point_at_them() {
         let events = json!([
+            {"type": 4, "timestamp": 0, "data": {"href": "https://app.example.com/a"}},
             {"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": uri(b"new"), "srcset": format!("{} 2x", uri(b"new"))}}}},
             {"type": 3, "timestamp": 2, "data": {"source": 0, "adds": [{"parentId": 1, "node": {"attributes": {"src": uri(b"old")}}}]}},
         ]);
@@ -385,7 +491,7 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        let first: Value = serde_json::from_str(lines.lines().next().unwrap()).unwrap();
+        let first: Value = serde_json::from_str(lines.lines().nth(1).unwrap()).unwrap();
         let reference = first[1]["data"]["node"]["attributes"]["src"]
             .as_str()
             .unwrap();
@@ -417,6 +523,122 @@ mod tests {
                 .filter(|(_, key)| key.starts_with("index/images/dt=2026-10-15/"))
                 .count(),
             1
+        );
+
+        // The block index row points at the block, keeps the moments, and seals the visited pages.
+        blocks[0].moments = vec![Moment {
+            kind: "full_snapshot",
+            window_id: "w1".to_owned(),
+            ts_ms: 1,
+            event_index: 1,
+        }];
+        assert_eq!(
+            write_block_index(&blocks, &written, &keys, "rrweb-v4", &store, at)
+                .await
+                .unwrap(),
+            1
+        );
+        let index_key = store
+            .objects
+            .lock()
+            .unwrap()
+            .keys()
+            .find(|(_, key)| key.starts_with("index/blocks/"))
+            .unwrap()
+            .1
+            .clone();
+        let batch = ParquetRecordBatchReaderBuilder::try_new(Bytes::from(
+            store.get("rrweb-v4", &index_key),
+        ))
+        .unwrap()
+        .build()
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+        let column = |name: &str| {
+            batch
+                .column_by_name(name)
+                .unwrap_or_else(|| panic!("no column {name}"))
+                .clone()
+        };
+        let text = |name: &str| {
+            column(name)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap()
+                .value(0)
+                .to_owned()
+        };
+        assert_eq!(text("block_s3_key"), block.object_key);
+        assert_eq!(
+            column("block_byte_end")
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .unwrap()
+                .value(0),
+            block.byte_end
+        );
+        for name in [
+            "orphan_mutations",
+            "active_ms",
+            "rage_clicks",
+            "cold_start",
+            "viewport_width",
+            "image_urls",
+        ] {
+            column(name);
+        }
+        let moments = column("moments");
+        let moments = moments
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .unwrap()
+            .value(0);
+        let kinds = moments
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .unwrap()
+            .column_by_name("kind")
+            .unwrap()
+            .clone();
+        assert_eq!(
+            kinds
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap()
+                .value(0),
+            "full_snapshot"
+        );
+        let envelope: Value = serde_json::from_str(&text("urls")).unwrap();
+        let sealed = STANDARD
+            .decode(envelope["ciphertext"].as_str().unwrap())
+            .unwrap();
+        let nonce = STANDARD
+            .decode(envelope["nonce"].as_str().unwrap())
+            .unwrap();
+        let aad = Context {
+            team_id: 7,
+            session_id: Some("kept".to_owned()),
+            key_day: Some("2026-10-14".to_owned()),
+            kind: "index".to_owned(),
+            reference: Some("urls".to_owned()),
+            ..Context::default()
+        }
+        .authenticated_data(Version::V4);
+        let urls = Aes256Gcm::new_from_slice(&[5; 32])
+            .unwrap()
+            .decrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: &sealed,
+                    aad: aad.as_bytes(),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Vec<String>>(&urls).unwrap(),
+            ["https://app.example.com/a"]
         );
     }
 }

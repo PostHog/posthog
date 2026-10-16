@@ -2,8 +2,17 @@
 
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef, Int64Array, RecordBatch, StringArray, UInt64Array};
-use arrow_schema::{ArrowError, DataType, Field, Schema};
+use arrow_array::builder::{
+    Int64Builder, ListBuilder, StringBuilder, StructBuilder, UInt32Builder,
+};
+use arrow_array::{
+    ArrayRef, BooleanArray, Int64Array, RecordBatch, StringArray, UInt32Array, UInt64Array,
+};
+use arrow_schema::{ArrowError, DataType, Field, Fields, Schema};
+use replay_core_v4::inspect::session::Moment;
+use replay_core_v4::inspect::stats::BlockStats;
+
+use crate::write::Written;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::errors::ParquetError;
@@ -77,6 +86,214 @@ pub fn image_index(rows: &[ImageIndexRow]) -> Result<RecordBatch, IndexError> {
         )),
     ];
     Ok(RecordBatch::try_new(Arc::new(schema), columns)?)
+}
+
+/// One block's index row: where it is, what the inspector found, and its sealed URLs.
+pub struct BlockIndexRow<'a> {
+    pub written: &'a Written,
+    pub stats: &'a BlockStats,
+    pub moments: &'a [Moment],
+    pub snapshot_source: Option<&'a str>,
+    pub snapshot_library: Option<&'a str>,
+    /// The block's visited URLs as a v4 JSON envelope under the session key.
+    pub urls: Option<String>,
+}
+
+fn moment_fields() -> Fields {
+    Fields::from(vec![
+        Field::new("kind", DataType::Utf8, false),
+        Field::new("window_id", DataType::Utf8, false),
+        Field::new("ts_ms", DataType::Int64, false),
+        Field::new("event_index", DataType::UInt32, false),
+    ])
+}
+
+fn moments_column(rows: &[BlockIndexRow<'_>]) -> ArrayRef {
+    let fields = moment_fields();
+    let mut builder = ListBuilder::new(StructBuilder::from_fields(fields.clone(), rows.len()))
+        .with_field(Field::new("item", DataType::Struct(fields), false));
+    for row in rows {
+        let entries = builder.values();
+        for moment in row.moments {
+            entries
+                .field_builder::<StringBuilder>(0)
+                .expect("kind")
+                .append_value(moment.kind);
+            entries
+                .field_builder::<StringBuilder>(1)
+                .expect("window_id")
+                .append_value(&moment.window_id);
+            entries
+                .field_builder::<Int64Builder>(2)
+                .expect("ts_ms")
+                .append_value(moment.ts_ms);
+            entries
+                .field_builder::<UInt32Builder>(3)
+                .expect("event_index")
+                .append_value(moment.event_index);
+            entries.append(true);
+        }
+        builder.append(true);
+    }
+    Arc::new(builder.finish())
+}
+
+pub fn block_index(rows: &[BlockIndexRow<'_>]) -> Result<RecordBatch, IndexError> {
+    let mut fields = Vec::new();
+    let mut columns: Vec<ArrayRef> = Vec::new();
+    let mut push = |name: &str, data_type: DataType, nullable: bool, column: ArrayRef| {
+        fields.push(Field::new(name, data_type, nullable));
+        columns.push(column);
+    };
+    macro_rules! utf8 {
+        ($name:literal, $value:expr) => {
+            push(
+                $name,
+                DataType::Utf8,
+                false,
+                Arc::new(StringArray::from_iter_values(rows.iter().map($value))),
+            )
+        };
+    }
+    macro_rules! optional_utf8 {
+        ($name:literal, $value:expr) => {
+            push(
+                $name,
+                DataType::Utf8,
+                true,
+                Arc::new(rows.iter().map($value).collect::<StringArray>()),
+            )
+        };
+    }
+    macro_rules! stat {
+        ($array:ident, $data_type:expr, $($field:ident),*) => {
+            $( push(stringify!($field), $data_type, false, Arc::new($array::from_iter_values(rows.iter().map(|r| r.stats.$field)))); )*
+        };
+    }
+    macro_rules! flag {
+        ($($field:ident),*) => {
+            $( push(stringify!($field), DataType::Boolean, false, Arc::new(rows.iter().map(|r| Some(r.stats.$field)).collect::<BooleanArray>())); )*
+        };
+    }
+
+    push(
+        "team_id",
+        DataType::Int64,
+        false,
+        Arc::new(Int64Array::from_iter_values(
+            rows.iter().map(|r| r.written.session.team_id),
+        )),
+    );
+    utf8!("session_id", |r| r.written.session.session_id.clone());
+    utf8!("key_day", |r| r.written.key_day.clone());
+    utf8!("block_s3_key", |r| r.written.object_key.clone());
+    push(
+        "block_byte_start",
+        DataType::UInt64,
+        false,
+        Arc::new(UInt64Array::from_iter_values(
+            rows.iter().map(|r| r.written.byte_start),
+        )),
+    );
+    push(
+        "block_byte_end",
+        DataType::UInt64,
+        false,
+        Arc::new(UInt64Array::from_iter_values(
+            rows.iter().map(|r| r.written.byte_end),
+        )),
+    );
+    push(
+        "first_ts_ms",
+        DataType::Int64,
+        true,
+        Arc::new(
+            rows.iter()
+                .map(|r| r.stats.first_ts_ms)
+                .collect::<Int64Array>(),
+        ),
+    );
+    push(
+        "last_ts_ms",
+        DataType::Int64,
+        true,
+        Arc::new(
+            rows.iter()
+                .map(|r| r.stats.last_ts_ms)
+                .collect::<Int64Array>(),
+        ),
+    );
+    stat!(UInt64Array, DataType::UInt64, event_count, byte_size);
+    optional_utf8!("snapshot_source", |r| r.snapshot_source);
+    optional_utf8!("snapshot_library", |r| r.snapshot_library);
+    optional_utf8!("host", |r| r.stats.host.as_deref());
+    stat!(
+        UInt32Array,
+        DataType::UInt32,
+        full_snapshots,
+        events_before_first_full_snapshot,
+        orphan_mutations,
+        dom_nodes,
+        remote_stylesheets,
+        inline_stylesheets,
+        iframes,
+        canvases,
+        videos,
+        shadow_roots
+    );
+    stat!(Int64Array, DataType::Int64, max_gap_ms, active_ms);
+    stat!(UInt64Array, DataType::UInt64, dom_text_chars);
+    flag!(cold_start, node_cap_reached, touch_input);
+    stat!(
+        UInt32Array,
+        DataType::UInt32,
+        clicks,
+        rage_clicks,
+        dead_clicks,
+        keypresses,
+        scrolls,
+        mouse_moves,
+        touches,
+        selections,
+        media_events,
+        viewport_resizes,
+        navigations,
+        console_errors,
+        console_warnings,
+        network_requests,
+        network_failures,
+        images_extracted,
+        images_inline,
+        image_urls
+    );
+    stat!(UInt64Array, DataType::UInt64, image_bytes);
+    push(
+        "viewport_width",
+        DataType::UInt32,
+        true,
+        Arc::new(
+            rows.iter()
+                .map(|r| r.stats.viewport_width)
+                .collect::<UInt32Array>(),
+        ),
+    );
+    push(
+        "viewport_height",
+        DataType::UInt32,
+        true,
+        Arc::new(
+            rows.iter()
+                .map(|r| r.stats.viewport_height)
+                .collect::<UInt32Array>(),
+        ),
+    );
+    let moments = moments_column(rows);
+    push("moments", moments.data_type().clone(), false, moments);
+    optional_utf8!("urls", |r| r.urls.as_deref());
+    Ok(RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        columns,
+    )?)
 }
 
 #[cfg(test)]

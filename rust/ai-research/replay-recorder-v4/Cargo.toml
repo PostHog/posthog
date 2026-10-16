@@ -34,6 +34,7 @@ moka = { workspace = true }
 parquet = "58"
 rand = { workspace = true }
 rdkafka = { workspace = true }
+serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
@@ -42,6 +43,7 @@ tracing-subscriber = { workspace = true }
 zstd = { workspace = true }
 
 [dev-dependencies]
+aes-gcm = "0.10"
 base64 = { workspace = true }
 bytes = { workspace = true }
 serde_json = { workspace = true }
