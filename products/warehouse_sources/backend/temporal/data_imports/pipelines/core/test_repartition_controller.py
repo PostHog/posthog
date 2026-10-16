@@ -1381,7 +1381,7 @@ class TestRepartitionActivity:
             }
         )
         schema.set_repartition_rewrite(
-            {"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10, "held_at": timezone.now().isoformat()}
+            {"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10, "held_at": "2026-01-01T00:00:00+00:00"}
         )
         mocked = AsyncMock()
         with (
