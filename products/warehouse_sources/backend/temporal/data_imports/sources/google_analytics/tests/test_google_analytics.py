@@ -1,5 +1,5 @@
 import datetime as dt
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 
 import pytest
@@ -9,9 +9,15 @@ from django.db import OperationalError
 
 import requests
 from google.auth.exceptions import RefreshError
+from google.oauth2.credentials import Credentials as OAuthCredentials
 
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
     GoogleAnalyticsSourceConfig,
 )
@@ -32,6 +38,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
     _run_report,
     _runreport_backoff_seconds,
     google_analytics_source,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source import (
+    GoogleAnalyticsSource,
 )
 
 TODAY = dt.date(2026, 4, 30)
@@ -495,6 +504,63 @@ def test_source_resume_past_end_date_yields_nothing(monkeypatch):
 
     assert list(cast(Iterable[Any], response.items())) == []
     fake_run_report.assert_not_called()
+
+
+def _quota_after_pages(pages_before_quota: int) -> Callable[[RecordedRequest], ScriptedResponse]:
+    page = ScriptedResponse(json=_report_payload(["20250816", "20250817"], [1, 2], row_count=5))
+    quota = ScriptedResponse(status=429, json={"error": {"status": "RESOURCE_EXHAUSTED"}})
+    answered: list[RecordedRequest] = []
+
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        answered.append(request)
+        return page if len(answered) <= pages_before_quota else quota
+
+    return answer
+
+
+@pytest.mark.parametrize(
+    "should_use_incremental_field,resume_state,pages_before_quota,expected_rows,expect_raise",
+    [
+        (True, None, 1, 2, False),
+        (True, None, 0, 0, True),
+        (True, GoogleAnalyticsResumeConfig(chunk_start="2025-09-15", offset=0), 0, 0, False),
+        (False, None, 1, 2, True),
+    ],
+)
+def test_source_quota_exhaustion_keeps_rows_only_when_the_watermark_advances(
+    monkeypatch, should_use_incremental_field, resume_state, pages_before_quota, expected_rows, expect_raise
+):
+    monkeypatch.setattr(ga, "_credentials", lambda *args: OAuthCredentials(token="test-token"))
+
+    result = SourceDriver(GoogleAnalyticsSource(), _config()).run(
+        "website_overview",
+        _quota_after_pages(pages_before_quota),
+        resume_state=resume_state,
+        incremental_field="date",
+        should_use_incremental_field=should_use_incremental_field,
+    )
+
+    assert len(result.rows) == expected_rows
+    assert isinstance(result.raised, GoogleAnalyticsQuotaExceededError) is expect_raise
+    if not expect_raise:
+        assert result.raised is None
+
+
+def test_source_next_job_fails_when_quota_runs_out_inside_the_lookback_window(monkeypatch):
+    monkeypatch.setattr(ga, "_credentials", lambda *args: OAuthCredentials(token="test-token"))
+    driver = SourceDriver(GoogleAnalyticsSource(), _config())
+
+    first = driver.run("website_overview", _quota_after_pages(1), incremental_field="date")
+    assert first.raised is None
+
+    second = driver.run(
+        "website_overview",
+        _quota_after_pages(1),
+        incremental_field="date",
+        db_incremental_field_last_value=max(row["date"] for row in first.rows),
+    )
+
+    assert isinstance(second.raised, GoogleAnalyticsQuotaExceededError)
 
 
 def test_source_requests_user_defined_custom_report(monkeypatch):
