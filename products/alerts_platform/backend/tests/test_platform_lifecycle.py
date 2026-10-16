@@ -422,6 +422,26 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
         assert (keys, rows) == (["api"], [("api",)])
 
+    @parameterized.expand([("stale", ("severity_text",), []), ("current", ("service_name",), ["api", "web"])])
+    def test_a_check_that_ran_under_another_grouping_records_no_groups(
+        self, _name: str, stored_keys: tuple[str, ...], expected_keys: list[str]
+    ) -> None:
+        checked_under = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",))
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=stored_keys).to_stored()
+            )
+
+        self._record(groups=(self._group("api", state="firing"), self._group("web")), grouping=checked_under)
+
+        with team_scope(self.team.id):
+            keys = sorted(
+                PlatformAlert.objects.filter(configuration=self.configuration).values_list("grouping_key", flat=True)
+            )
+            due = PlatformAlertConfiguration.objects.get(id=self.configuration.id).next_check_at
+        assert keys == expected_keys
+        assert due is not None and due > self.cutoff
+
     @parameterized.expand(
         [
             ("idle_past_the_window", {}, False),
