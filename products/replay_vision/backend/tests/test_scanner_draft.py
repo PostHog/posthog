@@ -1,4 +1,5 @@
 import threading
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -2084,7 +2085,7 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
 
     @parameterized.expand([("not_in_the_project",), ("never_launched",), ("token_without_experiment_read",)])
     def test_a_picked_experiment_a_scan_cannot_watch_is_a_400(self, case):
-        headers = {}
+        headers: dict[str, Any] = {}
         if case == "not_in_the_project":
             experiment_id = 999_999
         else:
