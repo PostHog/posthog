@@ -28,7 +28,6 @@ from products.signals.backend.ranking.features import (
     EMBEDDING_COLUMN,
     EMBEDDING_INSERTED_AT_COLUMN,
     REPORT_EMBEDDINGS_EXTRA,
-    TITLE_EMBEDDINGS_EXTRA,
     FeatureSet,
     ProjectInputs,
     ReportEmbeddingsFeatureSet,
@@ -44,7 +43,7 @@ from products.signals.backend.ranking.model_store import (
 from products.signals.backend.ranking.serving_manifest import ServingManifestEntry
 from products.signals.backend.ranking.sinks import persist_scores
 from products.signals.backend.report_embedding_reader import ReportVector, latest_report_vectors
-from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
+from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE_SUMMARY
 
 logger = structlog.get_logger(__name__)
 
@@ -55,7 +54,6 @@ NO_PROJECT_VECTORS = "no_project_vectors"
 # renderings under the same keys, so a model reads the text it was fit on.
 RENDERING_BY_EXTRA: Mapping[str, str] = {
     REPORT_EMBEDDINGS_EXTRA: EMBEDDING_RENDERING_TITLE_SUMMARY,
-    TITLE_EMBEDDINGS_EXTRA: EMBEDDING_RENDERING_TITLE,
 }
 
 # A model that did not load has no feature contract this pass could read.
