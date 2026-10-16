@@ -131,11 +131,35 @@ export function matchesTypeFilter(
     return (flow.origin_product === 'broadcasts') === (filter === 'broadcasts')
 }
 
+/** A rule in one spelling, so two spellings of the same rule compare equal. The start date is not part of it. */
+function normalizedRule(rrule: string): string | null {
+    try {
+        const { dtstart: _dtstart, ...options } = RRule.parseString(rrule)
+        const text = new RRule({ ...options, interval: options.interval ?? 1 }).toString().replace('RRULE:', '')
+        return text.split(';').sort().join(';')
+    } catch {
+        return null
+    }
+}
+
+/** Whether the schedule editor can hold the rule. Other rules, such as hourly ones from the API, come back changed. */
+function fitsScheduleEditor(schedule: Pick<HogFlowScheduleApi, 'rrule' | 'starts_at'>): boolean {
+    const original = normalizedRule(schedule.rrule)
+    return (
+        original !== null &&
+        normalizedRule(stateToRRule(parseRRuleToState(schedule.rrule), schedule.starts_at)) === original
+    )
+}
+
 export function describeRepeat(schedule: Pick<HogFlowScheduleApi, 'rrule' | 'starts_at'>): string {
     if (isOneTimeSchedule(schedule.rrule)) {
         return 'Once'
     }
-    const text = scheduleToText(parseRRuleToState(schedule.rrule), schedule.starts_at)
+    const text = fitsScheduleEditor(schedule)
+        ? scheduleToText(parseRRuleToState(schedule.rrule), schedule.starts_at)
+        : normalizedRule(schedule.rrule) !== null
+          ? new RRule(RRule.parseString(schedule.rrule)).toText()
+          : ''
     return text ? text.charAt(0).toUpperCase() + text.slice(1) : 'Repeats'
 }
 
@@ -231,8 +255,12 @@ function batchJobState(status: HogFlowBatchJobApi['status']): CalendarSendState 
 }
 
 /** Why a send cannot move with drag and drop, or null when it can. */
-export function moveBlockedReason(send: Pick<CalendarSend, 'state' | 'schedule' | 'userAccessLevel'>): string | null {
-    if (send.state === 'sent' || send.state === 'failed') {
+export function moveBlockedReason(
+    send: Pick<CalendarSend, 'state' | 'schedule' | 'userAccessLevel' | 'at'>,
+    now: dayjs.Dayjs = dayjs()
+): string | null {
+    // The calendar loads once, so a send can show as planned after its time passed. Moving it would send it again.
+    if (send.state === 'sent' || send.state === 'failed' || !send.at.isAfter(now)) {
         return 'This send already went out.'
     }
     if (send.state === 'sending') {
@@ -246,6 +274,9 @@ export function moveBlockedReason(send: Pick<CalendarSend, 'state' | 'schedule' 
         return accessReason
     }
     if (!isOneTimeSchedule(send.schedule.rrule)) {
+        if (!fitsScheduleEditor(send.schedule)) {
+            return 'Open the schedule to move a send that repeats this way.'
+        }
         const state = parseRRuleToState(send.schedule.rrule)
         // Shifting the weekdays keeps a weekly cadence. Other repeat rules have no single shift that keeps
         // their pattern, for example "the last day of the month". Every N weeks keeps its pattern only with
@@ -282,12 +313,18 @@ export function dropTarget(
 /** The schedule fields that move every future send of a schedule by a number of days. */
 export function movedScheduleFields(
     schedule: Pick<HogFlowScheduleApi, 'rrule' | 'starts_at' | 'timezone'>,
-    days: number
+    days: number,
+    now: dayjs.Dayjs = dayjs()
 ): { starts_at: string; rrule: string } {
-    const starts_at = shiftDays(dayjs(schedule.starts_at), days, schedule.timezone || 'UTC').toISOString()
+    const timezone = schedule.timezone || 'UTC'
     if (isOneTimeSchedule(schedule.rrule)) {
-        return { starts_at, rrule: schedule.rrule }
+        return { starts_at: shiftDays(dayjs(schedule.starts_at), days, timezone).toISOString(), rrule: schedule.rrule }
     }
+    // Start the shifted rule at the next send. Shifting the original start instead can bring a past send back
+    // into the future, so the next send lands on the wrong day.
+    const nextSend =
+        scheduleSendTimes(schedule, { start: now, end: now.add(1, 'year') })[0] ?? dayjs(schedule.starts_at)
+    const starts_at = shiftDays(nextSend, days, timezone).toISOString()
     const state = parseRRuleToState(schedule.rrule)
     const weekdays = state.weekdays.map((weekday) => (((weekday + days) % 7) + 7) % 7)
     return { starts_at, rrule: stateToRRule({ ...state, weekdays }, starts_at) }

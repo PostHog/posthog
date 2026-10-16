@@ -64,6 +64,7 @@ describe('sendCalendarUtils', () => {
 
     const COHORT_FILTER = { key: 'id', type: 'cohort', value: 21 }
     const EMAIL_IS_SET = { key: 'email', type: 'person', operator: 'is_set', value: 'is_set' }
+    const COHORT_EXCLUSION = { key: 'id', type: 'cohort', operator: 'not_in', value: 22 }
 
     it.each([
         [
@@ -71,6 +72,12 @@ describe('sendCalendarUtils', () => {
             { type: 'batch', filters: { properties: [COHORT_FILTER, EMAIL_IS_SET] } },
             [EMAIL_STEP],
             { cohortIds: [21], filters: [EMAIL_IS_SET], accounts: false, address: null },
+        ],
+        [
+            'a broadcast that leaves out a cohort',
+            { type: 'batch', filters: { properties: [COHORT_FILTER, COHORT_EXCLUSION] } },
+            [EMAIL_STEP],
+            { cohortIds: [21], filters: [COHORT_EXCLUSION], accounts: false, address: null },
         ],
         [
             'a batch workflow that runs for each account',
@@ -162,13 +169,18 @@ describe('sendCalendarUtils', () => {
     it.each([
         ['a one-time send', 'FREQ=DAILY;COUNT=1', 'Once'],
         ['a weekly send', 'FREQ=WEEKLY;BYDAY=TU', 'Every week on Tuesday'],
+        ['an hourly send from the API', 'FREQ=HOURLY', 'Every hour'],
+        ['a monthly send on a set date', 'FREQ=MONTHLY;BYMONTHDAY=15', 'Every month on the 15th'],
     ])('describes the repeat rule of %s', (_, rrule, expected) => {
         expect(describeRepeat({ rrule, starts_at: '2026-09-01T08:00:00Z' })).toBe(expected)
     })
 
+    const NOW = dayjs('2026-10-16T12:00:00Z')
+
     const plannedSend = (rrule: string, overrides: Partial<CalendarSend> = {}): CalendarSend =>
         ({
             state: 'planned',
+            at: dayjs('2026-10-20T10:00:00Z'),
             schedule: schedule(rrule, '2026-10-20T10:00:00Z', 'active', 'UTC'),
             userAccessLevel: 'editor',
             ...overrides,
@@ -187,6 +199,16 @@ describe('sendCalendarUtils', () => {
             plannedSend('FREQ=WEEKLY;BYDAY=TU', { state: 'paused' }),
             'This schedule is paused. Open it to schedule it again.',
         ],
+        [
+            'a send whose time passed while the calendar was open',
+            plannedSend('FREQ=DAILY;COUNT=1', { at: dayjs('2026-10-16T09:00:00Z') }),
+            'This send already went out.',
+        ],
+        [
+            'an hourly send from the API',
+            plannedSend('FREQ=HOURLY'),
+            'Open the schedule to move a send that repeats this way.',
+        ],
         ['a send that repeats every 2 weeks', plannedSend('FREQ=WEEKLY;INTERVAL=2;BYDAY=TH'), null],
         [
             'a send that repeats every 2 weeks on two weekdays',
@@ -199,7 +221,7 @@ describe('sendCalendarUtils', () => {
             expect.any(String),
         ],
     ])('decides whether %s can move', (_, send, expected) => {
-        expect(moveBlockedReason(send)).toEqual(expected)
+        expect(moveBlockedReason(send, NOW)).toEqual(expected)
     })
 
     it.each([
@@ -242,6 +264,15 @@ describe('sendCalendarUtils', () => {
             { starts_at: '2026-09-03T16:00:00.000Z', rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TH' },
         ],
     ])('%s', (_, value, days, expected) => {
-        expect(movedScheduleFields(value, days)).toEqual(expected)
+        expect(movedScheduleFields(value, days, dayjs('2026-08-31T00:00:00Z'))).toEqual(expected)
+    })
+
+    it('starts a moved weekly send from its next send, so no past send comes back', () => {
+        const weekly = schedule('FREQ=WEEKLY;BYDAY=TU', '2026-09-01T09:00:00Z', 'active', 'UTC')
+
+        expect(movedScheduleFields(weekly, 6, NOW)).toEqual({
+            starts_at: '2026-10-26T09:00:00.000Z',
+            rrule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO',
+        })
     })
 })
