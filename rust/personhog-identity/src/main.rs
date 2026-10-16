@@ -112,10 +112,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    config
-        .tables()
-        .validate()
-        .expect("Invalid identity table set");
+    let tables = config.tables();
+    tables.validate().expect("Invalid identity table set");
 
     tracing::info!("Starting personhog-identity service");
     tracing::info!("gRPC address: {}", config.grpc_address);
@@ -127,7 +125,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         router_channels = config.router_channels,
         "Leader fan-out concurrency"
     );
-    tracing::info!("Tables: {:?}", config.tables());
+    tracing::info!("Tables: {:?}", tables);
+    let outbox_writes = config.outbox_writes();
+    if config.lifecycle_outbox_enabled {
+        tracing::info!(
+            outbox = %tables.person_publish_outbox,
+            "Lifecycle outbox enabled; a personhog-publisher on the same table set must drain it"
+        );
+        if tables.is_validation() {
+            tracing::warn!(
+                outbox = %tables.person_publish_outbox,
+                "Lifecycle outbox is on for the validation table set; the publisher draining it must point at capture topics, never the production names"
+            );
+        }
+    }
 
     // The delete saga groups its fence calls by the leaders' partition
     // count, which lives in etcd; a service that cannot read it would
@@ -229,7 +240,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let pools = create_pools(&config);
-    let storage = Arc::new(PostgresIdentityStorage::new(pools.clone(), config.tables()));
+    if config.lifecycle_outbox_enabled {
+        // With the outbox on, every create, attach and op completion names
+        // the table; refuse to start without it instead of failing each
+        // request once the pod is ready. Any other error is left to the
+        // request path, as warm_pool leaves a connection failure.
+        let probe = format!("SELECT 1 FROM {} LIMIT 0", tables.person_publish_outbox);
+        if let Err(e) = sqlx::query(&query_tag!("startup_outbox_probe", probe))
+            .execute(pools.fast())
+            .await
+        {
+            let undefined_table =
+                e.as_database_error().and_then(|db| db.code()).as_deref() == Some("42P01");
+            if undefined_table {
+                panic!(
+                    "LIFECYCLE_OUTBOX_ENABLED is set but {} does not exist; apply the persons migration first",
+                    tables.person_publish_outbox
+                );
+            }
+            tracing::warn!(
+                error = %e,
+                table = %tables.person_publish_outbox,
+                "Could not probe the publish outbox table at startup"
+            );
+        }
+    }
+    let storage = Arc::new(PostgresIdentityStorage::new(
+        pools.clone(),
+        config.tables(),
+        outbox_writes,
+    ));
 
     // Pre-warm the DB connection pools before accepting traffic.
     // connect_lazy() starts with zero connections; without this, the first
@@ -290,12 +330,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             property_writer.clone(),
             config.tables(),
             config.lifecycle_leader_call_concurrency,
+            outbox_writes,
         );
         let sweeper_delete_driver = DeleteDriver::new(
             lifecycle_leader.clone(),
             config.tables(),
             config.lifecycle_leader_call_concurrency,
             num_partitions,
+            outbox_writes,
         );
         let sweeper_engine = engine.clone();
         let sweep_interval = config.lifecycle_sweep_interval();
@@ -347,6 +389,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 property_writer.clone(),
                 config.tables(),
                 config.lifecycle_leader_call_concurrency,
+                outbox_writes,
             ),
             detached_drives.clone(),
         ),
@@ -357,6 +400,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.tables(),
         config.lifecycle_leader_call_concurrency,
         num_partitions,
+        outbox_writes,
     );
     let service = PersonHogIdentityService::new(
         storage,

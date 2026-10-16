@@ -120,7 +120,6 @@
 1 products/experiments/stats/frequentist/tests.py
 1 products/exports/backend/models/subscription.py
 1 products/exports/backend/tasks/csv_exporter.py
-1 products/exports/backend/temporal/subscriptions/activities.py
 1 products/feature_flags/backend/flag_status.py
 1 products/feature_flags/backend/management/commands/audit_flag_filters.py
 1 products/growth/backend/cross_sell_candidate_selector.py
@@ -165,7 +164,6 @@
 1 products/signals/backend/temporal/emit_eval_signal.py
 1 products/signals/backend/temporal/emitter.py
 1 products/signals/backend/temporal/grouping_v2.py
-1 products/signals/eval/capture.py
 1 products/signals/eval/common.py
 1 products/skills/backend/marketplace/git_smart_http.py
 1 products/slack_app/backend/tests/services/test_run_preferences.py
@@ -176,6 +174,7 @@
 1 products/stamphog/packages/pr-approval-agent/github.py
 1 products/stamphog/packages/pr-approval-agent/review_pr.py
 1 products/streamlit_apps/backend/logic/zip_validator.py
+1 products/subscriptions/backend/temporal/activities.py
 1 products/surveys/backend/summarization/llm/gemini.py
 1 products/tasks/backend/logic/services/agent_command.py
 1 products/tasks/backend/logic/services/modal_provision_diagnostics.py
@@ -1086,7 +1085,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/spot_io/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/spot_io/spot_io.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/spotlercrm/spotlercrm.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/sprig/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/sprig/sprig.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/squadcast/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/squadcast/squadcast.py
@@ -1173,7 +1171,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/twelve_data/twelve_data.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/twelve_labs/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/twelve_labs/twelve_labs.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/twilio/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/twilio/twilio.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/typeform/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/ubidots/settings.py
@@ -1231,8 +1228,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wufoo/wufoo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/xendit/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/xendit/xendit.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/xmatters/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/xmatters/xmatters.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/yousign/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/yousign/yousign.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zapier_supported_storage/settings.py
@@ -1272,13 +1267,12 @@
 104 posthog/hogql/ast.py
 12 ee/clickhouse/materialized_columns/columns.py
 14 products/marketing_analytics/backend/hogql_queries/adapters/base.py
+14 products/subscriptions/backend/temporal/types.py
 16 posthog/temporal/ai_observability/eval_reports/types.py
-17 products/exports/backend/temporal/subscriptions/types.py
 18 posthog/temporal/ai_observability/trace_clustering/models.py
 19 products/conversations/backend/temporal/ai_reply/schemas.py
 19 products/signals/backend/temporal/types.py
 2 common/hogvm/python/objects.py
-2 ee/tasks/subscriptions/slack_subscriptions.py
 2 posthog/api/embedding_worker.py
 2 posthog/dags/common/overrides_manager.py
 2 posthog/dags/data_deletion_requests.py
@@ -1330,7 +1324,6 @@
 2 products/experiments/backend/experiment_summary_data_service.py
 2 products/experiments/stats/shared/cuped.py
 2 products/growth/backend/product_push/service.py
-2 products/growth/dags/user_product_list.py
 2 products/managed_warehouse/backend/facade/contracts.py
 2 products/managed_warehouse/backend/temporal/types.py
 2 products/marketing_analytics/backend/demo/events.py
@@ -1360,6 +1353,7 @@
 2 products/slack_app/backend/api.py
 2 products/slack_app/backend/services/integration_resolver.py
 2 products/stamphog/backend/temporal/activities.py
+2 products/subscriptions/backend/logic/slack_subscriptions.py
 2 products/tasks/backend/logic/services/loop_runs.py
 2 products/tasks/backend/temporal/build_image/workflow.py
 2 products/tasks/backend/temporal/create_snapshot/activities/create_sandbox.py
@@ -1461,7 +1455,7 @@
 4 posthog/temporal/proxy_service/monitor.py
 4 posthog/temporal/salesforce_enrichment/conversations_slack_workflow.py
 4 posthog/temporal/salesforce_enrichment/usage_workflow.py
-4 products/alerts/backend/evaluation/contract.py
+3 products/alerts/backend/evaluation/contract.py
 4 products/approvals/backend/services.py
 4 products/batch_exports/backend/temporal/destinations/file_download_batch_export.py
 4 products/conversations/backend/temporal/coordinator.py

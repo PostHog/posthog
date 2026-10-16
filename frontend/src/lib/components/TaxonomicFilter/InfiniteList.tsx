@@ -754,11 +754,12 @@ function InfiniteListEmptyState(): JSX.Element {
         taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
         allSectionHasResults
 
+    // Named jumps come first because they say where the match is. The "all" jump stays as the fallback.
     // Keyed off result counts (not `infiniteListCounts`/`totalListCount`) so render-backed groups like
     // the SQL expression editor, whose affordance row makes `totalListCount` non-zero for any query,
     // don't produce a misleading "See results in …" jump.
     const otherGroupTypesWithResults =
-        !emptySearchQuery && !isSuggestedFilters && !canOfferAllSwitch
+        !emptySearchQuery && !isSuggestedFilters
             ? taxonomicGroupTypes.filter(
                   (groupType) =>
                       groupType !== listGroupType &&
@@ -831,22 +832,6 @@ function InfiniteListEmptyState(): JSX.Element {
                             Include stale events
                         </LemonButton>
                     )}
-                    {canOfferAllSwitch && (
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            data-attr="taxonomic-switch-to-all"
-                            onClick={() => {
-                                reportTaxonomicFilterCategorySelected(
-                                    TaxonomicFilterGroupType.SuggestedFilters,
-                                    eventNames?.[0]
-                                )
-                                setActiveTab(TaxonomicFilterGroupType.SuggestedFilters)
-                            }}
-                        >
-                            See results from other categories
-                        </LemonButton>
-                    )}
                     {otherGroupTypesWithResults.slice(0, MAX_OTHER_GROUP_SWITCHES).map((groupType) => {
                         const groupName = taxonomicGroups.find((g) => g.type === groupType)?.name ?? groupType
                         return (
@@ -864,6 +849,22 @@ function InfiniteListEmptyState(): JSX.Element {
                             </LemonButton>
                         )
                     })}
+                    {canOfferAllSwitch && (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            data-attr="taxonomic-switch-to-all"
+                            onClick={() => {
+                                reportTaxonomicFilterCategorySelected(
+                                    TaxonomicFilterGroupType.SuggestedFilters,
+                                    eventNames?.[0]
+                                )
+                                setActiveTab(TaxonomicFilterGroupType.SuggestedFilters)
+                            }}
+                        >
+                            See results from other categories
+                        </LemonButton>
+                    )}
                 </>
             )}
         </div>

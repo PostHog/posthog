@@ -985,6 +985,48 @@ fn both_engines_count_and_collect_an_image_once_or_not_at_all() {
 }
 
 #[test]
+fn a_srcset_that_fails_to_decode_keeps_the_src_image() {
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    // A valid PNG header, then a payload that does not decode.
+    let broken = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA%%%% 2x";
+    let inner = snapshot_message(json!([{
+        "type": 2,
+        "timestamp": TS0,
+        "data": {
+            "node": {"type": 0, "childNodes": [
+                {"type": 2, "tagName": "img", "attributes": {
+                    "src": format!("data:image/png;base64,{COLLECT_PNG_B64}"),
+                    "srcset": broken,
+                }, "childNodes": []}
+            ]},
+            "initialOffset": {"top": 0, "left": 0}
+        }
+    }]));
+    for byte_walk in [true, false] {
+        let mut bytes = payload_of(&inner).into_bytes();
+        let out = anonymize_kafka_payload_opts(
+            &allow,
+            &mut bytes,
+            AnonymizeOpts {
+                byte_walk,
+                ..Default::default()
+            },
+            Some(ImageCollection::new(
+                "42".to_string(),
+                "fedcba9876543210fedcba9876543210".to_string(),
+            )),
+        )
+        .expect("anonymizes");
+        assert_eq!(out.meta.images.len(), 1, "walk={byte_walk}");
+        let lines = String::from_utf8(out.lines.clone()).unwrap();
+        assert!(
+            lines.contains("\"src\":\"image:42:"),
+            "walk={byte_walk}: {lines}"
+        );
+    }
+}
+
+#[test]
 fn image_collection_replaces_images_with_refs_and_returns_the_bytes() {
     use base64::Engine;
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());

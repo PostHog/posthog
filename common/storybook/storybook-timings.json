@@ -31,10 +31,6 @@
         "chromium": 28.015,
         "webkit": 3.879
     },
-    "frontend/src/layout/panel-layout/ProjectTree/ProjectTree.stories.tsx": {
-        "chromium": 12.629,
-        "webkit": 3.461
-    },
     "frontend/src/lib/brand/Logo.stories.tsx": {
         "chromium": 1.693,
         "webkit": 1.142

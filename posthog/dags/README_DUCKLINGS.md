@@ -52,16 +52,24 @@ The daily date appears in the run key and `groups_backfill/refresh_date` tag, no
 A successful real snapshot launched that UTC day, including a manual run, satisfies that day's refresh; previews do not.
 Failed daily runs retry with a new run key after the backoff window, and active snapshots block another run for the same team.
 Each sensor tick checks at most 25 teams, performs at most three bounded run-storage reads per team, schedules at most three runs, and advances a cursor so repeated failures cannot block discovery.
-Both sensors check every 10 minutes. The daily sensor can submit at most 18 refreshes per hour; failures and the shared concurrency limit can reduce throughput.
+Both sensors check every 10 minutes. The daily sensor can submit at most 18 refreshes per hour; failures and available run capacity can reduce throughput.
 Failed snapshots retry with exponential backoff from 10 minutes to a maximum of 320 minutes.
 The sensor checks active runs separately from real snapshot history; previews do not hide a successful or active snapshot.
-The export uses the latest group properties from ClickHouse, sorts by group type and key, and replaces the team's DuckLake snapshot in a transaction.
-Before exporting, the job reserves a generation in the table comment. Registration commits that generation with the rows, so an older export cannot overwrite a newer snapshot, including an empty one.
-A table reset starts a new generation epoch. The `posthog_groups_backfill:` table comment is reserved for snapshot state; do not edit it manually.
-Output metadata reports `superseded: true` when a newer snapshot or table reset prevents registration.
+The export reads ClickHouse groups with `FINAL` and follows the full persons delete-and-register flow.
+Deduplication follows the table engine: the highest `_timestamp` wins, with equal timestamps resolved by insertion order.
+The export does not apply an explicit sort.
+With the default `cleanup_existing_partition_data: true`, the job deletes the team's rows before export.
+Immediately before registering files, it deletes the team's rows again; reconnect retries replay that delete-and-register unit to avoid duplicate rows.
+Registration uses autocommit, matching persons; failures can leave an empty or partially registered team until a retry succeeds.
+There is no generation marker or table-comment dependency. Avoid overlapping manual runs for the same team because an older export can replace newer data.
 `delete_tables` is refused for the legacy shared `groups` table.
-The job shares the events/persons backfill concurrency limit and supports `dry_run` and `skip_ducklake_registration`.
-Groups snapshots require `cleanup_existing_partition_data: true`.
+The job supports `dry_run` and `skip_ducklake_registration`.
+As with persons, setting `cleanup_existing_partition_data: false` appends files instead of replacing rows and disables replay deduplication.
+
+Groups exports default to a 100 GiB query memory limit, matching full persons exports.
+Override it with `clickhouse_settings.max_memory_usage` when launching a run.
+For a memory failure, lower `max_s3_file_fanout` and rerun the same team partition with `delete_tables: false`.
+A failed export leaves the team empty when cleanup is enabled; only a successful export proceeds to registration.
 
 Both groups sensors default to stopped. Use a manual snapshot to validate rollout before enabling automatic discovery:
 

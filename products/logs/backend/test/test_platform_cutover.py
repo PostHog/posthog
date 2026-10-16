@@ -17,9 +17,9 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 from products.logs.backend.alert_destinations import LOGS_ALERT_EVENT_IDS
 from products.logs.backend.cutover_gate import CutoverRefused, GateRefusal, TeamGate
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import platform_upsert_of
-from products.logs.backend.platform_cutover import CutoverSkip, cut_over_team
+from products.logs.backend.platform_cutover import CutoverSkip, RollbackSkip, cut_over_team, roll_back_team
 
 NOW = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
 State = LogsAlertConfiguration.State
@@ -135,6 +135,67 @@ class TestPlatformCutover(APIBaseTest):
         (result,) = cut_over_team(self.team.id, now=NOW + timedelta(minutes=1))
 
         assert result.skipped == CutoverSkip.ALREADY_MOVED
+
+    def _moved(self, **overrides: Any) -> LogsAlertConfiguration:
+        alert = self._alert(**overrides)
+        cut_over_team(self.team.id, now=NOW)
+        alert.refresh_from_db()
+        return alert
+
+    def test_rolling_back_after_the_shadow_carries_the_platform_state_back(self) -> None:
+        alert = self._moved(state=State.BROKEN, consecutive_failures=5)
+        later = NOW + timedelta(days=8)
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(platform_testing.copy_of(alert.id).id, later + timedelta(minutes=2))
+
+        (result,) = roll_back_team(self.team.id, now=later)
+
+        assert result.skipped is None
+        alert.refresh_from_db()
+        assert (alert.owner, alert.owner_changed_at, alert.state, alert.consecutive_failures, alert.next_check_at) == (
+            "source",
+            later,
+            State.BROKEN,
+            5,
+            later + timedelta(minutes=2),
+        )
+        assert list(alert.events.values_list("kind", "state_before", "state_after")) == [
+            (LogsAlertEvent.Kind.HANDBACK, State.BROKEN, State.BROKEN)
+        ]
+        with team_scope(self.team.id):
+            assert platform_testing.copy_of(alert.id).owner == "source"
+
+    def test_rolling_back_keeps_an_active_logs_snooze(self) -> None:
+        alert = self._moved()
+        LogsAlertConfiguration.objects.filter(id=alert.id).update(
+            state=State.SNOOZED, snooze_until=NOW + timedelta(days=30)
+        )
+        later = NOW + timedelta(days=8)
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(platform_testing.copy_of(alert.id).id, later + timedelta(minutes=2))
+
+        (result,) = roll_back_team(self.team.id, now=later)
+
+        assert result.skipped is None
+        alert.refresh_from_db()
+        assert (alert.owner, alert.state) == ("source", State.SNOOZED)
+
+    @parameterized.expand(
+        [
+            ("never_moved", False, NOW + timedelta(days=8), RollbackSkip.NOT_MOVED),
+            ("logs_check_due_during_shadow", True, NOW + timedelta(minutes=10), RollbackSkip.LOGS_CHECK_DUE),
+        ]
+    )
+    def test_an_alert_that_cannot_move_back_now_stays(
+        self, _name: str, moved: bool, at: datetime, reason: RollbackSkip
+    ) -> None:
+        alert = self._moved() if moved else self._alert()
+
+        (result,) = roll_back_team(self.team.id, now=at)
+
+        assert result.skipped == reason
+        alert.refresh_from_db()
+        assert alert.owner == ("platform" if moved else "source")
 
     def _destination(
         self, alert_id: UUID | None, template_id: str, inputs: dict[str, Any], edit: dict[str, Any] | None = None

@@ -36,6 +36,10 @@ Choose a connection in the **Data** panel, then select a table below it. Certifi
 
 **Charts** opens chart types and series controls in the right panel. **Analysis** and the visualization settings button replace that panel with their own controls. The panel starts closed. Close it after editing to return to the chart. The Series/Display settings use the same panel and scroll independently. Row filters appear once above the chart; click a filter to edit it. **AND / OR groups** opens the grouping dialog, and **Result filters** opens a popover. The left pane contains the selected source and its dimensions and measures; **Fields** hides or restores it. The toolbar wraps as the worksheet narrows, and the right panel overlays the chart when there is not enough space to dock it. These layout changes apply only to BI worksheets; SQL and other insights retain their existing settings layout.
 
+**Separate panes by** in the Series panel splits a bar, line, or area chart by one or more shelf dimensions. For example, put Year into panes, Quarter on the chart axis, and Region on Color. Drag the selected pane dimensions to change their heading order. Every pane uses the same color mapping and category positions. Missing combinations remain gaps unless **Show nulls as zero** is enabled.
+
+Panes share their value scale by default; **Independent value scales** lets each pane scale separately. Charts with a secondary value axis use independent scales. Reference lines can calculate **Within each pane** or **Across the worksheet**; worksheet calculations use all returned marks, including panes beyond the display cap. Panes support up to 24 charts, 1,000 axis values, and 50 measure/color series, with explicit messages when those limits apply. Narrow worksheets stack the panes. Saved worksheets, shared views, and dashboard tiles retain the layout and apply dashboard filters before splitting the result; each pane uses the same query response. Period comparison must be turned off to use panes.
+
 Single-value filters distinguish selecting **(empty string)** from clearing the input: the former matches an empty value, while the latter removes the condition.
 
 Date dimensions sort oldest first by default, including in tables; explicit sorts still take precedence. Generated date dimensions retain their result-column identity, including expressions over column names containing spaces. Time charts show years centered below their date ticks. Clicking a bar opens the drill-down options for that result.
@@ -331,6 +335,16 @@ When groups preserve ungrouped values, named groups and original members retain 
 Repeated dimension pills use distinct result columns so their chart and table bindings stay unambiguous. Generated dimension aliases avoid source identifiers used by measures and filters. Expressions containing percent signs or matching reserved names use supported generated aliases while keeping their original calculation.
 
 BI chart settings preserve custom scatter axes and implicit count formatting. Numeric date parts can be used as scatter axes and remain numeric in **Keep only** and drill-down filters. Scatter selection shows a highlighted count with **Keep only** and **Clear selection** buttons. Switching between chart types reuses results when only their presentation changes, including with auto-update off; pending data changes still require a run. Switching to a box plot initializes statistic mappings from matching result column names. Generated axis labels follow field renames, while custom axis labels remain unchanged.
+
+## Catalog metrics in BI mode
+
+Catalog SQL metrics can open as BI query snapshots. Their dates, grouping, and bound values come from the metric definition; shelf edits, worksheet date filters, pivots, and result drilling are unavailable. Changing the chart changes the presentation of those results. Saved snapshots do not follow later catalog edits.
+
+After running a worksheet, **Propose as catalog metric** sends its resolved SQL and date window through catalog review. A pending or failed query cannot be proposed. Proposing an existing metric name updates its definition for review. Direct-connection worksheets cannot be proposed as catalog metrics.
+
+The worksheet library suggests approved, non-drifted SQL metrics and certified sources. Each list requests at most three eligible candidates; drifted metrics are omitted without scanning more pages. Source context shows certification, descriptions, and relationship review status. Relationship proposals open the catalog with the source prefilled; they become usable joins only after approval. Optional catalog suggestions do not prevent opening the worksheet library when the catalog is unavailable.
+
+The BI assistant receives the current worksheet draft, including its unsaved name, and shared catalog capabilities. Worksheet and catalog content remain untrusted context. Dismissing the saved worksheet attachment also removes its hidden draft and metric reference. Completed foreground insight tools refresh the worksheet library. Updates to the open worksheet refresh its saved version while preserving local edits. If both changed the query or name differently, saving over the worksheet is blocked until the local draft is discarded or saved as a copy. This conflict protection survives reloading a worksheet link. A failed refresh can be retried before saving.
 
 ## Connected fields in BI mode
 

@@ -1,4 +1,5 @@
 import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -14,6 +15,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import redis
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.scoping import team_scope
 from posthog.temporal.alerts.admission import admit_evaluation_slots
 
@@ -44,10 +46,13 @@ from products.logs.backend.alert_check_query import (
 from products.logs.backend.alert_signal_emitter import PlatformAlertSignal, notified_alerts_for_platform
 from products.logs.backend.alert_source_cycle import (
     BATCH_QUERY_BUDGET_SECONDS,
+    BATCH_SLOT_LEASE_SECONDS,
     INFLIGHT_KEY,
     MAX_QUERY_SECONDS,
+    evaluate_held_logs_batch,
     evaluate_logs_batch,
     grouping_key_of,
+    take_logs_batch_slot,
 )
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import backfill_platform_alert_configurations
@@ -55,14 +60,19 @@ from products.logs.backend.temporal.alert_evaluate import (
     EVALUATE_SCHEDULE_TO_CLOSE,
     EVALUATE_START_TO_CLOSE,
     EVALUATION_BUDGET,
+    TAKE_SLOT_START_TO_CLOSE,
     platform_signals,
 )
+from products.logs.backend.temporal.batch_slot import LogsBatchSlot
 
 _MODULE = "products.logs.backend.alert_source_cycle"
 CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
 _LOGS_OWNED_FIELDS = ("state", "consecutive_failures", "next_check_at", "last_notified_at", "snooze_until")
 # Settings a check reads from the logs alert rather than from its platform copy.
 _LEGACY_ALERT_FIELDS = ("evaluation_periods", "datapoints_to_alarm", "cooldown_minutes", "schedule_restriction")
+
+
+_BY_SERVICE = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",))
 
 
 class TestLogsAlertEvaluation(APIBaseTest):
@@ -105,6 +115,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         query_error: Exception | None = None,
         now: datetime | None = None,
         count: int = 500,
+        held: LogsBatchSlot | None = None,
     ) -> tuple[SourceBatchEvaluation, MagicMock]:
         now = now or self.cutoff
         breaching = {str(c.id): [BucketedCount(timestamp=now, count=count)] for c in configurations}
@@ -119,6 +130,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
                     per_alert=breaching, query_duration_ms=1
                 )
             slot = slot_of(configurations[0].next_check_at, now)
+            if held is not None:
+                return evaluate_held_logs_batch(self.team.id, slot, now, held), query
             return evaluate_logs_batch(self.team.id, slot, now), query
 
     def _add_incident_destination(self, configuration: PlatformConfigurationSnapshot) -> None:
@@ -242,20 +255,28 @@ class TestLogsAlertEvaluation(APIBaseTest):
             assert platform_testing.alert_for(configuration.id) is None
         assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
 
-    def test_a_delivery_the_batch_cannot_carry_leaves_its_alert_due(self) -> None:
+    @parameterized.expand(
+        [
+            # A firing alert does not fire again, so recording the second outcome would retire its
+            # breach with no delivery to announce it.
+            ("over_the_delivery_cap", "MAX_DELIVERIES_PER_CYCLE", 1, 500, 1, 1),
+            # A quiet check announces nothing and still costs bytes, so the budget counts it too.
+            ("over_the_byte_budget", "MAX_BATCH_PAYLOAD_BYTES", 1, 0, 0, 2),
+        ]
+    )
+    def test_a_check_the_batch_cannot_carry_leaves_its_alert_due(
+        self, _name: str, bound: str, limit: int, count: int, delivered: int, omitted: int
+    ) -> None:
         configurations = [self._configuration(), self._configuration()]
 
-        with patch(f"{_MODULE}.MAX_DELIVERIES_PER_CYCLE", 1):
-            evaluation, _ = self._run(*configurations)
+        with patch(f"{_MODULE}.{bound}", limit):
+            evaluation, _ = self._run(*configurations, count=count)
         self._record(evaluation)
 
-        # A firing alert does not fire again, so recording the second outcome would retire its
-        # breach with no delivery to announce it.
-        assert len(evaluation.deliveries) == 1
-        assert evaluation.omitted == 1
+        assert (len(evaluation.deliveries), evaluation.omitted) == (delivered, omitted)
         with team_scope(self.team.id):
             still_due = platform_testing.count_still_due([c.id for c in configurations], at=self.cutoff)
-        assert still_due == 1
+        assert still_due == omitted
 
     def test_two_scheduled_checks_clamped_to_one_window_keep_distinct_keys(self) -> None:
         # `resolve_alert_date_to` clamps the window end to the ingestion checkpoint, so a
@@ -347,8 +368,12 @@ class TestLogsAlertEvaluation(APIBaseTest):
             patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
             patch(f"{_MODULE}.GroupedAlertCheckQuery") as query,
         ):
-            query.return_value.execute_rolling_checks.return_value = GroupedRollingResult(
-                groups=groups, period_starts=[now], query_duration_ms=1
+            # `counts` is in the order the query ranks groups, and the query keeps one row past its limit.
+            query.return_value.execute_rolling_checks.side_effect = lambda *_args: GroupedRollingResult(
+                groups=groups[: query.call_args.kwargs["limit"] + 1],
+                period_starts=[now],
+                query_duration_ms=1,
+                truncated=len(groups) > query.call_args.kwargs["limit"],
             )
             return evaluate_logs_batch(self.team.id, slot_of(configuration.next_check_at, now), now)
 
@@ -364,19 +389,20 @@ class TestLogsAlertEvaluation(APIBaseTest):
             (outcome,) = self._run_grouped(configuration, counts).outcomes
             return {group.labels.get("service_name", group.grouping_key[:7]): group.kind for group in outcome.groups}
 
-        assert run_after({"api": 600, "web": 550}) == {}
+        assert run_after({"api": 600, "web": 550, "cron": 520}) == {}
         assert run_after({"api": 600}) == {"sha256:": AlertEventKind.RESOLVED}
 
-    def test_a_grouped_alert_fires_per_group_resolves_a_vanished_one_and_reports_overflow(self) -> None:
+    def test_a_grouped_alert_overflows_at_its_cap_until_a_resolved_group_gives_up_its_slot(self) -> None:
         grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",), max_instances=2)
         configuration = self._configuration(grouping=grouping.to_stored())
 
-        first = self._run_grouped(configuration, {"api": 500, "web": 3, "worker": 400, "cron": 300})
+        first = self._run_grouped(configuration, {"api": 500, "worker": 400, "cron": 300, "web": 3})
         self._record(first)
 
         (outcome,) = first.outcomes
         (delivery,) = first.deliveries
-        # The quiet group gets no row, and the cap admits the two worst of the three breaching.
+        # The cap admits the two worst of the three breaching, and the third is reported although
+        # a query cut at the cap would never have returned it.
         assert [(group.labels["service_name"], group.kind) for group in outcome.groups] == [
             ("api", AlertEventKind.FIRING),
             ("worker", AlertEventKind.FIRING),
@@ -392,6 +418,30 @@ class TestLogsAlertEvaluation(APIBaseTest):
             "api": AlertEventKind.CHECK,
             "worker": AlertEventKind.RESOLVED,
         }
+        self._record(second)
+
+        def run_after(counts: dict[str, int]) -> tuple[dict[str, AlertEventKind], int]:
+            with team_scope(self.team.id):
+                platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
+            evaluation = self._run_grouped(configuration, counts)
+            self._record(evaluation)
+            (outcome,) = evaluation.outcomes
+            return {group.labels["service_name"]: group.kind for group in outcome.groups}, outcome.overflowed
+
+        # The resolved group is in this check's results, so it keeps its slot and the new breach overflows.
+        assert run_after({"api": 500, "worker": 3, "cron": 300}) == (
+            {"api": AlertEventKind.CHECK, "worker": AlertEventKind.CHECK},
+            1,
+        )
+        assert run_after({"api": 500, "cron": 300}) == (
+            {"api": AlertEventKind.CHECK, "cron": AlertEventKind.FIRING},
+            0,
+        )
+        with team_scope(self.team.id):
+            evicted = platform_testing.alert_for(
+                configuration.id, grouping_key=grouping_key_of({"service_name": "worker"})
+            )
+        assert evicted is None
 
     def test_a_grouped_alert_switched_off_in_logs_keeps_its_open_groups(self) -> None:
         grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",))
@@ -466,6 +516,61 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
 
+    @parameterized.expand(
+        [
+            ("cohort_cut_short_by_an_earlier_query", Grouping(), True, 10, None),
+            ("cohort_with_its_full_time_after_another", Grouping(), True, 0, 5),
+            ("cohort_first_in_its_batch", Grouping(), False, 0, 5),
+            ("grouped_cut_short_by_an_earlier_query", _BY_SERVICE, True, 10, None),
+            ("grouped_with_its_full_time_after_another", _BY_SERVICE, True, 0, 5),
+        ]
+    )
+    def test_a_query_out_of_time_counts_only_when_no_earlier_query_spent_its_time(
+        self,
+        _name: str,
+        grouping: Grouping,
+        after_another: bool,
+        earlier_query_seconds: int,
+        expected_failures: int | None,
+    ) -> None:
+        if after_another:
+            self._configuration()
+        slow = self._configuration(
+            consecutive_failures=4,
+            grouping=grouping.to_stored(),
+            source_config={"condition": {**CONDITION, "window_minutes": 10}},
+        )
+        clock = [1000.0]
+        cohort_calls: list[int] = []
+
+        def cohort_query_run(*_args: Any, **_kwargs: Any) -> BatchedBucketedResult:
+            # The first cohort is the earlier query when one runs; any later cohort is the slow one.
+            cohort_calls.append(1)
+            if after_another and grouping.mode == GroupingMode.SINGLE and len(cohort_calls) > 1:
+                raise ClickHouseQueryTimeOut()
+            if not after_another:
+                raise ClickHouseQueryTimeOut()
+            clock[0] += earlier_query_seconds
+            return BatchedBucketedResult(per_alert={}, query_duration_ms=1)
+
+        with (
+            patch(f"{_MODULE}.time") as fake_time,
+            patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
+            patch(f"{_MODULE}.BatchedAlertCheckQuery") as cohort_query,
+            patch(f"{_MODULE}.GroupedAlertCheckQuery") as grouped_query,
+        ):
+            fake_time.monotonic.side_effect = lambda: clock[0]
+            cohort_query.return_value.execute_rolling_checks.side_effect = cohort_query_run
+            grouped_query.return_value.execute_rolling_checks.side_effect = ClickHouseQueryTimeOut()
+            evaluation = evaluate_logs_batch(self.team.id, self._slot(), self.cutoff)
+        self._record(evaluation)
+
+        failures = [o.consecutive_failures for o in evaluation.outcomes if o.configuration_id == slow.id]
+        with team_scope(self.team.id):
+            still_due = platform_testing.count_still_due([slow.id], at=self.cutoff)
+        # A query cut short by an earlier one leaves its check due, so its slot comes back alone.
+        assert (failures, still_due) == (([], 1) if expected_failures is None else ([expected_failures], 0))
+
     def test_a_failure_the_batch_cannot_record_leaves_the_whole_batch_due(self) -> None:
         configuration = self._configuration(consecutive_failures=4)
 
@@ -537,6 +642,32 @@ class TestLogsAlertEvaluation(APIBaseTest):
             second, _ = self._run(configuration)
 
         assert [len(first.outcomes), len(second.outcomes)] == [1, 1]
+
+    def test_a_slot_taken_ahead_of_the_evaluation_bounds_the_pool_and_is_freed_by_it(self) -> None:
+        configuration = self._configuration()
+        slot = self._slot()
+
+        with override_settings(ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES=1):
+            taken = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="first", first=True, final=False)
+            turned_away = take_logs_batch_slot(
+                self.team.id, slot, self.cutoff, member="second", first=True, final=False
+            )
+            # A retried try names the same member, so it finds its slot instead of taking another.
+            retried = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="first", first=True, final=False)
+            assert taken.slot is not None and retried.slot is not None
+            assert (turned_away.due, turned_away.slot) == (True, None)
+
+            # The retry rewrote the expiry, so the first take's expiry is stale, as when a timed-out
+            # take attempt lands after its retry returned.
+            evaluation, _ = self._run(configuration, held=taken.slot)
+            after = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="second", first=True, final=False)
+            # "first" no longer holds a slot and "second" fills the pool.
+            lapsed, lapsed_query = self._run(configuration, held=taken.slot)
+
+        assert len(evaluation.outcomes) == 1
+        # The evaluation gave the slot back, or a pool of one would still turn the second batch away.
+        assert after.slot is not None
+        assert lapsed.outcomes == () and not lapsed_query.called
 
     def test_a_logs_alert_with_unreadable_filters_breaks_alone(self) -> None:
         unreadable, healthy = self._configuration(), self._configuration()
@@ -617,6 +748,8 @@ class TestEvaluationTimeoutLadder(SimpleTestCase):
         assert (EVALUATE_SCHEDULE_TO_CLOSE - EVALUATE_START_TO_CLOSE).total_seconds() >= BATCH_QUERY_BUDGET_SECONDS / 2
         # The platform's own timeout holds both activities and still leaves room for the deliveries.
         assert source_evaluation_timeout(SourceKind.LOGS) > EVALUATION_BUDGET
+        # See `BATCH_SLOT_LEASE_SECONDS`.
+        assert BATCH_SLOT_LEASE_SECONDS > (TAKE_SLOT_START_TO_CLOSE + EVALUATE_SCHEDULE_TO_CLOSE).total_seconds()
 
 
 def _outcome(kind: AlertEventKind, *, notified: bool = True) -> PlatformAlertOutcome:
@@ -686,6 +819,26 @@ class TestPlatformAlertSignals(SimpleTestCase):
         assert all(signal.alert_id == "legacy-1" for signal in signals)
         assert [(s.action, s.result_count, s.consecutive_failures) for s in signals] == expected
 
+    def test_each_firing_group_of_one_evaluation_signals_under_its_own_key(self) -> None:
+        groups = tuple(
+            GroupOutcome(
+                grouping_key=grouping_key_of({"service_name": service}),
+                kind=AlertEventKind.FIRING,
+                new_state="firing",
+                notified=True,
+                value=500.0,
+                labels={"service_name": service},
+            )
+            for service in ("api", "web")
+        )
+        outcome = replace(_outcome(AlertEventKind.FIRING), groups=groups)
+        evaluation = SourceBatchEvaluation(outcomes=(outcome,), deliveries=(_delivery_for(owned_by_platform=True),))
+
+        signals = platform_signals(evaluation)
+
+        assert [s.labels for s in signals] == [{"service_name": "api"}, {"service_name": "web"}]
+        assert len({s.idempotency_key for s in signals}) == 2
+
 
 class TestPlatformAlertSignalFacts(APIBaseTest):
     def test_a_signal_carries_the_logs_alert_as_it_is_and_skips_a_deleted_one(self) -> None:
@@ -706,11 +859,26 @@ class TestPlatformAlertSignalFacts(APIBaseTest):
                 PlatformAlertSignal(
                     alert_id=str(uuid4()), action="firing", result_count=1, consecutive_failures=0, evaluation_key="k-1"
                 ),
+                PlatformAlertSignal(
+                    alert_id=str(alert.id),
+                    action="firing",
+                    result_count=700,
+                    consecutive_failures=0,
+                    evaluation_key="k-1",
+                    grouping_key='{"service_name":"web"}',
+                    labels={"service_name": "web"},
+                ),
             ],
         )
 
         assert [(n.alert_id, n.alert_name, n.threshold_count, n.result_count, n.filters) for n in notified] == [
-            (str(alert.id), "API errors", 10, 500, {"serviceNames": ["api"]})
+            (str(alert.id), "API errors", 10, 500, {"serviceNames": ["api"]}),
+            (str(alert.id), "API errors", 10, 700, {"serviceNames": ["api"]}),
         ]
-        # A retried emission of the same announcement must not start a second signal.
-        assert notified[0].idempotency_key == f"{alert.id}:firing:k-1"
+        # A retried emission of the same announcement must not start a second signal, and a second
+        # group of the same evaluation is not a retry.
+        assert [n.idempotency_key for n in notified] == [
+            f"{alert.id}:firing:k-1",
+            f'{alert.id}:firing:k-1:{{"service_name":"web"}}',
+        ]
+        assert notified[1].group_labels == {"service_name": "web"}
