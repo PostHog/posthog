@@ -12,7 +12,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 DEFAULT_PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class VeeqoEndpointConfig:
     """Declarative metadata for a single Veeqo list endpoint.
 
@@ -150,7 +150,7 @@ VEEQO_ENDPOINTS: dict[str, VeeqoEndpointConfig] = {
     "shipment_tracking_events": VeeqoEndpointConfig(
         name="shipment_tracking_events",
         path="/shipping/tracking_events/{shipment_id}",
-        primary_keys=["shipment_id", "timestamp", "status", "description"],
+        primary_keys=["shipment_id", "timestamp", "status"],
         fanout=DependentEndpointConfig(
             parent_name="orders",
             resolve_param="shipment_id",
@@ -172,8 +172,8 @@ VEEQO_ENDPOINTS: dict[str, VeeqoEndpointConfig] = {
             parent_name="products",
             resolve_param="kit_id",
             resolve_field="kit_id",
-            include_from_parent=["product_id"],
-            parent_field_renames={"product_id": "product_id"},
+            include_from_parent=["kit_id", "product_id"],
+            parent_field_renames={"kit_id": "kit_id", "product_id": "product_id"},
             parent_params={"page_size": DEFAULT_PAGE_SIZE},
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),

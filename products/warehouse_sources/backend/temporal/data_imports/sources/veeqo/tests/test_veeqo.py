@@ -312,6 +312,7 @@ class TestFanoutTables:
                                     "allocations": [
                                         {"id": 100, "shipment": {"id": 7001}},
                                         {"id": 101, "shipment": None},
+                                        {"id": 103, "shipment": {"id": 7001}},
                                     ],
                                 },
                                 {"id": 2, "allocations": [{"id": 102, "shipment": {"id": 7002}}]},

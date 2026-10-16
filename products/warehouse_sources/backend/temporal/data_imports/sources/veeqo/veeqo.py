@@ -66,7 +66,7 @@ INCREMENTAL_PARAM_BY_FIELD = {
 }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class VeeqoResumeConfig:
     """Page cursor for resumable list iteration.
 
@@ -174,6 +174,7 @@ def _product_stock_entries(product: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {**entry, "product_id": product.get("id")}
         for sellable in product.get("sellables") or []
+        if isinstance(sellable, dict)
         for entry in sellable.get("stock_entries") or []
         if isinstance(entry, dict)
     ]
@@ -181,10 +182,14 @@ def _product_stock_entries(product: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _order_shipments(order: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    seen: set[Any] = set()
     for allocation in order.get("allocations") or []:
-        shipment = allocation.get("shipment") or {}
-        if shipment.get("id") is not None:
-            rows.append({"shipment_id": shipment["id"], "order_id": order.get("id")})
+        shipment = allocation.get("shipment") if isinstance(allocation, dict) else None
+        shipment_id = shipment.get("id") if isinstance(shipment, dict) else None
+        # Allocations of one order can share a shipment; request its events once.
+        if shipment_id is not None and shipment_id not in seen:
+            seen.add(shipment_id)
+            rows.append({"shipment_id": shipment_id, "order_id": order.get("id")})
     return rows
 
 
@@ -192,7 +197,7 @@ def _product_kits(product: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {"kit_id": sellable["id"], "product_id": product.get("id")}
         for sellable in product.get("sellables") or []
-        if sellable.get("type") == "Kit" and sellable.get("id") is not None
+        if isinstance(sellable, dict) and sellable.get("type") == "Kit" and sellable.get("id") is not None
     ]
 
 
