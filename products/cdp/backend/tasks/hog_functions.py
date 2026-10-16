@@ -36,7 +36,7 @@ def refresh_affected_hog_functions(
             HogFunction.objects.select_related("team")
             .filter(team_id__in=project_team_ids)
             .filter(
-                Q(team_id=action.team_id)
+                Q(team_id=action.team_id, mcp_event_subscription__isnull=True)
                 | Q(mcp_event_subscription__active=True, mcp_event_subscription__expires_at__gt=timezone.now())
             )
             .filter(filters__contains={"actions": [{"id": str(action_id)}]})
@@ -61,7 +61,7 @@ def refresh_affected_hog_functions(
         team_id = team.id
 
     # For both cohort_id and team_id paths, find hog functions with test account filters enabled
-    if team_id and not affected_hog_functions:
+    if team_id and not action_id and not affected_hog_functions:
         affected_hog_functions = list(
             HogFunction.objects.select_related("team")
             .filter(team_id=team_id)

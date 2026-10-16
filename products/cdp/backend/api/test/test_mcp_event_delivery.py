@@ -213,21 +213,23 @@ class TestMCPEventDelivery(MCPEventServiceTestCase):
         with self.assertRaises(PermissionDenied):
             self.subscribe()
 
-    @parameterized.expand(["test_account", "action", "child_action"])
+    @parameterized.expand(["test_account", "action", "child_action", "event_action", "child_event_action"])
     def test_filter_refresh_authorizes_new_filters_and_rejects_stale_queued_filters(self, source: str) -> None:
         original = [{"key": "plan", "type": "event", "operator": "exact", "value": "internal"}]
         updated = [{"key": "next_plan", "type": "event", "operator": "exact", "value": "internal"}]
-        if source in ("action", "child_action"):
+        if source != "test_account":
             action = Action.objects.create(
                 team=self.team, name="Example action", steps_json=[{"event": "example_event", "properties": original}]
             )
-            filters: dict[str, JsonValue] = {"actions": [{"id": str(action.id), "type": "actions"}]}
+            filters: dict[str, JsonValue] = {
+                "events" if "event_action" in source else "actions": [{"id": str(action.id), "type": "actions"}]
+            }
         else:
             self.team.test_account_filters = original
             self.team.save()
             filters = {"events": [{"id": "example_event", "type": "events"}], "filter_test_accounts": True}
         parent_subscription: MCPEventSubscription | None = None
-        if source == "child_action":
+        if source.startswith("child_"):
             self.payload["arguments"] = {"project_id": self.team.pk, "filters": filters}
             parent_subscription = self.subscribe()
             self.team = Team.objects.create(
@@ -239,7 +241,7 @@ class TestMCPEventDelivery(MCPEventServiceTestCase):
         assert subscription.hog_function.filters is not None
         queued_bytecode = deepcopy(subscription.hog_function.filters["bytecode"])
         historical_functions: list[HogFunction] = []
-        if source == "child_action":
+        if source != "test_account":
             original_url = self.callback_url
             for status in ("stopped", "expired"):
                 self.callback_url = f"https://example.com/{status}"
@@ -252,20 +254,22 @@ class TestMCPEventDelivery(MCPEventServiceTestCase):
                     historical.expires_at = timezone.now() - timedelta(seconds=1)
                     historical.save(update_fields=["expires_at"])
             self.callback_url = original_url
-        if source in ("action", "child_action"):
+        if source != "test_account":
             action.steps_json = [{"event": "example_event", "properties": updated}]
             action.save()
-            self.assertEqual(refresh_affected_hog_functions(action_id=action.pk), 2 if source == "child_action" else 1)
-            if source == "child_action":
+            self.assertEqual(
+                refresh_affected_hog_functions(action_id=action.pk), 2 if source.startswith("child_") else 1
+            )
+            if source.startswith("child_"):
                 assert parent_subscription is not None
                 parent_subscription.refresh_from_db()
                 assert parent_subscription.hog_function is not None
                 assert parent_subscription.hog_function.filters is not None
                 self.assertNotEqual(parent_subscription.hog_function.filters["bytecode"], queued_bytecode)
-                for function in historical_functions:
-                    function.refresh_from_db()
-                    assert function.filters is not None
-                    self.assertEqual(function.filters["bytecode"], queued_bytecode)
+            for function in historical_functions:
+                function.refresh_from_db()
+                assert function.filters is not None
+                self.assertEqual(function.filters["bytecode"], queued_bytecode)
         else:
             self.team.test_account_filters = updated
             self.team.save()
