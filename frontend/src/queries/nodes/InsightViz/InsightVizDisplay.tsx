@@ -273,13 +273,8 @@ export function InsightVizDisplay({
                 <LemonButton
                     type="primary"
                     loading={insightDataLoading}
-                    onClick={() =>
-                        updateQuerySource({
-                            filterTestAccounts: false,
-                            properties: undefined,
-                            samplingFactor: undefined,
-                        })
-                    }
+                    // updateQuerySource also clears the filter groups and test account filtering that the series cannot take.
+                    onClick={() => updateQuerySource({ samplingFactor: undefined })}
                 >
                     Reset unsupported settings
                 </LemonButton>
