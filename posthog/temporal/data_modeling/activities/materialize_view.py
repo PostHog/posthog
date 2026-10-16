@@ -60,6 +60,7 @@ from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_l
 from products.data_modeling.backend.facade.api import (
     IncrementalFilterError,
     WritePlan,
+    bind_window_start,
     clear_incremental_state,
     inject_incremental_filter,
     record_incremental_history,
@@ -608,7 +609,7 @@ async def hogql_table(
     if window is not None:
         query_node = inject_incremental_filter(query, incremental_key=window.incremental_key, since=window.since)
     else:
-        query_node = parse_select(query)
+        query_node = bind_window_start(parse_select(query), None)
     if query_node is None:
         raise ParsingError(f"Failed to parse query node from query, parse_select() returned None: query={query}")
 

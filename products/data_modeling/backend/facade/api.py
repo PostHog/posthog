@@ -107,6 +107,8 @@ _LAZY = {
     "IncrementalFilterError": "logic.incremental_filter",
     "inject_incremental_filter": "logic.incremental_filter",
     "apply_incremental_filter": "logic.incremental_filter",
+    "bind_window_start": "logic.incremental_filter",
+    "WINDOW_START_PLACEHOLDER": "logic.incremental_filter",
     "EligibilityResult": "logic.incremental_eligibility",
     "check_incremental_eligibility": "logic.incremental_eligibility",
 }

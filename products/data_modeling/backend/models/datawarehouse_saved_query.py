@@ -47,6 +47,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
+from products.data_modeling.backend.logic.incremental_filter import bind_window_start_sql
 from products.warehouse_sources.backend.facade.hogql import (
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
@@ -496,15 +497,20 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.columns = columns
         self.column_order = list(columns.keys())
 
-    def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
-        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
-
+    @property
+    def sql(self) -> str:
+        """The stored SQL as every reader outside a materialization run sees it: the incremental
+        window start bound to NULL. A run binds the real window start on the parsed query instead."""
         query = self.query or {}
         if not isinstance(query, dict) or "query" not in query:
             raise Exception("Saved query is missing a query definition")
+        return bind_window_start_sql(query["query"])
+
+    def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
+        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
 
         # ClickHouse can still evaluate scalar subqueries before it plans the outer LIMIT 0.
-        select_query = parse_select(query["query"])
+        select_query = parse_select(self.sql)
         _limit_to_zero_rows(select_query)
         _InSubqueryZeroRows().visit(select_query)
 
@@ -564,11 +570,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             database=database or Database.create_for(self.team.pk, bypass_warehouse_access_control=True),
         )
 
-        query = self.query or {}
-        if not isinstance(query, dict) or "query" not in query:
-            raise Exception("Saved query is missing a query definition")
-
-        node = parse_select(query["query"])
+        node = parse_select(self.sql)
         resolved_node = resolve_types(node, context, dialect="clickhouse")
 
         table_collector = S3TableVisitor()
@@ -620,7 +622,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return SavedQuery(
             id=str(self.id),
             name=self.name,
-            query=query["query"],
+            query=self.sql,
             fields=self.hogql_fields(),
             # Currently only storing metadata related to the managed viewset, but we can expand this in the future
             # This is basically just a bag of props that can be used by other methods to properly identify this query
