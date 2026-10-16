@@ -39,8 +39,8 @@ class TestWorkflowIdeasAPI(APIBaseTest):
     def _url(self, suffix: str = "", team_id: int | None = None) -> str:
         return f"/api/projects/{team_id or self.team.id}/workflow_ideas/{suffix}"
 
-    def _flow(self, *, team: Team | None = None, origin_product: str | None = "ideas") -> HogFlow:
-        return HogFlow.objects.create(team=team or self.team, name="Drafted", origin_product=origin_product)
+    def _flow(self, *, team: Team | None = None, status: str = HogFlow.State.DRAFT) -> HogFlow:
+        return HogFlow.objects.create(team=team or self.team, name="Drafted", origin_product="ideas", status=status)
 
     def test_list_orders_by_priority_then_age_and_hides_other_projects(self):
         create_ideas(
@@ -108,15 +108,13 @@ class TestWorkflowIdeasAPI(APIBaseTest):
         again = self.client.post(self._url(f"{row.id}/accept/"), {"hog_flow_id": str(flow.id)})
         assert again.status_code == 409
 
-    @parameterized.expand(
-        [("another project's workflow", "other_team"), ("a workflow not made from an idea", "manual")]
-    )
+    @parameterized.expand([("another project's workflow", "other_team"), ("a workflow that is already on", "active")])
     def test_accept_refuses(self, _name: str, case: str):
         [row] = create_ideas(team_id=self.team.id, items=[_idea("winback")], source="manual")
         if case == "other_team":
             flow = self._flow(team=Team.objects.create(organization=self.organization, name="Other"))
         else:
-            flow = self._flow(origin_product=None)
+            flow = self._flow(status=HogFlow.State.ACTIVE)
 
         response = self.client.post(self._url(f"{row.id}/accept/"), {"hog_flow_id": str(flow.id)})
 
