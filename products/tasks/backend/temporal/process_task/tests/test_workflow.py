@@ -183,6 +183,7 @@ def test_activity_error_properties_names_the_application_failure_class():
     not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"),
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
 )
+@pytest.mark.usefixtures("sandbox_ai_gateway")
 class TestProcessTaskWorkflow:
     """
     End-to-end workflow tests using real Modal sandboxes.
