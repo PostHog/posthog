@@ -71,8 +71,7 @@ def enforce_warehouse_metric_timestamp_types(metrics: list[dict[str, Any]], data
     neither the metric nor the column.
 
     `database` is the caller's HogQL database, built with its own access context: a table the
-    caller is denied is skipped here, so the query fails on access as it did before and the
-    message never reveals that table's columns.
+    caller is denied is skipped here, so the query fails on access as it did before.
     """
     for timestamp in sorted(collect_metric_warehouse_timestamp_columns(metrics)):
         # A missing table or column fails later with its own error.
@@ -81,8 +80,9 @@ def enforce_warehouse_metric_timestamp_types(metrics: list[dict[str, Any]], data
         field = database.get_table(timestamp.table_name).fields.get(timestamp.column)
         if not isinstance(field, _NON_DATE_FIELD_TYPES):
             continue
-        column_type = type(field).__name__.removesuffix("DatabaseField").lower()
+        # The message is persisted on background recomputes, which bypass warehouse access, and shown to
+        # every experiment viewer. It names only what the metric config already shows, not the column type.
         raise ValidationError(
-            f"Column '{timestamp.column}' on data warehouse table '{timestamp.table_name}' has type {column_type}, but the "
-            "timestamp field must be a date or datetime column. Create a view that converts it and use the view."
+            f"Column '{timestamp.column}' on data warehouse table '{timestamp.table_name}' is not a date or "
+            "datetime column, but the timestamp field must be one. Create a view that converts it and use the view."
         )

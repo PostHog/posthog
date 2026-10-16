@@ -61,8 +61,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         with self.assertRaises(ValidationError) as context:
             ExperimentQueryRunner(query=experiment_query, team=self.team).calculate()
 
-        assert "Column 'created_at' on data warehouse table 'string_timestamps' has type string" in str(
-            context.exception
+        assert (
+            "Column 'created_at' on data warehouse table 'string_timestamps' is not a date or datetime column"
+            in str(context.exception)
         )
 
     @snapshot_clickhouse_queries

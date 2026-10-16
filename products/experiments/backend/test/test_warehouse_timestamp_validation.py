@@ -49,12 +49,12 @@ class TestEnforceWarehouseMetricTimestampTypes(SimpleTestCase):
             {"payments": DateTimeDatabaseField(name="created_at"), "refunds": StringDatabaseField(name="created_at")}
         )
         with self.assertRaisesMessage(
-            ValidationError, "Column 'created_at' on data warehouse table 'refunds' has type string"
+            ValidationError, "Column 'created_at' on data warehouse table 'refunds' is not a date or datetime column"
         ):
             enforce_warehouse_metric_timestamp_types([self._metric("payments"), self._metric("refunds")], database)
 
     def test_skips_table_the_caller_is_denied(self) -> None:
-        # The query must fail on access later, without this message revealing the column's type.
+        # The query must fail on access later, as it did before this check existed.
         database = self._database({"payments": StringDatabaseField(name="created_at")}, denied={"payments"})
         enforce_warehouse_metric_timestamp_types([self._metric()], database)
         database.get_table.assert_not_called()

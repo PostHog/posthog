@@ -7615,7 +7615,7 @@ class TestExperimentServiceWarehouseTimestampColumn(APIBaseTest):
     def test_create_experiment_rejects_non_datetime_timestamp_column(self, _name: str, column_type: str):
         table = self._table_with_timestamp_type(column_type)
         service = ExperimentService(team=self.team, user=self.user)
-        with pytest.raises(ValidationError, match="timestamp field must be a date or datetime column"):
+        with pytest.raises(ValidationError, match="is not a date or datetime column"):
             service.create_experiment(
                 name="DW experiment",
                 feature_flag_key="dw-timestamp",
