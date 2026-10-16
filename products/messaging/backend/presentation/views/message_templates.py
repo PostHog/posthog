@@ -1,5 +1,5 @@
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import fields as dataclass_fields
 from types import SimpleNamespace
 from typing import Any
@@ -14,7 +14,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
-from rest_framework import exceptions, serializers, status, viewsets
+from rest_framework import exceptions, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
@@ -44,18 +44,23 @@ from products.messaging.backend.facade.contracts import (
     TEMPLATE_KEY_MAX_LENGTH,
     TEMPLATE_KEY_PATTERN,
     TemplateManagedBy,
+    TemplateManagedByCode,
     TemplateSource,
     TemplateUpload,
     TemplateUploadResult,
+    TemplateWriteIntent,
 )
 from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateMissing,
     MessageTemplateRow,
     UploadedTemplate,
+    check_template_write,
     create_template,
     get_template,
+    is_release,
     list_templates,
+    release_template,
     save_template_content,
     save_template_fields,
     team_category_id,
@@ -227,8 +232,9 @@ class MessageTemplateSerializer(serializers.Serializer):
         choices=TemplateManagedBy.choices,
         read_only=True,
         allow_null=True,
-        help_text="Who owns the content. `code` when it was uploaded from a repository, so the next upload replaces "
-        "edits made in PostHog. `gui` or null when it is edited in PostHog.",
+        help_text="Who owns the content. `code` when it was uploaded from a repository: PostHog then refuses edits, and "
+        "the template changes through its next upload. To edit it in PostHog, send a PATCH whose only field is "
+        "`managed_by` set to `gui`. `gui` or null when it is edited in PostHog.",
     )
     source_repository = serializers.CharField(
         read_only=True,
@@ -419,7 +425,7 @@ class UploadTemplateResponseSerializer(serializers.Serializer):
     )
 
 
-class TemplateUploadErrorSerializer(serializers.Serializer):
+class TemplateErrorSerializer(serializers.Serializer):
     type = serializers.CharField(help_text="Error class, such as `invalid_request`.")
     code = serializers.CharField(help_text="Stable error code to branch on, such as `invalid_template_key`.")
     detail = serializers.CharField(help_text="What went wrong.")
@@ -433,7 +439,7 @@ TRANSACTIONAL_EMAIL_DOCS_URL = "https://posthog.com/docs/workflows/transactional
 
 
 @frozen
-class UploadRefused:
+class TemplateRefusal:
     code: str
     detail: str
     attr: str | None
@@ -452,10 +458,10 @@ class FieldError:
     message: str
 
 
-def invalid_template_key(key: str) -> UploadRefused | None:
+def invalid_template_key(key: str) -> TemplateRefusal | None:
     if len(key) <= TEMPLATE_KEY_MAX_LENGTH and re.match(TEMPLATE_KEY_PATTERN, key):
         return None
-    return UploadRefused(
+    return TemplateRefusal(
         code="invalid_template_key",
         detail=f"The key can have at most {TEMPLATE_KEY_MAX_LENGTH} letters, digits, hyphens (-) and underscores (_).",
         attr="key",
@@ -464,9 +470,9 @@ def invalid_template_key(key: str) -> UploadRefused | None:
     )
 
 
-def invalid_upload(errors: Any) -> UploadRefused:
+def invalid_upload(errors: Any) -> TemplateRefusal:
     error = first_field_error(errors)
-    return UploadRefused(
+    return TemplateRefusal(
         code="invalid_request",
         detail=f"{error.attr}: {error.message}",
         attr=error.attr,
@@ -531,10 +537,19 @@ class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottl
     rate = "20000/hour"
 
 
+MANAGED_BY_CODE_RESPONSE = OpenApiResponse(
+    response=TemplateErrorSerializer,
+    description="The template is managed by code. `immutable`: change its file and upload it, or release it first",
+)
+TEMPLATE_UPDATE_SCHEMA = extend_schema(
+    parameters=[TEMPLATE_ID_PARAMETER], responses={200: MessageTemplateSerializer, 403: MANAGED_BY_CODE_RESPONSE}
+)
+
+
 @extend_schema_view(
     retrieve=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
-    update=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
-    partial_update=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
+    update=TEMPLATE_UPDATE_SCHEMA,
+    partial_update=TEMPLATE_UPDATE_SCHEMA,
     destroy=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
 )
 class MessageTemplatesViewSet(
@@ -582,6 +597,21 @@ class MessageTemplatesViewSet(
             raise NotFound()
         self.check_object_permissions(self.request, template)
         return template
+
+    def check_object_permissions(self, request: Request, obj: Any) -> None:
+        super().check_object_permissions(request, obj)
+        if request.method not in permissions.SAFE_METHODS:
+            check_template_write(obj, self._write_intent())
+
+    def _write_intent(self) -> TemplateWriteIntent:
+        payload = self.request.data
+        return TemplateWriteIntent(action=self.action, payload=payload if isinstance(payload, Mapping) else {})
+
+    def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, TemplateManagedByCode):
+            refusal = TemplateRefusal(code=exc.code, detail=exc.detail, attr=None, why=exc.why, fix=exc.fix)
+            return Response(TemplateErrorSerializer(refusal).data, status=status.HTTP_403_FORBIDDEN)
+        return super().handle_exception(exc)
 
     def _with_creators(self, templates: Sequence[MessageTemplateRow]) -> list[SimpleNamespace]:
         creator_ids = {template.created_by_id for template in templates if template.created_by_id}
@@ -637,6 +667,13 @@ class MessageTemplatesViewSet(
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         partial = kwargs.pop("partial", False)
         template = self.get_object()
+        intent = self._write_intent()
+        if is_release(intent):
+            released = release_template(
+                self.team_id, template.id, require_workflow_editor=self._require_workflow_editor
+            )
+            self._emit_resource_edited(released)
+            return Response(self._serialize(released))
         serializer = self.get_serializer(self._with_creators([template])[0], data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         try:
@@ -644,6 +681,7 @@ class MessageTemplatesViewSet(
                 self.team_id,
                 template.id,
                 serializer.validated_data,
+                intent=intent,
                 user_id=self._actor_id(),
                 require_workflow_editor=self._require_workflow_editor,
             )
@@ -691,7 +729,9 @@ class MessageTemplatesViewSet(
             logger.warning("Failed to publish message template edited event", error=str(e))
 
     @extend_schema(
-        request=DesignPatchSerializer, responses={200: MessageTemplateSerializer}, parameters=[TEMPLATE_ID_PARAMETER]
+        request=DesignPatchSerializer,
+        responses={200: MessageTemplateSerializer, 403: MANAGED_BY_CODE_RESPONSE},
+        parameters=[TEMPLATE_ID_PARAMETER],
     )
     @action(detail=True, methods=["PATCH"])
     def design(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -699,12 +739,13 @@ class MessageTemplatesViewSet(
         # of re-transmitting the whole design JSON. Reads, applies, validates, re-renders, and saves
         # atomically so a rejected batch leaves the template untouched (and concurrent visual-editor saves
         # can't interleave).
-        op_serializer = DesignPatchSerializer(data=request.data)
-        op_serializer.is_valid(raise_exception=True)
-        operations = op_serializer.validated_data["operations"]
 
         # Authorize + team-scope via the normal lookup, then re-read FOR UPDATE inside the transaction.
         template = self.get_object()
+
+        op_serializer = DesignPatchSerializer(data=request.data)
+        op_serializer.is_valid(raise_exception=True)
+        operations = op_serializer.validated_data["operations"]
 
         def apply_operations(content: dict[str, Any]) -> dict[str, Any]:
             email = content.get("email") or {}
@@ -737,6 +778,7 @@ class MessageTemplatesViewSet(
                 self.team_id,
                 template.id,
                 apply_operations,
+                intent=self._write_intent(),
                 user_id=self._actor_id(),
                 require_workflow_editor=self._require_workflow_editor,
             )
@@ -804,7 +846,7 @@ class MessageTemplatesViewSet(
             ),
             201: OpenApiResponse(response=UploadTemplateResponseSerializer, description="The template was created"),
             400: OpenApiResponse(
-                response=TemplateUploadErrorSerializer,
+                response=TemplateErrorSerializer,
                 description="The key or a field is invalid, the template can't be sent, or there is no verified "
                 "default sender",
             ),
@@ -830,7 +872,7 @@ class MessageTemplatesViewSet(
             refused = invalid_upload(body.errors)
         if refused is not None:
             self._report_template_upload(request, {"result": "rejected", "error_code": refused.code})
-            return Response(TemplateUploadErrorSerializer(refused).data, status=status.HTTP_400_BAD_REQUEST)
+            return Response(TemplateErrorSerializer(refused).data, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             uploaded = upload_template(

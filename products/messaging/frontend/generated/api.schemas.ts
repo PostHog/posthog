@@ -418,7 +418,7 @@ export interface MessageTemplateApi {
      * @nullable
      */
     readonly key: string | null
-    /** Who owns the content. `code` when it was uploaded from a repository, so the next upload replaces edits made in PostHog. `gui` or null when it is edited in PostHog.
+    /** Who owns the content. `code` when it was uploaded from a repository: PostHog then refuses edits, and the template changes through its next upload. To edit it in PostHog, send a PATCH whose only field is `managed_by` set to `gui`. `gui` or null when it is edited in PostHog.
      *
      * * `gui` - GUI
      * * `code` - Code */
@@ -452,6 +452,26 @@ export interface PaginatedMessageTemplateListApi {
     /** @nullable */
     previous?: string | null
     results: MessageTemplateApi[]
+}
+
+export interface TemplateErrorApi {
+    /** Error class, such as `invalid_request`. */
+    type: string
+    /** Stable error code to branch on, such as `invalid_template_key`. */
+    code: string
+    /** What went wrong. */
+    detail: string
+    /**
+     * The request field the error is about, if any.
+     * @nullable
+     */
+    attr: string | null
+    /** Why PostHog refuses the request. */
+    why?: string
+    /** What to change before you retry. */
+    fix?: string
+    /** Documentation for this error code. */
+    docs_url?: string
 }
 
 export interface PatchedMessageTemplateApi {
@@ -490,7 +510,7 @@ export interface PatchedMessageTemplateApi {
      * @nullable
      */
     readonly key?: string | null
-    /** Who owns the content. `code` when it was uploaded from a repository, so the next upload replaces edits made in PostHog. `gui` or null when it is edited in PostHog.
+    /** Who owns the content. `code` when it was uploaded from a repository: PostHog then refuses edits, and the template changes through its next upload. To edit it in PostHog, send a PATCH whose only field is `managed_by` set to `gui`. `gui` or null when it is edited in PostHog.
      *
      * * `gui` - GUI
      * * `code` - Code */
@@ -685,26 +705,6 @@ export interface UploadTemplateResponseApi {
     source: TemplateSourceApi
     /** The workflow that sends this template. Each upload that changes the content writes a new version of it. */
     transactional_hog_flow_id: string
-}
-
-export interface TemplateUploadErrorApi {
-    /** Error class, such as `invalid_request`. */
-    type: string
-    /** Stable error code to branch on, such as `invalid_template_key`. */
-    code: string
-    /** What went wrong. */
-    detail: string
-    /**
-     * The request field the error is about, if any.
-     * @nullable
-     */
-    attr: string | null
-    /** Why PostHog refuses the request. */
-    why?: string
-    /** What to change before you retry. */
-    fix?: string
-    /** Documentation for this error code. */
-    docs_url?: string
 }
 
 export type MessagingCategoriesListParams = {

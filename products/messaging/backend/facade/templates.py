@@ -9,10 +9,16 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 
 from posthog.dataclasses import frozen
 
-from products.messaging.backend.facade.contracts import TemplateManagedBy, TemplateUpload, TemplateUploadResult
+from products.messaging.backend.facade.contracts import (
+    TemplateManagedBy,
+    TemplateUpload,
+    TemplateUploadResult,
+    TemplateWriteIntent,
+)
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.services import (
     message_templates as templates_service,
+    template_ownership,
     template_saves,
     template_uploads,
 )
@@ -110,19 +116,22 @@ def save_template_fields(
     template_id: UUID,
     fields: dict[str, Any],
     *,
+    intent: TemplateWriteIntent,
     user_id: int | None,
     require_workflow_editor: Callable[[UUID], None],
 ) -> MessageTemplateRow:
     """Set validated fields and save the template with its workflow. `message_category` holds a category id or None.
 
-    Raises TransactionalEmailError when the template could no longer send. `require_workflow_editor` gets the id of
-    the template's workflow, under the row lock, and raises to refuse the save.
+    Raises TransactionalEmailError when the template could no longer send, and TemplateManagedByCode when the template
+    refuses `intent`. `require_workflow_editor` gets the id of the template's workflow, under the row lock, and raises
+    to refuse the save.
     """
     return _to_contract(
         template_saves.save_template(
             team_id,
             template_id,
             lambda template: templates_service.apply_fields(template, fields),
+            intent=intent,
             user_id=user_id,
             require_workflow_editor=require_workflow_editor,
         )
@@ -134,6 +143,7 @@ def save_template_content(
     template_id: UUID,
     edit: Callable[[dict[str, Any]], dict[str, Any]],
     *,
+    intent: TemplateWriteIntent,
     user_id: int | None,
     require_workflow_editor: Callable[[UUID], None],
 ) -> MessageTemplateRow:
@@ -146,9 +156,29 @@ def save_template_content(
             team_id,
             template_id,
             lambda template: templates_service.edit_content(template, edit),
+            intent=intent,
             user_id=user_id,
             require_workflow_editor=require_workflow_editor,
         )
+    )
+
+
+def check_template_write(template: MessageTemplateRow, intent: TemplateWriteIntent) -> None:
+    """Raise TemplateManagedByCode when the template is managed by code and refuses `intent`."""
+    template_ownership.check_write(template, intent)
+
+
+def is_release(intent: TemplateWriteIntent) -> bool:
+    """Whether `intent` hands a template managed by code back to PostHog."""
+    return template_ownership.is_release(intent)
+
+
+def release_template(
+    team_id: int, template_id: UUID, *, require_workflow_editor: Callable[[UUID], None]
+) -> MessageTemplateRow:
+    """Hand the template back to PostHog, so it takes edits again. It keeps its key, so the next upload claims it."""
+    return _to_contract(
+        template_saves.release_template(team_id, template_id, require_workflow_editor=require_workflow_editor)
     )
 
 

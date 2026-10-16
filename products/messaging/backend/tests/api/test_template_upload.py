@@ -244,6 +244,10 @@ class TestTemplateUpload(APIBaseTest):
 
     def test_a_publish_moves_the_replaced_hash_to_the_superseded_list(self, _post, _flag, _capture):
         first = self._upload(WELCOME)
+        released = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{first['id']}/", {"managed_by": "gui"}, format="json"
+        )
+        assert released.status_code == status.HTTP_200_OK, released.json()
 
         edited = self.client.patch(
             f"/api/projects/{self.team.id}/messaging_templates/{first['id']}/",
