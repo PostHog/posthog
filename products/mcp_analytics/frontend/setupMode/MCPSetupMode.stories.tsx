@@ -94,6 +94,11 @@ export default meta
 
 type Story = StoryObj<typeof MCPSetupModeView>
 
+export const ConnectWizard: Story = {
+    decorators: [mswDecorator({ get: { '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud' } } })],
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
 export const ConnectWizardWithTasks: Story = {
     args: { connectState: { kind: 'wizard-running', run: RUN } },
     parameters: { testOptions: { viewportWidths: ['narrow', 'medium'], waitForLoadersToDisappear: false } },
@@ -155,7 +160,7 @@ export const MakeItUseful: Story = {
     ],
     parameters: {
         featureFlags: [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT],
-        testOptions: { waitForSelector: '[data-attr=mcp-analytics-activity-next-steps]' },
+        testOptions: { waitForSelector: '[data-attr=mcp-analytics-activity-next-step-weekly-report]' },
     },
 }
 
