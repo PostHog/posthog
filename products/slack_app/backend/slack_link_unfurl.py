@@ -59,6 +59,7 @@ from products.slack_app.backend.logic.link_unfurl_charts import (
     UNFURL_IMAGE_ASSET_TTL,
     UNFURL_IMAGE_URL_TTL,
     chat_unfurl_kwargs,
+    has_project_access,
     slack_fetchable_image_url,
     with_chart_images,
 )
@@ -821,10 +822,16 @@ def _ticket_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
     )
 
 
+def _may_read_tasks(uac: UserAccessControl) -> bool:
+    return uac.check_access_level_for_resource("task", "viewer")
+
+
 def _task_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
     url_team_id = _url_team_id(url)
     if url_team_id is not None and url_team_id != ctx.team.pk:
         return "other_project"
+    if not _may_read_tasks(ctx.uac):
+        return "no_access"
     task = tasks_facade.get_task_for_slack_unfurl(ref, ctx.team.pk, ctx.user.id) if _uuid(ref) else None
     if task is None:
         return "not_found_or_no_access"
@@ -869,6 +876,8 @@ def _task_artifact_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard 
         return "not_found"
     if artifact_ref.project_id is not None and artifact_ref.project_id != ctx.team.pk:
         return "other_project"
+    if not _may_read_tasks(ctx.uac):
+        return "no_access"
     artifact = tasks_facade.get_task_artifact_for_slack_unfurl(
         task_id=artifact_ref.task_id,
         team_id=ctx.team.pk,
@@ -1221,7 +1230,7 @@ def _queue_unfurl_artifact_image(
     return True
 
 
-_ImageFailure = Literal["public_sharing_disabled", "unavailable", "not_an_image", "unfurl_failed"]
+_ImageFailure = Literal["public_sharing_disabled", "no_access", "unavailable", "not_an_image", "unfurl_failed"]
 
 
 @frozen
@@ -1232,8 +1241,12 @@ class _ImageLink:
 
 def _artifact_image_link(*, integration: Integration, user: User, url: str, title: str) -> _ImageLink:
     # The link opens without a PostHog login, so it follows the public sharing setting like chart images do.
-    if not integration.team.organization.allow_publicly_shared_resources:
+    team = integration.team
+    if not team.organization.allow_publicly_shared_resources:
         return _ImageLink(failure="public_sharing_disabled")
+    # Access can change while the job waits in the queue, and the link it publishes needs no login.
+    if not has_project_access(user, team) or not _may_read_tasks(UserAccessControl(user, team=team)):
+        return _ImageLink(failure="no_access")
     artifact_ref = _task_artifact_ref(url)
     content = (
         tasks_facade.read_task_artifact_for_slack_unfurl(

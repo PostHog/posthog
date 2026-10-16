@@ -45,6 +45,7 @@ JSONL_EXPORT_FORMAT = ExportedAsset.ExportFormat.JSONL
 # well under the web tier's request timeout.
 RENDER_TIMEOUT = timedelta(seconds=90)
 _MAX_IMAGE_PIXELS = 25_000_000
+_PNG_MODES = frozenset({"1", "L", "LA", "I", "I;16", "P", "RGB", "RGBA"})
 EXPORT_WORKFLOW_TIMEOUT = timedelta(minutes=35)
 
 
@@ -245,8 +246,11 @@ def _as_png(content: bytes) -> bytes | None:
                 image.verify()
                 return content
             image.load()
+            png_ready: Image.Image = image
+            if image.mode not in _PNG_MODES:
+                png_ready = image.convert("RGBA" if "A" in image.getbands() else "RGB")
             output = io.BytesIO()
-            image.save(output, format="PNG")
+            png_ready.save(output, format="PNG")
             return output.getvalue()
     except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError):
         return None

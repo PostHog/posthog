@@ -66,6 +66,44 @@ _CANVAS_ID = "0192f0a0-0000-4000-8000-000000000002"
 _RUN_ID = "0192f0a0-0000-4000-8000-000000000003"
 
 
+def _create_task_artifact(
+    team: Team,
+    user: User,
+    run_state: dict | None = None,
+    project_id: int | None = None,
+    name: str = "report.md",
+    content_type: str = "text/markdown",
+    artifacts_tab_link: bool = False,
+) -> str:
+    task = Task.objects.create(
+        team=team,
+        created_by=user,
+        title="Fix checkout",
+        description="",
+        origin_product=Task.OriginProduct.USER_CREATED,
+    )
+    run = TaskRun.objects.create(
+        task=task,
+        team=team,
+        state=run_state or {},
+        artifacts=[
+            {
+                "id": "file-1",
+                "name": name,
+                "type": "artifact",
+                "size": 2048,
+                "content_type": content_type,
+                "storage_path": f"tasks/artifacts/run_1/file-1_{name}",
+                "uploaded_at": "2026-10-01T12:00:00+00:00",
+            }
+        ],
+    )
+    project = project_id or team.pk
+    if artifacts_tab_link:
+        return f"http://testserver/project/{project}/ai?task={task.id}&artifact={name}"
+    return f"http://testserver/api/projects/{project}/tasks/{task.id}/runs/{run.id}/artifacts/file-1/download/"
+
+
 class TestParsePosthogResourceLink:
     @parameterized.expand(
         [
@@ -829,14 +867,14 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                     "View pull request",
                 ]
             case "task_artifacts_tab":
-                return self._create_task_artifact(artifacts_tab_link=True), [
+                return _create_task_artifact(self.team, self.user, artifacts_tab_link=True), [
                     "report.md",
                     "Task: Fix checkout",
                     "artifact_version=file-1",
                     "Download",
                 ]
             case "task_artifact":
-                return self._create_task_artifact(), [
+                return _create_task_artifact(self.team, self.user), [
                     "report.md",
                     "2.0 KB",
                     "Task: Fix checkout",
@@ -859,104 +897,37 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 ]
         raise ValueError(kind)
 
-    def _create_task_artifact(
-        self,
-        run_state: dict | None = None,
-        project_id: int | None = None,
-        name: str = "report.md",
-        content_type: str = "text/markdown",
-        artifacts_tab_link: bool = False,
-    ) -> str:
-        task = Task.objects.create(
-            team=self.team,
-            created_by=self.user,
-            title="Fix checkout",
-            description="",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-        run = TaskRun.objects.create(
-            task=task,
-            team=self.team,
-            state=run_state or {},
-            artifacts=[
-                {
-                    "id": "file-1",
-                    "name": name,
-                    "type": "artifact",
-                    "size": 2048,
-                    "content_type": content_type,
-                    "storage_path": f"tasks/artifacts/run_1/file-1_{name}",
-                    "uploaded_at": "2026-10-01T12:00:00+00:00",
-                }
-            ],
-        )
-        project = project_id or self.team.pk
-        if artifacts_tab_link:
-            return f"http://testserver/project/{project}/ai?task={task.id}&artifact={name}"
-        return f"http://testserver/api/projects/{project}/tasks/{task.id}/runs/{run.id}/artifacts/file-1/download/"
-
-    @parameterized.expand(
-        [
-            ("png", "chart.png", "image/png", "PNG", True, True),
-            ("jpeg_shown_as_png", "photo.jpg", "image/jpeg", "JPEG", True, True),
-            ("bytes_are_not_an_image", "chart.png", "image/png", None, True, False),
-            ("public_sharing_off", "chart.png", "image/png", "PNG", False, False),
-            ("file_type_is_not_an_image", "report.md", "text/markdown", None, True, False),
-        ]
-    )
-    @override_settings(SITE_URL="https://app.example.com")
-    @patch("products.slack_app.backend.tasks.add_slack_unfurl_artifact_image.delay")
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @parameterized.expand([("deactivated", "user"), ("task_access_removed", "access_control")])
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
-    def test_task_artifact_image_shows_in_its_card(
-        self,
-        _name: str,
-        name: str,
-        content_type: str,
-        image_format: str | None,
-        public_sharing: bool,
-        expect_image: bool,
-        mock_slack_integration_class: MagicMock,
-        mock_resolve: MagicMock,
-        mock_delay: MagicMock,
+    def test_artifact_image_job_rechecks_access(
+        self, _name: str, revoke: str, mock_slack_integration_class: MagicMock
     ) -> None:
-        # Runs the queued task in process, through JSON like the Celery broker.
-        mock_delay.side_effect = lambda **kwargs: add_slack_unfurl_artifact_image(**json.loads(json.dumps(kwargs)))
-        self.organization.allow_publicly_shared_resources = public_sharing
-        self.organization.save()
-        content = b"<html>not an image</html>"
-        if image_format:
-            buffer = io.BytesIO()
-            Image.new("RGB", (4, 4), "red").save(buffer, format=image_format)
-            content = buffer.getvalue()
-        url = self._create_task_artifact(name=name, content_type=content_type)
-        mock_resolve.return_value = MagicMock(user=self.user)
-        mock_client = mock_slack_integration_class.return_value.client
-        read_bytes = object_storage.read_bytes
+        url = _create_task_artifact(self.team, self.user, name="chart.png", content_type="image/png")
+        member = User.objects.create_and_join(self.organization, "member@posthog.com", "password")
+        Task.objects.filter(team=self.team).update(created_by=member)
+        if revoke == "user":
+            member.is_active = False
+            member.save()
+        else:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            AccessControl.objects.create(resource="task", team=self.team, access_level="none")
 
-        with patch(
-            "posthog.storage.object_storage.read_bytes",
-            side_effect=lambda path, *args, **kwargs: (
-                content if path.startswith("tasks/artifacts/") else read_bytes(path, *args, **kwargs)
-            ),
-        ):
-            self._unfurl_links([url])
+        with patch("posthog.storage.object_storage.read_bytes") as mock_read_bytes:
+            add_slack_unfurl_artifact_image(
+                team_id=self.team.pk,
+                integration_id=self.integration.id,
+                user_id=member.pk,
+                event={"channel": "C1", "message_ts": "123.456", "user": "U1"},
+                unfurls={url: {"blocks": []}},
+                url=url,
+                title="chart.png",
+            )
 
-            if not expect_image:
-                mock_client.chat_unfurl.assert_called_once()
-                return
-            unfurl = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]
-            self._assert_slack_accepts(unfurl)
-            types = [block["type"] for block in unfurl["blocks"]]
-            assert types.index("image") == types.index("actions") - 1
-            image_url = urlparse(unfurl["blocks"][types.index("image")]["image_url"])
-            assert image_url.netloc == "app.example.com"
-            self.client.logout()
-            response = self.client.get(f"{image_url.path}?{image_url.query}")
-
-        assert response.status_code == 200
-        with Image.open(io.BytesIO(response.getvalue())) as served:
-            assert served.format == "PNG"
+        mock_read_bytes.assert_not_called()
+        mock_slack_integration_class.return_value.client.chat_unfurl.assert_not_called()
 
     @parameterized.expand(
         [
@@ -976,7 +947,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         mock_slack_integration_class: MagicMock,
         mock_resolve: MagicMock,
     ) -> None:
-        url = self._create_task_artifact(run_state, project_id)
+        url = _create_task_artifact(self.team, self.user, run_state, project_id)
         sharer = (
             User.objects.create_and_join(self.organization, "other-member@posthog.com", "password")
             if shared_by_other_member
@@ -1033,6 +1004,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             ("cohort", "cohort"),
             ("error", "error_tracking"),
             ("report", "task"),
+            ("task", "task"),
+            ("task_artifact", "task"),
         ]
     )
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -1325,6 +1298,88 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
         assert "internal only" not in text
+
+
+# Kept apart from TestHandlePosthogLinkUnfurl: that class builds a TrendsQuery in setUp, and the
+# model-crossing invariant counts it as run by any test in the class that calls the test client.
+@pytest.mark.django_db
+class TestTaskArtifactImageUnfurl(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="TSlack01",
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    @parameterized.expand(
+        [
+            ("png", "chart.png", "image/png", "PNG", True, True),
+            ("jpeg_shown_as_png", "photo.jpg", "image/jpeg", "JPEG", True, True),
+            ("cmyk_jpeg_shown_as_png", "print.jpg", "image/jpeg", "CMYK", True, True),
+            ("bytes_are_not_an_image", "chart.png", "image/png", None, True, False),
+            ("public_sharing_off", "chart.png", "image/png", "PNG", False, False),
+            ("file_type_is_not_an_image", "report.md", "text/markdown", None, True, False),
+        ]
+    )
+    @override_settings(SITE_URL="https://app.example.com")
+    @patch("products.slack_app.backend.tasks.add_slack_unfurl_artifact_image.delay")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_task_artifact_image_shows_in_its_card(
+        self,
+        _name: str,
+        name: str,
+        content_type: str,
+        image_format: str | None,
+        public_sharing: bool,
+        expect_image: bool,
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+        mock_delay: MagicMock,
+    ) -> None:
+        # Runs the queued task in process, through JSON like the Celery broker.
+        mock_delay.side_effect = lambda **kwargs: add_slack_unfurl_artifact_image(**json.loads(json.dumps(kwargs)))
+        self.organization.allow_publicly_shared_resources = public_sharing
+        self.organization.save()
+        content = b"<html>not an image</html>"
+        if image_format:
+            buffer = io.BytesIO()
+            mode = "CMYK" if image_format == "CMYK" else "RGB"
+            Image.new(mode, (4, 4)).save(buffer, format="JPEG" if image_format == "CMYK" else image_format)
+            content = buffer.getvalue()
+        url = _create_task_artifact(self.team, self.user, name=name, content_type=content_type)
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = mock_slack_integration_class.return_value.client
+        read_bytes = object_storage.read_bytes
+
+        with patch(
+            "posthog.storage.object_storage.read_bytes",
+            side_effect=lambda path, *args, **kwargs: (
+                content if path.startswith("tasks/artifacts/") else read_bytes(path, *args, **kwargs)
+            ),
+        ):
+            handle_posthog_link_unfurl(
+                {"channel": "C1", "message_ts": "123.456", "user": "U1", "links": [{"url": url}]},
+                self.integration,
+            )
+
+            if not expect_image:
+                mock_client.chat_unfurl.assert_called_once()
+                return
+            unfurl = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]
+            TestHandlePosthogLinkUnfurl._assert_slack_accepts(unfurl)
+            types = [block["type"] for block in unfurl["blocks"]]
+            assert types.index("image") == types.index("actions") - 1
+            image_url = urlparse(unfurl["blocks"][types.index("image")]["image_url"])
+            assert image_url.netloc == "app.example.com"
+            self.client.logout()
+            response = self.client.get(f"{image_url.path}?{image_url.query}")
+
+        assert response.status_code == 200
+        with Image.open(io.BytesIO(response.getvalue())) as served:
+            assert served.format == "PNG"
 
 
 @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
