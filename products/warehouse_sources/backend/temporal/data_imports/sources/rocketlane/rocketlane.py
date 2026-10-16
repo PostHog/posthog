@@ -28,7 +28,7 @@ ROCKETLANE_BASE_URL = "https://api.rocketlane.com/api/1.0"
 DEFAULT_PROBE_PATH = "/users"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class RocketlaneResumeConfig:
     # Opaque cursor for the next page. Rocketlane returns a `nextPageToken` alongside `hasMore`; a
     # crashed full-refresh sync resumes from the last token it persisted. Note: Rocketlane tokens are

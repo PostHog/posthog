@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class RocketlaneEndpointConfig:
     name: str
     path: str
