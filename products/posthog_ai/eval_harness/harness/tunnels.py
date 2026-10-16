@@ -7,11 +7,11 @@ import shutil
 import socket
 import logging
 import subprocess
-import http.client
-import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ callbacks; each requested service is assigned one in the order the caller lists
 them."""
 
 
-PUBLIC_DNS_HOST = "cloudflare-dns.com"
+PUBLIC_DNS_URL = "https://cloudflare-dns.com/dns-query"
 FUNNEL_READY_TIMEOUT_SECONDS = 300
 FUNNEL_READY_ROUNDS = 3
 """Consecutive rounds in which every relay must answer every service. A relay switches cleanly
@@ -137,16 +137,14 @@ def _public_ips(host: str) -> list[str]:
     The local resolver returns this node's tailnet address, which skips the Funnel relays that
     a Modal sandbox connects to, so the readiness probe has to ask a public resolver.
     """
-    query = urllib.parse.urlencode({"name": host, "type": "A"})
-    connection = http.client.HTTPSConnection(PUBLIC_DNS_HOST, timeout=FUNNEL_PROBE_TIMEOUT_SECONDS)
-    try:
-        connection.request("GET", f"/dns-query?{query}", headers={"accept": "application/dns-json"})
-        response = connection.getresponse()
-        if response.status != 200:
-            raise OSError(f"public DNS returned HTTP {response.status}")
-        payload = json.load(response)
-    finally:
-        connection.close()
+    response = requests.get(
+        PUBLIC_DNS_URL,
+        params={"name": host, "type": "A"},
+        headers={"accept": "application/dns-json"},
+        timeout=FUNNEL_PROBE_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    payload = response.json()
     return sorted({answer["data"] for answer in payload.get("Answer", []) if answer.get("type") == 1})
 
 
