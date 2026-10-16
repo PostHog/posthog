@@ -39,6 +39,7 @@ import {
     groupSendsByDay,
     isScheduledEmailFlow,
     matchesTypeFilter,
+    moveBlockedReason,
     movedScheduleFields,
     periodLabel,
     sendAudience,
@@ -363,6 +364,14 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
         applyMove: async ({ send, days, at }) => {
             const previous = send.schedule
             if (!previous) {
+                return
+            }
+            // The calendar loads once, so a send can look planned after it went out. Saving a move then would
+            // send it again, so check now and reload to show what really happened.
+            const blockedReason = moveBlockedReason(send, dayjs())
+            if (blockedReason) {
+                lemonToast.error(`Couldn't move ${send.name}. ${blockedReason}`)
+                actions.loadScheduledFlows()
                 return
             }
             const fields = movedScheduleFields(previous, days, dayjs())

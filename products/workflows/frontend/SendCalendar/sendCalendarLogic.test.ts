@@ -110,6 +110,20 @@ describe('sendCalendarLogic', () => {
         expect(savedStart()).toEqual(SCHEDULE.starts_at)
     })
 
+    it('refuses to move a send whose time passed while the calendar was open, and reloads', async () => {
+        const send = logic.values.sends.find((item) => item.flowId === FLOW.id)!
+        const elapsed = { ...send, at: dayjs.utc().subtract(1, 'hour') }
+
+        await expectLogic(logic, () => logic.actions.applyMove(elapsed, 2, MOVED_AT.toISOString())).toDispatchActions([
+            'loadScheduledFlows',
+        ])
+
+        expect(hogFlowsSchedulesPartialUpdate).not.toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalledWith(
+            "Couldn't move October product update. This send already went out."
+        )
+    })
+
     it('puts the send back when the server rejects the move', async () => {
         jest.mocked(hogFlowsSchedulesPartialUpdate).mockRejectedValue({
             detail: 'Schedule must have at least one future occurrence.',
