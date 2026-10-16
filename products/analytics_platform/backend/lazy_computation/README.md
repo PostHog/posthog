@@ -117,7 +117,7 @@ query = parse_select(
 
 ### Variable TTL
 
-The `ttl_seconds` parameter accepts an `int` (uniform TTL), a `dict` mapping date strings to TTL values in seconds, or a prebuilt `TtlSchedule` (see below). Dict keys are parsed using `relative_date_parse` with the team's timezone:
+The `ttl_seconds` parameter accepts either an `int` (uniform TTL) or a `dict` mapping date strings to TTL values in seconds. Dict keys are parsed using `relative_date_parse` with the team's timezone:
 
 - `"0d"` — cutoff at start of today: windows from today onward match
 - `"1d"` — cutoff at start of yesterday: windows from yesterday onward match
@@ -129,126 +129,30 @@ The `ttl_seconds` parameter accepts an `int` (uniform TTL), a `dict` mapping dat
 
 Rules are matched most-specific first (shortest period wins). On the **read path**, existing jobs that are too stale for the requested TTL are skipped and recomputed. On the **write path**, each job is created with the TTL appropriate for its date range — ranges with different TTLs are never merged into a single job.
 
-### TTL schedules
+## Design decisions
 
-`TtlSchedule` (in `lazy_computation_executor.py`) is the parsed form of a TTL spec.
-Build one with `parse_ttl_schedule(ttl, team_timezone, ...)` and pass it as `ttl_seconds` when you need more than per-band TTLs.
-`ensure_precomputed` uses a passed schedule as is.
-In that case it ignores its own `empty_result_ttl_seconds` and `empty_result_max_age_seconds` kwargs, so set those on the schedule instead.
-
-```python
-schedule = parse_ttl_schedule(
-    {"0d": 4 * 60 * 60, "1d": 6 * 60 * 60, "default": 7 * 24 * 60 * 60},
-    team.timezone,
-    max_window_days=7,
-    settling_period_seconds=24 * 60 * 60,
-)
-result = ensure_precomputed(
-    team=team,
-    insert_query="...",
-    time_range_start=start,
-    time_range_end=end,
-    ttl_seconds=schedule,
-)
-```
-
-| Field                          | What it does                                                                                                                                                                                                                                                                                          |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `max_window_days`              | Caps how many days `split_ranges_by_ttl` merges into one job, independent of TTL bands. Use it to bound the GROUP BY of a single INSERT. `None` leaves job width uncapped.                                                                                                                            |
-| `settling_period_seconds`      | How long after `time_range_end` the window's data can still change. A job computed before `time_range_end + settling_period` is fresh only until that moment, so it recomputes once the data is final instead of keeping an in-motion snapshot for a long band TTL.                                   |
-| `invalidate_at_window_start`   | Rejects a job computed before its window started once the window start passes, even within the stale grace. Use it when you warm future windows in advance.                                                                                                                                           |
-| `empty_result_ttl_seconds`     | Caps the TTL of a job whose INSERT wrote zero rows. Use it for sources that can lag (data warehouse tables), where empty can mean "not synced yet". Leave it unset for event tables, where empty means empty. The job counters label these jobs `ready_empty`.                                        |
-| `empty_result_max_age_seconds` | Limits the empty-result cap to windows whose end is at most this old when the job is computed. Older empty windows keep their full band TTL.                                                                                                                                                          |
-| `default_ttl_jitter_seconds`   | Adds a stable per-window offset in `[0, jitter)` to the `default` band TTL, so windows built on the same day do not all expire together. The offset comes from the window start date, so a rebuild gets the same offset. Use it only for immutable data. Rule-matched (recent) windows get no jitter. |
-
-All TTL values must be positive; `parse_ttl_schedule` raises `ValueError` otherwise.
+Why the executor works the way it does, and what went wrong without each piece.
+The code holds the current values.
 
 ### Freshness and expiry
 
-Each job carries two clocks, and they come from different callers:
+- **Freshness is per reader, expiry is per creator (#47942).** A job's `expires_at` comes from the TTL of the caller that built it, but each reader judges freshness against its own schedule. Callers with different freshness needs share one job, and a stricter reader builds a replacement instead of forcing its TTL on everyone.
+- **No force-rebuild parameter.** A builder that wants a window rebuilt early gives it a shorter TTL, which makes the existing job stale for that builder only. The shorter TTL also stamps a shorter `expires_at` on the new job, so readers rely on stale-while-revalidate to cover the gap until the next build.
+- **Stale-while-revalidate (#70080).** User reads that would block on a rebuild get recently expired, complete rows at once, and the caller rebuilds in the background. The grace stays under the ClickHouse expiry buffer, because the rows are deleted after it.
+- **Refreshers never get the grace (#70563).** A refresher served its own stale rows stores them as a fresh result and never recomputes, so nothing refreshes again. The rule lives in `stale_policy.py` so every product uses the same one.
 
-- **`expires_at`** is stamped once, by the caller that creates the job: creation time plus that caller's band TTL for the window (`create_lazy_computation_job`).
-  `find_existing_jobs` drops every job past its `expires_at`, so no reader can use a job beyond the creator's TTL.
-  ClickHouse keeps the rows `EXPIRY_BUFFER_SECONDS` (48 hours) longer, so reads already in flight still find their data.
-- **Freshness** is judged by each reader, as `created_at` plus the reader's own TTL for the window (`LazyComputationExecutor._filter_by_freshness`).
-  The settling period and `invalidate_at_window_start` of the reader's schedule apply here too.
-  A reader with a stricter schedule rejects a job that a more lenient creator made, and builds a replacement.
+### TTL schedule options
 
-There is no force-rebuild or refresh-ahead parameter.
-A builder that wants to rebuild a window before its TTL runs out uses a shorter TTL for that window, because a shorter TTL makes the existing job stale for that builder.
-The shorter TTL also stamps a shorter `expires_at` on the job it builds, so other readers lose that job sooner.
-Readers bridge the gap between expiry and the next build with stale-while-revalidate.
+- **Settling period (#69554).** Web analytics sessions keep changing for 24 hours after a window ends. Jobs built before then froze in-motion bounce and duration values for a multi-day band TTL, mostly on the UTC edge windows of non-UTC teams.
+- **Empty-result cap (#77835).** A data warehouse source that had not synced yet produced zero-row jobs, which served $0 cost days for the full band TTL. Empty jobs now expire sooner, but only while a late sync could still fill the window, so old history is not rescanned forever.
+- **Default-band jitter (#96576).** A backfill built every frozen chunk on the same day, so all chunks expired together and the next read rebuilt the whole history. A stable per-window offset spreads those expiries.
+- **Window-start invalidation (#105883).** A warmer that builds a window before it starts left an early snapshot that hid the data arriving once the window began. Such a snapshot is rejected at the window start, even within the stale grace.
+- **Job width cap.** One GROUP BY over a high-cardinality team grows with the window, and a memory bump does not keep up with the largest teams. The same data fits over a narrower window, so callers cap job width and pin a team to 1-day jobs after an OOM (#64394).
 
-### Stale-while-revalidate
+### Inserts
 
-`stale_while_revalidate_seconds` follows the HTTP `stale-while-revalidate` directive (RFC 5861).
-When a request would otherwise build inline or wait on another executor's PENDING job, the executor looks for READY jobs that expired at most N seconds ago.
-If those jobs cover the whole range, it returns them at once with `stale=True` and logs the outcome `stale_hit`.
-The caller then has to trigger a background rebuild, or it serves stale data until the grace runs out.
-
-- The value must stay below `EXPIRY_BUFFER_SECONDS`, because ClickHouse deletes the rows after that buffer. The executor raises `ValueError` otherwise.
-- A background refresher must never take the grace. A refresher that gets its own stale rows does not recompute them, so nothing refreshes again.
-- Use `stale_policy.resolve_stale_while_revalidate_seconds(grace, extra_triggers)` to pick the value. It returns `None` for refreshers and the grace for user reads.
-- `stale_policy.is_background_warming_request` treats a request as a refresher when it carries the `CACHE_WARMUP` feature tag or a known warmer trigger (`SHARED_BACKGROUND_WARMING_TRIGGERS`, plus the product's own triggers).
-
-### Check-only mode
-
-`run_inserts=False` makes the call read-only.
-It never creates a job and never waits on a PENDING one.
-The result is `ready=True` when fresh READY jobs (or stale ones within the grace) cover the range.
-Otherwise it is `ready=False` at once, with the outcome `check_miss`.
-Use it on user-facing paths that have a live fallback and build in the background instead.
-
-### Other `ensure_precomputed` options
-
-| Kwarg                   | Use it to                                                                                                                                                                                                                                       |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sentinel_placeholders` | Keep a placeholder value out of the job hash. Name placeholders whose values change per request (for example a `now()` value). They hash as fixed sentinels and get their real values at INSERT time. Each name must also be in `placeholders`. |
-| `modifiers`             | Set the HogQL modifiers used to print the INSERT. Modifiers are **not** part of the job hash.                                                                                                                                                   |
-| `cache_key_context`     | Version result semantics that the substituted AST does not show, such as a result-changing modifier. It goes into the job hash, so a new value starts a new set of jobs. Omit it when empty so existing jobs keep matching.                     |
-| `end_is_data_horizon`   | Clamp the last job's claim to `time_range_end` when the INSERT bakes that end into its own filters. Applies only to an end on a past UTC day. Leave it `False` when the INSERT fills whole days, or every distinct `end` creates a new job.     |
-| `read_after_write`      | Set `False` when nothing reads the rows in the same request (background builders). It skips the replica-quorum wait. `result.freshly_built` then tells the caller not to read the new jobs in the same request.                                 |
-| `spill_to_disk`         | Let a large GROUP BY spill to disk instead of failing with a memory error. Opt in for high-cardinality INSERTs.                                                                                                                                 |
-| `insert_settings`       | Override ClickHouse settings on every INSERT. Applied last, over the defaults and `spill_to_disk`.                                                                                                                                              |
-| `database`              | Pass a prebuilt HogQL `Database` so each INSERT does not rebuild the team's schema. Build it once per team, with the same `modifiers`.                                                                                                          |
-| `wait_timeout_seconds`  | Set the wall-clock budget for the build-and-wait loop (default 180 seconds). The loop checks it before each INSERT and while waiting. Completed windows stay READY even when the call times out.                                                |
-| `query_type`            | Tag each INSERT in `system.query_log` so its cost is attributable to a query family.                                                                                                                                                            |
-
-### The result
-
-`ensure_precomputed` returns a `LazyComputationResult`:
-
-| Field             | Meaning                                                                                                                                               |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ready`           | `True` when READY jobs cover the whole range. The executor never returns partial coverage.                                                            |
-| `job_ids`         | The jobs to read, after overlap filtering keeps the newest job for each window. Always filter the read by time range too, because a job can be wider. |
-| `stale`           | `True` when the jobs came from the stale-while-revalidate grace. Trigger a background rebuild.                                                        |
-| `memory_exceeded` | `True` when an INSERT failed with a ClickHouse memory limit error. Callers use it to cap later INSERTs, for example with `max_window_days`.           |
-| `freshly_built`   | `True` when some coverage landed during this call. A caller with `read_after_write=False` must not read these jobs in the same request.               |
-| `computed_at`     | The oldest `computed_at` across the served jobs, for a "data as of" label. `None` when nothing was served.                                            |
-| `errors`          | Error messages from failed attempts.                                                                                                                  |
-
-### Non-retryable errors
-
-Some ClickHouse errors fail the call at once instead of using the retry budget (`NON_RETRYABLE_CLICKHOUSE_ERROR_CODES`).
-They include query errors (syntax, unknown identifiers, type mismatches), `TIMEOUT_EXCEEDED`, and `TOO_MANY_SIMULTANEOUS_QUERIES`.
-Two of them matter most for sizing:
-
-- **`MEMORY_LIMIT_EXCEEDED`**: a retry with the same window adds load to a cluster that is already out of memory. The result sets `memory_exceeded=True`.
-- **`TOO_MANY_ROWS_OR_BYTES`** (the read-byte cap): the data does not shrink between attempts, so a retry fails the same way.
-
-The caller falls back to its live path and can narrow later windows.
-
-### Invalidating stored precompute
-
-Staff can invalidate a team's stored precompute with `POST /api/projects/:id/precompute_debug/invalidate/` (`PrecomputeDebugViewSet.invalidate` in `products/analytics_platform/backend/api/precompute_debug.py`).
-
-- It marks the team's READY jobs as STALE, so the next build pass for each window computes it again.
-- Pass `query_hash` to limit it to one hash.
-- PENDING jobs stay as they are. The response counts them as `pending_count`, because a job that started before a source resync can still finish with old data. Invalidate again once they finish.
-- Use it after the underlying data changes, for example after a data warehouse resync.
-
-`GET .../precompute_debug/state/` on the same viewset lists the stored hashes, their buckets, and their TTLs.
+- **Data-horizon clamp (#97251).** An experiment build "as of" a past moment inserted half a day but recorded the whole day as covered, so the missing hours were never rebuilt. Callers whose INSERT stops at `end` opt in, and the partial day becomes its own job.
+- **Skipping replica quorum (#103220).** One down or stale-registered aux replica made every quorum INSERT fail, so precompute stopped region-wide. Background builders read their rows minutes later, so they skip quorum with `read_after_write=False`.
 
 ## Concurrency and race conditions
 
@@ -299,11 +203,11 @@ Each invocation of the executor emits both a structured log and Prometheus count
 
 `lazy_computation_executions_total` is incremented once per `executor.execute()` call, with labels:
 
-| label         | values                                                                                         |
-| ------------- | ---------------------------------------------------------------------------------------------- |
-| `outcome`     | `success`, `stale_hit`, `check_miss`, `timeout`, `non_retryable_error`, `max_retries_exceeded` |
-| `cache_state` | `hit`, `partial_hit`, `miss` — see below                                                       |
-| `table`       | the lazy table being populated (e.g. `preaggregation_results`)                                 |
+| label         | values                                                              |
+| ------------- | ------------------------------------------------------------------- |
+| `outcome`     | `success`, `timeout`, `non_retryable_error`, `max_retries_exceeded` |
+| `cache_state` | `hit`, `partial_hit`, `miss` — see below                            |
+| `table`       | the lazy table being populated (e.g. `preaggregation_results`)      |
 
 #### Job-level
 
@@ -399,5 +303,5 @@ The `lazy_computation.executed` log line carries the same `outcome`, `cache_stat
 ## TODOs
 
 - While we are waiting, we block an entire django thread despite not doing any useful work. We should make it easier for people to use e.g. celery with this, this would involve using async queries though.
-- Crashed PENDING jobs are marked FAILED, not STALE. Only the staff invalidate endpoint sets STALE.
+- Crashed PENDING jobs are marked FAILED, not STALE. Only the staff invalidate endpoint (`precompute_debug`) sets STALE.
 - Add posthog logging for state transitions

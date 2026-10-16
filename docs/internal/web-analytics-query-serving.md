@@ -34,7 +34,7 @@ request
   │     only an explicit useWebAnalyticsPrecompute: false rejects
   │   shape: family dispatch (see per-runner tables), no conversion goal,
   │     no sampling, integer timezone, `sessionsV2JoinMode` ≠ uuid,
-  │     range ≤ 366d, filters events-evaluable
+  │     range ≤ MAX_PRECOMPUTE_DAYS, filters events-evaluable
   │     (restricted teams: single exact $host only)
   │   freshness: all day-buckets fresh per TTL band ──▶ serve *_lazy_query (~80–200ms)
   │     expired within the SWR grace (default 4h) ──▶ serve stale + enqueue revalidation
@@ -166,11 +166,8 @@ Full details in [PRECOMPUTATION.md](../../products/web_analytics/PRECOMPUTATION.
 - Stale-while-revalidate: 4h grace by default, set by `WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS` (read per call, so a new env value applies once the process restarts; must stay under the framework's 48h ClickHouse expiry buffer, which the executor enforces). User reads inside the grace get the stale row instantly (tagged `precompute_stale=true`) with a Celery revalidation enqueued (10-min debounce). Background warmers and forced refreshes are never served stale — they are the refresh.
 - Session settling: 24h forward pad on event scans, matching the SDK session length cap.
 - OOM protection: a team that OOMs during a build gets Redis-pinned for 14 days to 1-day insert windows.
-- Max range: 366 days (`MAX_PRECOMPUTE_DAYS`); wider requests are permanently live.
-- Job width: `LAZY_MAX_WINDOW_DAYS` caps each build job at 7 days (1 day for an OOM-pinned team). Clear a pin with the manual Dagster job `web_analytics_clear_precompute_oom_pins`.
-- Forced refresh: a user forced refresh gets no stale grace, and it treats the current team-local day's bucket as expired (a 1-second TTL rule) for that read only. The read serves live and the background warm rebuilds the bucket. Background requests never get the 1-second rule, because the same schedule stamps `expires_at` on the jobs they build.
-- Revalidation limits: each team gets at most 25 revalidation enqueues per 10-minute window, and each task starts 20 seconds after the enqueue so it does not compete with the dashboard load.
-- Sticky warm set: a shape that check-misses twice within 24 hours joins a Redis set that the hourly demand warmer adds to its warm pass.
+- Max range: `MAX_PRECOMPUTE_DAYS`; wider requests are permanently live.
+- Framework rationale (freshness, stale grace, settling, OOM pin): see [design decisions](../../products/analytics_platform/backend/lazy_computation/README.md#design-decisions).
 
 ## Session-grain precompute schema
 
@@ -229,7 +226,7 @@ Suffix conventions: `*_lazy_query` = bucket read (served from precompute), `*_la
 
 Find the request in query_log and check `query_type`.
 A `*_lazy_query` taking seconds is a bucket-read problem (rare).
-A fast-path or full-join tag on an enrolled team means the lazy gate rejected the query (filters, avg-time-on-page, >366d range, opt-out) or the buckets weren't fresh — in which case a background warm is already in flight and the next identical request should hit.
+A fast-path or full-join tag on an enrolled team means the lazy gate rejected the query (filters, avg-time-on-page, range over `MAX_PRECOMPUTE_DAYS`, opt-out) or the buckets weren't fresh — in which case a background warm is already in flight and the next identical request should hit.
 
 Conversion goal property filters accept event, person, session and cohort filters. Unsupported filter types fail query validation. `includeTrafficMetrics` also retains session counts for page breakdowns with bounce rate or average time on page, including the join-free strategies.
 
