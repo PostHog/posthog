@@ -331,6 +331,76 @@ describe('messageTemplateLogic', () => {
         })
     })
 
+    describe('transactional drafts', () => {
+        const live = { templating: 'liquid', email: { subject: 'Live subject', html: '<p>Live</p>' } }
+        const draft = { templating: 'liquid', email: { subject: 'Draft subject', html: '<p>Draft</p>' } }
+        const serverTemplate = {
+            id: 'existing-id',
+            name: 'Existing',
+            content: live,
+            draft_content: draft,
+            transactional_hog_flow_id: 'flow-id',
+            updated_at: '2026-01-01T00:00:00Z',
+        }
+        let bodies: Record<string, unknown>[]
+
+        beforeEach(async () => {
+            bodies = []
+            const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+                const body = (await request.json()) as Record<string, unknown>
+                bodies.push(body)
+                // Saving the content publishes it and the server clears the draft.
+                return [
+                    200,
+                    'content' in body
+                        ? { ...serverTemplate, ...body, draft_content: null }
+                        : { ...serverTemplate, ...body, updated_at: '2026-01-01T00:01:00Z' },
+                ]
+            }
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': serverTemplate },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': patch,
+                    '/api/projects/:team_id/messaging_templates/:id/': patch,
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('edits the draft and saves edits to it without touching the live content', async () => {
+            expect(logic.values.template.content).toEqual(draft)
+            jest.useFakeTimers()
+            const edited = { ...draft, email: { ...draft.email, subject: 'Edited subject' } }
+
+            logic.actions.setTemplateValue('content', edited)
+            await jest.advanceTimersByTimeAsync(1500)
+            await expectLogic(logic).toDispatchActions(['saveDraftDone']).toMatchValues({
+                hasDraft: true,
+                hasUnsavedChanges: false,
+            })
+
+            expect(bodies).toEqual([{ draft_content: edited }])
+        })
+
+        it('publishing sends the content and leaves no draft behind', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.submitTemplate()
+            })
+                .toDispatchActions(['saveTemplateSuccess'])
+                .toMatchValues({ hasDraft: false, hasUnsavedChanges: false })
+
+            expect(bodies).toHaveLength(1)
+            expect(bodies[0].content).toEqual(draft)
+            expect(bodies[0]).not.toHaveProperty('draft_content')
+        })
+    })
+
     describe('make transactional', () => {
         it('keeps edits made while the conversion runs', async () => {
             useMocks({
