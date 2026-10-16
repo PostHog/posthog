@@ -138,6 +138,16 @@ class TaskRunTokenUsage:
     complete: bool
 
 
+@dataclass(frozen=True, kw_only=True)
+class TaskRunSpend:
+    run_id: UUID
+    task_id: UUID
+    cost_microusd: int | None
+    complete: bool
+    is_terminal: bool
+    stage: str
+
+
 @dataclass(frozen=True)
 class TaskRunCost:
     """Provider costs in integer USD cents, or None while a source is unavailable or incomplete."""

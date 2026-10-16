@@ -1880,15 +1880,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     and self.context.origin_product in {_ORIGIN_PRODUCT_SIGNAL_REPORT, "signals_scout"}
                     and workflow.patched("signals-publish-spend-on-completion")
                 ):
-                    try:
-                        await workflow.execute_activity(
-                            complete_signal_spend,
-                            run_id,
-                            start_to_close_timeout=timedelta(minutes=20),
-                            retry_policy=RetryPolicy(maximum_attempts=1),
-                        )
-                    except Exception:
-                        workflow.logger.exception("Failed to finalize signal spend", extra={"run_id": run_id})
+                    await workflow.execute_activity(
+                        complete_signal_spend,
+                        run_id,
+                        start_to_close_timeout=timedelta(minutes=1),
+                        schedule_to_close_timeout=timedelta(minutes=15),
+                        retry_policy=RetryPolicy(
+                            initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=30)
+                        ),
+                    )
 
     async def _provision_and_start_agent(self, input: ProcessTaskInput, run_id: str) -> tuple[str, str, str | None]:
         """Initial-run setup: resolve agent-design, provision the sandbox, start the agent

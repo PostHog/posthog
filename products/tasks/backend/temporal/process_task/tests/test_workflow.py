@@ -2929,10 +2929,13 @@ class TestProcessTaskWorkflowUnit:
         # loop-free unit test doesn't have.
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
 
+        finish_spend = AsyncMock()
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", finish_spend)
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
 
         assert result.success is True
         update_task_run_status_mock.assert_any_await(expected_status, **expected_kwargs)
+        assert finish_spend.await_count == (1 if origin_product == "signal_report" else 0)
 
     @pytest.mark.parametrize(
         "create_pr, pr_progress_emitted, ci_repetitions, expected",

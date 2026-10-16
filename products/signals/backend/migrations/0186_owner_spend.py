@@ -33,8 +33,13 @@ class Migration(migrations.Migration):
                     "task_ids",
                     django.contrib.postgres.fields.ArrayField(base_field=models.UUIDField(), default=list, size=None),
                 ),
-                ("sources", models.JSONField(default=dict)),
-                ("pending_work", models.JSONField(default=list)),
+                ("llm_cost_microusd", models.BigIntegerField(default=0)),
+                (
+                    "llm_failed_stages",
+                    django.contrib.postgres.fields.ArrayField(
+                        base_field=models.CharField(max_length=100), default=list, size=None
+                    ),
+                ),
                 ("usage_based_billing", models.BooleanField(default=False, null=True)),
                 ("billing_exempt", models.BooleanField(default=False)),
                 ("billing_amounts", models.JSONField(default=dict)),

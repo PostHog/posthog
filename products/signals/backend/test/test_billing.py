@@ -523,7 +523,7 @@ class TestSpendBasedBilling(BaseTest):
         begin = _at(day, 0)
         return dict(get_signals_billing_credits_by_team(begin, begin + timedelta(days=1), organization_id))
 
-    def test_unfinished_and_unknown_spend_waits_until_settled(self) -> None:
+    def test_unknown_generation_cost_never_becomes_billable(self) -> None:
         signal_id = str(uuid4())
         with time_machine.travel(_at(10), tick=False):
             self._generation(signal_id, None)
@@ -531,8 +531,10 @@ class TestSpendBasedBilling(BaseTest):
             assert self._day(10) == {}
         with time_machine.travel(_at(11), tick=False):
             self._generation(signal_id, 120_000)
+            complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
         assert self._day(10) == {}
-        assert self._day(11) == {self.team.id: 12}
+        assert self._day(11) == {}
+        assert SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id).accounting_failed
 
     def test_resume_preserves_prior_days_and_reports_only_the_addition(self) -> None:
         signal_id = str(uuid4())
@@ -545,7 +547,6 @@ class TestSpendBasedBilling(BaseTest):
             assert self._day(10) == {self.team.id: 10}
             assert self._day(11) == {}
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
-            self._generation(signal_id, 50_000, request_id="resumed-work")
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
         assert self._day(10) == {self.team.id: 10}
         assert self._day(11) == {self.team.id: 5}
@@ -666,7 +667,8 @@ class TestSpendBasedBilling(BaseTest):
             self._generation(signal_id, 100_000)
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
         with time_machine.travel(_at(11), tick=False):
-            self._generation(signal_id, 90_000)
+            SignalSpend.objects.for_team(self.team.id).filter(signal_id=signal_id).update(llm_cost_microusd=90_000)
+            complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
         assert spend.accounting_failed
         self.assertIsNone(spend.finalized_at)

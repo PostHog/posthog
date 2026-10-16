@@ -26,33 +26,21 @@ def backfill_owner_spend(apps, schema_editor):
                 spend, _ = Spend._base_manager.using(alias).get_or_create(
                     team_id=source.team_id,
                     **owner,
-                    defaults={"pending_work": ["pipeline"] if source.signal_id else []},
                 )
                 spend = Spend._base_manager.using(alias).select_for_update().get(id=spend.id)
-                key = f"task:{source.source_id}" if source.is_task else source.source_id
-                previous = spend.sources.get(key)
-                if previous and previous["updated_at"] >= source.updated_at.isoformat():
-                    continue
                 run = runs.get(source.source_id)
-                spend.sources[key] = {
-                    "cost_microusd": source.token_cost_microusd
-                    if source.token_cost_microusd is not None
-                    else (previous["cost_microusd"] if previous else None),
-                    "stage": source.stage,
-                    "is_task": source.is_task,
-                    "task_id": str(source.task_id) if source.task_id else None,
-                    "accounting_failed": source.accounting_failed,
-                    # A terminal TaskRun status does not prove workflow teardown has finished.
-                    "finished": previous["finished"] if previous else not source.is_task,
-                    "updated_at": source.updated_at.isoformat(),
-                }
                 if source.task_id and source.task_id not in spend.task_ids:
                     spend.task_ids.append(source.task_id)
                 if run and run["task__signal_report_id"]:
                     spend.report_id = run["task__signal_report_id"]
-                spend.token_cost_microusd = sum(item["cost_microusd"] or 0 for item in spend.sources.values())
-                spend.task_count = sum(item["is_task"] for item in spend.sources.values())
-                spend.accounting_failed = any(item["accounting_failed"] for item in spend.sources.values())
+                receipts = list(Source._base_manager.using(alias).filter(team_id=source.team_id, **owner))
+                spend.token_cost_microusd = spend.llm_cost_microusd + sum(
+                    receipt.token_cost_microusd or 0 for receipt in receipts
+                )
+                spend.task_count = sum(receipt.is_task for receipt in receipts)
+                spend.accounting_failed = bool(spend.llm_failed_stages) or any(
+                    receipt.accounting_failed for receipt in receipts
+                )
                 spend.finalized_at = None
                 spend.save(using=alias)
         last_id = batch[-1].id

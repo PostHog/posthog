@@ -21,6 +21,7 @@ from posthog.llm.gateway_usage import GatewayRequestCost
 
 from products.signals.backend.models import SignalScoutRun, SignalSpend
 from products.signals.backend.spend import complete_task_spend, record_task_spend
+from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable
 from products.tasks.backend.logic.services.gateway_usage import (
     _gateway_usage_client,
     _schedule_gateway_usage,
@@ -247,13 +248,15 @@ class TestScoutSpendSettlement(BaseTest):
         )
         with patch("products.signals.backend.spend.usage_billing_enabled", return_value=True):
             record_task_spend(team_id=self.team.id, run_id=str(run.id), scout_run_id=str(scout.id), stage="scout")
-        with patch("products.tasks.backend.facade.billing.process_pending_gateway_usage"):
+        with (
+            patch("products.tasks.backend.facade.billing.process_pending_gateway_usage"),
+            self.assertRaises(TaskTokenUsageUnavailable),
+        ):
             complete_task_spend(team_id=self.team.id, run_id=str(run.id))
         spend = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
         self.assertIsNone(spend.finalized_at)
         self.assertTrue(spend.accounting_failed)
         assert spend.billing_amounts == {}
-        assert spend.sources[f"task:{run.id}"]["finished"]
         with patch(
             "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
             new=AsyncMock(return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=50)),
@@ -262,6 +265,10 @@ class TestScoutSpendSettlement(BaseTest):
                 inspect.unwrap(reconcile_gateway_usage)(GatewayUsageInput(run_id=str(run.id), team_id=self.team.id))
                 == 0
             )
+        spend.refresh_from_db()
+        self.assertIsNone(spend.finalized_at)
+        assert spend.billing_amounts == {}
+        complete_task_spend(team_id=self.team.id, run_id=str(run.id))
         spend.refresh_from_db()
         scout.refresh_from_db()
         self.assertIsNotNone(spend.finalized_at)

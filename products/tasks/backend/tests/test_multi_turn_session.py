@@ -2072,3 +2072,30 @@ class TestPollForTurnConnectionDrop:
                 await poll_for_turn(FakeTaskRun(), skip_lines=0)
 
         assert get_mock.call_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", [Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT])
+async def test_pipeline_session_waits_for_task_completion_after_signalling(origin: str) -> None:
+    completion_started = asyncio.Event()
+    cost_ready = asyncio.Event()
+
+    async def finish() -> None:
+        completion_started.set()
+        await cost_ready.wait()
+
+    handle = AsyncMock()
+    handle.result.side_effect = finish
+    session = MultiTurnSession(task=MagicMock(origin_product=origin), task_run=MagicMock(), _workflow_handle=handle)
+    ending = asyncio.create_task(session.end())
+    try:
+        await asyncio.wait_for(completion_started.wait(), timeout=2)
+        handle.signal.assert_awaited_once()
+        assert not ending.done()
+        cost_ready.set()
+        await asyncio.wait_for(ending, timeout=2)
+        handle.result.assert_awaited_once()
+    finally:
+        if not ending.done():
+            ending.cancel()
+            await asyncio.gather(ending, return_exceptions=True)
