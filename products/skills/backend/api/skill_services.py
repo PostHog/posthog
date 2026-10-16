@@ -20,6 +20,7 @@ from ..models.skills import (
     annotate_llm_skill_version_history_metadata,
     category_for_skill_name,
 )
+from .archive_guards import assert_skill_archive_allowed, run_skill_rename_hooks
 
 _DigestModel = TypeVar("_DigestModel", LLMSkill, LLMSkillFile)
 
@@ -897,8 +898,17 @@ def rename_skill_file(
     return _refresh_with_annotations(team, next_skill)
 
 
-def archive_skill(team: Team, skill_name: str) -> list[int]:
+def archive_skill(team: Team, skill_name: str, *, acting_user: User | None, authenticator: object = None) -> list[int]:
+    """Tombstone every version of a logical skill.
+
+    `acting_user` is the person asking, or None for a system path. It is keyword-only and has no
+    default so a new caller has to say which it is: a guard can refuse the archive (see
+    `archive_guards`), and a silent default would let a fresh entrypoint skip that. An endpoint
+    passes its DRF `authenticator` too, so a refusal records how the caller signed in.
+    """
     with transaction.atomic():
+        # Before the select_for_update below, so a refusal costs no row locks.
+        assert_skill_archive_allowed(team=team, skill_name=skill_name, user=acting_user, authenticator=authenticator)
         skill_versions = list(
             LLMSkill.objects.select_for_update()
             .filter(team=team, name=skill_name, deleted=False)
@@ -926,12 +936,21 @@ def _product_owned_name_prefix(name: str) -> str:
     return next((prefix for prefix, _ in CATEGORY_BY_NAME_PREFIX if name.startswith(prefix)), "")
 
 
-def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
+def rename_skill(
+    team: Team,
+    *,
+    skill_name: str,
+    new_name: str,
+    acting_user: User | None,
+    authenticator: object = None,
+) -> LLMSkill:
     """Move a logical skill to `new_name`, keeping its versions, files, and owners.
 
     Every version row carries the name, and owners are keyed on `(team, skill_name)`, so the rename
     has to move all of them together or it loses history and ownership — which is exactly what the
-    duplicate-then-archive workaround did.
+    duplicate-then-archive workaround did. Rows another product keys on the name move through its
+    rename hook (see `archive_guards`), which can also refuse the rename. `acting_user` has no
+    default for the same reason as on `archive_skill`.
     """
     blocked_prefix = _product_owned_name_prefix(skill_name) or _product_owned_name_prefix(new_name)
     if blocked_prefix:
@@ -949,6 +968,9 @@ def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
             return _renamed_skill_or_missing(team, new_name)
         if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMSkillDuplicateNameConflictError()
+        run_skill_rename_hooks(
+            team=team, skill_name=skill_name, new_name=new_name, user=acting_user, authenticator=authenticator
+        )
 
         # Stamp each locked row rather than issuing one `.update()`: the name is the first
         # frontmatter key of the rendered SKILL.md, so a rename changes the bytes a host downloads,

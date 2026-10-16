@@ -99,6 +99,18 @@ class TestMatchCoreEvents(BaseTest):
         assert answer.outcome == outcome
         if outcome != EventMatchOutcome.MATCHED:
             assert answer.matches == []
+        if outcome != EventMatchOutcome.NOT_INGESTED:
+            assert answer.unsent == []
+
+    def test_names_the_likely_events_the_project_never_sent(self) -> None:
+        with patch(BUILD_CLIENT, return_value=_model_that_believes({"Screen": 0.85})):
+            answer = match_core_events(self._search("browser capture"))
+
+        assert answer == EventMatchAnswer(
+            matches=[],
+            outcome=EventMatchOutcome.NOT_INGESTED,
+            unsent=[EventMatch(name="$screen", label="Screen", probability=0.85)],
+        )
 
     def test_the_model_reads_placeholders_instead_of_values(self) -> None:
         client = _model_that_believes({})

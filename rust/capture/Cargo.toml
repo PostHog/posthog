@@ -82,6 +82,7 @@ metrics-util = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
 rstest = "0.26"
+strum = { version = "0.28", features = ["derive"] }
 rdkafka = { workspace = true }
 reqwest = { workspace = true, features = ["multipart"] }
 redis = { workspace = true }

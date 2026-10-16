@@ -23,6 +23,19 @@ describe('getTrendsSeriesDisplayLabel', () => {
         ['humanizes the event name when no custom name', { action: { name: '$pageview' } }, 'Pageview'],
         ['uses the action name when not a built-in event', { action: { name: 'purchase' } }, 'purchase'],
         [
+            'shows a flag calls series as the event',
+            {
+                action: {
+                    type: 'events',
+                    id: 'posthog.flag_evaluations',
+                    name: 'posthog.flag_evaluations',
+                    custom_name: null,
+                },
+                label: 'posthog.flag_evaluations',
+            },
+            'Feature flag called',
+        ],
+        [
             'falls back to the humanized label when there is no action (formula row)',
             { action: null, label: 'A + B' },
             'A + B',

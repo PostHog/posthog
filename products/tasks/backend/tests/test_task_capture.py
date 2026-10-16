@@ -55,15 +55,11 @@ class TestTaskCaptureEvent(TestCase):
 
     @parameterized.expand(
         [
-            (Task.OriginProduct.SIGNALS_SCOUT, "scout-trial:00000000-0000-4000-8000-000000000001", True),
-            (Task.OriginProduct.SIGNALS_SCOUT, "scheduled-scout", False),
-            (Task.OriginProduct.SIGNALS_SCOUT, None, False),
-            (Task.OriginProduct.USER_CREATED, "scout-trial:00000000-0000-4000-8000-000000000001", False),
+            (Task.OriginProduct.SIGNALS_SCOUT, "scout-trial:00000000-0000-4000-8000-000000000001"),
+            (Task.OriginProduct.USER_CREATED, None),
         ]
     )
-    def test_trial_task_and_run_captures_stay_private(
-        self, origin_product: str, origin_key: str | None, suppressed: bool
-    ) -> None:
+    def test_task_and_run_lifecycle_events_are_captured(self, origin_product: str, origin_key: str | None) -> None:
         with (
             patch("products.tasks.backend.models.posthoganalytics.capture") as capture,
             self.captureOnCommitCallbacks(execute=True),
@@ -80,10 +76,9 @@ class TestTaskCaptureEvent(TestCase):
             task.capture_event("task_updated")
             captured = run.capture_event("task_run_completed")
 
-        self.assertEqual(captured, not suppressed)
+        self.assertTrue(captured)
         events = {call.kwargs["event"] for call in capture.call_args_list}
-        expected = set() if suppressed else {"task_created", "task_run_created", "task_updated", "task_run_completed"}
-        self.assertEqual(events, expected)
+        self.assertEqual(events, {"task_created", "task_run_created", "task_updated", "task_run_completed"})
 
     @parameterized.expand(
         [

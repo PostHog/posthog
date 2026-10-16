@@ -19,6 +19,7 @@ import google.auth.exceptions
 import google.auth.transport.requests
 import google.auth.impersonated_credentials
 from google.api_core.exceptions import (
+    BadGateway,
     BadRequest,
     DeadlineExceeded,
     Forbidden,
@@ -27,6 +28,7 @@ from google.api_core.exceptions import (
     InternalServerError,
     NotFound,
     PermissionDenied,
+    RetryError,
     ServiceUnavailable,
     TooManyRequests,
 )
@@ -48,7 +50,6 @@ from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
-    BatchExportSchema,
     BigQueryBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
@@ -108,6 +109,23 @@ NON_RETRYABLE_ERROR_TYPES = (
     "BigQueryIntegrationNotFoundError",
     # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
     "BigQueryIncompatibleSchemaError",
+)
+
+# Errors that only mean we could not read a load job's state. `RetryError` is raised when the
+# client's own retries for these errors run out.
+LOAD_JOB_POLL_RETRYABLE_EXCEPTIONS = (
+    RetryError,
+    TooManyRequests,
+    InternalServerError,
+    BadGateway,
+    ServiceUnavailable,
+    GatewayTimeout,
+    DeadlineExceeded,
+    ConnectionError,
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    requests.exceptions.ChunkedEncodingError,
+    google.auth.exceptions.TransportError,
 )
 
 LOGGER = get_write_only_logger(__name__)
@@ -256,7 +274,7 @@ class BigQueryField(Field):
     @classmethod
     def from_destination_field(cls, field: bigquery.SchemaField) -> typing.Self:
         name = field.name
-        type_name = field.field_type
+        type_name = typing.cast(BigQueryTypeName, field.field_type)
 
         mode = field.mode
         repeated = mode == "REPEATED"
@@ -553,6 +571,7 @@ async def verify_impersonated_service_account_ownership(
 
 def impersonate_service_account(
     integration: GoogleCloudServiceAccountIntegration,
+    scopes: tuple[str, ...] = ("https://www.googleapis.com/auth/bigquery",),
 ) -> google.auth.impersonated_credentials.Credentials:
     """Impersonate a user's service account using our own.
 
@@ -565,7 +584,7 @@ def impersonate_service_account(
     their_credentials = google.auth.impersonated_credentials.Credentials(
         source_credentials=our_credentials,
         target_principal=service_account_email,
-        target_scopes=["https://www.googleapis.com/auth/bigquery"],
+        target_scopes=list(scopes),
         lifetime=3600,
     )
 
@@ -1037,7 +1056,7 @@ class BigQueryClient:
         )
         return await query_job(merge_query)
 
-    async def load_file(self, file, format: FileFormat, table: BigQueryTable):
+    async def load_file(self, file, format: FileFormat, table: BigQueryTable, poll_interval: float = 1.0):
         """Load a file into BigQuery table."""
         schema = tuple(field.to_destination_field() for field in table.fields)
         if format == "Parquet":
@@ -1070,7 +1089,7 @@ class BigQueryClient:
 
         while True:
             try:
-                result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
+                result = await self._run_load_job(file, bq_table, job_config=job_config, poll_interval=poll_interval)
             except (
                 TooManyRequests,
                 ServiceUnavailable,
@@ -1166,14 +1185,57 @@ class BigQueryClient:
             else:
                 return result
 
-    def _run_load_job(self, file, bq_table, job_config):
+    async def _run_load_job(self, file, bq_table, job_config, poll_interval: float):
         """Run a BigQuery LoadJob and return its result.
 
-        This method blocks and should only be run on an executor.
+        We poll the job ourselves and only call `LoadJob.result()` once the job is done.
+        While a job runs, `result()` polls through google-api-core's retry loop, which raises
+        an exception on every poll and keeps each one in a list. The exception tracebacks and
+        that list form a reference cycle that keeps the calling frames, and so `file`, alive
+        until the cyclic garbage collector runs. With large files, this holds gigabytes of
+        memory that the activity does not use.
         """
-        load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
-        result = load_job.result()
-        return result
+        load_job = await asyncio.to_thread(
+            self.sync_client.load_table_from_file, file, bq_table, job_config=job_config, rewind=True
+        )
+
+        await self._wait_for_load_job(load_job, poll_interval=poll_interval)
+
+        return load_job.result()  # Non-blocking: Job is done.
+
+    async def _wait_for_load_job(self, load_job: bigquery.LoadJob, poll_interval: float) -> None:
+        """Poll a LoadJob until it is done.
+
+        A transient error while polling does not mean that the job failed, so we retry it forever.
+        If the error reached `load_file`, it would upload the file again and start a second load
+        job, which can load the same rows twice.
+        """
+        initial_retry = 1
+        backoff_factor = 2
+        max_retry = 32
+        attempt = 0
+
+        while True:
+            try:
+                done = await asyncio.to_thread(load_job.done)
+            except LOAD_JOB_POLL_RETRYABLE_EXCEPTIONS:
+                backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
+                self.logger.warning(
+                    "Transient error while polling LoadJob",
+                    job_id=load_job.job_id,
+                    attempt=attempt,
+                    backoff=backoff,
+                    exc_info=True,
+                )
+                await asyncio.sleep(backoff)
+                attempt += 1
+                continue
+
+            if done:
+                return
+
+            attempt = 0
+            await asyncio.sleep(poll_interval)
 
 
 class MissingRequiredPermissionsError(Exception):
@@ -1260,6 +1322,8 @@ class BigQueryConsumer(Consumer):
             buffer_size=buffer_size,
         )
 
+        # Release buffer in case a reference is kept by anybody else
+        self.current_buffer.close()
         self.current_buffer = io.BytesIO()
 
 
@@ -1369,7 +1433,7 @@ class MergeSettings(typing.NamedTuple):
 
 
 def _get_merge_settings(
-    model: BatchExportModel | BatchExportSchema | None,
+    model: BatchExportModel | None,
 ) -> MergeSettings | None:
     """Return merge settings for models that require merging."""
     if isinstance(model, BatchExportModel):
@@ -1464,11 +1528,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
     )
 
     async with Heartbeater():
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export_schema is None:
-            model = inputs.batch_export_model
-        else:
-            model = inputs.batch_export_schema
+        model = inputs.batch_export_model
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -1744,8 +1804,6 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
-            # TODO: Remove after updating existing batch exports.
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=bigquery_default_fields(),
             integration_id=inputs.integration_id,

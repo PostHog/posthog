@@ -9,7 +9,6 @@ const RENDERS_EVERYTHING: ChartDisplayOptionEligibility = {
     hasTrendsFormula: false,
     boxPlotMissingProperty: false,
     hasMetricInsight: false,
-    hasProportionBarChart: false,
 }
 
 function disabledReasons(eligibility: ChartDisplayOptionEligibility): Map<ChartDisplayType, string | undefined> {
@@ -81,18 +80,14 @@ describe('getChartDisplayOptions', () => {
         ],
         ['nothing in the way', RENDERS_EVERYTHING, ChartDisplayType.ActionsLineGraph, undefined],
         [
-            'a saved insight already using proportion bar while its flag is off',
-            {
-                ...RENDERS_EVERYTHING,
-                hasProportionBarChart: false,
-                currentDisplay: ChartDisplayType.ActionsProportionBar,
-            },
+            'nothing in the way of a proportion bar',
+            RENDERS_EVERYTHING,
             ChartDisplayType.ActionsProportionBar,
-            "This type isn't available yet.",
+            undefined,
         ],
         [
             'comparing to a previous period',
-            { ...RENDERS_EVERYTHING, hasProportionBarChart: true, isComparing: true },
+            { ...RENDERS_EVERYTHING, isComparing: true },
             ChartDisplayType.ActionsProportionBar,
             "This type doesn't support comparing to a previous period.",
         ],
@@ -104,24 +99,9 @@ describe('getChartDisplayOptions', () => {
     })
 
     it.each([
-        ['hasMetricInsight', ChartDisplayType.Metric, true, undefined, true],
-        ['hasMetricInsight', ChartDisplayType.Metric, false, undefined, false],
-        ['hasProportionBarChart', ChartDisplayType.ActionsProportionBar, true, undefined, true],
-        ['hasProportionBarChart', ChartDisplayType.ActionsProportionBar, false, undefined, false],
-        [
-            'hasProportionBarChart',
-            ChartDisplayType.ActionsProportionBar,
-            false,
-            ChartDisplayType.ActionsProportionBar,
-            true,
-        ],
-        ['hasProportionBarChart', ChartDisplayType.ActionsProportionBar, false, ChartDisplayType.ActionsPie, false],
-    ] as const)(
-        'behind %s, offers %s with the flag %s and current display %s: %s',
-        (flag, display, flagEnabled, currentDisplay, offered) => {
-            expect(disabledReasons({ ...RENDERS_EVERYTHING, [flag]: flagEnabled, currentDisplay }).has(display)).toBe(
-                offered
-            )
-        }
-    )
+        [true, true],
+        [false, false],
+    ])('offers Metric when hasMetricInsight is %s: %s', (hasMetricInsight, offered) => {
+        expect(disabledReasons({ ...RENDERS_EVERYTHING, hasMetricInsight }).has(ChartDisplayType.Metric)).toBe(offered)
+    })
 })

@@ -7,7 +7,7 @@ use posthog_symbol_data::{read_symbol_data_with_byte_count, ProguardMapping};
 use crate::{
     error::{ProguardError, ResolveError, UnhandledError},
     metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
-    symbolication::symbol_store::{caching::Countable, Fetcher, Parser},
+    symbolication::symbol_store::{caching::Countable, Fetcher, ParsePermit, Parser},
 };
 
 pub struct FetchedMapping {
@@ -47,10 +47,15 @@ impl Parser for ProguardProvider {
     type Set = FetchedMapping;
     type Err = ResolveError;
 
-    async fn parse(&self, source: Self::Source) -> Result<FetchedMapping, ResolveError> {
+    async fn parse(
+        &self,
+        source: Self::Source,
+        permit: ParsePermit,
+    ) -> Result<FetchedMapping, ResolveError> {
         // zstd decompress + ProguardCache::write are CPU-bound; offload from the tokio
         // runtime so a large mapping doesn't block other in-flight requests.
         tokio::task::spawn_blocking(move || -> Result<FetchedMapping, ResolveError> {
+            let _permit = permit;
             let (map, decompressed_bytes): (ProguardMapping, usize) =
                 read_symbol_data_with_byte_count(&source).map_err(ProguardError::DataError)?;
             metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "proguard")

@@ -19,8 +19,7 @@ use personhog_common::partitioning::partition_for_person;
 use personhog_coordination::authority::AuthorityClock;
 
 use crate::cache::{
-    approx_person_bytes, CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache,
-    PersonCacheKey,
+    CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey,
 };
 use crate::emitted::{EmittedVersionGuard, EmittedVersions};
 use crate::fence::{
@@ -317,7 +316,7 @@ impl PersonHogLeaderService {
         &self,
         partition: u32,
         key: &PersonCacheKey,
-    ) -> Result<Arc<CachedPerson>, Status> {
+    ) -> Result<CachedPerson, Status> {
         let Some(mark) = self.dirty_index.get(key) else {
             // "No mark" means PG is current — but only while this pod owns
             // the partition. Handoffs drain writes, not reads, so a read
@@ -356,7 +355,7 @@ impl PersonHogLeaderService {
                 )
                 .increment(1);
                 self.cache.put(partition, key.clone(), person.clone());
-                Ok(Arc::new(person))
+                Ok(person)
             }
             Err(e) => {
                 counter!(
@@ -384,7 +383,7 @@ impl PersonHogLeaderService {
         &self,
         partition: u32,
         key: &PersonCacheKey,
-    ) -> Result<Arc<CachedPerson>, Status> {
+    ) -> Result<CachedPerson, Status> {
         let Some(fallback) = &self.fallback else {
             // Without the pool a cache miss answers NotFound, which callers
             // read as authoritative death; production always sets it.
@@ -406,7 +405,7 @@ impl PersonHogLeaderService {
                 )
                 .increment(1);
                 self.cache.put(partition, key.clone(), person.clone());
-                Ok(Arc::new(person))
+                Ok(person)
             }
             Ok(None) => {
                 counter!(
@@ -443,7 +442,7 @@ impl PersonHogLeaderService {
         &self,
         partition: u32,
         key: &PersonCacheKey,
-    ) -> Result<Arc<CachedPerson>, Status> {
+    ) -> Result<CachedPerson, Status> {
         // Fast path: cache hit (no lock needed)
         match self.cache.get(partition, key) {
             CacheLookup::Found(person) => {
@@ -478,7 +477,7 @@ impl PersonHogLeaderService {
         &self,
         partition: u32,
         key: &PersonCacheKey,
-    ) -> Result<Arc<CachedPerson>, Status> {
+    ) -> Result<CachedPerson, Status> {
         match self.cache.get(partition, key) {
             CacheLookup::Found(person) => {
                 Self::record_cache_hit();
@@ -520,7 +519,7 @@ impl PersonHogLeaderService {
             )));
         }
 
-        let proto = cached_person_to_proto(&person);
+        let proto = cached_person_into_proto(person.clone());
 
         // Re-check before producing, for the same reason the read path
         // re-checks before answering: admission proves nothing about the
@@ -734,7 +733,7 @@ const MS_PER_HOUR: i64 = 3_600_000;
 /// uuid must parse, team_id must fit the column's `integer`, and the
 /// timestamps must sit inside a sanity range ([1970, 9999]) any
 /// legitimate value satisfies. The legacy jsonb columns have no cache
-/// field and are unconditionally empty in `cached_person_to_proto`, so a
+/// field and are unconditionally empty in `cached_person_into_proto`, so a
 /// record structurally cannot carry values the writer would refuse there.
 fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
     if Uuid::parse_str(&p.uuid).is_err() {
@@ -760,13 +759,12 @@ fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
     Ok(())
 }
 
-fn cached_person_to_proto(p: &CachedPerson) -> Person {
-    let properties_bytes = p.properties.clone();
+fn cached_person_into_proto(p: CachedPerson) -> Person {
     Person {
         id: p.id,
-        uuid: p.uuid.clone(),
+        uuid: p.uuid,
         team_id: p.team_id,
-        properties: properties_bytes,
+        properties: p.properties,
         properties_last_updated_at: Vec::new(),
         properties_last_operation: Vec::new(),
         created_at: p.created_at,
@@ -919,7 +917,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         }
 
         Ok(Response::new(GetPersonResponse {
-            person: Some(cached_person_to_proto(&person)),
+            person: Some(cached_person_into_proto(person)),
         }))
     }
 
@@ -1115,7 +1113,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         if !updates.has_changes && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
-                person: Some(cached_person_to_proto(&person)),
+                person: Some(cached_person_into_proto(person)),
                 updated: false,
             }));
         }
@@ -1125,7 +1123,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         if !updates.has_non_filtered_changes && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "filtered_only").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
-                person: Some(cached_person_to_proto(&person)),
+                person: Some(cached_person_into_proto(person)),
                 updated: false,
             }));
         }
@@ -1138,7 +1136,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         if !actually_updated && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
-                person: Some(cached_person_to_proto(&person)),
+                person: Some(cached_person_into_proto(person)),
                 updated: false,
             }));
         }
@@ -1243,7 +1241,6 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         let properties_bytes = serde_json::to_vec(&new_properties)
             .map_err(|e| Status::internal(format!("serialize updated properties: {e}")))?;
-        let approx_bytes = approx_person_bytes(properties_bytes.len());
         // A version this pod already put on the wire is spent even when
         // it never learned the outcome, so the next one has to clear that
         // floor as well as the state it derived from. Reusing it produces
@@ -1262,7 +1259,6 @@ impl PersonHogLeader for PersonHogLeaderService {
             is_identified: identified_now,
             is_deleted: false,
             last_seen_at: merged_last_seen,
-            approx_bytes,
         };
 
         let committed = self
@@ -1538,7 +1534,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                         return self.authoritative_ok(
                             partition,
                             FoldPersonDocumentResponse {
-                                person: Some(cached_person_to_proto(&person)),
+                                person: Some(cached_person_into_proto(person)),
                             },
                         );
                     }
@@ -1590,7 +1586,6 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         let folded_bytes = serde_json::to_vec(&folded)
             .map_err(|e| Status::internal(format!("serialize folded properties: {e}")))?;
-        let approx_bytes = approx_person_bytes(folded_bytes.len());
         let folded_person = CachedPerson {
             id: person.id,
             uuid: person.uuid.clone(),
@@ -1601,7 +1596,6 @@ impl PersonHogLeader for PersonHogLeaderService {
             is_identified: true,
             is_deleted: false,
             last_seen_at,
-            approx_bytes,
         };
 
         let committed = self
@@ -1932,7 +1926,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -1990,7 +1983,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2093,7 +2085,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2341,7 +2332,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2413,7 +2403,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: true,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2490,7 +2479,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2554,7 +2542,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 
@@ -2657,7 +2644,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
         drop(held);
@@ -2703,7 +2689,6 @@ mod tests {
                 is_identified: false,
                 is_deleted: false,
                 last_seen_at: None,
-                approx_bytes: 64,
             },
         );
 

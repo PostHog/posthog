@@ -9,6 +9,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
@@ -96,6 +100,40 @@ def _reference_endpoint(config: ProfoundEndpointConfig) -> Endpoint:
         # A missing wrapper key means the response shape changed; fail loud rather than syncing 0 rows.
         endpoint["data_selector_required"] = True
     return endpoint
+
+
+def _category_reference_resource(
+    config: ProfoundEndpointConfig,
+    api_key: str,
+    team_id: int,
+    job_id: str,
+) -> Any:
+    categories = PROFOUND_ENDPOINTS["Categories"]
+    endpoint = _reference_endpoint(config)
+    endpoint["params"] = {"category_id": {"type": "resolve", "resource": categories.name, "field": "id"}}
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": PROFOUND_BASE_URL,
+            "headers": _headers(),
+            "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-Key", "location": "header"},
+            "request_timeout": REQUEST_TIMEOUT_SECONDS,
+            # The API key rides a custom header, which requests would replay to a redirect target.
+            "allow_redirects": False,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {"name": categories.name, "endpoint": _reference_endpoint(categories)},
+            {
+                "name": config.name,
+                "endpoint": endpoint,
+                # The response rows do not echo the category they belong to.
+                "include_from_parent": ["id"],
+            },
+        ],
+    }
+    resources = rest_api_resources(rest_config, team_id, job_id, None)
+    child = next(r for r in resources if r.name == config.name)
+    return child.add_map(rename_parent_fields(categories.name, {"id": "category_id"}))
 
 
 def _report_endpoint(
@@ -255,6 +293,17 @@ def profound_source(
             partition_mode="datetime" if config.partition_key else None,
             partition_format="month" if config.partition_key else None,
             partition_keys=[config.partition_key] if config.partition_key else None,
+            column_hints=resource.column_hints,
+        )
+
+    if config.kind == "category_reference":
+        resource = _category_reference_resource(config, api_key, team_id, job_id)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: resource,
+            primary_keys=config.primary_keys,
+            partition_count=1,
+            partition_size=1,
             column_hints=resource.column_hints,
         )
 

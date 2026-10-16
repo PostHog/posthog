@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from pydantic import ValidationError
 
@@ -579,7 +581,7 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         assert comment["product"] == Product.ERROR_TRACKING.value
 
 
-class TestAddFallbackQueryTags(BaseTest):
+class TestAddFallbackQueryTags(SimpleTestCase):
     def test_does_not_override_set_product(self):
         tags = QueryTags(product=Product.LOGS, feature=Feature.QUERY, scene="Cohort", query_type="TrendsQuery")
         add_fallback_query_tags(tags)

@@ -17,7 +17,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from math import ceil
 from typing import Any, Final, cast
-from uuid import UUID
+from uuid import UUID, uuid5
 
 import pytz
 from dateutil.relativedelta import relativedelta
@@ -53,6 +53,30 @@ def compute_shard_offset_seconds(
     return shard_index * schedule_interval_seconds
 
 
+# uuid5 keeps sequential team IDs from filling the slots in a pattern. Production logs alerting
+# keys on this namespace too, so changing it moves every logs alert to a new slot.
+_TEAM_SHARD_NAMESPACE = UUID("4f2c9a1e-5b7d-4e8a-9c3f-6d1b2a7e8f90")
+
+
+def compute_team_shard_offset_seconds(
+    team_id: int,
+    check_interval_minutes: int,
+    *,
+    group: str | None = None,
+    schedule_interval_seconds: int = DEFAULT_SCHEDULE_INTERVAL_SECONDS,
+) -> int:
+    """One slot for all of a team's alerts in `group` on a cadence, for a source that answers them
+    with one query per slot. A per-alert offset splits them across slots, and each slot then runs
+    its own query. Different groups spread across slots, so one slot does not collect every
+    query the team needs."""
+    key = str(team_id) if group is None else f"{team_id}:{group}"
+    return compute_shard_offset_seconds(
+        uuid5(_TEAM_SHARD_NAMESPACE, key),
+        check_interval_minutes,
+        schedule_interval_seconds=schedule_interval_seconds,
+    )
+
+
 def advance_next_check_at(
     current_next_check_at: datetime | None,
     check_interval_minutes: int,
@@ -67,7 +91,7 @@ def advance_next_check_at(
     it. Snapping to the cadence grid aligns every alert sharing a cadence onto
     the same canonical grid regardless of when it was created.
 
-    `shard_offset_seconds` shifts the canonical grid per-alert to spread load
+    `shard_offset_seconds` shifts the canonical grid per alert or per team to spread load
     across cron fires. Existing drifted alerts heal lazily on their next run.
     """
     if check_interval_minutes <= 0:
@@ -177,7 +201,7 @@ def _calendar_anchor_utc(
     return _localize_wall_time(team_timezone, naive_local).astimezone(UTC)
 
 
-def _local_period_start(timestamp: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
+def local_period_start(timestamp: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
     """Start of the local-time period of `period_minutes` that contains `timestamp`.
 
     The start is found on the local wall clock. A 30-minute DST change (Australia/Lord_Howe) moves the
@@ -193,7 +217,7 @@ def _local_period_start(timestamp: datetime, team_timezone: BaseTzInfo, period_m
     return _localize_wall_time(team_timezone, wall_start, repeated_is_dst=bool(local.dst())).astimezone(UTC)
 
 
-def _next_local_period_start(after: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
+def next_local_period_start(after: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
     """First start of a local-time period of `period_minutes` that is later than `after`.
 
     A DST change can make a local period longer or shorter than `period_minutes`. A 30-minute change
@@ -203,10 +227,10 @@ def _next_local_period_start(after: datetime, team_timezone: BaseTzInfo, period_
     """
     step = timedelta(minutes=min(period_minutes, 15))
     probe = after + step
-    start = _local_period_start(probe, team_timezone, period_minutes)
+    start = local_period_start(probe, team_timezone, period_minutes)
     while start <= after:
         probe += step
-        start = _local_period_start(probe, team_timezone, period_minutes)
+        start = local_period_start(probe, team_timezone, period_minutes)
     return start
 
 
@@ -341,9 +365,9 @@ def next_calendar_check_time(
             cadence_minutes = EVERY_15_MINUTES_CADENCE_MINUTES if interval == CalendarInterval.EVERY_15_MINUTES else 60
             # The check runs at this alert's offset into the first local interval after the previous check,
             # which also moves an alert off the minute it was created on.
-            candidate = _next_local_period_start(next_check_at or now, team_timezone, cadence_minutes) + offset
+            candidate = next_local_period_start(next_check_at or now, team_timezone, cadence_minutes) + offset
             if candidate <= now:
-                candidate = _next_local_period_start(now - offset, team_timezone, cadence_minutes) + offset
+                candidate = next_local_period_start(now - offset, team_timezone, cadence_minutes) + offset
             return candidate
         case CalendarInterval.DAILY:
             return _calendar_anchor_utc(

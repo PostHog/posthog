@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "type": "string"
+        },
+        "note": {
+            "description": "Optional note about the dismissal.",
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "reason": {
+            "description": "Why the suggestion is dismissed.\n\n* `not_useful` - Not useful\n* `not_now` - Not now\n* `other` - Other",
+            "enum": ["not_useful", "not_now", "other"],
+            "type": "string"
+        }
+    },
+    "required": ["id", "reason"],
+    "type": "object"
+}

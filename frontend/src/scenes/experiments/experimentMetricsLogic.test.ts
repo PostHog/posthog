@@ -2,13 +2,12 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
@@ -144,10 +143,6 @@ describe('experimentMetricsLogic', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-            [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
-        })
         // Wait for the bootstrap to populate currentProjectId — the loader guards on it.
         await expectLogic(projectLogic).toMatchValues({ currentProjectId: expect.any(Number) })
     })
@@ -213,6 +208,10 @@ describe('experimentMetricsLogic', () => {
                     ],
                 },
             })
+            const markTaskAsCompleted = jest.fn()
+            const setupSpy = jest
+                .spyOn(globalSetupLogic, 'findMounted')
+                .mockReturnValue({ actions: { markTaskAsCompleted } } as any)
             mountLogic()
 
             // afterMount fires loadLatestRecalculation on its own — no manual dispatch needed.
@@ -230,6 +229,9 @@ describe('experimentMetricsLogic', () => {
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
             expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
             expect(logic.values.recalculationLoading).toBe(false)
+            // Results on screen for a launched experiment complete the review results setup task.
+            expect(markTaskAsCompleted).toHaveBeenCalledWith(SetupTaskId.ReviewExperimentResults)
+            setupSpy.mockRestore()
         })
 
         it('surfaces a discovery-step failure (metric_errors entry, no result row) loaded on mount', async () => {
@@ -262,7 +264,7 @@ describe('experimentMetricsLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResultsErrors'])
 
-            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'no events' })
+            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'no events', retriable: false })
         })
 
         it('counts failures toward progress and surfaces errors while a run is still in progress', async () => {
@@ -310,7 +312,7 @@ describe('experimentMetricsLogic', () => {
             }
 
             // Errors must surface in-row even mid-flight.
-            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom-primary' })
+            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom-primary', retriable: false })
             // Progress must count failures, not just completes; otherwise a fully-failing run shows 0/3 forever.
             expect(logic.values.recalculationProgress).toEqual({ completed: 2, total: 3 })
             jest.useRealTimers()
@@ -335,7 +337,7 @@ describe('experimentMetricsLogic', () => {
             // The successful secondary metric loads its result.
             expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
             // The failed primary metric must keep its error for the in-row box, not be cleared by its null result.
-            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom' })
+            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom', retriable: false })
         })
 
         it('shows no error toast on 404 (a fresh recalc is triggered instead)', async () => {
@@ -413,19 +415,13 @@ describe('experimentMetricsLogic', () => {
                 experiment: experimentWithExtraMetric,
             },
             {
-                // A transient error that ran out of attempts: the backend marks it retriable, so a new run
-                // can fix it. The window is reused, so only this metric recomputes.
-                name: 'a failed run whose failure is retriable',
+                name: 'a failed run that has no entry for a metric',
                 latest: {
                     ...partialFailureRecalculation,
-                    metric_errors: {
-                        [PRIMARY_METRIC_UUID]: {
-                            step: 'calculation',
-                            message: 'boom',
-                            error_type: 'timeout',
-                            retriable: true,
-                        },
-                    },
+                    metric_errors: {},
+                    results: partialFailureRecalculation.results.filter(
+                        ({ metric_uuid }) => metric_uuid !== PRIMARY_METRIC_UUID
+                    ),
                 },
                 experiment: EXPERIMENT,
             },
@@ -450,34 +446,51 @@ describe('experimentMetricsLogic', () => {
             expect(capturedBody).toEqual({ trigger: 'heal_latest_run' })
         })
 
-        it.each([
-            {
-                // The metric config, the data, or a resource limit must change first: only a user retry re-runs it.
-                name: 'a non-retriable failure',
-                metricError: { step: 'calculation', message: 'boom', error_type: 'validation_error', retriable: false },
+        const metricErrors = {
+            retriable: { step: 'calculation', message: 'boom', error_type: 'timeout', retriable: true },
+            'non-retriable': {
+                step: 'calculation',
+                message: 'boom',
+                error_type: 'validation_error',
+                retriable: false,
             },
-            {
-                // A run recorded before the flag existed: never heal it, or every page load would start a run.
-                name: 'a failure recorded without the retriable flag',
-                metricError: { step: 'calculation', message: 'boom' },
-            },
-        ])('does not heal $name', async ({ metricError }) => {
+            'unflagged legacy': { step: 'calculation', message: 'boom' },
+        }
+        const experimentsByState = {
+            running: EXPERIMENT,
+            stopped: { ...EXPERIMENT, end_date: '2025-01-30T21:55:00Z' } as Experiment,
+        }
+
+        it.each(
+            (Object.keys(metricErrors) as (keyof typeof metricErrors)[]).flatMap((errorKind) =>
+                (Object.keys(experimentsByState) as (keyof typeof experimentsByState)[]).map((state) => ({
+                    errorKind,
+                    state,
+                }))
+            )
+        )('does not heal a $errorKind failure on a $state experiment', async ({ errorKind, state }) => {
             const createMock = jest.fn(() => [201, completedRecalculation2])
             useMocks({
                 get: {
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
                         200,
-                        { ...partialFailureRecalculation, metric_errors: { [PRIMARY_METRIC_UUID]: metricError } },
+                        {
+                            ...partialFailureRecalculation,
+                            metric_errors: { [PRIMARY_METRIC_UUID]: metricErrors[errorKind] },
+                        },
                     ],
                 },
                 post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
             })
-            logic = experimentMetricsLogic({ experiment: EXPERIMENT })
+            logic = experimentMetricsLogic({ experiment: experimentsByState[state] })
             logic.mount()
 
             await expectLogic(logic).toDispatchActions(['loadLatestRecalculation']).toFinishAllListeners()
             expect(createMock).not.toHaveBeenCalled()
-            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom' })
+            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({
+                detail: 'boom',
+                retriable: errorKind === 'retriable',
+            })
         })
 
         it('applies terminal results and resumes polling the active run (reload while recalculating)', async () => {
@@ -838,42 +851,29 @@ describe('experimentMetricsLogic', () => {
                 {
                     name: 'blocks a manual reload inside the window',
                     latest: completedRecalculation,
-                    trigger: 'manual',
                     minutesAgo: 2,
                     blocked: true,
                 },
                 {
                     name: 'allows a manual reload after the window',
                     latest: completedRecalculation,
-                    trigger: 'manual',
                     minutesAgo: 6,
                     blocked: false,
-                },
-                {
-                    name: 'lets a heal through inside the window',
-                    latest: completedRecalculation,
-                    trigger: 'heal_latest_run',
-                    minutesAgo: 2,
-                    blocked: true,
                 },
                 {
                     // The fallback is not a run: a fresh timeseries point must not block the first recalculation.
                     name: 'never blocks on a timeseries fallback',
                     latest: completeTimeseriesFallbackRecalculation,
-                    trigger: 'manual',
                     minutesAgo: 2,
                     blocked: false,
                 },
                 {
                     name: 'never blocks after a failed run',
                     latest: partialFailureRecalculation,
-                    trigger: 'manual',
                     minutesAgo: 2,
                     blocked: false,
                 },
-            ] as const)('$name', async ({ latest, trigger, minutesAgo, blocked }) => {
-                const posts = !(blocked && trigger === 'manual')
-                const createMock = jest.fn(() => [201, pendingRecalculation])
+            ] as const)('$name', async ({ latest, minutesAgo, blocked }) => {
                 useMocks({
                     get: {
                         '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
@@ -881,20 +881,13 @@ describe('experimentMetricsLogic', () => {
                             finishedMinutesAgo(latest, minutesAgo),
                         ],
                     },
-                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
                 })
                 mountLogic()
                 await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
                 expect(logic.values.isManualRefreshBlocked).toBe(blocked)
-
-                await expectLogic(logic, () => {
-                    logic.actions.triggerRecalculation(trigger)
-                }).toFinishAllListeners()
-                expect(createMock.mock.calls.length > 0).toBe(posts)
             })
 
             it('never blocks a reload in local development', async () => {
-                const createMock = jest.fn(() => [201, pendingRecalculation])
                 useMocks({
                     get: {
                         '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
@@ -902,7 +895,6 @@ describe('experimentMetricsLogic', () => {
                             finishedMinutesAgo(completedRecalculation, 2),
                         ],
                     },
-                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
                 })
                 // The mount-time preflight load must land first, or it overwrites the dev preflight.
                 await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
@@ -910,11 +902,6 @@ describe('experimentMetricsLogic', () => {
                 mountLogic()
                 await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
                 expect(logic.values.isManualRefreshBlocked).toBe(false)
-
-                await expectLogic(logic, () => {
-                    logic.actions.triggerRecalculation('manual')
-                }).toFinishAllListeners()
-                expect(createMock).toHaveBeenCalled()
             })
 
             it('syncs the window and informs the user when the backend answers 429', async () => {
@@ -951,6 +938,8 @@ describe('experimentMetricsLogic', () => {
                 expect(lemonToast.info).toHaveBeenCalledWith('Metrics were recalculated less than 5 minutes ago.')
                 expect(lemonToast.error).not.toHaveBeenCalled()
                 expect(logic.values.isRecalculating).toBe(false)
+                // The page's flags are off here, so this is what keeps the button honest after the 429.
+                expect(logic.values.backendEnforcesRefreshWindow).toBe(true)
             })
 
             it('unblocks the reload button when the window closes, without a new load', async () => {
@@ -1236,7 +1225,7 @@ describe('experimentMetricsLogic', () => {
             // The successful secondary metric still loads its result.
             expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
             // The failed primary metric gets an error with the failure message for its in-row box.
-            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom' })
+            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom', retriable: false })
         })
 
         it('gives up after MAX_POLL_RETRIES consecutive retrieve failures', async () => {
@@ -1528,119 +1517,6 @@ describe('experimentMetricsLogic', () => {
             // Simulate tab focus — the handler must NOT reload, because a run is already loaded.
             document.dispatchEvent(new Event('visibilitychange'))
             await expectLogic(logic).toNotHaveDispatchedActions(['loadLatestRecalculation'])
-            expect(latestMock).toHaveBeenCalledTimes(1)
-        })
-    })
-
-    describe('feature flag disabled (legacy path)', () => {
-        it('is a no-op on mount: no API calls, no recalc state', async () => {
-            // Flip the flag off — the legacy flow owns metrics; this logic must do nothing.
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-                [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: false,
-            })
-            const latestMock = jest.fn(() => [200, completedRecalculation])
-            const createMock = jest.fn(() => [201, pendingRecalculation])
-            useMocks({
-                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': latestMock },
-                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
-            })
-            mountLogic()
-
-            // afterMount still dispatches loadLatestRecalculation, but the flag guard bails immediately.
-            await expectLogic(logic)
-                .toDispatchActions(['loadLatestRecalculation'])
-                .toNotHaveDispatchedActions(['setCurrentRecalculation', 'triggerRecalculation', 'pollRecalculation'])
-
-            // No recalculation endpoints were ever called, and state stays at its defaults.
-            expect(latestMock).not.toHaveBeenCalled()
-            expect(createMock).not.toHaveBeenCalled()
-            expect(logic.values.currentRecalculation).toBeNull()
-            expect(logic.values.recalculationLoading).toBe(false)
-            expect(logic.values.isRecalculating).toBe(false)
-        })
-
-        it('triggerRecalculation and loadLatestRecalculation no-op when the flag is off', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-                [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: false,
-            })
-            const createMock = jest.fn(() => [201, pendingRecalculation])
-            useMocks({
-                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}] },
-                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
-            })
-            mountLogic()
-
-            // Even an explicit trigger does nothing while the flag is off.
-            await expectLogic(logic, () => {
-                logic.actions.triggerRecalculation()
-            }).toNotHaveDispatchedActions(['pollRecalculation', 'setCurrentRecalculation'])
-            expect(createMock).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('feature flag races on mount', () => {
-        it('defers the latest fetch until flags arrive, then replays it', async () => {
-            // Reinitialize kea so flags start unresolved (receivedFeatureFlags false). Reading the flag as
-            // off here would clear loading and skip the fetch, hiding the recalculation results.
-            initKeaTests()
-            await expectLogic(projectLogic).toMatchValues({ currentProjectId: expect.any(Number) })
-            const latestMock = jest.fn(() => [200, completedRecalculation])
-            useMocks({
-                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': latestMock },
-            })
-            mountLogic()
-
-            // afterMount fires loadLatestRecalculation, but it defers: no fetch while flags are unresolved.
-            await expectLogic(logic)
-                .toDispatchActions(['loadLatestRecalculation'])
-                .toNotHaveDispatchedActions(['setCurrentRecalculation'])
-            expect(latestMock).not.toHaveBeenCalled()
-
-            // While deferred, loading must clear: the loadLatestRecalculation action set it true, and if flags
-            // never arrive it would otherwise freeze the reload control and wrongly queue config-change reruns.
-            expect(logic.values.recalculationLoading).toBe(false)
-            expect(logic.values.isRecalculating).toBe(false)
-
-            // Once flags arrive with the recalculation flag on, the deferred fetch replays.
-            await expectLogic(logic, () => {
-                featureFlagLogic.mount()
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
-                })
-            }).toDispatchActions(['setFeatureFlags', 'loadLatestRecalculation', 'setCurrentRecalculation'])
-            expect(latestMock).toHaveBeenCalledTimes(1)
-        })
-
-        it('re-runs the load when a later flag update contradicts the value the mount decision used', async () => {
-            // The first flag set of a page load can come from the server bootstrap, which omits
-            // org-targeted flags: flags count as received, but this flag reads off, so the mount load bails.
-            featureFlagLogic.actions.setFeatureFlags([], {})
-            const latestMock = jest.fn(() => [200, completedRecalculation])
-            useMocks({
-                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': latestMock },
-            })
-            mountLogic()
-
-            await expectLogic(logic)
-                .toDispatchActions(['loadLatestRecalculation'])
-                .toNotHaveDispatchedActions(['setCurrentRecalculation'])
-            expect(latestMock).not.toHaveBeenCalled()
-
-            // The real flag response lands with the flag on. The load must re-run, or the recalculation
-            // UI waits forever for results that nothing fetches.
-            await expectLogic(logic, () => {
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
-                })
-            }).toDispatchActions(['setFeatureFlags', 'loadLatestRecalculation', 'setCurrentRecalculation'])
-            expect(latestMock).toHaveBeenCalledTimes(1)
-
-            // A repeated update with the same value must not re-run the load.
-            await expectLogic(logic, () => {
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
-                })
-            }).toNotHaveDispatchedActions(['loadLatestRecalculation'])
             expect(latestMock).toHaveBeenCalledTimes(1)
         })
     })

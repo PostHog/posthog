@@ -9,7 +9,11 @@ import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileIte
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { cohortBroadcastDisabledReason, urlForCohortBroadcast, urlForCohortWorkflow } from 'scenes/cohorts/cohortUtils'
+import {
+    cohortBroadcastAudience,
+    cohortBroadcastDisabledReason,
+    urlForCohortWorkflow,
+} from 'scenes/cohorts/cohortUtils'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
@@ -23,7 +27,11 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { CohortType } from '~/types'
 
-import { captureMessageAudienceClicked } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import {
+    captureMessageAudienceClicked,
+    messageAudienceAccessDisabledReason,
+} from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { openMessageAudience } from 'products/workflows/frontend/MessageAudience/messageAudienceWarnings'
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -49,7 +57,8 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
     const isDeleted = cohort.deleted
 
     const cohortIdNumber = typeof cohort.id === 'number' ? cohort.id : undefined
-    const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort)
+    const accessDisabledReason = messageAudienceAccessDisabledReason()
+    const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort) ?? accessDisabledReason
 
     return (
         <SceneMenuBar>
@@ -58,25 +67,28 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                     <>
                         <SceneMenuBarSubMenu label="Create">
                             <SceneMenuBarItem
-                                onClick={() => router.actions.push(urlForCohortWorkflow(cohort))}
-                                data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}
-                            >
-                                <IconSend />
-                                Message this cohort
-                            </SceneMenuBarItem>
-                            <SceneMenuBarItem
                                 onClick={() => {
                                     captureMessageAudienceClicked('cohort', 'broadcast')
-                                    router.actions.push(
-                                        urlForCohortBroadcast({ id: cohortIdNumber, name: cohort.name })
-                                    )
+                                    void openMessageAudience(cohortBroadcastAudience(cohort), 'broadcast')
                                 }}
                                 disabled={!!broadcastDisabledReason}
                                 tooltip={broadcastDisabledReason ?? undefined}
                                 data-attr={`${RESOURCE_TYPE}-menubar-send-broadcast`}
                             >
                                 <IconLetter />
-                                Send a broadcast
+                                Email this cohort
+                            </SceneMenuBarItem>
+                            <SceneMenuBarItem
+                                onClick={() => {
+                                    captureMessageAudienceClicked('cohort', 'workflow')
+                                    router.actions.push(urlForCohortWorkflow(cohort))
+                                }}
+                                disabled={!!accessDisabledReason}
+                                tooltip={accessDisabledReason ?? undefined}
+                                data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}
+                            >
+                                <IconSend />
+                                Build a custom workflow
                             </SceneMenuBarItem>
                             <SceneMenuBarAddToNotebook
                                 dataAttrKey={RESOURCE_TYPE}

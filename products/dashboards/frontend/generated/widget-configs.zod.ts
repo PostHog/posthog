@@ -4,6 +4,7 @@
 import { z as zod } from 'zod'
 
 import { ActivityEventsListWidgetConfig } from './widget-config-schemas/activityEventsListWidgetConfig.zod'
+import { CanvasAppWidgetConfig as CanvasAppWidgetConfigComponent } from './widget-config-schemas/canvasAppWidgetConfig.zod'
 import { ConversationsRecentTicketsWidgetConfig as ConversationsRecentTicketsWidgetConfigComponent } from './widget-config-schemas/conversationsRecentTicketsWidgetConfig.zod'
 import { ErrorTrackingListWidgetConfig } from './widget-config-schemas/errorTrackingListWidgetConfig.zod'
 import { ExperimentResultsWidgetConfig as ExperimentResultsWidgetConfigComponent } from './widget-config-schemas/experimentResultsWidgetConfig.zod'
@@ -15,6 +16,7 @@ import { SurveyResultsWidgetConfig as SurveyResultsWidgetConfigComponent } from 
 import { WidgetFilterEntry } from './widget-config-schemas/widgetFilterEntry.zod'
 
 export const activityEventsWidgetConfigSchema = /* @__PURE__ */ ActivityEventsListWidgetConfig
+export const canvasAppWidgetConfigSchema = /* @__PURE__ */ CanvasAppWidgetConfigComponent
 export const conversationsRecentTicketsWidgetConfigSchema =
     /* @__PURE__ */ ConversationsRecentTicketsWidgetConfigComponent
 export const errorTrackingWidgetConfigSchema = /* @__PURE__ */ ErrorTrackingListWidgetConfig
@@ -27,6 +29,7 @@ export const surveyResultsWidgetConfigSchema = /* @__PURE__ */ SurveyResultsWidg
 export const widgetFilterEntrySchema = /* @__PURE__ */ WidgetFilterEntry
 
 export type ActivityEventsWidgetConfig = zod.infer<typeof activityEventsWidgetConfigSchema>
+export type CanvasAppWidgetConfig = zod.infer<typeof canvasAppWidgetConfigSchema>
 export type ConversationsRecentTicketsWidgetConfig = zod.infer<typeof conversationsRecentTicketsWidgetConfigSchema>
 export type ErrorTrackingWidgetConfig = zod.infer<typeof errorTrackingWidgetConfigSchema>
 export type ExperimentResultsWidgetConfig = zod.infer<typeof experimentResultsWidgetConfigSchema>
@@ -45,6 +48,10 @@ export const activityEventsWidgetFormSchema = activityEventsWidgetConfigSchema.p
     limit: true,
     dateRange: true,
     filterTestAccounts: true,
+})
+
+export const canvasAppWidgetFormSchema = canvasAppWidgetConfigSchema.pick({
+    canvasId: true,
 })
 
 export const conversationsRecentTicketsWidgetFormSchema = conversationsRecentTicketsWidgetConfigSchema.pick({

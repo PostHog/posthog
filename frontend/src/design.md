@@ -62,6 +62,7 @@ Compose from the listed parts only. Part names are shown without their prefix (e
 - Drawer (Trigger, Content, Header, Title, Description, Footer, Close, Handle, Backdrop, Portal)
 - DropdownMenu (Trigger, Content, Item, CheckboxItem, RadioGroup, RadioItem, SelectAll, Label, Separator, Shortcut, Group, Sub, SubTrigger, SubContent, Portal; useDropdownMenuSelectAll)
 - Empty (Header, Media, Title, Description, Content)
+- IconStack (Item)
 - Field (Label, Description, Error, Group, Set, Legend, Separator, Content, Title)
 - Heading
 - Input
@@ -249,6 +250,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 
 - loading → see §3 Loading and progress
 - empty → Empty, with a next action where one exists; inside pickers use ComboboxEmpty / AutocompleteEmpty
+  - icon → `IconStack` with one `IconStackItem` per product or type it covers, colored `var(--color-product-<product>-light)`; no product → leave `color` out for grey
 - error:
   - field or section → inline message near the failure, with retry where possible
   - whole view failed to load → one page-level error with retry

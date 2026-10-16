@@ -23,6 +23,7 @@ from posthog.dataclasses import frozen
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_DATA_TABLE,
+    FLAG_EVALUATIONS_PERSON_PROPERTIES_EXPR,
     FLAG_EVALUATIONS_SOURCE_EVENT,
     FLAG_EVALUATIONS_TTL_DAYS,
 )
@@ -47,12 +48,31 @@ _FINISHED_RUN_STATUSES = (
     dagster.DagsterRunStatus.CANCELED,
 )
 
-# The nine DEFAULT columns are left out so the shard computes them from properties, the same way
+# The nine columns whose DEFAULT reads properties are left out so the shard computes them the same way
 # it does for rows from Kafka. inserted_at is left out so its DEFAULT stamps the event timestamp:
 # that keeps every copied row inside the deletion sweep's `inserted_at <= request.created_at` bound,
 # and it keeps copied rows out of the consumer-lag query below. _partition and _offset are left out
 # so that both are 0 on a copied row. _COPIED_ROW_FILTER relies on that.
-_COPIED_COLUMNS = "uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id, _timestamp"
+_COPIED_COLUMNS = (
+    "uuid",
+    "event",
+    "properties",
+    "timestamp",
+    "team_id",
+    "distinct_id",
+    "created_at",
+    "person_id",
+    "person_properties",
+    "person_created_at",
+    "person_mode",
+    "_timestamp",
+)
+
+_COPIED_COLUMN_LIST = ", ".join(_COPIED_COLUMNS)
+
+_COPIED_VALUES = ", ".join(
+    FLAG_EVALUATIONS_PERSON_PROPERTIES_EXPR if column == "person_properties" else column for column in _COPIED_COLUMNS
+)
 
 # A row from Kafka also has inserted_at = timestamp when its timestamp has no sub-second part and
 # falls in the second that Kafka received it. Kafka gives offset 0 only to the first message in a
@@ -67,6 +87,11 @@ _COPIED_ROW_FILTER = "_partition = 0 AND _offset = 0 AND inserted_at = timestamp
 # lookback drops out of this query.
 # Lag comes from _timestamp, the Kafka message time. A consumer that works through a backlog writes
 # rows now, so the time a row is written does not show how far the consumer is behind.
+# Rows that a property removal reingested also pass the inserted_at filter, but their _timestamp is one
+# second after the request's marker, not the Kafka message time (see _cleaned_select_list in
+# data_deletion_requests.py). A partition that stalls after a removal can therefore look current until the
+# marker is max_consumer_lag_seconds old. Within that window the job can copy a call whose fork row is
+# still in Kafka. The two rows collapse to one when their parts merge.
 # The lookback filters on inserted_at because only inserted_at has a skip index.
 _KAFKA_LOOKBACK_DAYS = 7
 _KAFKA_POSITION_QUERY = f"""
@@ -256,7 +281,7 @@ def build_copy_query(*, dry_run: bool, filter_team_ids: bool, chunked: bool) -> 
     # still have its fork row in Kafka. Copying it would store the call twice, so the job skips it. Kafka then
     # delivers its fork row, or a later run copies it.
     select = f"""
-SELECT {"count()" if dry_run else _COPIED_COLUMNS}
+SELECT {"count()" if dry_run else _COPIED_VALUES}
 FROM {EVENTS_DATA_TABLE()}
 PREWHERE event = %(event)s
     AND timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
@@ -270,7 +295,7 @@ WHERE _timestamp < %(created_before)s
 """
     if dry_run:
         return select
-    return f"INSERT INTO {FLAG_EVALUATIONS_DATA_TABLE} ({_COPIED_COLUMNS}){select}"
+    return f"INSERT INTO {FLAG_EVALUATIONS_DATA_TABLE} ({_COPIED_COLUMN_LIST}){select}"
 
 
 @dagster.op(tags=OWNER_TAG)
@@ -611,6 +636,9 @@ def flag_evaluations_backfill_job() -> None:
     """Copy $feature_flag_called history from events into flag_evaluations, one op per shard.
 
     Safe to re-run over the same window: the anti-join inserts only rows that are missing.
+    A re-run does not rewrite a stored row. To copy a day again, first delete the rows that an earlier
+    run copied, which match _COPIED_ROW_FILTER. Delete a row that the Kafka path wrote only when events
+    also holds the call. Events does not hold the calls of an organization on FLAG_EVALUATIONS_ONLY.
     """
     plan = plan_flag_evaluations_backfill()
     shards = get_backfill_shards(plan=plan)

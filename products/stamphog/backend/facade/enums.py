@@ -8,12 +8,14 @@ the implementation (logic/, models.py).
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
 
-class ReviewMode(StrEnum):
-    # Every relevant PR event triggers a review (the default).
-    ALL = "all"
-    # Reviews run only for PRs carrying the repo's trigger label (Action-style opt-in).
-    LABEL = "label"
+
+class ReviewMode(LabeledStrEnum):
+    # Every relevant PR event triggers a review.
+    ALL = "all", "All pull requests"
+    # Reviews run only for PRs carrying the repo's trigger label (Action-style opt-in, the default).
+    LABEL = "label", "Labeled pull requests"
 
 
 class ReviewRunStatus(StrEnum):

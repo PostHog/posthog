@@ -1,12 +1,14 @@
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.retently import (
     RetentlySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.retently import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.retently.source import RetentlySource
 
 
@@ -58,38 +60,32 @@ class TestNonRetryableErrors:
 
 
 class TestResumablePlumbing:
+    def setup_method(self) -> None:
+        self.driver = SourceDriver(RetentlySource(), RetentlySourceConfig(api_key="key"))
+
     def test_source_for_pipeline_passes_incremental_inputs(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "feedback"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        config = RetentlySourceConfig(api_key="key")
-        manager = MagicMock()
+        result = self.driver.run(
+            "feedback",
+            [ScriptedResponse(json={"data": {"responses": [], "pages": 0}})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-01-01T00:00:00Z",
+        )
 
-        with patch.object(source_module, "retently_source") as mock_source:
-            RetentlySource().source_for_pipeline(config, manager, inputs)
-
-        _, kwargs = mock_source.call_args
-        assert kwargs["api_key"] == "key"
-        assert kwargs["endpoint"] == "feedback"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
+        assert result.requests[0].headers["x-api-key"] == "key"
+        assert result.paths == ["/api/v2/feedback"]
+        assert result.requests[0].param("startDate") == "2026-01-01T00:00:00Z"
 
     def test_source_for_pipeline_drops_last_value_when_not_incremental(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "customers"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "ignored"
-        config = RetentlySourceConfig(api_key="key")
+        result = self.driver.run(
+            "customers",
+            [ScriptedResponse(json={"data": {"subscribers": [], "pages": 0}})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="ignored",
+        )
 
-        with patch.object(source_module, "retently_source") as mock_source:
-            RetentlySource().source_for_pipeline(config, MagicMock(), inputs)
-
-        _, kwargs = mock_source.call_args
-        assert kwargs["db_incremental_field_last_value"] is None
+        assert "startDate" not in result.requests[0].query
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "not_a_real_table"
-        with pytest.raises(ValueError):
-            RetentlySource().source_for_pipeline(RetentlySourceConfig(api_key="key"), MagicMock(), inputs)
+        result = self.driver.run("not_a_real_table", [])
+
+        assert isinstance(result.raised, ValueError)

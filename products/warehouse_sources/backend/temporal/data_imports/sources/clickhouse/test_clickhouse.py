@@ -18,6 +18,7 @@ import pyarrow as pa
 import clickhouse_connect
 from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError
 from parameterized import parameterized
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -40,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import (
     _REDIRECTED,
+    _TEMPORARILY_UNAVAILABLE,
     GENERIC_CONNECTION_ERROR,
     ClickHouseSource,
 )
@@ -48,7 +50,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import (
+    ExternalDataSchemaSyncType,
+    ExternalDataSourceType,
+    IncrementalFieldType,
+)
 
 
 class TestQuoteIdentifier:
@@ -413,6 +419,15 @@ class TestClickHouseSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         assert not any(pattern in error_msg for pattern in retryable)
 
+    def test_bare_gateway_status_is_classified_as_retryable(self, source):
+        # A bare HTTP 500 (no X-ClickHouse-Exception-Code header) means a proxy/load balancer in
+        # front of ClickHouse failed, not ClickHouse itself — the same transient shape as the
+        # already-retryable 502/503/504. Without this, a transient gateway blip would be reported
+        # as tracked exception noise on every occurrence instead of silently retried.
+        error_msg = "HTTP driver received HTTP status 500, server response: An unexpected error occurred: EOF (for url https://host:8443)"
+        retryable = source.get_retryable_errors()
+        assert any(pattern in error_msg for pattern in retryable)
+
 
 class TestGetClientTransientRetry:
     """`_get_client` retries a transient connection drop during connect in-process."""
@@ -522,6 +537,13 @@ class TestTranslateError:
         msg = f"HTTP driver received HTTP status {code} (for url https://host:8443)"
         assert ClickHouseSource._translate_error(msg) == _REDIRECTED
 
+    @pytest.mark.parametrize("code", ["500", "502", "503", "504"])
+    def test_gateway_responses_are_temporarily_unavailable(self, code):
+        # A bare status with no ClickHouse exception code means a proxy/LB in front of
+        # ClickHouse is briefly down, not that the connection details are wrong.
+        msg = f"HTTP driver received HTTP status {code} (for url https://host:8443)"
+        assert ClickHouseSource._translate_error(msg) == _TEMPORARILY_UNAVAILABLE
+
 
 class TestGetSchemas:
     """Tests `get_schemas` with a fully mocked ClickHouse client."""
@@ -629,6 +651,40 @@ class TestSourceClassValidateCredentials:
         assert valid is False
         assert msg == GENERIC_CONNECTION_ERROR
 
+    @pytest.mark.parametrize(
+        "raw_error,expected",
+        [
+            ("Could not establish session to SSH gateway", "Could not connect to your SSH tunnel"),
+            (
+                "Could not establish session to SSH gateway: the SSH server did not accept a connection within 15 seconds",
+                "Could not connect to your SSH tunnel",
+            ),
+            (
+                "Problem setting SSH Forwarder up: Couldn't open tunnel 127.0.0.1:0 <> bastion.example.com:9000",
+                "SSH tunnel settings",
+            ),
+        ],
+    )
+    def test_ssh_tunnel_errors_return_user_facing_message(self, raw_error, expected):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
+
+        source = source_module.ClickHouseSource()
+
+        config = MagicMock()
+        config.host = "play.clickhouse.com"
+        config.ssh_tunnel = None
+
+        with patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)):
+            with patch.object(source, "is_database_host_valid", return_value=(True, None)):
+                with patch.object(source, "get_schemas", side_effect=BaseSSHTunnelForwarderError(raw_error)):
+                    with patch.object(source_module, "capture_exception"):
+                        valid, msg = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert msg is not None and expected in msg
+        assert "SSH gateway" not in msg
+        assert "example.com" not in msg
+
 
 class TestHasDuplicatePrimaryKeys:
     def _logger(self):
@@ -654,8 +710,9 @@ class TestHasDuplicatePrimaryKeys:
 
 class TestDuplicateProbeTargetsMergeKey:
     _MEMORY_LIMIT = ClickHouseError("Code: 241. DB::Exception: Query memory limit exceeded. (MEMORY_LIMIT_EXCEEDED)")
+    _INCREMENTAL = ExternalDataSchemaSyncType.INCREMENTAL
 
-    def _run(self, *, stored_primary_keys, sorting_key, probe_outcome):
+    def _run(self, *, sync_type, stored_primary_keys, sorting_key, probe_outcome):
         probe_queries: list[str] = []
 
         def fake_query(query, **_kwargs):
@@ -704,33 +761,42 @@ class TestDuplicateProbeTargetsMergeKey:
                 logger=MagicMock(),
                 db_incremental_field_last_value=None,
                 stored_primary_keys=stored_primary_keys,
+                sync_type=sync_type,
             )
         return response, probe_queries
 
     @pytest.mark.parametrize(
-        "stored_primary_keys,sorting_key,probe_outcome,expected_group_by,expected_blocked",
+        "sync_type,stored_primary_keys,sorting_key,probe_outcome,expected_group_by,expected_blocked",
         [
-            (["id"], ["created_at", "id", "region"], [], "GROUP BY `id` HAVING", False),
-            (None, ["region", "id"], [], "GROUP BY `region`, `id` HAVING", False),
-            (["id"], ["region", "id"], [(1,)], "GROUP BY `id` HAVING", True),
-            (["id"], ["region", "id"], _MEMORY_LIMIT, "GROUP BY `id` HAVING", False),
+            (_INCREMENTAL, ["id"], ["created_at", "id", "region"], [], "GROUP BY `id` HAVING", False),
+            (_INCREMENTAL, None, ["region", "id"], [], "GROUP BY `region`, `id` HAVING", False),
+            (_INCREMENTAL, ["id"], ["region", "id"], [(1,)], "GROUP BY `id` HAVING", True),
+            (_INCREMENTAL, ["id"], ["region", "id"], _MEMORY_LIMIT, "GROUP BY `id` HAVING", False),
+            (ExternalDataSchemaSyncType.APPEND, ["id"], ["region", "id"], [(1,)], None, False),
         ],
         ids=[
             "stored_key_wins",
             "sorting_key_when_nothing_stored",
             "duplicates_block",
             "exhausted_budget_does_not_block",
+            "append_does_not_probe",
         ],
     )
     def test_probe_checks_the_merge_key(
-        self, stored_primary_keys, sorting_key, probe_outcome, expected_group_by, expected_blocked
+        self, sync_type, stored_primary_keys, sorting_key, probe_outcome, expected_group_by, expected_blocked
     ):
         response, probe_queries = self._run(
-            stored_primary_keys=stored_primary_keys, sorting_key=sorting_key, probe_outcome=probe_outcome
+            sync_type=sync_type,
+            stored_primary_keys=stored_primary_keys,
+            sorting_key=sorting_key,
+            probe_outcome=probe_outcome,
         )
 
-        assert len(probe_queries) == 1
-        assert expected_group_by in probe_queries[0]
+        if expected_group_by is None:
+            assert probe_queries == []
+        else:
+            assert len(probe_queries) == 1
+            assert expected_group_by in probe_queries[0]
         assert response.has_duplicate_primary_keys is expected_blocked
 
     def test_source_for_pipeline_passes_the_schema_key_to_the_probe(self):
@@ -749,16 +815,45 @@ class TestDuplicateProbeTargetsMergeKey:
             source.source_for_pipeline(MagicMock(), inputs)
 
         assert mock_clickhouse_source.call_args.kwargs["stored_primary_keys"] == ["id"]
+        assert mock_clickhouse_source.call_args.kwargs["sync_type"] is inputs.sync_type
+
+
+def _failing_server(*_args: object, **_kwargs: object) -> MagicMock:
+    raise ClickHouseError("timeout")
+
+
+def _readonly_server(*_args: object, settings: dict[str, object] | None = None, **_kwargs: object) -> MagicMock:
+    if settings:
+        raise ProgrammingError("Setting max_execution_time is unknown or readonly")
+    return MagicMock(result_rows=[(42,)])
+
+
+def _readonly_server_that_times_out(
+    *_args: object, settings: dict[str, object] | None = None, **_kwargs: object
+) -> MagicMock:
+    if settings:
+        raise ProgrammingError("Setting max_execution_time is unknown or readonly")
+    raise OperationalError("Read timed out")
 
 
 class TestGetIncrementalRowCount:
     def _logger(self):
         return MagicMock()
 
-    def test_returns_none_on_error(self):
+    @pytest.mark.parametrize(
+        "server, expected",
+        [
+            pytest.param(_failing_server, None, id="query_fails"),
+            pytest.param(_readonly_server, 42, id="server_refuses_settings"),
+            pytest.param(_readonly_server_that_times_out, None, id="server_refuses_settings_and_the_count_fails"),
+        ],
+    )
+    def test_counts_the_rows_after_the_cursor_or_gives_none(
+        self, server: Callable[..., MagicMock], expected: int | None
+    ) -> None:
         client = MagicMock()
-        client.query.side_effect = ClickHouseError("timeout")
-        assert _get_incremental_row_count(client, "db", "t", "id", 0, self._logger()) is None
+        client.query.side_effect = server
+        assert _get_incremental_row_count(client, "db", "t", "id", 0, self._logger()) == expected
 
 
 class TestGetPartitionSettings:
@@ -918,6 +1013,36 @@ class TestGetRowsBatching:
             self._run_get_rows([], stream_client=stream_client)
 
         stream_client.query_column_block_stream.assert_not_called()
+
+    def test_retries_with_the_servers_max_execution_time_ceiling(self):
+        constraint_error = ClickHouseError(
+            "Received ClickHouse exception, code: 452, server response: Code: 452. DB::Exception: "
+            "Setting max_execution_time shouldn't be greater than 600. (SETTING_CONSTRAINT_VIOLATION)"
+        )
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = [constraint_error, self._stream_context([self._block(5)])]
+
+        yielded = self._run_get_rows([], stream_client=stream_client)
+
+        assert len(yielded) == 1
+        assert yielded[0].num_rows == 5
+        stream_client.set_client_setting.assert_called_once_with("max_execution_time", 600)
+        assert stream_client.query_arrow_stream.call_count == 2
+
+    def test_gives_up_after_one_max_execution_time_retry(self):
+        # A host that keeps rejecting every value we set must not spin the sync forever.
+        constraint_error = ClickHouseError(
+            "Received ClickHouse exception, code: 452, server response: Code: 452. DB::Exception: "
+            "Setting max_execution_time shouldn't be greater than 600. (SETTING_CONSTRAINT_VIOLATION)"
+        )
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = [constraint_error, constraint_error]
+
+        with pytest.raises(ClickHouseError, match="SETTING_CONSTRAINT_VIOLATION"):
+            self._run_get_rows([], stream_client=stream_client)
+
+        stream_client.set_client_setting.assert_called_once_with("max_execution_time", 600)
+        assert stream_client.query_arrow_stream.call_count == 2
 
     def test_limit_error_after_rows_were_read_does_not_fall_back_to_pages(self):
         def blocks_then_limit_error():

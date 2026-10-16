@@ -48,6 +48,8 @@ The contract is intentionally split across two streams:
 - **`Resolve`** is bidirectional work traffic. The caller sends independent `ResolveItem`s, each with a per-stream id, `team_id`, serialized exception JSON, JSON `metadata` bytes, and an item deadline. The server emits an `Accepted` outcome when it admits an item, then exactly one terminal `ResolveOutcome` with the same id: `Done`, `Retry`, or `Error`. A `Done` carries the resolved exception JSON plus a `release_id`: the newest release bound to a symbol set the item's frames reference. It is empty when no referenced symbol set has a release, and on servers that predate the field, so callers treat empty as "no release".
 - **`Subscribe`** is endpoint freshness, draining, and soft load state. The cymbal-side `EndpointPool` opens one long-lived stream per pod and treats the latest `LoadEvent` as a freshness snapshot plus an `in_flight` / `max_in_flight` routing bias. `LoadEvent` does not carry overload state or suggested batch sizing.
 
+Resolve requests and responses accept encoded messages up to 8 MiB. The processing client and resolution server use the same limit from `cymbal-proto`.
+
 `Error.kind` is the shared control-flow surface:
 
 - `ERROR_KIND_INVALID_PAYLOAD` means the exception payload or `metadata` bytes do not match the wire convention.
@@ -121,6 +123,8 @@ All variables are prefixed `CYMBAL_REMOTE_RESOLUTION_` and live on `cymbal::conf
 | `INTERNAL_API_SECRET` | _empty_ | Shared secret required as `X-Internal-Api-Secret` metadata on every gRPC request. Empty configuration rejects all RPCs. |
 | `MAX_CONCURRENT_REQUESTS` | `256` | Hard cap on in-flight gRPC streams. Excess returns `UNAVAILABLE` from the gRPC load-shed layer. `0` disables the cap. |
 | `SYMBOL_RESOLUTION_CONCURRENCY` | `64` | Cap on concurrent symbol-resolution operations across all in-flight items. |
+| `SYMBOL_SET_LARGE_PARSE_BYTES` | `10000000` | Fetched size, in bytes, at which a symbol set parse counts as large. Large parses share the limit below, because their transient memory is not counted by the symbol store cache. |
+| `SYMBOL_SET_MAX_CONCURRENT_LARGE_PARSES` | `2` | Cap on concurrent large symbol set parses across all providers. Other large parses wait. |
 | `MAX_ITEM_CONCURRENCY` | `64` | Process-wide cap on concurrently processed exception items. Excess items receive `ERROR_KIND_OVERLOADED`. |
 | `SERVICE_INSTANCE_ID` | random UUID | Identifier surfaced to callers via `LoadEvent` on the Subscribe stream. |
 | `SUBSCRIBE_TICK_INTERVAL_MS` | `1000` | Default `LoadEvent` heartbeat cadence when callers do not suggest one. Load events may be emitted earlier when draining changes or in-flight load crosses coarse thresholds. |

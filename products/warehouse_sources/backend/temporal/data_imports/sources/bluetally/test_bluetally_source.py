@@ -1,7 +1,3 @@
-from typing import Any
-
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.canonical_descriptions import (
@@ -9,13 +5,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.source import BluetallySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bluetally import (
+    BluetallySourceConfig,
+)
 
 
-def _config(api_key: str = "key", tenant_id: str | None = None) -> Any:
-    config = MagicMock()
-    config.api_key = api_key
-    config.tenant_id = tenant_id
-    return config
+def _config(api_key: str = "key", tenant_id: str | None = None) -> BluetallySourceConfig:
+    return BluetallySourceConfig(api_key=api_key, tenant_id=tenant_id)
 
 
 class TestSourceConfig:
@@ -32,21 +32,18 @@ class TestGetSchemas:
 
 class TestValidateCredentials:
     def test_failure(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.source.validate_bluetally_credentials",
-            return_value=False,
-        ):
+        with scripted_network([ScriptedResponse(status=401)]):
             ok, error = BluetallySource().validate_credentials(_config(), team_id=1)
         assert ok is False
         assert error is not None
 
     def test_probes_specific_endpoint_path(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.source.validate_bluetally_credentials",
-            return_value=True,
-        ) as mocked:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             BluetallySource().validate_credentials(_config(), team_id=1, schema_name="employees")
-        mocked.assert_called_once_with("key", None, "employees")
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].path == "/api/v1/employees"
+        assert network.requests_log[0].headers["authorization"] == "Bearer key"
+        assert network.requests_log[0].param("tenant_id") is None
 
 
 class TestNonRetryableErrors:

@@ -62,6 +62,7 @@ export const manifest: ProductManifest = {
         '/broadcasts/opt-outs': ['Broadcasts', 'broadcasts'],
         '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
         '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
+        '/broadcasts/settings': ['Broadcasts', 'broadcasts'],
         // kea-router matches in declaration order, so the literal 'new' comes before ':id'.
         '/broadcasts/new': ['Broadcast', 'broadcast'],
         '/broadcasts/:id': ['Broadcast', 'broadcast'],
@@ -94,6 +95,14 @@ export const manifest: ProductManifest = {
             path: 'Workflows',
             intents: [ProductKey.WORKFLOWS],
             href: urls.workflows(),
+            searchTabs: [
+                { name: 'Library', href: urls.workflows('library') },
+                { name: 'Channels', href: urls.workflows('channels') },
+                { name: 'Opt-outs', href: urls.workflows('opt-outs') },
+                { name: 'Suppression list', href: urls.workflows('suppression') },
+                { name: 'Reputation', href: urls.workflows('reputation') },
+                { name: 'Settings', href: urls.workflows('settings') },
+            ],
             type: 'workflows',
             category: ProductItemCategory.MESSAGING,
             iconType: 'workflows',

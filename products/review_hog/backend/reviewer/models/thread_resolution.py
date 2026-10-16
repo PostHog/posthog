@@ -22,6 +22,9 @@ class CommitHold(StrEnum):
     # The stage commits to the head branch only, so a fix here leaves every PR stacked on top
     # behind its base until someone restacks.
     STACKED = "pr_has_stacked_pull_requests"
+    # Branch protection on the head branch would refuse the push, or let only some people push. A
+    # person decides what lands on a protected branch.
+    BRANCH_PROTECTED = "pr_branch_protected"
 
 
 class ThreadResolution(BaseModel):

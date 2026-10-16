@@ -1,35 +1,29 @@
-from collections.abc import Iterable
-from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
 
-import requests_mock
-from requests.exceptions import ConnectionError, HTTPError, RequestException, Timeout
+from requests.exceptions import HTTPError, RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ticketmaster import (
     TicketmasterSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ticketmaster.source import TicketmasterSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.ticketmaster.ticketmaster import (
-    TicketmasterResumeConfig,
-    ticketmaster_source,
     validate_credentials,
 )
 
 
 def make_config(keyword: str = " Example act ") -> TicketmasterSourceConfig:
     return TicketmasterSourceConfig(api_key="fake-ticketmaster-key", keyword=keyword)
-
-
-def make_manager(page: int | None = None) -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = page is not None
-    manager.load_state.return_value = TicketmasterResumeConfig(page=page) if page is not None else None
-    return manager
 
 
 def make_page(endpoint: str, number: int, count: int, total: int) -> dict[str, Any]:
@@ -39,28 +33,26 @@ def make_page(endpoint: str, number: int, count: int, total: int) -> dict[str, A
     }
 
 
-def read_rows(endpoint: str, manager: MagicMock, keyword: str = " Example act ") -> list[dict[str, Any]]:
-    response = ticketmaster_source(make_config(keyword), endpoint, "v2", 1, "test-job", manager)
-    return [row for batch in cast(Iterable[list[dict[str, Any]]], response.items()) for row in batch]
+def read_rows(
+    endpoint: str, script: Script, keyword: str = " Example act ", config: TicketmasterSourceConfig | None = None
+) -> DriveResult:
+    return SourceDriver(TicketmasterSource(), config or make_config(keyword)).run(endpoint, script)
 
 
 @pytest.mark.parametrize("total", [1000, 1001])
 def test_search_limit_never_truncates(total: int) -> None:
-    manager = make_manager()
-    with requests_mock.Mocker() as http:
-        http.get(
-            "https://app.ticketmaster.com/discovery/v2/events.json",
-            [{"json": make_page("events", page, 200, total)} for page in range(5)],
-        )
-        if total > 1000:
-            with pytest.raises(ValueError, match="exceeds 1,000 results") as error:
-                read_rows("events", manager)
-            assert str(error.value) in TicketmasterSource().get_non_retryable_errors()
-            assert http.call_count == 1
-            manager.save_state.assert_not_called()
-        else:
-            assert len(read_rows("events", manager)) == 1000
-            assert http.call_count == 5
+    result = read_rows("events", [ScriptedResponse(json=make_page("events", page, 200, total)) for page in range(5)])
+
+    if total > 1000:
+        assert isinstance(result.raised, ValueError)
+        assert "exceeds 1,000 results" in str(result.raised)
+        assert str(result.raised) in TicketmasterSource().get_non_retryable_errors()
+        assert len(result.requests) == 1
+        assert result.saved_states == []
+    else:
+        assert result.raised is None
+        assert len(result.rows) == 1000
+        assert len(result.requests) == 5
 
 
 @pytest.mark.parametrize(
@@ -72,46 +64,47 @@ def test_search_limit_never_truncates(total: int) -> None:
     ],
 )
 def test_malformed_response_fails_instead_of_erasing_data(body: dict[str, Any], message: str) -> None:
-    with requests_mock.Mocker() as http:
-        http.get("https://app.ticketmaster.com/discovery/v2/events.json", json=body)
-        with pytest.raises(ValueError, match=message):
-            read_rows("events", make_manager())
-    assert http.call_count == 1
+    result = read_rows("events", [ScriptedResponse(json=body)])
+
+    assert isinstance(result.raised, ValueError)
+    assert message in str(result.raised)
+    assert len(result.requests) == 1
 
 
 @pytest.mark.parametrize("status", [401, 403])
 def test_auth_errors_are_permanent_and_hide_secrets(status: int) -> None:
-    with requests_mock.Mocker() as http:
-        http.get(
-            "https://app.ticketmaster.com/discovery/v2/events.json",
-            status_code=status,
-            json={"fault": {"faultstring": "Invalid ApiKey", "detail": {"errorcode": "oauth.v2.InvalidApiKey"}}},
-        )
-        with pytest.raises(ValueError) as error:
-            read_rows("events", make_manager())
-    message = str(error.value)
+    result = read_rows(
+        "events",
+        [
+            ScriptedResponse(
+                status=status,
+                json={"fault": {"faultstring": "Invalid ApiKey", "detail": {"errorcode": "oauth.v2.InvalidApiKey"}}},
+            )
+        ],
+    )
+
+    assert isinstance(result.raised, ValueError)
+    message = str(result.raised)
     assert message in TicketmasterSource().get_non_retryable_errors()
     assert "fake-ticketmaster-key" not in message
-    assert http.call_count == 1
+    assert len(result.requests) == 1
 
 
 @pytest.mark.parametrize("status", [400, 404])
 def test_client_errors_hide_query_key(status: int) -> None:
     config = TicketmasterSourceConfig(api_key="secret/key?", keyword="Example act")
-    with requests_mock.Mocker() as http:
-        http.get("https://app.ticketmaster.com/discovery/v2/events.json", status_code=status)
-        with pytest.raises(ValueError, match=f"HTTP {status}") as error:
-            response = ticketmaster_source(config, "events", "v2", 1, "test-job", make_manager())
-            list(cast(Iterable[Any], response.items()))
-    assert "secret/key?" not in str(error.value)
-    assert "apikey" not in str(error.value)
-    assert http.call_count == 1
+    result = read_rows("events", [ScriptedResponse(status=status)], config=config)
+
+    assert isinstance(result.raised, ValueError)
+    assert f"HTTP {status}" in str(result.raised)
+    assert "secret/key?" not in str(result.raised)
+    assert "apikey" not in str(result.raised)
+    assert len(result.requests) == 1
 
 
 @pytest.mark.parametrize("status", [200, 401, 403, 429, 503])
 def test_credential_probe(status: int) -> None:
-    with requests_mock.Mocker() as http:
-        http.get("https://app.ticketmaster.com/discovery/v2/venues.json", status_code=status, json={})
+    with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
         if status in (429, 503):
             with pytest.raises(HTTPError, match=f"HTTP {status}") as error:
                 validate_credentials(make_config(), "venues", "v2")
@@ -123,41 +116,43 @@ def test_credential_probe(status: int) -> None:
                 assert message is None
             else:
                 assert message in TicketmasterSource().get_non_retryable_errors()
-    assert http.call_count == 1
-    assert parse_qs(urlsplit(http.last_request.url).query) == {
-        "apikey": ["fake-ticketmaster-key"],
-        "size": ["1"],
-        "keyword": ["Example act"],
-    }
+    assert {request.path for request in network.requests_log} == {"/discovery/v2/venues.json"}
+    for request in network.requests_log:
+        assert request.query == {
+            "apikey": ("fake-ticketmaster-key",),
+            "size": ("1",),
+            "keyword": ("Example act",),
+        }
 
 
 @pytest.mark.parametrize("keyword", ["", "   "])
 def test_blank_keyword_rejected_before_request(keyword: str) -> None:
-    with requests_mock.Mocker() as http:
+    with scripted_network([]) as network:
         assert validate_credentials(make_config(keyword), "events", "v2") == (
             False,
             "Enter a search keyword to limit the Ticketmaster results.",
         )
-        with pytest.raises(ValueError, match="Enter a search keyword"):
-            read_rows("events", make_manager(), keyword)
-    assert http.call_count == 0
+    result = read_rows("events", [], keyword)
+
+    assert isinstance(result.raised, ValueError)
+    assert "Enter a search keyword" in str(result.raised)
+    assert network.requests_log == []
+    assert result.requests == []
 
 
 def test_unknown_endpoint_rejected_before_request() -> None:
-    with requests_mock.Mocker() as http:
-        with pytest.raises(UnknownResourceError):
-            read_rows("../unknown", make_manager())
-    assert http.call_count == 0
+    result = read_rows("../unknown", [])
+
+    assert isinstance(result.raised, UnknownResourceError)
+    assert result.requests == []
 
 
-@pytest.mark.parametrize("exception_type", [ConnectionError, Timeout])
-def test_credential_connection_error_hides_query_key(exception_type: type[RequestException]) -> None:
-    with requests_mock.Mocker() as http:
-        http.get(
-            "https://app.ticketmaster.com/discovery/v2/events.json",
-            exc=exception_type("Failed URL: https://app.ticketmaster.com/?apikey=fake-ticketmaster-key"),
-        )
-        with pytest.raises(RequestException, match="Ticketmaster connection failed") as error:
-            validate_credentials(make_config(), "events", "v2")
-    assert "fake-ticketmaster-key" not in str(error.value)
-    assert error.value.__suppress_context__
+@pytest.mark.parametrize("error", [ConnectionResetError("reset"), TimeoutError("timed out")])
+def test_credential_connection_error_hides_query_key(error: BaseException) -> None:
+    with (
+        scripted_network(always(error)),
+        pytest.raises(RequestException, match="Ticketmaster connection failed") as raised,
+    ):
+        validate_credentials(make_config(), "events", "v2")
+    assert "fake-ticketmaster-key" not in str(raised.value)
+    assert raised.value.__suppress_context__

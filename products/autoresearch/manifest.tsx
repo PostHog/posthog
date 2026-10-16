@@ -43,6 +43,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.TOOLS,
             type: 'autoresearch',
             href: urls.autoresearch(),
+            searchKeywords: ['predictions', 'churn prediction'],
             flag: FEATURE_FLAGS.AUTORESEARCH,
             iconType: 'experiment',
             tags: ['alpha'],

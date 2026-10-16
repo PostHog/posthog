@@ -1,38 +1,31 @@
-import json
+from datetime import datetime
 from typing import Any, Optional
 
-import pytest
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whogho import WhoGhoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.source import WhoGhoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.who_gho import (
     MAX_INDICATOR_CODES,
     WhoGhoResumeConfig,
     check_indicator_codes,
     parse_indicator_codes,
     validate_credentials,
-    who_gho_source,
-)
-
-RESOURCE_SESSION_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-WHO_GHO_SESSION_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.who_gho.make_tracked_session"
 )
 
 
-def _http_response(body: Any, status_code: int = 200) -> Response:
-    response = Response()
-    response.status_code = status_code
-    response._content = json.dumps(body).encode()
-    response.headers["Content-Type"] = "application/json"
-    response.url = "https://ghoapi.azureedge.net/api/WHOSIS_000001"
-    return response
+def _http_response(body: Any, status_code: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=body)
 
 
 class TestParseIndicatorCodes:
@@ -68,53 +61,14 @@ class TestCheckIndicatorCodes:
 
 
 class TestWhoGhoSourceTransport:
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        indicator_codes: Optional[list[str]] = None,
-        should_use_incremental_field: bool = False,
-        since: Optional[str] = None,
-        dimension_catalog_responses: Optional[list[Response]] = None,
-    ) -> tuple[list[dict[str, Any]], list[str], list[list[dict[str, Any]]]]:
-        sent_params: list[dict[str, Any]] = []
-        sent_urls: list[str] = []
-        response_iter = iter([*(dimension_catalog_responses or []), *responses])
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            sent_urls.append(request.url)
-            return next(response_iter)
-
-        with patch(RESOURCE_SESSION_PATH) as MockResourceSession:
-            resource_session = MockResourceSession.return_value
-            resource_session.headers = {}
-            resource_session.prepare_request.side_effect = lambda request: request
-            resource_session.send.side_effect = fake_send
-
-            pages = list(
-                who_gho_source(
-                    endpoint=endpoint,
-                    indicator_codes=indicator_codes or [],
-                    team_id=123,
-                    job_id="job-id",
-                    resumable_source_manager=manager,
-                    should_use_incremental_field=should_use_incremental_field,
-                    since=since,
-                )
-            )
-
-        return sent_params, sent_urls, pages
+    @staticmethod
+    def _driver(indicator_codes: str = "") -> SourceDriver:
+        return SourceDriver(WhoGhoSource(), WhoGhoSourceConfig(indicator_codes=indicator_codes))
 
     def test_catalog_endpoint_paginates_using_skip_and_checkpoints_each_non_terminal_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
         full_page = [{"IndicatorCode": f"CODE{index}"} for index in range(1000)]
-        sent_params, sent_urls, pages = self._drive(
+        result = self._driver().run(
             "indicators",
-            manager,
             [
                 _http_response({"value": full_page}),
                 _http_response({"value": []}),
@@ -123,127 +77,106 @@ class TestWhoGhoSourceTransport:
 
         # A full page (== $top) means there may be more; a short page below the $top cap is what
         # actually signals the end.
-        assert [params["$skip"] for params in sent_params] == [0, 1000]
-        assert [params["$top"] for params in sent_params] == [1000, 1000]
-        assert sent_urls[0] == "https://ghoapi.azureedge.net/api/Indicator"
+        assert result.params("$skip") == ["0", "1000"]
+        assert result.params("$top") == ["1000", "1000"]
+        assert result.urls[0].startswith("https://ghoapi.azureedge.net/api/Indicator?")
         # The empty final page still drives pagination/checkpointing, but the resource wrapper
         # only yields non-empty pages downstream.
-        assert pages == [full_page]
+        assert result.items == [full_page]
 
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [WhoGhoResumeConfig(offset=1000)]
-        manager.clear_state.assert_called_once()
+        assert result.saved_states == [WhoGhoResumeConfig(offset=1000)]
+        # Walking to the end clears the checkpoint.
+        assert result.final_state is None
 
     def test_indicator_data_applies_the_date_filter_only_on_an_incremental_sync(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        sent_params, _, _ = self._drive(
+        incremental = self._driver("WHOSIS_000001").run(
             "indicator_data",
-            manager,
             [_http_response({"value": []})],
-            indicator_codes=["WHOSIS_000001"],
-            should_use_incremental_field=True,
-            since="2024-08-02",
+            incremental_field="Date",
+            db_incremental_field_last_value=datetime(2024, 8, 2, 9, 43, 39),
+        )
+        full = self._driver("WHOSIS_000001").run(
+            "indicator_data",
+            [_http_response({"value": []})],
+            db_incremental_field_last_value=datetime(2024, 8, 2, 9, 43, 39),
         )
 
-        assert sent_params[0]["$filter"] == "date(Date) gt 2024-08-02"
+        assert incremental.requests[0].param("$filter") == "date(Date) gt 2024-08-02"
+        assert full.requests[0].param("$filter") is None
 
     def test_indicator_data_checkpoints_the_next_code_when_one_finishes(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        self._drive(
+        result = self._driver("A\nB").run(
             "indicator_data",
-            manager,
             [
                 _http_response({"value": [{"IndicatorCode": "A", "Id": index} for index in range(1000)]}),
                 _http_response({"value": [{"IndicatorCode": "A", "Id": 1001}]}),
                 _http_response({"value": [{"IndicatorCode": "B", "Id": 1}]}),
             ],
-            indicator_codes=["A", "B"],
         )
 
         # A full 1000-row page means there may be more, so the mid-code checkpoint carries the
         # next offset; finishing a code moves to the next one so a restart doesn't re-walk it.
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [
+        assert result.saved_states == [
             WhoGhoResumeConfig(offset=1000, item_index=0),
             WhoGhoResumeConfig(offset=0, item_index=1),
             WhoGhoResumeConfig(offset=0, item_index=2),
         ]
 
     def test_indicator_data_resume_skips_completed_codes(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = WhoGhoResumeConfig(offset=3000, item_index=1)
-
-        sent_params, sent_urls, _ = self._drive(
+        result = self._driver("A\nB").run(
             "indicator_data",
-            manager,
             [_http_response({"value": [{"IndicatorCode": "B", "Id": 1}]})],
-            indicator_codes=["A", "B"],
+            resume_state=WhoGhoResumeConfig(offset=3000, item_index=1),
         )
 
-        assert sent_urls == ["https://ghoapi.azureedge.net/api/B"]
-        assert sent_params[0]["$skip"] == 3000
+        assert result.paths == ["/api/B"]
+        assert result.params("$skip")[0] == "3000"
 
     @parameterized.expand(
         [
-            ([],),
-            ([f"CODE.{index}" for index in range(MAX_INDICATOR_CODES + 1)],),
+            ("",),
+            ("\n".join(f"CODE.{index}" for index in range(MAX_INDICATOR_CODES + 1)),),
         ]
     )
     def test_indicator_data_refuses_an_out_of_bounds_code_list_before_requesting_anything(
-        self, indicator_codes: list[str]
+        self, indicator_codes: str
     ) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver(indicator_codes).run("indicator_data", [])
 
-        with pytest.raises(ValueError, match="WHO GHO source misconfigured"):
-            self._drive("indicator_data", manager, [], indicator_codes=indicator_codes)
-
-        manager.load_state.assert_not_called()
+        assert isinstance(result.raised, ValueError)
+        assert "WHO GHO source misconfigured" in str(result.raised)
+        assert result.requests == []
 
     def test_dimension_values_fans_out_over_every_discovered_dimension_code(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        _, sent_urls, pages = self._drive(
+        result = self._driver().run(
             "dimension_values",
-            manager,
             [
+                _http_response({"value": [{"Code": "COUNTRY"}, {"Code": "SEX"}]}),
                 _http_response({"value": [{"Code": "AFG", "Dimension": "COUNTRY"}]}),
                 _http_response({"value": [{"Code": "SEX_MLE", "Dimension": "SEX"}]}),
             ],
-            dimension_catalog_responses=[_http_response({"value": [{"Code": "COUNTRY"}, {"Code": "SEX"}]})],
         )
 
-        assert sent_urls == [
-            "https://ghoapi.azureedge.net/api/DIMENSION",
-            "https://ghoapi.azureedge.net/api/DIMENSION/COUNTRY/DimensionValues",
-            "https://ghoapi.azureedge.net/api/DIMENSION/SEX/DimensionValues",
+        assert result.paths == [
+            "/api/DIMENSION",
+            "/api/DIMENSION/COUNTRY/DimensionValues",
+            "/api/DIMENSION/SEX/DimensionValues",
         ]
-        assert [row["Code"] for page in pages for row in page] == ["AFG", "SEX_MLE"]
+        assert [row["Code"] for row in result.rows] == ["AFG", "SEX_MLE"]
 
     def test_dimension_values_fails_cleanly_when_discovery_returns_an_html_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        maintenance_page = ScriptedResponse(
+            body=b" <!DOCTYPE html><html><head><title>Sorry</title></head></html>",
+            headers={"Content-Type": "text/html; charset=utf-8"},
+        )
 
-        maintenance_page = Response()
-        maintenance_page.status_code = 200
-        maintenance_page._content = b" <!DOCTYPE html><html><head><title>Sorry</title></head></html>"
-        maintenance_page.headers["Content-Type"] = "text/html; charset=utf-8"
-        maintenance_page.url = "https://www.example.com/sorry/"
+        result = self._driver().run("dimension_values", [maintenance_page])
 
-        with pytest.raises(RESTClientNonRetryableError, match="Non-JSON response from"):
-            self._drive("dimension_values", manager, [], dimension_catalog_responses=[maintenance_page])
+        assert isinstance(result.raised, RESTClientNonRetryableError)
+        assert "Non-JSON response from" in str(result.raised)
 
 
 class TestValidateCredentials:
-    def _validate(self, codes: list[str], responses: list[Response]) -> tuple[bool, Optional[str]]:
-        with patch(WHO_GHO_SESSION_PATH) as MockSession:
-            MockSession.return_value.get.side_effect = responses
-            return validate_credentials(codes)
-
     def test_rejects_an_empty_code_list(self) -> None:
         ok, error = validate_credentials([])
 
@@ -257,25 +190,27 @@ class TestValidateCredentials:
         assert error is not None and str(MAX_INDICATOR_CODES) in error
 
     def test_accepts_known_codes(self) -> None:
-        ok, error = self._validate(["WHOSIS_000001"], [_http_response({"value": [{"IndicatorCode": "WHOSIS_000001"}]})])
+        with scripted_network([_http_response({"value": [{"IndicatorCode": "WHOSIS_000001"}]})]):
+            ok, error = validate_credentials(["WHOSIS_000001"])
 
         assert (ok, error) == (True, None)
 
     def test_names_the_codes_that_do_not_exist(self) -> None:
-        ok, error = self._validate(
-            ["WHOSIS_000001", "NOT_A_REAL_CODE"],
-            [
-                _http_response({"value": [{"IndicatorCode": "WHOSIS_000001"}]}),
-                _http_response({}, status_code=404),
-            ],
-        )
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("NOT_A_REAL_CODE"):
+                return _http_response({}, status_code=404)
+            return _http_response({"value": [{"IndicatorCode": "WHOSIS_000001"}]})
+
+        with scripted_network(respond):
+            ok, error = validate_credentials(["WHOSIS_000001", "NOT_A_REAL_CODE"])
 
         assert ok is False
         assert error == "These indicator codes were not found: NOT_A_REAL_CODE."
 
     @parameterized.expand([(500,), (503,), (429,)])
     def test_reports_an_unreachable_api(self, status_code: int) -> None:
-        ok, error = self._validate(["WHOSIS_000001"], [_http_response({}, status_code=status_code)])
+        with scripted_network(always(_http_response({}, status_code=status_code))):
+            ok, error = validate_credentials(["WHOSIS_000001"])
 
         assert ok is False
         assert error == "Could not reach the WHO Global Health Observatory API. Please try again."

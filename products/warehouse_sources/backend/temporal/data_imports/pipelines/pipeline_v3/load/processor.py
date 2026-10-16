@@ -110,6 +110,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.table_rebuild import TableRebuildRun
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import merge_cursor_payloads
@@ -759,6 +760,10 @@ def _trigger_post_import_workflow(export_signal: ExportSignalMessage, table_size
 
 def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
     # Runs inside the completion transaction; failures roll it back so the batch retries.
+    # A descending source stages the newest value of its run from the first batch, so a resumed
+    # attempt can start from it. That staged `last_value` sits above rows that are not loaded yet,
+    # so it must be promoted only here, when the final batch completes the job. A run that completes
+    # outside the loader (a run with zero batches) must not promote it.
     schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
 
     def merge_source_cursors(current: Any, candidate: Any) -> dict[str, Any]:
@@ -1144,6 +1149,20 @@ def _process_message_reported(
                 batch_index=export_signal.batch_index,
             )
             return
+
+        if export_signal.sync_type == "incremental" and export_signal.cdc_write_mode is None:
+            rebuild = TableRebuildRun(schema.sync_type_config)
+            if any(rebuild.replaces(run_uuid) for run_uuid, _ in members):
+                if constituents is not None:
+                    raise CoalescingDeclined("a batch belongs to an attempt that a later attempt replaced")
+                logger.info(
+                    "rebuild_batch_of_replaced_attempt_skipped",
+                    team_id=export_signal.team_id,
+                    external_data_schema_id=export_signal.schema_id,
+                    run_uuid=export_signal.run_uuid,
+                    batch_index=export_signal.batch_index,
+                )
+                return
 
         with timer.step("idempotency_check"):
             if constituents is not None:

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -22,13 +23,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     RentCastSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.rentcast import (
+    INVALID_ZIP_CODES_ERROR,
+    MISSING_ZIP_CODES_ERROR,
     RentCastResumeConfig,
+    parse_zip_codes,
     rentcast_source,
     validate_credentials as _validate_rentcast_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MARKETS_ENDPOINT,
     RENTCAST_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -36,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RentCastSource(ResumableSource[RentCastSourceConfig, RentCastResumeConfig]):
+    codebase_detection = detect(env=("^(RENT_CAST|RENTCAST)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -54,7 +61,9 @@ class RentCastSource(ResumableSource[RentCastSourceConfig, RentCastResumeConfig]
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your RentCast API key to pull US real estate data into the PostHog Data warehouse.
 
-You can create an API key under **API dashboard** in [RentCast](https://app.rentcast.io/app/api). The key grants read access to property records and active sale and rental listings.
+You can create an API key under **API dashboard** in [RentCast](https://app.rentcast.io/app/api). The key grants read access to property records, active sale and rental listings, and market statistics.
+
+To sync the **markets** table, enter the ZIP codes you want market statistics for. Each ZIP code uses one RentCast API request per sync.
 """,
             iconPath="/static/services/rentcast.png",
             docsUrl="https://posthog.com/docs/cdp/sources/rentcast",
@@ -68,6 +77,15 @@ You can create an API key under **API dashboard** in [RentCast](https://app.rent
                         required=True,
                         placeholder="",
                         secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="zip_codes",
+                        label="ZIP codes for market statistics",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="29611, 78701",
+                        caption="A comma-separated list of 5-digit US ZIP codes. Only the markets table uses it.",
+                        secret=False,
                     ),
                 ],
             ),
@@ -84,6 +102,8 @@ You can create an API key under **API dashboard** in [RentCast](https://app.rent
         return {
             "401 Client Error: Unauthorized for url: https://api.rentcast.io": "Your RentCast API key is invalid or has been revoked. Generate a new key in the RentCast API dashboard, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.rentcast.io": "Your RentCast API key does not have access to this data. Check the key's plan and permissions, then reconnect.",
+            MISSING_ZIP_CODES_ERROR: "Add one or more ZIP codes to the RentCast source settings to sync the markets table.",
+            INVALID_ZIP_CODES_ERROR: "Correct the ZIP codes in the RentCast source settings. Each one must be a 5-digit US ZIP code.",
         }
 
     def get_schemas(
@@ -97,7 +117,17 @@ You can create an API key under **API dashboard** in [RentCast](https://app.rent
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — RentCast's list endpoints expose no reliably
         # ordered server-side timestamp filter, so there is no incremental cursor to advance.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # `markets` needs ZIP codes to sync, so it stays off by default until some are configured.
+        try:
+            has_zip_codes = bool(parse_zip_codes(config.zip_codes))
+        except ValueError:
+            has_zip_codes = False
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default={MARKETS_ENDPOINT: has_zip_codes},
+        )
 
     def validate_credentials(
         self,
@@ -106,6 +136,10 @@ You can create an API key under **API dashboard** in [RentCast](https://app.rent
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        try:
+            parse_zip_codes(config.zip_codes)
+        except ValueError as error:
+            return False, str(error)
         # The API key is account-wide, so a single probe validates access to every schema.
         return _validate_rentcast_credentials(config.api_key)
 
@@ -128,4 +162,5 @@ You can create an API key under **API dashboard** in [RentCast](https://app.rent
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             db_incremental_field_last_value=None,  # every RentCast endpoint is full refresh
+            zip_codes=config.zip_codes,
         )

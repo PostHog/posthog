@@ -4,7 +4,7 @@ from typing import Any, Literal, Union, cast
 
 from django.core.validators import URLValidator
 from django.db import transaction
-from django.db.models import Model, QuerySet
+from django.db.models import Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 
 import nh3
@@ -17,6 +17,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog import settings
+from posthog.api import project_tags
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
@@ -42,6 +43,8 @@ from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.tagged_item import TaggedItem
+from posthog.models.team.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -209,6 +212,25 @@ class OrganizationMemberNoticeField(serializers.JSONField):
         return serializer.validated_data
 
 
+class OrganizationTeamBasicSerializer(TeamBasicSerializer):
+    project_group = serializers.SerializerMethodField(
+        help_text="The project group shown in the organization project switcher, or null if it has no group."
+    )
+
+    class Meta:
+        model = Team
+        fields = (*TeamBasicSerializer.Meta.fields, "project_group")
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_project_group(self, team: Team) -> str | None:
+        project = team.project
+        if not hasattr(project, "prefetched_tags"):
+            return None
+        groups = project_tags.group_tags(tagged_item.tag.name for tagged_item in project.prefetched_tags)
+        return min(groups).removeprefix(project_tags.PROJECT_GROUP_TAG_PREFIX) if groups else None
+
+
 class OrganizationSerializer(
     serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
 ):
@@ -341,6 +363,7 @@ class OrganizationSerializer(
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return membership.joined_at.isoformat() if membership is not None else None
 
+    @extend_schema_field(OrganizationTeamBasicSerializer(many=True))
     @tracer.start_as_current_span("organization_serializer.teams")
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
         user_id = _resolve_cached_user_id(self.context)
@@ -349,10 +372,18 @@ class OrganizationSerializer(
         return _cached_per_user_org("teams", user_id, str(instance.id), lambda: self._fetch_visible_teams(instance))
 
     def _fetch_visible_teams(self, instance: Organization) -> list[dict[str, Any]]:
-        visible_teams = visible_teams_for_user(
-            instance, self.user_access_control, self.user_permissions
-        ).select_related("project")
-        return list(TeamBasicSerializer(visible_teams, context=self.context, many=True).data)
+        visible_teams = (
+            visible_teams_for_user(instance, self.user_access_control, self.user_permissions)
+            .select_related("project")
+            .prefetch_related(
+                Prefetch(
+                    "project__tagged_items",
+                    queryset=TaggedItem.objects.select_related("tag"),
+                    to_attr="prefetched_tags",
+                )
+            )
+        )
+        return list(OrganizationTeamBasicSerializer(visible_teams, context=self.context, many=True).data)
 
     @tracer.start_as_current_span("organization_serializer.projects")
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:

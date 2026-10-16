@@ -72,6 +72,10 @@ HOST_NOT_ALLOWED_ERROR = "Adobe Commerce store URL is not allowed"
 INCOMPLETE_CREDENTIALS_ERROR = "Adobe Commerce credentials are incomplete"
 HTTPS_REQUIRED_ERROR = "Adobe Commerce store URL must use HTTPS"
 PAGINATION_LIMIT_ERROR = "Adobe Commerce pagination did not terminate"
+INVALID_STORE_CODE_ERROR = (
+    "Your store code isn't valid. Use the store view code from Stores > Settings > All Stores in your "
+    "Adobe Commerce admin, not its numeric ID, or leave the field blank."
+)
 # Reached only after the tracked session's own transport-level retries for 429/5xx are exhausted
 # (see `_mint`), so this is self-recovering — matched by `AdobeCommerceSource.get_retryable_errors`
 # to keep it out of error tracking. The status code is left out of the constant since it varies.
@@ -189,7 +193,7 @@ def normalize_store_code(store_code: str | None) -> str:
     if not cleaned:
         return ""
     if not _STORE_CODE_RE.match(cleaned):
-        raise ValueError(f"Invalid Adobe Commerce store code: {store_code!r}")
+        raise ValueError(INVALID_STORE_CODE_ERROR)
     return cleaned
 
 

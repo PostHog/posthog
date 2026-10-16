@@ -4,6 +4,13 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openfda import (
+    OpenFDASourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.source import OpenFDASource
 
 
@@ -73,29 +80,18 @@ class TestValidateCredentials:
 
 
 class TestResumableWiring:
-    def test_source_for_pipeline_plumbs_incremental_inputs(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
-
-        def fake_source(**kwargs: Any) -> str:
-            captured.update(kwargs)
-            return "response"
-
-        monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.openfda.source.openfda_source",
-            fake_source,
+    def test_source_for_pipeline_plumbs_incremental_inputs(self) -> None:
+        result = SourceDriver(OpenFDASource(), OpenFDASourceConfig(api_key="k")).run(
+            "drug_enforcement",
+            [ScriptedResponse(json={"meta": {}, "results": []})],
+            incremental_field="report_date",
+            db_incremental_field_last_value="20200101",
         )
-        inputs = MagicMock()
-        inputs.schema_name = "drug_enforcement"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "20200101"
-        inputs.incremental_field = "report_date"
-
-        result: Any = OpenFDASource().source_for_pipeline(_config(api_key="k"), MagicMock(), inputs)
-        assert result == "response"
-        assert captured["endpoint"] == "drug_enforcement"
-        assert captured["api_key"] == "k"
-        assert captured["db_incremental_field_last_value"] == "20200101"
-        assert captured["incremental_field"] == "report_date"
+        assert result.raised is None
+        assert result.paths == ["/drug/enforcement.json"]
+        assert result.requests[0].headers["authorization"] == "Basic azo="
+        assert result.params("search") == ["report_date:[20200101 TO 99991231]"]
+        assert result.params("sort") == ["report_date:asc"]
 
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}

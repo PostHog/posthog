@@ -6,6 +6,11 @@ import structlog
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.notion import NotionSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
@@ -14,11 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     NOTION_VERSION_2025_09_03,
     NOTION_VERSION_2026_03_11,
     NotionAdminTokenMissingError,
-    get_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.source import NotionSource
-
-NOTION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion"
 
 
 def _make_inputs(schema_name: str = "pages", api_version: str | None = None) -> SourceInputs:
@@ -37,12 +39,6 @@ def _make_inputs(schema_name: str = "pages", api_version: str | None = None) -> 
         reset_pipeline=False,
         api_version=api_version,
     )
-
-
-class FakeResponse:
-    def __init__(self, status_code: int) -> None:
-        self.status_code = status_code
-        self.ok = 200 <= status_code < 400
 
 
 class TestNotionSource:
@@ -79,11 +75,10 @@ class TestNotionSource:
 
     @parameterized.expand([(200, True), (401, False)])
     def test_validate_credentials(self, status_code: int, expected_valid: bool) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = FakeResponse(status_code)
-        with mock.patch(f"{NOTION_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
             valid, _message = self.source.validate_credentials(NotionSourceConfig(api_key="tok"), team_id=1)
         assert valid is expected_valid
+        assert [request.path for request in network.requests_log] == ["/v1/users/me"]
 
     def test_source_for_pipeline_partitions_search_streams(self) -> None:
         inputs = _make_inputs("pages")
@@ -129,17 +124,15 @@ class TestNotionSource:
         assert matching[0] == expected_message
 
     def test_permission_groups_sync_without_admin_token_fails_with_setup_guidance(self) -> None:
-        with mock.patch(f"{NOTION_MODULE}.make_tracked_session"):
-            with pytest.raises(NotionAdminTokenMissingError) as exc_info:
-                list(
-                    get_rows("tok", "permission_groups", mock.MagicMock(), mock.MagicMock(), NOTION_VERSION_2026_03_11)
-                )
+        result = SourceDriver(self.source, NotionSourceConfig(api_key="tok")).run("permission_groups", [])
+        assert isinstance(result.raised, NotionAdminTokenMissingError)
+        assert result.requests == []
 
         non_retryable = self.source.get_non_retryable_errors()
         matching = [
             message
             for pattern, message in non_retryable.items()
-            if error_message_matches(str(exc_info.value), [pattern])
+            if error_message_matches(str(result.raised), [pattern])
         ]
         assert matching == [ADMIN_TOKEN_MISSING_ERROR]
 

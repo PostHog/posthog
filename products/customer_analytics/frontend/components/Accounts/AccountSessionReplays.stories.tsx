@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -42,7 +43,12 @@ const meta: Meta<typeof AccountSessionReplays> = {
     },
     decorators: [
         (Story, { parameters }) => {
+            const { currentTeamLoading, customerAnalyticsConfig } = useValues(teamLogic)
             useEffect(() => {
+                // A late bootstrap response would overwrite the story's account configuration.
+                if (currentTeamLoading) {
+                    return
+                }
                 teamLogic.actions.loadCurrentTeamSuccess({
                     ...MOCK_DEFAULT_TEAM,
                     customer_analytics_config: {
@@ -50,7 +56,11 @@ const meta: Meta<typeof AccountSessionReplays> = {
                         account_group_type_index: 0,
                     },
                 })
-            }, [])
+            }, [currentTeamLoading])
+            // Mount after configuration so the initial replay request cannot resolve to the setup state.
+            if (currentTeamLoading || customerAnalyticsConfig.account_group_type_index !== 0) {
+                return <></>
+            }
             return (
                 <div className={parameters.narrow ? 'w-128 p-2' : 'w-192 p-2'}>
                     <Story />

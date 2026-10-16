@@ -992,12 +992,31 @@ export interface AccessControlDefaultsResponseApi {
     available_resource_levels: string[]
     /** Whether the caller may change access rules in this project. */
     can_edit: boolean
+    /** Whether the access rules of this project are locked to Terraform. */
+    is_managed_by_terraform: boolean
     /** The default project access level for members. */
     project_access_level: string
     /** The default level per resource type, keyed by resource name. */
     resource_access_levels: AccessControlDefaultsResponseApiResourceAccessLevels
     /** The resource types that accept rules on single objects, with the levels each accepts. */
     object_rule_resources: AccessControlObjectRuleResourceApi[]
+}
+
+export interface AccessControlManagementApi {
+    /** Whether Terraform manages this project's access rules. While true, only the account behind Terraform's API key may change them. */
+    managed: boolean
+    /**
+     * When Terraform last wrote an access rule in this project, or null.
+     * @nullable
+     */
+    terraform_last_applied_at: string | null
+    /** Whether Terraform wrote access rules to this project at least once. Until then, an enabled lock refuses all writes. */
+    has_terraform_account: boolean
+}
+
+export interface AccessControlManagementRequestApi {
+    /** False: the UI manages this project's access rules. True: only the account behind Terraform's API key can change them. Before the first Terraform write, true locks everyone out. */
+    managed: boolean
 }
 
 /**

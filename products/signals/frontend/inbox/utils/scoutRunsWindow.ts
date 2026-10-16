@@ -215,6 +215,51 @@ export function rosterRunCosts(runs: SignalScoutRunSummary[], costs: Map<string,
     return onRoster
 }
 
+function sameCosts(a: Map<string, number>, b: Map<string, number>): boolean {
+    if (a.size !== b.size) {
+        return false
+    }
+    for (const [runId, cost] of b) {
+        if (a.get(runId) !== cost) {
+            return false
+        }
+    }
+    return true
+}
+
+/**
+ * The roster's run costs split by scout, so each strip reads only its own runs. A scout whose
+ * costs did not change keeps its slice from `previous`. A cost batch prices runs of a few scouts,
+ * and a fresh slice for every scout would re-render every strip on the roster for each batch.
+ * A scout with no priced run has no slice.
+ */
+export function scoutRunCostSlices(
+    runs: SignalScoutRunSummary[],
+    costs: Map<string, number>,
+    previous: Map<string, Map<string, number>>
+): Map<string, Map<string, number>> {
+    const slices = new Map<string, Map<string, number>>()
+    for (const run of runs) {
+        const cost = costs.get(run.run_id)
+        if (cost === undefined) {
+            continue
+        }
+        let slice = slices.get(run.skill_name)
+        if (!slice) {
+            slice = new Map()
+            slices.set(run.skill_name, slice)
+        }
+        slice.set(run.run_id, cost)
+    }
+    for (const [skillName, slice] of slices) {
+        const prior = previous.get(skillName)
+        if (prior && sameCosts(prior, slice)) {
+            slices.set(skillName, prior)
+        }
+    }
+    return slices
+}
+
 // Below this many priced runs the top decile moves with every run that lands, so the marker would
 // point at a different box each poll and mean nothing.
 const MIN_PRICED_RUNS_FOR_COST_MARKER = 20

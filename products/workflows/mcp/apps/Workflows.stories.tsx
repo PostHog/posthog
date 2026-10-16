@@ -2,7 +2,14 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
 
-import { WorkflowListView, type WorkflowData, type WorkflowListData, WorkflowView } from './index'
+import {
+    WorkflowDataSuggestionsView,
+    type WorkflowDataSuggestionsData,
+    WorkflowListView,
+    type WorkflowData,
+    type WorkflowListData,
+    WorkflowView,
+} from './index'
 
 const meta: Meta = {
     title: 'MCP Apps/Workflows',
@@ -76,4 +83,64 @@ const sampleListData: WorkflowListData = {
 export const List: Story = {
     render: () => <WorkflowListView data={sampleListData} />,
     name: 'Workflow list',
+}
+
+const suggestionsData: WorkflowDataSuggestionsData = {
+    status: 'ready',
+    email_sender_ready: true,
+    suggestions: [
+        {
+            id: 'suggestion-1',
+            name: 'Welcome new sign-ups',
+            description: 'Send a welcome email, then a few tips if they have not finished onboarding.',
+            reason: 'People who just signed up are most open to guidance.',
+            trigger_event: 'user_signed_up',
+            weekly_count: 57,
+        },
+        {
+            id: 'suggestion-2',
+            name: 'Help after failed queries',
+            description: 'Send troubleshooting tips when a query fails for someone.',
+            reason: 'A quick hand after a failure keeps people from giving up.',
+            trigger_event: 'query_failed',
+            weekly_count: 21,
+        },
+        {
+            id: 'suggestion-3',
+            name: 'Next steps after onboarding',
+            description: 'Point people to inviting teammates and building a first dashboard.',
+            reason: 'People who finish onboarding are ready for the next feature.',
+            trigger_event: 'onboarding_completed',
+            weekly_count: 29,
+        },
+    ],
+}
+
+export const DataSuggestions: Story = {
+    render: () => <WorkflowDataSuggestionsView data={suggestionsData} builds={{}} onCreate={() => {}} />,
+    name: 'Data suggestions',
+}
+
+export const DataSuggestionsBuilt: Story = {
+    render: () => (
+        <WorkflowDataSuggestionsView
+            data={{ ...suggestionsData, email_sender_ready: false }}
+            builds={{
+                'suggestion-1': {
+                    status: 'ready',
+                    editorUrl: 'https://us.posthog.com/project/1/workflows/wf-9/workflow',
+                    missingInputs: [
+                        { step_name: 'Welcome aboard', field: 'Email sender' },
+                        { step_name: 'A few tips to get started', field: 'Email sender' },
+                    ],
+                },
+                'suggestion-2': {
+                    status: 'failed',
+                    error: "We couldn't build this workflow. Try again, or pick another suggestion.",
+                },
+            }}
+            onCreate={() => {}}
+        />
+    ),
+    name: 'Data suggestions after a build',
 }

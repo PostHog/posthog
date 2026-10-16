@@ -1,17 +1,22 @@
+from typing import Any
+
 from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lightfield import (
     LightfieldSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.source import LightfieldSource
 
-CHECK_TOKEN_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.source.check_token"
-
 
 class TestLightfieldSource:
-    def setup_method(self):
+    def setup_method(self) -> None:
         self.source = LightfieldSource()
         self.team_id = 123
         self.config = LightfieldSourceConfig(api_key="sk_lf_test")
@@ -29,34 +34,51 @@ class TestLightfieldSource:
 
     @parameterized.expand(
         [
-            ("valid_key_no_schema", (True, ["accounts:read"], None), None, True, None),
-            ("invalid_key", (False, None, "Invalid Lightfield API key."), None, False, "Invalid Lightfield API key."),
-            ("schema_with_granted_scope", (True, ["accounts:read"], None), "accounts", True, None),
+            ("valid_key_no_schema", 200, {"active": True, "scopes": ["accounts:read"]}, None, True, None),
+            (
+                "invalid_key",
+                401,
+                {"error": "unauthorized"},
+                None,
+                False,
+                "Invalid Lightfield API key. Check the key and try again.",
+            ),
+            ("schema_with_granted_scope", 200, {"active": True, "scopes": ["accounts:read"]}, "accounts", True, None),
             (
                 "schema_with_missing_scope",
-                (True, ["contacts:read"], None),
+                200,
+                {"active": True, "scopes": ["contacts:read"]},
                 "accounts",
                 False,
                 "Your Lightfield API key is missing the `accounts:read` scope required to sync accounts.",
             ),
-            ("schema_with_unknown_scopes", (True, None, None), "accounts", True, None),
+            ("schema_with_unknown_scopes", 200, {"active": True}, "accounts", True, None),
         ]
     )
-    @mock.patch(CHECK_TOKEN_PATH)
-    def test_validate_credentials(self, _name, token_result, schema_name, expected_valid, expected_error, mock_check):
-        mock_check.return_value = token_result
-
-        is_valid, error = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+    def test_validate_credentials(
+        self,
+        _name: str,
+        status: int,
+        body: dict[str, Any],
+        schema_name: str | None,
+        expected_valid: bool,
+        expected_error: str | None,
+    ) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json=body))) as network:
+            is_valid, error = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
 
         assert is_valid is expected_valid
         assert error == expected_error
-        mock_check.assert_called_once_with(self.config.api_key, self.source.default_version)
+        assert {request.path for request in network.requests_log} == {"/v1/auth/validate"}
+        assert all(
+            request.headers["lightfield-version"] == self.source.default_version for request in network.requests_log
+        )
 
-    @mock.patch(CHECK_TOKEN_PATH)
-    def test_get_endpoint_permissions_flags_missing_scopes(self, mock_check):
-        mock_check.return_value = (True, ["accounts:read", "tasks:read"], None)
-
-        permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["accounts", "contacts", "tasks"])
+    def test_get_endpoint_permissions_flags_missing_scopes(self) -> None:
+        with scripted_network([ScriptedResponse(json={"active": True, "scopes": ["accounts:read", "tasks:read"]})]):
+            permissions = self.source.get_endpoint_permissions(
+                self.config, self.team_id, ["accounts", "contacts", "tasks"]
+            )
 
         assert permissions == {
             "accounts": None,
@@ -66,23 +88,21 @@ class TestLightfieldSource:
 
     @parameterized.expand(
         [
-            ("scopes_unknown", (True, None, None)),
-            ("token_invalid", (False, None, "boom")),
+            ("scopes_unknown", 200, {"active": True}),
+            ("token_invalid", 401, {"error": "unauthorized"}),
         ]
     )
-    @mock.patch(CHECK_TOKEN_PATH)
-    def test_get_endpoint_permissions_never_blocks_without_scope_list(self, _name, token_result, mock_check):
-        mock_check.return_value = token_result
-
-        permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["accounts", "contacts"])
+    def test_get_endpoint_permissions_never_blocks_without_scope_list(
+        self, _name: str, status: int, body: dict[str, Any]
+    ) -> None:
+        with scripted_network([ScriptedResponse(status=status, json=body)]):
+            permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["accounts", "contacts"])
 
         assert permissions == {"accounts": None, "contacts": None}
 
-    @mock.patch(CHECK_TOKEN_PATH)
-    def test_get_endpoint_permissions_swallows_probe_errors(self, mock_check):
-        mock_check.side_effect = Exception("network down")
-
-        permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["accounts"])
+    def test_get_endpoint_permissions_swallows_probe_errors(self) -> None:
+        with scripted_network(always(ConnectionError("network down"))):
+            permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["accounts"])
 
         assert permissions == {"accounts": None}
 

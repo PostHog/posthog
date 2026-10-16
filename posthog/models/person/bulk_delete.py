@@ -411,9 +411,8 @@ def _queue_training_deletion_isolating_failures(
 ) -> builtins.list[Person]:
     """Queue training deletion for ``persons`` and return the ones it succeeded for.
 
-    Each call scans replay events for the distinct IDs it is given, so the batch goes out as one
-    flattened call. Only when that raises are the persons retried one at a time, which pins the
-    failure on the person that causes it instead of blocking the whole batch.
+    The batch goes out as one flattened call, which only queues the replay lookup. Only when that
+    raises are the persons retried one at a time, so a failure is pinned on the persons it affects.
     """
     try:
         queue_person_training_deletion(

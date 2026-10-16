@@ -29,9 +29,11 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck, SignalScoutConfig
 from products.signals.backend.report_check_telemetry import capture_report_check_dispatch
 from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
+from products.signals.backend.report_lifecycle import check_monitoring_disabled_organizations, report_status_filter
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_run_in_flight, check_spend_gates
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.skills.backend.models.skills import LLMSkill
@@ -45,7 +47,7 @@ logger = structlog.get_logger(__name__)
 FALLBACK_CHECK_SKILL_NAME = "signals-scout-inbox-validation"
 
 # How long a dispatched run has to record its verdict before the coordinator gives up on it. A scout
-# activity is killed at `WORKFLOW_HARD_CEILING_S` (16 minutes) and the coordinator ticks every 30,
+# activity is killed at `WORKFLOW_HARD_CEILING_S` (21 minutes) and the coordinator ticks every 30,
 # so two hours is several ticks past any run that is still alive. Sized generously because the cost
 # of waiting too long is one late verdict, while the cost of waiting too little is a second run
 # dispatched over the top of a live one.
@@ -99,10 +101,14 @@ def resolve_check_skill_name(config: AgentCheckConfig, canonical_team_id: int | 
     A pause is deliberately not one of those reasons. Somebody switched that scout off on purpose,
     so the check waits for that scout rather than quietly running the question somewhere else.
     """
-    skill_name = config.skill_name or FALLBACK_CHECK_SKILL_NAME
-    if canonical_team_id is None or skill_name == FALLBACK_CHECK_SKILL_NAME:
-        return skill_name
-    return skill_name if _lane_still_exists(canonical_team_id, skill_name) else FALLBACK_CHECK_SKILL_NAME
+    return _resolve_lane(config.skill_name, canonical_team_id)
+
+
+def _resolve_lane(skill_name: str | None, canonical_team_id: int | None) -> str:
+    lane = skill_name or FALLBACK_CHECK_SKILL_NAME
+    if canonical_team_id is None or lane == FALLBACK_CHECK_SKILL_NAME:
+        return lane
+    return lane if _lane_still_exists(canonical_team_id, lane) else FALLBACK_CHECK_SKILL_NAME
 
 
 def _lane_still_exists(canonical_team_id: int, skill_name: str) -> bool:
@@ -116,6 +122,26 @@ def _lane_still_exists(canonical_team_id: int, skill_name: str) -> bool:
         skill_name=skill_name,
         pause_reason=SignalScoutConfig.PauseReason.RETIRED,
     ).exists()
+
+
+def agent_check_lane_available(canonical_team_id: int, skill_name: str | None = None) -> bool:
+    """Whether an `agent` check that names `skill_name` has a lane that can run on this project.
+
+    Resolves the lane the way dispatch does, so authoring and dispatch cannot disagree. A paused lane
+    still counts, because dispatch waits for the resume. Pass the canonical project, not an
+    environment team: the scout fleet is bound to the parent.
+    """
+    lane = _resolve_lane(skill_name, canonical_team_id)
+    if lane in withheld_skills_for_team(canonical_team_id):
+        return False
+    return (
+        SignalScoutConfig.all_teams.filter(team_id=canonical_team_id, skill_name=lane).exists()
+        and LLMSkill.objects.filter(team_id=canonical_team_id, name=lane, is_latest=True, deleted=False).exists()
+    )
+
+
+def _project_has_scouts(canonical_team_id: int) -> bool:
+    return SignalScoutConfig.all_teams.filter(team_id=canonical_team_id).exists()
 
 
 def _latest_resolution_note(report: SignalReport) -> str | None:
@@ -156,7 +182,7 @@ def build_check_run_note(check: SignalReportCheck, config: AgentCheckConfig) -> 
         lines.append(f"- Why it was set: {check.rationale.strip()}")
     lines += [
         f"- Report: {(check.report.title or 'Untitled')[:MAX_CHECK_NOTE_REPORT_TITLE_LENGTH]} ({check.report_id})",
-        f"- Report status: {check.report.status}",
+        f"- Report status: {check.report.effective_status}",
     ]
     resolution_note = _latest_resolution_note(check.report)
     if resolution_note:
@@ -271,15 +297,22 @@ def requeue_checks_waiting_on_scout(canonical_team_id: int, skill_name: str, *, 
     if skill_name == FALLBACK_CHECK_SKILL_NAME:
         lane |= ~Q(config__has_key="skill_name") | Q(config__skill_name=None)
     team_ids = Team.objects.filter(Q(id=canonical_team_id) | Q(parent_team_id=canonical_team_id)).values("id")
-    return SignalReportCheck.all_teams.filter(
+    candidates = SignalReportCheck.all_teams.filter(
         lane,
         team_id__in=team_ids,
         kind=SignalReportCheck.Kind.AGENT,
         status=SignalReportCheck.Status.ACTIVE,
         dispatched_at__isnull=True,
-        report__status=SignalReport.Status.RESOLVED,
         next_run_at__gt=now,
         next_run_at__lte=now + CHECK_DISPATCH_DEFER_AFTER,
+    )
+    disabled_organizations = check_monitoring_disabled_organizations(candidates)
+    return candidates.filter(
+        report_status_filter(
+            [SignalReport.Status.RESOLVED],
+            field="report__status",
+            disabled_monitoring_organization_ids=disabled_organizations,
+        )
     ).update(next_run_at=now, updated_at=now)
 
 
@@ -306,10 +339,17 @@ def reactivate_checks_errored_by_scout_pause(
         status=SignalReportCheck.Status.ERRORED,
         last_outcome=SignalReportCheck.Outcome.ERRORED,
         expires_at__gt=now,
-        report__status=SignalReport.Status.RESOLVED,
     )
     if team_id is not None:
         candidates = candidates.filter(team_id=team_id)
+    disabled_organizations = check_monitoring_disabled_organizations(candidates)
+    candidates = candidates.filter(
+        report_status_filter(
+            [SignalReport.Status.RESOLVED],
+            field="report__status",
+            disabled_monitoring_organization_ids=disabled_organizations,
+        )
+    )
 
     matched: list[SignalReportCheck] = []
     for check in candidates.only("id", "team_id", "report_id").iterator():
@@ -364,7 +404,7 @@ def _claim_for_dispatch(check: SignalReportCheck, now: datetime) -> bool:
     """
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=check.report_id, team_id=check.team_id).first()
-        if report is None or report.status != SignalReport.Status.RESOLVED:
+        if report is None or report.effective_status != SignalReport.Status.RESOLVED:
             return False
         claimed = (
             SignalReportCheck.objects.for_team(check.team_id)
@@ -393,7 +433,7 @@ def _defer(check: SignalReportCheck, now: datetime) -> None:
 
 
 def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) -> str:
-    """Advance one due `agent` check by one step. Returns `dispatched`, `deferred`, or `errored`.
+    """Advance one due `agent` check by one step. Returns `dispatched`, `deferred`, `cancelled`, or `errored`.
 
     Never raises: like `measure_check`, a failure to dispatch is a verdict or a deferral, because a
     check that cannot report either way would head the due queue on every tick until its horizon.
@@ -401,6 +441,7 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
     # Deferred so the route-load path does not pay for the Signals Temporal workflow graph, which
     # this module reaches only when a check is actually due (see the same deferral in
     # `scout_harness/views.py`).
+    from products.signals.backend.report_check_authoring import cancel_check  # noqa: PLC0415
     from products.signals.backend.report_check_execution import CheckVerdict, record_check_verdict  # noqa: PLC0415
     from products.signals.backend.temporal.agentic.scout_scheduler import start_check_signals_scout_run  # noqa: PLC0415
 
@@ -479,6 +520,14 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
                 check.team, check, outcome="deferred", skill_name=skill_name, reason=refusal.reason
             )
             return "deferred"
+        if refusal.reason == "scout_missing" and not _project_has_scouts(canonical_team_id):
+            # No run was ever possible here, so the check did not fail. A config with no skill row
+            # is a seeding fault, so that case still records an errored run.
+            cancel_check(check, reason="no_check_lane", attribution=ArtefactAttribution.system())
+            capture_report_check_dispatch(
+                check.team, check, outcome="cancelled", skill_name=skill_name, reason="no_check_lane"
+            )
+            return "cancelled"
         record_check_verdict(
             check,
             CheckVerdict(outcome="errored", explanation=f"{check.title}: {refusal.detail}"),

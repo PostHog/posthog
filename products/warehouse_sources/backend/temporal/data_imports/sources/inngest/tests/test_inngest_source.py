@@ -4,6 +4,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.inngest import (
     InngestSourceConfig,
@@ -80,11 +85,13 @@ class TestInngestSource:
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])
     def test_validate_credentials(self, _name: str, probe_result: bool, expected_ok: bool) -> None:
         config = InngestSourceConfig(signing_key="signkey-prod-test", environment="branch-env")
-        with patch.object(source_module, "validate_inngest_credentials", return_value=probe_result) as mock_probe:
+        with scripted_network([ScriptedResponse(status=200 if probe_result else 401)]) as network:
             ok, error = self.source.validate_credentials(config, team_id=1)
         assert ok is expected_ok
         assert (error is None) is expected_ok
-        mock_probe.assert_called_once_with("signkey-prod-test", "branch-env")
+        assert network.requests_log[0].path == "/v1/events"
+        assert network.requests_log[0].headers["authorization"] == "Bearer signkey-prod-test"
+        assert network.requests_log[0].headers["x-inngest-env"] == "branch-env"
 
     @parameterized.expand(
         [
@@ -98,15 +105,18 @@ class TestInngestSource:
 
     def test_source_for_pipeline_plumbs_credentials_and_endpoint(self) -> None:
         config = InngestSourceConfig(signing_key="signkey-prod-test", environment="branch-env")
-        inputs = _source_inputs("events", last_value="2026-07-01T00:00:00Z", use_incremental=True)
-        with patch.object(source_module, "inngest_source") as mock_source:
-            self.source.source_for_pipeline(config, MagicMock(), inputs)
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["signing_key"] == "signkey-prod-test"
-        assert kwargs["environment"] == "branch-env"
-        assert kwargs["endpoint"] == "events"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-07-01T00:00:00Z"
+        result = SourceDriver(self.source, config).run(
+            "events",
+            [ScriptedResponse(json={"data": []})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-07-01T00:00:00Z",
+        )
+        assert result.raised is None
+        request = result.requests[0]
+        assert request.headers["authorization"] == "Bearer signkey-prod-test"
+        assert request.headers["x-inngest-env"] == "branch-env"
+        assert request.path == "/v1/events"
+        assert request.param("received_after") == "2026-07-01T00:00:00.000Z"
 
     def test_defaults_new_sources_to_v2(self) -> None:
         # New sources are stamped with default_version; this locks the bump to v2 (the generic
