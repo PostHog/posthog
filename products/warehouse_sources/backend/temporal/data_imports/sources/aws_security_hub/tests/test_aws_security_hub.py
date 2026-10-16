@@ -4,6 +4,7 @@ from collections.abc import Iterable, Iterator
 from typing import Any, cast
 
 import pytest
+import time_machine
 from unittest.mock import Mock, patch
 
 import requests
@@ -561,10 +562,10 @@ def history_record(finding_id: str) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    "watermark,resume_state,expected_start",
+    "watermark,resume_state,expected_start,expected_end",
     [
-        (None, None, None),
-        ("2025-03-01T00:00:00Z", None, "2025-03-01T00:00:00Z"),
+        (None, None, None, None),
+        ("2025-03-01T00:00:00Z", None, "2025-03-01T00:00:00Z", "2025-06-01T00:00:00Z"),
         (
             "2025-04-01T00:00:00Z",
             AwsSecurityHubResumeConfig(
@@ -572,13 +573,18 @@ def history_record(finding_id: str) -> dict[str, Any]:
                 parent_token="page-2",
                 parent_id=f"{PRODUCT}\nfinding-b",
                 next_token="history-2",
+                cutoff="2025-04-15T00:00:00+00:00",
             ),
             "2025-03-01T00:00:00Z",
+            "2025-04-15T00:00:00Z",
         ),
     ],
 )
 def test_finding_history_walks_findings_and_history_pages(
-    watermark: str | None, resume_state: AwsSecurityHubResumeConfig | None, expected_start: str | None
+    watermark: str | None,
+    resume_state: AwsSecurityHubResumeConfig | None,
+    expected_start: str | None,
+    expected_end: str | None,
 ) -> None:
     first_page = ScriptedResponse(
         json={"Findings": [{"Id": "finding-a", "ProductArn": PRODUCT}], "NextToken": "page-2"}
@@ -597,13 +603,14 @@ def test_finding_history_walks_findings_and_history_pages(
             "/findingHistory/get": finding_b_history[1:] if resume_state else finding_a_history + finding_b_history,
         }
     )
-    result = driver().run(
-        "finding_history",
-        script,
-        resume_state=resume_state,
-        should_use_incremental_field=watermark is not None,
-        db_incremental_field_last_value=watermark,
-    )
+    with time_machine.travel(dt.datetime(2025, 6, 1, tzinfo=dt.UTC), tick=False):
+        result = driver().run(
+            "finding_history",
+            script,
+            resume_state=resume_state,
+            should_use_incremental_field=watermark is not None,
+            db_incremental_field_last_value=watermark,
+        )
     assert result.raised is None
     walked = ["finding-b"] if resume_state else ["finding-a", "finding-b"]
     assert [(row["finding_id"], row["product_arn"]) for row in result.rows] == [
@@ -627,7 +634,9 @@ def test_finding_history_walks_findings_and_history_pages(
     assert [(payload["FindingIdentifier"]["Id"], payload.get("NextToken")) for payload in history_requests] == (
         expected_history
     )
-    assert {payload.get("StartTime") for payload in history_requests} == {expected_start}
+    assert {(payload.get("StartTime"), payload.get("EndTime")) for payload in history_requests} == {
+        (expected_start, expected_end)
+    }
     states = [(state.parent_token, state.parent_id, state.next_token, state.finished) for state in result.saved_states]
     assert states == (
         [] if resume_state else [("page-2", None, None, False), ("page-2", f"{PRODUCT}\nfinding-b", "history-2", False)]
@@ -646,12 +655,13 @@ def test_findings_v2_filters_on_modified_time_and_lifts_identity(watermark: str 
         "metadata": {"product": {"uid": PRODUCT}},
         "severity": "High",
     }
-    result = driver().run(
-        "findings_v2",
-        [ScriptedResponse(json={"Findings": [finding]})],
-        should_use_incremental_field=watermark is not None,
-        db_incremental_field_last_value=watermark,
-    )
+    with time_machine.travel(dt.datetime(2025, 6, 1, tzinfo=dt.UTC), tick=False):
+        result = driver().run(
+            "findings_v2",
+            [ScriptedResponse(json={"Findings": [finding]})],
+            should_use_incremental_field=watermark is not None,
+            db_incremental_field_last_value=watermark,
+        )
     assert result.raised is None
     payload = result.requests[0].json()
     if watermark:
@@ -659,7 +669,10 @@ def test_findings_v2_filters_on_modified_time_and_lifts_identity(watermark: str 
             "CompositeFilters": [
                 {
                     "DateFilters": [
-                        {"FieldName": "finding_info.modified_time_dt", "Filter": {"Start": "2025-05-01T00:00:00+00:00"}}
+                        {
+                            "FieldName": "finding_info.modified_time_dt",
+                            "Filter": {"End": "2025-06-01T00:00:00+00:00", "Start": "2025-05-01T00:00:00+00:00"},
+                        }
                     ]
                 }
             ]

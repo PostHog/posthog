@@ -42,6 +42,7 @@ TRANSPORT_RETRY = BoundedRetry(
     raise_on_status=False,
 )
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+_UNORDERED_INCREMENTAL = frozenset({"finding_history", "findings_v2"})
 # CreatedAt never changes, so a finding keeps its position while the walk pages through findings.
 _FINDING_HISTORY_PARENT_SORT = [{"Field": "CreatedAt", "SortOrder": "asc"}]
 
@@ -53,6 +54,7 @@ class AwsSecurityHubResumeConfig:
     finished: bool = False
     parent_id: str | None = None
     parent_token: str | None = None
+    cutoff: str | None = None
 
 
 class AwsSecurityHubError(Exception):
@@ -185,20 +187,27 @@ def get_rows(
             value if isinstance(value, dt.datetime) else dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         )
         updated_after = (timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=dt.UTC)).isoformat()
+    cutoff = None
+    if endpoint in _UNORDERED_INCREMENTAL and should_use_incremental_field:
+        # A row that changes mid-run sits below the run's highest value, so the next run would skip it.
+        # An upper bound keeps every change after the cutoff for the next run.
+        cutoff = dt.datetime.now(dt.UTC).isoformat()
     if state:
         updated_after = state.updated_after
+        cutoff = state.cutoff
     client = AwsSecurityHubClient(config, api_version)
     try:
         if endpoint == "finding_history":
-            yield from _finding_history_rows(client, manager, state, updated_after)
+            yield from _finding_history_rows(client, manager, state, updated_after, cutoff)
             return
         filters: dict[str, Any] = {}
         if endpoint == "findings":
             filters["SortCriteria"] = [{"Field": "UpdatedAt", "SortOrder": "asc"}]
             if updated_after:
                 filters["Filters"] = {"UpdatedAt": [{"Start": updated_after}]}
-        if endpoint == "findings_v2" and updated_after:
-            date_filter = {"FieldName": "finding_info.modified_time_dt", "Filter": {"Start": updated_after}}
+        if endpoint == "findings_v2" and cutoff:
+            window = {"End": cutoff, **({"Start": updated_after} if updated_after else {})}
+            date_filter = {"FieldName": "finding_info.modified_time_dt", "Filter": window}
             filters["Filters"] = {"CompositeFilters": [{"DateFilters": [date_filter]}]}
         parent_ids: list[str | None] = [None]
         parent_field = None
@@ -223,6 +232,7 @@ def get_rows(
                     AwsSecurityHubResumeConfig(
                         next_token=token,
                         updated_after=updated_after,
+                        cutoff=cutoff,
                         finished=token is None and next_parent is None,
                         parent_id=parent_id if token else next_parent,
                     )
@@ -239,9 +249,10 @@ def _finding_history_rows(
     manager: ResumableSourceManager[AwsSecurityHubResumeConfig],
     state: AwsSecurityHubResumeConfig | None,
     start_time: str | None,
+    cutoff: str | None,
 ) -> Iterator[list[dict[str, Any]]]:
     history = ENDPOINTS["finding_history"]
-    extra = {"StartTime": start_time} if start_time else {}
+    extra = {key: value for key, value in (("StartTime", start_time), ("EndTime", cutoff)) if value}
     parent_token = state.parent_token if state else None
     resume_from = state.parent_id if state else None
     start_token = state.next_token if state else None
@@ -266,7 +277,10 @@ def _finding_history_rows(
         if not identifiers:
             manager.save_state(
                 AwsSecurityHubResumeConfig(
-                    updated_after=start_time, parent_token=next_parent_token, finished=next_parent_token is None
+                    updated_after=start_time,
+                    cutoff=cutoff,
+                    parent_token=next_parent_token,
+                    finished=next_parent_token is None,
                 )
             )
             manager.safe_point()
@@ -279,13 +293,17 @@ def _finding_history_rows(
                 if token or next_key:
                     next_state = AwsSecurityHubResumeConfig(
                         updated_after=start_time,
+                        cutoff=cutoff,
                         parent_token=parent_token,
                         parent_id=keys[index] if token else next_key,
                         next_token=token,
                     )
                 else:
                     next_state = AwsSecurityHubResumeConfig(
-                        updated_after=start_time, parent_token=next_parent_token, finished=next_parent_token is None
+                        updated_after=start_time,
+                        cutoff=cutoff,
+                        parent_token=next_parent_token,
+                        finished=next_parent_token is None,
                     )
                 manager.save_state(next_state)
                 if rows:
