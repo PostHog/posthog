@@ -763,6 +763,15 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert {row["run_id"] for row in response.json()} == {str(busy[-1].id), str(quiet.id)}
 
+    def test_skill_name_returns_only_that_scouts_runs(self) -> None:
+        for skill_name in ("signals-scout-errors", "signals-scout-surveys"):
+            SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        wanted = _make_run(self.team, skill_name="signals-scout-errors")
+        _make_run(self.team, skill_name="signals-scout-surveys")
+        response = self.client.get(self._url(), data={"skill_name": "signals-scout-errors"})
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["run_id"] for row in response.json()] == [str(wanted.id)]
+
     def test_rejects_a_per_scout_limit_over_the_cap(self) -> None:
         response = self.client.get(self._url(), data={"per_scout_limit": 5000})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
