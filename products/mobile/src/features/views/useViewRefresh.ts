@@ -22,8 +22,8 @@ import {
     hasGoodValue,
     isDue,
     isEligible,
-    PULL_MIN_MS,
     RECHECK_MS,
+    REFRESH_MIN_MS,
     readFloorPassed,
     refreshHintText,
     type StatusLine,
@@ -182,9 +182,11 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     const { enabled } = options
     const group = groupOf(options)
 
-    const busy = useQueueBusy(group)
+    const queueBusy = useQueueBusy(group)
     const [hintUntil, setHintUntil] = useState<{ text: string; until: number } | null>(null)
-    const [pulling, setPulling] = useState(false)
+    const [manualRefresh, setManualRefresh] = useState<'button' | 'pull' | null>(null)
+    const refreshInFlight = useRef(false)
+    const busy = queueBusy || manualRefresh !== null
     const [, setTick] = useState(0)
     const pendingRangeTrigger = useRef(false)
     const lastRangeKey = useRef(options.rangeKey)
@@ -273,12 +275,12 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         []
     )
 
-    const refetchLists = useCallback((minAgeMs: number) => {
-        for (const list of optionsRef.current.lists ?? []) {
-            if (Date.now() - list.updatedAt() >= minAgeMs) {
-                void list.refetch()
-            }
-        }
+    const refetchLists = useCallback(async (minAgeMs: number): Promise<void> => {
+        await Promise.allSettled(
+            (optionsRef.current.lists ?? [])
+                .filter((list) => Date.now() - list.updatedAt() >= minAgeMs)
+                .map(async (list) => list.refetch())
+        )
     }, [])
 
     /** Open path for items seen for the first time: on mount, when they scroll into view, or after a range change. */
@@ -327,7 +329,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 visible.map((item) => item.snapshot()),
                 serverNow()
             )
-            refetchLists(RECHECK_MS)
+            void refetchLists(RECHECK_MS)
             if (current.container) {
                 const readAt = current.container.readAt()
                 if (!readAt || Date.now() - readAt >= RECHECK_MS) {
@@ -386,14 +388,14 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             const blocked = blockedFor(current, now)
             if (blocked.blocked) {
                 showHint(blocked.until)
+                const listReads = trigger === 'pull' ? refetchLists(60_000) : Promise.resolve()
                 if (trigger === 'pull') {
-                    refetchLists(60_000)
                     cacheOnlyReads(counters)
                 }
-                await report(trigger, counters, startedAt, age, blocked)
+                await Promise.all([listReads, report(trigger, counters, startedAt, age, blocked)])
                 return
             }
-            refetchLists(60_000)
+            const listReads = refetchLists(60_000)
             let forced = false
             let rest = false
             for (const item of visible) {
@@ -423,7 +425,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             if (forced && current.bulkFloor) {
                 startBulkFloor(floorKeyOf(current), now)
             }
-            await report(trigger, counters, startedAt, age, null)
+            await Promise.all([listReads, report(trigger, counters, startedAt, age, null)])
         },
         [cacheOnlyReads, readContainer, refetchLists, report, send, showHint]
     )
@@ -520,14 +522,24 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         return () => clearTimeout(timer)
     }, [blocked.blocked, blocked.until])
 
-    const onButton = useCallback(() => {
-        void tapPass('button')
-    }, [tapPass])
+    const startManualRefresh = useCallback(
+        (trigger: 'button' | 'pull'): void => {
+            if (!optionsRef.current.enabled || refreshInFlight.current) {
+                return
+            }
+            refreshInFlight.current = true
+            setManualRefresh(trigger)
+            void Promise.allSettled([tapPass(trigger), sleep(REFRESH_MIN_MS)]).then(() => {
+                refreshInFlight.current = false
+                setManualRefresh(null)
+            })
+        },
+        [tapPass]
+    )
 
-    const onPull = useCallback(() => {
-        setPulling(true)
-        void Promise.all([tapPass('pull'), sleep(PULL_MIN_MS)]).finally(() => setPulling(false))
-    }, [tapPass])
+    const onButton = useCallback(() => startManualRefresh('button'), [startManualRefresh])
+
+    const onPull = useCallback(() => startManualRefresh('pull'), [startManualRefresh])
 
     const refreshItem = useCallback(
         (key: string): boolean => {
@@ -590,7 +602,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         button,
         hint: hintUntil?.text ?? null,
         blocked,
-        pulling,
+        pulling: manualRefresh === 'pull',
         onButton,
         onPull,
         refreshItem,

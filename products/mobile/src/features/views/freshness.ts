@@ -12,8 +12,8 @@ export const FORCE_MARGIN_MS = 2_000
 /** One button or pull pass per list or dashboard in this time, like the web dashboard's refresh button. */
 export const BULK_FLOOR_MS = 5 * 60_000
 export const HINT_MS = 3_000
-/** Pull to refresh shows its spinner at least this long, so a pass that sends nothing still reads as a refresh. */
-export const PULL_MIN_MS = 400
+/** Keep tap and pull feedback visible even when a refresh sends nothing or finishes immediately. */
+export const REFRESH_MIN_MS = 400
 
 export function hasGoodValue(snapshot: Freshness | undefined): boolean {
     return Boolean(snapshot?.lastRefreshAt)
