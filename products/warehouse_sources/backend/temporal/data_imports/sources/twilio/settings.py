@@ -25,7 +25,7 @@ def _datetime_field(name: str, nullable: bool = False) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class TwilioEndpointConfig:
     name: str
     # For account-scoped endpoints, the suffix after `/2010-04-01/Accounts/{account_sid}/`, e.g.
