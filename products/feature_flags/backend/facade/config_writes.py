@@ -309,6 +309,22 @@ def _rule_values(document: Mapping[str, Any]) -> Iterator[tuple[str, Any]]:
             yield f"filters.rules[{index}].variants[{variant_index}].value", variant["value"]
 
 
+def _reserved_variant_keys(document: Mapping[str, Any], stored: Mapping[str, Any]) -> Iterator[ConfigError]:
+    # A variant key does not depend on the return type, so v1's variant-key reservation applies to every flag.
+    held = {key for _, key in _variant_keys(stored)} if stored else set()
+    for attr, key in _variant_keys(document):
+        if is_reserved_variant_key(key, held=held):
+            yield ConfigError(
+                code="invalid", detail=f'The variant key "{key}" is reserved. Choose another key.', attr=attr
+            )
+
+
+def _variant_keys(document: Mapping[str, Any]) -> Iterator[tuple[str, Any]]:
+    for index, rule in enumerate(document["rules"]):
+        for variant_index, variant in enumerate(rule.get("variants") or ()):
+            yield f"filters.rules[{index}].variants[{variant_index}].key", variant["key"]
+
+
 def _compilable_patterns(document: Mapping[str, Any], stored: Mapping[str, Any]) -> Iterator[ConfigError]:
     """New ``regex`` and ``not_regex`` patterns must compile with Python's ``re``, as v1 writes must.
 
@@ -346,5 +362,6 @@ def _compiles(pattern: str) -> bool:
 
 _WRITER_RULES: tuple[Callable[[Mapping[str, Any], Mapping[str, Any]], Iterator[ConfigError]], ...] = (
     _reserved_string_values,
+    _reserved_variant_keys,
     _compilable_patterns,
 )
