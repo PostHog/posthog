@@ -4,12 +4,12 @@ The layer that knows a transport exists. `dispatch.deliver` handles one destinat
 is what decides which destinations there are and which transport each one takes.
 """
 
+import json
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Any, Final
 
 import structlog
-import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -23,6 +23,7 @@ from products.alerts_platform.backend.delivery.in_app import InAppTransport
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport
 from products.alerts_platform.backend.delivery.slack import SlackTransport
+from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
@@ -31,12 +32,13 @@ from products.alerts_platform.backend.delivery.webhook import WebhookTransport
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
+    AlertEventKind,
     AnnouncedTransition,
     DestinationType,
     EvaluationAnnouncement,
     IncidentAction,
 )
-from products.alerts_platform.backend.logic.platform_alert_events import announcement
+from products.alerts_platform.backend.logic.platform_alert_events import announced_kinds, announcement
 
 logger = structlog.get_logger(__name__)
 
@@ -77,7 +79,7 @@ def destinations_are_live(team: Team) -> bool:
     is where everything was before this existed. Reading a blip the other way starts sending.
     """
     try:
-        return bool(_team_flag_enabled(LIVE_DELIVERY_FLAG, team))
+        return bool(team_flag_enabled(LIVE_DELIVERY_FLAG, team))
     except Exception:
         logger.warning(
             "alerts_platform_live_delivery_flag_check_failed_defaulting_off",
@@ -85,24 +87,6 @@ def destinations_are_live(team: Team) -> bool:
             exc_info=True,
         )
         return False
-
-
-def _team_flag_enabled(flag: str, team: Team) -> bool | None:
-    """None when the flag could not be evaluated: the SDK logs and swallows a failed lookup, and it
-    answers None for a flag that does not exist too."""
-    return posthoganalytics.feature_enabled(
-        flag,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id), "project": str(team.id)},
-        group_properties={
-            "organization": {"id": str(team.organization_id)},
-            # Both regions read flags from one PostHog project, and project ids repeat across
-            # regions. A condition on the uuid names one team in one region.
-            "project": {"id": str(team.id), "uuid": str(team.uuid)},
-        },
-        # This runs in a Temporal activity, where a captured event is silently dropped.
-        send_feature_flag_events=False,
-    )
 
 
 class _WebhookTransports:
@@ -138,7 +122,7 @@ class _WebhookTransports:
         if body is None:
             return None
         try:
-            keeps_legacy_body = _team_flag_enabled(legacy_webhook.LEGACY_WEBHOOK_BODY_FLAG, self._team)
+            keeps_legacy_body = legacy_webhook.keeps_legacy_webhook_body(self._team)
         except Exception as error:
             raise DeliveryError("Could not read which webhook body this team receives.") from error
         if keeps_legacy_body is None:
@@ -169,9 +153,22 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         request.evaluation_key,
         source=request.source,
         incident_grouping_keys=request.incident_actions.keys(),
+        part=request.part,
+        parts=request.parts,
     )
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
+    notice_keys: dict[str, str] = {}
+    if request.parts > 1 and request.overflowed:
+        notice_keys = _overflow_notice_keys(
+            request,
+            announced_kinds(
+                request.team_id,
+                request.configuration_id,
+                request.evaluation_key,
+                incident_grouping_keys=request.incident_actions.keys(),
+            ),
+        )
 
     thread_store = DatabaseThreadStore(request.team_id)
     sent = 0
@@ -186,8 +183,19 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         event_id: IncidentAction(action) for action, event_id in request.event_ids_by_incident_action.items()
     }
     webhook_transports = _WebhookTransports(team, request, announced)
+    message_event_ids = set(request.event_ids_by_kind.values())
+    # Destinations already told about the overflow, so each hears it once, on its first message.
+    noticed: set[str] = set()
     for event_id, transitions in _by_subscription(request, announced).items():
         for target in _destinations(request, event_id):
+            overflowed = 0
+            destination = json.dumps(target, sort_keys=True)
+            owns_notice = request.parts <= 1 or any(
+                transition.grouping_key == notice_keys.get(destination) for transition in transitions
+            )
+            if request.overflowed and event_id in message_event_ids and destination not in noticed and owns_notice:
+                overflowed = request.overflowed
+                noticed.add(destination)
             transport_class = _TRANSPORTS.get(target["type"])
             if transport_class is None:
                 skipped += 1
@@ -214,7 +222,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     configuration_id=request.configuration_id,
                     evaluation_key=request.evaluation_key,
                     target=target,
-                    announcement=replace(announced, transitions=transitions),
+                    announcement=replace(announced, transitions=transitions, overflowed=overflowed),
                     incident_action=action_by_event_id.get(event_id),
                     source_alert_url=request.source_alert_url,
                 )
@@ -240,6 +248,27 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     if failures:
         raise DeliveryError(f"{len(failures)} destination(s) failed: " + "; ".join(failures)) from first_refusal
     return DeliveryOutcome(live=True, sent=sent, skipped_without_transport=skipped)
+
+
+def _overflow_notice_keys(request: AlertDeliveryRequest, kinds: dict[str, AlertEventKind]) -> dict[str, str]:
+    """For each destination, the grouping key whose part tells it about the overflow.
+
+    Read from the kinds of the whole announcement, so every part agrees, and a destination whose
+    messages all land in a later part still hears the notice once.
+    """
+    if not request.sends_messages:
+        return {}
+    first_by_event_id: dict[str, str] = {}
+    for grouping_key, kind in kinds.items():
+        event_id = request.event_ids_by_kind.get(kind.value)
+        if event_id is not None:
+            first_by_event_id[event_id] = min(first_by_event_id.get(event_id, grouping_key), grouping_key)
+    keys: dict[str, str] = {}
+    for event_id, first in first_by_event_id.items():
+        for target in _destinations(request, event_id):
+            destination = json.dumps(target, sort_keys=True)
+            keys[destination] = min(keys.get(destination, first), first)
+    return keys
 
 
 def _by_subscription(

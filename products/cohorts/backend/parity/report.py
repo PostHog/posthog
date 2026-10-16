@@ -56,12 +56,7 @@ def format_notes(rows: Sequence[CohortComparison]) -> str:
 def format_reconcile_notes(completeness: Sequence[ReconcileRunCompleteness]) -> tuple[str, ...]:
     notes: list[str] = []
     for run in sorted(completeness, key=lambda item: (item.run_id, item.cohort_id)):
-        partition_summary = (
-            f"{run.partitions_seen}/{run.expected_partitions}"
-            if run.complete
-            else f"partial {run.partitions_seen}/{run.expected_partitions}"
-        )
-        notes.append(f"reconcile run {run.run_id}: {partition_summary}")
+        notes.append(f"reconcile run {run.run_id}: {run.summary}")
     return tuple(notes)
 
 
@@ -130,12 +125,7 @@ def format_recompute_notes(rows: Sequence[RecomputeComparison]) -> str:
     lines = []
     for r in _sorted_recompute_rows(rows):
         for run in sorted(r.reconcile_runs, key=lambda item: item.run_id):
-            state = (
-                f"{run.partitions_seen}/{run.expected_partitions}"
-                if run.complete
-                else (f"partial {run.partitions_seen}/{run.expected_partitions}")
-            )
-            lines.append(f"  cohort {r.cohort_id}: reconcile run {run.run_id}: {state}")
+            lines.append(f"  cohort {r.cohort_id}: reconcile run {run.run_id}: {run.summary}")
         for note in r.notes:
             lines.append(f"  cohort {r.cohort_id}: {note}")
         if r.expires_by_day:

@@ -1,7 +1,15 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBell, IconClock, IconDownload, IconLeave, IconNotification, IconTerminal } from '@posthog/icons'
+import {
+    IconBell,
+    IconClock,
+    IconDownload,
+    IconLeave,
+    IconNotification,
+    IconSupport,
+    IconTerminal,
+} from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -529,6 +537,27 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     itemType: null,
                     lastViewedAt: sceneLogViewsByRef['Subscriptions'] ?? null,
                     record: { type: 'subscriptions' },
+                },
+                // The user's own tickets with PostHog. The Support product holds tickets from their customers.
+                {
+                    id: 'misc-my-tickets',
+                    name: 'Your tickets',
+                    displayName: 'Your tickets',
+                    category: 'misc',
+                    productCategory: 'PostHog support',
+                    href: urls.myTickets(),
+                    icon: <IconSupport />,
+                    itemType: 'my_tickets',
+                    searchKeywords: [
+                        'my tickets',
+                        'support tickets',
+                        'posthog support',
+                        'contact support',
+                        'support',
+                        'help',
+                    ],
+                    lastViewedAt: sceneLogViewsByRef['MyTickets'] ?? null,
+                    record: { type: 'my_tickets' },
                 },
                 {
                     id: 'misc-logout',

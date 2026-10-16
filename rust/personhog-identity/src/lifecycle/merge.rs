@@ -48,11 +48,12 @@ use personhog_proto::personhog::types::v1::{
     ReleaseOutcome, SealedSourceSnapshot,
 };
 
-use crate::config::IdentityTables;
+use crate::config::{IdentityTables, OutboxWrites};
 use crate::leader::LifecycleLeader;
+use crate::lifecycle::detach::DetachedDrives;
 use crate::lifecycle::engine::{
-    advance_step_in_tx, complete_op_in_tx, Engine, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
-    STEP_COMPLETED,
+    abort_op_in_tx, advance_step_in_tx, complete_op_in_tx, Engine, OpDriver, OpRow, SagaError, Tx,
+    STEP_ABORTED, STEP_COMPLETED,
 };
 use crate::pools::{IdentityPools, Lane};
 use personhog_common::query_tag;
@@ -352,6 +353,7 @@ pub struct MergeDriver {
     leader: Arc<dyn LifecycleLeader>,
     tables: IdentityTables,
     leader_call_concurrency: usize,
+    outbox_writes: OutboxWrites,
 }
 
 impl MergeDriver {
@@ -359,6 +361,7 @@ impl MergeDriver {
         leader: Arc<dyn LifecycleLeader>,
         tables: IdentityTables,
         leader_call_concurrency: usize,
+        outbox_writes: OutboxWrites,
     ) -> Self {
         tables.validate().expect("invalid identity table set");
         Self {
@@ -366,6 +369,7 @@ impl MergeDriver {
             tables,
             // Clamped to 1: a zero-width buffered stream never polls.
             leader_call_concurrency: leader_call_concurrency.max(1),
+            outbox_writes,
         }
     }
 }
@@ -378,12 +382,17 @@ impl MergeDriver {
 /// put the wire.
 pub struct MergeOpExecutor {
     engine: Arc<Engine>,
-    driver: MergeDriver,
+    driver: Arc<MergeDriver>,
+    drives: DetachedDrives,
 }
 
 impl MergeOpExecutor {
-    pub fn new(engine: Arc<Engine>, driver: MergeDriver) -> Self {
-        Self { engine, driver }
+    pub fn new(engine: Arc<Engine>, driver: MergeDriver, drives: DetachedDrives) -> Self {
+        Self {
+            engine,
+            driver: Arc::new(driver),
+            drives,
+        }
     }
 
     /// The op row for this id, if one exists.
@@ -449,7 +458,8 @@ impl MergeOpExecutor {
     }
 
     /// Drive the op to terminal with the given frozen request (a resumed
-    /// row's own request, or a freshly frozen one) and return the row.
+    /// row's own request, or a freshly frozen one) and return the row. The
+    /// drive outlives a caller that hangs up: see [`DetachedDrives`].
     // See `find` for why result_large_err is allowed.
     #[allow(clippy::result_large_err)]
     pub async fn execute(
@@ -458,27 +468,44 @@ impl MergeOpExecutor {
         team_id: i64,
         frozen: &Value,
     ) -> Result<OpRow, Status> {
-        self.engine
-            .execute(&self.driver, op_id, team_id, frozen)
-            .await
-            .map_err(|err| {
-                // The entrance only reaches this create path after finding
-                // no op row, so an engine-level mismatch means the row
-                // appeared in the race window since — a transient loss,
-                // not op_id misuse (which the entrance's attach-first
-                // comparison answers). Both client stacks treat
-                // FAILED_PRECONDITION as terminal, so surfacing the race
-                // as one would fail a request whose retry attaches fine.
-                if matches!(err, SagaError::RequestMismatch(_)) {
-                    return Status::unavailable(format!(
-                        "another call is initializing op {op_id}; retry with the same op_id"
-                    ));
-                }
-                if matches!(err, SagaError::Db(_) | SagaError::CorruptState(_)) {
-                    tracing::error!(op_id = %op_id, error = %err, "MergePersons failed");
-                }
-                Status::from(err)
-            })
+        let engine = self.engine.clone();
+        let driver = self.driver.clone();
+        let frozen = frozen.clone();
+        let deadline = engine.execute_deadline();
+        let terminal = engine.wait_for_lease_lapse(op_id, deadline).await;
+        let drive = async move {
+            engine
+                .execute_by(driver.as_ref(), op_id, team_id, &frozen, deadline)
+                .await
+                .inspect_err(|err| {
+                    if matches!(err, SagaError::Db(_) | SagaError::CorruptState(_)) {
+                        tracing::error!(op_id = %op_id, error = %err, "MergePersons failed");
+                    }
+                })
+        };
+        let driven = match terminal {
+            Ok(true) => drive.await,
+            Ok(false) => self.drives.run(drive).await.map_err(|err| {
+                tracing::error!(op_id = %op_id, error = %err, "MergePersons drive task died");
+                Status::internal(format!("merge op {op_id} drive task died: {err}"))
+            })?,
+            Err(err) => Err(err),
+        };
+        driven.map_err(|err| {
+            // The entrance only reaches this create path after finding
+            // no op row, so an engine-level mismatch means the row
+            // appeared in the race window since — a transient loss,
+            // not op_id misuse (which the entrance's attach-first
+            // comparison answers). Both client stacks treat
+            // FAILED_PRECONDITION as terminal, so surfacing the race
+            // as one would fail a request whose retry attaches fine.
+            if matches!(err, SagaError::RequestMismatch(_)) {
+                return Status::unavailable(format!(
+                    "another call is initializing op {op_id}; retry with the same op_id"
+                ));
+            }
+            Status::from(err)
+        })
     }
 }
 
@@ -983,12 +1010,11 @@ async fn abort_in_claim_tx(
     // The entrance discards flagged rows on the next presentation of the
     // op id, so a plain retry re-runs where a recorded conflict replays.
     outcome["claim_abort"] = Value::Bool(true);
-    if !complete_op_in_tx(
+    if !abort_op_in_tx(
         &mut tx,
         tables,
         op.op_id,
         MergeStep::Started.as_str(),
-        STEP_ABORTED,
         &outcome,
     )
     .await?
@@ -1113,12 +1139,11 @@ impl MergeDriver {
             abort_marks(&mut tx, &self.tables, op).await?;
             let outcome =
                 build_outcome(&mut tx, &self.tables, op, Some(AbortOutcome::Conflict)).await?;
-            if !complete_op_in_tx(
+            if !abort_op_in_tx(
                 &mut tx,
                 &self.tables,
                 op.op_id,
                 MergeStep::Claimed.as_str(),
-                STEP_ABORTED,
                 &outcome,
             )
             .await?
@@ -1193,12 +1218,11 @@ impl MergeDriver {
         abort_marks(&mut tx, &self.tables, op).await?;
         // Fence contention never reaches this abort; it retries at the step.
         let outcome = build_outcome(&mut tx, &self.tables, op, Some(AbortOutcome::Refused)).await?;
-        if !complete_op_in_tx(
+        if !abort_op_in_tx(
             &mut tx,
             &self.tables,
             op.op_id,
             from_step.as_str(),
-            STEP_ABORTED,
             &outcome,
         )
         .await?
@@ -1936,8 +1960,8 @@ impl MergeDriver {
             &self.tables,
             op.op_id,
             MergeStep::Flipped.as_str(),
-            STEP_COMPLETED,
             &outcome,
+            self.outbox_writes,
         )
         .await?
         {
