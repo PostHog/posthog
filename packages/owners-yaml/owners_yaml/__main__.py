@@ -31,13 +31,20 @@ from __future__ import annotations
 import sys
 import json
 import argparse
-from dataclasses import asdict
 from pathlib import Path
 from typing import cast
 
 from .codeowners import project_repo
 from .matcher import normalize_path
-from .resolver import DEFAULT_PURPOSE, OwnersResolver, Purpose, RepoRootNotFound, read_stdin_paths, resolution_to_wire
+from .resolver import (
+    DEFAULT_PURPOSE,
+    OwnersResolver,
+    Purpose,
+    RepoRootNotFound,
+    read_stdin_paths,
+    resolution_to_wire,
+    team_entry_to_wire,
+)
 
 
 def main() -> None:
@@ -86,7 +93,7 @@ def main() -> None:
         parser.error(producer_error)
 
     if ns.teams:
-        json.dump({slug: asdict(entry) for slug, entry in resolver.teams().items()}, sys.stdout)
+        json.dump({slug: team_entry_to_wire(entry) for slug, entry in resolver.teams().items()}, sys.stdout)
         return
 
     if ns.codeowners:

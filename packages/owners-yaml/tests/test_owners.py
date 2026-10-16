@@ -247,7 +247,7 @@ def test_invalid_repo_settings_are_schema_errors(tmp_path: Path, settings_yaml: 
         ("teams:\n  team-a:\n    notifications:\n      visual_review: 'no-hash'\n", "'visual_review' must be a string"),
         ("teams:\n  team-a:\n    notifications: {}\n", "mapping names no producer"),
         ("teams:\n  team-a:\n    pr_label: ''\n", "'pr_label' must be a non-empty string"),
-        ("teams:\n  team-a:\n    review_every_change: 'yes'\n", "'review_every_change' must be true or false"),
+        ("teams:\n  team-a:\n    review_every_change: 'yes'\n", "'review_every_change' must be a boolean"),
     ],
 )
 def test_teams_registry_invalid_shapes(tmp_path: Path, teams_yaml: str, needle: str) -> None:

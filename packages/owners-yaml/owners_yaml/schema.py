@@ -269,10 +269,8 @@ def _validate_teams(
                 else:
                     errors.append(f"{where}: 'pr_label' must be a non-empty string")
             elif key == "review_every_change":
-                if isinstance(raw, bool):
-                    review_every_change = raw
-                else:
-                    errors.append(f"{where}: 'review_every_change' must be true or false")
+                validated = _validate_bool(raw, key, where, errors)
+                review_every_change = validated if isinstance(validated, bool) else None
             elif isinstance(raw, dict):
                 per_producer = _validate_producer_map(raw, where, key, producers, errors)
                 if per_producer:

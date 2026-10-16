@@ -165,6 +165,23 @@ def resolution_to_wire(r: Resolution) -> WireResolution:
     }
 
 
+class WireTeamEntry(TypedDict):
+    slack: str | bool | None
+    notifications: str | bool | dict[str, str | bool] | None
+    pr_label: str | None
+    review_every_change: bool
+
+
+def team_entry_to_wire(entry: TeamEntry) -> WireTeamEntry:
+    notifications = entry.notifications
+    return {
+        "slack": entry.slack,
+        "notifications": dict(notifications) if isinstance(notifications, Mapping) else notifications,
+        "pr_label": entry.pr_label,
+        "review_every_change": bool(entry.review_every_change),
+    }
+
+
 def read_stdin_paths() -> list[str]:
     """Newline-delimited repo-relative paths from stdin, blanks dropped."""
     return [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
