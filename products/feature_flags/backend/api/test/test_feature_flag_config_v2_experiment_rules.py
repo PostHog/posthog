@@ -36,6 +36,16 @@ def string_split(first: str, **extra: Any) -> dict:
     return config(experiment(variants=variants, **extra), return_type="string", default_value=None)
 
 
+NULL_KEY_DETAIL = 'The variant key "null" is reserved. Choose another key.'
+NULL_KEY_ATTR = "filters__rules__0__variants__0__key"
+
+
+def keyed_split(first_key: str, return_type: str = "boolean", **extra: Any) -> dict:
+    off, on = {"boolean": (False, True), "string": ("off", "on")}[return_type]
+    variants = [{"key": first_key, "weight": 50, "value": off}, {"key": "test", "weight": 50, "value": on}]
+    return config(experiment(variants=variants, **extra), return_type=return_type, default_value=None)
+
+
 class TestExperimentRules(AdmittedV2TestCase):
     """Experiment rules create no Experiment row, keep server-owned seeds and follow the shared validator's limits."""
 
@@ -150,6 +160,36 @@ class TestExperimentRules(AdmittedV2TestCase):
     def test_a_null_variant_value_the_row_already_serves_is_kept_and_can_be_enabled(self) -> None:
         flag = self.flag(string_split("null"), active=False)
         replacement = string_split("null", paused=True)
+        response = self.patch_flag(flag, {"version": 3, "filters": replacement})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        response = self.patch_flag(flag, {"version": 4, "active": True})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.filters, flag.active, flag.version) == (replacement, True, 5)
+
+    @parameterized.expand([("boolean",), ("string",)])
+    def test_create_rejects_a_null_variant_key(self, return_type: str) -> None:
+        with admit_v2(self.team.id, creation=True):
+            submitted = keyed_split("null", return_type, rule_id=None, seed=None)
+            response = self.post_flag({"key": "split-v2", "filters": submitted})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert (body["code"], body["attr"], body["detail"]) == ("invalid_input", NULL_KEY_ATTR, NULL_KEY_DETAIL)
+        assert not FeatureFlag.objects.filter(team=self.team, key="split-v2").exists()
+
+    @parameterized.expand([("boolean",), ("string",)])
+    def test_update_rejects_a_new_null_variant_key(self, return_type: str) -> None:
+        flag = self.flag(keyed_split("control", return_type))
+        response = self.patch_flag(flag, {"version": 3, "filters": keyed_split("null", return_type)})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert (body["code"], body["attr"], body["detail"]) == ("invalid_input", NULL_KEY_ATTR, NULL_KEY_DETAIL)
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (keyed_split("control", return_type), 3)
+
+    def test_a_null_variant_key_the_row_already_uses_is_kept_and_can_be_enabled(self) -> None:
+        flag = self.flag(keyed_split("null"), active=False)
+        replacement = keyed_split("null", paused=True)
         response = self.patch_flag(flag, {"version": 3, "filters": replacement})
         assert response.status_code == status.HTTP_200_OK, response.json()
         response = self.patch_flag(flag, {"version": 4, "active": True})
