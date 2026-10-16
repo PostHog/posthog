@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconArrowLeft, IconExternal, IconRefresh, IconUpload } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { openPublishToCommunityDialog } from 'lib/components/openPublishToCommunityDialog'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -72,6 +72,50 @@ function ScoutDescription({ text }: { text: string }): JSX.Element {
     )
 }
 
+/** Bounded by the run serializer; mirrored here so the counter can say so before a failed request. */
+const RUN_NOTE_MAX_CHARS = 1000
+
+/** The draft lives in the logic, so a failed run keeps the note for a retry. */
+function ScoutRunNoteForm({ configId }: { configId: string }): JSX.Element {
+    const { manualRunScoutIds, runNoteDrafts } = useValues(scoutFleetLogic)
+    const { runScoutNow, setRunNoteDraft } = useActions(scoutFleetLogic)
+    const running = manualRunScoutIds.includes(configId)
+    const note = runNoteDrafts[configId] ?? ''
+
+    return (
+        <div className="flex w-80 max-w-full flex-col gap-2 p-1">
+            <div className="text-sm font-semibold">Run with a note</div>
+            <p className="mb-0 text-xs text-secondary">
+                The note steers this run only. To steer every later run, use Tell it something.
+            </p>
+            <LemonTextArea
+                autoFocus
+                value={note}
+                maxLength={RUN_NOTE_MAX_CHARS}
+                placeholder="e.g. focus on the checkout regression"
+                onChange={(value) => setRunNoteDraft(configId, value)}
+            />
+            <div className="flex justify-end">
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    loading={running}
+                    disabledReason={
+                        running
+                            ? 'Starting a run'
+                            : !note.trim()
+                              ? 'Write a note, or use Run now for a plain run'
+                              : undefined
+                    }
+                    onClick={() => runScoutNow(configId, note)}
+                >
+                    Run
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 /**
  * Who stopped a scout that is off, and where the rest of the story is. The row records only the
  * last status change, so every earlier toggle is the activity log's to tell.
@@ -110,11 +154,13 @@ export function ScoutDetailHeader({
     noteCount: number
     learnedCount: number
 }): JSX.Element {
-    const { updatingScoutIds, manualRunScoutIds, publishingScoutIds } = useValues(scoutFleetLogic)
+    const { updatingScoutIds, manualRunScoutIds, publishingScoutIds, runNotePopoverConfigId } =
+        useValues(scoutFleetLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
     const { currentProjectId } = useValues(teamLogic)
-    const { updateScoutConfig, runScoutNow, publishScoutToCommunity } = useActions(scoutFleetLogic)
+    const { updateScoutConfig, runScoutNow, publishScoutToCommunity, setRunNotePopoverConfigId } =
+        useActions(scoutFleetLogic)
 
     const updating = updatingScoutIds.includes(config.id)
     const running = manualRunScoutIds.includes(config.id)
@@ -159,18 +205,36 @@ export function ScoutDetailHeader({
                 <ScoutExemptionBadge config={config} group="watching" />
                 <ScoutOwners config={config} />
                 <span className="flex-1" />
-                <Tooltip title="Dispatch a run now, outside the schedule. Counts against the project's daily run budget.">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconRefresh />}
-                        loading={running}
-                        disabledReason={running ? 'Starting a run' : undefined}
-                        onClick={() => runScoutNow(config.id)}
-                    >
-                        Run now
-                    </LemonButton>
-                </Tooltip>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconRefresh />}
+                    loading={running}
+                    disabledReason={running ? 'Starting a run' : undefined}
+                    tooltip="Dispatch a run now, outside the schedule. Counts against the project's daily run budget."
+                    onClick={() => runScoutNow(config.id)}
+                    sideAction={{
+                        tooltip: 'Run with a note',
+                        'aria-label': 'Run with a note',
+                        'data-attr': 'scout-run-now-with-note',
+                        // A run note reaches the agent verbatim, so the backend asks for the same
+                        // skill editor access as a scout note.
+                        disabledReason:
+                            getAccessControlDisabledReason(
+                                AccessControlResourceType.LlmSkill,
+                                AccessControlLevel.Editor
+                            ) ?? undefined,
+                        dropdown: {
+                            placement: 'bottom-end',
+                            closeOnClickInside: false,
+                            visible: runNotePopoverConfigId === config.id,
+                            onVisibilityChange: (visible) => setRunNotePopoverConfigId(visible ? config.id : null),
+                            overlay: <ScoutRunNoteForm configId={config.id} />,
+                        },
+                    }}
+                >
+                    Run now
+                </LemonButton>
                 <ScoutSettingsButton config={config} surface="scout_detail" showLabel />
                 <ScoutRubricsButton config={config} />
                 {communitySkillsEnabled && config.scout_origin !== 'canonical' && (
