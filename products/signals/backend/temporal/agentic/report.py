@@ -131,6 +131,8 @@ class RunAgenticReportOutput:
     # there rather than stored pointing at nothing. `None` predates the field and writes none.
     checks: list[dict[str, Any]] | None = None
     checks_snapshot: dict[str, str] | None = None
+    # Reconciliation must use the definition visibility research saw if the rollout changes mid-run.
+    checks_monitoring_enabled: bool = False
 
     # Old activity results wrote an empty list when no checks were authored. The transition may
     # reconcile existing rows only when this marker came from a new verification turn.
@@ -1206,6 +1208,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             reconcile_checks=result.checks is not None,
             checks_summary=result.checks_summary,
             checks_snapshot=checks_snapshot,
+            checks_monitoring_enabled=monitoring_enabled,
             layers=[layer.model_dump(mode="json") for layer in result.layers],
             research_task_id=result.research_task_id,
             charts_enabled=True,

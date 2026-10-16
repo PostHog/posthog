@@ -287,7 +287,9 @@ def _with_metric_display(report: SignalReport, config: dict, metric_id: str | No
     return filled
 
 
-def _check_configs_match(report: SignalReport, check: SignalReportCheck, desired: dict) -> bool:
+def _check_configs_match(
+    report: SignalReport, check: SignalReportCheck, desired: dict, *, monitoring_definitions_visible: bool | None
+) -> bool:
     try:
         stored = parse_check_config(
             check.kind, _with_metric_display(report, check.config, check.config.get("metric_id"))
@@ -297,7 +299,11 @@ def _check_configs_match(report: SignalReport, check: SignalReportCheck, desired
     if (
         isinstance(stored, MetricThresholdConfig)
         and stored.monitoring is not None
-        and not team_report_monitoring_enabled(report.team_id)
+        and not (
+            team_report_monitoring_enabled(report.team_id)
+            if monitoring_definitions_visible is None
+            else monitoring_definitions_visible
+        )
     ):
         stored = stored.model_copy(update={"monitoring": None})
     return stored == parse_check_config(check.kind, desired)
@@ -315,6 +321,7 @@ def create_checks_from_specs(
     specs: list[CheckSpec],
     attribution: ArtefactAttribution,
     checks_snapshot: dict[str, str] | None = None,
+    monitoring_definitions_visible: bool | None = None,
     reconcile: bool = True,
 ) -> CheckReconciliation:
     """Reconcile a successful verification turn with the report's open checks.
@@ -374,7 +381,9 @@ def create_checks_from_specs(
                             "soak_hours" not in spec.model_fields_set
                             or max(1, round((check.soak_minutes or 60) / 60)) == spec.soak_hours
                         )
-                        and _check_configs_match(report, check, config)
+                        and _check_configs_match(
+                            report, check, config, monitoring_definitions_visible=monitoring_definitions_visible
+                        )
                     ),
                     None,
                 )

@@ -2923,6 +2923,8 @@ class TestResearchAuthoredChecks(APIBaseTest):
         [
             ("current_config", False, "unchanged"),
             ("hidden_monitoring_definition", False, "unchanged", "monitoring_disabled"),
+            ("hidden_monitoring_after_flag_recovery", False, "unchanged", "monitoring_recovered"),
+            ("visible_monitoring_removed", False, "revise", "monitoring_visible"),
             ("config_written_before_display_fields", True, "unchanged"),
             ("revise_approved", False, "revise"),
             ("retire_approved", False, "retire"),
@@ -2956,7 +2958,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
             stored_config.update(probe_hints=[], skill_name=None)
         if variant == "invalid_stored":
             stored_config["retired_config_field"] = "obsolete"
-        if variant == "monitoring_disabled":
+        if variant in {"monitoring_disabled", "monitoring_recovered", "monitoring_visible"}:
             stored_config["monitoring"] = {
                 "reference_period_minutes": 10080,
                 "threshold_scaling": "fixed",
@@ -2985,18 +2987,28 @@ class TestResearchAuthoredChecks(APIBaseTest):
             else [spec]
         )
 
+        if variant == "monitoring_visible":
+            specs = [spec]
         if variant == "omitted_wait":
             specs[0] = self._spec(title=specs[0].title, existing_check_id=existing.id)
         if variant == "invalid_stored":
             specs = [self._spec(existing_check_id=existing.id)]
         elif variant == "longer_wait":
             specs[0] = specs[0].model_copy(update={"soak_hours": 72})
-        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=variant in {"monitoring_recovered", "monitoring_visible"},
+        ):
             written = create_checks_from_specs(
                 report=self.report,
                 specs=specs,
                 attribution=ArtefactAttribution.system(),
                 checks_snapshot=check_versions([existing]),
+                monitoring_definitions_visible=(
+                    variant == "monitoring_visible"
+                    if variant in {"monitoring_recovered", "monitoring_visible"}
+                    else None
+                ),
             ).created
 
         existing.refresh_from_db()
@@ -3009,7 +3021,7 @@ class TestResearchAuthoredChecks(APIBaseTest):
             assert existing.config == stored_config
         assert len(written) == (1 if action == "revise" else 0)
         if written:
-            assert written[0].title == (spec.title if variant == "invalid_stored" else "Revised goal")
+            assert written[0].title == specs[0].title
             assert written[0].approved_at is None
             assert written[0].soak_minutes == (72 * 60 if variant == "longer_wait" else existing.soak_minutes)
             assert written[0].run_interval_minutes == existing.run_interval_minutes

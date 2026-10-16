@@ -1198,6 +1198,7 @@ async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearc
     assert ("baseline_value" in previous_checks[0]["config"]) is has_query
     assert ("monitoring" in previous_checks[0]["config"]) is monitoring_enabled
     assert research_kwargs["monitoring_enabled"] is monitoring_enabled
+    assert result.checks_monitoring_enabled is monitoring_enabled
     assert result.checks_snapshot == {str(check.id): check.updated_at.isoformat()}
 
 
