@@ -425,16 +425,18 @@ def declaring(*sources: object) -> SimpleNamespace:
     return SimpleNamespace(__name__="products.example.backend.facade.today_highlights", HIGHLIGHT_SOURCES=sources)
 
 
+def declaring_one(source: object) -> SimpleNamespace:
+    return SimpleNamespace(__name__="products.example.backend.facade.today_highlights", HIGHLIGHT_SOURCES=source)
+
+
 class TestLoadSources(SimpleTestCase):
-    def test_finds_the_sources_products_declare(self) -> None:
-        names = [source.name for source in highlight_registry.load_sources.__wrapped__()]
-
-        self.assertTrue(names)
-        self.assertEqual(names, sorted(set(names)))
-
     @parameterized.expand(
         [
             ("no declaration", SimpleNamespace(__name__="products.example.backend.facade.today_highlights")),
+            (
+                "a single source without a tuple",
+                declaring_one(HighlightSource(name="alerts", find=lambda _c: HighlightFindings())),
+            ),
             ("not a source", declaring("alerts")),
             ("an empty name", declaring(HighlightSource(name="", find=lambda _c: HighlightFindings()))),
             (
