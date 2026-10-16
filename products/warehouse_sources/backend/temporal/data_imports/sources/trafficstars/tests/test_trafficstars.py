@@ -160,6 +160,7 @@ class TestErrors:
         [
             (TOKEN, ScriptedResponse(json={"page": 1, "page_count": 1, "response": []}), True, None),
             (TOKEN, ScriptedResponse(status=403, json={}), False, "advertiser account"),
+            (TOKEN, ScriptedResponse(status=503, json={}), False, "Could not connect"),
             (INVALID_GRANT, None, False, "rejected the API key"),
             (ScriptedResponse(status=500, json={}), None, False, "Could not connect"),
             (ConnectionError("boom"), None, False, "Could not connect"),
@@ -180,5 +181,7 @@ class TestErrors:
             assert message is None
         else:
             assert message is not None and message_fragment in message
+        # Setup waits on the probe, so a failed request gets no retry.
+        assert len(network.requests_log) == (2 if creatives_response is not None else 1)
         if creatives_response is not None:
             assert network.requests_log[-1].headers["authorization"] == "Bearer tok"

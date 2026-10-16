@@ -2,6 +2,8 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
+from urllib3.util.retry import Retry
+
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -27,7 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trafficsta
 )
 
 REQUEST_TIMEOUT = (10, 120)
-TOKEN_TIMEOUT = 30
+# Setup waits on the probe, so each of its requests gets one short attempt.
+PROBE_TIMEOUT = (10, 30)
 
 
 @frozen
@@ -174,10 +177,12 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Exchange the API key for an access token, then read one creative to prove it reaches advertiser data."""
     could_not_connect = "Could not connect to TrafficStars. Try again in a minute."
     try:
-        token_response = make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False).post(
+        token_response = make_tracked_session(
+            redact_values=(api_key,), capture=False, allow_redirects=False, retry=Retry(total=0)
+        ).post(
             TRAFFICSTARS_TOKEN_URL,
             data={"grant_type": "refresh_token", "refresh_token": api_key},
-            timeout=TOKEN_TIMEOUT,
+            timeout=PROBE_TIMEOUT,
         )
         if token_response.status_code in (400, 401):
             return False, "TrafficStars rejected the API key. Copy it again from your TrafficStars profile."
@@ -185,11 +190,13 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
             return False, could_not_connect
         access_token = str(token_response.json()["access_token"])
         # A publisher account's key passes the token exchange, and only the data endpoints refuse it.
-        response = make_tracked_session(redact_values=(api_key, access_token), allow_redirects=False).get(
+        response = make_tracked_session(
+            redact_values=(api_key, access_token), allow_redirects=False, retry=Retry(total=0)
+        ).get(
             f"{TRAFFICSTARS_BASE_URL}{TRAFFICSTARS_ENDPOINTS['creatives'].path}",
             params={"page": 1, "size": 1},
             headers={"Authorization": f"Bearer {access_token}"},
-            timeout=REQUEST_TIMEOUT,
+            timeout=PROBE_TIMEOUT,
         )
     except Exception:  # noqa: BLE001 — a credential probe must never raise; any failure means "not validated"
         return False, could_not_connect
