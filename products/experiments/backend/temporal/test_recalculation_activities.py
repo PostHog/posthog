@@ -1,4 +1,7 @@
 import asyncio
+import threading
+import dataclasses
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -14,6 +17,7 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
@@ -33,6 +37,7 @@ from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     MAX_METRIC_ATTEMPTS,
     TIMEOUT_MAX_METRIC_ATTEMPTS,
+    MetricOutOfTimeFailure,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
 )
@@ -41,6 +46,7 @@ from products.experiments.backend.temporal.recalculation_logic import (
     _calculate_experiment_metric_for_recalculation_sync,
     _cancel_metric_query_sync,
     _discover_experiment_metrics_sync,
+    _record_metric_out_of_time_failure_sync,
     _update_recalculation_progress_sync,
 )
 from products.experiments.stats.shared.statistics import StatisticError
@@ -50,6 +56,7 @@ _discover_raw = _discover_experiment_metrics_sync.func  # type: ignore[attr-defi
 _update_raw = _update_recalculation_progress_sync.func  # type: ignore[attr-defined]
 _calculate_raw = _calculate_experiment_metric_for_recalculation_sync.func  # type: ignore[attr-defined]
 _cancel_raw = _cancel_metric_query_sync.func  # type: ignore[attr-defined]
+_record_out_of_time_raw = _record_metric_out_of_time_failure_sync.func  # type: ignore[attr-defined]
 
 
 def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
@@ -66,6 +73,11 @@ def _discover(recalculation_id: str):
 def _update(update: RecalculationProgressUpdate):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
         return _update_raw(update)
+
+
+def _record_out_of_time(failure: MetricOutOfTimeFailure) -> None:
+    with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
+        _record_out_of_time_raw(failure)
 
 
 def _calculate(
@@ -875,6 +887,78 @@ class TestCalculateActivity(BaseTest):
 
     @parameterized.expand(
         [
+            ("not_persisted_by_any_attempt", RuntimeError("transient blip"), False),
+            ("persisted_by_final_attempt", RuntimeError("transient blip"), True),
+            # The last attempt wrote its result but died before it reported success.
+            ("completed_by_last_attempt", None, False),
+        ]
+    )
+    def test_out_of_time_failure_persists_once(
+        self, name: str, last_attempt_error: Exception | None, final_attempt_persisted: bool
+    ):
+        exp = self._experiment(flag_key=f"calc-out-of-time-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            if last_attempt_error is None:
+                mock_runner.return_value.run.return_value.model_dump.return_value = {}
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
+            else:
+                mock_runner.return_value.run.side_effect = last_attempt_error
+                with pytest.raises(RuntimeError):
+                    _calculate(
+                        exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=final_attempt_persisted, attempt=2
+                    )
+        recalc.refresh_from_db()
+        errors_before = dict(recalc.metric_errors)
+
+        with _record_captures() as captured:
+            _record_out_of_time(
+                MetricOutOfTimeFailure(
+                    recalculation_id=str(recalc.id), experiment_id=exp.id, metric_uuid="m1", metric_type="primary"
+                )
+            )
+
+        recalc.refresh_from_db()
+        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
+        assert row.fingerprint == _recalc_fingerprint(_calculation_key(exp, "m1"))
+        assert recalc.metric_retries == {}
+        if last_attempt_error is None:
+            assert row.status == ExperimentMetricResult.Status.COMPLETED
+            assert recalc.metric_errors == {}
+            assert captured == []
+        elif final_attempt_persisted:
+            assert row.status == ExperimentMetricResult.Status.FAILED
+            assert recalc.metric_errors == errors_before
+            assert captured == []
+        else:
+            assert row.status == ExperimentMetricResult.Status.FAILED
+            assert recalc.metric_errors["m1"]["error_type"] == "timeout"
+            assert recalc.metric_errors["m1"]["retriable"] is True
+            assert [c["event"] for c in captured] == ["experiment metric error"]
+            assert captured[0]["properties"]["error_type"] == "timeout"
+
+    def test_late_result_after_out_of_time_failure_replaces_the_timeout(self):
+        exp = self._experiment(flag_key="calc-out-of-time-late-result", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        _record_out_of_time(
+            MetricOutOfTimeFailure(
+                recalculation_id=str(recalc.id), experiment_id=exp.id, metric_uuid="m1", metric_type="primary"
+            )
+        )
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=3)
+
+        recalc.refresh_from_db()
+        assert result.success is True
+        assert ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1").status == (
+            ExperimentMetricResult.Status.COMPLETED
+        )
+        assert recalc.metric_errors == {}
+
+    @parameterized.expand(
+        [
             ("org_quota", ConcurrencyLimitExceeded("org quota saturated")),
             ("cluster_at_capacity", ClickHouseAtCapacity()),
         ]
@@ -1298,6 +1382,10 @@ class TestMissingRecalcRow:
         assert exc_info.value.non_retryable is True
 
 
+def _start_activity(env: ActivityEnvironment) -> asyncio.Task[MetricRecalculationResult]:
+    return asyncio.create_task(env.run(calculate_experiment_metric_for_recalculation, 1, "m1", "r1", _QUERY_TO))
+
+
 class TestCalculateActivityCancellation:
     @contextmanager
     def _patched_boundaries(self, body, cancel_query):
@@ -1313,7 +1401,6 @@ class TestCalculateActivityCancellation:
                 "products.experiments.backend.temporal.recalculation_activities._CANCEL_KILL_RETRY_INTERVAL_SECONDS",
                 0.001,
             ),
-            patch("temporalio.activity.info", return_value=SimpleNamespace(attempt=1)),
         ):
             yield
 
@@ -1334,7 +1421,7 @@ class TestCalculateActivityCancellation:
             return MetricRecalculationResult(metric_uuid="m1", success=True)
 
         with self._patched_boundaries(_slow_body, AsyncMock()):
-            task = asyncio.create_task(calculate_experiment_metric_for_recalculation(1, "m1", "r1", _QUERY_TO))
+            task = _start_activity(ActivityEnvironment())
             await started.wait()
             try:
                 for cancellation in range(cancellations):
@@ -1367,7 +1454,7 @@ class TestCalculateActivityCancellation:
                 "products.experiments.backend.temporal.recalculation_activities.METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS", 0
             ),
         ):
-            task = asyncio.create_task(calculate_experiment_metric_for_recalculation(1, "m1", "r1", _QUERY_TO))
+            task = _start_activity(ActivityEnvironment())
             await started.wait()
             try:
                 task.cancel("original cancellation")
@@ -1408,7 +1495,7 @@ class TestCalculateActivityCancellation:
                 "products.experiments.backend.temporal.recalculation_activities.METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS", 1
             ),
         ):
-            task = asyncio.create_task(calculate_experiment_metric_for_recalculation(1, "m1", "r1", _QUERY_TO))
+            task = _start_activity(ActivityEnvironment())
             await started.wait()
             task.cancel()
 
@@ -1432,6 +1519,56 @@ class TestCalculateActivityCancellation:
 
         assert observed["cancel_calls"] == 2
         assert observed["body_finished"] is True
+
+    async def test_query_kill_runs_while_calculations_fill_the_default_executor(self) -> None:
+        calculations_running = threading.Event()
+        killed: list[str] = []
+        busy_default_executor = ThreadPoolExecutor(max_workers=1)
+        asyncio.get_running_loop().set_default_executor(busy_default_executor)
+        busy_default_executor.submit(calculations_running.wait)
+        try:
+            with (
+                patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"),
+                patch(
+                    "products.experiments.backend.temporal.recalculation_logic._get_recalc_state",
+                    return_value=SimpleNamespace(team_id=1),
+                ),
+                patch(
+                    "products.experiments.backend.temporal.recalculation_logic.cancel_query_on_cluster",
+                    lambda team_id, query_id: killed.append(query_id),
+                ),
+            ):
+                await asyncio.wait_for(_cancel_metric_query_sync("r1", "m1", 1), timeout=5)
+        finally:
+            calculations_running.set()
+
+        assert killed == ["experiment_metric_recalc_r1_m1_attempt01"]
+
+    async def test_heartbeats_while_the_body_runs_and_stops_after(self) -> None:
+        # Temporal delivers a cancellation only in a heartbeat response, so without heartbeats the drain above
+        # never runs for a workflow cancel or a server-side timeout.
+        heartbeats = 0
+        two_heartbeats = asyncio.Event()
+
+        def _on_heartbeat(*details: object) -> None:
+            nonlocal heartbeats
+            heartbeats += 1
+            if heartbeats >= 2:
+                two_heartbeats.set()
+
+        async def _body(*args: object, **kwargs: object) -> MetricRecalculationResult:
+            await two_heartbeats.wait()
+            return MetricRecalculationResult(metric_uuid="m1", success=True)
+
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(env.info, heartbeat_timeout=timedelta(seconds=0.2))
+        env.on_heartbeat = _on_heartbeat
+        tasks_before = asyncio.all_tasks()
+        with self._patched_boundaries(_body, AsyncMock()):
+            result = await asyncio.wait_for(_start_activity(env), timeout=5)
+
+        assert result.success is True
+        assert asyncio.all_tasks() - tasks_before == set()
 
 
 @contextmanager
