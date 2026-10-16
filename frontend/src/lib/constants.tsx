@@ -244,6 +244,7 @@ export const FEATURE_FLAGS = {
     REPLAY_SETTINGS_HELP: 'replay-settings-help', // owner: @veryayskiy #team-replay
     SCOUT_TRIALS: 'scout-trials', // owner: #team-self-driving, gates new trial and judging requests; saved results remain readable
     SCOUTS_MODEL_CONFIG: 'scouts-model-config', // owner: #team-self-driving, gates the per-scout model pin in the inbox scout settings (also checked server-side)
+    SCOUTS_TOOL_ACCESS: 'scouts-tool-access', // owner: #team-self-driving, gates the per-scout MCP tool list in the inbox scout settings (also checked server-side)
     SELF_DRIVING_FREE_TRIAL: 'self-driving-free-trial', // owner: #team-self-driving, the org is on a Self-driving free trial: reports only, no pull requests (also checked server-side)
     SELF_DRIVING_QUOTA_ENFORCEMENT: 'self-driving-quota-enforcement', // owner: #team-self-driving, gates self-driving PR-limit enforcement (also checked server-side)
     SELF_OPTIMISING_WORKFLOWS: 'self-optimising-workflows', // owner: #team-workflows, gates agent-suggested workflow changes (also checked server-side)
@@ -522,6 +523,7 @@ export const FEATURE_FLAGS = {
     REPLAY_DEBUG_WITH_AI: 'replay-debug-with-ai', // owner: @clr182 #team-replay, player button that sends the recording JSON to PostHog AI
     REPLAY_EVENT_MATCH_SCOPE: 'replay-event-match-scope', // owner: @pauldambra #team-replay, shows the "Match the whole session / only during recording" filter select
     REPLAY_FILTERS_REDESIGN: 'replay-filters-redesign', // owner: @ksvat #team-replay
+    REPLAY_FOLLOW_LIVE: 'replay-follow-live', // owner: #team-replay, player toggle that keeps an ongoing recording playing as new data arrives
     REPLAY_NEGATIVE_EVENT_FILTERS: 'replay-negative-event-filters', // owner: @arnohillen #team-replay
     REPLAY_PLAYLIST_SURFACING_SCORE: 'replay-playlist-surfacing-score', // owner: #team-replay
     REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT: 'replay-recommended-recordings-filter-experiment', // owner: @arnohillen #team-replay multivariate=control,test
@@ -612,6 +614,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_LIVE_PERSON_DRILLDOWN: 'web-analytics-live-person-drilldown', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_MARKETING: 'marketing-analytics', // owner: @jabahamondes #team-web-analytics
     WEB_ANALYTICS_MARKETING_CROSS_SELL: 'web-analytics-marketing-cross-sell', // owner: @jabahamondes #team-web-analytics
+    WEB_ANALYTICS_MARKETING_CROSS_SELL_V2: 'web-analytics-marketing-cross-sell-v2', // owner: @jordanm-posthog #team-web-analytics multivariate=control,test
     WEB_ANALYTICS_OPEN_URL: 'web-analytics-open-url', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_PAGE_PERFORMANCE: 'web-analytics-page-performance', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_PRECOMPUTE_TOGGLE: 'web-analytics-precompute-toggle', // owner: @lricoy #team-web-analytics
@@ -642,6 +645,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_LINEAR_VIEW: 'workflows-linear-view', // owner: #team-workflows
     WORKFLOWS_OVERVIEW_TAB: 'workflows-overview-tab', // owner: @dmarchuk #team-workflows, experimental Overview tab on a workflow
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
+    WORKFLOWS_SEND_CALENDAR: 'workflows-send-calendar', // owner: @meikelmosby #team-workflows, calendar of scheduled email sends in Broadcasts and Workflows
     WORKFLOWS_TRANSACTIONAL_EMAIL_API: 'workflows-transactional-email-api', // owner: @mayteio #team-workflows
     WORKFLOWS_TRIGGER_VOLUME_ESTIMATE: 'workflows-trigger-volume-estimate', // owner: @mayteio #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features

@@ -12,6 +12,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
+from posthog.api.project_secret_api_key import _enforce_caller_holds_scopes
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
@@ -28,6 +29,7 @@ from posthog.models.event_ingestion_restriction_config import (
     RestrictionType,
 )
 from posthog.models.product_intent.product_intent import ProductIntentSerializer
+from posthog.models.project_secret_api_key import MIRRORED_LEGACY_TOKEN_SCOPES
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -36,6 +38,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    TimeSensitiveActionPermission,
     UserCanCreateProjectPermission,
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
@@ -279,11 +282,14 @@ class TeamViewSet(
         methods=["PATCH"],
         detail=True,
         # Only ADMIN or higher users are allowed to access this project
-        permission_classes=[TeamMemberStrictManagementPermission],
+        # Minting a durable credential needs a fresh session, like PSAK creation does.
+        permission_classes=[TimeSensitiveActionPermission, TeamMemberStrictManagementPermission],
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         integration_config.validate_secret_token_generation(team)
+        # Rotation mints a PSAK mirror row, so the caller must hold the scopes it grants.
+        _enforce_caller_holds_scopes(request, MIRRORED_LEGACY_TOKEN_SCOPES)
         team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(team_serializer.TeamSerializer(team, context=self.get_serializer_context()).data)
 

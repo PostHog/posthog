@@ -1034,7 +1034,7 @@ describe('PushNotificationService', () => {
                 valkeyStore.set(jwtCacheKey, tokenIssuedMinutesAgo(30))
             })
 
-            it('keeps a rejected token that is younger than the refresh window', async () => {
+            it('retries a young rejected token once without replacing it', async () => {
                 const youngToken = tokenIssuedMinutesAgo(1)
                 valkeyStore.set(jwtCacheKey, youngToken)
                 mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'InvalidProviderToken'))
@@ -1042,9 +1042,33 @@ describe('PushNotificationService', () => {
                 const result = await send()
 
                 expect(result.error).toContain('InvalidProviderToken')
-                expect(sentTokens()).toHaveLength(1)
+                expect(sentTokens()).toEqual([`bearer ${youngToken}`, `bearer ${youngToken}`])
                 expect(valkeyStore.get(jwtCacheKey)).toBe(youngToken)
                 expect([...valkeyStore.keys()].some((key) => key.includes('jwt-refresh'))).toBe(false)
+            })
+
+            it('retries a rejected device when another device of the person delivered', async () => {
+                valkeyStore.set(jwtCacheKey, tokenIssuedMinutesAgo(1))
+                let tokenARejected = false
+                mockTrackedFetch.mockImplementation(({ url }: { url: string }) => {
+                    if (url.endsWith('/token-a') && !tokenARejected) {
+                        tokenARejected = true
+                        return Promise.resolve(apnsResponse(403, 'InvalidProviderToken'))
+                    }
+                    return Promise.resolve(apnsResponse(200))
+                })
+
+                const result = await service.executeSendPushNotification(
+                    createSendPushNotificationInvocation({
+                        [deviceSubscriptionKey('com.example.app', 'token-a')]: encryptedFields.encrypt('token-a'),
+                        [deviceSubscriptionKey('com.example.app', 'token-b')]: encryptedFields.encrypt('token-b'),
+                    })
+                )
+
+                expect(result.logs.map((log: any) => log.message)).toContainEqual(
+                    expect.stringContaining('accepted by APNs for 2 of 2 device(s)')
+                )
+                expect(mockTrackedFetch).toHaveBeenCalledTimes(3)
             })
 
             it.each(['InvalidProviderToken', 'ExpiredProviderToken'])(
@@ -1074,7 +1098,7 @@ describe('PushNotificationService', () => {
                 for (const result of results) {
                     expect(result.error).toContain('InvalidProviderToken')
                 }
-                expect(mockTrackedFetch).toHaveBeenCalledTimes(4)
+                expect(mockTrackedFetch).toHaveBeenCalledTimes(6)
                 expect(new Set(sentTokens()).size).toBe(2)
                 expect(mockValkeySet).toHaveBeenCalledWith(
                     expect.stringContaining('@posthog/apns-provider-jwt-refresh/'),
@@ -1262,7 +1286,7 @@ describe('PushNotificationService', () => {
                     )
                 }
 
-                expect(mockTrackedFetch).toHaveBeenCalledTimes(3)
+                expect(mockTrackedFetch).toHaveBeenCalledTimes(6)
                 expect(new Set(sentTokens()).size).toBe(1)
             })
 
