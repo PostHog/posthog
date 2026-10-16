@@ -1249,6 +1249,13 @@ def add_artifact_image_to_unfurl(
         blocks.insert(position, {"type": "image", "slack_file": {"id": upload.file_id}, "alt_text": alt_text})
         error = _post_unfurls(slack, event, {**unfurls, url: {**unfurls[url], "blocks": blocks}})
         failure = "unfurl_failed" if error else None
+    logger.info(
+        "slack_app_unfurl_artifact_image_result",
+        team_id=integration.team_id,
+        channel=event.get("channel"),
+        failure=failure,
+        error=error,
+    )
     capture_slack_event(
         integration,
         "slack app link unfurl artifact image",
