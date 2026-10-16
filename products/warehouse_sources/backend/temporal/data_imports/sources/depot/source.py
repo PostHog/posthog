@@ -42,6 +42,10 @@ _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 
 _RETRY_LOOKBACK = datetime.timedelta(days=7)
 _RECONCILIATION_INTERVAL = datetime.timedelta(days=7)
+# GitHub Actions lets a run be re-run for 30 days after it starts. One extra interval makes sure the
+# reconciliation after a day-30 retry still reads that run. Without a bound, each reconciliation
+# replays all history since the schema's fixed floor, so it takes longer every week.
+_RECONCILIATION_WINDOW = datetime.timedelta(days=30) + _RECONCILIATION_INTERVAL
 _APPEND_UNSUPPORTED = (
     "Depot CI replays job attempts. Switch this table to incremental merge or full refresh to avoid duplicates."
 )
@@ -161,13 +165,14 @@ class DepotSource(ResumableSource[DepotSourceConfig, DepotResumeState], CursorSo
             else None
         )
         reconcile = reconciled_at is None or now - reconciled_at >= _RECONCILIATION_INTERVAL or watermark is None
-        # Creation time cannot reveal a late retry. Replay recent runs each sync and retained history
-        # weekly; history_start is the schema's fixed initial floor, not a rolling seven-day window.
-        lower_bound = inputs.history_start
-        if not reconcile and watermark is not None:
+        # Creation time cannot reveal a late retry. Replay recent runs each sync and the reconciliation
+        # window weekly; history_start is the schema's fixed initial floor, not a rolling seven-day window.
+        if reconcile or watermark is None:
+            lower_bound = now - _RECONCILIATION_WINDOW
+        else:
             lower_bound = watermark - _RETRY_LOOKBACK
-            if inputs.history_start is not None:
-                lower_bound = max(lower_bound, inputs.history_start)
+        if inputs.history_start is not None:
+            lower_bound = max(lower_bound, inputs.history_start)
 
         return depot_source(
             api_token=config.api_token,

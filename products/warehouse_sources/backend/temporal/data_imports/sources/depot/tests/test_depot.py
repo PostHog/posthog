@@ -166,7 +166,7 @@ class TestDepotReconciliation:
             (1, 30, True, ["recent"], False),
             (7, 30, True, ["recent", "old"], True),
             (1, 30, False, ["recent", "old"], True),
-            (None, None, True, ["recent", "old", "outside"], True),
+            (None, None, True, ["recent", "old"], True),
             (1, 1, True, [], False),
         ],
     )

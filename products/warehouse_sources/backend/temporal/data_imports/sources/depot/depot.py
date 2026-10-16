@@ -1,5 +1,7 @@
 import datetime as dt
+from collections import deque
 from collections.abc import Callable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
 from requests import Response, Session
@@ -12,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     DEFAULT_RETRY,
     make_tracked_session,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.request_pacer import submit_with_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.settings import (
@@ -29,6 +32,10 @@ REQUEST_TIMEOUT_SECONDS = 60
 # until Depot fixes its cursor. Depot caps pages at 100.
 LIST_RUNS_PAGE_SIZES = (100, 57)
 TERMINAL_STATUSES = ["finished", "failed", "cancelled"]
+# Each run costs one GetRunStatus call plus one GetWorkflow call per workflow. Read one at a time, a
+# reconciliation of retained history outlasts the time a worker stays up between deploys. Stays
+# below the session's connection pool size of 10.
+RUN_FETCH_CONCURRENCY = 8
 # Connect sends every RPC as a POST. Every RPC this source calls is a read, so a retry is as safe as
 # a retried GET.
 _DEPOT_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
@@ -161,6 +168,31 @@ def _run_attempt_rows(session: Session, run: JSONObject) -> list[JSONObject]:
     ]
 
 
+def _attempt_rows_in_run_order(
+    session: Session, runs: list[JSONObject]
+) -> Iterator[tuple[JSONObject, list[JSONObject]]]:
+    pool = ThreadPoolExecutor(max_workers=RUN_FETCH_CONCURRENCY, thread_name_prefix="depot-runs")
+    queued_runs = iter(runs)
+    in_flight: deque[tuple[JSONObject, Future[list[JSONObject]]]] = deque()
+
+    def submit_next() -> None:
+        run = next(queued_runs, None)
+        if run is not None:
+            in_flight.append((run, submit_with_context(pool, _run_attempt_rows, session, run)))
+
+    try:
+        for _ in range(RUN_FETCH_CONCURRENCY):
+            submit_next()
+        while in_flight:
+            run, future = in_flight.popleft()
+            rows = future.result()
+            submit_next()
+            yield run, rows
+    finally:
+        # The consumer can close the generator early, so never block on the fetches still in flight.
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
 def depot_source(
     api_token: str,
     repository: str,
@@ -190,8 +222,7 @@ def depot_source(
             resumed=resume is not None,
         )
         state_created_after = lower_bound.isoformat() if lower_bound is not None else None
-        for run in runs:
-            rows = _run_attempt_rows(session, run)
+        for run, rows in _attempt_rows_in_run_order(session, runs):
             resumable_source_manager.save_state(
                 DepotResumeState(
                     created_after=state_created_after,
