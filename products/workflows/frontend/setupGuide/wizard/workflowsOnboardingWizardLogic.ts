@@ -9,9 +9,8 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import type { IntegrationType, TeamType } from '~/types'
+import type { IntegrationType, TeamPublicType, TeamType } from '~/types'
 
-import type { TeamPublicType } from '../../../../../frontend/src/types'
 import { newBroadcastAgentLogic } from '../../Broadcasts/newBroadcastAgentLogic'
 import type { HogFlowTemplate } from '../../Workflows/hogflows/types'
 import { newWorkflowLogic } from '../../Workflows/newWorkflowLogic'
@@ -47,6 +46,7 @@ export interface workflowsOnboardingWizardLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     integrations: IntegrationType[] | null // integrationsLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    currentTeamLoading: boolean // teamLogic
     workflowTemplates: HogFlowTemplate[] // workflowTemplatesLogic
     workflowTemplatesLoading: boolean // workflowTemplatesLogic
     guideSteps: SetupGuideStep[] | null // workflowsSetupGuideLogic
@@ -172,7 +172,8 @@ export interface workflowsOnboardingWizardLogicMeta {
         savedFrequencyCap: (currentTeam: TeamPublicType | TeamType | null) => FrequencyCap
         shownFrequencyCapChoice: (
             frequencyCapChoice: FrequencyCapChoice | null,
-            savedFrequencyCap: FrequencyCap
+            savedFrequencyCap: FrequencyCap,
+            canEditSendingRules: boolean
         ) => FrequencyCapChoice
         shownCustomFrequencyCap: (
             customFrequencyCap: FrequencyCap | null,
@@ -187,7 +188,11 @@ export interface workflowsOnboardingWizardLogicMeta {
             shownCustomFrequencyCap: FrequencyCap,
             canEditSendingRules: boolean
         ) => string | null
-        shownEngagementEvents: (engagementEventsChoice: boolean | null) => boolean
+        shownEngagementEvents: (
+            engagementEventsChoice: boolean | null,
+            currentTeam: TeamPublicType | TeamType | null,
+            canEditSendingRules: boolean
+        ) => boolean
         canEditSendingRules: (currentTeam: TeamPublicType | TeamType | null) => boolean
         stepKeys: (wizardPath: WorkflowsOnboardingPath, pushEnabled: boolean) => readonly WizardStepKey[]
         currentStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => WizardStepKey
@@ -217,7 +222,8 @@ export interface workflowsOnboardingWizardLogicMeta {
             stepDone: Partial<Record<WizardStepKey, boolean>> | null,
             selectedTemplate: HogFlowTemplate | null,
             startsBlank: boolean,
-            frequencyCapError: string | null
+            frequencyCapError: string | null,
+            currentTeamLoading: boolean
         ) => string | null
     }
 }
@@ -242,7 +248,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             workflowTemplatesLogic,
             ['workflowTemplates', 'workflowTemplatesLoading'],
             teamLogic,
-            ['currentTeam'],
+            ['currentTeam', 'currentTeamLoading'],
         ],
         actions: [
             newWorkflowLogic,
@@ -376,10 +382,15 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 windowDays: currentTeam?.workflows_config?.marketing_frequency_cap_window_days ?? null,
             }),
         ],
+        // A non-admin cannot save, so the step shows what is saved instead of the defaults.
         shownFrequencyCapChoice: [
-            (s) => [s.frequencyCapChoice, s.savedFrequencyCap],
-            (frequencyCapChoice: FrequencyCapChoice | null, savedFrequencyCap: FrequencyCap): FrequencyCapChoice =>
-                frequencyCapChoice ?? initialFrequencyCapChoice(savedFrequencyCap),
+            (s) => [s.frequencyCapChoice, s.savedFrequencyCap, s.canEditSendingRules],
+            (
+                frequencyCapChoice: FrequencyCapChoice | null,
+                savedFrequencyCap: FrequencyCap,
+                canEditSendingRules: boolean
+            ): FrequencyCapChoice =>
+                frequencyCapChoice ?? initialFrequencyCapChoice(savedFrequencyCap, canEditSendingRules),
         ],
         shownCustomFrequencyCap: [
             (s) => [s.customFrequencyCap, s.savedFrequencyCap],
@@ -406,8 +417,14 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                     : null,
         ],
         shownEngagementEvents: [
-            (s) => [s.engagementEventsChoice],
-            (engagementEventsChoice: boolean | null): boolean => engagementEventsChoice ?? true,
+            (s) => [s.engagementEventsChoice, s.currentTeam, s.canEditSendingRules],
+            (
+                engagementEventsChoice: boolean | null,
+                currentTeam: TeamPublicType | TeamType | null,
+                canEditSendingRules: boolean
+            ): boolean =>
+                engagementEventsChoice ??
+                (canEditSendingRules || !!currentTeam?.workflows_config?.capture_workflows_engagement_events),
         ],
         // Matches the admin restriction on the frequency cap in project settings.
         canEditSendingRules: [
@@ -516,15 +533,26 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
         ],
         /** Why the person cannot move on from this step yet, or null when they can. */
         continueDisabledReason: [
-            (s) => [s.currentStep, s.stepDone, s.selectedTemplate, s.startsBlank, s.frequencyCapError],
+            (s) => [
+                s.currentStep,
+                s.stepDone,
+                s.selectedTemplate,
+                s.startsBlank,
+                s.frequencyCapError,
+                s.currentTeamLoading,
+            ],
             (
                 currentStep: WizardStepKey,
                 stepDone: Partial<Record<WizardStepKey, boolean>> | null,
                 selectedTemplate: HogFlowTemplate | null,
                 startsBlank: boolean,
-                frequencyCapError: string | null
+                frequencyCapError: string | null,
+                currentTeamLoading: boolean
             ): string | null => {
                 if (currentStep === 'sending-rules') {
+                    if (currentTeamLoading) {
+                        return 'Saving your sending rules'
+                    }
                     return frequencyCapError ? 'Fix the frequency cap to continue' : null
                 }
                 if (currentStep === 'broadcast') {

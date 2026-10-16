@@ -146,10 +146,10 @@ function sameFrequencyCap(a: FrequencyCap, b: FrequencyCap): boolean {
     return a.maxMessages === b.maxMessages && a.windowDays === b.windowDays
 }
 
-/** The choice the step starts on. An unset cap starts on the recommended cap, so a new setup gets it by default. */
-export function initialFrequencyCapChoice(saved: FrequencyCap): FrequencyCapChoice {
+/** The choice the step starts on. An unset cap starts on the recommended cap when the person can save it. */
+export function initialFrequencyCapChoice(saved: FrequencyCap, canEdit: boolean): FrequencyCapChoice {
     if (saved.maxMessages === null || saved.windowDays === null) {
-        return 'recommended'
+        return canEdit ? 'recommended' : 'off'
     }
     return sameFrequencyCap(saved, RECOMMENDED_FREQUENCY_CAP) ? 'recommended' : 'custom'
 }
@@ -175,9 +175,13 @@ export function sendingRulesToSave(
     saved: FrequencyCap & { engagementEvents: boolean },
     cap: FrequencyCap,
     engagementEvents: boolean,
-    canEditCap: boolean
+    canEdit: boolean
 ): WorkflowsConfig | null {
-    const setCap = canEditCap && !sameFrequencyCap(saved, cap)
+    // The backend lets only project admins change any part of workflows_config.
+    if (!canEdit) {
+        return null
+    }
+    const setCap = !sameFrequencyCap(saved, cap)
     if (!setCap && engagementEvents === saved.engagementEvents) {
         return null
     }

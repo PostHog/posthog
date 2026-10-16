@@ -58,12 +58,13 @@ describe('onboardingWizardSteps', () => {
     })
 
     const unset = { maxMessages: null, windowDays: null }
-    test.each<[string, Parameters<typeof initialFrequencyCapChoice>[0], string]>([
-        ['a new setup starts on the recommended cap', unset, 'recommended'],
-        ['a saved recommended cap starts on recommended', { maxMessages: 1, windowDays: 2 }, 'recommended'],
-        ['a saved custom cap starts on custom', { maxMessages: 3, windowDays: 5 }, 'custom'],
-    ])('%s', (_, saved, expected) => {
-        expect(initialFrequencyCapChoice(saved)).toBe(expected)
+    test.each<[string, Parameters<typeof initialFrequencyCapChoice>[0], boolean, string]>([
+        ['a new setup starts on the recommended cap', unset, true, 'recommended'],
+        ['a non-admin sees an unset cap as no cap', unset, false, 'off'],
+        ['a saved recommended cap starts on recommended', { maxMessages: 1, windowDays: 2 }, true, 'recommended'],
+        ['a saved custom cap starts on custom', { maxMessages: 3, windowDays: 5 }, true, 'custom'],
+    ])('%s', (_, saved, canEdit, expected) => {
+        expect(initialFrequencyCapChoice(saved, canEdit)).toBe(expected)
     })
 
     test.each<[string, Parameters<typeof customFrequencyCapError>[0], boolean]>([
@@ -99,11 +100,7 @@ describe('onboardingWizardSteps', () => {
                 marketing_frequency_cap_window_days: null,
             },
         ],
-        [
-            'a non-admin only saves engagement events',
-            [saved, { maxMessages: 1, windowDays: 2 }, true, false],
-            { capture_workflows_engagement_events: true },
-        ],
+        ['a non-admin saves nothing', [saved, { maxMessages: 1, windowDays: 2 }, true, false], null],
     ])('%s', (_, args, expected) => {
         expect(sendingRulesToSave(...args)).toEqual(expected)
     })
