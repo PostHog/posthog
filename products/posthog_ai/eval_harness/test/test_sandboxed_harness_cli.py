@@ -38,30 +38,38 @@ def test_console_output_detail(argv: list[str], verbose: bool) -> None:
 
 
 @pytest.mark.parametrize(
-    "argv,tty,ci,term,controlling_terminal,expected",
+    "argv,tty,stdout_tty,hogli_stdout_tty,ci,term,controlling_terminal,expected",
     [
-        ([], True, False, "xterm-256color", False, True),
-        ([], False, False, "xterm-256color", True, False),
-        ([], True, True, "xterm-256color", False, False),
-        ([], True, False, "dumb", False, False),
-        (["--no-tui"], True, False, "xterm-256color", False, False),
-        (["--tui"], True, True, "xterm-256color", False, True),
-        (["--tui"], True, False, "dumb", False, True),
-        (["--tui"], False, False, "xterm-256color", True, True),
-        (["--tui"], False, False, "xterm-256color", False, None),
+        ([], True, True, None, False, "xterm-256color", False, True),
+        ([], False, False, None, False, "xterm-256color", True, False),
+        ([], True, True, None, True, "xterm-256color", False, False),
+        ([], True, True, None, False, "dumb", False, False),
+        ([], True, False, "1", False, "xterm-256color", True, True),
+        ([], True, False, "0", False, "xterm-256color", True, False),
+        (["--no-tui"], True, True, None, False, "xterm-256color", False, False),
+        (["--tui"], True, True, None, True, "xterm-256color", False, True),
+        (["--tui"], True, True, None, False, "dumb", False, True),
+        (["--tui"], False, False, None, False, "xterm-256color", True, True),
+        (["--tui"], False, False, None, False, "xterm-256color", False, None),
     ],
 )
 def test_interactive_output_selection(
     monkeypatch: pytest.MonkeyPatch,
     argv: list[str],
     tty: bool,
+    stdout_tty: bool,
+    hogli_stdout_tty: str | None,
     ci: bool,
     term: str,
     controlling_terminal: bool,
     expected: bool | None,
 ) -> None:
-    for stream in ("stdin", "stdout"):
-        monkeypatch.setattr(f"sys.{stream}.isatty", MagicMock(return_value=tty))
+    monkeypatch.setattr("sys.stdin.isatty", MagicMock(return_value=tty))
+    monkeypatch.setattr("sys.stdout.isatty", MagicMock(return_value=stdout_tty))
+    if hogli_stdout_tty is None:
+        monkeypatch.delenv("HOGLI_STDOUT_TTY", raising=False)
+    else:
+        monkeypatch.setenv("HOGLI_STDOUT_TTY", hogli_stdout_tty)
     monkeypatch.setattr("sys.stderr.isatty", MagicMock(return_value=False))
     terminal = MagicMock()
     if not controlling_terminal:

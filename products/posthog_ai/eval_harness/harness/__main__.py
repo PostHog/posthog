@@ -77,7 +77,10 @@ def _configure_logging(transcript: RunTranscript | None = None, *, verbose: bool
 def use_dashboard(options: HarnessOptions) -> bool:
     if options.interactive is False:
         return False
-    terminal = sys.stdin.isatty() and sys.stdout.isatty()
+    # hogli runs evals through a secrets wrapper that pipes stdout, so trust hogli's record of
+    # its own stdout. The view draws on /dev/tty, which the pipe does not affect.
+    stdout_tty = sys.stdout.isatty() or os.getenv("HOGLI_STDOUT_TTY") == "1"
+    terminal = sys.stdin.isatty() and stdout_tty
     if options.interactive is True:
         if not terminal:
             try:

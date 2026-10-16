@@ -85,6 +85,7 @@ The sandbox window always reclaims notebook kernels after the agent run, without
 Interactive terminals use the dashboard by default. CI, pipes, and `--no-tui` use concise text output.
 `--tui` overrides CI and `TERM=dumb` detection and opens `/dev/tty` when standard input or output is redirected.
 Redirected stderr does not disable automatic detection. Sessions without a controlling terminal use text output.
+`hogli evals` runs through the secrets wrapper (`op run`), which pipes stdout. hogli records whether its own stdout was a terminal in `HOGLI_STDOUT_TTY`, and detection uses that record when stdout is a pipe.
 `--verbose` shows detailed logging and tracebacks.
 Both modes retain detailed logs in the transcript, including routine service stderr without a warning label.
 
