@@ -664,11 +664,16 @@ def test_turn_stats_count_every_candidate_once_per_session() -> None:
 
 def test_turn_stats_split_posted_must_fix_by_whether_the_push_changed_its_code() -> None:
     # The diff-only shadow reads these counts: a must-fix off the change is one a review of the change alone
-    # would put at risk. Only posted must-fix count, and lock file lines do not count toward the change size.
-    earlier = [_patched("a.py", ("addition", 10, ["x = 1"])), _patched("uv.lock", ("addition", 1, ["a"]))]
+    # would put at risk. Only posted must-fix count. The change size uses the units of the PR size, additions
+    # plus deletions: a deleted block counts in full, context lines and lock files do not count, and a file
+    # without a patch counts the change in its line totals.
+    unpatched = PRFile(filename="big.py", status="modified", additions=10, deletions=0, changes=[])
+    earlier = [_patched("a.py", ("addition", 10, ["x = 1"])), _patched("uv.lock", ("addition", 1, ["a"])), unpatched]
     current = [
         _patched("a.py", ("addition", 10, ["x = 1", "y = 2"])),
+        _patched("b.py", ("context", 4, ["def f():"]), ("deletion", 5, ["a", "b", "c", "d", "e"])),
         _patched("uv.lock", ("addition", 1, ["a", "b", "c"])),
+        unpatched.model_copy(update={"additions": 30}),
     ]
     on_change = _issue("2000-1-1", IssuePriority.MUST_FIX).model_copy(update={"lines": [LineRange(start=11)]})
     off_change = _issue("2000-1-2", IssuePriority.MUST_FIX).model_copy(update={"lines": [LineRange(start=40)]})
@@ -689,7 +694,7 @@ def test_turn_stats_split_posted_must_fix_by_whether_the_push_changed_its_code()
     )
     first_review = flash_turn_stats([on_change], selection, reviewable_lines=120)
 
-    assert (stats.changed_lines, stats.must_fix_on_change, stats.must_fix_off_change) == (1, 1, 1)
+    assert (stats.changed_lines, stats.must_fix_on_change, stats.must_fix_off_change) == (26, 1, 1)
     assert (first_review.changed_lines, first_review.must_fix_on_change, first_review.must_fix_off_change) == (
         None,
         None,

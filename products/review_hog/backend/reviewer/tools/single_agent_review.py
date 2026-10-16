@@ -570,11 +570,13 @@ def _diff_sequence(pr_file: PRFile) -> list[_DiffLine]:
     return sequence
 
 
-def _lines_new_since(pr_file: PRFile, earlier: PRFile | None) -> set[int]:
-    """The head lines of the file's changes that the earlier diff did not have.
+def _diff_since(pr_file: PRFile, earlier: PRFile | None) -> tuple[set[int], int]:
+    """The head lines of the file's changes that the earlier diff did not have, and the changed diff line count.
 
     The two diffs are matched as sequences of lines with their context, so code that a base merge or a rebase
-    only moved stays old, and a repeated line matches the occurrence in the same place.
+    only moved stays old, and a repeated line matches the occurrence in the same place. The count takes the
+    added and removed diff lines on both sides of each mismatch, in the units of `PRFile.additions` plus
+    `PRFile.deletions`.
     """
     current = _diff_sequence(pr_file)
     before = _diff_sequence(earlier) if earlier is not None else []
@@ -584,15 +586,27 @@ def _lines_new_since(pr_file: PRFile, earlier: PRFile | None) -> set[int]:
         None, [(line.kind, line.code) for line in before], [(line.kind, line.code) for line in current]
     )
     new_lines: set[int] = set()
+    changed_count = 0
     for tag, before_start, before_end, current_start, current_end in matcher.get_opcodes():
         if tag == "equal":
             continue
+        changed_count += sum(1 for line in before[before_start:before_end] if line.kind != "context")
+        changed_count += sum(1 for line in current[current_start:current_end] if line.kind != "context")
         # Context lines count too, so a statement moved into new surroundings is changed code.
         new_lines.update(line.head_line for line in current[current_start:current_end])
         # A change the earlier diff had and this one lost, such as a removed guard, changes the code around it.
         if any(line.kind != "context" for line in before[before_start:before_end]):
             new_lines.update(line.head_line for line in current[max(current_start - 1, 0) : current_start + 1])
-    return new_lines
+    return new_lines, changed_count
+
+
+def _count_delta(pr_file: PRFile | None, earlier: PRFile | None) -> int:
+    """The changed line count of a file whose patch is missing, from its addition and deletion counts."""
+    additions = pr_file.additions if pr_file is not None else 0
+    deletions = pr_file.deletions if pr_file is not None else 0
+    earlier_additions = earlier.additions if earlier is not None else 0
+    earlier_deletions = earlier.deletions if earlier is not None else 0
+    return abs(additions - earlier_additions) + abs(deletions - earlier_deletions)
 
 
 @frozen
@@ -601,23 +615,31 @@ class ChangedSinceReview:
 
     lines: dict[str, set[int]]
     files_without_patch: set[str]
+    # Per file, the diff lines added or removed since the earlier head, including files that left the PR.
+    changed_line_counts: dict[str, int]
 
     @classmethod
     def between(cls, earlier_files: list[PRFile], current_files: list[PRFile]) -> "ChangedSinceReview":
         earlier_by_name = {pr_file.filename: pr_file for pr_file in earlier_files}
         lines: dict[str, set[int]] = {}
         files_without_patch: set[str] = set()
+        changed_line_counts: dict[str, int] = {}
         for pr_file in current_files:
             earlier = earlier_by_name.get(pr_file.filename)
             if _patch_missing(pr_file) or (earlier is not None and _patch_missing(earlier)):
                 files_without_patch.add(pr_file.filename)
+                changed_line_counts[pr_file.filename] = _count_delta(pr_file, earlier)
             else:
-                lines[pr_file.filename] = _lines_new_since(pr_file, earlier)
-        return cls(lines=lines, files_without_patch=files_without_patch)
+                lines[pr_file.filename], changed_line_counts[pr_file.filename] = _diff_since(pr_file, earlier)
+        current_names = {pr_file.filename for pr_file in current_files}
+        for earlier in earlier_files:
+            if earlier.filename not in current_names:
+                changed_line_counts[earlier.filename] = _count_delta(None, earlier)
+        return cls(lines=lines, files_without_patch=files_without_patch, changed_line_counts=changed_line_counts)
 
     def reviewable_line_count(self) -> int:
-        """How many head lines of reviewable files changed, comparable with `flash_reviewable_lines`."""
-        return sum(len(lines) for filename, lines in self.lines.items() if is_reviewable_path(filename))
+        """How many diff lines of reviewable files changed, in the units of `flash_reviewable_lines`."""
+        return sum(count for filename, count in self.changed_line_counts.items() if is_reviewable_path(filename))
 
     def touches(self, issue: Issue) -> bool:
         """Whether the finding sits on or near a changed line, or in a file whose lines cannot be compared."""
