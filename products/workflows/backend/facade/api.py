@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from typing import Any
 from uuid import UUID
 
@@ -9,6 +9,7 @@ from posthog.ingress.contracts import WebhookDelivery
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
+    CohortDependentWorkflow,
     EmailDomainDnsRecord,
     EmailDomainVerification,
     RecentWorkflow,
@@ -21,6 +22,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowNotFound,
     WorkflowSummary,
     WorkflowTaskDailyLimits,
+    WorkflowVisionScanDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.services.batch_jobs import create_batch_job
@@ -156,6 +158,20 @@ def get_workflow_task_daily_limits(*, team_id: int) -> WorkflowTaskDailyLimits:
     )
 
 
+def get_workflow_vision_scan_daily_limits(*, team_id: int) -> WorkflowVisionScanDailyLimits:
+    config = (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .only("replay_vision_scan_rate_limit_per_day", "replay_vision_scan_team_rate_limit_per_day")
+        .first()
+    )
+    if config is None:
+        return WorkflowVisionScanDailyLimits(per_workflow=None, per_team=None)
+    return WorkflowVisionScanDailyLimits(
+        per_workflow=config.replay_vision_scan_rate_limit_per_day,
+        per_team=config.replay_vision_scan_team_rate_limit_per_day,
+    )
+
+
 def accept_github_event(delivery: WebhookDelivery) -> None:
     """The inbound GitHub App webhook enters workflows here, so its consumer needs no internal import."""
     # Deferred to keep the Kafka producer off the facade import path.
@@ -220,6 +236,20 @@ def get_active_workflows_using_integration(*, team_id: int, integration_id: int)
     return [
         WorkflowSummary(id=str(flow.id), name=flow.name or "", status=flow.status)
         for flow in get_active_hog_flows_using_integration(team_id=team_id, integration_id=integration_id)
+    ]
+
+
+def get_active_workflows_using_realtime_cohort(
+    *, team_id: int, cohort_ids: Collection[int]
+) -> list[CohortDependentWorkflow]:
+    # Deferred to keep the cdp filter compiler, and the HogQL schema it loads, off the django.setup() path.
+    from products.workflows.backend.services.cohort_usage import (  # noqa: PLC0415
+        get_active_hog_flows_using_realtime_cohort,
+    )
+
+    return [
+        CohortDependentWorkflow(id=str(flow.id), name=flow.name or "", status=flow.status)
+        for flow in get_active_hog_flows_using_realtime_cohort(team_id=team_id, cohort_ids=cohort_ids)
     ]
 
 

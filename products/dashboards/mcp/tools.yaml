@@ -662,6 +662,22 @@ tools:
             id:
                 cast: string-int
         feature_flag: dashboard-widgets
+    dashboards-bulk-delete:
+        operation: dashboards_bulk_delete_create
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete dashboards in bulk
+        description: >
+            Soft-delete up to 100 dashboards by ID. Saved insights are kept by default. Set delete_insights to true to
+            also delete insights with no remaining dashboard. Returns deleted IDs and skipped IDs with reasons.
+            Dashboards that the caller cannot edit are skipped. To restore a dashboard, use the REST API: PATCH
+            /api/projects/{project_id}/dashboards/{id}/ with {"deleted": false}. The dashboard-update MCP tool does not
+            support restoring deleted dashboards.
     dashboards-get-all:
         operation: dashboards_list
         enabled: true

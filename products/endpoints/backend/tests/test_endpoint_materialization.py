@@ -1749,11 +1749,26 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": False},
-            format="json",
-        )
+        with (
+            mock.patch.object(DataWarehouseSavedQuery, "revert_materialization", side_effect=RuntimeError("boom")),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            failed_response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": False},
+                format="json",
+            )
+
+        self.assertEqual(failed_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(DataWarehouseSavedQuery.objects.get(id=saved_query_id).deleted)
+        self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": False},
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertFalse(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())

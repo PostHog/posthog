@@ -204,6 +204,31 @@ describe('Toolbar flag loading', () => {
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
     })
 
+    it.each([
+        { launch: 'without a user to identify', params: {}, expectedReloads: 1 },
+        { launch: 'with instrumentation but no distinct id', params: { instrument: true }, expectedReloads: 1 },
+        // identify() changes the distinct id, and posthog-js then loads the flags for that user
+        { launch: 'with a user to identify', params: { instrument: true, distinctId: 'user-1' }, expectedReloads: 0 },
+    ])('loads the toolbar instance flags only when the toolbar mounts $launch', async ({ params, expectedReloads }) => {
+        await import('./index')
+        const { default: posthog } = await import('posthog-js')
+
+        expect(posthog.init).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                advanced_disable_feature_flags_on_first_load: true,
+                remote_config_refresh_interval_ms: 0,
+            }),
+            'ph_toolbar_internal'
+        )
+        expect(posthog.reloadFeatureFlags).not.toHaveBeenCalled()
+
+        await (window as any).ph_load_toolbar({ apiURL: 'http://localhost:8010', token: 'test-token', ...params })
+
+        expect(posthog.reloadFeatureFlags).toHaveBeenCalledTimes(expectedReloads)
+        expect(posthog.set_config).toHaveBeenCalledWith({ remote_config_refresh_interval_ms: 300000 })
+    })
+
     it('is idempotent — a repeat ph_load_toolbar keeps the live toolbar instead of remounting it', async () => {
         // On an SPA, posthog-js calls ph_load_toolbar again on client-side route changes.
         // Remounting resets the Kea context out from under the mounted React tree, so the toolbar

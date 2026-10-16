@@ -269,6 +269,11 @@ export interface stepDelayLogicActions {
                   max_delay_duration?: string | undefined
               }
             | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
+              }
+            | {
                   inputs: Record<
                       string,
                       {
@@ -334,6 +339,7 @@ export interface stepDelayLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'replay_vision_scan'
                                           | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
@@ -535,6 +541,11 @@ export interface stepDelayLogicActions {
                   type: 'batch'
               }
             | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
+              }
+            | {
                   condition: {
                       filters?:
                           | {
@@ -658,6 +669,7 @@ export interface stepDelayLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'replay_vision_scan'
                                           | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'

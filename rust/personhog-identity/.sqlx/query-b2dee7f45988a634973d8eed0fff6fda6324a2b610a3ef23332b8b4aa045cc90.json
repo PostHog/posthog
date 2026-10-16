@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='publish_resolve_pointer' */ \n        WITH moved_rows AS (\n            SELECT lop.person_id, lop.role, lop.person_uuid,\n                   CASE WHEN jsonb_typeof(e.value -> 'distinct_id') = 'string'\n                        THEN e.value ->> 'distinct_id' END AS distinct_id,\n                   CASE WHEN jsonb_typeof(e.value -> 'version') = 'number'\n                         AND (e.value ->> 'version')::numeric = trunc((e.value ->> 'version')::numeric)\n                         AND (e.value ->> 'version')::numeric BETWEEN -9223372036854775808 AND 9223372036854775807\n                        THEN (e.value ->> 'version')::bigint END AS version,\n                   e.ordinality AS mapping_ordinal\n            FROM lifecycle_op_person_tmp lop\n            CROSS JOIN LATERAL jsonb_array_elements(lop.moved) WITH ORDINALITY AS e(value, ordinality)\n            WHERE lop.op_id = $1\n              AND lop.role IN ('source', 'victim')\n              AND lop.moved IS NOT NULL\n              AND jsonb_typeof(lop.moved) = 'array'\n              AND lop.person_id >= $2\n        )\n        SELECT m.person_id AS \"person_id!\",\n               m.mapping_ordinal AS \"mapping_ordinal!\",\n               CASE m.role WHEN 'victim' THEN m.person_uuid ELSE t.person_uuid END AS owner_uuid,\n               m.distinct_id,\n               m.version,\n               (m.role = 'victim') AS \"is_deleted!\"\n        FROM moved_rows m\n        LEFT JOIN lifecycle_op_person_tmp t ON t.op_id = $1 AND t.role = 'target'\n        WHERE (m.person_id, m.mapping_ordinal) > ($2, $3)\n        ORDER BY m.person_id, m.mapping_ordinal\n        LIMIT $4\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "mapping_ordinal!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "owner_uuid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "distinct_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_deleted!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "b2dee7f45988a634973d8eed0fff6fda6324a2b610a3ef23332b8b4aa045cc90"
+}

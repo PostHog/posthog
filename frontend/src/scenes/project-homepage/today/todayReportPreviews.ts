@@ -1,9 +1,8 @@
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { formatReportMetricValue } from 'products/signals/frontend/inbox/utils/reportMetrics'
-import type { BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
-import { reportSourceLine, reportTitle, sourceStyle } from './todaySignalReports'
+import { reportSourceLine, reportTitle } from './todaySignalReports'
 
 export interface TodayReportPreview {
     sources: string | null
@@ -47,20 +46,6 @@ export function reportPreview(report: SignalReport): TodayReportPreview | null {
                   url: report.implementation_pr_url,
                   state: report.implementation_pr_merged ? 'merged' : (report.implementation_pr_state ?? null),
               }
-            : null,
-    })
-}
-
-export function briefingItemPreview(item: BriefingItemApi): TodayReportPreview | null {
-    if (!item.report) {
-        return null
-    }
-    return worthShowing({
-        sources: sourceStyle(item.source_product ?? item.source).label,
-        lead: distinctLead(item.report.summary, item.title),
-        metric: previewMetric(item.report.metrics),
-        pullRequest: item.report.pull_request_url
-            ? { url: item.report.pull_request_url, state: item.report.pull_request_state ?? null }
             : null,
     })
 }

@@ -594,6 +594,7 @@ export interface workflowLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'replay_vision_scan'
                                                         | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
@@ -866,6 +867,11 @@ export interface workflowLogicActions {
                                           source: 'internal-events'
                                       }
                                       type: 'internal-event'
+                                  }
+                                | {
+                                      cohort_id: number | null
+                                      transition: 'entered' | 'left'
+                                      type: 'cohort'
                                   }
                                 | {
                                       filters: {
@@ -1147,6 +1153,11 @@ export interface workflowLogicActions {
                             type: 'internal-event'
                         }
                       | {
+                            cohort_id: number | null
+                            transition: 'entered' | 'left'
+                            type: 'cohort'
+                        }
+                      | {
                             filters: {
                                 properties?: any[] | undefined
                             }
@@ -1256,6 +1267,7 @@ export interface workflowLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'replay_vision_scan'
                                 | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
@@ -1465,6 +1477,7 @@ export interface workflowLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'replay_vision_scan'
                                                         | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
@@ -1737,6 +1750,11 @@ export interface workflowLogicActions {
                                           source: 'internal-events'
                                       }
                                       type: 'internal-event'
+                                  }
+                                | {
+                                      cohort_id: number | null
+                                      transition: 'entered' | 'left'
+                                      type: 'cohort'
                                   }
                                 | {
                                       filters: {
@@ -2018,6 +2036,11 @@ export interface workflowLogicActions {
                             type: 'internal-event'
                         }
                       | {
+                            cohort_id: number | null
+                            transition: 'entered' | 'left'
+                            type: 'cohort'
+                        }
+                      | {
                             filters: {
                                 properties?: any[] | undefined
                             }
@@ -2127,6 +2150,7 @@ export interface workflowLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'replay_vision_scan'
                                 | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
@@ -2251,6 +2275,11 @@ export interface workflowLogicActions {
                   max_delay_duration?: string | undefined
               }
             | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
+              }
+            | {
                   inputs: Record<
                       string,
                       {
@@ -2316,6 +2345,7 @@ export interface workflowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'replay_vision_scan'
                                           | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
@@ -2645,6 +2675,11 @@ export interface workflowLogicActions {
                   max_delay_duration?: string | undefined
               }
             | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
+              }
+            | {
                   inputs: Record<
                       string,
                       {
@@ -2710,6 +2745,7 @@ export interface workflowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'replay_vision_scan'
                                           | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
@@ -3016,6 +3052,11 @@ export interface workflowLogicMeta {
                                     source: 'internal-events'
                                 }
                                 type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
                             }
                           | {
                                 filters: {

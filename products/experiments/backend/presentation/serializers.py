@@ -53,7 +53,7 @@ from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, appl
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
-from products.experiments.backend.metric_utils import apply_metric_date_range, refresh_action_names_in_metric
+from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -189,7 +189,10 @@ class ExperimentMetricDefinitionField(serializers.JSONField):
 @extend_schema_field(
     {
         "type": "object",
-        "additionalProperties": {"oneOf": [{"type": "string"}, {"type": "number"}], "nullable": True},
+        "additionalProperties": {
+            "oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}],
+            "nullable": True,
+        },
     }
 )
 class ExperimentHealthEvidenceField(serializers.DictField):
@@ -718,13 +721,6 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        # Normalize query date ranges to the experiment's current range
-        # Cribbed from ExperimentTrendsQuery
-        new_date_range = {
-            "date_from": data["start_date"] if data["start_date"] else "",
-            "date_to": data["end_date"] if data["end_date"] else "",
-            "explicitDate": True,
-        }
 
         # Refresh action names in inline metrics (metrics and metrics_secondary).
         # The columns are nullable, so the keys can be present with a None value. Each call
@@ -736,11 +732,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                 refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
                 if refreshed_metric:
                     metrics_list[i] = refreshed_metric
-                    metric = refreshed_metric
 
-                apply_metric_date_range(metric, new_date_range)
-
-        # Update date ranges in saved metrics
         # Note: Action name refresh is handled by ExperimentToSavedMetricSerializer.to_representation
         saved_metrics = data.get("saved_metrics", [])
         with tracer.start_as_current_span("ExperimentSerializer.saved_metric_fingerprints") as span:
@@ -748,8 +740,6 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             calculation_keys = ExperimentService.saved_metric_calculation_keys(instance) if saved_metrics else {}
             for saved_metric in saved_metrics:
                 if saved_metric.get("query"):
-                    apply_metric_date_range(saved_metric["query"], new_date_range)
-
                     # Add fingerprint to saved metric returned from API so that the frontend knows what
                     # timeseries records to query. Computed on the effective definition (with the link
                     # overrides), the same dict the daily discovery fingerprints, so the chart read finds

@@ -29,6 +29,13 @@ class WorkflowSummary:
 
 
 @frozen
+class CohortDependentWorkflow:
+    id: str
+    name: str
+    status: str
+
+
+@frozen
 class RecentWorkflow:
     id: str
     name: str
@@ -46,6 +53,14 @@ class WorkflowActivitySummary:
 @frozen
 class WorkflowTaskDailyLimits:
     """A team's daily caps on tasks created by workflows. None means the default cap applies."""
+
+    per_workflow: int | None
+    per_team: int | None
+
+
+@frozen
+class WorkflowVisionScanDailyLimits:
+    """A team's daily caps on Replay Vision scans requested by workflows. None means the default cap applies."""
 
     per_workflow: int | None
     per_team: int | None
@@ -710,11 +725,23 @@ DataSuggestionBuildStatus = Literal["ready", "building", "failed"]
 
 
 @frozen
+class MissingInput:
+    """A setting the draft leaves blank and the team must fill before enabling, like a webhook URL."""
+
+    step_id: str
+    step_name: str
+    field: str
+
+
+@frozen
 class BuiltSuggestion:
     status: DataSuggestionBuildStatus
     # Set only when the status is ready.
     workflow: dict[str, Any] | None = None
     uses_saved_template: bool = False
+    # Set only when the build saved the draft itself.
+    workflow_id: str | None = None
+    missing_inputs: tuple[MissingInput, ...] = ()
 
 
 class DataSuggestionNotFound(Exception):
