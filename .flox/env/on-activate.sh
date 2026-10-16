@@ -9,14 +9,14 @@
 set -euo pipefail
 
 # ── Colors & symbols ────────────────────────────────────────────────
-readonly C_RESET='\033[0m'
-readonly C_DIM='\033[2m'
-readonly C_GREEN='\033[32m'
-readonly C_YELLOW='\033[33m'
-readonly C_RED='\033[31m'
-readonly C_CYAN='\033[1;36m'
-readonly C_ITALIC='\033[3m'
-readonly C_BOLD='\033[1m'
+readonly C_RESET=$'\033[0m'
+readonly C_DIM=$'\033[2m'
+readonly C_GREEN=$'\033[32m'
+readonly C_YELLOW=$'\033[33m'
+readonly C_RED=$'\033[31m'
+readonly C_CYAN=$'\033[1;36m'
+readonly C_ITALIC=$'\033[3m'
+readonly C_BOLD=$'\033[1m'
 readonly SPINNER_FRAMES=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
 _ACTIVATION_TMPFILES=()
@@ -585,7 +585,7 @@ if [[ "$(uname -s)-$(uname -m)" == "Darwin-arm64" && -z "${SDKROOT:-}" ]] && com
 
     if [[ -n "$_lld_sdk" ]]; then
       export SDKROOT="$_lld_sdk"
-      done_step "macOS SDK ${C_DIM}($(basename "$_lld_sdk") — newest one lld can link against)${C_RESET}"
+      done_step "macOS SDK ${C_DIM}($(basename "$_lld_sdk"), the newest one lld can link against)${C_RESET}"
     else
       warn_step "No macOS SDK found that lld can link against. Rust builds will fail."
       echo -e "    ${C_DIM}$(basename "$_active_sdk") has an arm64e.x1 slice that lld cannot parse, or no arm64 slice.${C_RESET}"
