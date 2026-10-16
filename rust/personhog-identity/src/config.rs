@@ -223,13 +223,38 @@ pub struct Config {
     /// locks for long; the next pass continues.
     #[envconfig(default = "10000")]
     pub lifecycle_gc_batch_limit: i64,
+
+    /// Outbox the publisher drains, paired with LIFECYCLE_OP_TABLE: a merge
+    /// or delete op's pointer row resolves against that op's rows. Set to
+    /// "person_publish_outbox" at cutover.
+    #[envconfig(default = "person_publish_outbox_tmp")]
+    pub person_publish_outbox_table: String,
+
+    /// Write the publish outbox, one pointer per completed merge or delete
+    /// op, for a publisher to drain. Off, identity writes nothing there and
+    /// never names the outbox table in a completion. An outbox nobody drains
+    /// holds every pointed op past GC retention, so turn this on only where
+    /// a publisher runs against the same table set.
+    #[envconfig(default = "false")]
+    pub lifecycle_outbox_enabled: bool,
+}
+
+/// Whether identity writes the publish outbox (`LIFECYCLE_OUTBOX_ENABLED`):
+/// one pointer per completed merge or delete op. Carried by every writer so
+/// the choice is made where the writer is built, never defaulted at the
+/// write site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutboxWrites {
+    Enabled,
+    Disabled,
 }
 
 /// The paired table set identity operates on: the person table plus the
 /// tables it writes rows into (or clears rows from) keyed by that table's
-/// person ids, plus the saga tables whose marks claim those ids. All five
-/// must come from the same namespace — mixing the validation set with the
-/// real set cross-contaminates id spaces.
+/// person ids, plus the saga tables whose marks claim those ids and the
+/// outbox whose pointers name those ops. All six must come from the same
+/// namespace — mixing the validation set with the real set
+/// cross-contaminates id spaces.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IdentityTables {
     pub person: String,
@@ -237,6 +262,7 @@ pub struct IdentityTables {
     pub ff_hash_key_override: String,
     pub lifecycle_op: String,
     pub lifecycle_op_person: String,
+    pub person_publish_outbox: String,
 }
 
 impl IdentityTables {
@@ -247,6 +273,7 @@ impl IdentityTables {
             ff_hash_key_override: "posthog_featureflaghashkeyoverride".to_string(),
             lifecycle_op: "lifecycle_op".to_string(),
             lifecycle_op_person: "lifecycle_op_person".to_string(),
+            person_publish_outbox: "person_publish_outbox".to_string(),
         }
     }
 
@@ -257,6 +284,7 @@ impl IdentityTables {
             ff_hash_key_override: "personhog_featureflaghashkeyoverride_tmp".to_string(),
             lifecycle_op: "lifecycle_op_tmp".to_string(),
             lifecycle_op_person: "lifecycle_op_person_tmp".to_string(),
+            person_publish_outbox: "person_publish_outbox_tmp".to_string(),
         }
     }
 
@@ -275,8 +303,9 @@ impl IdentityTables {
         }
         Err(format!(
             "mixed identity table set {self:?}: set PERSON_TABLE, PERSON_DISTINCT_ID_TABLE, \
-             FF_HASH_KEY_OVERRIDE_TABLE, LIFECYCLE_OP_TABLE, and LIFECYCLE_OP_PERSON_TABLE \
-             together, to either the full real set or the full validation set"
+             FF_HASH_KEY_OVERRIDE_TABLE, LIFECYCLE_OP_TABLE, LIFECYCLE_OP_PERSON_TABLE, and \
+             PERSON_PUBLISH_OUTBOX_TABLE together, to either the full real set or the full \
+             validation set"
         ))
     }
 }
@@ -289,6 +318,15 @@ impl Config {
             ff_hash_key_override: self.ff_hash_key_override_table.clone(),
             lifecycle_op: self.lifecycle_op_table.clone(),
             lifecycle_op_person: self.lifecycle_op_person_table.clone(),
+            person_publish_outbox: self.person_publish_outbox_table.clone(),
+        }
+    }
+
+    pub fn outbox_writes(&self) -> OutboxWrites {
+        if self.lifecycle_outbox_enabled {
+            OutboxWrites::Enabled
+        } else {
+            OutboxWrites::Disabled
         }
     }
 
@@ -416,9 +454,6 @@ impl Config {
     }
 }
 
-// A mixed table set pairs person ids from one sequence with rows keyed by
-// another; validation must refuse it rather than let a partial env override
-// through.
 #[cfg(test)]
 mod tests {
     use super::IdentityTables;
@@ -429,6 +464,9 @@ mod tests {
         assert!(IdentityTables::validation().validate().is_ok());
     }
 
+    // A mixed table set pairs person ids from one sequence with rows keyed by
+    // another; validation must refuse it rather than let a partial env
+    // override through.
     #[test]
     fn a_mixed_table_set_is_refused() {
         let mixed = IdentityTables {
