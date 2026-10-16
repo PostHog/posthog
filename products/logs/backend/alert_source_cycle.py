@@ -34,7 +34,7 @@ from posthog.temporal.alerts.admission import hold_evaluation_slot, release_eval
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.facade.destinations import configured_destination_template_ids
-from products.alerts_platform.backend.facade.api import due_checks, refresh_settings, slot_of
+from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -100,6 +100,7 @@ from products.logs.backend.platform_alert_backfill import platform_upsert_of
 # Private to the production activity. Reimplementing either would let this path drift from
 # what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
 from products.logs.backend.temporal.activities import _derive_breaches, _detect_broken_filter_config
+from products.logs.backend.temporal.batch_slot import LogsBatchAdmission, LogsBatchSlot
 from products.logs.backend.temporal.constants import MAX_ALERT_COHORT_SIZE
 
 logger = structlog.get_logger(__name__)
@@ -127,9 +128,12 @@ MIN_QUERY_SECONDS = 2
 CHECKPOINT_QUERY_SECONDS = 10
 
 INFLIGHT_KEY = "alerts:platform:logs:batches:inflight"
-# Taken inside the evaluation activity, so it only has to outlast that activity's start-to-close. Short
-# enough that a worker that dies mid-batch frees its slot within a minute.
-BATCH_SLOT_LEASE_SECONDS = 60
+# A workflow takes the slot before its evaluation activity starts, and the activity holds it again
+# under a fresh lease when it starts. So the lease has to outlast the rest of the take and the
+# activity's queue time, and also the activity's run, with room to spare. Short enough that a worker
+# that dies mid-batch frees its slot within two minutes.
+BATCH_SLOT_LEASE_SECONDS = 90
+_DEFERRED_COUNT_LIMIT = 10_000
 
 
 @frozen
@@ -935,6 +939,66 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
         return _evaluate_admitted(team_id, slot, cutoff, checks, started_at=started_at)
     finally:
         release_evaluation_slot(member, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def take_logs_batch_slot(
+    team_id: int, slot: str, cutoff: datetime, *, member: str, first: bool, final: bool
+) -> LogsBatchAdmission:
+    """One try at a pool slot for a batch, without waiting. The workflow waits between tries.
+
+    `member` comes from the workflow, so a retried attempt finds the slot an earlier attempt took
+    instead of taking a second one. Only the first try asks whether the batch is due: nothing else
+    evaluates this batch key while its workflow waits, and the evaluation reads the checks again.
+    `final` marks the last try: a batch that still finds no room misses its tick, and only that try
+    counts its checks as deferred.
+    """
+    due: tuple[str, ...] = ()
+    if first or final:
+        # The last try counts every due check it defers, so only it reads more than one id.
+        due = due_check_ids(team_id, SourceKind.LOGS.value, slot, cutoff, limit=_DEFERRED_COUNT_LIMIT if final else 1)
+        if not due:
+            return LogsBatchAdmission(due=False)
+    held_until = hold_evaluation_slot(
+        member,
+        limit=settings.ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES,
+        lease_seconds=BATCH_SLOT_LEASE_SECONDS,
+        key=INFLIGHT_KEY,
+    )
+    if held_until is None:
+        if final:
+            logger.info("Deferred a platform logs batch over the pool limit", team_id=team_id, slot=slot)
+            safe_record(increment_checks_deferred, SourceKind.LOGS.value, len(due))
+        return LogsBatchAdmission(due=True)
+    return LogsBatchAdmission(due=True, slot=LogsBatchSlot(member=member, held_until=held_until))
+
+
+def evaluate_held_logs_batch(team_id: int, slot: str, cutoff: datetime, held: LogsBatchSlot) -> SourceBatchEvaluation:
+    """`evaluate_logs_batch` for a batch whose workflow already took its slot. Releases the slot."""
+    started_at = time.monotonic()
+    # Hold the slot again under a fresh lease. The take's lease can lapse while this activity waits in
+    # the queue, and a timed-out take attempt can rewrite the expiry after its retry returned. A batch
+    # whose slot lapsed while the pool filled finds no room here, and its checks stay due.
+    held_until = hold_evaluation_slot(
+        held.member,
+        limit=settings.ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES,
+        lease_seconds=BATCH_SLOT_LEASE_SECONDS,
+        key=INFLIGHT_KEY,
+    )
+    if held_until is None:
+        logger.info("Deferred a platform logs batch whose slot lapsed", team_id=team_id, slot=slot)
+        return SourceBatchEvaluation(outcomes=(), deliveries=())
+    try:
+        checks = due_checks(team_id, SourceKind.LOGS.value, slot, cutoff)
+        if not checks:
+            return SourceBatchEvaluation(outcomes=(), deliveries=())
+        return _evaluate_admitted(team_id, slot, cutoff, checks, started_at=started_at)
+    finally:
+        release_evaluation_slot(held.member, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def release_logs_batch_slot(held: LogsBatchSlot) -> None:
+    """Frees a slot whose evaluation never started. A no-op once that evaluation held the slot again."""
+    release_evaluation_slot(held.member, held_until=held.held_until, key=INFLIGHT_KEY)
 
 
 def _evaluate_admitted(
