@@ -13,8 +13,6 @@ from datetime import datetime
 
 from django.db import transaction
 
-import structlog
-
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
@@ -31,7 +29,9 @@ from products.alerts_platform.backend.logic.platform_alert_events import Platfor
 from products.alerts_platform.backend.logic.platform_lifecycle import condition_snapshot
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
-logger = structlog.get_logger(__name__)
+
+class IncidentCloseNotRecorded(Exception):
+    """History rows a control-plane close needs, which ClickHouse did not take."""
 
 
 @frozen
@@ -129,15 +129,22 @@ def announce_after_commit(pending: PendingClose | None) -> None:
 
 
 def _announce(pending: PendingClose) -> None:
-    insert_events(pending.team_id, pending.rows)
-    if pending.delivery is not None:
-        # Imported here because the facade that reaches this module loads in processes that never
-        # start a workflow, and the starter loads the Temporal client.
-        from products.alerts_platform.backend.temporal.web_start import (  # noqa: PLC0415 - keeps the Temporal client off the import path
-            start_delivery,
-        )
+    _record(pending)
+    if pending.delivery is None:
+        return
+    # Imported here because the facade that reaches this module loads in processes that never
+    # start a workflow, and the starter loads the Temporal client.
+    from products.alerts_platform.backend.temporal.web_start import (  # noqa: PLC0415 - keeps the Temporal client off the import path
+        start_delivery,
+    )
 
+    try:
         start_delivery(pending.delivery)
+    except Exception as error:
+        # Nothing else sends this resolve, because the firing has already ended. Sending it here costs
+        # the request the time a delivery takes, but only when Temporal could not be reached.
+        capture_exception(error, {"configuration_id": pending.delivery.configuration_id})
+        _deliver_now(pending.delivery)
 
 
 def announce_now(pending: PendingClose | None) -> None:
@@ -145,18 +152,33 @@ def announce_now(pending: PendingClose | None) -> None:
     remove the destinations a later delivery would look up."""
     if pending is None:
         return
-    insert_events(pending.team_id, pending.rows)
-    if pending.delivery is None:
-        return
+    _record(pending)
+    if pending.delivery is not None:
+        _deliver_now(pending.delivery)
+
+
+def _record(pending: PendingClose) -> None:
+    # A delivery reads its rows back from history, so a resolve whose rows were not written sends
+    # nothing. `insert_events` never raises, so the shortfall is reported here.
+    if insert_events(pending.team_id, pending.rows) < len(pending.rows):
+        capture_exception(
+            IncidentCloseNotRecorded(
+                f"History rows for a control-plane close were not written ({pending.rows[0].evaluation_key})"
+            ),
+            {"team_id": pending.team_id},
+        )
+
+
+def _deliver_now(delivery: AlertDeliveryRequest) -> None:
     # Imported here for the same reason as the starter: delivery loads every transport.
     from products.alerts_platform.backend.delivery.evaluation import (  # noqa: PLC0415 - keeps the transports off the import path
         deliver_evaluation,
     )
 
-    for part in range(pending.delivery.parts):
+    for part in range(delivery.parts):
         try:
-            deliver_evaluation(replace(pending.delivery, part=part))
+            deliver_evaluation(replace(delivery, part=part))
         except Exception as error:
             # The change goes ahead. A resolve that could not be sent leaves the incident open, which
             # error tracking shows.
-            capture_exception(error, {"configuration_id": pending.delivery.configuration_id})
+            capture_exception(error, {"configuration_id": delivery.configuration_id})

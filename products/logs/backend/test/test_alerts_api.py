@@ -2410,6 +2410,23 @@ class TestLogsAlertAPI(APIBaseTest):
             instance = platform_testing.alert_for(copy.id)
         assert instance is not None and (instance.state, instance.firing_started_at) == ("not_firing", None)
 
+    def test_a_resolve_is_sent_inline_when_temporal_cannot_start_it(self) -> None:
+        created, _copy = self._firing_on_the_platform_with_pagerduty()
+
+        with (
+            patch(
+                "products.alerts_platform.backend.temporal.web_start.start_delivery",
+                side_effect=RuntimeError("temporal unreachable"),
+            ),
+            patch("products.alerts_platform.backend.delivery.evaluation.deliver_evaluation") as deliver_evaluation,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        (request,) = [call.args[0] for call in deliver_evaluation.call_args_list]
+        assert request.incident_actions == {"": IncidentAction.RESOLVE}
+
     def test_deleting_a_platform_firing_resolves_its_incident_while_its_destinations_exist(self) -> None:
         created, _copy = self._firing_on_the_platform_with_pagerduty()
         destinations_when_sent: list[int] = []
