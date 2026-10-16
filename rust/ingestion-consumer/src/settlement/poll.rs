@@ -28,29 +28,17 @@ impl Settlement for PollSettlement {
 
     fn settle_poll(&self, slices: &[ChargedSlice<'_>]) {
         if slices.is_empty() {
-            // Unreachable while batches require messages to be spawned; counted
-            // so "no empty commits" is a measurable guarantee, not an assumption.
+            // Unreachable: a batch always holds a message. Counted so that "no
+            // empty commits" is measured, not assumed.
             counter!("ingestion_consumer_commit_violations_total", "kind" => "empty").increment(1);
             warn!("Poll settled with no partitions");
             return;
         }
 
-        let outcome = settle_slices(&self.ledger, &self.pacer, slices);
-
-        if outcome.advanced == 0 {
-            // `rejected`: the ledger dropped every slice, expected around a
-            // rebalance. `no_frontier`: a slice landed, but an earlier batch
-            // is still incomplete at the front of every window it settled.
-            let reason = if outcome.settled == 0 {
-                "rejected"
-            } else {
-                "no_frontier"
-            };
+        if let Err(no_frontier) = settle_slices(&self.ledger, &self.pacer, slices) {
+            let reason = no_frontier.reason();
             counter!("ingestion_consumer_commits_skipped_total", "reason" => reason).increment(1);
-            warn!(
-                reason,
-                "No ledger frontier available for completed offsets; skipping commit"
-            );
+            warn!(reason, "Poll handed over no frontier; nothing to commit");
         }
     }
 
@@ -59,37 +47,48 @@ impl Settlement for PollSettlement {
     }
 }
 
-struct Outcome {
-    settled: usize,
-    advanced: usize,
+#[derive(Debug, PartialEq, Eq)]
+enum NoFrontier {
+    EveryPartitionRejected,
+    BehindAnEarlierPoll,
+}
+
+impl NoFrontier {
+    fn reason(self) -> &'static str {
+        match self {
+            Self::EveryPartitionRejected => "rejected",
+            Self::BehindAnEarlierPoll => "no_frontier",
+        }
+    }
 }
 
 fn settle_slices(
     ledger: &TopicOffsetLedger,
     pacer: &CommitPacer,
     slices: &[ChargedSlice<'_>],
-) -> Outcome {
-    let mut outcome = Outcome {
-        settled: 0,
-        advanced: 0,
-    };
+) -> Result<(), NoFrontier> {
+    let mut settled = false;
+    let mut handed_over = false;
     for slice in slices {
         let Ok(frontier) = settle(ledger, slice) else {
             continue;
         };
-        outcome.settled += 1;
+        settled = true;
         if frontier.is_none() {
             continue;
         }
         if let Some(taken) = ledger.take_frontier(slice.topic_partition) {
             pacer.advance_frontier(slice.topic_partition, taken);
-            outcome.advanced += 1;
+            handed_over = true;
         }
     }
-    outcome
+    match (handed_over, settled) {
+        (true, _) => Ok(()),
+        (false, true) => Err(NoFrontier::BehindAnEarlierPoll),
+        (false, false) => Err(NoFrontier::EveryPartitionRejected),
+    }
 }
 
-/// Settle one slice against the ledger and report the frontier it reached.
 /// `Err` when the ledger rejected the slice, which it has already counted
 /// and this logs.
 fn settle(
@@ -129,8 +128,6 @@ mod tests {
         (ledger, pacer, settlement)
     }
 
-    /// A poll's slice of one partition, charged to the ledger under the
-    /// partition's current generation.
     fn charged(
         ledger: &TopicOffsetLedger,
         topic_partition: &TopicPartition,
@@ -165,9 +162,10 @@ mod tests {
         let tp = TopicPartition::new("test", 0);
         let charged = charged(&ledger, &tp, 10, 11);
 
-        let outcome = settle_slices(&ledger, &pacer, &[slice(&tp, &charged)]);
-
-        assert_eq!((outcome.settled, outcome.advanced), (1, 1));
+        assert_eq!(
+            settle_slices(&ledger, &pacer, &[slice(&tp, &charged)]),
+            Ok(())
+        );
         assert_eq!(
             pacer.take_due(Instant::now()),
             Some(HashMap::from([(tp, Offset(12))]))
@@ -182,9 +180,10 @@ mod tests {
         // The partition left and came back while the poll was in flight.
         ledger.forget_partitions([("test", 0)]);
 
-        let outcome = settle_slices(&ledger, &pacer, &[slice(&tp, &charged)]);
-
-        assert_eq!((outcome.settled, outcome.advanced), (0, 0));
+        assert_eq!(
+            settle_slices(&ledger, &pacer, &[slice(&tp, &charged)]),
+            Err(NoFrontier::EveryPartitionRejected)
+        );
         assert!(pacer.take_due(Instant::now()).is_none());
     }
 
@@ -195,9 +194,10 @@ mod tests {
         let _older = charged(&ledger, &tp, 10, 11);
         let newer = charged(&ledger, &tp, 12, 13);
 
-        let outcome = settle_slices(&ledger, &pacer, &[slice(&tp, &newer)]);
-
-        assert_eq!((outcome.settled, outcome.advanced), (1, 0));
+        assert_eq!(
+            settle_slices(&ledger, &pacer, &[slice(&tp, &newer)]),
+            Err(NoFrontier::BehindAnEarlierPoll)
+        );
         assert!(pacer.take_due(Instant::now()).is_none());
     }
 

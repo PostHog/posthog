@@ -1174,6 +1174,7 @@ fn emit_latest_processed_timestamp_metrics(
     partitions: &HashMap<TopicPartition, PartitionDeliveries>,
     group_id: &str,
 ) {
+    // Same name as the Node.js consumer's gauge, so one dashboard reads both.
     for (topic_partition, partition) in partitions {
         gauge!(
             "latest_processed_timestamp_ms",
@@ -1234,6 +1235,17 @@ mod tests {
         apply_completion(in_flight, &completion, |_, _, _| {});
     }
 
+    fn regained_poll(charged: i64, span_last: i64, delivered: u32) -> InFlightPoll {
+        let mut poll = poll(1, 0, charged, charged, delivered);
+        let deliveries = poll
+            .partitions
+            .get_mut(&TopicPartition::new("test", 0))
+            .unwrap();
+        deliveries.span.last = span_last;
+        deliveries.generation = 2;
+        poll
+    }
+
     #[test]
     fn an_accepted_completion_settles_one_run_per_poll() {
         let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
@@ -1278,15 +1290,8 @@ mod tests {
 
     #[test]
     fn a_regained_poll_settles_each_charged_offset_once() {
-        // Offsets 8..10 arrived, the partition was revoked and regained, and
-        // offset 8 arrived again before the poll closed: the span covers all
-        // four deliveries, the charges hold offset 8 under the new generation.
-        let tp = TopicPartition::new("test", 0);
-        let mut regained = poll(1, 0, 8, 8, 4);
-        let deliveries = regained.partitions.get_mut(&tp).unwrap();
-        deliveries.span.last = 10;
-        deliveries.generation = 2;
-        let mut in_flight = VecDeque::from([regained]);
+        // Offsets 8..10, a regain, then offset 8 again: four deliveries, one charge.
+        let mut in_flight = VecDeque::from([regained_poll(8, 10, 4)]);
         let mut runs = Vec::new();
         let mut settle = |_: &TopicPartition, generation: u64, offsets: &[Offset]| {
             runs.push((generation, offsets.to_vec()));

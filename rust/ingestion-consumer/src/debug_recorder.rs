@@ -134,7 +134,6 @@ pub enum DebugEventKind {
         cause: &'static str,
         messages: usize,
     },
-    /// Every group of a poll completed.
     PollCompleted {
         batch_id: String,
         accepted: u32,

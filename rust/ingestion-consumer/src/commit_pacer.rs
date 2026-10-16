@@ -1,6 +1,6 @@
-//! Commit pacing for the ingestion consumer. The consumer hands over each
-//! partition's frontier as it takes it from the ledger, then asks the pacer
-//! what is due and commits that in one call. The pacer holds no I/O.
+//! Commit pacing for the ingestion consumer. A settlement hands over each
+//! partition's frontier as it takes it from the ledger; the consumer asks the
+//! pacer what is due and commits that in one call. The pacer holds no I/O.
 //!
 //! The pacer keeps the latest frontier per partition and hands them out at
 //! most once per interval. A zero interval makes every take due.
