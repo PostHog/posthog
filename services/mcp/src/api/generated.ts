@@ -60046,25 +60046,63 @@ export namespace Schemas {
 
     /**
      * * `control` - Control
-     * * `test` - Focused steps
+     * * `test-ui` - Focused steps
+     * * `test-github` - Activate and explore
      */
     export type InboxOnboardingVariantEnum = typeof InboxOnboardingVariantEnum[keyof typeof InboxOnboardingVariantEnum];
 
 
     export const InboxOnboardingVariantEnum = {
       Control: 'control',
-      Test: 'test',
+      TestUi: 'test-ui',
+      TestGithub: 'test-github',
     } as const;
 
     export interface InboxOnboardingExposure {
       /** Assigned experiment variant at the eligible Inbox impression.
        *
        * * `control` - Control
-       * * `test` - Focused steps */
+       * * `test-ui` - Focused steps
+       * * `test-github` - Activate and explore */
       variant: InboxOnboardingVariantEnum;
     }
 
+    /**
+     * * `pending` - Pending
+     * * `started` - Started
+     * * `skipped` - Unavailable
+     * * `failed` - Failed
+     */
+    export type InboxOnboardingJobStatusEnum = typeof InboxOnboardingJobStatusEnum[keyof typeof InboxOnboardingJobStatusEnum];
+
+
+    export const InboxOnboardingJobStatusEnum = {
+      Pending: 'pending',
+      Started: 'started',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
+    export interface InboxOnboardingJobs {
+      /** Dispatch status of the first general scout run.
+       *
+       * * `pending` - Pending
+       * * `started` - Started
+       * * `skipped` - Unavailable
+       * * `failed` - Failed */
+      scout: InboxOnboardingJobStatusEnum;
+      /** Dispatch status of personalized scout recommendations.
+       *
+       * * `pending` - Pending
+       * * `started` - Started
+       * * `skipped` - Unavailable
+       * * `failed` - Failed */
+      recommendations: InboxOnboardingJobStatusEnum;
+    }
+
     export interface InboxOnboardingState {
+      /** Background work started by quick activation. */
+      jobs?: InboxOnboardingJobs;
       /** Saved setup choices, without activating them. */
       draft: InboxOnboardingDraft | null;
       /**
@@ -60075,7 +60113,8 @@ export namespace Schemas {
       /** Variant recorded at the first eligible impression.
        *
        * * `control` - Control
-       * * `test` - Focused steps */
+       * * `test-ui` - Focused steps
+       * * `test-github` - Activate and explore */
       variant: InboxOnboardingVariantEnum | null;
     }
 

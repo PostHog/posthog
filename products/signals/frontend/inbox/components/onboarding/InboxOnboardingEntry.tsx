@@ -18,15 +18,16 @@ export function InboxOnboardingEntry(): JSX.Element {
         experimentVariant: variant,
         usesFocusedSetup,
         inProgress,
+        isQuickSetup,
         savedState,
         savedStateLoading,
         error,
     } = useValues(inboxSetupLogic)
     useEffect(() => {
-        if (variant === 'control' || variant === 'test') {
+        if (variant === 'control' || variant === 'test-ui' || variant === 'test-github') {
             expose(variant)
         }
-        if (variant === 'test') {
+        if (variant === 'test-ui' || variant === 'test-github') {
             captureInboxWelcomeViewed()
         }
     }, [variant, currentTeamId, expose])
@@ -49,5 +50,5 @@ export function InboxOnboardingEntry(): JSX.Element {
             </div>
         )
     }
-    return inProgress ? <InboxSetupFlow /> : <InboxSetupEmptyState />
+    return inProgress && !isQuickSetup ? <InboxSetupFlow /> : <InboxSetupEmptyState />
 }

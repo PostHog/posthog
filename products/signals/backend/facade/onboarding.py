@@ -59,7 +59,12 @@ class InboxOnboarding:
         state = config.onboarding or {}
         if any((state.get("draft") or {}).get(key) for key in ("suggestions", "activation_scouts")):
             self.authorize_scouts(False)
-        return {"draft": state.get("draft"), "completed_at": state.get("completed_at"), "variant": state.get("variant")}
+        return {
+            "draft": state.get("draft"),
+            "completed_at": state.get("completed_at"),
+            "variant": state.get("variant"),
+            **({"jobs": state["jobs"]} if "jobs" in state else {}),
+        }
 
     def state(self) -> dict[str, Any]:
         return self._state(get_or_create_team_extension(self.team, SignalTeamConfig))
@@ -101,7 +106,18 @@ class InboxOnboarding:
     def complete(self, draft: dict[str, Any]) -> dict[str, Any]:
         config = get_or_create_team_extension(self.team, SignalTeamConfig)
         if (config.onboarding or {}).get("completed_at"):
+            self._enqueue_activation_jobs(config)
             return self._state(config)
+
+        if (config.onboarding or {}).get("variant") == "test-github":
+            self.authorize_scouts(True)
+            if draft["automatic_implementation"] or not any(
+                item["kind"] == "canonical" and item["skill_name"] == "signals-scout-general"
+                for item in draft["suggestions"]
+            ):
+                raise InboxOnboardingValidationError(
+                    "Quick activation requires the general scout and manual implementation."
+                )
 
         if any(
             draft.get(key) or ((config.onboarding or {}).get("draft") or {}).get(key)
@@ -157,11 +173,27 @@ class InboxOnboarding:
                     "completed_at": timezone.now().isoformat(),
                     "activated_by": user.pk,
                 }
+                if state.get("variant") == "test-github":
+                    config.onboarding["jobs"] = {"scout": "pending", "recommendations": "pending"}
                 config.save(
                     update_fields=["onboarding", "autostart_enabled", "default_autostart_priority", "updated_at"]
                 )
                 transaction.on_commit(lambda: self._report_completion(user, state.get("variant")), robust=True)
+                transaction.on_commit(lambda: self._enqueue_activation_jobs(config))
         return self._state(config)
+
+    def _enqueue_activation_jobs(self, config: SignalTeamConfig) -> None:
+        state = config.onboarding or {}
+        if state.get("variant") != "test-github":
+            return
+        self.authorize_scouts(True)
+        from products.signals.backend.tasks import (
+            launch_inbox_onboarding_job,  # noqa: PLC0415 - keep the Temporal graph off API route loading
+        )
+
+        for job, status in state.get("jobs", {}).items():
+            if status in ("pending", "failed"):
+                launch_inbox_onboarding_job.delay(self.team_id, job)
 
     def _capture(self, user: User, event: str, variant: str | None) -> None:
         posthoganalytics.capture(

@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import * as selfDrivingPng from '@posthog/brand/hoggies/png/self-driving'
 import { IconArrowRight } from '@posthog/icons'
@@ -12,12 +12,18 @@ import { IconSelfDriving } from 'lib/lemon-ui/icons'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
+import { InboxQuickSetupAction } from './InboxQuickSetupAction'
 import { InboxReportPreview } from './InboxReportPreview'
 
 const HedgehogSelfDriving = pngHoggie(selfDrivingPng)
 
 function SetUpSelfDrivingAction(): JSX.Element {
     const { continueFromWelcome } = useActions(inboxSetupLogic)
+    const { isQuickSetup } = useValues(inboxSetupLogic)
+
+    if (isQuickSetup) {
+        return <InboxQuickSetupAction />
+    }
 
     return (
         <LemonButton

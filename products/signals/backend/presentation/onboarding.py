@@ -38,7 +38,8 @@ class InboxOnboardingStep(models.TextChoices):
 
 class InboxOnboardingVariant(models.TextChoices):
     CONTROL = "control", "Control"
-    TEST = "test", "Focused steps"
+    TEST_UI = "test-ui", "Focused steps"
+    TEST_GITHUB = "test-github", "Activate and explore"
 
 
 class InboxOnboardingExposureSerializer(serializers.Serializer):
@@ -87,8 +88,25 @@ class InboxOnboardingDraftSerializer(serializers.Serializer):
         return suggestions
 
 
+class InboxOnboardingJobStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    STARTED = "started", "Started"
+    SKIPPED = "skipped", "Unavailable"
+    FAILED = "failed", "Failed"
+
+
+class InboxOnboardingJobsSerializer(serializers.Serializer):
+    scout = serializers.ChoiceField(
+        choices=InboxOnboardingJobStatus.choices, help_text="Dispatch status of the first general scout run."
+    )
+    recommendations = serializers.ChoiceField(
+        choices=InboxOnboardingJobStatus.choices, help_text="Dispatch status of personalized scout recommendations."
+    )
+
+
 @extend_schema_serializer(many=False)
 class InboxOnboardingStateSerializer(serializers.Serializer):
+    jobs = InboxOnboardingJobsSerializer(required=False, help_text="Background work started by quick activation.")
     draft = InboxOnboardingDraftSerializer(allow_null=True, help_text="Saved setup choices, without activating them.")
     completed_at = serializers.DateTimeField(allow_null=True, help_text="When verified setup completed.")
     variant = serializers.ChoiceField(
