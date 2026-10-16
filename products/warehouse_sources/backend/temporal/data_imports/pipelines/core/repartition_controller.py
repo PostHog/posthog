@@ -175,7 +175,8 @@ def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: Ext
     if measurement.get("budget") != target_partition_bytes():
         return False
     if (
-        ExternalDataSchemaOOMEvent.recent_count(schema, days=repartition_oom_window_days())
+        not schema.is_append
+        and ExternalDataSchemaOOMEvent.recent_count(schema, days=repartition_oom_window_days())
         >= repartition_oom_threshold()
     ):
         return False
@@ -188,6 +189,14 @@ def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: Ext
         .values_list("id", "status", "rows_synced")[:MEASUREMENT_CHAIN_LIMIT]
     ]
     return partition_measurement_holds(measurement, earlier_jobs)
+
+
+AUTOMATIC_SPLIT_TRIGGERS = frozenset({"proactive_threshold", "oom_history"})
+
+
+def is_automatic_split_of_append_table(schema: ExternalDataSchema, trigger_reason: str) -> bool:
+    """Whether a queued target is an automatic split of an append table. An operator target is not."""
+    return schema.is_append and trigger_reason in AUTOMATIC_SPLIT_TRIGGERS
 
 
 def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
@@ -462,7 +471,12 @@ async def maybe_flag_for_repartition(
         max_bytes = max(partition_bytes.values())
 
         budget = target_partition_bytes()
-        over_budget = max_bytes > budget
+        # The budget bounds the working set of a merge, and an append sync never merges: it adds new
+        # files and reads no partition. So neither split trigger applies to an append table, and a
+        # split only rewrites every row for no gain. Coarsening still applies, because fewer files
+        # make reads of the table cheaper.
+        split_applies = not schema.is_append
+        over_budget = split_applies and max_bytes > budget
 
         # Hybrid trigger: a table that has actually OOM'd repeatedly is repartitioned even when its
         # largest partition looks within budget — the compressed at-rest size under-counts the merge's
@@ -470,7 +484,7 @@ async def maybe_flag_for_repartition(
         # Only query the OOM log when the size check didn't already trip: an over-budget table
         # repartitions regardless, so the count would only feed observability props there — skip the
         # per-sync indexed COUNT for it and report 0.
-        if over_budget:
+        if over_budget or not split_applies:
             oom_count = 0
             oom_triggered = False
         else:
@@ -497,8 +511,9 @@ async def maybe_flag_for_repartition(
         )
 
         if not over_budget and not oom_triggered:
+            verdict = "within budget and no repeated OOMs" if split_applies else "append table, a split does not apply"
             await logger.adebug(
-                f"repartition: not needed, within budget and no repeated OOMs schema_id={schema.id} "
+                f"repartition: not needed, {verdict} schema_id={schema.id} "
                 f"max_partition_bytes={max_bytes} budget_bytes={budget} recent_oom_count={oom_count} "
                 f"partition_count={len(partition_bytes)}",
                 schema_id=str(schema.id),
