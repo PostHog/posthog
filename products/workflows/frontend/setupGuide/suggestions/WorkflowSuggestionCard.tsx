@@ -11,9 +11,10 @@ import {
     IconSparkles,
     IconWebhooks,
 } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonDialog, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { SuggestionCard, SuggestionStepKind } from './suggestionCards'
@@ -46,9 +47,30 @@ export function WorkflowSuggestionCard({
     primary?: boolean
 }): JSX.Element {
     const logic = workflowDataSuggestionsLogic({ surface })
-    const { buildingKey } = useValues(logic)
-    const { startSuggestion } = useActions(logic)
+    const { buildingKey, dismissingKey } = useValues(logic)
+    const { startSuggestion, dismissSuggestion } = useActions(logic)
     const building = buildingKey === card.key
+
+    const openDismiss = (): void => {
+        LemonDialog.openForm({
+            title: 'Dismiss this suggestion?',
+            description: "PostHog won't suggest it again in this project.",
+            initialValues: { reason: '' },
+            content: (
+                <LemonField name="reason" label="Why not? (optional)">
+                    <LemonTextArea
+                        placeholder="For example: we already send this from our own app"
+                        maxLength={2000}
+                        // The dialog form submits on Enter, which would dismiss before the reason is finished.
+                        onKeyDown={(e) => e.key === 'Enter' && e.stopPropagation()}
+                        data-attr="workflows-data-suggestion-dismiss-reason"
+                    />
+                </LemonField>
+            ),
+            primaryButtonProps: { children: 'Dismiss' },
+            onSubmit: ({ reason }) => dismissSuggestion(card, reason ?? ''),
+        })
+    }
 
     return (
         <LemonCard hoverEffect={false} className="flex h-full flex-col gap-3 p-4">
@@ -80,17 +102,36 @@ export function WorkflowSuggestionCard({
                     <li className="text-xs text-secondary">+{card.steps.length - MAX_STEP_CHIPS} more</li>
                 )}
             </ol>
-            <div className="mt-auto flex">
+            <div className="mt-auto flex flex-wrap gap-2">
                 <LemonButton
                     type={primary ? 'primary' : 'secondary'}
                     size="small"
                     loading={building}
-                    disabledReason={buildingKey && !building ? 'Another workflow is being built' : undefined}
+                    disabledReason={
+                        buildingKey && !building
+                            ? 'Another workflow is being built'
+                            : dismissingKey === card.key
+                              ? 'This suggestion is being dismissed'
+                              : undefined
+                    }
                     onClick={() => startSuggestion(card)}
                     // pinned: data-attr - autocapture dashboards read it
                     data-attr="workflows-data-suggestion-ai"
                 >
                     {building ? 'Building your workflow' : 'Create workflow'}
+                </LemonButton>
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    loading={dismissingKey === card.key}
+                    disabledReason={
+                        buildingKey || (dismissingKey && dismissingKey !== card.key) ? 'Wait a moment' : undefined
+                    }
+                    onClick={openDismiss}
+                    // pinned: data-attr - autocapture dashboards read it
+                    data-attr="workflows-data-suggestion-dismiss"
+                >
+                    Dismiss
                 </LemonButton>
             </div>
         </LemonCard>
