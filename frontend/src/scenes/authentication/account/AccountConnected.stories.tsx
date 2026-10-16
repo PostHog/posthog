@@ -55,6 +55,39 @@ export const GithubIntegrationFailed: Story = {
     },
 }
 
+export const GithubIntegrationConnectedFromChat: Story = {
+    parameters: {
+        pageUrl: pageUrlFor(
+            'github-integration',
+            '?connect_from=mcp&provider=github&installation_id=12345&integration_id=42'
+        ),
+    },
+    render: () => {
+        useStorybookMocks({ get: { '/_preflight': cloudPreflight } })
+        return <AccountConnected kind="github-integration" />
+    },
+}
+
+export const GithubIntegrationPendingFromChat: Story = {
+    parameters: {
+        pageUrl: pageUrlFor('github-integration', '?connect_from=mcp&provider=github&github_install_pending=1'),
+    },
+    render: () => {
+        useStorybookMocks({ get: { '/_preflight': cloudPreflight } })
+        return <AccountConnected kind="github-integration" />
+    },
+}
+
+export const GithubIntegrationFailedFromChat: Story = {
+    parameters: {
+        pageUrl: pageUrlFor('github-integration', '?connect_from=mcp&provider=github&error=invalid_state'),
+    },
+    render: () => {
+        useStorybookMocks({ get: { '/_preflight': cloudPreflight } })
+        return <AccountConnected kind="github-integration" />
+    },
+}
+
 export const GithubLoginLinked: Story = {
     parameters: {
         pageUrl: pageUrlFor('github-login', '?provider=github'),
