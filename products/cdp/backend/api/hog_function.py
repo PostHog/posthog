@@ -385,7 +385,14 @@ def _stored_input_variants(instance: Optional[HogFunction]) -> list[dict]:
     if instance is None:
         return []
     draft = instance.draft if isinstance(instance.draft, dict) else {}
-    variants = (instance.inputs, draft.get("inputs"), instance.encrypted_inputs, instance.draft_encrypted_inputs)
+    stored_mappings = [*(instance.mappings or []), *(draft.get("mappings") or [])]
+    variants = (
+        instance.inputs,
+        draft.get("inputs"),
+        instance.encrypted_inputs,
+        instance.draft_encrypted_inputs,
+        *(mapping.get("inputs") for mapping in stored_mappings if isinstance(mapping, dict)),
+    )
     return [inputs for inputs in variants if isinstance(inputs, dict)]
 
 
