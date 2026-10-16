@@ -20,8 +20,8 @@
  * person-aggregated type that its source holds for the key. A group-aggregated set with no source
  * looks the key up in every stored set instead when the stored sets all aggregate the same way, or
  * when the set states or implies its own group type. It types every other untyped property as
- * `group` against the set's own group type index. A key that the looked-up sets also hold as a
- * group property stays `group`. A person-aggregated set restores every stored type except `group`.
+ * `group` against the set's own group type index. A person-aggregated set restores every stored
+ * type except `group`.
  * check_property_types_match_aggregation in products/feature_flags/backend/filters_validation.py
  * reports a person-aggregated property in a group set. The flag evaluator reads each property by
  * its own type, so a group set keeps the stored type of a person-aggregated property it holds.
@@ -140,10 +140,6 @@ function indexExistingSets(existing: FlagFilters | null | undefined): (ExistingS
     )
 }
 
-/**
- * Spans every existing set. A set with no source can take a type from here. So can a
- * person-aggregated set whose source holds the key only as a group property.
- */
 function indexPropertiesAcrossSets(existingSets: (ExistingSet | undefined)[]): Map<string, FlagProperty[]> {
     return indexProperties(
         existingSets.flatMap((existingSet) =>
@@ -226,7 +222,7 @@ function pickPersonAggregatedCandidate(
 
 function mergeProperty(
     incoming: FlagProperty,
-    sourceCandidates: FlagProperty[] | undefined,
+    candidates: FlagProperty[] | undefined,
     otherCandidates: FlagProperty[] | undefined,
     setGroupTypeIndex: number | undefined
 ): FlagProperty {
@@ -235,17 +231,16 @@ function mergeProperty(
     if (!isPresentType(out.type)) {
         if (isPresentGroupIndex(setGroupTypeIndex)) {
             // Candidates that also hold the key as a group property leave the type ambiguous.
-            out.type = sourceCandidates?.some((candidate) => candidate.type === 'group')
+            out.type = candidates?.some((candidate) => candidate.type === 'group')
                 ? 'group'
-                : (pickPersonAggregatedCandidate(sourceCandidates, out)?.type ?? 'group')
+                : (pickPersonAggregatedCandidate(candidates, out)?.type ?? 'group')
         } else {
             // Leaving the type unset makes the API report the property the agent actually
             // sent. Restoring `group` here would name fields the agent never sent.
             // A source set can lack the key, or hold it only as a group property that a person
             // set cannot use. The type then comes from another set that holds the key.
             const restored =
-                pickPersonAggregatedCandidate(sourceCandidates, out) ??
-                pickPersonAggregatedCandidate(otherCandidates, out)
+                pickPersonAggregatedCandidate(candidates, out) ?? pickPersonAggregatedCandidate(otherCandidates, out)
             if (restored) {
                 out.type = restored.type
             }
@@ -266,8 +261,6 @@ type MergeConditionOptions = {
     payloadChangesFlagAggregation: boolean
     /** This set never gains group targeting. See isPinnedToPerson. */
     pinnedToPerson: boolean
-    /** The stored sets aggregate on different group types, or on persons and a group type. */
-    mixedAggregation: boolean
 }
 
 function explicitGroupPropertyIndex(group: FlagConditionGroup): number | undefined {
@@ -279,11 +272,9 @@ function explicitGroupPropertyIndex(group: FlagConditionGroup): number | undefin
     return unique.length === 1 ? unique[0] : undefined
 }
 
-function mergeConditionSet(
+function resolveSetAggregation(
     incoming: FlagConditionGroup,
     sourceSet: ExistingSet | undefined,
-    flagLevelGroupIndex: number | undefined,
-    crossSetPropsByKey: Map<string, FlagProperty[]>,
     options: MergeConditionOptions
 ): FlagConditionGroup {
     const out: FlagConditionGroup = { ...incoming }
@@ -295,7 +286,7 @@ function mergeConditionSet(
         out.aggregation_group_type_index = null
     }
 
-    const { pinnedToPerson, payloadChangesFlagAggregation, mixedAggregation } = options
+    const { pinnedToPerson, payloadChangesFlagAggregation } = options
 
     // Fill only when the key is absent. An explicit null means person aggregation. A payload
     // that changes the flag level already decides this set, the same way the API distributes
@@ -309,16 +300,16 @@ function mergeConditionSet(
         }
     }
 
-    const setGroupTypeIndex = resolveGroupIndex(pinnedToPerson, out.aggregation_group_type_index, flagLevelGroupIndex)
+    return out
+}
 
-    // A set loses its source when it changes its own keys, or when it moves on a mixed-aggregation
-    // flag. Its person-aggregated properties keep the types that the stored flag holds for them when
-    // every stored set shares one aggregation. On a mixed-aggregation flag that holds only when the
-    // set states or implies its own group type, which is the retry that the refusal asks for.
-    const typeCandidatesByKey =
-        sourceSet?.propsByKey ??
-        (!mixedAggregation || isPresentGroupIndex(out.aggregation_group_type_index) ? crossSetPropsByKey : undefined)
-
+function typeSetProperties(
+    group: FlagConditionGroup,
+    typeCandidatesByKey: Map<string, FlagProperty[]> | undefined,
+    crossSetPropsByKey: Map<string, FlagProperty[]>,
+    setGroupTypeIndex: number | undefined
+): FlagConditionGroup {
+    const out: FlagConditionGroup = { ...group }
     if (Array.isArray(out.properties)) {
         out.properties = out.properties.map((prop) => {
             if (!prop || typeof prop !== 'object') {
@@ -424,13 +415,21 @@ export function preserveGroupTargetingFilters(
             return positionHolds && keptKeys[index] && !ambiguous ? existingSet : undefined
         })
 
+        const resolvedGroups = result.groups.map((group, index) =>
+            isRecord(group)
+                ? resolveSetAggregation(group, sourceSets[index], {
+                      payloadChangesFlagAggregation,
+                      pinnedToPerson: pinnedToPerson[index] ?? false,
+                  })
+                : group
+        )
+        const statesOwnGroupType = resolvedGroups.map(
+            (group) => isRecord(group) && isPresentGroupIndex(group.aggregation_group_type_index)
+        )
+
         if (mixedAggregation && !payloadChangesFlagAggregation) {
-            const unresolved = result.groups.flatMap((group, index) =>
-                isRecord(group) &&
-                !sourceSets[index] &&
-                !hasKey(group, 'aggregation_group_type_index') &&
-                !pinnedToPerson[index] &&
-                explicitGroupPropertyIndex(group) === undefined
+            const unresolved = resolvedGroups.flatMap((group, index) =>
+                isRecord(group) && !sourceSets[index] && !pinnedToPerson[index] && !statesOwnGroupType[index]
                     ? [index]
                     : []
             )
@@ -441,16 +440,23 @@ export function preserveGroupTargetingFilters(
             }
         }
 
-        result.groups = result.groups.map((group, index) => {
+        result.groups = resolvedGroups.map((group, index) => {
             if (!isRecord(group)) {
                 return group
             }
-
-            return mergeConditionSet(group, sourceSets[index], effectiveFlagGroupIndex, crossSetPropsByKey, {
-                payloadChangesFlagAggregation,
-                pinnedToPerson: pinnedToPerson[index] ?? false,
-                mixedAggregation,
-            })
+            const typeCandidatesByKey =
+                sourceSets[index]?.propsByKey ??
+                (!mixedAggregation || statesOwnGroupType[index] ? crossSetPropsByKey : undefined)
+            return typeSetProperties(
+                group,
+                typeCandidatesByKey,
+                crossSetPropsByKey,
+                resolveGroupIndex(
+                    pinnedToPerson[index] ?? false,
+                    group.aggregation_group_type_index,
+                    effectiveFlagGroupIndex
+                )
+            )
         })
     }
 
