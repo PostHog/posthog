@@ -179,6 +179,15 @@ Users do not need to include items that already have a result to retry them.
 A provider rejection of an invalid token setting does not count as a truncated reply.
 The playground keeps the provider's explanation so users can correct the setting before trying again.
 
+## Backfill recovery
+
+A backfill that stops on its own shows as **Interrupted**, with a stop reason.
+A backfill a user stops shows as **Cancelled**.
+An interrupted backfill preserves completed results.
+**Retry remaining** creates a new backfill with the original date range and filters, using the current evaluation settings.
+It preserves usable existing results and retries units without usable results.
+It is not available for a backfill that re-ran existing results.
+
 ## Result encoding
 
 Boolean online evaluations write their raw verdict to `$ai_evaluation_result`.
