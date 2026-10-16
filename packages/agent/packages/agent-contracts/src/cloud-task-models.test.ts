@@ -11,10 +11,14 @@ import {
   getCloudTaskGatewayUrl,
   isAnthropicModel,
   isBasetenModel,
+  isClaudeAdapterModel,
+  isClaudeAdapterModelId,
   isCloudflareModel,
+  isCodexAdapterModel,
   isDeepseekModelId,
   isModalModel,
   isModalModelId,
+  isServedModelId,
   normalizeGatewayModelsResponse,
   pickAllowedModel,
 } from "./cloud-task-models";
@@ -25,6 +29,7 @@ const model = (
   id: string,
   owned_by = "anthropic",
   allowed = true,
+  api_shapes?: string[],
 ): GatewayModel => ({
   id,
   owned_by,
@@ -32,6 +37,7 @@ const model = (
   supports_streaming: true,
   supports_vision: false,
   allowed,
+  ...(api_shapes ? { api_shapes } : {}),
 });
 
 describe("formatGatewayModelName", () => {
@@ -128,6 +134,71 @@ describe("model classification", () => {
     const gatewayModel = model("moonshotai/kimi-k3", "modal");
     expect(isModalModel(gatewayModel)).toBe(true);
     expect(isModalModelId(gatewayModel.id)).toBe(true);
+  });
+
+  it("classifies by the gateway's advertised api shapes when present", () => {
+    const messages = ["anthropic-messages", "openai-chat-completions"];
+    expect(
+      isClaudeAdapterModel(model("zai-org/glm-5.3", "posthog", true, messages)),
+    ).toBe(true);
+    expect(
+      isCodexAdapterModel(model("zai-org/glm-5.3", "posthog", true, messages)),
+    ).toBe(false);
+    expect(
+      isClaudeAdapterModel(
+        model("zai-org/glm-5.3", "posthog", true, ["openai-chat-completions"]),
+      ),
+    ).toBe(false);
+    expect(
+      isCodexAdapterModel(
+        model("gpt-5.4", "openai", true, ["openai-responses"]),
+      ),
+    ).toBe(true);
+    expect(
+      isClaudeAdapterModel(
+        model("claude-opus-4-8", "anthropic", true, [
+          "openai-chat-completions",
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps a model on the adapter the catalog assigns even when shapes allow both", () => {
+    const everyShape = [
+      "openai-chat-completions",
+      "openai-responses",
+      "anthropic-messages",
+    ];
+    expect(
+      isCodexAdapterModel(
+        model("zai-org/glm-5.3", "posthog", true, everyShape),
+      ),
+    ).toBe(false);
+    expect(
+      isClaudeAdapterModel(model("gpt-5.5", "openai", true, everyShape)),
+    ).toBe(false);
+    expect(
+      isCodexAdapterModel(model("gpt-5.5", "openai", true, everyShape)),
+    ).toBe(true);
+    expect(
+      isCodexAdapterModel(
+        model("vendor/new-model", "vendor", true, ["openai-responses"]),
+      ),
+    ).toBe(true);
+  });
+
+  it("recognizes served models the gateway owns by their catalog adapter", () => {
+    const gatewayModel = model("zai-org/glm-5.3", "posthog");
+    expect(isClaudeAdapterModel(gatewayModel)).toBe(true);
+    expect(isCodexAdapterModel(model("gpt-5.4", "openai"))).toBe(true);
+    expect(isClaudeAdapterModelId("zai-org/glm-5.3-flash")).toBe(true);
+    expect(isClaudeAdapterModel(model("gpt-5.4", "posthog"))).toBe(false);
+    expect(isClaudeAdapterModelId("gpt-5.4")).toBe(false);
+    expect(isServedModelId("zai-org/glm-5.3")).toBe(true);
+    expect(isServedModelId("moonshotai/kimi-k3")).toBe(true);
+    expect(isServedModelId("@cf/zai-org/glm-5.2")).toBe(false);
+    expect(isServedModelId("anthropic/claude-sonnet-5")).toBe(false);
+    expect(isServedModelId("claude-opus-4-8")).toBe(false);
   });
 
   it("recognizes Baseten models by owner and id", () => {
@@ -243,6 +314,31 @@ describe("buildCloudTaskConfigOptions", () => {
         name: "Kimi K3",
       }),
     ]);
+  });
+
+  it("offers gateway-owned GLM models to Claude sessions but not Codex", () => {
+    const models = [
+      model("zai-org/glm-5.3", "posthog", true, [
+        "openai-chat-completions",
+        "openai-responses",
+        "anthropic-messages",
+      ]),
+    ];
+
+    const claudeModelOptions = buildCloudTaskConfigOptions(
+      models,
+      "claude",
+    ).find((option) => option.id === "model")?.options;
+    expect(claudeModelOptions).toEqual([
+      expect.objectContaining({ value: "zai-org/glm-5.3", name: "GLM-5.3" }),
+    ]);
+
+    const codexModelOptions = buildCloudTaskConfigOptions(models, "codex").find(
+      (option) => option.id === "model",
+    )?.options;
+    expect(codexModelOptions).not.toContainEqual(
+      expect.objectContaining({ value: "zai-org/glm-5.3" }),
+    );
   });
 
   it("offers Baseten models to Claude sessions but not Codex", () => {

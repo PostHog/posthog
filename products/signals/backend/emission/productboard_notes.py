@@ -1,6 +1,6 @@
 """Signal emitter for productboard `notes` (record kind: feedback).
 
-`createdAt` is an ISO string; notes are raw customer feedback captured in Productboard.
+`created_at` is an ISO string; notes are raw customer feedback captured in Productboard.
 """
 
 from products.signals.backend.emission._common import make_flat_emitter
@@ -8,7 +8,7 @@ from products.signals.backend.emission._prompts import FEEDBACK_ACTIONABILITY_PR
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
 from products.signals.backend.emission.registry import SignalSourceTableConfig
 
-PRODUCTBOARD_FIELDS = ("id", "title", "content", "state", "tags", "displayUrl", "createdAt")
+PRODUCTBOARD_FIELDS = ("id", "title", "content", "state", "tags", "display_url", "created_at")
 
 PRODUCTBOARD_CONFIG = SignalSourceTableConfig(
     source_product="productboard",
@@ -19,11 +19,11 @@ PRODUCTBOARD_CONFIG = SignalSourceTableConfig(
         id_field="id",
         title_field="title",
         body_field="content",
-        extra_fields=("state", "tags", "displayUrl", "createdAt"),
+        extra_fields=("state", "tags", "display_url", "created_at"),
         json_list_fields=("tags",),
     ),
     record_fetcher=data_warehouse_record_fetcher,
-    partition_field="createdAt",
+    partition_field="created_at",
     partition_field_is_datetime_string=True,
     fields=PRODUCTBOARD_FIELDS,
     max_records=500,

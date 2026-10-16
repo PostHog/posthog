@@ -1,8 +1,12 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.serpstat import (
     SerpstatSourceConfig,
@@ -46,18 +50,20 @@ def test_credential_results(failure: Exception | None, expected: tuple[bool, str
 @pytest.mark.parametrize("incremental", [False, True])
 def test_pipeline_does_not_apply_unavailable_incremental_filter(incremental: bool) -> None:
     config = SerpstatSourceConfig(api_key="example-token", project_id="123", project_region_id="456")
-    inputs = MagicMock(
-        schema_name="project_keywords",
-        team_id=1,
-        job_id="test-job",
-        api_version=None,
+    result = SourceDriver(SerpstatSource(), config).run(
+        "project_keywords",
+        [ScriptedResponse(json={"result": {"data": [], "summary_info": {"pages_count": 1}}})],
         should_use_incremental_field=incremental,
         db_incremental_field_last_value="2026-01-01",
     )
-    manager = MagicMock()
-    with patch(RESOURCE) as resource:
-        response = SerpstatSource().source_for_pipeline(config, manager, inputs)
-    resource.assert_called_once_with(config, "project_keywords", 1, "test-job", "v4", manager)
-    assert response.primary_keys == ["project_id", "id"]
-    assert response.partition_keys == ["added"]
-    assert response.sort_mode == "asc"
+    assert result.requests[0].json()["params"] == {
+        "project_id": 123,
+        "size": 100,
+        "page": 1,
+        "sort": "added",
+        "order": "asc",
+    }
+    assert result.response is not None
+    assert result.response.primary_keys == ["project_id", "id"]
+    assert result.response.partition_keys == ["added"]
+    assert result.response.sort_mode == "asc"

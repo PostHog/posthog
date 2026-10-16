@@ -1,15 +1,17 @@
 from datetime import timedelta
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.db import OperationalError
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
-from products.tasks.backend.models import Loop, Task, TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
@@ -85,7 +87,7 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     def test_cancelled_run_is_not_resurrected_by_a_late_workflow_completion(self, activity_environment, test_task_run):
-        # A run cancelled out of band (loop cancel_previous overlap, owner deactivation) must stay
+        # A run cancelled out of band (for example on owner deactivation) must stay
         # cancelled even if its own workflow finishes and reports completed afterward.
         test_task_run.status = TaskRun.Status.CANCELLED
         test_task_run.save(update_fields=["status"])
@@ -344,13 +346,14 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "status,timed_out_inactivity,timeout_marker,expected_event,expected_reason",
+        "status,timed_out_inactivity,timeout_marker,error_message,expected_event,expected_reason",
         [
-            (TaskRun.Status.COMPLETED, True, None, "task_run_completed", TIMED_OUT_INACTIVITY_STATE_KEY),
+            (TaskRun.Status.COMPLETED, True, None, None, "task_run_completed", TIMED_OUT_INACTIVITY_STATE_KEY),
             (
                 TaskRun.Status.FAILED,
                 False,
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                None,
                 "task_run_failed",
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
             ),
@@ -358,8 +361,17 @@ class TestUpdateTaskRunStatusActivity:
                 TaskRun.Status.COMPLETED,
                 False,
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                None,
                 "task_run_completed",
                 TIMED_OUT_WALL_CLOCK_STATE_KEY,
+            ),
+            (
+                TaskRun.Status.COMPLETED,
+                False,
+                SANDBOX_GONE_STATE_KEY,
+                "Sandbox stopped: killed with exit code 137, usually because it ran out of memory. Resume to continue.",
+                "task_run_completed",
+                SANDBOX_GONE_STATE_KEY,
             ),
         ],
     )
@@ -372,12 +384,14 @@ class TestUpdateTaskRunStatusActivity:
         status,
         timed_out_inactivity,
         timeout_marker,
+        error_message,
         expected_event,
         expected_reason,
     ):
         input_data = UpdateTaskRunStatusInput(
             run_id=str(test_task_run.id),
             status=status,
+            error_message=error_message,
             timed_out_inactivity=timed_out_inactivity,
             timeout_marker=timeout_marker,
             agent_active_at_termination=False,
@@ -390,6 +404,7 @@ class TestUpdateTaskRunStatusActivity:
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == expected_event]
         properties = captured[0].kwargs["properties"]
         assert properties["termination_reason"] == expected_reason
+        assert properties["error_message"] == (error_message or "")
         assert properties["agent_active_at_termination"] is False
         assert properties["end_of_turn_received"] is True
         assert properties["last_agent_heartbeat_at"] == "2026-08-19T10:00:00+00:00"
@@ -397,10 +412,11 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "error_type,expected_error_type",
+        "error_type,failure_state,expected_error_type",
         [
-            ("ActivityError", "ActivityError"),
-            (None, "unspecified"),
+            ("ActivityError", {}, "ActivityError"),
+            (None, {}, "unspecified"),
+            ("agent_reported", {"failure_error_type": "agent_declined"}, "agent_declined"),
         ],
     )
     @pytest.mark.parametrize(
@@ -419,12 +435,13 @@ class TestUpdateTaskRunStatusActivity:
         activity_environment: ActivityEnvironment,
         test_task_run: TaskRun,
         error_type: str | None,
+        failure_state: dict[str, str],
         expected_error_type: str,
         sandbox_backend: str | None,
         persisted_state: dict[str, str],
         expected_backend: str | None,
     ) -> None:
-        test_task_run.state = persisted_state
+        test_task_run.state = {**persisted_state, **failure_state}
         test_task_run.save(update_fields=["state"])
         error_message = "x" * 1400 + "TypeError: cannot read boot manifest"
         input_data = UpdateTaskRunStatusInput(
@@ -563,33 +580,6 @@ class TestUpdateTaskRunStatusActivity:
         assert not [e for e in events if str(e).startswith("chat with ai")]
         # Only the chat reading is suppressed — the run still completed, and still reports it.
         assert "task_run_completed" in events
-
-    @pytest.mark.django_db(transaction=True)
-    def test_terminal_retry_completes_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):
-        loop = Loop(
-            team=test_task_run.team,
-            created_by=test_task_run.task.created_by,
-            name="Nightly digest",
-            instructions="Summarize",
-            runtime_adapter="claude",
-        )
-        loop.save()
-        test_task_run.state = {**(test_task_run.state or {}), "loop_id": str(loop.id)}
-        test_task_run.status = TaskRun.Status.FAILED
-        test_task_run.error_message = "sandbox crashed"
-        test_task_run.save(update_fields=["state", "status", "error_message"])
-
-        input_data = UpdateTaskRunStatusInput(
-            run_id=str(test_task_run.id), status=TaskRun.Status.FAILED, error_message="sandbox crashed"
-        )
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
-
-        loop.refresh_from_db()
-        assert loop.last_run_status == TaskRun.Status.FAILED
-        assert loop.last_error == "sandbox crashed"
-        assert loop.consecutive_failures == 1
-        assert loop.last_run_at is not None
 
     @pytest.mark.django_db(transaction=True)
     def test_missing_task_run_raises_non_retryable(self, activity_environment):
@@ -733,21 +723,34 @@ def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_terminal_retry_reschedules_a_wake_after_broker_failure(activity_environment, test_task_run):
+@pytest.mark.parametrize(
+    "status,wake_target",
+    [
+        (TaskRun.Status.COMPLETED, "current_app.send_task"),
+        (TaskRun.Status.FAILED, "emit_workflow_step_resume"),
+    ],
+)
+def test_terminal_retry_after_wake_failure_wakes_again_and_keeps_finish_time(
+    activity_environment, test_task_run, status, wake_target
+):
     task = test_task_run.task
     task.origin_product = Task.OriginProduct.WORKFLOW
     task.origin_key = "job:step:1"
     task.save(update_fields=["origin_product", "origin_key"])
-    input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+    input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=status)
+    first_attempt_at = timezone.now()
 
     with patch(
-        "products.tasks.backend.logic.services.workflow_step_resume.current_app.send_task",
+        f"products.tasks.backend.logic.services.workflow_step_resume.{wake_target}",
         side_effect=[RuntimeError("broker down"), None],
-    ) as send_task:
-        with pytest.raises(RuntimeError, match="broker down"):
+    ) as wake:
+        with time_machine.travel(first_attempt_at, tick=False), pytest.raises(RuntimeError, match="broker down"):
             async_to_sync(activity_environment.run)(update_task_run_status, input_data)
         test_task_run.refresh_from_db()
-        assert test_task_run.status == TaskRun.Status.COMPLETED
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        assert test_task_run.status == status
+        with time_machine.travel(first_attempt_at + timedelta(minutes=5), tick=False):
+            async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
-    assert send_task.call_count == 2
+    assert wake.call_count == 2
+    test_task_run.refresh_from_db()
+    assert test_task_run.completed_at == first_attempt_at

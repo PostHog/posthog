@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     process_incremental_value,
     staged_handoff_resume_point,
     staged_handoff_resume_value,
+    staged_run_last_value,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -1527,6 +1528,106 @@ class TestStagedIncrementalCursor:
         assert result is True
         assert schema.sync_type_config["incremental_field_earliest_value"] == 5
 
+    @parameterized.expand(
+        [
+            (
+                "live_slot_of_a_later_attempt",
+                IncrementalFieldType.Integer,
+                {"run_uuid": "wf-1-a2", "last_value": 7},
+                [],
+                7,
+                [],
+            ),
+            (
+                "highest_across_live_and_parked_attempts",
+                IncrementalFieldType.Integer,
+                {"run_uuid": "wf-1-a3", "earliest_value": 1},
+                [{"run_uuid": "wf-1-a1", "last_value": 42}, {"run_uuid": "wf-1-a2", "last_value": 9}],
+                42,
+                [],
+            ),
+            (
+                "another_run_is_ignored",
+                IncrementalFieldType.Integer,
+                {"run_uuid": "wf-2-a1", "last_value": 42},
+                [],
+                None,
+                [],
+            ),
+            (
+                "a_run_id_that_merely_shares_a_prefix_is_ignored",
+                IncrementalFieldType.Integer,
+                {"run_uuid": "wf-10-a1", "last_value": 42},
+                [{"run_uuid": "wf-1-a1", "last_value": 3}],
+                3,
+                [],
+            ),
+            (
+                "malformed_attempt_suffixes_are_ignored",
+                IncrementalFieldType.Integer,
+                {"run_uuid": "wf-1-ax", "last_value": 90},
+                [
+                    {"run_uuid": "wf-1", "last_value": 91},
+                    {"run_uuid": "wf-1-a", "last_value": 92},
+                    {"run_uuid": "wf-1-a2-retry", "last_value": 93},
+                    {"run_uuid": 1, "last_value": 94},
+                    {"run_uuid": "wf-1-a1", "last_value": 5},
+                ],
+                5,
+                [],
+            ),
+            (
+                "earliest_only_is_not_a_high_water_mark",
+                IncrementalFieldType.Integer,
+                {"run_uuid": "wf-1-a1", "earliest_value": 5},
+                [],
+                None,
+                [],
+            ),
+            (
+                "unparseable_value_is_skipped",
+                IncrementalFieldType.DateTime,
+                {"run_uuid": "wf-1-a2", "last_value": "not-a-date"},
+                [{"run_uuid": "wf-1-a1", "last_value": "2026-01-09T00:00:00+00:00"}],
+                datetime(2026, 1, 9, tzinfo=UTC),
+                ["staged_run_last_value_unparseable"],
+            ),
+            (
+                "epoch_and_iso_values_order_by_time",
+                IncrementalFieldType.DateTime,
+                {"run_uuid": "wf-1-a2", "last_value": "2026-01-01T00:00:00+00:00"},
+                [{"run_uuid": "wf-1-a1", "last_value": 1768000000}],
+                1768000000,
+                [],
+            ),
+            (
+                "unordered_pair_keeps_the_newest_attempt",
+                IncrementalFieldType.DateTime,
+                {"run_uuid": "wf-1-a2", "last_value": "2026-01-01T00:00:00"},
+                [{"run_uuid": "wf-1-a1", "last_value": "2026-01-09T00:00:00+00:00"}],
+                datetime(2026, 1, 1),
+                ["staged_run_last_value_unordered"],
+            ),
+        ]
+    )
+    def test_staged_run_last_value(
+        self,
+        _name: str,
+        field_type: IncrementalFieldType,
+        live: dict[str, Any],
+        parked: list[dict[str, Any]],
+        expected: Any,
+        warnings: list[str],
+    ) -> None:
+        config = {
+            "incremental_field_type": field_type,
+            "incremental_staged": live,
+            "incremental_staged_pending": parked,
+        }
+        with patch("products.warehouse_sources.backend.models.external_data_schema.logger") as mock_logger:
+            assert staged_run_last_value(config, "wf-1") == expected
+        assert [call.args[0] for call in mock_logger.warning.call_args_list] == warnings
+
     def test_promote_rejects_wrong_run_uuid(self) -> None:
         schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "last_value": 42})
         with self._staged_in_memory(schema):
@@ -1842,3 +1943,62 @@ class TestDeleteTable(BaseTest):
         assert schema.status is None
         assert schema.last_synced_at is None
         assert DataWarehouseTable.objects.get(id=table_id).deleted is True
+
+
+class TestFailureStreakMarker(SimpleTestCase):
+    # These properties are read on the terminal-status write of every run, so an unparseable
+    # marker must read as "no streak" rather than fail every sync of the schema.
+    @parameterized.expand(
+        [
+            ("no_config", None, 0),
+            ("empty_config", {}, 0),
+            ("marker_absent", {"reset_pipeline": True}, 0),
+            ("marker_is_not_a_dict", {"failure_streak": "7"}, 0),
+            ("runs_missing", {"failure_streak": {}}, 0),
+            ("runs_is_not_an_int", {"failure_streak": {"runs": "7"}}, 0),
+            ("runs_is_negative", {"failure_streak": {"runs": -3}}, 0),
+            ("runs_is_a_count", {"failure_streak": {"runs": 7}}, 7),
+        ]
+    )
+    def test_failed_runs_in_a_row(self, _name: str, config: dict[str, Any] | None, expected: int) -> None:
+        assert ExternalDataSchema(sync_type_config=config).failed_runs_in_a_row == expected
+
+    @parameterized.expand(
+        [
+            ("no_marker", {}, None),
+            ("stamp_missing", {"failure_streak": {"runs": 7}}, None),
+            ("stamp_is_not_a_string", {"failure_streak": {"runs": 7, "last_failed_at": 12345}}, None),
+            ("stamp_is_unparseable", {"failure_streak": {"runs": 7, "last_failed_at": "not a date"}}, None),
+            (
+                "stamp_is_an_aware_timestamp",
+                {"failure_streak": {"runs": 7, "last_failed_at": "2026-01-02T03:04:05+00:00"}},
+                datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+            ),
+            # Read as UTC rather than left naive, so arithmetic against an aware `now` cannot raise.
+            (
+                "stamp_is_a_naive_timestamp",
+                {"failure_streak": {"runs": 7, "last_failed_at": "2026-01-02T03:04:05"}},
+                datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_failure_streak_last_failed_at(self, _name: str, config: dict[str, Any], expected: datetime | None) -> None:
+        assert ExternalDataSchema(sync_type_config=config).failure_streak_last_failed_at == expected
+
+    def test_a_failed_run_adds_to_the_streak_and_keeps_the_other_keys(self) -> None:
+        schema = ExternalDataSchema(sync_type_config={"incremental_field": "updated_at", "failure_streak": {"runs": 2}})
+
+        schema.note_failed_run(datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC))
+
+        assert schema.failed_runs_in_a_row == 3
+        assert schema.failure_streak_last_failed_at == datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+        assert schema.sync_type_config["incremental_field"] == "updated_at"
+
+    def test_clearing_the_streak_keeps_the_other_keys(self) -> None:
+        schema = ExternalDataSchema(sync_type_config={"incremental_field": "updated_at", "failure_streak": {"runs": 9}})
+
+        schema.clear_failure_streak()
+
+        assert schema.failed_runs_in_a_row == 0
+        assert schema.failure_streak_last_failed_at is None
+        assert schema.sync_type_config == {"incremental_field": "updated_at"}

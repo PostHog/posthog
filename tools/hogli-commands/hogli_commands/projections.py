@@ -92,6 +92,15 @@ PROJECTIONS: tuple[Projection, ...] = (
             "frontend/src/lib/oauthScopes.generated.ts",
         ),
     ),
+    Projection(
+        name="commands",
+        renderer="products/commands/backend/commands_projection.py",
+        inputs=("products/commands/backend/logic/schema.py",),
+        outputs=(
+            "products/commands/commands.generated.json",
+            "products/commands/COMMANDS.generated.md",
+        ),
+    ),
 )
 
 

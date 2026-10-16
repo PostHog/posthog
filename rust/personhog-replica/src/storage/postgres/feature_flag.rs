@@ -4,11 +4,12 @@ use async_trait::async_trait;
 use sqlx::FromRow;
 
 use personhog_common::grpc::{current_client_name, current_method_name};
+use personhog_common::persons::COOKIELESS_SENTINEL_VALUE;
 
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::FeatureFlagStorage;
-use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext, COOKIELESS_SENTINEL_VALUE};
+use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext};
 
 // Kept as an intermediate struct because the rows are aggregated into
 // HashKeyOverrideContext via HashMap grouping logic. All field types already
@@ -175,6 +176,25 @@ impl FeatureFlagStorage for PostgresStorage {
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let mut tx = sqlx::Connection::begin(&mut *conn).await?;
+        // The foreign key from posthog_featureflaghashkeyoverride to posthog_person is deferred.
+        // Postgres checks deferred keys at COMMIT. statement_timeout does not cover COMMIT. A
+        // person delete or merge holds FOR UPDATE on the person row until its transaction ends.
+        // Until then, the commit waits. This statement moves the check into the INSERT, where
+        // statement_timeout applies.
+        sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
+            .execute(&mut *tx)
+            .await?;
+        // statement_timeout includes time spent waiting on row locks, so it bounds the whole
+        // INSERT, including several held rows in turn. It stays under the caller's deadline, so
+        // the INSERT can fail with its own error before the caller gives up. The limit covers
+        // only the INSERT. The pool acquire above runs before it and can still use up the
+        // caller's deadline. The setting is local to the transaction, so PgBouncer does not pass
+        // it to the next client of the server connection.
+        sqlx::query("SELECT set_config('statement_timeout', $1, true)")
+            .bind(self.hash_key_override_statement_timeout_ms.to_string())
+            .execute(&mut *tx)
+            .await?;
 
         // DO UPDATE locks each conflicting row even when its WHERE is false, so NOT EXISTS
         // skips the pairs that already hold a real key. The WHERE still keeps a real key that a
@@ -205,8 +225,9 @@ impl FeatureFlagStorage for PostgresStorage {
             feature_flag_keys,
             COOKIELESS_SENTINEL_VALUE
         )
-        .execute(&mut *conn)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
 
         Ok(result.rows_affected() as i64)
     }

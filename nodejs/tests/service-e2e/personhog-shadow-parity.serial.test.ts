@@ -9,6 +9,7 @@
 // `docker compose -f docker-compose.dev.yml --profile ingestion up`, or a
 // `hogli start` dev stack (the `personhog` capability). Addresses override
 // via PERSONHOG_E2E_ROUTER_ADDR / PERSONHOG_E2E_IDENTITY_ADDR.
+import { Code, ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 import { isDeepStrictEqual } from 'node:util'
 import { Pool } from 'pg'
@@ -33,6 +34,7 @@ import { createIdentityClients } from '~/common/personhog/identity-clients'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import {
     personhogStoreShadowComparedCounter,
+    personhogStoreShadowCreateRetriesCounter,
     personhogStoreShadowDivergenceCounter,
     personhogStoreShadowErrorsCounter,
 } from '~/common/persons/metrics'
@@ -110,12 +112,13 @@ describe('personhog shadow parity (e2e)', () => {
      * One ingestion pod: its own caches over the shared databases and the
      * shared personhog cluster, so two pods can interleave on one person.
      */
-    const newPod = (): RoutingPersonsStore =>
+    /** One ingestion pod over the shared databases; the personhog repository can be wrapped to fail one call. */
+    const newPod = (repository: PersonHogPersonWriteRepository = writeRepository): RoutingPersonsStore =>
         new RoutingPersonsStore(
             new BatchWritingPersonsStore(new PostgresPersonRepository(hub.postgres), outputs(), {
                 metricEmissionIntervalMs: 0,
             }),
-            new PersonhogPersonsStore(writeRepository, {
+            new PersonhogPersonsStore(repository, {
                 maxConcurrentUpdates: 10,
                 updateAllProperties: false,
                 syncMergeMoveLimit: 10_000,
@@ -344,10 +347,112 @@ describe('personhog shadow parity (e2e)', () => {
         personhogStoreShadowDivergenceCounter.reset()
         personhogStoreShadowComparedCounter.reset()
         personhogStoreShadowErrorsCounter.reset()
+        personhogStoreShadowCreateRetriesCounter.reset()
     })
 
     afterEach(() => {
         routing.releaseBatch(batchId)
+    })
+
+    describe('shadow creates', () => {
+        /**
+         * A personhog repository whose first create of one distinct id fails. With `after`, identity commits the
+         * person first and the failure follows, which leaves the person without its properties: what a cancellation
+         * between the stub commit and the property push leaves.
+         */
+        const failingCreateRepository = (
+            distinctId: string,
+            failure: () => Error,
+            after = false
+        ): PersonHogPersonWriteRepository => {
+            let failed = false
+            const real = writeRepository.getOrCreatePersonByDistinctId.bind(writeRepository)
+            return new Proxy(writeRepository, {
+                get(target, property, receiver) {
+                    if (property !== 'getOrCreatePersonByDistinctId') {
+                        return Reflect.get(target, property, receiver)
+                    }
+                    return async (entry: Parameters<typeof real>[0], callerTag?: string) => {
+                        if (failed || entry.distinctId !== distinctId) {
+                            return real(entry, callerTag)
+                        }
+                        failed = true
+                        if (after) {
+                            await real({ ...entry, setProperties: {}, setOnceProperties: {} }, callerTag)
+                        }
+                        throw failure()
+                    }
+                },
+            })
+        }
+
+        const retriableUnavailable = (): Error =>
+            Object.assign(new ConnectError('Server at capacity', Code.Unavailable), { isRetriable: true })
+
+        it.each([
+            ['refused before identity committed', false, retriableUnavailable],
+            ['cancelled after identity committed', true, () => new ConnectError('canceled', Code.Canceled)],
+        ])('a shadow create %s still lands the person and its creation properties', async (_name, after, failure) => {
+            const distinctId = id(`create-${after ? 'cancelled' : 'refused'}`)
+            const pod = newPod(failingCreateRepository(distinctId, failure, after))
+            await pod.createPerson(
+                DateTime.utc(),
+                { plan: 'free' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuidFromDistinctId(teamId, distinctId),
+                { distinctId },
+                undefined,
+                undefined,
+                batchId
+            )
+            // The retry lands inside the create, so nothing is recorded as a shadow failure.
+            expect(await shadowErrors()).toBe(0)
+            expect(await counterTotal(personhogStoreShadowCreateRetriesCounter)).toBe(2)
+            await pod.flush()
+            pod.releaseBatch(batchId)
+
+            // The next event for the id is an update, as Postgres already holds the person; the shadow has to
+            // catch up on its own.
+            batchId += 1
+            const person = await pod.fetchForUpdate(teamId, distinctId, batchId)
+            await pod.applyEventOps(person!, ops({ $set: { visits: 2 } }, '$pageview'), distinctId, batchId)
+            await pod.flush()
+            pod.releaseBatch(batchId)
+
+            await expectDurableRowParity(distinctId)
+        })
+
+        it('a set-once right behind a create that failed after identity committed yields to the creation value', async () => {
+            const distinctId = id('create-order')
+            const pod = newPod(
+                failingCreateRepository(distinctId, () => new ConnectError('canceled', Code.Canceled), true)
+            )
+            await pod.createPerson(
+                DateTime.utc(),
+                { plan: 'free' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuidFromDistinctId(teamId, distinctId),
+                { distinctId },
+                undefined,
+                undefined,
+                batchId
+            )
+            // The event behind the create in its distinct id's sequence: Postgres ignores the set-once.
+            const person = await pod.fetchForUpdate(teamId, distinctId, batchId)
+            await pod.applyEventOps(person!, ops({ $set_once: { plan: 'pro' } }), distinctId, batchId)
+            await pod.flush()
+            pod.releaseBatch(batchId)
+
+            await expectDurableRowParity(distinctId)
+        })
     })
 
     it('creation and updates read back identically through both backends', async () => {

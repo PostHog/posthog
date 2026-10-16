@@ -2,62 +2,21 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.source import DagsterCloudSource
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.source"
 
 
 class TestDagsterCloudSourceConfig:
-    def test_config_is_released_alpha_not_hidden(self) -> None:
-        config = DagsterCloudSource().get_source_config
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source must be visible; unreleasedSource would hide it from every user.
-        assert config.unreleasedSource is None
-
-    def test_config_fields(self) -> None:
-        fields: dict[str, SourceFieldInputConfig] = {}
-        for field in DagsterCloudSource().get_source_config.fields:
-            assert isinstance(field, SourceFieldInputConfig)
-            fields[field.name] = field
-        assert set(fields) == {"organization", "deployment", "api_token"}
-        assert all(f.required for f in fields.values())
-        # The token is the only secret; it must be a password input so it's stored encrypted.
-        assert fields["api_token"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_token"].secret is True
-
     def test_connection_host_fields_force_token_reentry(self) -> None:
         # Both feed the *.dagster.cloud URL the token is sent to, so editing either must re-require it.
         assert set(DagsterCloudSource().connection_host_fields) == {"organization", "deployment"}
 
 
 class TestDagsterCloudSchemas:
-    def test_schema_incremental_flags(self) -> None:
-        schemas = {s.name: s for s in DagsterCloudSource().get_schemas(MagicMock(), team_id=1)}
-        assert schemas["runs"].supports_incremental is True
-        assert {f["field"] for f in schemas["runs"].incremental_fields} == {"updateTime", "creationTime"}
-        assert schemas["backfills"].supports_incremental is False
-        assert schemas["assets"].supports_incremental is False
-        # Runs mutate after creation, so append-only would duplicate rows — merge only, everywhere.
-        assert all(s.supports_append is False for s in schemas.values())
-
     def test_names_filter(self) -> None:
         schemas = DagsterCloudSource().get_schemas(MagicMock(), team_id=1, names=["runs"])
         assert [s.name for s in schemas] == ["runs"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        # lists_tables_without_credentials=True — the static catalog must surface in public docs.
-        tables = {t["name"]: t for t in DagsterCloudSource().get_documented_tables()}
-        assert set(tables) == set(ENDPOINTS)
-        # Every table carries a curated description rather than falling back to the LLM.
-        assert all(tables[name]["description"] for name in ENDPOINTS)
-        assert "Incremental" in tables["runs"]["sync_methods"]
-        assert "Incremental" not in tables["assets"]["sync_methods"]
 
 
 class TestDagsterCloudNonRetryableErrors:

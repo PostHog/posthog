@@ -437,8 +437,10 @@ export interface BarsConfig {
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
      *  semantics don't apply when bars share a band). Defaults to `false`. `true` also
      *  highlights the track region on hover; pass `{ hover: false }` to draw the track
-     *  but leave it inert (no highlight when the cursor is over the empty remainder). */
-    track?: boolean | { hover?: boolean }
+     *  but leave it inert (no highlight when the cursor is over the empty remainder).
+     *  `'solid'` draws one neutral track per band instead, in `theme.gridColor`, behind every bar
+     *  in the band. It works on every layout, ignores `trackData`, and has no hover highlight. */
+    track?: boolean | 'solid' | { hover?: boolean }
     /** Drop shadow under each bar so it reads as layered over a `track`. */
     shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
     /** Bar fill treatment. `flat` (default) is a solid color. `gradient` is a smooth diagonal

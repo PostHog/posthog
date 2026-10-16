@@ -19,6 +19,7 @@ import type {
     ExperimentApi,
     ExperimentFlagCleanupTargetApi,
     ExperimentFlagCleanupTaskApi,
+    ExperimentHealthApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
     ExperimentInSessionExposureApi,
@@ -691,6 +692,48 @@ export const experimentsFreezeExposureCreate = async (
     })
 }
 
+export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/health/`
+}
+
+/**
+ * Health check findings for this experiment: problems in its configuration and its feature flag
+ * that keep it from producing trustworthy results, each with a fix.
+ *
+ * The checks here read the experiment, its flag, its linked metrics, and the changes of the
+ * flag's variant split since launch. The checks that read exposure counts come with the
+ * exposure query. The split-change check compares the split changes with the exposures only
+ * for exposure criteria that name an event without property filters. When the split changed
+ * after launch and the criteria have filters or an action, or an API key lacks `query:read`,
+ * it returns an info finding with the subcode `not_checked` and the cause in
+ * `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
+ * flag and, with an API key, `activity_log:read`) gets that finding for every running
+ * experiment, because the changes are not read.
+ *
+ * The severity of the `some_conditions_pinned` finding follows the largest share that the
+ * users of the pinned release conditions make up among the users who got one variant from
+ * the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
+ * the flag's calls that name the matched condition, not the experiment's exposure criteria:
+ * info up to 5%, warning above, and no finding under 1% when at least half of the calls
+ * that returned a variant name a condition. The finding is info when the share is unknown,
+ * and `evidence.reason` says why: `not_measured` (for example an API key without
+ * `query:read`, or a caller denied a flag call property), `too_few_people` (under 100), or
+ * `evaluated_outside_flag_service` (most calls come from local evaluation, a bootstrap or
+ * the caller's own assignment). A pin to a variant with 0% in the split adds an info,
+ * because that variant's results show only the pinned users, unless the experiment
+ * excludes the variant from the analysis.
+ */
+export const experimentsHealthRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentHealthApi> => {
+    return apiMutator<ExperimentHealthApi>(getExperimentsHealthRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExperimentsInSessionExposureRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/in_session_exposure/`
 }
@@ -745,7 +788,8 @@ export const getExperimentsMetricsRecalculationCreateUrl = (projectId: string, i
  * Trigger a batch recalculation of all metrics for this experiment.
  *
  * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
- * already pending or in progress for this experiment. The response payload intentionally does not
+ * already pending or in progress for this experiment. A manual trigger within five minutes after the latest
+ * completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
  * include the `results` array — at POST time the workflow has just been queued and no per-metric
  * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
  * progresses.
@@ -830,10 +874,10 @@ export const getExperimentsMigrateCreateUrl = (projectId: string, id: number) =>
  * Move a legacy experiment onto the new experiments engine.
  *
  * Creates a new experiment with the same configuration and its metrics converted
- * to the new format, and returns it. The legacy experiment is left untouched and
- * keeps its results, so the project ends up with two experiments. Both point at
- * the same feature flag, so no new rollout is needed and users keep the variant
- * they already have.
+ * to the new format, and returns it. Legacy experiments no longer show results,
+ * so this is how to get results for one. The legacy experiment is left untouched,
+ * so the project ends up with two experiments. Both point at the same feature
+ * flag, so no new rollout is needed and users keep the variant they already have.
  *
  * Legacy shared metrics used by the experiment are converted as part of the same
  * call. Each one gets a new shared metric, and the new experiment links to that.

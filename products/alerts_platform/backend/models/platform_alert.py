@@ -13,11 +13,24 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.alerts_platform.backend.facade.contracts import Grouping
 from products.alerts_platform.backend.facade.enums import (
+    PlatformAlertCheckStatus,
     PlatformAlertConfigurationRecurrenceUnit,
     PlatformAlertConfigurationSourceKind,
+    PlatformAlertOwner,
     PlatformAlertState,
 )
+
+
+def single_instance_grouping() -> dict[str, object]:
+    return Grouping().to_stored()
+
+
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def source_kind_choices() -> list[tuple[str, str]]:
+    # A callable, so a new source does not write a state-only migration for its choice.
+    return PlatformAlertConfigurationSourceKind.choices
 
 
 class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
@@ -32,6 +45,8 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     # the way every other model in the repo does.
     SourceKind = PlatformAlertConfigurationSourceKind
     RecurrenceUnit = PlatformAlertConfigurationRecurrenceUnit
+    Owner = PlatformAlertOwner
+    CheckStatus = PlatformAlertCheckStatus
 
     # No database constraint: creating one takes a lock on `posthog_team` that queues behind
     # live writes. Django still cascades in Python, which is the only path that deletes a team.
@@ -45,13 +60,15 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True, db_default=True)
 
-    source_kind = models.CharField(max_length=32, choices=SourceKind.choices)
+    source_kind = models.CharField(max_length=32, choices=source_kind_choices)
     source_config = models.JSONField(default=dict)
+    # The stored form of the facade's `Grouping`.
+    grouping = models.JSONField(default=single_instance_grouping, db_default={"mode": "single", "keys": []})
 
-    threshold_count = models.PositiveIntegerField()
-    threshold_operator = models.CharField(max_length=16)
-
-    window_minutes = models.PositiveIntegerField()
+    # Retired, because a source keeps its bound in `source_config["condition"]`. Nothing reads these.
+    threshold_count = models.PositiveIntegerField(null=True, blank=True)
+    threshold_operator = models.CharField(max_length=16, null=True, blank=True)
+    window_minutes = models.PositiveIntegerField(null=True, blank=True)
 
     check_interval_minutes = models.PositiveIntegerField()
 
@@ -66,11 +83,27 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     schedule_restriction = models.JSONField(null=True, blank=True)
 
     next_check_at = models.DateTimeField(null=True, blank=True)
+    # Mutes every instance. An instance's own snooze mutes one group, and the later of the two holds.
+    snooze_until = models.DateTimeField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
+    check_status = models.CharField(
+        max_length=16, choices=CheckStatus.choices, default=CheckStatus.OK.value, db_default="ok"
+    )
 
     # The row this was copied from, so a backfill can run twice and so a comparison can line
     # an evaluation up against the one the source's own stack produced.
     legacy_configuration_id = models.UUIDField(null=True, blank=True, unique=True)
+    # When an operator switched this copy off. A write in the source never turns such a copy back
+    # on, so a rollout that retires a copy keeps it retired. Only a backfill run clears it.
+    switched_off_at = models.DateTimeField(null=True, blank=True)
+
+    # The source's own row records the same owner. Only the cutover and rollback commands write
+    # the two, in one transaction, so each stack can decide from its own row without reading the
+    # other product's table.
+    owner = models.CharField(
+        max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
+    )
+    owner_changed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         # Pinned: the name predates this app, and removing this renames a live table.
@@ -121,6 +154,9 @@ class PlatformAlert(TeamScopedRootMixin, UUIDModel):
     # rather than an opaque id, because `last_notified_at >= firing_started_at` is then how a
     # reader knows whether this firing was ever announced.
     firing_started_at = models.DateTimeField(null=True, blank=True)
+    # The last check that returned this group. Reaping reads it to free the slot of a group that
+    # stopped appearing. Null for a row no check has recorded since the column existed.
+    last_seen_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "alerts_platformalert"
@@ -154,6 +190,10 @@ class PlatformAlertThread(TeamScopedRootMixin, UUIDModel):
     # The provider's own handle, `{"channel": ..., "ts": ...}` for Slack. Opaque to everything
     # but the transport that issued it.
     external_ref = models.JSONField(default=dict)
+    # What the transport posted to open the conversation, so an edit to it keeps what fired and
+    # changes only the current state. Opaque to everything but that transport. Null for a
+    # provider that cannot edit a message it posted.
+    root_message = models.JSONField(null=True, blank=True)
 
     # Evaluations already delivered into this conversation, newest last. Capped, because a
     # thread lives as long as its firing and the list only has to outlive a retry.

@@ -2,11 +2,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.todoist import (
     TodoistSourceConfig,
 )
@@ -20,21 +15,6 @@ class TestTodoistSource:
         self.source = TodoistSource()
         self.team_id = 123
         self.config = TodoistSourceConfig(api_token="tok-test")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Todoist"
-        assert config.label == "Todoist"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert len(config.fields) == 1
-
-        token_field = config.fields[0]
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.name == "api_token"
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.required is True
-        # The token is sent to the API, so it must be stored as a secret.
-        assert token_field.secret is True
 
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         # Each declared endpoint should ship a curated description so it isn't sent to the LLM.

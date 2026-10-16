@@ -46,7 +46,9 @@ with temporalio.workflow.unsafe.imports_passed_through():
         list_in_flight_reviewer_bots,
         mark_review_failed,
         post_verdict,
+        refresh_review_evidence,
         refuse_on_pre_gates,
+        rereview_after_external_review_finished,
         review_in_sandbox,
         run_review_in_sandbox,
         signal_review_started,
@@ -132,11 +134,14 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                     workflow.logger.warning(f"stamphog pre-gates failed for run {input.review_run_id}")
 
             if not refused_on_pre_gates:
-                # Wait out in-flight reviewer bots (fresh trusted-bot 👀) before the review: the
-                # sandbox holds no token to poll GitHub with, so the Action's wait-and-poll lives here
-                # as durable timers. Each poll refreshes the stored reactions snapshot; if the budget
-                # expires with a bot still in flight, the run proceeds and the engine sees the fresh 👀
-                # and returns WAIT rather than approving over an unfinished review.
+                # Wait out in-flight reviewers (fresh trusted-bot 👀, or a pending external review of
+                # this head) before the review: the sandbox holds no token to poll GitHub with, so the
+                # Action's wait-and-poll lives here as durable timers. Each poll refreshes the stored
+                # reactions and review status; if the budget expires with a reviewer still in flight,
+                # the run proceeds and the engine sees it and returns WAIT rather than approving over
+                # an unfinished review.
+                waited = False
+                reviews_completed = False
                 for _ in range(STAMPHOG_BOT_REVIEW_MAX_POLLS):
                     bots = await workflow.execute_activity(
                         list_in_flight_reviewer_bots,
@@ -144,9 +149,22 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                         start_to_close_timeout=FETCH_CONTEXT_TIMEOUT,
                         retry_policy=ACTIVITY_RETRY_POLICY,
                     )
+                    reviews_completed = bool(bots.get("reviews_completed"))
                     if not bots["in_flight"]:
                         break
+                    waited = True
                     await asyncio.sleep(STAMPHOG_BOT_REVIEW_POLL_SECONDS)
+
+                # The context was read before the polls, so a review posted during the wait, or by an
+                # external reviewer that completed before the first poll, would be missing. Gated for
+                # replay like the eyes reaction above.
+                if (waited or reviews_completed) and workflow.patched("stamphog-refresh-after-wait"):
+                    await workflow.execute_activity(
+                        refresh_review_evidence,
+                        input,
+                        start_to_close_timeout=FETCH_CONTEXT_TIMEOUT,
+                        retry_policy=ACTIVITY_RETRY_POLICY,
+                    )
 
                 if sandbox_checkout is None:
                     await workflow.execute_activity(
@@ -169,6 +187,18 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                 start_to_close_timeout=POST_VERDICT_TIMEOUT,
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
+            # A final dispatch failure must not fail the run, because the verdict is already posted.
+            # Gated for replay like the eyes reaction above.
+            if result.get("waited_on_external_review") and workflow.patched("stamphog-rereview-activity"):
+                try:
+                    await workflow.execute_activity(
+                        rereview_after_external_review_finished,
+                        input,
+                        start_to_close_timeout=POST_VERDICT_TIMEOUT,
+                        retry_policy=ACTIVITY_RETRY_POLICY,
+                    )
+                except ActivityError:
+                    workflow.logger.warning(f"stamphog re-review dispatch failed for run {input.review_run_id}")
             if refused_on_pre_gates and sandbox_start is not None:
                 # After the verdict, so a pre-check verdict posts without waiting for the clone.
                 await self._discard_sandbox(input, sandbox_start, sandbox_checkout)

@@ -9,9 +9,6 @@ import {
   TrashIcon,
 } from "@phosphor-icons/react";
 import { hogFlowRequestDetail } from "@posthog/api-client/hogFlowLoops";
-import type { LoopSchemas } from "@posthog/api-client/loops";
-import { isUploadableSkillSource } from "@posthog/core/message-editor/skillTags";
-import { useHostTRPC } from "@posthog/host-router/react";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -27,13 +24,11 @@ import { getCloudUrlFromRegion } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { assertCloudUsageAvailable } from "@posthog/ui/features/billing/preflightCloudUsage";
-import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
-import { useLoopsHogFlowsEnabled } from "@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
-import { Button as ActionButton } from "@posthog/ui/primitives/Button";
 import { TimezoneTimestamp } from "@posthog/ui/primitives/TimezoneTimestamp";
 import { systemTimezone } from "@posthog/ui/primitives/timezone";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -44,29 +39,24 @@ import {
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Flex, Text } from "@radix-ui/themes";
 import type { ParsedHistoryState } from "@tanstack/history";
-import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthStateValue } from "../../auth/store";
 import { useLoop, useLoopHogFlow } from "../hooks/useLoop";
 import {
   useDeleteLoop,
   useRunLoop,
-  useUpdateLoop,
+  useSetLoopEnabled,
 } from "../hooks/useLoopMutations";
 import { RECENT_RUNS_LIMIT, useLoopRuns } from "../hooks/useLoopRuns";
 import { useLoopScope } from "../hooks/useLoopScope";
-import { useSyncLoopSkillBundles } from "../hooks/useLoopSkillBundles";
 import {
   buildLoopEnabledToggledProps,
   buildLoopViewedProps,
 } from "../loopAnalytics";
 import {
   describeTrigger,
-  loopFireBlockedMessage,
-  loopPausedDescription,
   loopStatusColor,
   loopStatusLabel,
   nextScheduleRun,
@@ -74,7 +64,6 @@ import {
 } from "../loopDisplay";
 import { hogFlowTeamSkills, isLoopShapedHogFlow } from "../loopHogFlowMapping";
 import { formatLoopModel } from "../loopModels";
-import { loopSkillBundles, primaryLoopSkillBundle } from "../loopSkill";
 import { copyLoopLink } from "../utils/copyLoopLink";
 import { LoopLoadError } from "./LoopFallbacks";
 import { LoopForeignWorkflowNotice } from "./LoopForeignWorkflowNotice";
@@ -101,24 +90,22 @@ export function LoopDetailView({
   const scope = useLoopScope(loop);
   const spaceChannelId =
     scope?.kind === "space" && scope.available ? scope.channelId : null;
-  const workflowBacked = useLoopsHogFlowsEnabled();
-  const { data: hogFlow } = useLoopHogFlow(workflowBacked ? loopId : undefined);
+  const { data: hogFlow } = useLoopHogFlow(loopId);
   // A loop-tagged workflow someone reshaped in the workflow editor: the form
   // would overwrite what they built, so the page goes read-only for it.
-  const foreignWorkflow =
-    workflowBacked && !!hogFlow && !isLoopShapedHogFlow(hogFlow);
+  const foreignWorkflow = !!hogFlow && !isLoopShapedHogFlow(hogFlow);
   // An archived workflow maps to a paused loop, but resuming it would set it
   // active again rather than restore it, so it is shown read-only instead.
-  const archived = workflowBacked && hogFlow?.status === "archived";
+  const archived = hogFlow?.status === "archived";
   const readOnly = foreignWorkflow || archived;
   const teamSkills = hogFlow ? hogFlowTeamSkills(hogFlow) : [];
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const workflowUrl =
-    workflowBacked && cloudRegion && projectId != null
+    cloudRegion && projectId != null
       ? `${getCloudUrlFromRegion(cloudRegion)}/project/${projectId}/workflows/${loopId}/workflow`
       : null;
-  const updateLoop = useUpdateLoop(loopId);
+  const setLoopEnabled = useSetLoopEnabled(loopId);
   const deleteLoop = useDeleteLoop();
   const runLoop = useRunLoop(loopId);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -169,26 +156,23 @@ export function LoopDetailView({
 
   const handleToggleEnabled = (enabled: boolean) => {
     if (!loop) return;
-    updateLoop.mutate(
-      { enabled },
-      {
-        onSuccess: () => {
-          track(
-            ANALYTICS_EVENTS.LOOP_ENABLED_TOGGLED,
-            buildLoopEnabledToggledProps(loop, enabled, true),
-          );
-        },
-        onError: (error) => {
-          track(
-            ANALYTICS_EVENTS.LOOP_ENABLED_TOGGLED,
-            buildLoopEnabledToggledProps(loop, enabled, false),
-          );
-          toast.error("Failed to update loop", {
-            description: error.message,
-          });
-        },
+    setLoopEnabled.mutate(enabled, {
+      onSuccess: () => {
+        track(
+          ANALYTICS_EVENTS.LOOP_ENABLED_TOGGLED,
+          buildLoopEnabledToggledProps(loop, enabled, true),
+        );
       },
-    );
+      onError: (error) => {
+        track(
+          ANALYTICS_EVENTS.LOOP_ENABLED_TOGGLED,
+          buildLoopEnabledToggledProps(loop, enabled, false),
+        );
+        toast.error("Failed to update loop", {
+          description: error.message,
+        });
+      },
+    });
   };
 
   const handleRunNow = async () => {
@@ -196,38 +180,13 @@ export function LoopDetailView({
     setRunNowPending(true);
     try {
       if (!(await assertCloudUsageAvailable())) return;
-      const result = await runLoop.mutateAsync();
-      if (result.created) {
-        toast.success("Loop run started");
-        track(ANALYTICS_EVENTS.LOOP_RUN_STARTED, {
-          loop_id: loop.id,
-          task_id: result.task_id,
-          task_run_id: result.task_run_id,
-          runtime_adapter: loop.runtime_adapter,
-          model: loop.model || undefined,
-          trigger_count: loop.triggers.length,
-        });
-      } else if (result.reason === "gate_blocked") {
-        useUsageLimitStore.getState().show({ cause: "org_limit" });
-        track(ANALYTICS_EVENTS.LOOP_RUN_BLOCKED, {
-          loop_id: loop.id,
-          reason: result.reason,
-          overlap_policy: loop.overlap_policy,
-          trigger_count: loop.triggers.length,
-        });
-      } else {
-        toast.error("Run not started", {
-          description: loopFireBlockedMessage(result.reason),
-        });
-        if (result.reason !== "created") {
-          track(ANALYTICS_EVENTS.LOOP_RUN_BLOCKED, {
-            loop_id: loop.id,
-            reason: result.reason,
-            overlap_policy: loop.overlap_policy,
-            trigger_count: loop.triggers.length,
-          });
-        }
-      }
+      await runLoop.mutateAsync();
+      toast.success("Loop run started");
+      track(ANALYTICS_EVENTS.LOOP_RUN_STARTED, {
+        loop_id: loop.id,
+        model: loop.model || undefined,
+        trigger_count: loop.triggers.length,
+      });
     } catch (error) {
       toast.error("Failed to start run", {
         description:
@@ -245,10 +204,8 @@ export function LoopDetailView({
       onSuccess: () => {
         track(ANALYTICS_EVENTS.LOOP_DELETED, {
           loop_id: loop.id,
-          visibility: loop.visibility,
           enabled: loop.enabled,
           trigger_count: loop.triggers.length,
-          consecutive_failures: loop.consecutive_failures,
         });
         toast.success("Loop deleted");
         leavePage();
@@ -392,8 +349,7 @@ export function LoopDetailView({
 
   // The workflow run endpoint only accepts schedule triggers; a GitHub loop
   // fires from its repository.
-  const canRunNow =
-    !readOnly && (!workflowBacked || loop.triggers[0]?.type === "schedule");
+  const canRunNow = !readOnly && loop.triggers[0]?.type === "schedule";
   const githubTriggered = loop.triggers[0]?.type === "github";
 
   return (
@@ -429,17 +385,14 @@ export function LoopDetailView({
               >
                 {archived ? "Archived" : loopStatusLabel(loop)}
               </Badge>
-              {!workflowBacked ? (
-                <Badge>{formatVisibility(loop.visibility)}</Badge>
-              ) : null}
             </Flex>
             <Flex align="center" gap="2">
               {!archived ? (
                 <Button
                   variant="outline"
                   size="sm"
-                  loading={updateLoop.isPending}
-                  disabled={updateLoop.isPending}
+                  loading={setLoopEnabled.isPending}
+                  disabled={setLoopEnabled.isPending}
                   onClick={() => handleToggleEnabled(!loop.enabled)}
                 >
                   {loop.enabled ? (
@@ -513,8 +466,6 @@ export function LoopDetailView({
           >
             {loop.description.trim() || "No description"}
           </Text>
-
-          <PausedNotice loop={loop} />
         </Flex>
 
         {archived ? (
@@ -535,11 +486,7 @@ export function LoopDetailView({
           />
         ) : (
           <>
-            <ConfigSummarySection
-              loop={loop}
-              workflowBacked={workflowBacked}
-              teamSkills={teamSkills}
-            />
+            <ConfigSummarySection loop={loop} teamSkills={teamSkills} />
             <InstructionsSection loop={loop} />
           </>
         )}
@@ -659,10 +606,6 @@ function loopStatusBadgeVariant(
   return "default";
 }
 
-function formatVisibility(visibility: LoopSchemas.LoopVisibilityEnum): string {
-  return visibility.charAt(0).toUpperCase() + visibility.slice(1);
-}
-
 /**
  * Shown in place of the configuration summary for an archived workflow. The
  * loop API has no archived state, so resuming from here would set the workflow
@@ -693,43 +636,11 @@ function LoopArchivedNotice({ workflowUrl }: { workflowUrl: string | null }) {
   );
 }
 
-function PausedNotice({ loop }: { loop: LoopSchemas.Loop }) {
-  const description = loopPausedDescription(loop);
-  if (!description) return null;
-
-  return (
-    <Flex
-      align="center"
-      justify="between"
-      gap="3"
-      wrap="wrap"
-      className="rounded-(--radius-2) border border-(--red-6) bg-(--red-2) px-3 py-2"
-    >
-      <Text className="text-(--red-11) text-[12.5px] leading-snug">
-        {description}
-      </Text>
-      {loop.disabled_reason === "usage_limited" ? (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() =>
-            useUsageLimitStore.getState().show({ cause: "org_limit" })
-          }
-        >
-          Manage plan
-        </Button>
-      ) : null}
-    </Flex>
-  );
-}
-
 function ConfigSummarySection({
   loop,
-  workflowBacked,
   teamSkills,
 }: {
   loop: LoopSchemas.Loop;
-  workflowBacked: boolean;
   teamSkills: string[];
 }) {
   const displayModel = formatLoopModel(loop.runtime_adapter, loop.model);
@@ -738,23 +649,23 @@ function ConfigSummarySection({
     isLoading: membersLoading,
     isError: membersError,
     isComplete: membersComplete,
-  } = useOrgMembers({ enabled: loop.visibility === "team" });
+  } = useOrgMembers();
   const creator = members.find((member) => member.id === loop.created_by_id);
-  let creatorContent: React.ReactNode = null;
-  if (loop.visibility === "team" && membersError) {
+  let creatorContent: React.ReactNode;
+  if (membersError) {
     creatorContent = "Creator unavailable";
-  } else if (loop.visibility === "team" && membersLoading) {
+  } else if (membersLoading) {
     creatorContent = "Loading…";
-  } else if (loop.visibility === "team" && creator) {
+  } else if (creator) {
     creatorContent = (
-      <Flex align="center" gap="2">
+      <div className="flex items-center gap-2">
         <UserAvatar user={creator} size="xs" />
         {userDisplayName(creator)}
-      </Flex>
+      </div>
     );
-  } else if (loop.visibility === "team" && membersComplete) {
+  } else if (membersComplete) {
     creatorContent = "Former organization member";
-  } else if (loop.visibility === "team") {
+  } else {
     creatorContent = "Creator unavailable";
   }
   const notificationDestinations = summarizeNotificationDestinations(
@@ -774,19 +685,12 @@ function ConfigSummarySection({
       >
         <SummaryRow label="Model">
           {[
-            workflowBacked ? null : loop.runtime_adapter,
             displayModel,
             loop.reasoning_effort ? `${loop.reasoning_effort} reasoning` : null,
           ]
             .filter(Boolean)
             .join(" · ")}
         </SummaryRow>
-
-        {loopSkillBundles(loop).length > 0 ? (
-          <SummaryRow label="Skill">
-            <LoopSkillSummary loop={loop} />
-          </SummaryRow>
-        ) : null}
 
         {teamSkills.length > 0 ? (
           <SummaryRow label="Skills">{teamSkills.join(", ")}</SummaryRow>
@@ -798,9 +702,7 @@ function ConfigSummarySection({
             : "None (connector-only loop)"}
         </SummaryRow>
 
-        {loop.visibility === "team" ? (
-          <SummaryRow label="Created by">{creatorContent}</SummaryRow>
-        ) : null}
+        <SummaryRow label="Created by">{creatorContent}</SummaryRow>
 
         <SummaryRow label="Triggers">
           {loop.triggers.length === 0 ? (
@@ -827,103 +729,13 @@ function ConfigSummarySection({
   );
 }
 
-function LoopSkillSummary({ loop }: { loop: LoopSchemas.Loop }) {
-  const { localWorkspaces } = useHostCapabilities();
-  const trpc = useHostTRPC();
-  const { data: localSkillData } = useQuery({
-    ...trpc.skills.list.queryOptions(),
-    enabled: localWorkspaces,
-  });
-  const syncSkillBundles = useSyncLoopSkillBundles();
-
-  const primary = primaryLoopSkillBundle(loop);
-  if (!primary) return null;
-  const dependencyCount = loopSkillBundles(loop).length - 1;
-
-  // The one-click refresh must be unambiguous about which skill it snapshots: it
-  // requires exactly one local skill matching the stored name AND source, so a
-  // same-named skill from another source (say, an opened repo) can never silently
-  // replace the loop's snapshot. Ambiguous cases go through the edit form, where
-  // the picker shows each candidate.
-  const candidates = (localSkillData ?? []).filter(
-    (skill) =>
-      skill.name === primary.skill_name &&
-      skill.source === primary.skill_source,
-  );
-  const localMatch = candidates.length === 1 ? candidates[0] : undefined;
-  const updateDisabledReason = !localWorkspaces
-    ? "updating the snapshot needs the desktop app"
-    : localMatch
-      ? null
-      : candidates.length > 1
-        ? `several local skills are named ${primary.skill_name}; pick the right one from the edit form`
-        : `no local ${primary.skill_source} skill named ${primary.skill_name} was found on this machine`;
-
-  const handleUpdate = () => {
-    if (!localMatch || !isUploadableSkillSource(localMatch.source)) return;
-    syncSkillBundles.mutate(
-      {
-        loopId: loop.id,
-        skill: {
-          name: localMatch.name,
-          source: localMatch.source,
-          path: localMatch.path,
-        },
-      },
-      {
-        onSuccess: () => toast.success("Skill snapshot updated"),
-        onError: (error) =>
-          toast.error("Failed to update the skill snapshot", {
-            description: error.message,
-          }),
-      },
-    );
-  };
-
-  return (
-    <Flex align="center" gap="2" wrap="wrap">
-      <Text className="text-[12.5px] text-gray-12">
-        {primary.skill_name}
-        {dependencyCount > 0
-          ? ` (+${dependencyCount} ${dependencyCount === 1 ? "dependency" : "dependencies"})`
-          : ""}
-      </Text>
-      <Text
-        className="text-[11px] text-gray-10"
-        title={new Date(primary.uploaded_at).toLocaleString()}
-      >
-        Snapshot {primary.content_sha256.slice(0, 8)}
-      </Text>
-      <ActionButton
-        variant="soft"
-        color="gray"
-        size="1"
-        loading={syncSkillBundles.isPending}
-        disabled={syncSkillBundles.isPending || !!updateDisabledReason}
-        disabledReason={updateDisabledReason}
-        onClick={handleUpdate}
-      >
-        Update from local skill
-      </ActionButton>
-    </Flex>
-  );
-}
-
 function InstructionsSection({ loop }: { loop: LoopSchemas.Loop }) {
-  const primarySkill = primaryLoopSkillBundle(loop);
-
   return (
     <Flex direction="column" gap="3">
       <Text className="font-medium text-[13px] text-gray-12">Instructions</Text>
       <pre className="max-h-[400px] min-h-[160px] overflow-auto whitespace-pre-wrap rounded-(--radius-2) border border-border bg-(--color-panel-solid) p-3 font-sans text-[12.5px] text-gray-12 leading-relaxed">
         {loop.instructions}
       </pre>
-      {primarySkill ? (
-        <Text className="text-[11px] text-gray-10 leading-snug">
-          This loop runs the {primarySkill.skill_name} skill: the leading /
-          {primarySkill.skill_name} line invokes its attached snapshot.
-        </Text>
-      ) : null}
     </Flex>
   );
 }

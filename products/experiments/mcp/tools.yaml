@@ -71,6 +71,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-calculate-running-time:
         operation: experiments_calculate_running_time_create
         enabled: true
@@ -407,6 +410,9 @@ tools:
                 aliases:
                     - experimentId
                     - experiment_id
+        response:
+            exclude:
+                - health
     experiment-end:
         operation: experiments_end_create
         enabled: true
@@ -463,6 +469,9 @@ tools:
                     or the team's only connected repository. When several repositories are connected and no default is
                     set, the cleanup is skipped unless this is provided.
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-freeze-exposure:
         operation: experiments_freeze_exposure_create
         enabled: true
@@ -517,6 +526,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-get:
         operation: experiments_retrieve
         enabled: true
@@ -542,7 +554,9 @@ tools:
             ended, running_time_calculation (minimum detectable effect, recommended running time and sample size),
             stats_config, type (web/product), and resolved_exposure_event (the event exposures are counted on when no
             custom exposure event is configured — resolved server-side to $feature_flag_called or $experiment_exposure;
-            use it in SQL instead of hardcoding either name).
+            use it in SQL instead of hardcoding either name. When it is $feature_flag_called, also read
+            $experiment_exposure (event IN ('$feature_flag_called', '$experiment_exposure')), and count persons, not
+            rows).
         param_overrides:
             id:
                 cast: string-int
@@ -553,6 +567,7 @@ tools:
         response:
             exclude:
                 - saved_metrics.*.effective_query
+                - health
     experiment-holdouts-create:
         operation: experiment_holdouts_create
         enabled: true
@@ -747,10 +762,10 @@ tools:
 
             Supports filtering by status ("draft", "running", "paused", "exposure_frozen", "stopped", "complete" which
             maps to stopped, or "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, tags
-            / excluded_tags (JSON-encoded lists of tag names), and free-text search on name. Supports ordering by an
-            allowlisted set of fields (model fields plus computed "duration" and "status"). Returns paginated results
-            with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for
-            get/update/lifecycle tools.
+            / excluded_tags (JSON-encoded lists of tag names), and free-text search on name and feature flag key.
+            Supports ordering by an allowlisted set of fields (model fields plus computed "duration" and "status").
+            Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use
+            the returned ID for get/update/lifecycle tools.
         param_overrides:
             status:
                 description: >
@@ -942,10 +957,10 @@ tools:
 
 
             Move a legacy experiment onto the new experiments engine. This creates a NEW experiment with the same
-            configuration and its metrics converted to the new format, and returns it. The legacy experiment is left
-            untouched and keeps its results, so the project ends up with two experiments. Both point at the same feature
-            flag, so no new rollout is needed and users keep the variant they already have. Tell the user about the
-            second experiment before you call this.
+            configuration and its metrics converted to the new format, and returns it. Legacy experiments no longer show
+            results, so this is how a user gets results for one. The legacy experiment is left untouched, so the project
+            ends up with two experiments. Both point at the same feature flag, so no new rollout is needed and users
+            keep the variant they already have. Tell the user about the second experiment before you call this.
 
 
             Legacy shared metrics used by the experiment are converted too. Each one gets a new shared metric, and the
@@ -966,6 +981,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-pause:
         operation: experiments_pause_create
         enabled: true
@@ -1000,6 +1018,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-prompt-templates:
         operation: experiments_prompt_templates_retrieve
         enabled: true
@@ -1049,6 +1070,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-resume:
         operation: experiments_resume_create
         enabled: true
@@ -1082,6 +1106,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-saved-metrics-create:
         operation: experiment_saved_metrics_create
         enabled: true
@@ -1311,6 +1338,9 @@ tools:
                     or the team's only connected repository. When several repositories are connected and no default is
                     set, the cleanup is skipped unless this is provided.
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-stats:
         operation: experiments_stats_retrieve
         enabled: true
@@ -1398,6 +1428,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-unfreeze-exposure:
         operation: experiments_unfreeze_exposure_create
         enabled: true
@@ -1440,6 +1473,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-update:
         operation: experiments_partial_update
         enabled: true

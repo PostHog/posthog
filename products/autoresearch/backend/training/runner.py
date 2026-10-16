@@ -161,10 +161,10 @@ def _describe_training_sample(sample: TrainingSample | None) -> str:
     return clause
 
 
-def _report_notebook_step(pipeline: AutoresearchPipeline, *, training_run_id: str, today_iso: str) -> str:
-    """The Finalize step that builds the report notebook, indented to sit inside the brief."""
+def _report_notebook_step(pipeline: AutoresearchPipeline, *, today_iso: str) -> str:
+    """The Finalize step that creates the report notebook, indented to sit inside the brief."""
     step = textwrap.dedent(f"""
-        3. **Build the report notebook** — a live copy of the report whose numbers come from SQL
+        3. **Create the report notebook** — a live copy of the report whose numbers come from SQL
            cells, so a reader can check them and re-run them after scoring. `report.md` stays the
            fallback: write it first, whatever happens in this step.
 
@@ -174,20 +174,32 @@ def _report_notebook_step(pipeline: AutoresearchPipeline, *, training_run_id: st
            Create exactly ONE notebook with `notebooks-create-markdown`. Title it
            `<pipeline name> · model report · {today_iso}`, where the pipeline name is
            {_wrap_untrusted(pipeline.name)}. Change and run only this notebook. Never update,
-           delete, or run any other notebook.
+           delete, or run any other notebook. Put only the **TL;DR** and **What it predicts**
+           sections in it now, with the same content as `report.md`. You add the cells in step 5,
+           after the run completes, because this run's model row does not exist until then.
 
-           Build it in this order, with markdown prose between the cells:
-           - **TL;DR** and **What it predicts** — the same content as `report.md`.
+           Keep the notebook's `short_id` for the next step.""")
+    return textwrap.indent(step, " " * 8)
+
+
+def _report_notebook_cells_step(pipeline: AutoresearchPipeline, *, training_run_id: str) -> str:
+    """The step after complete that fills the report notebook, indented to sit inside the brief."""
+    step = textwrap.dedent(f"""
+        5. **Fill the report notebook** — do this step only if you created the notebook in step 3
+           and the complete call succeeded. Complete writes this run's model row, so the cells
+           below now read real data.
+
+           Add these cells with `notebooks-add-cell`, in this order, with markdown prose between them:
            - **How training went** — a SQL cell over `system.autoresearch_iterations` where
              `training_run_id = '{training_run_id}'`, then a Python cell that plots holdout AUC by
              iteration and marks kept and discarded iterations.
            - **How well it works** — a SQL cell over `system.autoresearch_models` where
              `pipeline_id = '{pipeline.pk}'`: role, holdout AUC, realized AUC, calibration error,
              and lift@10/@20 from `metrics` when present. Explain them in plain words.
-           - **What drives it** — a Python cell that charts the feature importances and direction
-             in `model_explanation` of this run's model row
-             (`source_training_run_id = '{training_run_id}'`), then prose on the intuition behind
-             each top feature.
+           - **What drives it** — a SQL cell that reads `model_explanation` of this run's model row
+             in `system.autoresearch_models` (`source_training_run_id = '{training_run_id}'`), then a
+             Python cell that charts the feature importances and direction, then prose on the
+             intuition behind each top feature.
            - **Live performance** — a SQL cell over `events` where
              `event = 'autoresearch_prediction'` and
              `properties.$autoresearch_pipeline_id = '{pipeline.pk}'`, then Python cells for the
@@ -205,9 +217,7 @@ def _report_notebook_step(pipeline: AutoresearchPipeline, *, training_run_id: st
            - One figure per Python cell. The kernel keeps at most 8 figures and about 3 MB of
              images per cell.
            - Do not call `notebooks-configure-compute`. Use the default kernel.
-           - Run each cell. If a cell fails, fix it or delete it. Never leave a failed cell.
-
-           Keep the notebook's `short_id` for the next step.""")
+           - Run each cell. If a cell fails, fix it or delete it. Never leave a failed cell.""")
     return textwrap.indent(step, " " * 8)
 
 
@@ -220,6 +230,7 @@ def build_agent_description(
     report_notebook: bool = False,
     unscorable_champion: UnscorableChampion | None = None,
     realized_context: RealizedContext | None = None,
+    rescue: bool = False,
 ) -> str:
     """Build the Claude Code agent prompt for the autoresearch training loop."""
     pop_clause = ""
@@ -243,7 +254,7 @@ def build_agent_description(
         )
 
     sample_clause = _describe_training_sample(training_sample)
-    unscorable_clause = _describe_unscorable_champion(unscorable_champion)
+    unscorable_clause = _describe_unscorable_champion(unscorable_champion, rescue=rescue)
     realized_clause = _describe_realized_context(realized_context)
 
     today_iso = date.today().isoformat()
@@ -252,9 +263,11 @@ def build_agent_description(
     complete_step = 3
     notebook_step = ""
     notebook_field = ""
+    notebook_cells_step = ""
     if report_notebook:
         complete_step = 4
-        notebook_step = _report_notebook_step(pipeline, training_run_id=training_run_id, today_iso=today_iso)
+        notebook_step = _report_notebook_step(pipeline, today_iso=today_iso)
+        notebook_cells_step = "\n" + _report_notebook_cells_step(pipeline, training_run_id=training_run_id)
         notebook_field = (
             "\n           - `report_notebook_short_id`: the `short_id` of the notebook from step 3. Omit it\n"
             "             if you skipped step 3 or the notebook does not exist."
@@ -512,11 +525,24 @@ def build_agent_description(
         `pipeline_id = "{pipeline.pk}"`, `id = "{training_run_id}"`, the iteration_number,
         recipe_snapshot (`{{"feature_sql": "..."}}`), model_spec (`{{"model_class": "...", "model_params": {{...}}}}`),
         holdout_score (the AUC you computed), status (`"kept"` if it beats your best AUC so far, else
-        `"discarded"`), and a one-line agent_description. Do NOT batch these up to record at the end —
+        `"discarded"`), a one-line agent_description, a one-sentence `summary`, and a short `headline`. Do NOT batch these up to record at the end —
         the user watches the iteration trail stream in live as you work, so each must land as it happens.
         Judge `status` against your best-so-far at the time you record; if a later iteration wins, that
         is simply reflected by the climbing scores, not by rewriting earlier ones. These also drive
         champion selection at completion.
+
+        **Two audiences.** `agent_description` is your working memory, and the next run reads it, so it
+        can be as dense as is useful. `summary` is for a person who knows the product but not machine
+        learning. Write it in plain words about user behavior, and leave out column names, SQL, model
+        classes and AUC numbers. Say what the experiment tried and whether it helped.
+        - Good: "Counting how often people opened a dashboard in their first week predicted downloads
+          better than total activity."
+        - Weak: "LogReg on dash_open_7d + log1p(evt_cnt), holdout AUC 0.81 vs 0.78, kept."
+
+        `headline` is the row title for the experiment. Keep it to 60 characters or fewer, in the same
+        plain words as `summary`, and say what the experiment tried or learned.
+        - Good: "Moved training cutoffs to midnight to match scoring"
+        - Good: "Coding-task activity became the strongest signal"
 
         ### Step 4 — Iterate
 
@@ -670,10 +696,16 @@ def build_agent_description(
            - `recommended_next`: concretely what a future run should try next given what you found.{notebook_field}
            The backend derives the rest of the summary (the kept ladder and dead-ends) from your
            recorded iterations, so keep these two fields to judgment only — do not restate the ladder.
+           These two fields are your notes and can stay as dense as is useful. Also pass three fields
+           for people, in the same plain words as each iteration's `summary`:
+           - `headline`: the run title, 60 characters or fewer, on what this run learned, in the same
+             style as each iteration's `headline`.
+           - `reader_summary`: one or two sentences on what this run learned about user behavior.
+           - `next_steps`: a short list (at most 5) of what to try next, a few words each.
            Also pass `model_explanation`, which the model card charts. Use exactly this shape:
            `{{"method": "<how you computed importance, one short line>", "top_features": [{{"name": "<feature column>", "importance": <number >= 0>, "direction": "positive" | "negative"}}]}}`.
            List at most {MAX_TOP_FEATURES} features of the winning iteration, strongest first. `direction` is
-           "positive" when a higher value raises the predicted probability, else "negative". Other keys are dropped.
+           "positive" when a higher value raises the predicted probability, else "negative". Other keys are dropped.{notebook_cells_step}
 
         **Honesty note**: holdout_auc is checked against realized outcomes after inference. An
         AUC of 0.55 that reflects real data beats a fabricated 0.80 — the realized gate is unfakeable.
@@ -851,9 +883,17 @@ def _realized_context_for_brief(pipeline: AutoresearchPipeline) -> RealizedConte
         return None
 
 
-def _describe_unscorable_champion(unscorable: UnscorableChampion | None) -> str:
+def _describe_unscorable_champion(unscorable: UnscorableChampion | None, *, rescue: bool = False) -> str:
     if unscorable is None:
         return ""
+    rescue_text = ""
+    if rescue:
+        rescue_text = """
+
+            **This is a rescue run.** The pipeline has no iteration budget left, so this run gets a
+            small fixed budget only to make scoring work again. Prefer a cheap, simple model whose
+            `features.sql` scores today's inference population well inside the query limits over a
+            model with a higher `holdout_score`."""
     # Indented to the brief's level, because the brief is dedented after this text goes in.
     return textwrap.indent(
         textwrap.dedent(f"""
@@ -864,7 +904,7 @@ def _describe_unscorable_champion(unscorable: UnscorableChampion | None) -> str:
             replaces it. Do not reuse its `features.sql` as it is. Find what makes it fail first.
             `limit_exceeded` means a query hit a memory, time, rows or bytes limit. `query_failed` means
             the query is not valid for today's data. `model_load_failed` means `predict.py` could not
-            load or run the fitted model."""),
+            load or run the fitted model.{rescue_text}"""),
         " " * 8,
     )
 
@@ -900,6 +940,7 @@ def run_training(
     pipeline: AutoresearchPipeline,
     iteration_budget: int,
     user_id: int | None,
+    rescue: bool = False,
 ) -> AutoresearchTrainingRun:
     """
     Launch a real agent sandbox training run.
@@ -960,6 +1001,7 @@ def run_training(
             report_notebook=report_notebook,
             unscorable_champion=_unscorable_champion_for_brief(pipeline),
             realized_context=_realized_context_for_brief(pipeline),
+            rescue=rescue,
         )
 
         title = f"[autoresearch] {pipeline.name}: learn to predict '{pipeline.target_event}'"

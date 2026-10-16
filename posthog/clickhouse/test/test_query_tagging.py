@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from pydantic import ValidationError
 
@@ -97,10 +99,11 @@ def test_set_get():
     assert get_query_tag_value("product") == "api"
 
 
-def test_failure_on_incorrect_type():
+@pytest.mark.parametrize("tags", [{"team_id": "jeden"}, {"ch_user": "alerts_platform_insights"}])
+def test_failure_on_incorrect_type(tags):
     reset_query_tags()
     with pytest.raises(ValidationError):
-        tag_queries(team_id="jeden")
+        tag_queries(**tags)
     assert get_query_tags() == create_base_tags()
 
 
@@ -578,7 +581,7 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         assert comment["product"] == Product.ERROR_TRACKING.value
 
 
-class TestAddFallbackQueryTags(BaseTest):
+class TestAddFallbackQueryTags(SimpleTestCase):
     def test_does_not_override_set_product(self):
         tags = QueryTags(product=Product.LOGS, feature=Feature.QUERY, scene="Cohort", query_type="TrendsQuery")
         add_fallback_query_tags(tags)

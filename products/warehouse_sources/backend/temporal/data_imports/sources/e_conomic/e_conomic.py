@@ -11,26 +11,32 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.settings import E_CONOMIC_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.settings import (
+    E_CONOMIC_ENDPOINTS,
+    PAGE_SIZE,
+)
 
 E_CONOMIC_BASE_URL = "https://restapi.e-conomic.com"
 E_CONOMIC_HOST = urlparse(E_CONOMIC_BASE_URL).netloc
 
-# Max page size the API allows for classic offset pagination.
-PAGE_SIZE = 1000
 
-
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class EConomicResumeConfig:
     # Full URL of the next page to fetch. The API's pagination links already carry pagesize, sort and
     # filter, so resuming is just "GET this URL".
     next_url: str | None = None
+    # Fan-out endpoints instead checkpoint which parents finished and where the current one stopped.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _headers() -> dict[str, str]:
@@ -104,6 +110,27 @@ class EConomicNextPagePaginator(JSONResponsePaginator):
             _assert_trusted_url(self._next_url)
 
 
+def _add_entries_path(row: dict[str, Any]) -> dict[str, Any]:
+    row["entries_path"] = urlparse(row["entries"]).path
+    return row
+
+
+_PARENT_DATA_MAPS = {"accounting_year_entries": _add_entries_path}
+
+
+def _client_config(app_secret_token: str, agreement_grant_token: str) -> ClientConfig:
+    return {
+        "base_url": E_CONOMIC_BASE_URL,
+        "headers": _headers(),
+        "auth": EConomicTokenAuth(app_secret_token, agreement_grant_token),
+        "paginator": EConomicNextPagePaginator(),
+        # Pin every request — including next-page and seeded resume URLs — to the API host, and
+        # refuse redirects, so the credential headers can never be carried off-host.
+        "allowed_hosts": [E_CONOMIC_HOST],
+        "allow_redirects": False,
+    }
+
+
 def e_conomic_source(
     app_secret_token: str,
     agreement_grant_token: str,
@@ -116,6 +143,41 @@ def e_conomic_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = E_CONOMIC_ENDPOINTS[endpoint]
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if config.fanout is not None:
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(EConomicResumeConfig(fanout_state=state))
+
+        child = build_dependent_resource(
+            endpoint_configs=E_CONOMIC_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=_client_config(app_secret_token, agreement_grant_token),
+            parent_data_map=_PARENT_DATA_MAPS.get(endpoint),
+            parent_endpoint_extra={"data_selector": "collection"},
+            # Explicit, because the framework treats a path ending in a placeholder ("{entries_path}") as a
+            # single-entity lookup and would otherwise fetch only its first page.
+            child_endpoint_extra={"data_selector": "collection", "paginator": EConomicNextPagePaginator()},
+            page_size_param="pagesize",
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume.fanout_state if resume else None,
+        )
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: child,
+            primary_keys=config.primary_keys,
+            sort_mode=None,
+            partition_mode="datetime" if config.partition_key else None,
+            partition_format="month" if config.partition_key else None,
+            partition_keys=[config.partition_key] if config.partition_key else None,
+        )
 
     params: dict[str, Any] = {"pagesize": PAGE_SIZE}
     if config.sort:
@@ -129,16 +191,7 @@ def e_conomic_source(
         params["filter"] = f"{incremental_field}$gte:{formatted}"
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": E_CONOMIC_BASE_URL,
-            "headers": _headers(),
-            "auth": EConomicTokenAuth(app_secret_token, agreement_grant_token),
-            "paginator": EConomicNextPagePaginator(),
-            # Pin every request — including next-page and seeded resume URLs — to the API host, and
-            # refuse redirects, so the credential headers can never be carried off-host.
-            "allowed_hosts": [E_CONOMIC_HOST],
-            "allow_redirects": False,
-        },
+        "client": _client_config(app_secret_token, agreement_grant_token),
         "resource_defaults": {},
         "resources": [
             {
@@ -155,10 +208,8 @@ def e_conomic_source(
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and resume.next_url:
-            initial_paginator_state = {"next_url": resume.next_url}
+    if resume is not None and resume.next_url:
+        initial_paginator_state = {"next_url": resume.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; saved AFTER a page is yielded so a crash re-yields the

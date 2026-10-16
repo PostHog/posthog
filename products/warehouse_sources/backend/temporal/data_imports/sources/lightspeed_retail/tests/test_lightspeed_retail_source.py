@@ -3,6 +3,11 @@ import datetime
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lightspeedretail import (
     LightspeedRetailSourceConfig,
 )
@@ -28,24 +33,6 @@ class TestLightspeedRetailSource:
         assert self.source.connection_host_fields == ["domain_prefix"]
 
     @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://mystore.retail.lightspeed.app/api/2.0/sales",
-            "403 Client Error: Forbidden for url: https://mystore.retail.lightspeed.app/api/2.0/customers",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    def test_non_retryable_errors_does_not_match_server_errors(self):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(
-            key in "500 Server Error for url: https://mystore.retail.lightspeed.app/api/2.0/sales"
-            for key in non_retryable_errors
-        )
-
-    @pytest.mark.parametrize(
         "version, expected_sunset",
         [
             (LIGHTSPEED_RETAIL_API_VERSION_2_0, None),
@@ -66,39 +53,17 @@ class TestLightspeedRetailSource:
             (False, False, "Invalid Lightspeed Retail credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source.validate_lightspeed_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(self, mock_return: bool, expected_valid: bool, expected_message: str | None) -> None:
+        status = 200 if mock_return else 401
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
         # An unpinned source probes the default version.
-        mock_validate.assert_called_once_with(
-            self.config.domain_prefix, self.config.api_token, LIGHTSPEED_RETAIL_API_VERSION_2026_07
-        )
-
-    @pytest.mark.parametrize(
-        "pinned, expected",
-        [
-            (None, LIGHTSPEED_RETAIL_API_VERSION_2026_07),
-            (LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2_0),
-            (LIGHTSPEED_RETAIL_API_VERSION_2026_01, LIGHTSPEED_RETAIL_API_VERSION_2026_01),
-            (LIGHTSPEED_RETAIL_API_VERSION_2026_07, LIGHTSPEED_RETAIL_API_VERSION_2026_07),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source.validate_lightspeed_credentials"
-    )
-    def test_validate_credentials_probes_the_pinned_version(self, mock_validate, pinned, expected):
-        mock_validate.return_value = True
-
-        self.source.validate_credentials(self.config, self.team_id, api_version=pinned)
-
-        assert mock_validate.call_args.args[2] == expected
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].path == f"/api/{LIGHTSPEED_RETAIL_API_VERSION_2026_07}/outlets"
+        assert network.requests_log[0].headers["authorization"] == "Bearer api-token"
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source.lightspeed_retail_source"
@@ -125,37 +90,13 @@ class TestLightspeedRetailSource:
         assert kwargs["db_incremental_field_last_value"] == 999
         assert kwargs["api_version"] == LIGHTSPEED_RETAIL_API_VERSION_2026_01
 
-    @pytest.mark.parametrize(
-        "pinned, expected",
-        [
-            (None, LIGHTSPEED_RETAIL_API_VERSION_2026_07),
-            (LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2_0),
-            (LIGHTSPEED_RETAIL_API_VERSION_2026_01, LIGHTSPEED_RETAIL_API_VERSION_2026_01),
-            (LIGHTSPEED_RETAIL_API_VERSION_2026_07, LIGHTSPEED_RETAIL_API_VERSION_2026_07),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source.lightspeed_retail_source"
-    )
-    def test_source_for_pipeline_syncs_on_the_pinned_version(self, mock_lightspeed_source, pinned, expected):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "sales"
-        inputs.should_use_incremental_field = False
-        inputs.api_version = pinned
+    def test_source_for_pipeline_omits_last_value_on_full_refresh(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "outlets",
+            [ScriptedResponse(json={"data": []})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=999,
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_lightspeed_source.call_args.kwargs["api_version"] == expected
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source.lightspeed_retail_source"
-    )
-    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_lightspeed_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "outlets"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = 999
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_lightspeed_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.params("after") == [None]

@@ -15,7 +15,7 @@ import type {
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import type { GoalLineConfig } from '../../utils/goal-lines'
+import { mergeValueDomains, type GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { ComboChart } from '../ComboChart/ComboChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
@@ -23,9 +23,13 @@ import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export interface TimeSeriesComboChartConfig {
+    /** Reserve space for custom overlays; unspecified sides keep their computed margins. */
+    margins?: ComboChartConfig['margins']
     xAxis?: XAxisConfig
     /** Single object for a standard left axis; array for dual left+right axes. */
     yAxis?: YAxisConfig | YAxisConfig[]
+    /** Pin the primary value scale, overriding its automatic data and goal-line extent. */
+    valueDomain?: ComboChartConfig['valueDomain']
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
     /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
@@ -88,6 +92,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
     const {
         xAxis,
         yAxis,
+        margins,
         valueLabels,
         goalLines,
         defaultSeriesType,
@@ -121,6 +126,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
     const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
 
     const comboChartConfig: ComboChartConfig = {
+        margins,
         yScaleType: primaryYAxis?.scale,
         xTickFormatter,
         xTickLabelRotation: xAxis?.tickLabelRotation,
@@ -139,7 +145,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         divergingStack,
         barCornerRadius,
         tooltip: timeSeriesTooltipConfig,
-        valueDomain,
+        valueDomain: mergeValueDomains(config?.valueDomain, valueDomain),
         yAxes,
     }
 

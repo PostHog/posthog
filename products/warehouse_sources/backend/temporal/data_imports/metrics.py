@@ -3,7 +3,7 @@ import datetime as dt
 from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
-from temporalio.common import MetricCounter, MetricHistogram
+from temporalio.common import MetricCounter, MetricHistogram, MetricHistogramFloat
 
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
@@ -76,6 +76,40 @@ def get_version_check_skipped_metric() -> MetricCounter:
     )
 
 
+def get_retry_budget_reduced_metric(source_type: str | None) -> MetricCounter:
+    # Read against `data_import_finished{status="failed"}`: the two converging means the give-up
+    # covers the failures it was built for.
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown"})
+        .create_counter(
+            "data_import_retry_budget_reduced",
+            "Runs whose import retry cap was cut because the schema keeps failing.",
+        )
+    )
+
+
+def get_run_deferred_metric() -> MetricCounter:
+    # Same visibility gap as the lock and version-check metrics: the skip leaves no job row, so
+    # without this counter a schema can silently miss every scheduled slot.
+    return workflow.metric_meter().create_counter(
+        "data_import_run_deferred", "Scheduled runs that stood down because the schema keeps failing."
+    )
+
+
+def get_progressless_stand_down_metric(source_type: str | None) -> MetricCounter:
+    # The resumable cap is justified only while attempts continue, and this counts where they did
+    # not, so a source that cannot checkpoint at all shows up as a class rather than as a ticket.
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown"})
+        .create_counter(
+            "data_import_progressless_stand_down",
+            "Imports that stopped retrying because no attempt committed anything to resume from.",
+        )
+    )
+
+
 def get_worker_shutdown_handoff_metric(source_type: str | None) -> MetricCounter:
     # Counts imports that gave up a shutting-down worker so another pod can continue them. An
     # import that never hands off keeps its pod alive for the whole graceful shutdown timeout.
@@ -98,6 +132,44 @@ def get_import_handoffs_per_run_metric(source_type: str | None) -> MetricHistogr
         .create_histogram(
             "warehouse_import_handoffs_per_run",
             "Worker-shutdown hand-offs of the import activity in one workflow run.",
+        )
+    )
+
+
+def get_import_preempted_metric(source_type: str | None, reason: str) -> MetricCounter:
+    # `reason` is why the run could continue on another worker (see `PreemptionDecision`).
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown", "reason": reason})
+        .create_counter(
+            "warehouse_import_preempted_total",
+            "Imports the pipeline handed off at a worker shutdown without waiting for the source.",
+        )
+    )
+
+
+def get_import_not_preempted_metric(source_type: str | None, reason: str) -> MetricCounter:
+    # Counted once per attempt that waits for its source at a worker shutdown and must keep the worker.
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown", "reason": reason})
+        .create_counter(
+            "warehouse_import_not_preempted_total",
+            "Imports that could not be preempted at a worker shutdown.",
+        )
+    )
+
+
+def get_shutdown_handoff_delay_metric(source_type: str | None, mode: str) -> MetricHistogramFloat:
+    # `mode` is `preempted` when the pipeline stopped waiting for the source, and `cooperative`
+    # when the source yielded an item or reached a safe point.
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown", "mode": mode})
+        .create_histogram_float(
+            "warehouse_import_shutdown_handoff_delay_seconds",
+            "Seconds from the worker shutdown to the hand-off of an import.",
+            "s",
         )
     )
 

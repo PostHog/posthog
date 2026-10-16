@@ -7,7 +7,7 @@ from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from opentelemetry import trace
 from pydantic import ValidationError
 from rest_framework import serializers, status, viewsets
@@ -21,7 +21,7 @@ from posthog.schema import DateRange, LogAttributesQuery, LogsOrderBy, LogsQuery
 
 from posthog.hogql.errors import QueryError
 
-from posthog.api.documentation import _FallbackSerializer
+from posthog.api.documentation import PropertyGroupOperator, _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -196,6 +196,33 @@ class _LogPropertyFilterSerializer(serializers.Serializer):
     )
 
 
+class _LogsFilterInnerGroupSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=PropertyGroupOperator.choices, help_text="How to combine the filters in `values`."
+    )
+    values = _LogPropertyFilterSerializer(many=True, help_text="Property filters in this group.")
+
+
+class _LogsFilterGroupSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=PropertyGroupOperator.choices, help_text="How to combine the groups in `values`."
+    )
+    values = _LogsFilterInnerGroupSerializer(many=True, help_text="Groups of property filters.")
+
+
+# `_normalize_filter_group` accepts both forms and reads a flat list as one AND group.
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="LogsFilterGroupInput",
+        serializers=[_LogPropertyFilterSerializer(many=True), _LogsFilterGroupSerializer],
+        resource_type_field_name=None,
+        many=False,
+    )
+)
+class _LogsFilterGroupField(serializers.JSONField):
+    pass
+
+
 class _LogsAttributesQuerySerializer(serializers.Serializer):
     search = serializers.CharField(required=False, help_text="Search filter for attribute names")
     search_values = serializers.BooleanField(
@@ -318,11 +345,12 @@ class _LogsQueryBodySerializer(serializers.Serializer):
         help_text="Order results by timestamp.",
     )
     searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
-    filterGroup = serializers.ListField(
-        child=_LogPropertyFilterSerializer(),
+    filterGroup = _LogsFilterGroupField(
         required=False,
-        default=[],
-        help_text="Property filters for the query.",
+        help_text=(
+            "Property filters for the query. Pass a list of filters, which are all combined with AND, "
+            "or a filter group object with nested AND/OR groups."
+        ),
     )
     limit = serializers.IntegerField(required=False, default=100, help_text="Max results (1-1000).")
     after = serializers.CharField(required=False, help_text="Pagination cursor from previous response.")
@@ -368,11 +396,12 @@ class _LogsSparklineBodySerializer(serializers.Serializer):
         help_text="Filter by service names.",
     )
     searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
-    filterGroup = serializers.ListField(
-        child=_LogPropertyFilterSerializer(),
+    filterGroup = _LogsFilterGroupField(
         required=False,
-        default=[],
-        help_text="Property filters for the query.",
+        help_text=(
+            "Property filters for the query. Pass a list of filters, which are all combined with AND, "
+            "or a filter group object with nested AND/OR groups."
+        ),
     )
     sparklineBreakdownBy = serializers.ChoiceField(
         choices=["severity", "service"],
@@ -684,7 +713,6 @@ class _LogEntrySerializer(serializers.Serializer):
     span_id = serializers.CharField(
         help_text='Span ID. Returns "0000000000000000" when not set (padding, not null).',
     )
-    trace_flags = serializers.IntegerField(required=False, help_text="OpenTelemetry trace flags.")
     attributes = serializers.DictField(
         child=serializers.CharField(allow_blank=True),
         help_text="Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns).",
@@ -694,6 +722,19 @@ class _LogEntrySerializer(serializers.Serializer):
         help_text="Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host.",
     )
     event_name = serializers.CharField(required=False, allow_blank=True, help_text="OpenTelemetry event name, if set.")
+    instrumentation_scope = serializers.CharField(
+        allow_blank=True, help_text="OpenTelemetry instrumentation scope name. Empty when not set."
+    )
+    resource_fingerprint = serializers.CharField(
+        help_text="Hash of the resource attributes. Logs from the same pod or host share it."
+    )
+    live_logs_checkpoint = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "Latest timestamp up to which ingestion is known to be complete. The same on every row. "
+            "Logs newer than it can still arrive."
+        ),
+    )
 
 
 class _LogsQueryResponseSerializer(serializers.Serializer):
@@ -735,17 +776,10 @@ class _LogsSparklineBucketSerializer(serializers.Serializer):
         required=False,
         help_text='Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines.',
     )
-    count = serializers.IntegerField()
+    count = serializers.IntegerField(help_text="Number of log entries in the bucket.")
     bytes_uncompressed = serializers.IntegerField(
         required=False,
         help_text="Sum of uncompressed bytes for the bucket.",
-    )
-
-
-class _LogsSparklineResponseSerializer(serializers.Serializer):
-    results = _LogsSparklineBucketSerializer(
-        many=True,
-        help_text="Time-bucketed log counts. Each bucket carries either `severity` or `service` depending on breakdown.",
     )
 
 
@@ -1504,7 +1538,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             status=200,
         )
 
-    @extend_schema(request=_LogsSparklineRequestSerializer, responses={200: _LogsSparklineResponseSerializer})
+    @extend_schema(
+        request=_LogsSparklineRequestSerializer,
+        responses={200: _LogsSparklineBucketSerializer(many=True)},
+    )
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)

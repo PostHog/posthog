@@ -1,7 +1,6 @@
 import React, { CSSProperties } from 'react'
 
 import {
-    IconAIGateway,
     IconApp,
     IconApps,
     IconArrowUpRight,
@@ -115,10 +114,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     llm_analytics: {
         icon: <IconLlmAnalytics />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
-    },
-    ai_gateway: {
-        icon: <IconAIGateway />,
-        iconColor: ['var(--color-product-ai-gateway-light)', 'var(--color-product-ai-gateway-dark)'],
     },
     product_analytics: {
         icon: <IconGraph />,
@@ -490,7 +485,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
 }
 
-const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
+export const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
     // Manifest color takes precedence
     const fileSystemColor = (fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor }>)[
         type as keyof typeof fileSystemTypes
@@ -649,11 +644,6 @@ export function withProductShortcutHref(entry: FileSystemEntry): FileSystemEntry
 
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
-
-export const getDefaultTreeDataAndPeople = (): FileSystemImport[] =>
-    [...getDefaultTreeData(), ...getDefaultTreePersons()].sort((a, b) =>
-        a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
-    )
 
 export const getDefaultTreePersons = (): FileSystemImport[] => [
     {

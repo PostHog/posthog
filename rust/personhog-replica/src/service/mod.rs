@@ -9,6 +9,7 @@ mod tests;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use personhog_common::persons::COOKIELESS_SENTINEL_VALUE;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     AckPersonTombstonesRequest, AckPersonTombstonesResponse, CheckCohortMembershipRequest,
@@ -53,7 +54,6 @@ use personhog_proto::personhog::types::v1::{
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::storage::types::COOKIELESS_SENTINEL_VALUE;
 use crate::storage::{self, FullStorage};
 
 const MAX_BATCH_LOOKUP_SIZE: usize = 250;

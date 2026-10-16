@@ -22,6 +22,7 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 
 from products.canvas.backend.contract import GRID_COLUMN_CHOICES, MAX_COMPONENT_HEIGHT, contract_limits
+from products.canvas.backend.facade.enums import CanvasPlacementStatus
 from products.canvas.backend.source import diagnostic
 
 if TYPE_CHECKING:
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
 
 CANVAS_LAYOUT_SCHEMA_VERSION = 1
 
-PLACEMENT_STATUSES = ("pending", "generating", "live", "failed")
+PLACEMENT_STATUSES = tuple(CanvasPlacementStatus.values)
 PLACEMENT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 MIN_ROW_HEIGHT = 24

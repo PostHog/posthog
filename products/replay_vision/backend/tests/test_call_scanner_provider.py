@@ -247,19 +247,38 @@ async def test_step_survives_a_response_with_no_candidates() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "first",
+    "first,correction",
     [
-        _Resp(text="not json"),
-        ValueError("Exceeds the limit (4300 digits) for integer string conversion: value has 16266 digits"),
+        (_Resp(text="not json"), "Respond with raw JSON only"),
+        (
+            ValueError("Exceeds the limit (4300 digits) for integer string conversion: value has 16266 digits"),
+            "Respond with raw JSON only",
+        ),
+        (_Resp(text='{"verdict":"conclu\\u0000"}'), "never as \\u escapes"),
     ],
 )
-async def test_step_re_prompts_once_on_invalid_json(first: _Resp | Exception) -> None:
+async def test_step_re_prompts_once_on_invalid_json(first: _Resp | Exception, correction: str) -> None:
     steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
     client = _FakeClient([first, _Resp(text='{"verdict":"yes"}')])
     out = await _run(client, steps)
     assert out["core"].verdict == "yes"
     assert len(client.models.calls) == 2  # initial + one re-prompt
-    assert "Respond with raw JSON only" in client.models.calls[1]["contents"][-1].text
+    assert correction in client.models.calls[1]["contents"][-1].text
+
+
+@pytest.mark.asyncio
+async def test_control_characters_left_after_the_re_prompt_are_dropped_not_the_answer() -> None:
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    client = _FakeClient(
+        [
+            _Resp(text='{"verdict":"a\\u0001\\u0000"}'),
+            _Resp(text='{"verdict":"nenhuma a\\u0000"}'),
+            _Resp(text='{"verdict":"yes"}'),
+        ]
+    )
+    out = await _run(client, [*steps, MissionStep(name="side", instruction="s", response_model=_Core)])
+    assert out["core"].verdict == "nenhuma a"
+    assert '"verdict": "nenhuma a"' in str(client.models.calls[2]["contents"])
 
 
 @pytest.mark.asyncio
@@ -611,8 +630,8 @@ async def test_video_cache_creation_is_best_effort() -> None:
 
 @pytest.mark.asyncio
 async def test_apply_experiment_scan_context_injects_into_experiment_scanners_only() -> None:
-    # The injected fields are exclude=True, so this per-scan context is the only way the prompt
-    # ever learns the variant; a broken injection silently degrades every experiment scan.
+    # The injected field is exclude=True, so this per-scan context is the only way the prompt
+    # ever learns the experiment; a broken injection silently degrades every experiment scan.
     from uuid import uuid4
 
     from products.replay_vision.backend.temporal.activities.call_scanner_provider import _apply_experiment_scan_context
@@ -639,9 +658,10 @@ async def test_apply_experiment_scan_context_injects_into_experiment_scanners_on
     experiment_scanner = ExperimentScanner(prompt="p", experiment_id=42)
     injected = await _apply_experiment_scan_context(experiment_scanner, inputs)
     assert isinstance(injected, ExperimentScanner)
-    assert injected.session_variant == "test"
     assert injected.experiment_context is not None and injected.experiment_context["name"] == "Checkout CTA copy"
-    assert "`test` variant" in injected.core_steps()[0].instruction
+    instruction = injected.core_steps()[0].instruction
+    assert "Checkout CTA copy" in instruction
+    assert "`test`" not in instruction
 
     monitor = MonitorScanner(prompt="p")
     assert await _apply_experiment_scan_context(monitor, inputs) is monitor
@@ -662,9 +682,14 @@ async def test_evaluation_calls_fall_back_to_the_persisted_attribution() -> None
     )
     with patch(
         "products.replay_vision.backend.temporal.activities.call_scanner_provider._load_persisted_experiment_context",
-        return_value=("control", None),
+        return_value={
+            "name": "Checkout CTA copy",
+            "description": "",
+            "feature_flag_key": "checkout-cta",
+            "variants": [],
+        },
     ):
         injected = await _apply_experiment_scan_context(ExperimentScanner(prompt="p", experiment_id=42), inputs)
 
     assert isinstance(injected, ExperimentScanner)
-    assert injected.session_variant == "control"
+    assert injected.experiment_context is not None and injected.experiment_context["name"] == "Checkout CTA copy"

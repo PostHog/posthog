@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CratesIOSource(SimpleSource[CratesIOSourceConfig]):
+    codebase_detection = detect(env=("^(CRATES_IO|CRATESIO)_", "^CARGO_REGISTRY_TOKEN$"))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://doc.rust-lang.org/cargo/reference/registry-web-api.html"

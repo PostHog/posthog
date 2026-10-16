@@ -15,19 +15,18 @@ from django.test.client import RequestFactory
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework import status, test
+from rest_framework import serializers, status, test
 
 from posthog.api.project import ProjectBackwardCompatSerializer, log_activity
-from posthog.api.team import (
+from posthog.api.team.conversations_settings import handle_conversations_token_on_update, merge_conversations_settings
+from posthog.api.team.live_events import _default_data_color_theme_id, _reset_default_data_color_theme_id_cache
+from posthog.api.team.team_config import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
-    TeamSerializer,
     TeamWorkflowsConfigSerializer,
-    _default_data_color_theme_id,
-    _reset_default_data_color_theme_id_cache,
-    handle_conversations_token_on_update,
-    merge_conversations_settings,
 )
+from posthog.api.team.team_serializer import TeamSerializer
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
@@ -48,6 +47,7 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 from posthog.utils import get_context_for_template, get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -56,6 +56,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.team_home_tab_dashboard_config import TeamHomeTabDashboardConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.feature_flags.backend.test import replay_gate_fixtures
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
@@ -442,6 +443,45 @@ def team_api_test_factory():
                 response_data["test_account_filters"],
                 [{"key": "$current_url", "value": "test"}],
             )
+
+        @parameterized.expand(
+            [
+                # The filter that does not compile must neither break the save nor hide the denial.
+                ("flat", lambda denied: [{"type": "hogql", "key": ""}, denied]),
+                (
+                    "nested_in_behavioral",
+                    lambda _denied: [
+                        {
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                            "event_filters": [{"type": "hogql", "key": "person.denied_join.id = 'internal'"}],
+                        }
+                    ],
+                ),
+            ]
+        )
+        @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
+        @patch("posthog.hogql.property.posthoganalytics.feature_enabled", return_value=True)
+        def test_update_rejects_a_test_account_filter_through_a_denied_warehouse_table(
+            self, _name, filters_for, _behavioral_flag, _flag
+        ):
+            denied_filter = deny_warehouse_table_to_member(self.organization, self.team, self.user)
+            filters_before = self.team.test_account_filters
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"test_account_filters": filters_for(denied_filter)},
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["attr"] == "test_account_filters"
+            assert "denied_warehouse_table" in response.json()["detail"]
+            self.team.refresh_from_db()
+            assert self.team.test_account_filters == filters_before
 
         @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
         @patch("posthoganalytics.capture")
@@ -1366,22 +1406,54 @@ def team_api_test_factory():
                 {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
             ]
 
-        def test_modifiers_use_new_events_schema_is_not_client_writable(self) -> None:
+        @parameterized.expand([("useNewEventsSchema",), ("useNewEventsCluster",)])
+        def test_events_routing_modifiers_are_not_client_writable(self, modifier: str) -> None:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}",
-                {"modifiers": {"useNewEventsSchema": True}},
+                {"modifiers": {modifier: True}},
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            assert "useNewEventsSchema" not in response.json()["modifiers"]
+            assert modifier not in response.json()["modifiers"]
 
-            self.team.modifiers = {"useNewEventsSchema": True}
+            self.team.modifiers = {modifier: True}
             self.team.save()
             response = self.client.patch(
                 f"/api/environments/{self.team.id}",
-                {"modifiers": {"useNewEventsSchema": False, "bounceRateDurationSeconds": 30}},
+                {"modifiers": {modifier: False, "bounceRateDurationSeconds": 30}},
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            assert response.json()["modifiers"] == {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
+            assert response.json()["modifiers"] == {modifier: True, "bounceRateDurationSeconds": 30}
+
+        @parameterized.expand(
+            [
+                (
+                    "environments",
+                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
+                    None,
+                    {"useNewEventsSchema": True},
+                ),
+                (
+                    "projects",
+                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
+                    None,
+                    {"useNewEventsSchema": True},
+                ),
+                ("environments", True, None, None),
+                ("projects", ["useNewEventsSchema"], None, None),
+                ("environments", True, {"bounceRateDurationSeconds": 30}, {"bounceRateDurationSeconds": 30}),
+            ]
+        )
+        def test_patching_modifiers_over_a_stored_value(
+            self, prefix: str, stored: object, patched: dict | None, expected: dict | None
+        ) -> None:
+            self.team.modifiers = stored
+            self.team.save()
+
+            response = self.client.patch(f"/api/{prefix}/{self.team.id}", {"modifiers": patched}, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            self.team.refresh_from_db()
+            assert self.team.modifiers == expected
 
         @parameterized.expand(
             [
@@ -1524,7 +1596,7 @@ def team_api_test_factory():
                 team=self.team,
             )
 
-        @patch("posthog.api.team.enqueue_product_activation_calc_debounced", MagicMock())
+        @patch("posthog.api.team.team_serializer.enqueue_product_activation_calc_debounced", MagicMock())
         @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation", return_value=False)
         @patch("posthog.event_usage.report_user_action")
         @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
@@ -1594,7 +1666,7 @@ def team_api_test_factory():
             assert self.team.session_recording_opt_in is True
 
         @patch("posthog.api.project.report_user_action")
-        @patch("posthog.api.team.report_user_action")
+        @patch("posthog.api.team.viewsets.report_user_action")
         def test_can_complete_product_onboarding(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
@@ -1629,7 +1701,7 @@ def team_api_test_factory():
             )
 
         @patch("posthog.api.project.report_user_action")
-        @patch("posthog.api.team.report_user_action")
+        @patch("posthog.api.team.viewsets.report_user_action")
         def test_can_complete_product_onboarding_as_member(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
@@ -2023,7 +2095,7 @@ def team_api_test_factory():
             assert response.json()["conversations_settings"]["widget_color"] == "#ff0000"
 
         def test_conversations_settings_change_reports_event_per_setting(self):
-            with patch("posthog.api.team.report_user_action") as mock_report:
+            with patch("posthog.api.team.conversations_settings.report_user_action") as mock_report:
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"conversations_settings": {"slack_nudge_enabled": False, "widget_greeting_text": "Hi!"}},
@@ -2040,7 +2112,7 @@ def team_api_test_factory():
                 assert "value" not in props_by_setting["widget_greeting_text"]
 
             # A no-op save (same values) must not re-fire the event.
-            with patch("posthog.api.team.report_user_action") as mock_report:
+            with patch("posthog.api.team.conversations_settings.report_user_action") as mock_report:
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"conversations_settings": {"slack_nudge_enabled": False}},
@@ -3773,7 +3845,7 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
     def test_default_data_color_theme_id_is_cached_for_process_lifetime(self):
         # System-wide default DataColorTheme is a deploy-time fixture; cache for
         # process lifetime to skip a per-render PG round-trip on the home view.
-        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+        with patch("posthog.api.team.live_events.DataColorTheme.objects") as mock_objects:
             chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
             chained.first.return_value = 42
 
@@ -3787,7 +3859,7 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
         # If the very first call lands before the data migration is applied, a
         # None must NOT be cached - subsequent calls should retry so we recover
         # automatically once the row appears.
-        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+        with patch("posthog.api.team.live_events.DataColorTheme.objects") as mock_objects:
             chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
             chained.first.return_value = None
 
@@ -3796,7 +3868,7 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
 
         assert mock_objects.filter.call_count == 2
 
-        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+        with patch("posthog.api.team.live_events.DataColorTheme.objects") as mock_objects:
             chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
             chained.first.return_value = 7
 
@@ -3818,7 +3890,7 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         ]
     )
     def test_returns_a_signed_jwt_with_expected_claims(self, _name: str, anonymous: bool) -> None:
-        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.api.team.live_events import get_or_mint_live_events_token
         from posthog.jwt import PosthogJwtAudience, decode_jwt
 
         user_id = None if anonymous else self.user.id
@@ -3836,11 +3908,11 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         ]
     )
     def test_second_call_returns_cached_token_without_re_signing(self, _name: str, anonymous: bool) -> None:
-        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.api.team.live_events import get_or_mint_live_events_token
 
         user_id = None if anonymous else self.user.id
         first = get_or_mint_live_events_token(self.team, user_id)
-        with patch("posthog.api.team.encode_jwt") as mock_encode:
+        with patch("posthog.api.team.live_events.encode_jwt") as mock_encode:
             second = get_or_mint_live_events_token(self.team, user_id)
         mock_encode.assert_not_called()
         assert first == second
@@ -3858,7 +3930,7 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         ]
     )
     def test_cache_key_component_changes_force_a_fresh_mint(self, _name: str, mutation_factory) -> None:
-        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.api.team.live_events import get_or_mint_live_events_token
 
         mutation = mutation_factory(self)
         first_user_id = mutation.get("first_user_id", self.user.id)
@@ -3876,7 +3948,7 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         # the livestream service would reject the cached old-key signatures for up
         # to the cache TTL. We embed a fingerprint of JWT_SIGNING_KEY in the cache key so
         # the namespace partitions cleanly on rotation.
-        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.api.team.live_events import get_or_mint_live_events_token
 
         token_old_key = get_or_mint_live_events_token(self.team, self.user.id)
         with override_settings(JWT_SIGNING_KEY="completely-different-rotated-secret"):
@@ -4176,6 +4248,20 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
 _TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
 
 
+def _sixty_channel_ids() -> list[str]:
+    return [f"C{i}" for i in range(60)]
+
+
+def _validate_conversations_settings(
+    serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+    stored: dict[str, object] | None,
+    submitted: dict[str, object],
+) -> dict[str, object] | None:
+    team = Team(conversations_settings=stored)
+    instance = team if serializer_class is TeamSerializer else MagicMock(passthrough_team=team)
+    return serializer_class(instance=instance).validate_conversations_settings(submitted)
+
+
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
     @parameterized.expand([(None,), ({},), ({"widget_color": "#123456"},)])
     def test_conversations_settings_clear_without_managed_values(self, existing: dict[str, str] | None) -> None:
@@ -4195,7 +4281,9 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
             "conversations_settings": merge_conversations_settings(None, current),
         }
 
-        with patch("posthog.api.team.secrets.token_urlsafe", return_value="test-generated-token"):
+        with patch(
+            "posthog.api.team.conversations_settings.secrets.token_urlsafe", return_value="test-generated-token"
+        ):
             result = handle_conversations_token_on_update(updates, not enabling, current)
 
         token = ("test-existing-token" if has_token else "test-generated-token") if enabling else None
@@ -4213,12 +4301,49 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         if settings_input != "omitted":
             updates["conversations_settings"] = None if settings_input == "null" else {}
 
-        with patch("posthog.api.team.secrets.token_urlsafe", return_value="test-generated-token"):
+        with patch(
+            "posthog.api.team.conversations_settings.secrets.token_urlsafe", return_value="test-generated-token"
+        ):
             result = handle_conversations_token_on_update(updates, not enabling, current_settings)
 
         expected: dict[str, str | None] = dict(current_settings) if settings_input == "omitted" else {}
         expected["widget_public_token"] = "test-generated-token" if enabling else None
         self.assertEqual(result["conversations_settings"], expected)
+
+    @parameterized.expand(
+        [
+            (serializer, scopes, allowed)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for scopes, allowed in (
+                (None, True),
+                (["project:read"], False),
+                (["query:read"], True),
+                (["query:write"], True),
+                (["*"], True),
+            )
+        ]
+    )
+    def test_live_events_token_requires_query_access(
+        self,
+        serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+        scopes: list[str] | None,
+        allowed: bool,
+    ) -> None:
+        authenticator = None
+        if scopes is not None:
+            authenticator = PersonalAPIKeyAuthentication()
+            authenticator.personal_api_key = PersonalAPIKey(scopes=scopes)
+        request = MagicMock(user=MagicMock(id=1, is_authenticated=True))
+        request.successful_authenticator = authenticator
+        team = Team(id=1)
+        serializer = serializer_class(context={"request": request})
+
+        with patch("posthog.api.team.live_events.get_or_mint_live_events_token", return_value="test-live-token"):
+            if isinstance(serializer, TeamSerializer):
+                token = serializer.get_live_events_token(team)
+            else:
+                token = serializer.get_live_events_token(MagicMock(passthrough_team=team))
+            self.assertEqual(token, "test-live-token" if allowed else None)
 
     @parameterized.expand(
         [
@@ -4233,6 +4358,134 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         serializer = serializer_class(data={"conversations_settings": value}, partial=True)
         self.assertFalse(serializer.is_valid())
         self.assertIn("conversations_settings", serializer.errors)
+
+    @parameterized.expand(
+        [
+            (serializer, name, ai_reply_modes, expected_cleaned)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for name, ai_reply_modes, expected_cleaned in (
+                ("non_string_mode_is_dropped", {"slack": {"how_to": ["bot_reply"]}}, {}),
+                (
+                    "bot_reply_for_diagnostic_becomes_private_note",
+                    {"slack": {"diagnostic": "bot_reply"}},
+                    {"slack": {"diagnostic": "private_note"}},
+                ),
+            )
+        ]
+    )
+    def test_conversations_settings_ai_reply_modes_cleans_up_values(
+        self,
+        serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+        _name: str,
+        ai_reply_modes: dict,
+        expected_cleaned: dict,
+    ) -> None:
+        # Calls the field validator directly, like test_normalize_logs_json_attribute_key below:
+        # building a full serializer.is_valid() call needs view/request context neither
+        # serializer has outside a real request, which this no-DB test does not set up.
+        cleaned = serializer_class().validate_conversations_settings({"ai_reply_modes": ai_reply_modes})
+        assert cleaned is not None
+        self.assertEqual(cleaned["ai_reply_modes"], expected_cleaned)
+
+    @parameterized.expand(
+        [
+            (serializer, name, stored, submitted)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for name, stored, submitted in (
+                ("ai_reply_modes_must_be_an_object", None, {"ai_reply_modes": ["not", "a", "dict"]}),
+                (
+                    "changed_ai_reply_modes_must_be_an_object",
+                    {"ai_reply_modes": ["old"]},
+                    {"ai_reply_modes": ["new"]},
+                ),
+                (
+                    "changed_display_name_over_200_characters",
+                    {"slack_bot_display_name": "a" * 201},
+                    {"slack_bot_display_name": "b" * 201},
+                ),
+            )
+        ]
+    )
+    def test_conversations_settings_rejects_invalid_values(
+        self,
+        serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+        _name: str,
+        stored: dict[str, object] | None,
+        submitted: dict[str, object],
+    ) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            _validate_conversations_settings(serializer_class, stored, submitted)
+
+    @parameterized.expand(
+        [
+            (serializer, name, stored, submitted, expected_cleaned)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for name, stored, submitted, expected_cleaned in (
+                (
+                    "dedupes_and_caps_at_50",
+                    None,
+                    {"slack_channel_ids": ["a", "a", "b"] + [f"c{i}" for i in range(50)]},
+                    {"slack_channel_ids": ["a", "b"] + [f"c{i}" for i in range(48)]},
+                ),
+                ("null_clears_the_stored_list", None, {"slack_channel_ids": None}, {"slack_channel_ids": None}),
+                (
+                    "unchanged_list_over_50_is_kept",
+                    {"slack_channel_ids": _sixty_channel_ids()},
+                    {"slack_channel_ids": _sixty_channel_ids()},
+                    {"slack_channel_ids": _sixty_channel_ids()},
+                ),
+                (
+                    "changed_list_over_50_is_capped",
+                    {"slack_channel_ids": _sixty_channel_ids()},
+                    {"slack_channel_ids": ["new", *_sixty_channel_ids()]},
+                    {"slack_channel_ids": ["new", *_sixty_channel_ids()[:49]]},
+                ),
+                (
+                    "unchanged_display_name_over_200_characters_is_kept",
+                    {"slack_bot_display_name": "a" * 201},
+                    {"slack_bot_display_name": "a" * 201},
+                    {"slack_bot_display_name": "a" * 201},
+                ),
+                (
+                    "unchanged_non_object_ai_reply_modes_is_kept",
+                    {"ai_reply_modes": ["old"]},
+                    {"ai_reply_modes": ["old"]},
+                    {"ai_reply_modes": ["old"]},
+                ),
+                (
+                    "unchanged_bot_reply_mode_is_kept",
+                    {"ai_reply_modes": {"slack": {"diagnostic": "bot_reply"}}},
+                    {"ai_reply_modes": {"slack": {"diagnostic": "bot_reply"}}},
+                    {"ai_reply_modes": {"slack": {"diagnostic": "bot_reply"}}},
+                ),
+                (
+                    "unchanged_widget_domains_is_kept",
+                    {"widget_domains": _TOO_MANY_WILDCARDS},
+                    {"widget_domains": _TOO_MANY_WILDCARDS},
+                    {"widget_domains": _TOO_MANY_WILDCARDS},
+                ),
+                (
+                    "changed_value_is_cleaned_with_unchanged_value_present",
+                    {"ai_reply_modes": ["old"], "slack_alert_channel_id": "old"},
+                    {"ai_reply_modes": ["old"], "slack_alert_channel_id": " new "},
+                    {"ai_reply_modes": ["old"], "slack_alert_channel_id": "new"},
+                ),
+            )
+        ]
+    )
+    def test_conversations_settings_cleans_up_values(
+        self,
+        serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+        _name: str,
+        stored: dict[str, object] | None,
+        submitted: dict[str, object],
+        expected_cleaned: dict[str, object],
+    ) -> None:
+        # A PATCH that sends null must clear the stored list, not silently keep the old one:
+        # merge_conversations_settings only overwrites keys present in the validated value, so
+        # dropping the key here (instead of keeping it as None) would make the clear a no-op.
+        cleaned = _validate_conversations_settings(serializer_class, stored, submitted)
+        self.assertEqual(cleaned, expected_cleaned)
 
     @parameterized.expand([(None,), (True,), (123,), ([],), ({},), ("a" * 201,)])
     def test_invalid_logs_json_attribute_key(self, key):
@@ -4360,6 +4613,43 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
     def test_valid_session_recording_linked_flag(self, _name: str, value: dict | None, expected: dict | None) -> None:
         assert TeamSerializer.validate_session_recording_linked_flag(value) == expected
         assert ProjectBackwardCompatSerializer.validate_session_recording_linked_flag(value) == expected
+
+    @staticmethod
+    def _trigger_groups_gated_on(flag: Any) -> dict:
+        return {
+            **replay_gate_fixtures.trigger_groups({"events": ["$pageview"], "flag": flag}),
+            "fallbackSampleRate": 0.1,
+        }
+
+    @parameterized.expand(
+        [
+            ["non-numeric string id", "abc"],
+            ["null id", None],
+        ]
+    )
+    def test_invalid_session_recording_trigger_groups_flag_id(self, _name: str, flag_id: Any) -> None:
+        self._assert_field_error(
+            "session_recording_trigger_groups",
+            self._trigger_groups_gated_on({"id": flag_id, "key": "flag-key"}),
+            "invalid",
+            "Group 0: flag 'id' must be an integer.",
+        )
+
+    @parameterized.expand(
+        [
+            ["integer id", {"id": 123, "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
+            [
+                "numeric string id with variant",
+                {"id": "123", "key": "flag-key", "variant": "test"},
+                {"id": 123, "key": "flag-key", "variant": "test"},
+            ],
+        ]
+    )
+    def test_valid_session_recording_trigger_groups_flag_id(self, _name: str, flag: dict, expected: dict) -> None:
+        value = self._trigger_groups_gated_on(flag)
+        expected_groups = self._trigger_groups_gated_on(expected)
+        assert TeamSerializer.validate_session_recording_trigger_groups(value) == expected_groups
+        assert ProjectBackwardCompatSerializer.validate_session_recording_trigger_groups(value) == expected_groups
 
     @parameterized.expand(
         [

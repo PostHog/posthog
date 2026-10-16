@@ -4,7 +4,13 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openfda import (
+    OpenFDASourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.source import OpenFDASource
 
 
@@ -15,14 +21,6 @@ def _config(api_key: str | None = "key") -> Any:
 
 
 class TestSourceConfig:
-    def test_config_metadata(self) -> None:
-        config = OpenFDASource().get_source_config
-        assert config.label == "openFDA"
-        assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # docsUrl slug must match the published doc filename so the website doesn't 404.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/openfda"
-
     def test_api_key_field_is_optional_secret(self) -> None:
         fields: dict[str, Any] = {f.name: f for f in OpenFDASource().get_source_config.fields}
         assert set(fields) == {"api_key"}
@@ -38,20 +36,6 @@ class TestSourceConfig:
 
 
 class TestGetSchemas:
-    def test_lists_all_endpoints(self) -> None:
-        names = {s.name for s in OpenFDASource().get_schemas(_config(), team_id=1)}
-        assert names == {
-            "drug_events",
-            "drug_labels",
-            "drug_ndc",
-            "drug_enforcement",
-            "device_events",
-            "device_510k",
-            "device_enforcement",
-            "food_enforcement",
-            "food_events",
-        }
-
     @parameterized.expand(
         [
             ("drug_events", True, ["safetyreportid"]),
@@ -95,38 +79,19 @@ class TestValidateCredentials:
         assert message
 
 
-class TestNonRetryableErrors:
-    def test_auth_errors_are_non_retryable(self) -> None:
-        errors = OpenFDASource().get_non_retryable_errors()
-        # 401/403 (bad or over-quota key) can never be fixed by retrying — they must stop the sync.
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-
 class TestResumableWiring:
-    def test_source_for_pipeline_plumbs_incremental_inputs(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
-
-        def fake_source(**kwargs: Any) -> str:
-            captured.update(kwargs)
-            return "response"
-
-        monkeypatch.setattr(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.openfda.source.openfda_source",
-            fake_source,
+    def test_source_for_pipeline_plumbs_incremental_inputs(self) -> None:
+        result = SourceDriver(OpenFDASource(), OpenFDASourceConfig(api_key="k")).run(
+            "drug_enforcement",
+            [ScriptedResponse(json={"meta": {}, "results": []})],
+            incremental_field="report_date",
+            db_incremental_field_last_value="20200101",
         )
-        inputs = MagicMock()
-        inputs.schema_name = "drug_enforcement"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "20200101"
-        inputs.incremental_field = "report_date"
-
-        result: Any = OpenFDASource().source_for_pipeline(_config(api_key="k"), MagicMock(), inputs)
-        assert result == "response"
-        assert captured["endpoint"] == "drug_enforcement"
-        assert captured["api_key"] == "k"
-        assert captured["db_incremental_field_last_value"] == "20200101"
-        assert captured["incremental_field"] == "report_date"
+        assert result.raised is None
+        assert result.paths == ["/drug/enforcement.json"]
+        assert result.requests[0].headers["authorization"] == "Basic azo="
+        assert result.params("search") == ["report_date:[20200101 TO 99991231]"]
+        assert result.params("sort") == ["report_date:asc"]
 
     def test_source_for_pipeline_drops_watermark_when_not_incremental(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}

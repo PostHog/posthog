@@ -79,21 +79,13 @@ describe('messageTemplateLogic', () => {
         })
 
         it.each([
-            {
-                missing: 'name',
-                prefill: { key: 'content.email.subject', value: 'Welcome' },
-                toast: 'Name is required',
-            },
-            {
-                missing: 'subject',
-                prefill: { key: 'name', value: 'Welcome email' },
-                toast: 'Subject is required',
-            },
-        ])('toasts when the $missing is missing', async ({ prefill, toast }) => {
+            { missing: 'name', key: 'name', toast: 'Name is required' },
+            { missing: 'subject', key: 'content.email.subject', toast: 'Subject is required' },
+        ])('toasts when the $missing is missing', async ({ key, toast }) => {
             logic = messageTemplateLogic({ id: 'new' })
             logic.mount()
 
-            logic.actions.setTemplateValue(prefill.key, prefill.value)
+            logic.actions.setTemplateValue(key, '')
             await expectLogic(logic, () => {
                 logic.actions.submitTemplate()
             }).toDispatchActions(['submitTemplateFailure'])
@@ -336,6 +328,33 @@ describe('messageTemplateLogic', () => {
             router.actions.push(NEW_PATH, { mode: 'editor' }, {})
 
             await expectLogic(logic).toMatchValues({ templatePickerOpen: true })
+        })
+    })
+
+    describe('make transactional', () => {
+        it('keeps edits made while the conversion runs', async () => {
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/messaging_templates/:id/make_transactional/': {
+                        id: 'existing-id',
+                        name: 'Existing',
+                        transactional_hog_flow_id: 'flow-id',
+                        updated_at: '2026-01-02T00:00:00Z',
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.makeTransactional()
+                logic.actions.setTemplateValue('name', 'Renamed while converting')
+            })
+                .toDispatchActions(['makeTransactionalDone'])
+                .toMatchValues({ transactionalHogFlowId: 'flow-id', templateChanged: true })
+
+            expect(logic.values.template.name).toEqual('Renamed while converting')
         })
     })
 })

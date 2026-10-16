@@ -1,15 +1,8 @@
 """Serializers shared across domain modules, and their own leaves."""
 
-from rest_framework.fields import ChoiceField
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from products.engineering_analytics.backend.facade.contracts import CIEngine, CIFailureLogLine, CIJobFailureLog, RepoRef
-
-
-def ci_engine_field() -> ChoiceField:
-    return ChoiceField(
-        choices=CIEngine.choices, required=False, allow_null=True, help_text="CI execution engine; null when unknown."
-    )
+from products.engineering_analytics.backend.facade.contracts import CIFailureLogLine, CIJobFailureLog, RepoRef
 
 
 class RepoRefSerializer(DataclassSerializer):
@@ -36,7 +29,6 @@ class CIFailureLogLineSerializer(DataclassSerializer):
 
 
 class CIJobFailureLogSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
     lines = CIFailureLogLineSerializer(
         many=True, help_text="The thinned failure-log lines in original order, with omission markers."
     )
@@ -44,6 +36,7 @@ class CIJobFailureLogSerializer(DataclassSerializer):
     class Meta:
         dataclass = CIJobFailureLog
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "job_id": {"help_text": "Integer job id of the failed job; unique only together with ci_engine."},
             "run_id": {"help_text": "Workflow run id the job belongs to."},
             "conclusion": {

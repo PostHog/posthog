@@ -332,9 +332,8 @@ export const API_SCOPES: APIScope[] = [
     { key: 'stamphog', objectName: 'Stamphog', objectPlural: 'stamphog' },
     { key: 'streamlit_app', objectName: 'Streamlit app', objectPlural: 'Streamlit apps' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
-    { key: 'today', objectName: 'Today briefing', objectPlural: 'Today briefings' },
+    { key: 'today', objectName: 'Today home', objectPlural: 'Today home' },
     { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
-    { key: 'vision_action', objectName: 'Vision action', objectPlural: 'vision actions' },
     { key: 'vision_alert', objectName: 'Vision alert', objectPlural: 'vision alerts' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {
@@ -363,6 +362,7 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     mcp_registry: 'Behind a feature flag.',
     cross_project_dashboard: 'Behind a feature flag.',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
+    vision_action: 'Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.',
 }
 
 // Keep in sync with PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION in posthog/scopes.py.
@@ -376,6 +376,10 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'loop:write',
     'experiment:read',
     'offline_evaluation_ingestion:write',
+    'billing:read',
+    'replay_scanner:write',
+    'session_recording:read',
+    'hog_flow:write',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]

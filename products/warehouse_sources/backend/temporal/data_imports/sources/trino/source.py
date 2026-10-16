@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,15 @@ _TRINO_IMPLEMENTATION = TrinoImplementation()
 
 @SourceRegistry.register
 class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^TRINO_",),
+        npm=("trino-client",),
+        pypi=("trino",),
+        go=("github.com/trinodb/trino-go-client",),
+        maven=("io.trino:trino-jdbc", "io.trino:trino-cli", "io.trino:trino-clickhouse", "io.trino:trino-client"),
+        rubygems=("trino-client", "trino-client-ruby"),
+    )
+
     api_docs_url = "https://trino.io/docs/current/client/python.html"
 
     @property

@@ -19,9 +19,9 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.integration_secrets.errors import IntegrationSecretsFailure
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
@@ -52,13 +52,17 @@ from products.warehouse_sources.backend.temporal.data_imports.import_attempt imp
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
+    get_progressless_stand_down_metric,
     get_worker_shutdown_handoff_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    count_worker_deaths,
     handle_non_retryable_error,
     report_heartbeat_timeout,
+    reset_pipeline_requested,
     trim_source_job_inputs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
@@ -71,7 +75,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     repartition_import_hold_reason,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+    PipelineInputs,
+    relink_orphan_table,
+)
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -135,6 +143,9 @@ class ImportDataActivityInputs:
     handoff_count: int = 0
     # Attempts that earlier executions of this activity used in the same workflow run.
     prior_attempts: int = 0
+    # True when the workflow gave this run the resumable retry cap. Defaults False so a payload
+    # that predates the field keeps every attempt its history recorded.
+    on_resumable_retry_budget: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -155,14 +166,12 @@ class ImportDataActivityInputs:
 def _resolve_reset_pipeline(
     inputs: ImportDataActivityInputs, schema: ExternalDataSchema, *, job_created_at: dt.datetime
 ) -> bool:
-    if inputs.reset_pipeline is not None:
-        return inputs.reset_pipeline
-    if schema.sync_type_config.get("reset_pipeline", False) is True:
-        return True
-    # Each attempt loads the schema again. Checked at the job's creation, it stays due until the wipe moves the due
-    # time past that point, so a retry after the wipe carries on instead of wiping again. The current time is not
-    # safe: with a 1-day interval and a set time, a wipe more than an hour early leaves that day's slot due.
-    return inputs.scheduled_full_refresh and schema.scheduled_full_refresh_due(now=job_created_at)
+    return reset_pipeline_requested(
+        schema,
+        workflow_reset_pipeline=inputs.reset_pipeline,
+        scheduled_full_refresh=inputs.scheduled_full_refresh,
+        job_created_at=job_created_at,
+    )
 
 
 @database_sync_to_async_pool
@@ -416,7 +425,18 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
     async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
-        model = await _get_external_data_job(inputs.run_id)
+        try:
+            model = await _get_external_data_job(inputs.run_id)
+        except ExternalDataJob.DoesNotExist as e:
+            # The same condition check_billing_limits_activity, repartition_table.py and
+            # calculate_table_size.py already treat as benign: this run_id can point at a job
+            # that was never created, e.g. external_data_job.py's legacy-tuple safety net
+            # handing through an older worker's create_external_data_job_model_activity result
+            # during a rolling deploy. NonReportableError keeps a deploy skew out of error
+            # tracking; Temporal retries the activity, and the next scheduled run recreates the
+            # job if these retries don't land on a consistent worker.
+            await logger.awarning(str(e))
+            raise NonReportableError(f"Job {inputs.run_id} does not exist") from e
 
         if model.pipeline_version != ExternalDataJob.PipelineVersion.V3:
             # Only a job created before every run moved to V3 can get here, and the V2 pipeline
@@ -551,6 +571,15 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 attempt=attempt,
             )
 
+        # Preemption makes hand-offs frequent, so it applies only to a run whose hand-offs use no
+        # retry attempt.
+        preemption: PreemptionConfig | None = None
+        if settings.DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED and inputs.handoffs_are_free:
+            preemption = PreemptionConfig(
+                quiet_period_seconds=settings.DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS,
+                watermark_carry_over_enabled=settings.DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED,
+            )
+
         if schema.should_use_incremental_field:
             await logger.adebug(f"Incremental last value being used is: {processed_incremental_last_value}")
 
@@ -564,8 +593,15 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         # Re-validate against current metadata so a stale filter (dropped column, changed type)
         # fails here with an actionable message rather than emitting a broken query downstream.
+        filterable_columns = (
+            SourceRegistry.get_source(source_type).row_filter_columns_for_schema(schema.name)
+            if schema.row_filters and SourceRegistry.is_registered(source_type)
+            else None
+        )
         try:
-            row_filters = validate_and_coerce_row_filters(schema.row_filters, schema.schema_metadata)
+            row_filters = validate_and_coerce_row_filters(
+                schema.row_filters, schema.schema_metadata, filterable_columns
+            )
         except RowFilterValidationError as e:
             raise RowFilterValidationError(
                 f"Row filter on schema '{schema.name}' no longer matches the current table schema ({e}). "
@@ -634,12 +670,13 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 activity_attempt=current_import_attempt(),
+                worker_deaths=await asyncio.to_thread(count_worker_deaths, inputs, logger),
                 source_cursor=source_cursor_manager,
             )
 
             try:
                 config = new_source.parse_config(model.pipeline.job_inputs)
-            except IntegrationSecretsFailure as e:
+            except CredentialsServiceFailure as e:
                 # A source whose config carries a PostHog-owned credential resolves it here, so a
                 # failure at this point is ours and not a corrupt `job_inputs`. Route it through the
                 # shared policy: the branch below would read it as an unparseable config and disable
@@ -715,7 +752,13 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 # here (deleted/misconfigured cluster hostname, revoked credentials) would
                 # otherwise bypass the guard in `_run` and be retried up to the activity's
                 # maximum on every scheduled sync. Route it through the same policy.
-                await _handle_import_error(job_inputs, logger, e)
+                await _handle_import_error(
+                    job_inputs,
+                    logger,
+                    e,
+                    resumable_source_manager=resumable_source_manager,
+                    on_resumable_retry_budget=inputs.on_resumable_retry_budget,
+                )
 
             return await _run(
                 job_inputs=job_inputs,
@@ -726,8 +769,10 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 resumable_source_manager=resumable_source_manager,
                 source_cursor_manager=source_cursor_manager,
                 incremental_checkpoints_allowed=incremental_checkpoints_allowed,
+                on_resumable_retry_budget=inputs.on_resumable_retry_budget,
                 resumed_incremental_run_uuid=resumed_incremental_run_uuid,
                 resumed_incremental_value=resumed_incremental_value,
+                preemption=preemption,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -761,7 +806,8 @@ def _get_models(
     if source is None:
         raise Exception("No source attached to job")
 
-    table: DataWarehouseTable | None = schema.table
+    # The pipeline reads `schema.table` to decide if this run is a first sync, so an orphan is linked first.
+    table: DataWarehouseTable | None = relink_orphan_table(schema, source, LOGGER.bind(team_id=job.team_id))
     return ImportJobModels(
         job=job,
         schema=schema,
@@ -812,10 +858,34 @@ def _log_worker_shutdown_during_import(logger: FilteringBoundLogger) -> None:
     )
 
 
+def _spent_resumable_cap_without_resuming(
+    resumable_source_manager: ResumableSourceManager | None,
+    on_resumable_retry_budget: bool,
+) -> bool:
+    """Whether this run has used its progressless share of the resumable cap.
+
+    The resumable cap is large because each attempt continues where the last stopped. An attempt
+    that never checkpointed restarts from row 0 instead, so a run that has committed nothing by
+    now would re-read the same rows for every attempt that is left.
+
+    False on any error reading the checkpoint, because keeping the attempts is the safe answer.
+    """
+    if not on_resumable_retry_budget or resumable_source_manager is None:
+        return False
+    if current_import_attempt() <= PROGRESSLESS_RESUMABLE_ATTEMPTS:
+        return False
+    try:
+        return not resumable_source_manager.can_resume()
+    except Exception:
+        return False
+
+
 async def _handle_import_error(
     job_inputs: PipelineInputs,
     logger: FilteringBoundLogger,
     error: Exception,
+    resumable_source_manager: ResumableSourceManager | None = None,
+    on_resumable_retry_budget: bool = False,
 ) -> NoReturn:
     """Route an import error through the source's non-retryable error policy.
 
@@ -877,7 +947,7 @@ async def _handle_import_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
-    # Every credential the integration service holds is PostHog's own — the OAuth app secrets and
+    # Every credential the credentials service holds is PostHog's own — the OAuth app secrets and
     # API keys we own, not anything the customer configured. So none of its failure states are
     # theirs to fix, and none are permanent: a key in recovery is re-provisioned, a missing key is
     # added, an unreachable service comes back. Retry, and if the budget runs out let the run fail
@@ -890,10 +960,10 @@ async def _handle_import_error(
     # hand — turning a reversible platform action into a wide manual recovery.
     #
     # Checked before the bare-404 rule below on purpose. That rule reads a 404 as "the customer's
-    # endpoint is gone", and a misrouted INTEGRATION_SERVICE_URL answers 404 as well; the client
+    # endpoint is gone", and a misrouted CREDENTIALS_SERVICE_URL answers 404 as well; the client
     # wraps its transport failures so the two can't be confused, and this ordering keeps that true
     # even if something later leaks a raw HTTPError.
-    if isinstance(error, IntegrationSecretsFailure):
+    if isinstance(error, CredentialsServiceFailure):
         if error.reportable:
             # A gap only PostHog can close (a key never added for this environment, a
             # half-configured deployment). Capture explicitly rather than letting it escape raw:
@@ -903,7 +973,7 @@ async def _handle_import_error(
             await logger.aexception(error_msg)
         else:
             await logger.awarning(error_msg)
-        await logger.adebug("Integration service credential unavailable - re-raising for Temporal retry")
+        await logger.adebug("Credentials service credential unavailable - re-raising for Temporal retry")
         raise NonReportableError(INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE) from error
 
     # A 404 from the shared REST engine's fallback `raise_for_status()` path means the configured
@@ -1042,6 +1112,19 @@ async def _handle_import_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
+    # Below the classified branches, which are PostHog-side or vendor-side blips that another
+    # attempt does clear. Raised `from error` so the finalizer still classifies the real failure
+    # and the customer still reads its message rather than this decision.
+    if _spent_resumable_cap_without_resuming(resumable_source_manager, on_resumable_retry_budget):
+        await logger.awarning(error_msg)
+        await logger.ainfo(
+            "No attempt of this run has anything to resume from, so it stops retrying",
+            attempt=current_import_attempt(),
+        )
+        if activity.in_activity():
+            get_progressless_stand_down_metric(str(job_inputs.job_type)).add(1)
+        raise NonRetryableException() from error
+
     retryable_errors = source_cls.get_retryable_errors()
     if error_message_matches(error_msg, retryable_errors):
         await logger.awarning(error_msg)
@@ -1064,6 +1147,8 @@ async def _run(
     incremental_checkpoints_allowed: bool = False,
     resumed_incremental_run_uuid: str | None = None,
     resumed_incremental_value: Any = None,
+    preemption: PreemptionConfig | None = None,
+    on_resumable_retry_budget: bool = False,
 ) -> PipelineResult:
     try:
         reset_pipeline = reset_pipeline or source_response.destination_reset_required
@@ -1081,6 +1166,7 @@ async def _run(
             incremental_checkpoints_allowed=incremental_checkpoints_allowed,
             resumed_incremental_run_uuid=resumed_incremental_run_uuid,
             resumed_incremental_value=resumed_incremental_value,
+            preemption=preemption,
         )
 
         result = await pipeline.run()
@@ -1088,4 +1174,10 @@ async def _run(
         await logger.adebug("Finished running pipeline")
         return result
     except Exception as e:
-        await _handle_import_error(job_inputs, logger, e)
+        await _handle_import_error(
+            job_inputs,
+            logger,
+            e,
+            resumable_source_manager=resumable_source_manager,
+            on_resumable_retry_budget=on_resumable_retry_budget,
+        )

@@ -1769,12 +1769,6 @@
                     "$ref": "#/definitions/TraceSpansAttributeBreakdownQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentFunnelsQuery"
-                },
-                {
-                    "$ref": "#/definitions/ExperimentTrendsQuery"
-                },
-                {
                     "$ref": "#/definitions/CalendarHeatmapQuery"
                 },
                 {
@@ -2372,6 +2366,20 @@
             "required": ["type", "key", "value", "operator"],
             "type": "object"
         },
+        "AssistantDataTableNode": {
+            "additionalProperties": {},
+            "properties": {
+                "kind": {
+                    "const": "DataTableNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantEventsQuery"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "AssistantDataVisualizationAxis": {
             "additionalProperties": false,
             "properties": {
@@ -2395,7 +2403,7 @@
                     "type": "string"
                 },
                 "displayType": {
-                    "description": "Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.",
+                    "description": "Chart type. `auto` uses `display`.",
                     "enum": ["auto", "line", "bar", "area"],
                     "type": "string"
                 },
@@ -2513,6 +2521,19 @@
                     "$ref": "#/definitions/AssistantDataVisualizationYAxisSettings",
                     "description": "Settings for the left Y axis."
                 },
+                "legendPosition": {
+                    "description": "Where the legend sits. Defaults to right for pie and donut, top for other charts.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
+                },
+                "metric": {
+                    "$ref": "#/definitions/AssistantDataVisualizationMetricSettings",
+                    "description": "Settings for `Metric`. `summary` defaults to `latest`."
+                },
+                "pie": {
+                    "$ref": "#/definitions/PieChartSettings",
+                    "description": "Settings for `ActionsPie` and `ActionsDonut`."
+                },
                 "rightYAxisSettings": {
                     "$ref": "#/definitions/AssistantDataVisualizationYAxisSettings",
                     "description": "Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: \"right\"`."
@@ -2560,13 +2581,17 @@
             "type": "object"
         },
         "AssistantDataVisualizationDisplayType": {
-            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.\n- `ScatterPlot` — scatter plot of one measure against another. Requires two numeric columns, one per axis.\n- `BoxPlot` — box plot from pre-aggregated SQL rows. Requires six numeric summary columns.",
+            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `Metric` — big number with a change pill and a sparkline (a KPI or scorecard). Uses the first numeric Y column, one value per row.\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsBarValue` — horizontal bar chart (bar ranking) with one bar per category. Requires a category column and a numeric column.\n- `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.\n- `ActionsDonut` — donut (ring) chart with the total in the center. Same columns as `ActionsPie`.\n- `ActionsProportionBar` — one flat bar that shows the parts of one whole, one segment per label. Same columns as `ActionsPie`.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.\n- `ScatterPlot` — scatter plot of one measure against another. Requires two numeric columns, one per axis.\n- `BoxPlot` — box plot from pre-aggregated SQL rows. Requires six numeric summary columns.",
             "enum": [
                 "ActionsTable",
                 "BoldNumber",
+                "Metric",
                 "ActionsLineGraph",
                 "ActionsBar",
+                "ActionsBarValue",
                 "ActionsPie",
+                "ActionsDonut",
+                "ActionsProportionBar",
                 "ActionsStackedBar",
                 "ActionsAreaGraph",
                 "TwoDimensionalHeatmap",
@@ -2590,6 +2615,19 @@
             "required": ["label", "value"],
             "type": "object"
         },
+        "AssistantDataVisualizationMetricSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "showChange": {
+                    "type": "boolean"
+                },
+                "summary": {
+                    "enum": ["total", "average", "latest"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "AssistantDataVisualizationNode": {
             "additionalProperties": false,
             "description": "SQL-backed visualization. Use this when the analysis requires custom SQL that cannot be expressed as a standard product-analytics insight — cross-source joins with the data warehouse, window functions, or bespoke aggregations.\n\nPrefer `AssistantInsightVizNode` for standard product analytics (trends, funnels, retention, paths, stickiness, lifecycle). Only reach for this node when SQL is strictly necessary.",
@@ -2600,7 +2638,7 @@
                 },
                 "display": {
                     "$ref": "#/definitions/AssistantDataVisualizationDisplayType",
-                    "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`."
+                    "description": "Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures; `BoxPlot` = distribution summaries with `chartSettings.boxPlot`."
                 },
                 "kind": {
                     "const": "DataVisualizationNode",
@@ -2937,6 +2975,24 @@
         "AssistantEventType": {
             "enum": ["status", "message", "conversation", "notebook", "update", "approval", "sandbox"],
             "type": "string"
+        },
+        "AssistantEventsQuery": {
+            "additionalProperties": {},
+            "properties": {
+                "kind": {
+                    "const": "EventsQuery",
+                    "type": "string"
+                },
+                "select": {
+                    "description": "Event columns as HogQL expressions.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "select"],
+            "type": "object"
         },
         "AssistantFlagPropertyFilter": {
             "additionalProperties": false,
@@ -3726,6 +3782,10 @@
                 "source": {
                     "description": "Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery",
                     "type": "object"
+                },
+                "vizSpecificOptions": {
+                    "$ref": "#/definitions/AssistantVizSpecificOptions",
+                    "description": "Chart rendering options."
                 }
             },
             "required": ["kind", "source"],
@@ -4270,6 +4330,16 @@
             "required": ["kind", "pathsFilter"],
             "type": "object"
         },
+        "AssistantPieChartOptions": {
+            "additionalProperties": false,
+            "properties": {
+                "hideAggregation": {
+                    "description": "Hide the total on a pie chart.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "AssistantPropertyFilter": {
             "anyOf": [
                 {
@@ -4600,6 +4670,10 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "AssistantRetentionDisplayType": {
+            "enum": ["ActionsLineGraph", "ActionsBar"],
+            "type": "string"
+        },
         "AssistantRetentionEntity": {
             "anyOf": [
                 {
@@ -4662,6 +4736,10 @@
                 "cumulative": {
                     "description": "Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.",
                     "type": "boolean"
+                },
+                "display": {
+                    "$ref": "#/definitions/AssistantRetentionDisplayType",
+                    "description": "`ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars."
                 },
                 "meanRetentionCalculation": {
                     "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
@@ -5111,7 +5189,7 @@
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
                 "marketing_suggest_utm_mappings",
-                "summarize_replay_vision_summaries",
+                "compare_replay_vision_variants",
                 "draft_replay_vision_scanner_prompt",
                 "search_replay_vision_observations",
                 "scan_replay_vision_sessions",
@@ -5408,83 +5486,25 @@
             "type": "object"
         },
         "AssistantTrendsDisplayType": {
-            "anyOf": [
-                {
-                    "const": "Auto",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsLineGraph",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsBar",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsUnstackedBar",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsAreaGraph",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsLineGraphCumulative",
-                    "type": "string"
-                },
-                {
-                    "const": "BoldNumber",
-                    "type": "string"
-                },
-                {
-                    "const": "Metric",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsPie",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsDonut",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsBarValue",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsTable",
-                    "type": "string"
-                },
-                {
-                    "const": "WorldMap",
-                    "type": "string"
-                },
-                {
-                    "const": "CalendarHeatmap",
-                    "type": "string"
-                },
-                {
-                    "const": "TwoDimensionalHeatmap",
-                    "type": "string"
-                },
-                {
-                    "const": "BoxPlot",
-                    "type": "string"
-                },
-                {
-                    "const": "SlopeGraph",
-                    "type": "string"
-                },
-                {
-                    "const": "ScatterPlot",
-                    "type": "string"
-                },
-                {
-                    "not": {}
-                }
-            ]
+            "enum": [
+                "ActionsLineGraph",
+                "ActionsBar",
+                "ActionsUnstackedBar",
+                "ActionsAreaGraph",
+                "ActionsLineGraphCumulative",
+                "SlopeGraph",
+                "BoxPlot",
+                "Metric",
+                "BoldNumber",
+                "ActionsBarValue",
+                "ActionsPie",
+                "ActionsDonut",
+                "ActionsProportionBar",
+                "ActionsTable",
+                "WorldMap",
+                "CalendarHeatmap"
+            ],
+            "type": "string"
         },
         "AssistantTrendsEventsNode": {
             "additionalProperties": false,
@@ -5562,29 +5582,9 @@
                     "type": "number"
                 },
                 "display": {
+                    "$ref": "#/definitions/AssistantTrendsDisplayType",
                     "default": "ActionsLineGraph",
-                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart with one bar per interval and breakdown values stacked in each bar. Do not use it to compare breakdown values or series as totals. Use `ActionsBarValue` for that. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison (\"how many X in the last 30 days\", \"what's our conversion rate this month\", \"how does this month compare to last\"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as \"top pages\" or \"failures by reason\". `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
-                    "enum": [
-                        "Auto",
-                        "ActionsLineGraph",
-                        "ActionsBar",
-                        "ActionsUnstackedBar",
-                        "ActionsAreaGraph",
-                        "ActionsLineGraphCumulative",
-                        "BoldNumber",
-                        "Metric",
-                        "ActionsPie",
-                        "ActionsDonut",
-                        "ActionsBarValue",
-                        "ActionsTable",
-                        "WorldMap",
-                        "CalendarHeatmap",
-                        "TwoDimensionalHeatmap",
-                        "BoxPlot",
-                        "SlopeGraph",
-                        "ScatterPlot"
-                    ],
-                    "type": "string"
+                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart with one bar per interval and breakdown values stacked in each bar. Do not use it to compare breakdown values or series as totals. Use `ActionsBarValue` for that. `ActionsUnstackedBar` - time-series bar chart with series side by side in each interval. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `SlopeGraph` - net change from the first to the last interval, one line per series. `BoxPlot` - quartiles of a numeric `math_property` for each interval. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison (\"how many X in the last 30 days\", \"what's our conversion rate this month\", \"how does this month compare to last\"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as \"top pages\" or \"failures by reason\". `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsDonut` - total value donut chart; same use as `ActionsPie`. `ActionsProportionBar` - total value chart that shows the parts of one whole as a single flat bar, with one segment per breakdown value or series. Use it to show the share of each part in a total. It cannot compare to a previous period, so do not set `compareFilter.compare` with it. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country using property `$geoip_country_code`, and only then."
                 },
                 "formulaNodes": {
                     "description": "Use custom formulas to perform mathematical operations like calculating percentages or metrics. Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users). For a ratio or percentage, keep the formula as the raw ratio (e.g. `A/B`, which is in the 0-1 range) and set `aggregationAxisFormat` to `percentage_scaled` so it renders as a percentage. Do NOT multiply the formula by 100 (e.g. `A/B*100`) when using `percentage_scaled`, or the value will be scaled twice.",
@@ -5828,6 +5828,15 @@
                 }
             },
             "required": ["id", "tool_call_id", "content"],
+            "type": "object"
+        },
+        "AssistantVizSpecificOptions": {
+            "additionalProperties": false,
+            "properties": {
+                "ActionsPie": {
+                    "$ref": "#/definitions/AssistantPieChartOptions"
+                }
+            },
             "type": "object"
         },
         "AssistantWebAnalyticsQueryBase": {
@@ -6144,6 +6153,22 @@
             "enum": ["count", "count_distinct", "sum", "average", "minimum", "maximum", "custom"],
             "type": "string"
         },
+        "BICategoryGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "values": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "values"],
+            "type": "object"
+        },
         "BIConditionGroup": {
             "additionalProperties": false,
             "properties": {
@@ -6173,6 +6198,9 @@
                 "chartType": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
+                "colorBy": {
+                    "type": ["string", "null"]
+                },
                 "columns": {
                     "items": {
                         "$ref": "#/definitions/BIField"
@@ -6181,6 +6209,11 @@
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
+                },
+                "comparisonPeriod": {
+                    "description": "Explore only the comparison window, using dateRange as its reference window.",
+                    "enum": ["previous", null],
+                    "type": ["string", "null"]
                 },
                 "dateField": {
                     "anyOf": [
@@ -6202,8 +6235,85 @@
                     },
                     "type": "array"
                 },
+                "hierarchies": {
+                    "description": "Named dimension sequences saved with the worksheet; imports are independent copies.",
+                    "items": {
+                        "$ref": "#/definitions/BIHierarchy"
+                    },
+                    "type": "array"
+                },
+                "hierarchyDrillPath": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "filterIds": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "hierarchyId": {
+                                "type": "string"
+                            },
+                            "nextField": {
+                                "$ref": "#/definitions/BIField"
+                            },
+                            "previousField": {
+                                "$ref": "#/definitions/BIField"
+                            }
+                        },
+                        "required": ["hierarchyId", "previousField", "nextField", "filterIds"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
                 "limit": {
                     "$ref": "#/definitions/BIQueryLimit"
+                },
+                "localFields": {
+                    "description": "Reusable expressions owned by this worksheet only.",
+                    "items": {
+                        "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
+                },
+                "memberAliases": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "aliases": {
+                                "items": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "label": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "type": ["string", "null"]
+                                        }
+                                    },
+                                    "required": ["value", "label"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "field": {
+                                "$ref": "#/definitions/BIField"
+                            }
+                        },
+                        "required": ["field", "aliases"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "missingDates": {
+                    "description": "Fill missing date buckets before table calculations. Unset preserves observed points only.",
+                    "enum": ["gap", "zero"],
+                    "type": "string"
+                },
+                "panes": {
+                    "$ref": "#/definitions/BIPaneSettings",
+                    "description": "Split the returned groups into charts using these ordered dimension IDs."
                 },
                 "resultFilterGroup": {
                     "$ref": "#/definitions/BIConditionGroup"
@@ -6283,10 +6393,23 @@
                 "dateBucket": {
                     "$ref": "#/definitions/BIDateBucket"
                 },
+                "datePart": {
+                    "enum": ["month", "quarter", "day_of_week"],
+                    "type": "string"
+                },
                 "expression": {
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "localDefinition": {
+                    "$ref": "#/definitions/BILocalFieldDefinition"
+                },
+                "localFieldId": {
                     "type": "string"
                 },
                 "name": {
@@ -6313,6 +6436,9 @@
                 },
                 "field": {
                     "$ref": "#/definitions/BIField"
+                },
+                "label": {
+                    "type": "string"
                 },
                 "operator": {
                     "$ref": "#/definitions/BIFilterOperator"
@@ -6350,6 +6476,116 @@
             ],
             "type": "string"
         },
+        "BIHierarchy": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "levels": {
+                    "description": "Ordered from the broadest dimension to the most detailed.",
+                    "items": {
+                        "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "levels"],
+            "type": "object"
+        },
+        "BILocalFieldDefinition": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "aggregate": {
+                            "type": "boolean"
+                        },
+                        "expression": {
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "expression",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "expression", "aggregate"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "expression": {
+                            "type": "string"
+                        },
+                        "groups": {
+                            "items": {
+                                "$ref": "#/definitions/BICategoryGroup"
+                            },
+                            "type": "array"
+                        },
+                        "kind": {
+                            "const": "groups",
+                            "type": "string"
+                        },
+                        "other": {
+                            "type": "string"
+                        },
+                        "preserveUngrouped": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": ["kind", "expression", "groups", "other"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "expression": {
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "bins",
+                            "type": "string"
+                        },
+                        "origin": {
+                            "type": "number"
+                        },
+                        "width": {
+                            "type": "number"
+                        }
+                    },
+                    "required": ["kind", "expression", "width", "origin"],
+                    "type": "object"
+                }
+            ]
+        },
+        "BIPaneSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "description": "Ordered dimension IDs used to split returned groups into separate charts.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "independentAxes": {
+                    "description": "Use a separate value scale for each pane instead of a shared primary scale.",
+                    "type": "boolean"
+                },
+                "referenceLines": {
+                    "description": "Calculate reference lines from each pane or from all returned worksheet marks.",
+                    "enum": ["pane", "worksheet"],
+                    "type": "string"
+                }
+            },
+            "required": ["fields"],
+            "type": "object"
+        },
         "BIQueryLimit": {
             "enum": [100, 1000, 10000, 50000],
             "type": "number"
@@ -6361,6 +6597,9 @@
                     "type": "boolean"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "label": {
                     "type": "string"
                 },
                 "measureIndex": {
@@ -6413,6 +6652,10 @@
                 "computeUsing": {
                     "description": "Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions.",
                     "type": "string"
+                },
+                "requireFullWindow": {
+                    "description": "Require a complete window of non-null values before displaying a moving average.",
+                    "type": "boolean"
                 },
                 "type": {
                     "$ref": "#/definitions/BITableCalculationType"
@@ -6482,6 +6725,11 @@
                     "$ref": "#/definitions/ChartSettingsFormatting"
                 },
                 "label": {
+                    "type": "string"
+                },
+                "shelf": {
+                    "description": "Measures in older worksheets belong to rows.",
+                    "enum": ["rows", "columns"],
                     "type": "string"
                 },
                 "tableCalculation": {
@@ -9039,6 +9287,13 @@
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "health_findings": {
+                    "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureHealthFinding"
+                    },
+                    "type": "array"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -9101,121 +9356,6 @@
                 "timeseries",
                 "timezone",
                 "total_exposures"
-            ],
-            "type": "object"
-        },
-        "CachedExperimentFunnelsQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "credible_intervals": {
-                    "additionalProperties": {
-                        "items": {
-                            "type": "number"
-                        },
-                        "maxItems": 2,
-                        "minItems": 2,
-                        "type": "array"
-                    },
-                    "type": "object"
-                },
-                "expected_loss": {
-                    "type": "number"
-                },
-                "funnels_query": {
-                    "$ref": "#/definitions/FunnelsQuery"
-                },
-                "insight": {
-                    "items": {
-                        "items": {
-                            "type": "object"
-                        },
-                        "type": "array"
-                    },
-                    "type": "array"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "kind": {
-                    "const": "ExperimentFunnelsQuery",
-                    "type": "string"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "probability": {
-                    "additionalProperties": {
-                        "type": "number"
-                    },
-                    "type": "object"
-                },
-                "query_metadata": {
-                    "type": "object"
-                },
-                "query_scan": {
-                    "$ref": "#/definitions/QueryScanSummary",
-                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "significance_code": {
-                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                },
-                "significant": {
-                    "type": "boolean"
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
-                },
-                "timezone": {
-                    "type": "string"
-                },
-                "variants": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
-                    },
-                    "type": "array"
-                },
-                "warnings": {
-                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "cache_key",
-                "credible_intervals",
-                "expected_loss",
-                "insight",
-                "is_cached",
-                "kind",
-                "last_refresh",
-                "next_allowed_client_refresh",
-                "probability",
-                "significance_code",
-                "significant",
-                "timezone",
-                "variants"
             ],
             "type": "object"
         },
@@ -9361,121 +9501,6 @@
                 }
             },
             "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
-            "type": "object"
-        },
-        "CachedExperimentTrendsQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "count_query": {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
-                "credible_intervals": {
-                    "additionalProperties": {
-                        "items": {
-                            "type": "number"
-                        },
-                        "maxItems": 2,
-                        "minItems": 2,
-                        "type": "array"
-                    },
-                    "type": "object"
-                },
-                "exposure_query": {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
-                "insight": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "kind": {
-                    "const": "ExperimentTrendsQuery",
-                    "type": "string"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "p_value": {
-                    "type": "number"
-                },
-                "probability": {
-                    "additionalProperties": {
-                        "type": "number"
-                    },
-                    "type": "object"
-                },
-                "query_metadata": {
-                    "type": "object"
-                },
-                "query_scan": {
-                    "$ref": "#/definitions/QueryScanSummary",
-                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "significance_code": {
-                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                },
-                "significant": {
-                    "type": "boolean"
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
-                },
-                "timezone": {
-                    "type": "string"
-                },
-                "variants": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                    },
-                    "type": "array"
-                },
-                "warnings": {
-                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "cache_key",
-                "credible_intervals",
-                "insight",
-                "is_cached",
-                "kind",
-                "last_refresh",
-                "next_allowed_client_refresh",
-                "p_value",
-                "probability",
-                "significance_code",
-                "significant",
-                "timezone",
-                "variants"
-            ],
             "type": "object"
         },
         "CachedFunnelCorrelationResponse": {
@@ -10124,129 +10149,6 @@
                 }
             },
             "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
-            "type": "object"
-        },
-        "CachedLegacyExperimentQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "credible_intervals": {
-                    "additionalProperties": {
-                        "items": {
-                            "type": "number"
-                        },
-                        "maxItems": 2,
-                        "minItems": 2,
-                        "type": "array"
-                    },
-                    "type": "object"
-                },
-                "insight": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "kind": {
-                    "const": "ExperimentQuery",
-                    "type": "string"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "metric": {
-                    "$ref": "#/definitions/ExperimentMetric"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "p_value": {
-                    "type": "number"
-                },
-                "probability": {
-                    "additionalProperties": {
-                        "type": "number"
-                    },
-                    "type": "object"
-                },
-                "query_metadata": {
-                    "type": "object"
-                },
-                "query_scan": {
-                    "$ref": "#/definitions/QueryScanSummary",
-                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "significance_code": {
-                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                },
-                "significant": {
-                    "type": "boolean"
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
-                },
-                "timezone": {
-                    "type": "string"
-                },
-                "variants": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
-                            },
-                            "type": "array"
-                        }
-                    ]
-                },
-                "warnings": {
-                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "cache_key",
-                "credible_intervals",
-                "insight",
-                "is_cached",
-                "kind",
-                "last_refresh",
-                "metric",
-                "next_allowed_client_refresh",
-                "p_value",
-                "probability",
-                "significance_code",
-                "significant",
-                "timezone",
-                "variants"
-            ],
             "type": "object"
         },
         "CachedLifecycleQueryResponse": {
@@ -13045,6 +12947,35 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "placementUnavailable": {
+                    "type": "boolean"
+                },
+                "posthogAttributionMode": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AttributionMode"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionGoals": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionsWarning": {
+                    "type": ["string", "null"]
                 },
                 "query_metadata": {
                     "type": "object"
@@ -17606,6 +17537,7 @@
                 "Metric",
                 "ActionsPie",
                 "ActionsDonut",
+                "ActionsProportionBar",
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",
@@ -17640,7 +17572,7 @@
                     "$ref": "#/definitions/YAxisSettings"
                 },
                 "legendPosition": {
-                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest.",
+                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest.",
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"
                 },
@@ -18715,6 +18647,17 @@
                             "type": "null"
                         }
                     ]
+                },
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Period comparison forced onto every insight that supports one. Absent/null = inherit."
                 },
                 "date_from": {
                     "type": ["string", "null"]
@@ -20225,154 +20168,6 @@
                         {
                             "additionalProperties": false,
                             "properties": {
-                                "credible_intervals": {
-                                    "additionalProperties": {
-                                        "items": {
-                                            "type": "number"
-                                        },
-                                        "maxItems": 2,
-                                        "minItems": 2,
-                                        "type": "array"
-                                    },
-                                    "type": "object"
-                                },
-                                "expected_loss": {
-                                    "type": "number"
-                                },
-                                "funnels_query": {
-                                    "$ref": "#/definitions/FunnelsQuery"
-                                },
-                                "insight": {
-                                    "items": {
-                                        "items": {
-                                            "type": "object"
-                                        },
-                                        "type": "array"
-                                    },
-                                    "type": "array"
-                                },
-                                "kind": {
-                                    "const": "ExperimentFunnelsQuery",
-                                    "type": "string"
-                                },
-                                "probability": {
-                                    "additionalProperties": {
-                                        "type": "number"
-                                    },
-                                    "type": "object"
-                                },
-                                "significance_code": {
-                                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                                },
-                                "significant": {
-                                    "type": "boolean"
-                                },
-                                "stats_version": {
-                                    "$ref": "#/definitions/integer"
-                                },
-                                "variants": {
-                                    "items": {
-                                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
-                                    },
-                                    "type": "array"
-                                },
-                                "warnings": {
-                                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                                    "items": {
-                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                                    },
-                                    "type": "array"
-                                }
-                            },
-                            "required": [
-                                "credible_intervals",
-                                "expected_loss",
-                                "insight",
-                                "kind",
-                                "probability",
-                                "significance_code",
-                                "significant",
-                                "variants"
-                            ],
-                            "type": "object"
-                        },
-                        {
-                            "additionalProperties": false,
-                            "properties": {
-                                "count_query": {
-                                    "$ref": "#/definitions/TrendsQuery"
-                                },
-                                "credible_intervals": {
-                                    "additionalProperties": {
-                                        "items": {
-                                            "type": "number"
-                                        },
-                                        "maxItems": 2,
-                                        "minItems": 2,
-                                        "type": "array"
-                                    },
-                                    "type": "object"
-                                },
-                                "exposure_query": {
-                                    "$ref": "#/definitions/TrendsQuery"
-                                },
-                                "insight": {
-                                    "items": {
-                                        "type": "object"
-                                    },
-                                    "type": "array"
-                                },
-                                "kind": {
-                                    "const": "ExperimentTrendsQuery",
-                                    "type": "string"
-                                },
-                                "p_value": {
-                                    "type": "number"
-                                },
-                                "probability": {
-                                    "additionalProperties": {
-                                        "type": "number"
-                                    },
-                                    "type": "object"
-                                },
-                                "significance_code": {
-                                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                                },
-                                "significant": {
-                                    "type": "boolean"
-                                },
-                                "stats_version": {
-                                    "$ref": "#/definitions/integer"
-                                },
-                                "variants": {
-                                    "items": {
-                                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                                    },
-                                    "type": "array"
-                                },
-                                "warnings": {
-                                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                                    "items": {
-                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                                    },
-                                    "type": "array"
-                                }
-                            },
-                            "required": [
-                                "credible_intervals",
-                                "insight",
-                                "kind",
-                                "p_value",
-                                "probability",
-                                "significance_code",
-                                "significant",
-                                "variants"
-                            ],
-                            "type": "object"
-                        },
-                        {
-                            "additionalProperties": false,
-                            "properties": {
                                 "columns": {
                                     "items": {
                                         "type": "string"
@@ -20976,12 +20771,6 @@
                     "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentFunnelsQuery"
-                },
-                {
-                    "$ref": "#/definitions/ExperimentTrendsQuery"
-                },
-                {
                     "$ref": "#/definitions/TracesQuery"
                 },
                 {
@@ -21224,6 +21013,10 @@
         "DataWarehouseSyncWarning": {
             "additionalProperties": false,
             "properties": {
+                "data_is_current": {
+                    "description": "True when the last sync is still within the table's sync interval, so the data is current and the warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date.",
+                    "type": "boolean"
+                },
                 "message": {
                     "description": "Human-readable warning shown to the user",
                     "type": "string"
@@ -23855,7 +23648,7 @@
             "type": "string"
         },
         "ErrorTrackingOrderBy": {
-            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "severity"],
             "title": "ErrorTrackingOrderBy",
             "type": "string"
         },
@@ -25296,6 +25089,41 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "ExperimentApiBreakdown": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentApiPropertyBreakdown"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentApiGroupBreakdown"
+                }
+            ],
+            "description": "Slim breakdown entry for experiment API payloads. Narrower than the full Breakdown type: the experiment query only resolves event, person, session and group properties, so the other breakdown types are not accepted here."
+        },
+        "ExperimentApiBreakdownAttributionType": {
+            "description": "'all_events' is excluded: the experiment funnel query rejects it.",
+            "enum": ["first_touch", "last_touch", "step"],
+            "type": "string"
+        },
+        "ExperimentApiBreakdownFilter": {
+            "additionalProperties": false,
+            "description": "Slim breakdown config for experiment API payloads. Only the fields the experiment query runner reads; the full BreakdownFilter's other knobs (breakdown, breakdown_type, attribution, …) are ignored for experiment metrics, so exposing them would only invite no-op input.",
+            "properties": {
+                "breakdown_limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Maximum number of breakdown values to compute results for."
+                },
+                "breakdowns": {
+                    "description": "Properties to break the metric results down by.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentApiBreakdown"
+                    },
+                    "maxItems": 3,
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "ExperimentApiEventSource": {
             "additionalProperties": false,
             "description": "Slim event/action source for experiment API payloads.",
@@ -25390,10 +25218,43 @@
             },
             "type": "object"
         },
+        "ExperimentApiGroupBreakdown": {
+            "additionalProperties": false,
+            "description": "Breakdown by a group property.",
+            "properties": {
+                "group_type_index": {
+                    "description": "Which group type the property belongs to.",
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "property": {
+                    "description": "Property name to break down by.",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "group",
+                    "type": "string"
+                }
+            },
+            "required": ["property", "type", "group_type_index"],
+            "type": "object"
+        },
         "ExperimentApiMetric": {
             "additionalProperties": false,
             "description": "Experiment metric for API create/update. All metric-type-specific fields are optional; discriminated by metric_type at runtime.",
             "properties": {
+                "breakdownAttributionType": {
+                    "$ref": "#/definitions/ExperimentApiBreakdownAttributionType",
+                    "description": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                },
+                "breakdownAttributionValue": {
+                    "$ref": "#/definitions/integer",
+                    "description": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                },
+                "breakdownFilter": {
+                    "$ref": "#/definitions/ExperimentApiBreakdownFilter",
+                    "description": "Break the metric results down by up to 3 event, person, session or group properties."
+                },
                 "completion_event": {
                     "$ref": "#/definitions/ExperimentApiEventSource",
                     "description": "For retention metrics: completion event."
@@ -25496,6 +25357,26 @@
             },
             "required": ["kind", "metric_type"],
             "type": "object"
+        },
+        "ExperimentApiPropertyBreakdown": {
+            "additionalProperties": false,
+            "description": "Breakdown by an event, person or session property.",
+            "properties": {
+                "property": {
+                    "description": "Property name to break down by.",
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/ExperimentApiPropertyBreakdownType",
+                    "description": "Where the property lives. Defaults to 'event'."
+                }
+            },
+            "required": ["property"],
+            "type": "object"
+        },
+        "ExperimentApiPropertyBreakdownType": {
+            "enum": ["event", "person", "session"],
+            "type": "string"
         },
         "ExperimentApiRetentionStart": {
             "additionalProperties": false,
@@ -25746,6 +25627,64 @@
             "required": ["conversionRateInputType"],
             "type": "object"
         },
+        "ExperimentExposureHealthFinding": {
+            "additionalProperties": false,
+            "description": "A problem that a health check found in the exposure answer. Same shape as the experiment's `health.findings`.",
+            "properties": {
+                "actions": {
+                    "description": "The actions that fix the problem, in order of preference.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureHealthFindingActionKind"
+                    },
+                    "type": "array"
+                },
+                "code": {
+                    "$ref": "#/definitions/ExperimentExposureHealthFindingCode",
+                    "description": "Stable identifier of the problem. Each code has one meaning across every surface that reports it."
+                },
+                "detail": {
+                    "description": "What is wrong, what it does to the experiment, and how to fix it.",
+                    "type": "string"
+                },
+                "diagnostic_ref": {
+                    "description": "The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A2'. Null when the skill has none.",
+                    "type": ["string", "null"]
+                },
+                "evidence": {
+                    "additionalProperties": {
+                        "type": ["string", "number", "null"]
+                    },
+                    "description": "The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code.",
+                    "type": "object"
+                },
+                "severity": {
+                    "$ref": "#/definitions/ExperimentExposureHealthFindingSeverity",
+                    "description": "How much the problem affects the results: critical, warning, or info."
+                },
+                "subcode": {
+                    "description": "The case within the code, when a code covers several. Null when the code has one case.",
+                    "type": ["string", "null"]
+                },
+                "title": {
+                    "description": "One-line summary of the problem.",
+                    "type": "string"
+                }
+            },
+            "required": ["code", "subcode", "severity", "title", "detail", "evidence", "actions", "diagnostic_ref"],
+            "type": "object"
+        },
+        "ExperimentExposureHealthFindingActionKind": {
+            "enum": ["edit_exposure_criteria", "adjust_distribution", "use_first_seen_variant"],
+            "type": "string"
+        },
+        "ExperimentExposureHealthFindingCode": {
+            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded"],
+            "type": "string"
+        },
+        "ExperimentExposureHealthFindingSeverity": {
+            "enum": ["critical", "warning", "info"],
+            "type": "string"
+        },
         "ExperimentExposureNode": {
             "additionalProperties": false,
             "description": "Sentinel start source for retention metrics. It carries no event of its own: at query time it resolves to the experiment's exposure, so one shared metric anchors correctly on any experiment regardless of that experiment's exposure event.",
@@ -25819,6 +25758,13 @@
                 },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "health_findings": {
+                    "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureHealthFinding"
+                    },
+                    "type": "array"
                 },
                 "kind": {
                     "const": "ExperimentExposureQuery",
@@ -25991,6 +25937,7 @@
         },
         "ExperimentFunnelsQuery": {
             "additionalProperties": false,
+            "description": "Stored shape of a legacy experiment metric. It no longer runs, so it is kept only to list and migrate legacy experiments.",
             "properties": {
                 "experiment_id": {
                     "$ref": "#/definitions/integer"
@@ -26005,102 +25952,14 @@
                     "const": "ExperimentFunnelsQuery",
                     "type": "string"
                 },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
                 "name": {
                     "type": "string"
                 },
-                "response": {
-                    "$ref": "#/definitions/ExperimentFunnelsQueryResponse"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
                 "uuid": {
                     "type": "string"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
                 }
             },
-            "required": ["funnels_query", "kind"],
-            "type": "object"
-        },
-        "ExperimentFunnelsQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "credible_intervals": {
-                    "additionalProperties": {
-                        "items": {
-                            "type": "number"
-                        },
-                        "maxItems": 2,
-                        "minItems": 2,
-                        "type": "array"
-                    },
-                    "type": "object"
-                },
-                "expected_loss": {
-                    "type": "number"
-                },
-                "funnels_query": {
-                    "$ref": "#/definitions/FunnelsQuery"
-                },
-                "insight": {
-                    "items": {
-                        "items": {
-                            "type": "object"
-                        },
-                        "type": "array"
-                    },
-                    "type": "array"
-                },
-                "kind": {
-                    "const": "ExperimentFunnelsQuery",
-                    "type": "string"
-                },
-                "probability": {
-                    "additionalProperties": {
-                        "type": "number"
-                    },
-                    "type": "object"
-                },
-                "significance_code": {
-                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                },
-                "significant": {
-                    "type": "boolean"
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
-                },
-                "variants": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
-                    },
-                    "type": "array"
-                },
-                "warnings": {
-                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "kind",
-                "insight",
-                "variants",
-                "probability",
-                "significant",
-                "significance_code",
-                "expected_loss",
-                "credible_intervals"
-            ],
+            "required": ["kind", "funnels_query"],
             "type": "object"
         },
         "ExperimentHoldoutType": {
@@ -27057,6 +26916,7 @@
         },
         "ExperimentTrendsQuery": {
             "additionalProperties": false,
+            "description": "Stored shape of a legacy experiment metric. It no longer runs, so it is kept only to list and migrate legacy experiments.",
             "properties": {
                 "count_query": {
                     "$ref": "#/definitions/TrendsQuery"
@@ -27074,102 +26934,14 @@
                     "const": "ExperimentTrendsQuery",
                     "type": "string"
                 },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
                 "name": {
                     "type": "string"
                 },
-                "response": {
-                    "$ref": "#/definitions/ExperimentTrendsQueryResponse"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
                 "uuid": {
                     "type": "string"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
                 }
             },
-            "required": ["count_query", "kind"],
-            "type": "object"
-        },
-        "ExperimentTrendsQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "count_query": {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
-                "credible_intervals": {
-                    "additionalProperties": {
-                        "items": {
-                            "type": "number"
-                        },
-                        "maxItems": 2,
-                        "minItems": 2,
-                        "type": "array"
-                    },
-                    "type": "object"
-                },
-                "exposure_query": {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
-                "insight": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
-                },
-                "kind": {
-                    "const": "ExperimentTrendsQuery",
-                    "type": "string"
-                },
-                "p_value": {
-                    "type": "number"
-                },
-                "probability": {
-                    "additionalProperties": {
-                        "type": "number"
-                    },
-                    "type": "object"
-                },
-                "significance_code": {
-                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                },
-                "significant": {
-                    "type": "boolean"
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
-                },
-                "variants": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                    },
-                    "type": "array"
-                },
-                "warnings": {
-                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "kind",
-                "insight",
-                "variants",
-                "probability",
-                "significant",
-                "significance_code",
-                "p_value",
-                "credible_intervals"
-            ],
+            "required": ["kind", "count_query"],
             "type": "object"
         },
         "ExperimentVariantFunnelsBaseStats": {
@@ -27576,7 +27348,6 @@
                 "default_icon_type",
                 "dashboard",
                 "llm_analytics",
-                "ai_gateway",
                 "product_analytics",
                 "revenue_analytics",
                 "revenue_analytics_metadata",
@@ -27683,6 +27454,13 @@
                     "description": "Used to indicate pending actions, frontend only",
                     "type": "boolean"
                 },
+                "alternativeFlags": {
+                    "description": "Other flags that also show the item. The item is shown when `flag` or any of these is on.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "category": {
                     "description": "Category label to place this under",
                     "type": "string"
@@ -27751,14 +27529,14 @@
                     "type": "array"
                 },
                 "searchKeywords": {
-                    "description": "Other terms that find this item in search, for example the names of its tabs or common synonyms",
+                    "description": "Synonyms that find this item in search; a word that names a tab belongs on that tab's row instead",
                     "items": {
                         "type": "string"
                     },
                     "type": "array"
                 },
                 "searchTabs": {
-                    "description": "Tabs of this item that search lists as their own results",
+                    "description": "Tabs with their own URL that search lists as separate rows, below products and people",
                     "items": {
                         "$ref": "#/definitions/FileSystemSearchTab"
                     },
@@ -28967,6 +28745,11 @@
                 "borderColor": {
                     "type": "string"
                 },
+                "calculation": {
+                    "description": "Recalculate from returned chart marks. An absent calculation uses the fixed value.",
+                    "enum": ["fixed", "mean", "median", "min", "max"],
+                    "type": "string"
+                },
                 "displayIfCrossed": {
                     "type": "boolean"
                 },
@@ -28978,6 +28761,11 @@
                 },
                 "position": {
                     "enum": ["start", "end"],
+                    "type": "string"
+                },
+                "scope": {
+                    "description": "SQL chart calculations use the primary axis, across all series or separately per series.",
+                    "enum": ["all", "series"],
                     "type": "string"
                 },
                 "value": {
@@ -29405,7 +29193,7 @@
             "type": "string"
         },
         "HedgehogActorSkinOption": {
-            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost"],
+            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost", "pig"],
             "type": "string"
         },
         "HogCompileResponse": {
@@ -29732,6 +29520,10 @@
                 },
                 "start": {
                     "$ref": "#/definitions/integer"
+                },
+                "url": {
+                    "description": "An https page with more detail about the notice. The editor links to it from the notice's hover.",
+                    "type": "string"
                 }
             },
             "required": ["message"],
@@ -29762,6 +29554,11 @@
             "properties": {
                 "connectionId": {
                     "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
+                    "type": "string"
+                },
+                "executionTarget": {
+                    "description": "Compile and run this query against the hosted Trino target.",
+                    "enum": ["default", "managed_trino"],
                     "type": "string"
                 },
                 "explain": {
@@ -29885,6 +29682,10 @@
                     "description": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
                     "type": "boolean"
                 },
+                "negatedPersonFiltersNotIn": {
+                    "description": "Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.",
+                    "type": "boolean"
+                },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
                 },
@@ -29947,6 +29748,10 @@
                     "enum": ["auto", "v1", "v2", "v3"],
                     "type": "string"
                 },
+                "sessionTimestampBufferMinutes": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range."
+                },
                 "sessionsV2JoinMode": {
                     "enum": ["string", "uuid"],
                     "type": "string"
@@ -29959,6 +29764,10 @@
                     "type": "boolean"
                 },
                 "useMaterializedViews": {
+                    "type": "boolean"
+                },
+                "useNewEventsCluster": {
+                    "description": "Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.",
                     "type": "boolean"
                 },
                 "useNewEventsSchema": {
@@ -30521,6 +30330,9 @@
         "InsightQuery": {
             "anyOf": [
                 {
+                    "$ref": "#/definitions/AssistantDataTableNode"
+                },
+                {
                     "$ref": "#/definitions/AssistantInsightVizNode"
                 },
                 {
@@ -30531,6 +30343,9 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantBareHogQLQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantEventsQuery"
                 }
             ]
         },
@@ -31434,88 +31249,6 @@
                 }
             },
             "required": ["type"],
-            "type": "object"
-        },
-        "LegacyExperimentQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "credible_intervals": {
-                    "additionalProperties": {
-                        "items": {
-                            "type": "number"
-                        },
-                        "maxItems": 2,
-                        "minItems": 2,
-                        "type": "array"
-                    },
-                    "type": "object"
-                },
-                "insight": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
-                },
-                "kind": {
-                    "const": "ExperimentQuery",
-                    "type": "string"
-                },
-                "metric": {
-                    "$ref": "#/definitions/ExperimentMetric"
-                },
-                "p_value": {
-                    "type": "number"
-                },
-                "probability": {
-                    "additionalProperties": {
-                        "type": "number"
-                    },
-                    "type": "object"
-                },
-                "significance_code": {
-                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                },
-                "significant": {
-                    "type": "boolean"
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
-                },
-                "variants": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
-                            },
-                            "type": "array"
-                        }
-                    ]
-                },
-                "warnings": {
-                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "kind",
-                "insight",
-                "metric",
-                "variants",
-                "probability",
-                "significant",
-                "significance_code",
-                "p_value",
-                "credible_intervals"
-            ],
             "type": "object"
         },
         "LifecycleDataWarehouseNode": {
@@ -36332,9 +36065,51 @@
             "enum": ["string", "integer", "number", "float", "datetime", "date", "boolean"],
             "type": "string"
         },
+        "MarketingAnalyticsSearchConversion": {
+            "additionalProperties": false,
+            "properties": {
+                "conversions": {
+                    "type": ["number", "null"]
+                },
+                "costPerConversion": {
+                    "type": ["number", "null"]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "previousConversions": {
+                    "type": ["number", "null"]
+                },
+                "previousCostPerConversion": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["conversions", "costPerConversion", "id", "name"],
+            "type": "object"
+        },
+        "MarketingAnalyticsSearchConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name"],
+            "type": "object"
+        },
         "MarketingAnalyticsSearchMetrics": {
             "additionalProperties": false,
             "properties": {
+                "absoluteTopImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown as the first ad.",
+                    "type": ["number", "null"]
+                },
                 "clicks": {
                     "type": "number"
                 },
@@ -36358,6 +36133,10 @@
                 },
                 "position": {
                     "type": ["number", "null"]
+                },
+                "topImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown among the top ads.",
+                    "type": ["number", "null"]
                 }
             },
             "required": ["clicks", "impressions", "cost", "conversions", "ctr", "cpc", "cpa"],
@@ -36376,6 +36155,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "includePostHogConversions": {
+                    "type": "boolean"
+                },
                 "keyword": {
                     "type": "string"
                 },
@@ -36386,6 +36168,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "normalizePageUrls": {
+                    "type": "boolean"
                 },
                 "page": {
                     "type": "string"
@@ -36427,6 +36212,35 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "placementUnavailable": {
+                    "type": "boolean"
+                },
+                "posthogAttributionMode": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AttributionMode"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionGoals": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionsWarning": {
+                    "type": ["string", "null"]
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -36481,6 +36295,10 @@
         "MarketingAnalyticsSearchRow": {
             "additionalProperties": false,
             "properties": {
+                "absoluteTopImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown as the first ad.",
+                    "type": ["number", "null"]
+                },
                 "clicks": {
                     "type": "number"
                 },
@@ -36521,6 +36339,19 @@
                 "position": {
                     "type": ["number", "null"]
                 },
+                "posthogConversions": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversion"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "previous": {
                     "anyOf": [
                         {
@@ -36530,6 +36361,10 @@
                             "type": "null"
                         }
                     ]
+                },
+                "topImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown among the top ads.",
+                    "type": ["number", "null"]
                 }
             },
             "required": [
@@ -36551,6 +36386,9 @@
             "additionalProperties": false,
             "properties": {
                 "keywordTable": {
+                    "type": "string"
+                },
+                "placementTable": {
                     "type": "string"
                 },
                 "queryPageTable": {
@@ -38787,6 +38625,10 @@
                     "description": "Optional display name for this event.",
                     "type": "string"
                 },
+                "negation": {
+                    "description": "Set to true to match sessions that did NOT contain this event. Only set it when the tool description says excluding sessions by event is supported.",
+                    "type": "boolean"
+                },
                 "properties": {
                     "description": "Optional property filters for this event only.",
                     "items": {
@@ -39265,6 +39107,7 @@
             "additionalProperties": false,
             "properties": {
                 "clauses": {
+                    "description": "Empty when `language` is `promql` or `sql`.",
                     "items": {
                         "$ref": "#/definitions/MetricsQueryClause"
                     },
@@ -39290,12 +39133,24 @@
                     "const": "MetricsQuery",
                     "type": "string"
                 },
+                "language": {
+                    "$ref": "#/definitions/MetricsQueryLanguage",
+                    "description": "How the query is written; the builder when unset."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "promql": {
+                    "description": "PromQL expression, run as a range query. Used when `language` is `promql`.",
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/MetricsQueryResponse"
+                },
+                "sql": {
+                    "description": "HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in from the date range and interval.",
+                    "type": "string"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -39312,7 +39167,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation": {
-                    "$ref": "#/definitions/MetricsAggregation"
+                    "$ref": "#/definitions/MetricsAggregation",
+                    "description": "Omit to get one line per series (at most 100), without combining them"
                 },
                 "filters": {
                     "items": {
@@ -39340,9 +39196,13 @@
                 "quantile": {
                     "description": "In (0, 1); required for `quantile` / `histogram_quantile` aggregations",
                     "type": "number"
+                },
+                "rangeFunction": {
+                    "$ref": "#/definitions/MetricsRangeFunction",
+                    "description": "Applied to each series before `aggregation`, like `rate()` in PromQL"
                 }
             },
-            "required": ["name", "metricName", "aggregation"],
+            "required": ["name", "metricName"],
             "type": "object"
         },
         "MetricsQueryFilter": {
@@ -39376,6 +39236,11 @@
             },
             "required": ["key"],
             "type": "object"
+        },
+        "MetricsQueryLanguage": {
+            "description": "How a metrics query is written. All three run through the metrics query runner, with its caching and limits.",
+            "enum": ["builder", "promql", "sql"],
+            "type": "string"
         },
         "MetricsQueryPoint": {
             "additionalProperties": false,
@@ -39481,12 +39346,17 @@
                     "type": "array"
                 },
                 "unit": {
-                    "description": "UCUM unit of the metric as ingested, e.g. \"By\", \"ms\", \"1\". Empty when the SDK did not set one.",
+                    "description": "UCUM unit of the returned values, e.g. \"By\", \"ms\", \"1/s\". It is the ingested unit, except that a count of series has no unit and a rate is per second. Empty when the values have no unit.",
                     "type": "string"
                 }
             },
             "required": ["labels", "points"],
             "type": "object"
+        },
+        "MetricsRangeFunction": {
+            "description": "Counter-aware transform applied to each series before any aggregation",
+            "enum": ["rate", "increase"],
+            "type": "string"
         },
         "MetricsReducer": {
             "description": "How a series collapses to one number for the scalar panels and legend calcs.",
@@ -41051,11 +40921,11 @@
             "additionalProperties": false,
             "properties": {
                 "showTotal": {
-                    "description": "Whether to show the aggregation total below the chart. Defaults to on.",
+                    "description": "Whether to show the aggregation total. Defaults to on only when slices show values.",
                     "type": "boolean"
                 },
                 "sliceContent": {
-                    "description": "What to render on each slice. Defaults to labels.",
+                    "description": "What to render on each slice. Defaults to values.",
                     "enum": ["labels", "values", "none"],
                     "type": "string"
                 },
@@ -41422,7 +41292,6 @@
         "ProductKey": {
             "enum": [
                 "actions",
-                "ai_gateway",
                 "llm_analytics",
                 "alerts",
                 "annotations",
@@ -43231,154 +43100,6 @@
                 {
                     "additionalProperties": false,
                     "properties": {
-                        "credible_intervals": {
-                            "additionalProperties": {
-                                "items": {
-                                    "type": "number"
-                                },
-                                "maxItems": 2,
-                                "minItems": 2,
-                                "type": "array"
-                            },
-                            "type": "object"
-                        },
-                        "expected_loss": {
-                            "type": "number"
-                        },
-                        "funnels_query": {
-                            "$ref": "#/definitions/FunnelsQuery"
-                        },
-                        "insight": {
-                            "items": {
-                                "items": {
-                                    "type": "object"
-                                },
-                                "type": "array"
-                            },
-                            "type": "array"
-                        },
-                        "kind": {
-                            "const": "ExperimentFunnelsQuery",
-                            "type": "string"
-                        },
-                        "probability": {
-                            "additionalProperties": {
-                                "type": "number"
-                            },
-                            "type": "object"
-                        },
-                        "significance_code": {
-                            "$ref": "#/definitions/ExperimentSignificanceCode"
-                        },
-                        "significant": {
-                            "type": "boolean"
-                        },
-                        "stats_version": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "variants": {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
-                            },
-                            "type": "array"
-                        },
-                        "warnings": {
-                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                            "items": {
-                                "$ref": "#/definitions/DataWarehouseSyncWarning"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": [
-                        "kind",
-                        "insight",
-                        "variants",
-                        "probability",
-                        "significant",
-                        "significance_code",
-                        "expected_loss",
-                        "credible_intervals"
-                    ],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "count_query": {
-                            "$ref": "#/definitions/TrendsQuery"
-                        },
-                        "credible_intervals": {
-                            "additionalProperties": {
-                                "items": {
-                                    "type": "number"
-                                },
-                                "maxItems": 2,
-                                "minItems": 2,
-                                "type": "array"
-                            },
-                            "type": "object"
-                        },
-                        "exposure_query": {
-                            "$ref": "#/definitions/TrendsQuery"
-                        },
-                        "insight": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "kind": {
-                            "const": "ExperimentTrendsQuery",
-                            "type": "string"
-                        },
-                        "p_value": {
-                            "type": "number"
-                        },
-                        "probability": {
-                            "additionalProperties": {
-                                "type": "number"
-                            },
-                            "type": "object"
-                        },
-                        "significance_code": {
-                            "$ref": "#/definitions/ExperimentSignificanceCode"
-                        },
-                        "significant": {
-                            "type": "boolean"
-                        },
-                        "stats_version": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "variants": {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                            },
-                            "type": "array"
-                        },
-                        "warnings": {
-                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                            "items": {
-                                "$ref": "#/definitions/DataWarehouseSyncWarning"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": [
-                        "kind",
-                        "insight",
-                        "variants",
-                        "probability",
-                        "significant",
-                        "significance_code",
-                        "p_value",
-                        "credible_intervals"
-                    ],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
                         "baseline": {
                             "$ref": "#/definitions/ExperimentStatsBaseValidated"
                         },
@@ -43491,6 +43212,13 @@
                         },
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
+                        },
+                        "health_findings": {
+                            "description": "Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed.",
+                            "items": {
+                                "$ref": "#/definitions/ExperimentExposureHealthFinding"
+                            },
+                            "type": "array"
                         },
                         "kind": {
                             "const": "ExperimentExposureQuery",
@@ -44836,6 +44564,35 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "placementUnavailable": {
+                            "type": "boolean"
+                        },
+                        "posthogAttributionMode": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/AttributionMode"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "posthogConversionGoals": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "posthogConversionsWarning": {
+                            "type": ["string", "null"]
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -46255,154 +46012,6 @@
                         }
                     },
                     "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "credible_intervals": {
-                            "additionalProperties": {
-                                "items": {
-                                    "type": "number"
-                                },
-                                "maxItems": 2,
-                                "minItems": 2,
-                                "type": "array"
-                            },
-                            "type": "object"
-                        },
-                        "expected_loss": {
-                            "type": "number"
-                        },
-                        "funnels_query": {
-                            "$ref": "#/definitions/FunnelsQuery"
-                        },
-                        "insight": {
-                            "items": {
-                                "items": {
-                                    "type": "object"
-                                },
-                                "type": "array"
-                            },
-                            "type": "array"
-                        },
-                        "kind": {
-                            "const": "ExperimentFunnelsQuery",
-                            "type": "string"
-                        },
-                        "probability": {
-                            "additionalProperties": {
-                                "type": "number"
-                            },
-                            "type": "object"
-                        },
-                        "significance_code": {
-                            "$ref": "#/definitions/ExperimentSignificanceCode"
-                        },
-                        "significant": {
-                            "type": "boolean"
-                        },
-                        "stats_version": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "variants": {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
-                            },
-                            "type": "array"
-                        },
-                        "warnings": {
-                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                            "items": {
-                                "$ref": "#/definitions/DataWarehouseSyncWarning"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": [
-                        "credible_intervals",
-                        "expected_loss",
-                        "insight",
-                        "kind",
-                        "probability",
-                        "significance_code",
-                        "significant",
-                        "variants"
-                    ],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "count_query": {
-                            "$ref": "#/definitions/TrendsQuery"
-                        },
-                        "credible_intervals": {
-                            "additionalProperties": {
-                                "items": {
-                                    "type": "number"
-                                },
-                                "maxItems": 2,
-                                "minItems": 2,
-                                "type": "array"
-                            },
-                            "type": "object"
-                        },
-                        "exposure_query": {
-                            "$ref": "#/definitions/TrendsQuery"
-                        },
-                        "insight": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "kind": {
-                            "const": "ExperimentTrendsQuery",
-                            "type": "string"
-                        },
-                        "p_value": {
-                            "type": "number"
-                        },
-                        "probability": {
-                            "additionalProperties": {
-                                "type": "number"
-                            },
-                            "type": "object"
-                        },
-                        "significance_code": {
-                            "$ref": "#/definitions/ExperimentSignificanceCode"
-                        },
-                        "significant": {
-                            "type": "boolean"
-                        },
-                        "stats_version": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "variants": {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                            },
-                            "type": "array"
-                        },
-                        "warnings": {
-                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
-                            "items": {
-                                "$ref": "#/definitions/DataWarehouseSyncWarning"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": [
-                        "credible_intervals",
-                        "insight",
-                        "kind",
-                        "p_value",
-                        "probability",
-                        "significance_code",
-                        "significant",
-                        "variants"
-                    ],
                     "type": "object"
                 },
                 {
@@ -50651,12 +50260,6 @@
                     "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
                 },
                 {
-                    "$ref": "#/definitions/ExperimentFunnelsQuery"
-                },
-                {
-                    "$ref": "#/definitions/ExperimentTrendsQuery"
-                },
-                {
                     "$ref": "#/definitions/ExperimentQuery"
                 },
                 {
@@ -53378,90 +52981,6 @@
             },
             "type": "object"
         },
-        "SidebarConfiguration": {
-            "additionalProperties": {},
-            "description": "Customization of the main navigation sidebar. Extra keys are tolerated so older servers accept configs written by newer clients.",
-            "properties": {
-                "density": {
-                    "$ref": "#/definitions/SidebarDensity",
-                    "description": "Row density of the sidebar."
-                },
-                "items": {
-                    "$ref": "#/definitions/SidebarItemsConfiguration"
-                },
-                "sections": {
-                    "$ref": "#/definitions/SidebarSectionsConfiguration"
-                },
-                "starred_products_setup_completed": {
-                    "description": "True once the user saved or dismissed the setup that moves their custom products to starred products in the simple sidebar.",
-                    "type": "boolean"
-                }
-            },
-            "type": "object"
-        },
-        "SidebarDensity": {
-            "description": "How densely the sidebar renders its rows. An absent value means \"comfortable\".",
-            "enum": ["comfortable", "compact"],
-            "type": "string"
-        },
-        "SidebarItemsConfiguration": {
-            "additionalProperties": false,
-            "description": "Individual items of the main navigation sidebar. Items inside a hidden section are hidden regardless of their own config. Activity and Settings are deliberately absent: they always stay visible.",
-            "properties": {
-                "data": {
-                    "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "\"Data\" panel trigger in the Project section."
-                },
-                "files": {
-                    "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "\"Files\" panel trigger in the Project section."
-                },
-                "help": {
-                    "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "\"Help\" entry in the sidebar footer."
-                },
-                "home": {
-                    "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "\"Home\" link in the Project section."
-                },
-                "inbox": {
-                    "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "\"Inbox\" link in the Project section. Only rendered when the inbox feature is available."
-                },
-                "notifications": {
-                    "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "\"Notifications\" entry in the sidebar footer. Only rendered when real-time notifications are available."
-                },
-                "starred": {
-                    "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "\"Starred\" panel trigger in the Project section."
-                },
-                "tools": {
-                    "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "\"Products\" panel trigger in the Project section."
-                }
-            },
-            "type": "object"
-        },
-        "SidebarSectionsConfiguration": {
-            "additionalProperties": false,
-            "description": "Collapsible sections of the main navigation sidebar. Hiding a section hides everything inside it, except always-visible items like Activity.",
-            "properties": {
-                "my_tools": {
-                    "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "The \"My products\" section, listing the user's selected products."
-                },
-                "project": {
-                    "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "The \"Project\" section (Home and the Data/Files/Products/Starred panel triggers). Activity stays visible even when this section is hidden."
-                },
-                "recents": {
-                    "$ref": "#/definitions/UIVisibilityConfig",
-                    "description": "The \"Recents\" section, listing recently viewed items."
-                }
-            },
-            "type": "object"
-        },
         "SimilarIssue": {
             "additionalProperties": false,
             "properties": {
@@ -54239,10 +53758,25 @@
                 "buttonTextColor": {
                     "type": "string"
                 },
+                "displayIntroScreen": {
+                    "type": "boolean"
+                },
                 "inputBackground": {
                     "type": "string"
                 },
                 "inputTextColor": {
+                    "type": "string"
+                },
+                "introScreenButtonText": {
+                    "type": "string"
+                },
+                "introScreenDescription": {
+                    "type": "string"
+                },
+                "introScreenDescriptionContentType": {
+                    "$ref": "#/definitions/SurveyQuestionDescriptionContentType"
+                },
+                "introScreenHeader": {
                     "type": "string"
                 },
                 "maxWidth": {
@@ -55185,6 +54719,16 @@
                     "anyOf": [
                         {
                             "$ref": "#/definitions/BreakdownFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/CompareFilter"
                         },
                         {
                             "type": "null"
@@ -56815,16 +56359,6 @@
             "enum": ["twitter", "x", "twitter_ads", "x_ads"],
             "type": "string"
         },
-        "UIVisibilityConfig": {
-            "additionalProperties": false,
-            "description": "Visibility of a single customizable UI element. An absent config or an absent `visible` means the element is shown.",
-            "properties": {
-                "visible": {
-                    "type": "boolean"
-                }
-            },
-            "type": "object"
-        },
         "UsageMetric": {
             "additionalProperties": false,
             "properties": {
@@ -57021,35 +56555,10 @@
             "required": ["distinct_id", "email", "first_name", "id", "uuid"],
             "type": "object"
         },
-        "UserProductListItem": {
-            "additionalProperties": false,
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "enabled": {
-                    "type": "boolean"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "product_path": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            },
-            "required": ["id", "product_path", "enabled", "created_at", "updated_at"],
-            "type": "object"
-        },
         "UserUIConfiguration": {
             "additionalProperties": {},
-            "description": "Per-user UI customization, persisted on the User model as a single JSONB blob. A null configuration and any absent key mean \"default\", which for visibility is \"shown\", so newly added UI surfaces appear for everyone until explicitly hidden. Writers must send the complete object; the server validates and replaces it wholesale.",
+            "description": "Per-user UI customization, persisted on the User model as a single JSONB blob. A null configuration and any absent key mean \"default\". Writers must send the complete object; the server validates and replaces it wholesale.",
             "properties": {
-                "sidebar": {
-                    "$ref": "#/definitions/SidebarConfiguration"
-                },
                 "sql_editor": {
                     "$ref": "#/definitions/SQLEditorConfiguration"
                 },
@@ -59758,29 +59267,6 @@
             },
             "type": "object"
         },
-        "isExperimentFunnelsQuery": {
-            "$comment": "(\n    query: ExperimentTrendsQuery | ExperimentFunnelsQuery) => query is ExperimentFunnelsQuery",
-            "properties": {
-                "namedArgs": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "query": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/ExperimentTrendsQuery"
-                                },
-                                {
-                                    "$ref": "#/definitions/ExperimentFunnelsQuery"
-                                }
-                            ]
-                        }
-                    },
-                    "required": ["query"],
-                    "type": "object"
-                }
-            },
-            "type": "object"
-        },
         "isExperimentMeanMetric": {
             "$comment": "(metric: ExperimentMetric) => metric is ExperimentMeanMetric",
             "properties": {
@@ -59824,29 +59310,6 @@
                         }
                     },
                     "required": ["metric"],
-                    "type": "object"
-                }
-            },
-            "type": "object"
-        },
-        "isExperimentTrendsQuery": {
-            "$comment": "(\n    query: ExperimentTrendsQuery | ExperimentFunnelsQuery) => query is ExperimentTrendsQuery",
-            "properties": {
-                "namedArgs": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "query": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/ExperimentTrendsQuery"
-                                },
-                                {
-                                    "$ref": "#/definitions/ExperimentFunnelsQuery"
-                                }
-                            ]
-                        }
-                    },
-                    "required": ["query"],
                     "type": "object"
                 }
             },

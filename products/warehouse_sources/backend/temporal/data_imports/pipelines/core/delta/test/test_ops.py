@@ -80,6 +80,21 @@ class TestExecuteWithConflictRetry:
         table.update_incremental.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_can_propagate_a_conflict_without_retrying(self):
+        table = MagicMock()
+        operation_fn = MagicMock(
+            side_effect=deltalake.exceptions.CommitFailedError(
+                "Commit failed: a concurrent transaction added new data."
+            )
+        )
+
+        with pytest.raises(deltalake.exceptions.CommitFailedError):
+            await execute_with_conflict_retry(table, operation_fn, "op", make_logger(), conflict_retries=0)
+
+        operation_fn.assert_called_once()
+        table.update_incremental.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_retries_on_invalid_version_race_then_succeeds(self):
         # Two writers racing to commit the very first version of a brand-new table surface as a
         # plain DeltaError, not CommitFailedError (delta-rs's Python binding only special-cases

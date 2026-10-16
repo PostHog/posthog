@@ -43,14 +43,17 @@ from posthog.models.team.team import Team
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.facade.contracts import CreateExperimentInput
-from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, resolve_saved_metric_definition
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.facade.contracts import (
+    CreateExperimentInput,
+    ExperimentHealthFindingActionKind,
+    ExperimentHealthFindingCode,
+    ExperimentHealthFindingSeverity,
+)
+from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
-from products.experiments.backend.metric_utils import apply_metric_date_range, refresh_action_names_in_metric
+from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -58,16 +61,20 @@ from products.experiments.backend.models.experiment import (
     experiment_has_legacy_metrics,
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
-from products.experiments.backend.session_buckets import MAX_BUCKET_SCAN_DAYS, MAX_SESSION_BUCKET_LIMIT, SessionBucket
+from products.experiments.backend.session_buckets import (
+    MAX_BUCKET_SCAN_DAYS,
+    MAX_SESSION_BUCKET_LIMIT,
+    ExperimentSessionBucket,
+)
 from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH
 from products.experiments.backend.session_event_deltas import (
     FIRST_SESSION_HORIZON_HOURS,
     MAX_CARD_HIGHLIGHTS,
     MAX_CARD_RECORDINGS,
     MAX_DELTA_SCAN_DAYS,
-    DeltaStrength,
-    WatchCardKind,
-    WatchEmptyReason,
+    ExperimentWatchCardKind,
+    ExperimentWatchCardStrength,
+    ExperimentWatchEmptyReason,
 )
 from products.experiments.backend.setup_context import (
     DEFAULT_LIST_LIMIT,
@@ -177,6 +184,69 @@ class ExperimentRunningTimeCalculationField(serializers.JSONField):
 @extend_schema_field(ExperimentMetric)  # type: ignore[arg-type]
 class ExperimentMetricDefinitionField(serializers.JSONField):
     pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": {
+            "oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}],
+            "nullable": True,
+        },
+    }
+)
+class ExperimentHealthEvidenceField(serializers.DictField):
+    pass
+
+
+class ExperimentHealthFindingSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(
+        choices=ExperimentHealthFindingCode.choices,
+        help_text="Stable identifier of the problem. Each code has one meaning across every surface that reports it.",
+    )
+    subcode = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The case within the code, when a code covers several, for example "
+            "'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case."
+        ),
+    )
+    severity = serializers.ChoiceField(
+        choices=ExperimentHealthFindingSeverity.choices,
+        help_text="How much the problem affects the results: critical, warning, or info.",
+    )
+    title = serializers.CharField(help_text="One-line summary of the problem.")
+    detail = serializers.CharField(help_text="What is wrong, what it does to the experiment, and how to fix it.")
+    evidence = ExperimentHealthEvidenceField(
+        help_text=(
+            "The values behind the finding, such as the key of a shipped variant or the share of users "
+            "exposed to multiple variants. The keys depend on the code."
+        ),
+    )
+    actions = serializers.ListField(
+        child=serializers.ChoiceField(choices=ExperimentHealthFindingActionKind.choices),
+        help_text=(
+            "The actions that fix the problem, in order of preference, for example 'open_feature_flag' "
+            "or 'add_primary_metric'."
+        ),
+    )
+    diagnostic_ref = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A5'. "
+            "Null when the skill has none."
+        ),
+    )
+
+
+class ExperimentHealthSerializer(serializers.Serializer):
+    findings = ExperimentHealthFindingSerializer(
+        many=True,
+        help_text=(
+            "Problems that the health checks found in the experiment's configuration and its feature flag. "
+            "Empty when every check passed."
+        ),
+    )
 
 
 class ExperimentBaseSerializer(
@@ -501,6 +571,13 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "experiment would resolve to if launched now."
         ),
     )
+    health = serializers.SerializerMethodField(
+        help_text=(
+            "Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: "
+            "problems in this experiment's configuration and its feature flag that keep it from producing "
+            "trustworthy results, each with a fix."
+        ),
+    )
     version = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -597,6 +674,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "is_legacy",
             "can_freeze_exposure",
             "resolved_exposure_event",
+            "health",
             "user_access_level",
             "tags",
         ]
@@ -612,6 +690,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "status",
             "can_freeze_exposure",
             "resolved_exposure_event",
+            "health",
             "user_access_level",
         ]
 
@@ -634,24 +713,14 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         # launched today, which is what the setup UI needs to show.
         return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
 
-    @staticmethod
-    def _stored_saved_metric_queries(instance: Experiment) -> dict[int, dict[str, Any]]:
-        links = instance.experimenttosavedmetric_set.all()
-        # Calling select_related on the manager would discard a prefetch cache and query again.
-        if "experimenttosavedmetric_set" not in getattr(instance, "_prefetched_objects_cache", {}):
-            links = links.select_related("saved_metric")
-        return {link.id: link.saved_metric.query for link in links}
+    @extend_schema_field(ExperimentHealthSerializer(allow_null=True))
+    def get_health(self, obj: Experiment) -> dict[str, Any] | None:
+        # The `health` action serves the findings, so the experiment read stays fast as checks are added.
+        return None
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        # Normalize query date ranges to the experiment's current range
-        # Cribbed from ExperimentTrendsQuery
-        new_date_range = {
-            "date_from": data["start_date"] if data["start_date"] else "",
-            "date_to": data["end_date"] if data["end_date"] else "",
-            "explicitDate": True,
-        }
 
         # Refresh action names in inline metrics (metrics and metrics_secondary).
         # The columns are nullable, so the keys can be present with a None value. Each call
@@ -663,34 +732,22 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                 refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
                 if refreshed_metric:
                     metrics_list[i] = refreshed_metric
-                    metric = refreshed_metric
 
-                apply_metric_date_range(metric, new_date_range)
-
-        # Update date ranges in saved metrics
         # Note: Action name refresh is handled by ExperimentToSavedMetricSerializer.to_representation
         saved_metrics = data.get("saved_metrics", [])
         with tracer.start_as_current_span("ExperimentSerializer.saved_metric_fingerprints") as span:
             span.set_attribute("saved_metric_count", len(saved_metrics))
-            stored_queries = self._stored_saved_metric_queries(instance) if saved_metrics else {}
+            calculation_keys = ExperimentService.saved_metric_calculation_keys(instance) if saved_metrics else {}
             for saved_metric in saved_metrics:
                 if saved_metric.get("query"):
-                    apply_metric_date_range(saved_metric["query"], new_date_range)
-
                     # Add fingerprint to saved metric returned from API so that the frontend knows what
                     # timeseries records to query. Computed on the effective definition (with the link
                     # overrides), the same dict the daily discovery fingerprints, so the chart read finds
                     # the rows the daily workflow wrote. The action names are part of the hash, and the
                     # serialized query carries the refreshed names, so the hash reads the stored query.
-                    stored_query = stored_queries.get(saved_metric["id"]) or saved_metric["query"]
-                    saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
-                        resolve_saved_metric_definition(stored_query, saved_metric.get("metadata")),
-                        instance.start_date,
-                        get_experiment_stats_method(instance),
-                        instance.exposure_criteria,
-                        only_count_matured_users=instance.only_count_matured_users,
-                        excluded_variants=instance.excluded_variants or [],
-                    )
+                    calculation_key = calculation_keys.get(saved_metric["id"])
+                    if calculation_key is not None:
+                        saved_metric["query"]["fingerprint"] = calculation_key
 
                     # Derived from the served query after the fingerprint is stamped, so that the effective
                     # definition carries the same fingerprint and refreshed action names. Clients send it to
@@ -701,7 +758,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                         served_query.get("kind") == "ExperimentMetric"
                         and served_query.get("metric_type") in METRIC_BUILDERS
                     ):
-                        saved_metric["effective_query"] = resolve_saved_metric_definition(
+                        saved_metric["effective_query"] = apply_saved_metric_overrides(
                             served_query, saved_metric.get("metadata")
                         )
 
@@ -1949,7 +2006,7 @@ class ExperimentSessionBucketRequestSerializer(serializers.Serializer):
     """Request body for the session-bucket endpoint."""
 
     bucket = serializers.ChoiceField(
-        choices=[bucket.value for bucket in SessionBucket],
+        choices=ExperimentSessionBucket.choices,
         help_text=(
             "Which question the returned session set answers. 'fired_any': the session fired at least one event "
             "of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the "
@@ -1989,7 +2046,7 @@ class ExperimentSessionBucketRequestSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict) -> dict:
-        if attrs["bucket"] == SessionBucket.FUNNEL_DROPOFF and len(attrs.get("metric_uuids") or []) != 1:
+        if attrs["bucket"] == ExperimentSessionBucket.FUNNEL_DROPOFF and len(attrs.get("metric_uuids") or []) != 1:
             raise serializers.ValidationError(
                 {"metric_uuids": ["The drop-off bucket takes exactly one funnel metric."]}
             )
@@ -2110,7 +2167,7 @@ class ExperimentWatchCardSerializer(serializers.Serializer):
     """
 
     kind = serializers.ChoiceField(
-        choices=[kind.value for kind in WatchCardKind],
+        choices=ExperimentWatchCardKind.choices,
         help_text=(
             "What the card is: 'behavior' for an event this variant did clearly more than the other variants "
             "together, 'friction' for the same finding on an error or rage signal, 'variant_only' for an event "
@@ -2126,7 +2183,7 @@ class ExperimentWatchCardSerializer(serializers.Serializer):
         help_text="The variant whose recordings these are: for comparison cards, the one that did the event more."
     )
     strength = serializers.ChoiceField(
-        choices=[strength.value for strength in DeltaStrength],
+        choices=ExperimentWatchCardStrength.choices,
         allow_null=True,
         help_text=(
             "How far apart this variant and the rest are, as a band rather than a number: 'only' when nobody in "
@@ -2326,7 +2383,7 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
         )
     )
     empty_reason = serializers.ChoiceField(
-        choices=[reason.value for reason in WatchEmptyReason],
+        choices=ExperimentWatchEmptyReason.choices,
         allow_null=True,
         help_text=(
             "Why cards is empty, and null whenever cards is not empty. Report which of the four happened "
@@ -2889,10 +2946,11 @@ class ExperimentSetupPreviousExperimentSerializer(serializers.Serializer):
     outcome = ExperimentSetupOutcomeSerializer(
         allow_null=True,
         help_text=(
-            "From the completed result that covers the latest data in the experiment's current run. A funnel or "
-            "a mean primary metric is chosen over a retention or a ratio one, because only its samples are the "
-            "analyzed population. Null when no result exists for that run, which is also the case for older "
-            "metric definitions that results are never stored for."
+            "From the completed result that covers the latest data under the experiment's current configuration. "
+            "A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples "
+            "are the analyzed population. Null when no result exists for that configuration, for example after a "
+            "relaunch or a settings edit until the results are recalculated, and for older metric definitions that "
+            "results are never stored for."
         ),
     )
 

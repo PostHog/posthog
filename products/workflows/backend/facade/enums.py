@@ -54,3 +54,65 @@ class WorkflowProposalStatus(LabeledStrEnum):
     APPROVED = "approved", "Approved"
     REJECTED = "rejected", "Rejected"
     APPLIED = "applied", "Applied"
+
+
+class WorkflowIdeaStatus(LabeledStrEnum):
+    SUGGESTED = "suggested", "Suggested"
+    ACCEPTED = "accepted", "Accepted"
+    DISMISSED = "dismissed", "Dismissed"
+
+
+class WorkflowIdeaSource(LabeledStrEnum):
+    MANUAL = "manual", "Manual"
+    SCOUT = "scout", "Scout"
+
+
+class HogFlowState(LabeledStrEnum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class HogFlowOriginProduct(LabeledStrEnum):
+    """The product surface that owns a workflow. Null for workflows built in the workflows UI or the API."""
+
+    LOOPS = "loops", "Loops"
+    BROADCASTS = "broadcasts", "Broadcasts"
+    TRANSACTIONAL_EMAILS = "transactional_emails", "Transactional emails"
+
+
+class HogFlowEmailSendingPausedBy(LabeledStrEnum):
+    AUTO = "auto", "auto"
+    STAFF = "staff", "staff"
+
+
+class HogFlowExitCondition(LabeledStrEnum):
+    # The same choices as HogFlowTemplateExitCondition, kept as a separate class so each owner keeps its
+    # own enum and the shared OpenAPI component name does not change.
+    CONVERSION = "exit_on_conversion"
+    TRIGGER_NOT_MATCHED = "exit_on_trigger_not_matched"
+    TRIGGER_NOT_MATCHED_OR_CONVERSION = "exit_on_trigger_not_matched_or_conversion"
+    ONLY_AT_END = "exit_only_at_end"
+
+
+class EmailDraftSource(LabeledStrEnum):
+    ERROR_TRACKING = "error_tracking", "Error tracking issue"
+    EARLY_ACCESS = "early_access", "Early access feature"
+    SURVEY = "survey", "Survey"
+    FEATURE_FLAG = "feature_flag", "Feature flag"
+    COHORT = "cohort", "Cohort"
+
+
+class EmailDraftOrigin(LabeledStrEnum):
+    AI = "ai", "AI"
+    TEMPLATE = "template", "Template"
+
+
+class EmailDraftFallbackReason(LabeledStrEnum):
+    FLAG_OFF = "flag_off", "AI drafts are not enabled for this project"
+    AI_NOT_APPROVED = "ai_not_approved", "The organization has not approved AI data processing"
+    GATEWAY_UNCONFIGURED = "gateway_unconfigured", "The AI gateway is not configured"
+    RATE_LIMITED = "rate_limited", "The project used its hourly AI drafts"
+    TIMEOUT = "timeout", "The model took too long"
+    MODEL_ERROR = "model_error", "The model call failed"
+    INVALID_OUTPUT = "invalid_output", "The model returned an unusable draft"

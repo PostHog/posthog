@@ -14,7 +14,7 @@ import AlphaRelease from "../\_snippets/alpha-release.mdx"
 
 <AlphaRelease />
 
-The env0 connector syncs your infrastructure-as-code data into PostHog: organizations, projects, teams, templates, organization members, environments, deployment history, the resources behind each deployment, drift causes, and cloud cost at the environment, project, and organization level. You can attribute cloud spend to teams and projects and analyze deployment and drift activity alongside your product data.
+The env0 connector syncs your infrastructure-as-code data into PostHog: organizations, projects, teams, templates, organization members, roles and role assignments, environments, deployment history, the steps and resources behind each deployment, drift causes, audit logs, project budgets, and cloud cost at the environment, project, and organization level. You can attribute cloud spend to teams and projects, compare it against budgets, and analyze deployment and drift activity alongside your product data.
 
 ## Prerequisites
 
@@ -40,6 +40,10 @@ The `deployments` table supports incremental sync on `startedAt`. Deployments ca
 
 The `deployment_resources` table supports incremental sync on `deployment_started_at`, the start time of the deployment that managed the resource. An incremental sync only visits deployments inside that window, which keeps the table cheap to refresh. A full refresh visits every deployment in every environment, so use incremental sync once the first load finishes.
 
+The `deployment_steps` table works the same way, with incremental sync on `deployment_started_at`.
+
+The `audit_logs` table supports incremental sync on `timestamp`.
+
 The cost tables always sync the last year of daily cost records, so full refresh is the right mode for them. The same goes for `drift_causes` and `organization_users`, which env0 returns in full on every request.
 
 ## Configuration
@@ -52,9 +56,11 @@ The cost tables always sync the last year of daily cost records, so full refresh
 
 ## Troubleshooting
 
-**Missing cost data:** the cost tables only have rows for environments and projects where env0 cost monitoring is configured. Those without it are skipped.
+**Missing cost data:** the cost tables only have rows for environments and projects where env0 cost monitoring is configured. Those without it are skipped. The budget tables only have rows for projects with a budget.
 
-**Rate limits:** env0 limits API usage to 1,000 requests per 60 seconds. Deployments and costs are fetched per environment, and `deployment_resources` is fetched per deployment, so accounts with very many environments or deployments may sync these tables slowly. The connector backs off and retries automatically.
+**Rate limits:** env0 limits API usage to 1,000 requests per 60 seconds. Deployments and costs are fetched per environment, and `deployment_resources` and `deployment_steps` are fetched per deployment, so accounts with very many environments or deployments may sync these tables slowly. The connector backs off and retries automatically.
+
+**Audit logs:** reading audit logs needs the `VIEW_AUDIT_LOGS` permission in env0.
 
 **API keys in `organization_users`:** env0 counts organization API keys as users, so they appear in this table alongside people. The `app_metadata` column marks them. They are included because a deployment can be started by an API key, so leaving them out would make the table an incomplete lookup.
 
