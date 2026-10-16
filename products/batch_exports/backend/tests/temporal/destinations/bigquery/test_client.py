@@ -220,13 +220,26 @@ async def test_create_table(fields, time_partitioning, bigquery_client, bigquery
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("version_key", [("version",), ()])
-async def test_merge_query_with_optional_version_key(version_key: tuple[str, ...]) -> None:
+@pytest.mark.parametrize("versioned", [True, False])
+@pytest.mark.parametrize(
+    "key,quoted_key,version,quoted_version",
+    [
+        ("id", "`id`", "version", "`version`"),
+        ("group", "`group`", "updated at", "`updated at`"),
+        ("key`name", r"`key\`name`", "version\\name", r"`version\\name`"),
+        ("key\\`name", r"`key\\\`name`", "version\nname", r"`version\nname`"),
+    ],
+)
+async def test_merge_query_with_optional_version_key(
+    versioned: bool, key: str, quoted_key: str, version: str, quoted_version: str
+) -> None:
     fields = (
-        BigQueryField("id", BigQueryType("INT64", False), False),
-        BigQueryField("version", BigQueryType("INT64", False), False),
+        BigQueryField(key, BigQueryType("INT64", False), False),
+        BigQueryField(version, BigQueryType("INT64", False), False),
     )
-    final = BigQueryTable("final", fields, ("project", "dataset"), primary_key=("id",), version_key=version_key)
+    final = BigQueryTable(
+        "final", fields, ("project", "dataset"), primary_key=(key,), version_key=(version,) if versioned else ()
+    )
     stage = BigQueryTable("stage", fields, ("project", "dataset"))
     client = BigQueryClient(MagicMock())
 
@@ -235,14 +248,55 @@ async def test_merge_query_with_optional_version_key(version_key: tuple[str, ...
 
     query = " ".join(execute.call_args.args[0].split())
     assert query.startswith("MERGE `project.dataset.final`")
-    assert "ON final.`id` = stage.`id`" in query
-    assert "WHEN NOT MATCHED BY TARGET THEN INSERT" in query
-    if version_key:
-        assert "WHEN MATCHED AND (final.`version` < stage.`version`) THEN UPDATE" in query
-        assert "PARTITION BY id ORDER BY version DESC" in query
+    assert f"ON final.{quoted_key} = stage.{quoted_key}" in query
+    assert (
+        f"UPDATE SET final.{quoted_key} = stage.{quoted_key}, final.{quoted_version} = stage.{quoted_version}" in query
+    )
+    assert f"WHEN NOT MATCHED BY TARGET THEN INSERT ({quoted_key}, {quoted_version})" in query
+    assert f"VALUES (stage.{quoted_key}, stage.{quoted_version})" in query
+    if versioned:
+        assert f"WHEN MATCHED AND (final.{quoted_version} < stage.{quoted_version}) THEN UPDATE" in query
+        assert f"PARTITION BY {quoted_key} ORDER BY {quoted_version} DESC" in query
     else:
         assert "WHEN MATCHED THEN UPDATE" in query
-        assert "ROW_NUMBER() OVER ( PARTITION BY id )" in query
+        assert f"ROW_NUMBER() OVER ( PARTITION BY {quoted_key} )" in query
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("merge", [True, False])
+async def test_write_query_quotes_fields_and_tables_with_json_casts(merge: bool) -> None:
+    final = BigQueryTable(
+        "final`table",
+        (
+            BigQueryField("group", BigQueryType("INT64", False), False),
+            BigQueryField("json\\`data", BigQueryType("JSON", False), True),
+        ),
+        ("project", "dataset"),
+        primary_key=("group",) if merge else (),
+    )
+    stage = BigQueryTable(
+        "stage\\`table",
+        (
+            BigQueryField("group", BigQueryType("INT64", False), False),
+            BigQueryField("json\\`data", BigQueryType("STRING", False), True),
+        ),
+        ("project", "dataset"),
+    )
+    client = BigQueryClient(MagicMock())
+    with patch.object(client, "execute_query", new_callable=AsyncMock) as execute:
+        await client.merge_tables(final, stage)
+
+    query = " ".join(execute.call_args.args[0].split())
+    assert r"`project.dataset.final\`table`" in query
+    assert r"FROM `project.dataset.stage\\\`table`" in query
+    assert r"`json\\\`data`" in query
+    prefix = "stage." if merge else ""
+    assert f"REGEXP_REPLACE( {prefix}" + r"`json\\\`data`," in query
+    if merge:
+        assert r"INSERT (`group`, `json\\\`data`)" in query
+    else:
+        assert r"(`group`,`json\\\`data`)" in query
+        assert "SELECT `group`, SAFE.PARSE_JSON(" in query
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
