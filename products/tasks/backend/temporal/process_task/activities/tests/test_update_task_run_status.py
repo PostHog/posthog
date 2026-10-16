@@ -11,6 +11,7 @@ from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from products.tasks.backend.constants import SANDBOX_PROVISIONING_STARTED_STATE_KEY
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
@@ -74,12 +75,16 @@ class TestUpdateTaskRunStatusActivity:
     )
     def test_updates_status(self, activity_environment, test_task_run, status, environment, sets_completed_at):
         test_task_run.environment = environment
-        test_task_run.save(update_fields=["environment"])
+        test_task_run.state[SANDBOX_PROVISIONING_STARTED_STATE_KEY] = False
+        test_task_run.save(update_fields=["environment", "state"])
         input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=status)
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
         test_task_run.refresh_from_db()
         assert test_task_run.status == status
+        assert test_task_run.state[SANDBOX_PROVISIONING_STARTED_STATE_KEY] is (
+            status == TaskRun.Status.IN_PROGRESS and environment == TaskRun.Environment.CLOUD
+        )
         if sets_completed_at:
             assert test_task_run.completed_at is not None
         else:
@@ -102,7 +107,8 @@ class TestUpdateTaskRunStatusActivity:
     @pytest.mark.parametrize("status", [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
     def test_terminal_run_refuses_to_start(self, activity_environment, test_task_run, status):
         test_task_run.status = status
-        test_task_run.save(update_fields=["status"])
+        test_task_run.state[SANDBOX_PROVISIONING_STARTED_STATE_KEY] = False
+        test_task_run.save(update_fields=["status", "state"])
 
         input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.IN_PROGRESS)
         with pytest.raises(ApplicationError) as exc_info:
@@ -111,6 +117,7 @@ class TestUpdateTaskRunStatusActivity:
         assert exc_info.value.non_retryable is True
         test_task_run.refresh_from_db()
         assert test_task_run.status == status
+        assert test_task_run.state[SANDBOX_PROVISIONING_STARTED_STATE_KEY] is False
 
     @pytest.mark.django_db(transaction=True)
     def test_updates_error_message(self, activity_environment, test_task_run):

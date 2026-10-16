@@ -11,7 +11,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import asyncify
 
 from products.signals.backend.facade.spend import complete_task_spend
-from products.tasks.backend.constants import TIMED_OUT_INACTIVITY_STATE_KEY
+from products.tasks.backend.constants import SANDBOX_PROVISIONING_STARTED_STATE_KEY, TIMED_OUT_INACTIVITY_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
@@ -99,6 +99,10 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
                 return
 
             task_run.status = input.status
+            if input.status == TaskRun.Status.IN_PROGRESS and task_run.environment == TaskRun.Environment.CLOUD:
+                task_run.state = TaskRun.update_state_atomic(
+                    task_run.id, updates={SANDBOX_PROVISIONING_STARTED_STATE_KEY: True}
+                )
             if input.error_message:
                 task_run.error_message = input.error_message
             marker = TIMED_OUT_INACTIVITY_STATE_KEY if input.timed_out_inactivity else input.timeout_marker

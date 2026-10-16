@@ -28,6 +28,7 @@ def is_html_artifact(name: str, content_type: str) -> bool:
 
 
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
+SANDBOX_PROVISIONING_STARTED_STATE_KEY = "sandbox_provisioning_started"
 WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG = "tasks-workflow-dispatch-shadow"
 WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG = "tasks-workflow-dispatch-async"
 WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG = "tasks-workflow-dispatch-restart"

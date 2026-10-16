@@ -51,6 +51,13 @@ from products.signals.backend.enums import (
     signal_source_product_choices,
 )
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
+from products.signals.backend.trial_models import (  # noqa: F401 -- register Signals' durable trial ledger
+    SignalTrialCostSource,
+    SignalTrialGrant,
+    SignalTrialOperation,
+    SignalTrialOrganization,
+    SignalTrialReportReservation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2551,6 +2558,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         NO_OUTPUT = "no_output", "No output"
         IGNORED = "ignored", "Ignored"
         REPEATED_FAILURES = "repeated_failures", "Repeated failures"
+        TRIAL_SCOUT_LIMIT = "trial_scout_limit", "Free trial scout limit"
         # PostHog retired the scout this config runs: its canonical skill declared a sunset that
         # has passed, or it left the fleet on disk altogether. Owned by the retirement pass
         # (`scout_harness/deprecation.py`) alone, so no other system writer resumes a scout that

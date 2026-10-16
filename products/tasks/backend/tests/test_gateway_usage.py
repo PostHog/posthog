@@ -11,9 +11,11 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
+from products.tasks.backend.constants import SANDBOX_PROVISIONING_STARTED_STATE_KEY
 from products.tasks.backend.facade.billing import (
     TaskRunCost,
     get_task_cost,
+    get_task_run_actual_cost,
     get_task_run_cost,
     get_task_run_token_cost_microusd,
     get_task_run_token_usage,
@@ -232,6 +234,10 @@ class TestGatewayUsage(BaseTest):
             self._report(run, [request_id])
             get.return_value = self._response(request_id, "0.005")
             self._process(run)
+        actual = get_task_run_actual_cost(run_id=first.id, team_id=self.team.id)
+        assert actual.token_cost_microusd == 5_000
+        assert actual.compute_cost_microusd == 3_640
+        assert actual.complete
         get.reset_mock()
         assert get_task_run_cost(run_id=first.id, team_id=self.team.id) == TaskRunCost(token_cost=0, compute_cost=0)
         assert get_task_run_cost(run_id=second.id, team_id=self.team.id) == TaskRunCost(token_cost=0, compute_cost=0)
@@ -247,6 +253,31 @@ class TestGatewayUsage(BaseTest):
         run.state = {}
         run.save(update_fields=["state"])
         assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost is None
+
+    @parameterized.expand(
+        [
+            (False, TaskRun.Status.CANCELLED, None, True),
+            (False, TaskRun.Status.FAILED, None, True),
+            (False, TaskRun.Status.QUEUED, None, False),
+            (False, TaskRun.Status.IN_PROGRESS, None, False),
+            (True, TaskRun.Status.CANCELLED, None, False),
+            (None, TaskRun.Status.CANCELLED, None, False),
+            (False, TaskRun.Status.CANCELLED, "missing-session", False),
+        ]
+    )
+    def test_zero_compute_requires_proof_that_provisioning_never_started(
+        self, started: bool | None, status: str, sandbox_id: str | None, complete: bool
+    ) -> None:
+        run = self._run(status=status)
+        run.refresh_from_db(fields=["state"])
+        run.state = {**run.state, SANDBOX_PROVISIONING_STARTED_STATE_KEY: started, "sandbox_id": sandbox_id}
+        run.save(update_fields=["state"])
+
+        cost = get_task_run_actual_cost(run_id=run.id, team_id=self.team.id)
+
+        assert cost.compute_cost_microusd == (0 if complete else None)
+        assert cost.compute_complete is complete
+        assert cost.complete is complete
 
     def test_compute_cost_uses_existing_ledger_attribution_and_resource_floors(self) -> None:
         run = self._run()
