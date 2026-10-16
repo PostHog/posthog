@@ -15460,6 +15460,132 @@ export namespace Schemas {
     };
     export type FlagEvaluationsModeEnum = 0 | 1 | 2;
     /**
+     * * `fx` - fx
+     */
+    export type FxTaskRunCreateSchemaRuntimeAdapterEnum = "fx";
+    /**
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `auto` - auto
+     * * `bypassPermissions` - bypassPermissions
+     * * `full-access` - full-access
+     */
+    export type FxTaskRunCreateSchemaInitialPermissionModeEnum =
+        | "default"
+        | "acceptEdits"
+        | "auto"
+        | "bypassPermissions"
+        | "full-access";
+    /**
+     * Request body for creating a new task run
+     */
+    export type FxTaskRunCreateSchema = {
+        /**
+         * Request body for creating a new task run
+         */
+        imported_mcp_servers?: (Array<ImportedMcpServer> | null) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        relayed_mcp_servers?: (Array<RelayedMcpServer> | null) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        rtk_enabled?: (boolean | null) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        benjamin_enabled?: (boolean | null) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        claude_model_access?: (ModelAccessEnum | NullEnum) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        codex_model_access?: (ModelAccessEnum | NullEnum) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        scheduled_at?: (string | null) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        mode?: (TaskExecutionModeEnum & unknown) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        branch?: (string | null) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        resume_from_run_id?: string | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        pending_user_message?: string | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        pending_user_artifact_ids?: Array<string> | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        sandbox_environment_id?: string | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        custom_image_id?: string | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        pr_authorship_mode?: PrAuthorshipModeEnum | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        auto_publish?: (boolean | null) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        run_source?: RunSourceEnum | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        signal_report_id?: string | undefined;
+        /**
+         * Agent runtime adapter to launch for this run. Must be 'fx' for fx runtimes.
+         *
+         * * `fx` - fx
+         */
+        runtime_adapter: FxTaskRunCreateSchemaRuntimeAdapterEnum;
+        /**
+         * LLM gateway model identifier to run in the fx runtime. Any model the gateway serves works.
+         */
+        model: string;
+        /**
+         * Request body for creating a new task run
+         */
+        reasoning_effort?: ReasoningEffortEnum | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        context_window?: ContextWindowEnum | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        fast_mode?: (boolean | null) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        github_user_token?: string | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        initial_permission_mode?:
+            | FxTaskRunCreateSchemaInitialPermissionModeEnum
+            | undefined;
+    };
+    /**
      * * `draft` - Draft
      * * `active` - Active
      * * `archived` - Archived
@@ -21323,6 +21449,7 @@ export namespace Schemas {
     export type TaskRunCreateRequestSchema =
         | ClaudeTaskRunCreateSchema
         | CodexTaskRunCreateSchema
+        | FxTaskRunCreateSchema
         | TaskRunResumeRequestSchema;
     export type TaskRunErrorResponse = Partial<{
         detail: string;

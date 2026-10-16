@@ -200,7 +200,12 @@ export function normalizeTaskRunResponse(
     branch: dto.branch ?? null,
     ...(dto.runtime_adapter === undefined
       ? {}
-      : { runtime_adapter: dto.runtime_adapter }),
+      : {
+          runtime_adapter:
+            dto.runtime_adapter === "claude" || dto.runtime_adapter === "codex"
+              ? dto.runtime_adapter
+              : null,
+        }),
     ...(dto.model === undefined ? {} : { model: dto.model }),
     ...(dto.reasoning_effort === undefined
       ? {}
