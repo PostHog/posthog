@@ -180,6 +180,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         hasEarlyAccessFeatures,
         alsoCreateInProjects,
         alsoCreateInProjectOptions,
+        currentKeyConflict,
     } = useValues(featureFlagLogic)
     // The form never mounts for another config version (FeatureFlag.tsx), so the document is v1.
     const featureFlag = loadedFeatureFlag as FeatureFlagWithV1Config
@@ -210,6 +211,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const isNewFeatureFlag = id === 'new' || id === undefined
     const requiresApprovalToEnable = isNewFeatureFlag && isApprovalRequired(ApprovalActionKey.FEATURE_FLAG_ENABLE)
+    const renamedFromKey =
+        !isNewFeatureFlag && originalFeatureFlag && featureFlag.key !== originalFeatureFlag.key
+            ? originalFeatureFlag.key
+            : null
     const implementationRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -471,17 +476,42 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     label="Flag key"
                                     info="Unique identifier used in your code."
                                     help={
-                                        !isNewFeatureFlag &&
-                                        originalFeatureFlag &&
-                                        featureFlag.key !== originalFeatureFlag.key ? (
-                                            <span className="text-warning">
-                                                <b>Warning! </b>Changing this key will break any existing code that
-                                                references it (e.g.{' '}
-                                                <code className="text-xs bg-fill-secondary rounded px-1 py-0.5">
-                                                    getFeatureFlag('{originalFeatureFlag.key}')
-                                                </code>
-                                                ). Make sure to update all SDK calls and integrations.
-                                            </span>
+                                        currentKeyConflict || renamedFromKey ? (
+                                            <div className="flex flex-col gap-1">
+                                                {currentKeyConflict ? (
+                                                    <span
+                                                        className={
+                                                            currentKeyConflict.exact ? 'text-danger' : 'text-warning'
+                                                        }
+                                                        role="status"
+                                                        aria-live="polite"
+                                                    >
+                                                        {currentKeyConflict.exact
+                                                            ? 'A feature flag with this key already exists. Choose another key or '
+                                                            : `A feature flag with the key "${currentKeyConflict.existingFlagKey}" already exists. Keys that differ only by case are easy to confuse. `}
+                                                        <Link
+                                                            to={urls.featureFlag(currentKeyConflict.existingFlagId)}
+                                                            target="_blank"
+                                                            data-attr="feature-flag-key-conflict-link"
+                                                        >
+                                                            {currentKeyConflict.exact
+                                                                ? 'open the existing flag'
+                                                                : 'Open it'}
+                                                        </Link>
+                                                        .
+                                                    </span>
+                                                ) : null}
+                                                {renamedFromKey ? (
+                                                    <span className="text-warning">
+                                                        <b>Warning! </b>Changing this key will break any existing code
+                                                        that references it (e.g.{' '}
+                                                        <code className="text-xs bg-fill-secondary rounded px-1 py-0.5">
+                                                            getFeatureFlag('{renamedFromKey}')
+                                                        </code>
+                                                        ). Make sure to update all SDK calls and integrations.
+                                                    </span>
+                                                ) : null}
+                                            </div>
                                         ) : undefined
                                     }
                                 >

@@ -812,8 +812,7 @@ class TestQueryRunner(BaseTest):
 
     def test_cache_payload_week_interval(self):
         TestQueryRunner = self.setup_test_query_runner_class()
-        # set the pk directly as it affects the hash in the _cache_key call
-        team = Team.objects.create(pk=42, organization=self.organization, week_start_day=WeekStartDay.MONDAY)
+        team = Team.objects.create(organization=self.organization, week_start_day=WeekStartDay.MONDAY)
         runner = TestQueryRunner(query={"some_attr": "bla", "tags": {"scene": "foo", "productKey": "bar"}}, team=team)
         runner.query_date_range = QueryDateRange(
             team=team, date_range=None, interval=IntervalType.WEEK, now=datetime.now()
@@ -822,16 +821,24 @@ class TestQueryRunner(BaseTest):
         cache_payload = runner.get_cache_payload()
         assert cache_payload["week_start_day"] == WeekStartDay.MONDAY
 
+    def _cache_key_with_fixed_payload_team_id(self, runner: QueryRunner) -> str:
+        payload = runner.get_cache_payload()
+        payload["team_id"] = 42
+        with mock.patch.object(runner, "get_cache_payload", return_value=payload):
+            return runner.get_cache_key()
+
+    @parameterized.expand([("new_team", False), ("existing_team", True)])
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_cache_key(self):
+    def test_cache_key(self, _name: str, existing_team: bool) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
-        # set the pk directly as it affects the hash in the _cache_key call
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team = Team.objects.create(organization=self.organization)
+        if existing_team and not Team.objects.filter(pk=42).exists():
+            Team.objects.create(pk=42, organization=self.organization)
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
-        cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_13361de10d0c3c79451b288eb57ca1147331e86a8b8e63a0a815adf5a2d7bcbb"
+        cache_key = self._cache_key_with_fixed_payload_team_id(runner)
+        assert cache_key == f"cache_{team.pk}_13361de10d0c3c79451b288eb57ca1147331e86a8b8e63a0a815adf5a2d7bcbb"
 
     def test_cache_key_ignores_query_log_tags(self):
         # Query log tags are metadata, so they must never partition the cache. Web
@@ -840,7 +847,7 @@ class TestQueryRunner(BaseTest):
         # reading the same cache entry as the untagged one, or every preset user would
         # miss the cache on every load and the warm set would double.
         TestQueryRunner = self.setup_test_query_runner_class()
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team = Team.objects.create(organization=self.organization)
 
         untagged = TestQueryRunner(query={"some_attr": "bla"}, team=team)
         tagged = TestQueryRunner(query={"some_attr": "bla", "tags": {"presetId": "abc123"}}, team=team)
@@ -854,25 +861,24 @@ class TestQueryRunner(BaseTest):
         class TestSubclassQueryRunner(TestQueryRunner):  # type: ignore[misc, valid-type]
             pass
 
-        # set the pk directly as it affects the hash in the _cache_key call
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team = Team.objects.create(organization=self.organization)
 
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
-        cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_9dcfced89edfbfcd1e0fd380380c7a5e4a9957386fc22172c1b83548a9af6d02"
+        cache_key = self._cache_key_with_fixed_payload_team_id(runner)
+        assert cache_key == f"cache_{team.pk}_9dcfced89edfbfcd1e0fd380380c7a5e4a9957386fc22172c1b83548a9af6d02"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team = Team.objects.create(organization=self.organization)
         team.timezone = "Europe/Vienna"
         team.save()
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
-        cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_580a20072d3930f66666356574843255ba9418ff58cc0fc92d019bf8bf1cf972"
+        cache_key = self._cache_key_with_fixed_payload_team_id(runner)
+        assert cache_key == f"cache_{team.pk}_580a20072d3930f66666356574843255ba9418ff58cc0fc92d019bf8bf1cf972"
 
     def test_query_identity_splits_the_query_from_how_it_is_answered(self) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()

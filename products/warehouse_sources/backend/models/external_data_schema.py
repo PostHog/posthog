@@ -920,7 +920,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         in one activity converges across attempts rather than giving up terminally. Cleared once temp
         is fully built (a swap is staged) or when the controller gives up. Shape:
         {"temp_uri": str, "rows_written": int, "target": dict, "live_version": int, "held_at": str,
-        "budget_exhausted": bool}.
+        "budget_exhausted": bool, "sliced": bool}.
         """
         if self.sync_type_config:
             marker = self.sync_type_config.get("repartition_rewrite", None)
@@ -1057,6 +1057,14 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 for key in ("repartition_pending", "repartition_swap", "repartition_rewrite")
             )
         )
+
+    def disable_repartition_slicing(self) -> None:
+        def _write(config: dict[str, Any]) -> None:
+            pending = config.get("repartition_pending")
+            if isinstance(pending, dict):
+                pending["slice_disabled"] = True
+
+        self.sync_type_config = update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
 
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)

@@ -109,7 +109,6 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
 
         if input.sandbox_cleaned:
             if pr_url:
-                handler.update_reaction("hedgehog")
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
             elif task_run.status == TaskRun.Status.CANCELLED:
                 _post_cancelled_once(task_run, handler)
@@ -118,7 +117,6 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             return
 
         if task_run.status == TaskRun.Status.COMPLETED:
-            handler.update_reaction("hedgehog")
             if _is_timed_out_completion(task_run):
                 handler.delete_progress()
                 return
@@ -166,7 +164,6 @@ def _post_failure_or_timeout(task_run: Any, handler: Any, task_url: str | None) 
     still deserve an error card.
     """
     if _has_timeout_marker(task_run):
-        handler.update_reaction("hedgehog")
         handler.delete_progress()
         return
     error = task_run.error_message or "Unknown error"
@@ -281,7 +278,6 @@ def _post_error_once(task_run: Any, handler: Any, error: str, task_url: str | No
         return
 
     if _is_suppressed_permission_rejection_error(task_run, error):
-        handler.update_reaction("hedgehog")
         handler.post_note(SLACK_DENIAL_STOP_MESSAGE)
     else:
         handler.update_reaction("x")
@@ -296,7 +292,6 @@ def _post_cancelled_once(task_run: Any, handler: Any) -> None:
         handler.delete_progress()
         return
 
-    handler.update_reaction("hedgehog")
     handler.delete_progress()
     _mark_terminal_notified(task_run, TaskRun.Status.CANCELLED)
 

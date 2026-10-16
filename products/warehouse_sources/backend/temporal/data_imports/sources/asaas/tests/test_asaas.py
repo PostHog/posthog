@@ -205,16 +205,48 @@ class TestAsaasSource:
 
     @parameterized.expand(
         [
-            ("ReceivedSplits", "/v3/payments/splits/received"),
-            ("Invoices", "/v3/invoices"),
-            ("PixTransactions", "/v3/pix/transactions"),
+            ("ReceivedSplits", "/v3/payments/splits/received", {}),
+            ("Invoices", "/v3/invoices", {}),
+            ("PixTransactions", "/v3/pix/transactions", {}),
+            ("PaymentLinks", "/v3/paymentLinks", {"includeDeleted": "true"}),
+            ("PaymentDunnings", "/v3/paymentDunnings", {}),
+            ("BillPayments", "/v3/bill", {}),
         ]
     )
-    def test_full_refresh_endpoint_requests_vendor_path(self, endpoint: str, expected_path: str) -> None:
+    def test_full_refresh_endpoint_requests_vendor_path(
+        self, endpoint: str, expected_path: str, expected_params: dict[str, str]
+    ) -> None:
         result = _driver().run(endpoint, [_page([{"id": "row-1"}], 1)])
 
         assert result.raised is None
         assert result.paths == [expected_path]
+        for name, value in expected_params.items():
+            assert result.requests[0].param(name) == value
+
+    def test_dunning_history_fans_out_per_dunning_and_tags_rows_with_the_dunning(self) -> None:
+        result = _driver().run(
+            "PaymentDunningHistory",
+            [
+                _page([{"id": "dunning-1"}, {"id": "dunning-2"}], 2),
+                _page([{"status": "IN_NEGOTIATION", "description": "Started", "eventDate": "2026-01-02"}], 1),
+                _page([{"status": "PAID", "description": "Paid", "eventDate": "2026-01-05"}], 1),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v3/paymentDunnings",
+            "/v3/paymentDunnings/dunning-1/history",
+            "/v3/paymentDunnings/dunning-2/history",
+        ]
+        assert [(row["paymentDunning"], row["status"]) for row in result.rows] == [
+            ("dunning-1", "IN_NEGOTIATION"),
+            ("dunning-2", "PAID"),
+        ]
+        assert all("_PaymentDunnings_id" not in row for row in result.rows)
+        assert result.response is not None
+        assert result.response.primary_keys == ["paymentDunning", "eventDate", "status", "description"]
+        assert result.response.supports_resume is False
 
     def test_source_for_pipeline_omits_cursor_when_not_incremental(self) -> None:
         inputs = mock.MagicMock()

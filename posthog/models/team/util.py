@@ -103,8 +103,8 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _raw_delete_batch(FileSystemViewLog.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(error_tracking_fingerprint.objects.filter(team_id__in=team_ids))
-    # Briefings carry team_id as a plain integer, so nothing cascades to them.
-    today_facade.delete_briefings_for_teams(team_ids)
+    # Highlights carry team_id as a plain integer, so nothing cascades to them.
+    today_facade.delete_highlights_for_teams(team_ids)
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
     _delete_llm_evaluations_for_teams(team_ids)

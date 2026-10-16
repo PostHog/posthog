@@ -200,6 +200,15 @@ export class HogFlowExecutorService {
         for (const hogFlow of hogFlows) {
             const trigger = hogFlow.trigger
 
+            if (trigger.type === 'cohort') {
+                // A cohort trigger has no filters to evaluate: eligibility already matched the membership change.
+                const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+                // A membership change carries no distinct_id, so the worker loads the person by id.
+                invocation.state.personId = triggerGlobals.person?.id
+                invocations.push(invocation)
+                continue
+            }
+
             // Defensive: only the trigger types that carry `filters` make it through eligibility.
             // isRowScopedTrigger covers internal-event too, alongside the two warehouse types.
             if (trigger.type !== 'event' && !isRowScopedTrigger(trigger)) {

@@ -93,6 +93,27 @@ describe('marketingAnalyticsLogic', () => {
         })
     })
 
+    it('keeps the campaign breakdown query while sources refresh in the background', async () => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        const tiles = marketingAnalyticsTilesLogic()
+        tiles.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const breakdown = tiles.values.campaignCostsBreakdown
+        expect(breakdown).not.toBeNull()
+
+        // A window focus or sync poll reloads sources. The table must not be dropped
+        // (and remounted) while the refresh is in flight.
+        logic.actions.loadSources()
+        expect(logic.values.loading).toBe(true)
+        expect(tiles.values.campaignCostsBreakdown).toBe(breakdown)
+
+        await expectLogic(logic).toFinishAllListeners()
+        // Deep-equal so dataNodeLogic sees the same query and doesn't refetch.
+        expect(tiles.values.campaignCostsBreakdown).toEqual(breakdown)
+        tiles.unmount()
+    })
+
     it('keeps a connected Search Console integration selected after refreshing sources', async () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
@@ -742,6 +763,102 @@ describe('marketingAnalyticsLogic', () => {
         await expectLogic(logic, () => logic.actions.loadSources())
             .toFinishAllListeners()
             .toDispatchActions(['reloadAll'])
+    })
+
+    it.each([
+        ['disabled', false, ExternalDataSchemaStatus.Completed, 'import disabled', MarketingSourceStatus.Warning],
+        ['missing', true, ExternalDataSchemaStatus.Completed, 'not found', MarketingSourceStatus.Warning],
+        ['failed', true, ExternalDataSchemaStatus.Failed, 'sync failed', ExternalDataSchemaStatus.Failed],
+        ['running', true, ExternalDataSchemaStatus.Running, 'syncing', ExternalDataSchemaStatus.Running],
+        ['paused', true, ExternalDataSchemaStatus.Paused, 'sync paused', ExternalDataSchemaStatus.Paused],
+        ['canceled', true, ExternalDataSchemaStatus.Cancelled, 'sync canceled', ExternalDataSchemaStatus.Cancelled],
+        ['pending', true, null, 'waiting for a completed sync', MarketingSourceStatus.Warning],
+    ] as const)(
+        'names required tables for a %s import without affecting another connection',
+        async (kind, shouldSync, status, message, expectedStatus) => {
+            logic = marketingAnalyticsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const requiredNames = [
+                MARKETING_INTEGRATION_CONFIGS.GoogleAds.campaignTableName,
+                MARKETING_INTEGRATION_CONFIGS.GoogleAds.statsTableName,
+            ]
+            const sources = ['affected', 'healthy'].map((id) => ({
+                id,
+                source_type: 'GoogleAds',
+                prefix: id,
+                schemas: requiredNames.flatMap((name) =>
+                    id === 'affected' && kind === 'missing'
+                        ? []
+                        : [
+                              {
+                                  id: `${id}-${name}`,
+                                  name,
+                                  should_sync: id === 'healthy' || shouldSync,
+                                  status: id === 'healthy' ? ExternalDataSchemaStatus.Completed : status,
+                              },
+                          ]
+                ),
+            })) as ExternalDataSource[]
+            await expectLogic(logic, () =>
+                logic.actions.loadSourcesSuccess({ count: 2, next: null, previous: null, results: sources })
+            ).toFinishAllListeners()
+            const affected = logic.values.allAvailableSourcesWithStatus.find(({ id }) => id === 'affected')!
+            expect(affected.status).toBe(expectedStatus)
+            for (const name of requiredNames) {
+                expect(affected.statusMessage).toContain(`${name}: ${message}`)
+            }
+            expect(logic.values.allAvailableSourcesWithStatus.find(({ id }) => id === 'healthy')?.status).toBe(
+                ExternalDataSchemaStatus.Completed
+            )
+        }
+    )
+
+    it('keeps disabled and failed table details together using the actual legacy schema name', async () => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const source = {
+            id: 'example-mixed-source',
+            source_type: 'GoogleAds',
+            schemas: [
+                {
+                    id: 'example-campaign',
+                    name: 'campaign',
+                    should_sync: false,
+                    status: ExternalDataSchemaStatus.Completed,
+                },
+                {
+                    id: 'example-stats',
+                    name: 'campaign_stats',
+                    should_sync: true,
+                    status: ExternalDataSchemaStatus.Failed,
+                },
+            ],
+        } as ExternalDataSource
+        await expectLogic(logic, () =>
+            logic.actions.loadSourcesSuccess({ count: 1, next: null, previous: null, results: [source] })
+        ).toFinishAllListeners()
+        expect(logic.values.allAvailableSourcesWithStatus[0]).toMatchObject({
+            status: MarketingSourceStatus.Warning,
+            statusMessage: expect.stringContaining('campaign: import disabled'),
+        })
+        expect(logic.values.allAvailableSourcesWithStatus[0].statusMessage).toContain('campaign_stats: sync failed')
+        expect(logic.values.allAvailableSourcesWithStatus[0].statusMessage).not.toContain(
+            'campaign_overview_stats: not found'
+        )
+        const readySource = {
+            ...source,
+            schemas: source.schemas.map((schema) => ({
+                ...schema,
+                should_sync: true,
+                status: ExternalDataSchemaStatus.Completed,
+            })),
+        }
+        await expectLogic(logic, () =>
+            logic.actions.loadSourcesSuccess({ count: 1, next: null, previous: null, results: [readySource] })
+        ).toFinishAllListeners()
+        expect(logic.values.allAvailableSourcesWithStatus[0].status).toBe(ExternalDataSchemaStatus.Completed)
     })
 
     it('shows validation errors for the affected connection and clears them after reload', async () => {

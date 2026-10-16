@@ -1254,7 +1254,38 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Conditions must be an object")
 
+        self._require_viewer_access_to_added_actions(value)
         return value
+
+    def _require_viewer_access_to_added_actions(self, conditions: dict) -> None:
+        actions_condition = conditions.get("actions")
+        if not isinstance(actions_condition, dict) or not isinstance(self.context["request"].user, User):
+            return
+
+        action_ids: set[int] | None
+        try:
+            action_ids = {
+                int(value["id"])
+                for value in actions_condition.get("values") or []
+                if isinstance(value, dict) and value.get("id") is not None
+            }
+        except (TypeError, ValueError, OverflowError):
+            action_ids = None
+        # Postgres rejects an id outside the bigint range in a query, so check the range before the lookup.
+        if action_ids is None or not all(0 < action_id < 2**63 for action_id in action_ids):
+            raise serializers.ValidationError("Each action in the survey conditions needs a valid id.")
+
+        added_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
+        if self.instance is not None:
+            added_actions = added_actions.exclude(id__in=self.instance.actions.values("id"))
+        denied_ids = self.context["view"].user_access_control.denied_object_ids(
+            "action", [(str(action.id), action.team_id, action.created_by_id) for action in added_actions], "viewer"
+        )
+        if denied_ids:
+            raise serializers.ValidationError(
+                f"You don't have viewer access to action(s) {', '.join(denied_ids)}. "
+                "Remove them from the survey conditions, or ask for access."
+            )
 
     def validate_targeting_flag_filters(self, value):
         if value is None:
@@ -2347,6 +2378,10 @@ class SurveyFilterSet(FilterSet):
     created_by = django_filters.NumberFilter(
         field_name="created_by_id",
         label="Filter surveys by the ID of the user who created them.",
+    )
+    linked_flag_id = django_filters.NumberFilter(
+        field_name="linked_flag_id",
+        label="Filter surveys by the ID of the feature flag they are linked to.",
     )
     status = django_filters.ChoiceFilter(
         choices=[("draft", "Draft"), ("running", "Running"), ("complete", "Complete")],

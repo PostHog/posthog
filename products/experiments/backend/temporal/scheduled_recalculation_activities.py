@@ -67,7 +67,11 @@ def capture_started(experiment: Experiment, hour: int, recalculation_id: str) ->
 @database_sync_to_async_pool
 def _discover_scheduled_recalculation_candidates_sync() -> ScheduledRecalculationDiscovery:
     close_old_connections()
-    return find_scheduled_recalculation_candidates()
+    selection = find_scheduled_recalculation_candidates()
+    hour = selection.discovery.hour
+    for skip in selection.skips:
+        capture_skip(skip.experiment, hour, reason=skip.decision.reason, detail=dict(skip.decision.detail))
+    return selection.discovery
 
 
 @temporalio.activity.defn
@@ -75,7 +79,8 @@ async def discover_scheduled_recalculation_candidates() -> ScheduledRecalculatio
     """Experiments eligible for a scheduled recalculation now, before the exposure gate.
 
     Returns the hour it selected for alongside the candidates, so the workflow and the events
-    report the window without the workflow reading a clock of its own.
+    report the window without the workflow reading a clock of its own. Sends the skipped event
+    for each experiment that discovery rejects, so a skip costs the workflow no activity.
     """
     return await _discover_scheduled_recalculation_candidates_sync()
 
