@@ -19,6 +19,7 @@ import json
 import hashlib
 from dataclasses import asdict
 from datetime import datetime, timedelta
+from time import monotonic, sleep
 from uuid import UUID
 
 from django.core.cache import cache
@@ -33,6 +34,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
+from posthog.utils import safe_cache_add, safe_cache_delete
 
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.health.checks.forced_variant import (
@@ -64,6 +66,9 @@ _SCANNED_PROPERTIES = frozenset(
     {"$feature_flag", "$feature_flag_response", "$feature_flag_reason", "$feature_flag_version"}
 )
 _MAX_CONDITION_SETS = 1000
+_SCAN_LOCK_SECONDS = QUERY_TIMEOUT_SECONDS + 5
+_WAIT_FOR_SCAN_SECONDS = QUERY_TIMEOUT_SECONDS + 1
+_WAIT_STEP_SECONDS = 0.25
 
 
 def load_condition_set_traffic(
@@ -173,16 +178,30 @@ def _reads_exposure_copies(organization_id: UUID) -> bool:
 
 def _load_condition_set_traffic(experiment: Experiment, ctx: HealthContext) -> ConditionSetTraffic | None:
     launched_at = experiment.start_date
-    flag = experiment.feature_flag
-    if launched_at is None or flag.version is None:
+    if launched_at is None or experiment.feature_flag.version is None:
         return None
     cache_key = _cache_key(experiment, launched_at)
-    cached = cache.get(cache_key)
-    if isinstance(cached, dict):
-        return ConditionSetTraffic(**cached)
-    if cached == UNKNOWN:
-        return None
+    hit, traffic = _cached(cache_key)
+    if hit:
+        return traffic
+    # Readers share one scan. A request that finds another scan in flight waits for its answer.
+    scan_lock_key = f"{cache_key}:scanning"
+    if not safe_cache_add(scan_lock_key, True, _SCAN_LOCK_SECONDS):
+        return _wait_for_scan(cache_key)
+    try:
+        # A scan can finish between the read above and the lock.
+        hit, traffic = _cached(cache_key)
+        if hit:
+            return traffic
+        return _scan(experiment, ctx, cache_key, launched_at)
+    finally:
+        safe_cache_delete(scan_lock_key)
 
+
+def _scan(
+    experiment: Experiment, ctx: HealthContext, cache_key: str, launched_at: datetime
+) -> ConditionSetTraffic | None:
+    flag = experiment.feature_flag
     now = timezone.now()
     window_start = max(launched_at, flag.updated_at or launched_at, now - TRAFFIC_WINDOW)
     try:
@@ -196,6 +215,25 @@ def _load_condition_set_traffic(experiment: Experiment, ctx: HealthContext) -> C
         _TOO_FEW_PEOPLE_CACHE_SECONDS if has_too_few_people(ctx, traffic) else _ANSWER_CACHE_SECONDS,
     )
     return traffic
+
+
+def _cached(cache_key: str) -> tuple[bool, ConditionSetTraffic | None]:
+    """Whether the cache holds an answer, and the answer. A failed scan is cached as UNKNOWN, and answers None."""
+    cached = cache.get(cache_key)
+    if isinstance(cached, dict):
+        return True, ConditionSetTraffic(**cached)
+    return cached == UNKNOWN, None
+
+
+def _wait_for_scan(cache_key: str) -> ConditionSetTraffic | None:
+    """The answer of the scan in flight, or None when it does not arrive within the query timeout."""
+    deadline = monotonic() + _WAIT_FOR_SCAN_SECONDS
+    while monotonic() < deadline:
+        sleep(_WAIT_STEP_SECONDS)
+        hit, traffic = _cached(cache_key)
+        if hit:
+            return traffic
+    return None
 
 
 def _cache_key(experiment: Experiment, launched_at: datetime) -> str:

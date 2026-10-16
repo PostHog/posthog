@@ -1,3 +1,5 @@
+import time
+import threading
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -176,6 +178,79 @@ class TestLoadConditionSetTraffic(BaseTest):
             next_load, query = self._load(answer)
 
         self.assertEqual((first, next_load, query.call_count), (answer, answer, expected_queries))
+
+    @parameterized.expand(
+        [
+            ("scan_succeeds", TRAFFIC, TRAFFIC),
+            ("scan_fails", RuntimeError("unexpected"), None),
+        ]
+    )
+    def test_concurrent_load_waits_for_the_scan_in_flight(
+        self, _name: str, scan_answer: ConditionSetTraffic | Exception, expected: ConditionSetTraffic | None
+    ) -> None:
+        ctx = load_health_context(self.experiment)
+        scanning = threading.Event()
+        second_load_waits = threading.Event()
+        first_load: list[ConditionSetTraffic | None] = []
+
+        def scan(*_args: Any, **_kwargs: Any) -> ConditionSetTraffic:
+            scanning.set()
+            second_load_waits.wait(timeout=5)
+            if isinstance(scan_answer, Exception):
+                raise scan_answer
+            return scan_answer
+
+        def wait_a_moment(_seconds: float) -> None:
+            second_load_waits.set()
+            time.sleep(0.01)
+
+        with (
+            patch(
+                "products.experiments.backend.health.condition_set_traffic.query_condition_set_traffic",
+                side_effect=scan,
+            ) as query,
+            patch("products.experiments.backend.health.condition_set_traffic.sleep", side_effect=wait_a_moment),
+            patch("products.experiments.backend.health.exposure_gate.capture_exception"),
+        ):
+            first = threading.Thread(
+                target=lambda: first_load.append(
+                    load_condition_set_traffic(self.experiment, ctx, reader_access=FULL_ACCESS)
+                )
+            )
+            first.start()
+            scanning.wait(timeout=5)
+            second_load = load_condition_set_traffic(self.experiment, ctx, reader_access=FULL_ACCESS)
+            first.join(timeout=5)
+
+        self.assertEqual((first_load, second_load, query.call_count), ([expected], expected, 1))
+
+    def test_concurrent_load_stops_waiting_after_the_query_timeout(self) -> None:
+        ctx = load_health_context(self.experiment)
+        scanning = threading.Event()
+        release_scan = threading.Event()
+
+        def scan(*_args: Any, **_kwargs: Any) -> ConditionSetTraffic:
+            scanning.set()
+            release_scan.wait(timeout=5)
+            return TRAFFIC
+
+        with (
+            patch(
+                "products.experiments.backend.health.condition_set_traffic.query_condition_set_traffic",
+                side_effect=scan,
+            ) as query,
+            patch("products.experiments.backend.health.condition_set_traffic._WAIT_FOR_SCAN_SECONDS", 0.05),
+        ):
+            first = threading.Thread(
+                target=lambda: load_condition_set_traffic(self.experiment, ctx, reader_access=FULL_ACCESS)
+            )
+            first.start()
+            scanning.wait(timeout=5)
+            second_load = load_condition_set_traffic(self.experiment, ctx, reader_access=FULL_ACCESS)
+            release_scan.set()
+            first.join(timeout=5)
+
+        self.assertEqual((second_load, query.call_count), (None, 1))
 
     @parameterized.expand(
         [
