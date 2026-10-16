@@ -322,33 +322,15 @@ def count_total_exposures(experiment: Experiment) -> int:
     The `$multiple` bucket holds entities that saw more than one variant, so it is not a
     variant's audience and does not count toward the threshold.
     """
-    from posthog.schema import ExperimentExposureQuery  # noqa: PLC0415 — keeps the schema import off the module path
-
     from posthog.clickhouse.query_tagging import Product, tags_context
     from posthog.hogql_queries.query_runner import ExecutionMode
 
     from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
         ExperimentExposuresQueryRunner,
+        build_experiment_exposure_query,
     )
 
-    feature_flag = experiment.feature_flag
-    # The FK gives a model instance, and the query field is a pydantic type with no
-    # attribute-based validation, so it must be serialized first.
-    experiment_holdout = experiment.holdout
-    holdout = (
-        {"id": experiment_holdout.id, "name": experiment_holdout.name, "filters": experiment_holdout.filters}
-        if experiment_holdout is not None
-        else None
-    )
-    query = ExperimentExposureQuery(
-        experiment_id=experiment.id,
-        experiment_name=experiment.name,
-        feature_flag={"key": feature_flag.key, "filters": feature_flag.filters},
-        start_date=experiment.start_date.isoformat() if experiment.start_date else None,
-        end_date=experiment.end_date.isoformat() if experiment.end_date else None,
-        exposure_criteria=experiment.exposure_criteria,
-        holdout=holdout,
-    )
+    query = build_experiment_exposure_query(experiment)
     with tags_context(
         product=Product.EXPERIMENTS, team_id=experiment.team_id, org_id=str(experiment.team.organization_id)
     ):
