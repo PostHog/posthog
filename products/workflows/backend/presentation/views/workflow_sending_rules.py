@@ -12,6 +12,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.organization import OrganizationMembership
 
 from products.workflows.backend.facade.enums import EMAIL_TRACKING_CONSENT_MODE_CHOICES
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
 class WorkflowSendingRulesSerializer(serializers.Serializer):
@@ -94,4 +95,8 @@ class WorkflowSendingRulesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(self._rules())
 
     def _rules(self) -> dict[str, Any]:
-        return WorkflowSendingRulesSerializer(self.team.workflows_config).data
+        # Read the row fresh: `Team.workflows_config` is a cached_property and can hold values from before an update.
+        config = TeamWorkflowsConfig.objects.filter(team_id=self.team.id).first() or TeamWorkflowsConfig(
+            team_id=self.team.id
+        )
+        return WorkflowSendingRulesSerializer(config).data
