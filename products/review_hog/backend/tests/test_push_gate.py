@@ -110,8 +110,9 @@ def _decide(
     pr_lines: int | None = None,
     head: str = "new",
     record: bool = False,
+    gate: PushGate | None = None,
 ) -> PushGateDecision:
-    gate = PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9")
+    gate = gate or PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9")
     with (
         patch(f"{_MODULE}.github_api_request", side_effect=_github(responses)),
         patch(f"{_MODULE}.build_system_one_client", MagicMock(return_value=system_one or MagicMock())),
@@ -123,7 +124,7 @@ def _decide(
     else:
         decision = apply_next_push_rule(decision, follow_up=follow_up, pr_lines=pr_lines)
     if record:
-        gate.record_small_change_streak(decision, pr_number=1, head_sha=head)
+        decision = gate.record_small_change_streak(decision, pr_number=1, head_sha=head)
     return decision
 
 
@@ -565,6 +566,27 @@ def test_push_gate_reviews_the_small_push_after_two_deferrals() -> None:
         ("system_one_above_threshold", 0),
         ("small_change", 1),
     ]
+
+
+def test_push_gate_reviews_a_small_push_whose_count_another_turn_moved() -> None:
+    small = [_net_file("posthog/billing.py", 3)]
+    _decide(_small_push("n1", small), _system_one(0.8), head="n1", record=True)
+    first = PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9")
+    second = PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9")
+    overlapping = [
+        (first, "n2", _decide(_small_push("n2", small), _system_one(0.8), head="n2", gate=first)),
+        (second, "n3", _decide(_small_push("n3", small), _system_one(0.8), head="n3", gate=second)),
+    ]
+
+    recorded = [
+        gate.record_small_change_streak(decision, pr_number=1, head_sha=head) for gate, head, decision in overlapping
+    ]
+
+    assert [(decision.reason, decision.would_skip) for decision in recorded] == [
+        ("small_change", True),
+        ("small_change_conflict", False),
+    ]
+    assert get_client().get("reviewhog_small_change_deferrals:PostHog/posthog:1") == b"n2:2"
 
 
 def test_push_gate_reviews_a_small_push_when_redis_is_down() -> None:

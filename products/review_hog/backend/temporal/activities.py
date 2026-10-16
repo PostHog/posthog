@@ -2381,7 +2381,9 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
             )
     decision = apply_throttle(decision, report_id=input.report_id, head_sha=input.head_sha)
     if gate is not None and current is not None:
-        gate.record_small_change_streak(decision, pr_number=current.pr_metadata.number, head_sha=input.head_sha)
+        decision = gate.record_small_change_streak(
+            decision, pr_number=current.pr_metadata.number, head_sha=input.head_sha
+        )
     if decision.skip:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
     try:

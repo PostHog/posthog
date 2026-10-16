@@ -18,7 +18,8 @@ The rules, in order. The first rule that matches gives the reason:
    push's own change. After `SMALL_CHANGE_MAX_DEFERRALS` deferrals in a row the next small push runs the
    review, so small pushes cannot pile up without a review. A push that every rule lets through to a review
    sets the count back to 0. A push that a rule skips keeps the count, because nothing was reviewed. The
-   count is stored only after the last rule has decided, so a draft or throttle skip also keeps it.
+   count is stored only after the last rule has decided, so a draft or throttle skip also keeps it. When
+   another turn of the PR stored a count after this turn read it, a small push runs the review.
 6. `system_one_below_threshold`: System One rates the new own commits below a threshold.
 7. `draft`: the PR is a draft and no rule above skips the push. A draft cannot merge, and marking it
    ready starts a turn that reviews everything since the last reviewed head. The rules above still run,
@@ -81,6 +82,14 @@ SMALL_CHANGE_MAX_NET_CODE_LINES = 10
 SMALL_CHANGE_MAX_DEFERRALS = 2
 # Long enough to span a PR's quiet days, short enough that an abandoned PR's counter goes away.
 _SMALL_CHANGE_DEFERRALS_TTL_SECONDS = 3 * 24 * 3600
+# Compare-and-set: two turns of one PR can overlap, and each counts from the value it read.
+_STORE_STREAK_IF_UNCHANGED = """
+if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then
+    return 0
+end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+return 1
+"""
 # Picked by the replay in `review-eval/experiments/2026-10-14-review-throttle`.
 PUSH_BUDGET = Budget(burst=2, per_hour=2)
 # Longer than a turn and its retry take, so a retried turn finds that its head paid already.
@@ -198,6 +207,7 @@ RunReason = Literal[
     "interdiff_too_large",
     "compare_unavailable",
     "snapshot_unavailable",
+    "small_change_conflict",
 ]
 
 
@@ -376,6 +386,8 @@ class PushGate:
         self.repository = repository
         self._token = token
         self._installation_id = installation_id
+        # The counter value the last read saw, so the store can tell whether another turn moved it.
+        self._small_change_seen = ""
 
     def _get(self, path: str, *, endpoint: str, params: dict[str, str | int] | None = None) -> dict[str, Any] | None:
         try:
@@ -466,7 +478,8 @@ class PushGate:
             stored = get_client().get(self._small_change_key(pr_number))
         except RedisError:
             return None
-        stored_head, stored_count = stored.decode().split(":") if stored else ("", "0")
+        self._small_change_seen = stored.decode() if stored else ""
+        stored_head, stored_count = self._small_change_seen.split(":") if stored else ("", "0")
         if stored_head == head_sha:
             return int(stored_count)
         if small and int(stored_count) < SMALL_CHANGE_MAX_DEFERRALS:
@@ -573,23 +586,35 @@ class PushGate:
         deferrals = self._small_change_streak_after(pr_number=pr_number, head_sha=head_sha, small=False)
         return replace(decision, small_change_deferrals=deferrals)
 
-    def record_small_change_streak(self, decision: PushGateDecision, *, pr_number: int, head_sha: str) -> None:
-        """Store the small-change count of the final decision. Without Redis the next push counts again."""
+    def record_small_change_streak(
+        self, decision: PushGateDecision, *, pr_number: int, head_sha: str
+    ) -> PushGateDecision:
+        """Store the small-change count of the final decision, and return the decision that applies.
+
+        The store succeeds only when the counter still holds the value `decide` read. When another turn
+        moved it first, the count of this decision is stale, so a small-change match runs the review.
+        Without Redis the next push counts again.
+        """
         # Apart from `decide`, because the draft and throttle rules run later and can still skip the review.
         if decision.small_change_deferrals is None:
-            return
+            return decision
         # A rule skipped the review, so the baseline did not move and the stored count stays.
         if decision.skip and decision.reason != "small_change":
-            return
-        key = self._small_change_key(pr_number)
-        client = get_client()
+            return decision
         try:
-            stored = client.get(key)
-            if stored and stored.decode().split(":")[0] == head_sha:
-                return
-            client.set(key, f"{head_sha}:{decision.small_change_deferrals}", ex=_SMALL_CHANGE_DEFERRALS_TTL_SECONDS)
+            stored = get_client().register_script(_STORE_STREAK_IF_UNCHANGED)(
+                keys=[self._small_change_key(pr_number)],
+                args=[
+                    self._small_change_seen,
+                    f"{head_sha}:{decision.small_change_deferrals}",
+                    _SMALL_CHANGE_DEFERRALS_TTL_SECONDS,
+                ],
+            )
         except RedisError:
-            return
+            return decision
+        if stored or decision.reason != "small_change":
+            return decision
+        return replace(decision, skip=False, would_skip=False, reason="small_change_conflict")
 
 
 def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDecision:
