@@ -183,6 +183,9 @@ The campaign and flow performance tables (campaign_values_reports, flow_values_r
             # the per-request path/query/timestamp.
             "401 Client Error: Unauthorized for url: https://a.klaviyo.com": "Your Klaviyo API key is invalid or has been revoked. Create a new private API key in your Klaviyo account settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://a.klaviyo.com": "Your Klaviyo API key is missing the read permissions needed to sync this data. Grant the required read scopes in your Klaviyo account settings, then reconnect.",
+            # Raised by klaviyo_source for a table the source's pinned revision does not serve. Moving a
+            # source to a newer revision is a support-run migration, so that is the next step.
+            "requires Klaviyo API version": "This table needs a newer Klaviyo API version than your source uses. Contact PostHog support to upgrade the source, then re-enable this table.",
         }
 
     def get_schemas(
@@ -217,7 +220,13 @@ The campaign and flow performance tables (campaign_values_reports, flow_values_r
                 description=endpoint_config.description,
             )
 
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
+        resolved_version = self.resolve_api_version(api_version)
+        schemas = [
+            _build_schema(endpoint)
+            for endpoint in ENDPOINTS
+            if KLAVIYO_ENDPOINTS[endpoint].api_versions is None
+            or resolved_version in KLAVIYO_ENDPOINTS[endpoint].api_versions
+        ]
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]

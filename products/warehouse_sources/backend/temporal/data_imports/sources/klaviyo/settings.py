@@ -4,6 +4,9 @@ from typing import Optional
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.constants import (
+    KLAVIYO_API_VERSION_2026_07_15,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
@@ -115,6 +118,9 @@ class KlaviyoEndpointConfig:
     values_report: Optional[KlaviyoValuesReportConfig] = None
     # Shown next to the table in the schema picker.
     description: Optional[str] = None
+    # Revisions that serve this endpoint. None means every supported revision does. Klaviyo answers
+    # 404 for an endpoint added after the revision a source is pinned to.
+    api_versions: Optional[tuple[str, ...]] = None
 
 
 # Every statistic Klaviyo's campaign and flow values reports accept. Both endpoints document the
@@ -741,6 +747,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
     ),
     "web_feeds": KlaviyoEndpointConfig(
         name="web_feeds",
+        api_versions=(KLAVIYO_API_VERSION_2026_07_15,),
         path="/web-feeds",
         default_incremental_field="updated",
         partition_key="created",
@@ -827,6 +834,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
     ),
     "data_sources": KlaviyoEndpointConfig(
         name="data_sources",
+        api_versions=(KLAVIYO_API_VERSION_2026_07_15,),
         path="/data-sources",
         page_size=100,
         incremental_fields=[],
@@ -835,12 +843,14 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
     # through the cursor links Klaviyo returns.
     "custom_metrics": KlaviyoEndpointConfig(
         name="custom_metrics",
+        api_versions=(KLAVIYO_API_VERSION_2026_07_15,),
         path="/custom-metrics",
         page_size=0,
         incremental_fields=[],
     ),
     "object_types": KlaviyoEndpointConfig(
         name="object_types",
+        api_versions=(KLAVIYO_API_VERSION_2026_07_15,),
         path="/object-types",
         page_size=0,
         incremental_fields=[],
@@ -868,6 +878,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
     # ["id"] primary key holds table-wide; object_type_id rides along as its own column for joins.
     "custom_object_records": KlaviyoEndpointConfig(
         name="custom_object_records",
+        api_versions=(KLAVIYO_API_VERSION_2026_07_15,),
         path="/object-types/{object_type_id}/object-records",
         page_size=100,  # object-records caps page[size] at 100
         incremental_fields=[],

@@ -982,6 +982,35 @@ class TestApiVersionThreadsToRevisionHeader:
         assert result.requests[0].headers["revision"] == api_version
 
 
+class TestEndpointsNewerThanThePinnedRevision:
+    @parameterized.expand(
+        [
+            (KLAVIYO_API_VERSION_2024_10_15, False),
+            (KLAVIYO_API_VERSION_2026_07_15, True),
+            (None, True),
+        ]
+    )
+    def test_schema_list_offers_only_tables_the_pinned_revision_serves(self, pin: str | None, offered: bool) -> None:
+        names = {s.name for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1, api_version=pin)}
+        assert "events" in names
+        assert all(
+            (name in names) is offered
+            for name in ("data_sources", "custom_metrics", "object_types", "custom_object_records", "web_feeds")
+        )
+
+    def test_enabled_table_on_an_older_pin_fails_without_calling_klaviyo(self) -> None:
+        result = _driver().run("data_sources", [], api_version=KLAVIYO_API_VERSION_2024_10_15)
+        assert result.raised is not None
+        assert result.requests == []
+        friendly = [
+            message
+            for pattern, message in KlaviyoSource().get_non_retryable_errors().items()
+            if error_message_matches(str(result.raised), [pattern])
+        ]
+        assert friendly and friendly[0] is not None
+        assert "Contact PostHog support" in friendly[0]
+
+
 class TestValidateCredentialsResolvedPin:
     @parameterized.expand(
         [
