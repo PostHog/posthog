@@ -22,28 +22,50 @@ use sqlx::postgres::PgPool;
 use uuid::Uuid;
 
 use personhog_common::grpc::semantic_refusal;
+use personhog_identity::config::OutboxWrites;
 use personhog_identity::lifecycle::detach::DetachedDrives;
 use personhog_identity::lifecycle::engine::{
-    advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, STEP_COMPLETED,
+    abort_op_in_tx, advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError,
+    STEP_ABORTED, STEP_COMPLETED,
 };
 use personhog_identity::pools::IdentityPools;
 
-/// Two-step dummy op: `started → half → completed`. Counts step executions
-/// so tests can prove what did (or did not) re-run.
+/// Two-step dummy op: `started → half → <final step>`. Counts step
+/// executions so tests can prove what did (or did not) re-run.
 struct DummyDriver {
     steps_run: AtomicUsize,
     pause: std::time::Duration,
+    final_step: &'static str,
+    outbox_writes: OutboxWrites,
 }
 
 impl DummyDriver {
     fn new() -> Self {
-        Self::paced(std::time::Duration::ZERO)
+        Self::with(
+            std::time::Duration::ZERO,
+            STEP_COMPLETED,
+            OutboxWrites::Disabled,
+        )
     }
 
     fn paced(pause: std::time::Duration) -> Self {
+        Self::with(pause, STEP_COMPLETED, OutboxWrites::Disabled)
+    }
+
+    fn settling(final_step: &'static str, outbox_writes: OutboxWrites) -> Self {
+        Self::with(std::time::Duration::ZERO, final_step, outbox_writes)
+    }
+
+    fn with(
+        pause: std::time::Duration,
+        final_step: &'static str,
+        outbox_writes: OutboxWrites,
+    ) -> Self {
         Self {
             steps_run: AtomicUsize::new(0),
             pause,
+            final_step,
+            outbox_writes,
         }
     }
 }
@@ -73,13 +95,23 @@ impl OpDriver for DummyDriver {
                 )
                 .await?
             }
-            "half" => {
+            "half" if self.final_step == STEP_COMPLETED => {
                 complete_op_in_tx(
                     &mut tx,
                     &common::default_tables(),
                     op.op_id,
                     "half",
-                    STEP_COMPLETED,
+                    &json!({"ok": true}),
+                    self.outbox_writes,
+                )
+                .await?
+            }
+            "half" => {
+                abort_op_in_tx(
+                    &mut tx,
+                    &common::default_tables(),
+                    op.op_id,
+                    "half",
                     &json!({"ok": true}),
                 )
                 .await?
@@ -261,37 +293,143 @@ async fn resume_picks_up_an_op_from_its_saved_step() {
     ctx.cleanup().await.expect("cleanup");
 }
 
+async fn pointer_kinds(ctx: &TestContext, op_id: Uuid) -> Vec<String> {
+    sqlx::query_scalar("SELECT kind FROM person_publish_outbox WHERE op_id = $1")
+        .bind(op_id)
+        .fetch_all(&ctx.pool)
+        .await
+        .expect("query runs")
+}
+
 #[tokio::test]
-async fn gc_reaps_completed_ops_past_retention() {
+async fn only_a_completed_op_with_outbox_writes_enabled_enqueues_a_publish_pointer() {
     let ctx = TestContext::new().await;
+    // The pointers this test asserts on are pending rows a draining test
+    // in another process would otherwise claim and delete.
+    let _drain_lock = ctx.hold_drain_lock().await;
+    let engine = ctx.engine();
+    let cases = [
+        (
+            OutboxWrites::Enabled,
+            STEP_COMPLETED,
+            vec!["merge_op".to_string()],
+        ),
+        (OutboxWrites::Enabled, STEP_ABORTED, vec![]),
+        (OutboxWrites::Disabled, STEP_COMPLETED, vec![]),
+    ];
+    for (outbox_writes, final_step, expected) in cases {
+        let driver = DummyDriver::settling(final_step, outbox_writes);
+        let op_id = Uuid::now_v7();
+        engine
+            .execute(&driver, op_id, ctx.team_id, &json!({}))
+            .await
+            .expect("op settles");
+        assert_eq!(
+            pointer_kinds(&ctx, op_id).await,
+            expected,
+            "{outbox_writes:?} {final_step}"
+        );
+    }
+
+    // The pointer rides the compare-and-swap: a completion that loses it
+    // (the row is not on `from`) commits nothing, pointer included.
+    let driver = DummyDriver::settling(STEP_COMPLETED, OutboxWrites::Enabled);
+    let op_id = Uuid::now_v7();
+    engine
+        .create_or_attach(&driver, op_id, ctx.team_id, &json!({}))
+        .await
+        .expect("op created");
+    let mut tx = ctx.pool.begin().await.expect("begin");
+    let advanced = complete_op_in_tx(
+        &mut tx,
+        &common::default_tables(),
+        op_id,
+        "half",
+        &json!({}),
+        OutboxWrites::Enabled,
+    )
+    .await
+    .expect("statement runs");
+    tx.commit().await.expect("commit");
+    assert!(!advanced, "the row is on 'started', not 'half'");
+    assert!(pointer_kinds(&ctx, op_id).await.is_empty());
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+async fn remaining_ops(ctx: &TestContext, op_ids: &[Uuid]) -> Vec<Uuid> {
+    sqlx::query_scalar("SELECT op_id FROM lifecycle_op WHERE op_id = ANY($1) ORDER BY op_id")
+        .bind(op_ids)
+        .fetch_all(&ctx.pool)
+        .await
+        .expect("query runs")
+}
+
+#[tokio::test]
+async fn gc_reaps_completed_ops_past_retention_unless_a_publish_pointer_remains() {
+    let ctx = TestContext::new().await;
+    // The pending pointer must survive until GC has seen it, so no
+    // draining test in another process may claim it meanwhile.
+    let _drain_lock = ctx.hold_drain_lock().await;
     let engine = ctx.engine();
     let driver = DummyDriver::new();
-    let op_id = Uuid::now_v7();
+    // Three completed ops: no outbox row, a pending pointer, a given-up pointer.
+    let plain = Uuid::now_v7();
+    let pending = Uuid::now_v7();
+    let given_up = Uuid::now_v7();
+    let all = [plain, pending, given_up];
 
-    engine
-        .execute(&driver, op_id, ctx.team_id, &json!({}))
-        .await
-        .expect("op completes");
-
-    // Backdate the completion past retention; GC reaps it (and cascades the
-    // per-person rows) without touching other tests' fresh rows.
+    for op_id in all {
+        engine
+            .execute(&driver, op_id, ctx.team_id, &json!({}))
+            .await
+            .expect("op completes");
+    }
     sqlx::query(
-        "UPDATE lifecycle_op SET completed_at = now() - interval '2 hours' WHERE op_id = $1",
+        r#"
+        INSERT INTO person_publish_outbox (team_id, kind, op_id, given_up_at, last_error)
+        VALUES ($1, 'merge_op', $2, NULL, NULL), ($1, 'merge_op', $3, now(), 'poison')
+        "#,
     )
-    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .bind(pending)
+    .bind(given_up)
     .execute(&ctx.pool)
     .await
-    .expect("backdate completion");
+    .expect("queue pointers");
+
+    // Backdate the completions past retention; GC reaps only the op nobody
+    // still has to publish, and cascades its per-person rows, without
+    // touching other tests' fresh rows.
+    sqlx::query(
+        "UPDATE lifecycle_op SET completed_at = now() - interval '2 hours' WHERE op_id = ANY($1)",
+    )
+    .bind(&all[..])
+    .execute(&ctx.pool)
+    .await
+    .expect("backdate completions");
     engine
         .gc(std::time::Duration::from_secs(3600))
         .await
         .expect("gc runs");
-    let gone: Option<(String,)> = sqlx::query_as("SELECT step FROM lifecycle_op WHERE op_id = $1")
-        .bind(op_id)
-        .fetch_optional(&ctx.pool)
+    assert_eq!(
+        remaining_ops(&ctx, &all).await,
+        vec![pending, given_up],
+        "ops with a pointer survive, the plain op is deleted"
+    );
+
+    // Once the pointers are gone (published, or cleared by an operator), the
+    // next pass reaps the ops.
+    sqlx::query("DELETE FROM person_publish_outbox WHERE op_id = ANY($1)")
+        .bind(&all[..])
+        .execute(&ctx.pool)
         .await
-        .expect("query runs");
-    assert!(gone.is_none(), "completed op past retention is deleted");
+        .expect("clear pointers");
+    engine
+        .gc(std::time::Duration::from_secs(3600))
+        .await
+        .expect("gc runs");
+    assert!(remaining_ops(&ctx, &all).await.is_empty());
 
     ctx.cleanup().await.expect("cleanup");
 }
@@ -695,8 +833,8 @@ impl OpDriver for RefusingDriver {
             &common::default_tables(),
             op.op_id,
             "started",
-            STEP_COMPLETED,
             &json!({}),
+            OutboxWrites::Disabled,
         )
         .await?;
         if !advanced {
