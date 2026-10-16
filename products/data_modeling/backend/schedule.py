@@ -35,7 +35,6 @@ from posthog.temporal.common.search_attributes import (
 )
 
 from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id, is_tier_schedule_id
-from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
 
 # A schedule id is the bare DAG id, or "{dag_id}:{interval_seconds}" for a per-cadence-tier
@@ -102,7 +101,7 @@ async def get_v2_scheduled_dag_ids(
 
 
 def get_v2_saved_query_ids(
-    candidate_ids: Collection[uuid.UUID] | None = None, *, team_id: int | None = None, tiered_only: bool = False
+    candidate_ids: Collection[uuid.UUID] | None = None, *, tiered_only: bool = False
 ) -> set[uuid.UUID]:
     """Return saved query IDs whose DAG already runs on a v2 schedule.
 
@@ -134,15 +133,6 @@ def get_v2_saved_query_ids(
             if dag_id is not None:
                 dag_ids_by_saved_query[saved_query_id].add(str(dag_id))
 
-        if team_id is not None:
-            nodeless = set(candidate_ids) - dag_ids_by_saved_query.keys()
-            team_dag_ids = (
-                {str(dag_id) for dag_id in DAG.objects.filter(team_id=team_id).values_list("id", flat=True)}
-                if nodeless
-                else set()
-            )
-            if team_dag_ids:
-                dag_ids_by_saved_query.update(dict.fromkeys(nodeless, team_dag_ids))
         if not dag_ids_by_saved_query:
             return set()
 

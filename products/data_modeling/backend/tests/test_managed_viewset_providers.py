@@ -181,7 +181,6 @@ class TestManagedViewSetProviders(BaseTest):
         with (
             patch.dict(_expected_views_providers, clear=True),
             patch(GET_V2_DAG_IDS, return_value=set()),
-            patch(f"{RECONCILE}.sync_connect"),
             patch(f"{RECONCILE}.async_connect", new=AsyncMock(return_value=_no_schedules())),
             patch(f"{RECONCILE}.a_create_schedule", new=AsyncMock()) as create,
             patch(f"{NODE_MAT}.sync_connect"),

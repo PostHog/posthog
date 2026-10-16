@@ -107,7 +107,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         node = Node.objects.get(saved_query=self.sq)
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
-            mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
             mock.patch(f"{NODE_MAT}.sync_connect"),
@@ -130,7 +129,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         bare = temporal_listing([str(self.dag.id)])
         with (
             mock.patch("products.data_modeling.backend.schedule.async_connect", new=mock.AsyncMock(return_value=bare)),
-            mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=bare)),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
             mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
@@ -156,7 +154,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.save(update_fields=["is_materialized"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
-            mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
             mock.patch(
                 f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock(side_effect=Exception("temporal unavailable"))
@@ -179,7 +176,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.save(update_fields=["sync_frequency_interval"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
-            mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
             self.captureOnCommitCallbacks(execute=True),
