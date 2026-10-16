@@ -9,10 +9,10 @@ import { mcpSetupModeLogic } from './mcpSetupModeLogic'
 import { MCPSetupModeView } from './MCPSetupModeView'
 
 function MCPSetupModeOverlay(): JSX.Element | null {
-    const { setupPath, step, connectState, recentCalls, recentCallsFailed, agentPrompt } = useValues(mcpSetupModeLogic)
-    const { exitSetupMode, goToUsefulStep, switchSetupPath } = useActions(mcpSetupModeLogic)
+    const { isOpen, step, connectState, recentCalls, recentCallsFailed, agentPrompt } = useValues(mcpSetupModeLogic)
+    const { exitSetupMode, goToUsefulStep } = useActions(mcpSetupModeLogic)
 
-    if (!setupPath) {
+    if (!isOpen) {
         return null
     }
     return (
@@ -27,7 +27,6 @@ function MCPSetupModeOverlay(): JSX.Element | null {
             data-attr="mcp-analytics-setup-mode"
         >
             <MCPSetupModeView
-                path={setupPath}
                 step={step}
                 connectState={connectState}
                 recentCalls={recentCalls}
@@ -35,7 +34,6 @@ function MCPSetupModeOverlay(): JSX.Element | null {
                 agentPrompt={agentPrompt}
                 onExit={exitSetupMode}
                 onGoToUseful={goToUsefulStep}
-                onUseWizard={() => switchSetupPath('wizard')}
             />
         </LemonModal>
     )
@@ -47,8 +45,7 @@ function MCPSetupModeOverlay(): JSX.Element | null {
  */
 export function MCPSetupMode(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    // Checked here rather than in the logic so that, with the flag off, nothing extra mounts: the
-    // logic subscribes to the wizard session stream.
+    // Checked here rather than in the logic so that, with the flag off, nothing extra mounts.
     if (!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_SETUP_MODE]) {
         return null
     }

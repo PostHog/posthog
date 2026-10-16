@@ -47,7 +47,7 @@ export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
             [FEATURE_FLAGS.MCP_ANALYTICS_SETUP_MODE]: {
                 text: {
                     'needs-setup': {
-                        hint: "Run Wizard in your MCP server's repository. The setup agent installs analytics and shows its progress here:",
+                        hint: "Run Wizard in your MCP server's repository. The setup agent installs analytics for you:",
                     },
                 },
                 SetupActions: MCPSetupDoorActions,

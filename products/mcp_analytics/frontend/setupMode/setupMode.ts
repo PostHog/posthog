@@ -1,12 +1,6 @@
-import type {
-    InstallationProgress,
-    InstallationStep,
-    WizardPendingInput,
-} from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
-
 import type { MCPOnboardingState } from '../mcpAnalyticsOnboardingLogic'
 
-/** The install route the user committed to. Pinned: the `setup` URL param carries these values. */
+/** The button that opened setup mode. Pinned: the `setup` URL param carries these values. */
 export type MCPSetupPath = 'wizard' | 'agent'
 
 export type MCPSetupStep = 'connect' | 'first-call' | 'useful'
@@ -17,7 +11,7 @@ export const MCP_SETUP_STEPS: MCPSetupStep[] = ['connect', 'first-call', 'useful
 export const SETUP_PARAM = 'setup'
 export const SETUP_STEP_PARAM = 'setup_step'
 
-export type MCPSetupTrigger = 'wizard_copy' | 'agent_copy' | 'wizard_detected' | 'url'
+export type MCPSetupTrigger = 'wizard_copy' | 'agent_copy' | 'url'
 
 export type MCPSetupExitReason = 'back' | 'escape' | 'finished'
 
@@ -42,33 +36,10 @@ export function setupStepFor({
     return requestedStep === 'useful' ? 'useful' : 'first-call'
 }
 
-/** A wizard run for this project that is live right now, as reported from the user's terminal. */
-export interface MCPWizardRun {
-    tasks: InstallationStep[]
-    pendingInput: WizardPendingInput | null
-    error: InstallationProgress['error']
-}
+export type MCPConnectState = { kind: 'waiting' } | { kind: 'connected' }
 
-export type MCPConnectState =
-    | { kind: 'waiting' }
-    | { kind: 'wizard-running'; run: MCPWizardRun }
-    | { kind: 'connected' }
-
-/** The agent path has no progress stream, so it only ever waits and then connects. */
-export function connectStateFor({
-    path,
-    onboardingState,
-    wizardRun,
-}: {
-    path: MCPSetupPath
-    onboardingState: MCPOnboardingState | null
-    wizardRun: MCPWizardRun | null
-}): MCPConnectState {
-    if (onboardingState === 'connected-no-calls' || onboardingState === 'onboarded') {
-        return { kind: 'connected' }
-    }
-    if (path === 'wizard' && wizardRun) {
-        return { kind: 'wizard-running', run: wizardRun }
-    }
-    return { kind: 'waiting' }
+export function connectStateFor(onboardingState: MCPOnboardingState | null): MCPConnectState {
+    return onboardingState === 'connected-no-calls' || onboardingState === 'onboarded'
+        ? { kind: 'connected' }
+        : { kind: 'waiting' }
 }

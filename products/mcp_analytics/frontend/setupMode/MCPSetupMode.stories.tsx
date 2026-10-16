@@ -3,7 +3,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
 import { productEmptyStateStory } from 'lib/components/ProductEmptyState/storybookHelpers'
 import { FEATURE_FLAGS } from 'lib/constants'
-import type { InstallationStep } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -12,19 +11,8 @@ import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { mcpAnalyticsEmptyState } from '../emptyState/mcpAnalyticsEmptyState'
 import type { MCPActivityOverviewApi, MCPActivityRecentCallApi } from '../generated/api.schemas'
 import { MCPSetupModeView, type MCPSetupModeViewProps } from './MCPSetupModeView'
-import type { MCPWizardRun } from './setupMode'
 
 // Invented fixtures: an example docs server called from two clients.
-const TASKS: InstallationStep[] = [
-    { id: 'a', label: 'Find the MCP server entry point', status: 'completed', detail: null },
-    { id: 'b', label: 'Install @posthog/mcp with pnpm', status: 'completed', detail: null },
-    { id: 'c', label: 'Add the project token to .env', status: 'in_progress', detail: null },
-    { id: 'd', label: 'Wrap the server with instrument()', status: 'pending', detail: null },
-    { id: 'e', label: 'Run the type check', status: 'pending', detail: null },
-]
-
-const RUN: MCPWizardRun = { tasks: TASKS, pendingInput: null, error: null }
-
 const SUCCESS_CALL: MCPActivityRecentCallApi = {
     timestamp: '2026-06-07T11:59:40Z',
     tool: 'search_docs',
@@ -46,7 +34,6 @@ const FAILED_CALL: MCPActivityRecentCallApi = {
 }
 
 const BASE: MCPSetupModeViewProps = {
-    path: 'wizard',
     step: 'connect',
     connectState: { kind: 'waiting' },
     recentCalls: null,
@@ -55,7 +42,6 @@ const BASE: MCPSetupModeViewProps = {
         'Install PostHog MCP analytics in the MCP server in this repository. Target PostHog project 997 at https://us.posthog.com.',
     onExit: () => {},
     onGoToUseful: () => {},
-    onUseWizard: () => {},
 }
 
 const OVERVIEW: MCPActivityOverviewApi = {
@@ -94,42 +80,12 @@ export default meta
 
 type Story = StoryObj<typeof MCPSetupModeView>
 
-export const ConnectWizard: Story = {
-    decorators: [mswDecorator({ get: { '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud' } } })],
-    parameters: { testOptions: { waitForLoadersToDisappear: false } },
-}
-
-export const ConnectWizardWithTasks: Story = {
-    args: { connectState: { kind: 'wizard-running', run: RUN } },
+export const Connect: Story = {
     parameters: { testOptions: { viewportWidths: ['narrow', 'medium'], waitForLoadersToDisappear: false } },
 }
 
-export const ConnectWizardWithPendingQuestion: Story = {
-    args: {
-        connectState: {
-            kind: 'wizard-running',
-            run: {
-                ...RUN,
-                pendingInput: {
-                    id: 'ask-1',
-                    askedAt: '2026-06-07T11:58:00Z',
-                    questionCount: 1,
-                    sensitive: false,
-                    prompts: ['Which package manager should the setup agent use: pnpm or npm?'],
-                },
-            },
-        },
-    },
-    parameters: { testOptions: { waitForLoadersToDisappear: false } },
-}
-
-export const ConnectAgent: Story = {
-    args: { path: 'agent' },
-    parameters: { testOptions: { waitForLoadersToDisappear: false } },
-}
-
 export const Connected: Story = {
-    args: { path: 'agent', connectState: { kind: 'connected' } },
+    args: { connectState: { kind: 'connected' } },
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
