@@ -55,3 +55,10 @@ def register_task_read_exclusion(exclusion: TaskReadExclusion, *, name: str) -> 
 def hidden_task_ids(team_id: int, user_id: int | None) -> set[UUID]:
     """Every registered product's task ids to hide from this user."""
     return {task_id for exclusion in _task_read_exclusions.values() for task_id in exclusion(team_id, user_id)}
+
+
+task_run_cost_updated = Signal()
+
+
+def connect_task_run_cost_updated(receiver: Callable[..., None], *, dispatch_uid: str) -> None:
+    task_run_cost_updated.connect(receiver, sender=TaskRun, dispatch_uid=dispatch_uid)

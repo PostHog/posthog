@@ -1457,6 +1457,9 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("skills_string_list", "task_skills", ["error-triage", "db-runbook"], True),
             ("skills_not_list", "task_skills", "error-triage", False),
             ("skills_not_strings", "task_skills", [{"name": "error-triage"}], False),
+            ("vision_scan_setup", "replay_vision_scan", {"type": "monitor", "prompt": "p"}, True),
+            ("vision_scan_without_type", "replay_vision_scan", {"prompt": "p"}, False),
+            ("vision_scan_not_object", "replay_vision_scan", "monitor", False),
         ]
     )
     def test_task_input_value_shapes(self, _name, schema_type, value, expect_valid):
@@ -1468,6 +1471,32 @@ class TestTaskInputTypeValidation(SimpleTestCase):
         else:
             with pytest.raises(ValidationError):
                 validate_inputs(schema, inputs)
+
+
+class TestChoiceInputTemplating(SimpleTestCase):
+    CHOICE_SCHEMA = [
+        {
+            "key": "event_action",
+            "type": "choice",
+            "label": "Event action",
+            "choices": [
+                {"label": "Trigger", "value": "trigger"},
+                {"label": "Resolve", "value": "resolve"},
+            ],
+            "required": True,
+        }
+    ]
+
+    @parameterized.expand(
+        [
+            ("declared_choice", "trigger", False),
+            ("templated_choice", "{event.event == 'x' ? 'resolve' : 'trigger'}", True),
+        ]
+    )
+    def test_only_a_value_outside_the_declared_choices_is_compiled(self, _name, value, expect_bytecode):
+        validated = validate_inputs(self.CHOICE_SCHEMA, {"event_action": {"value": value}})
+
+        assert ("bytecode" in validated["event_action"]) is expect_bytecode
 
 
 class TestReservedFunctionsUsed(SimpleTestCase):

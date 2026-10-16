@@ -31,6 +31,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.modal.moda
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.modal.settings import (
+    BILLING_REPORT_TABLES,
+    BILLING_SUMMARY,
     DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -110,7 +112,7 @@ class ModalSource(ResumableSource[ModalSourceConfig, ModalResumeConfig]):
             ENDPOINTS,
             INCREMENTAL_FIELDS,
             names,
-            merge_only=ENDPOINTS,
+            merge_only=(*BILLING_REPORT_TABLES, BILLING_SUMMARY),
             default_incremental_lookback_seconds=DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
         )
 

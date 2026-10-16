@@ -278,18 +278,22 @@ describe('Hog Inputs', () => {
 
             expect(inputs.oauth).toEqual({
                 $integration_id: integrationId1,
-                access_token: `$$_access_token_placeholder_${integrationId1}`,
+                access_token: expect.any(String),
                 access_token_raw: 'token',
                 not_encrypted: 'not-encrypted',
                 team: 'foobar',
             })
             expect(inputs.auth).toEqual({
                 $integration_id: integrationId2,
-                access_token: `$$_access_token_placeholder_${integrationId2}`,
+                access_token: expect.any(String),
                 access_token_raw: 'token',
                 not_encrypted: 'not-encrypted',
                 team: 'foobar',
             })
+            expect(hogInputsService.acceptedAccessTokenPlaceholders(integrationId1)).toContain(
+                inputs.oauth.access_token
+            )
+            expect(hogInputsService.acceptedAccessTokenPlaceholders(integrationId2)).toContain(inputs.auth.access_token)
         })
 
         it('should coerce string results to booleans for boolean schema fields', async () => {

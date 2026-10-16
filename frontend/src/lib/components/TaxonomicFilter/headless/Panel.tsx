@@ -1,6 +1,7 @@
-import { ReactNode, useEffect, useRef } from 'react'
+import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
-import { Empty, EmptyHeader, EmptyTitle, ItemMenuItem, Spinner } from '@posthog/quill'
+import { IconWarning } from '@posthog/icons'
+import { Button, Empty, EmptyHeader, EmptyTitle, ItemMenuItem, Spinner } from '@posthog/quill'
 
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 
@@ -70,6 +71,19 @@ function TaxonomicFilterActivePanel({
 }: ActivePanelProps): JSX.Element {
     const { getGroupListInput, registerActiveList, selectItem } = useTaxonomicFilterContext()
     const list: UseGroupListResult = useGroupList(getGroupListInput(group))
+    // `useTaxonomicResource`'s cache only notifies subscribers once a fetch settles, not when
+    // it starts, so `list.isFetching` doesn't flip to true for the duration of an imperative
+    // `refetch()` call here. Track the retry's own in-flight state instead, so the button shows
+    // a loading state and can't be clicked again mid-retry.
+    const [retrying, setRetrying] = useState(false)
+    const handleRetry = useCallback(async (): Promise<void> => {
+        setRetrying(true)
+        try {
+            await list.refetch()
+        } finally {
+            setRetrying(false)
+        }
+    }, [list])
 
     // Register this list as the keyboard target for as long as the panel
     // is mounted. We pass a stable getter (`useRef`-backed) instead of
@@ -98,6 +112,29 @@ function TaxonomicFilterActivePanel({
                         </EmptyHeader>
                     </Empty>
                 )}
+            </div>
+        )
+    }
+
+    if (list.showErrorState) {
+        return (
+            <div className={className}>
+                <Empty>
+                    <EmptyHeader>
+                        <IconWarning className="text-5xl text-tertiary" />
+                        <EmptyTitle>Couldn't load results</EmptyTitle>
+                    </EmptyHeader>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        data-attr="taxonomic-panel-retry"
+                        loading={retrying}
+                        onKeyDown={(event) => event.stopPropagation()}
+                        onClick={handleRetry}
+                    >
+                        Try again
+                    </Button>
+                </Empty>
             </div>
         )
     }

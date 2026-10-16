@@ -1137,9 +1137,9 @@ class SignalReportListPagination(LimitOffsetPagination):
             "type": "string",
             "nullable": True,
             "description": (
-                "The ranker that ordered the page when sort=recommended: priority, or fixed for the served "
-                "ranking model's fixed head. Null for every other sort. Each row's inbox_merge_key belongs "
-                "to this ranker."
+                "The ranker that ordered the page when sort=recommended: priority, or open, action or fixed "
+                "for that head of the served ranking model. Null for every other sort. Each row's "
+                "inbox_merge_key belongs to this ranker."
             ),
         }
         return paginated
@@ -2475,9 +2475,9 @@ class SignalReportViewSet(
                 required=False,
                 description=(
                     "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when "
-                    "ordering is supplied. recommended resolves per project to a ranker: the priority order, or "
-                    "the served ranking model's fixed head with unscored and stale reports in priority order "
-                    "after the scored ones. The response's ranker field names the one used."
+                    "ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
+                    "the open, action or fixed head of the served ranking model with unscored and stale reports "
+                    "in priority order after the scored ones. The response's ranker field names the one used."
                 ),
             ),
             OpenApiParameter(
@@ -5378,7 +5378,9 @@ class SignalReportCheckViewSet(
             "behind the report), status judgments (safety / actionability / priority, repo "
             "selection, suggested reviewers — the newest row of each status type is canonical), "
             "and log entries (code references, commits, task runs, notes). "
-            "`suggested_reviewers` content is enriched with PostHog user info at read time."
+            "`suggested_reviewers` content is enriched with PostHog user info at read time. "
+            "`ranking_score` content keeps only the head fields of each model's metadata; get the "
+            "artefact by id for the full metadata."
         ),
         parameters=[_REPORT_ID_PARAMETER],
         responses={200: SignalReportArtefactSerializer(many=True)},
@@ -5386,7 +5388,10 @@ class SignalReportCheckViewSet(
     ),
     retrieve=extend_schema(
         summary="Get a single artefact",
-        description="Get one artefact by id, content parsed (and reviewers enriched) the same way as the list.",
+        description=(
+            "Get one artefact by id, content parsed (and reviewers enriched) the same way as the list. "
+            "A `ranking_score` keeps its full model metadata."
+        ),
         parameters=[_REPORT_ID_PARAMETER],
         responses={200: SignalReportArtefactSerializer},
         operation_id="signals_report_artefacts_retrieve",
@@ -5516,6 +5521,7 @@ class SignalReportArtefactViewSet(
                 "signals_github_login_to_user_map": login_map,
                 "signals_reviewer_user_uuid_map": uuid_map,
                 "signals_scout_display_names": scout_display_names,
+                "signals_compact_ranking_scores": True,
                 "signals_reviewer_history": [
                     artefact
                     for artefact in real_artefacts

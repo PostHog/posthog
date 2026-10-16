@@ -46,12 +46,14 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
 from products.data_modeling.backend.facade.models import (
     DAG,
     DataModelingJobEngine,
+    DataWarehouseManagedViewSet,
     DataWarehouseSavedQuery,
     Edge,
     Node,
     NodeType,
 )
 from products.data_quality.backend.facade.contracts import MATERIALIZATION_GATE_ACTIVITY_NAME
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -204,6 +206,25 @@ class TestGetDagStructureActivity:
         # edges from TABLE nodes are excluded
         # only model_a -> model_b and model_a -> model_c should be present
         assert len(dag.edges) == 2
+
+    @pytest.mark.usefixtures("dag_edges")
+    async def test_excludes_edges_from_a_managed_view_to_its_readers(
+        self, activity_environment, ateam, saved_queries, adag
+    ):
+        viewset = await database_sync_to_async(DataWarehouseManagedViewSet.objects.create)(
+            team=ateam, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        model_a, model_b, _model_c = saved_queries
+        for query in (model_a, model_b):
+            query.managed_viewset = viewset
+            await database_sync_to_async(query.save)(update_fields=["managed_viewset"])
+
+        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(adag.id))
+        dag = await activity_environment.run(get_dag_structure_activity, inputs)
+
+        model_a_node = await database_sync_to_async(Node.objects.get)(saved_query=model_a)
+        model_b_node = await database_sync_to_async(Node.objects.get)(saved_query=model_b)
+        assert dag.edges == [(str(model_a_node.id), str(model_b_node.id))]
 
     async def test_empty_dag(self, activity_environment, ateam):
         inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(uuid.uuid4()))
