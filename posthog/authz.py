@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, TypeVar, cast
 
+from django.apps import apps
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Model, Q, QuerySet
 
@@ -32,7 +33,7 @@ def resource_list_cache_key(access: UserAccessControl, scopes: set[str] | None) 
             continue
         result = api.list_objects(
             resource=Resource(type=resource_type, project_id=access.team.id),
-            action=Action.QUERY,
+            action=Action.VIEW,
             subject=Subject(user_id=access.user.pk),
             creator_exempt=True,
             user_access_control=access,
@@ -111,7 +112,7 @@ def filter_resource_queryset(
     for team_id in queryset.order_by().values_list("team_id", flat=True).distinct():
         result = api.list_objects(
             resource=Resource(type=resource_type, project_id=team_id),
-            action=Action.LIST,
+            action=Action.VIEW,
             subject=subject,
             creator_exempt=hasattr(queryset.model, "created_by"),
         )
@@ -139,8 +140,15 @@ def check_resource_category_access(
         return True
     if require_category:
         return False
+    if action == Action.VIEW:
+        model_name = {
+            ResourceType.DASHBOARD: "dashboards.Dashboard",
+            ResourceType.INSIGHT: "product_analytics.Insight",
+        }[resource_type]
+        model = apps.get_model(model_name)
+        return filter_resource_queryset(user, model.objects.filter(team_id=team.pk), resource_type).exists()
     result = api.list_objects(resource=resource, action=action, subject=subject)
-    return result.complete and bool(result.ids)
+    return result.complete and bool(result.ids or result.excluded)
 
 
 def check_dashboard_category_access(user: User, team: Team, action: Action, *, require_category: bool) -> bool:

@@ -1,5 +1,5 @@
 # Generated from products/authz/model/ by products/authz/generate_model.sh. Do not edit.
-# Content digest: 522fab263204989f
+# Content digest: 574d81ec481a0239
 model
   schema 1.1
 
@@ -144,7 +144,6 @@ type resource
     define editor: (member from project) and (org_admin from project or editor from policy or ((member from project) but not has_rule))
     define manager: (member from project) and (org_admin from project or manager from policy)
     define can_view: viewer
-    define can_list: viewer
     define can_create: editor
     define can_manage_access: manager or can_manage_access from project
 

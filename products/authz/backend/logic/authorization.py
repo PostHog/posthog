@@ -197,8 +197,8 @@ def list_objects(
     *,
     consistency: Consistency = "HIGHER_CONSISTENCY",
 ) -> ObjectIds:
-    if action in (Action.LIST, Action.QUERY):
-        return _query_resource_filter(resource, subject, context, limit, consistency=consistency)
+    if action in (Action.VIEW, Action.QUERY):
+        return _read_object_filter(resource, action, subject, context, limit, consistency=consistency)
     validate_context(context)
     if resource.id is not None or resource.type not in (ResourceType.DASHBOARD, ResourceType.INSIGHT):
         raise ValueError("List resources requires a supported resource type")
@@ -257,8 +257,9 @@ def list_objects(
 MAX_IDS = 1000
 
 
-def _query_resource_filter(
+def _read_object_filter(
     resource: Resource,
+    action: Action,
     subject: Subject | None,
     context: Context | None,
     limit: int | None,
@@ -281,7 +282,7 @@ def _query_resource_filter(
     org_id = organization_id(resource)
     type_name = resource.type.value
     prefix = f"{type_name}:{org_id}/{resource.project_id}/"
-    relation = action_relation(f"{prefix}0", Action.VIEW)
+    relation = action_relation(f"{prefix}0", action)
     category_key = object_key(resource, org_id=org_id)
     user = actor_key(subject)
     capped = ObjectIds(ids=frozenset(), complete=False)

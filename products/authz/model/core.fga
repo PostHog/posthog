@@ -142,6 +142,5 @@ type resource
     define editor: (member from project) and (org_admin from project or editor from policy or ((member from project) but not has_rule))
     define manager: (member from project) and (org_admin from project or manager from policy)
     define can_view: viewer
-    define can_list: viewer
     define can_create: editor
     define can_manage_access: manager or can_manage_access from project
