@@ -90,6 +90,16 @@ class TestMCPEventPropertyMasking(SimpleTestCase):
                     "$feature/secret": True,
                     "$active_feature_flags": ["secret", "public"],
                     "$feature_flags": {"secret": True, "public": False},
+                    "plan": "visible",
+                },
+                {"$feature_flags"},
+                {"plan": "visible"},
+            ),
+            (
+                {
+                    "$feature/secret": True,
+                    "$active_feature_flags": ["secret", "public"],
+                    "$feature_flags": {"secret": True, "public": False},
                 },
                 {"$feature/secret"},
                 {"$active_feature_flags": ["public"], "$feature_flags": {"public": False}},
@@ -153,6 +163,12 @@ class TestMCPEventFilterReferences(SimpleTestCase):
 
 
 class TestMCPEventFilterAccess(SimpleTestCase):
+    @parameterized.expand(["$feature/secret", "$feature_flags", "$feature_flags.secret", "$active_feature_flags"])
+    def test_restricted_flag_map_denies_all_aliases(self, alias: str) -> None:
+        with self.assertRaises(PermissionDenied):
+            MCPEventPropertyAccess.validate(alias, {"$feature_flags"})
+        MCPEventPropertyAccess.validate("plan", {"$feature_flags"})
+
     @parameterized.expand(
         [
             ("event", PropertyDefinition.Type.EVENT, None),

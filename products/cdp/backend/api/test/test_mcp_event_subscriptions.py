@@ -22,7 +22,9 @@ if TYPE_CHECKING:
 from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey, PropertyDefinition, Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.mcp_event_subscription import MCPEventSubscription
 
@@ -59,7 +61,9 @@ class MCPEventSubscriptionTestCase(APIBaseTest):
             self.url + "subscribe/", self.payload, HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"]
         )
         self.assertEqual(response.status_code, 200, response.json())
-        self.assertEqual(self.flag_mock.call_args.args[1], self.user.distinct_id)
+        self.assertTrue(
+            any(call.args[:2] == ("mcp-events", self.user.distinct_id) for call in self.flag_mock.call_args_list)
+        )
         self.assertNotIn(self.secret, json.dumps(response.json()))
         return MCPEventSubscription.objects.for_team(self.team.pk).get(id=response.json()["id"])
 
@@ -137,20 +141,65 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         self.headers = {"HTTP_AUTHORIZATION": f"Bearer {key}"}
         self.assertEqual(self.authorize(subscription).status_code, 403)
 
-    @parameterized.expand(["preview", "subscribe"])
-    def test_invalid_realtime_filters_cannot_preview_or_subscribe(self, endpoint: str) -> None:
+    @parameterized.expand(
+        [
+            ("preview", "unsupported_global = 'value'", "Real-time filters cannot read"),
+            ("subscribe", "unsupported_global = 'value'", "Real-time filters cannot read"),
+            ("preview", "typeof(properties.rating) = 'integer'", "This filter cannot be previewed"),
+            ("subscribe", "typeof(properties.rating) = 'integer'", "This filter cannot be previewed"),
+        ]
+    )
+    def test_invalid_realtime_filters_cannot_preview_or_subscribe(
+        self, endpoint: str, expression: str, message: str
+    ) -> None:
         arguments = {
             "project_id": self.team.pk,
-            "filters": {"properties": [{"type": "hogql", "key": "unsupported_global = 'value'"}]},
+            "filters": {"properties": [{"type": "hogql", "key": expression}]},
         }
         payload = arguments if endpoint == "preview" else {**self.payload, "arguments": arguments}
         response = self.client.post(
             self.url + endpoint + "/", payload, HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"]
         )
         self.assertEqual(response.status_code, 400, response.json())
-        self.assertIn("Real-time filters cannot read", json.dumps(response.json()))
+        self.assertIn(message, json.dumps(response.json()))
         self.assertFalse(MCPEventSubscription.objects.for_team(self.team.pk).exists())
         self.assertFalse(HogFunction.objects.filter(team=self.team).exists())
+
+    @parameterized.expand(
+        [
+            (endpoint, location)
+            for endpoint in ("preview", "subscribe", "delivery")
+            for location in ("actions", "events")
+        ]
+    )
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_action_access_is_required_at_setup_and_delivery(self, endpoint: str, location: str) -> None:
+        action = Action.objects.create(
+            team=self.team, name="Example action", steps_json=[{"event": "example_event"}], created_by=self.user
+        )
+        self.user = self._create_user("subscriber@example.com")
+        self.key = self.create_personal_api_key_with_scopes(["mcp_event_subscription:write", "query:read"])
+        self.headers = {"HTTP_AUTHORIZATION": f"Bearer {self.key}"}
+        arguments = {
+            "project_id": self.team.pk,
+            "filters": {location: [{"id": str(action.pk), "type": "actions"}]},
+        }
+        self.payload["arguments"] = arguments
+        subscription = self.subscribe() if endpoint == "delivery" else None
+        AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.pk), access_level="none")
+        if subscription is not None:
+            response = self.authorize(subscription)
+        else:
+            payload = arguments if endpoint == "preview" else self.payload
+            response = self.client.post(
+                self.url + endpoint + "/", payload, HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"]
+            )
+            self.assertFalse(MCPEventSubscription.objects.for_team(self.team.pk).exists())
+            self.assertFalse(HogFunction.objects.filter(team=self.team).exists())
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertIn("viewer access", json.dumps(response.json()))
 
     def test_subscriptions_remain_isolated_between_child_environments(self) -> None:
         parent = self.team

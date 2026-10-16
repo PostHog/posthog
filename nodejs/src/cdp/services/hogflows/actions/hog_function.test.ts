@@ -951,6 +951,42 @@ describe('HogFunctionHandler', () => {
             expect(invocationResult.logs.map((l) => l.message)).toContainEqual(expect.stringContaining(expectedLog))
         })
 
+        it('sizes an answer the template already has to the variables the run holds, without parking', async () => {
+            action.output_variable = { key: 'answer' }
+            invocation.state.variables = { ticket_body: 'y'.repeat(4700 - '{"ticket_body":""}'.length) }
+            jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
+                finished: true,
+                execResult: {
+                    request_id: 'r1',
+                    await: {
+                        max_wait: '8h',
+                        label: 'scan',
+                        result: { state: 'succeeded', output: 'x'.repeat(3000), warnings: ['The answer was cut.'] },
+                    },
+                },
+                invocation: invocation as any,
+                logs: [],
+                metrics: [],
+                capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
+                messageAssets: [],
+                conversionWatchers: [],
+            })
+
+            const { handlerResult, invocationResult } = await execute()
+
+            const stored = handlerResult.result as Record<string, unknown>
+            expect(handlerResult.nextAction?.id).toBe('exit')
+            expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
+            expect(stored).toMatchObject({ request_id: 'r1', status: 'completed', state: 'succeeded' })
+            expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
+                expect.stringContaining('The answer was cut.')
+            )
+            expect(
+                Buffer.byteLength(JSON.stringify({ ...invocation.state.variables, answer: stored }))
+            ).toBeLessThanOrEqual(5120)
+        })
+
         describe('on resume', () => {
             let executeSpy: jest.SpyInstance
             const deadlineAt = DateTime.now().plus({ hours: 1 }).toISO()!

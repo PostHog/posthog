@@ -47,6 +47,10 @@ class MCPEventPropertyAccess:
             raise PermissionDenied("The filter reads a properties object your account cannot fully access.")
         name = name.replace("%2E", ".")
         keys = {key.replace("%2E", ".") for key in restricted_names}
+        if "$feature_flags" in keys and (
+            name.startswith("$feature/") or name.split(".")[0] in {"$active_feature_flags", "$feature_flags"}
+        ):
+            raise PermissionDenied("The filter reads feature flags your account cannot fully access.")
         if any(cls._paths_overlap(name, key) for key in keys):
             raise PermissionDenied("The filter uses a property your account cannot read.")
         if restricted_feature_flag_names(keys) and name.split(".")[0] in {"$active_feature_flags", "$feature_flags"}:
@@ -71,6 +75,10 @@ class MCPEventPropertyAccess:
         result = deepcopy(properties)
         for key in restricted_names:
             cls._remove_path(result, key.replace("%2E", ".").split("."))
+        if "$feature_flags" in restricted_names:
+            for key in list(result):
+                if key.startswith("$feature/") or key == "$active_feature_flags":
+                    result.pop(key)
         flags = set(restricted_feature_flag_names(restricted_names))
         if flags:
             active = result.get("$active_feature_flags")

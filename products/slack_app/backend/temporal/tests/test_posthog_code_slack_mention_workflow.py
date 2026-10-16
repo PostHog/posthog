@@ -16,7 +16,7 @@ from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWor
     ],
 )
 async def test_untagged_followup_with_files_classifier_gating(text: str, expect_classifier: bool) -> None:
-    workflow = posthog_code_slack_mention.PostHogCodeSlackMentionWorkflow()
+    workflow = posthog_code_slack_mention.SlackAppMentionProcessingWorkflow()
     calls: list[str] = []
     inputs = PostHogCodeSlackMentionWorkflowInputs(
         event={
@@ -67,7 +67,7 @@ async def test_untagged_followup_with_files_classifier_gating(text: str, expect_
 async def test_confirmed_untagged_followup_skips_the_classifier_and_the_prompt() -> None:
     """The click that re-dispatches carries the answer, so asking again would
     loop: prompt, confirm, classify, prompt."""
-    workflow = posthog_code_slack_mention.PostHogCodeSlackMentionWorkflow()
+    workflow = posthog_code_slack_mention.SlackAppMentionProcessingWorkflow()
     calls: list[str] = []
     inputs = PostHogCodeSlackMentionWorkflowInputs(
         event={"channel": "C123", "ts": "1234.5679", "user": "U_BOB", "text": "and the export filter too"},
