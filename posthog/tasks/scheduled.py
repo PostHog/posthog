@@ -123,6 +123,7 @@ from products.signals.backend.tasks import (
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
     sweep_implementation_dispatches,
+    sweep_implementation_replacements,
     sync_pending_signals_refund_credits,
 )
 from products.skills.backend.tasks import sync_community_skills
@@ -436,6 +437,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/5"),
         sweep_implementation_dispatches.s(),
         name="recover pending signals implementation starts",
+        expires_seconds=5 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        sweep_implementation_replacements.s(),
+        name="recover pending signals implementation replacements",
         expires_seconds=5 * 60,
     )
 

@@ -46,7 +46,7 @@ export function prActivityTitle(artefact: SignalReportArtefact): string {
             ) {
                 const replacement = parsePrUrlParts(replacements[0])
                 const previous = parsePrUrlParts(results[0][0])
-                if (replacement && previous && replacement.repoSlug === previous.repoSlug) {
+                if (replacement && previous && replacement.repoSlug.toLowerCase() === previous.repoSlug.toLowerCase()) {
                     return `PR #${replacement.number} replaced #${previous.number}`
                 }
             }
