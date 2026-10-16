@@ -14,7 +14,7 @@ import { createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
-import { FixtureHogFlowBuilder } from '../../_tests/builders/hogflow.builder'
+import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '../../_tests/builders/hogflow.builder'
 import { insertHogFunctionTemplate, insertIntegration } from '../../_tests/fixtures'
 import { HogTransformerService, createHogTransformerService } from '../../hog-transformations/hog-transformer.service'
 import { PostgresCohortMembershipRepository } from '../../services/cohorts/postgres-cohort-membership-repository'
@@ -93,6 +93,8 @@ const EXECUTION_BUDGET_MS = 5000
 const MATCH_ALL_FILTERS = { bytecode: ['_h', 29] }
 const MATCH_ALL_TRIGGER = { type: 'event' as const, filters: { events: [], actions: [], ...MATCH_ALL_FILTERS } }
 const MAX_ASYNC_FUNCTIONS = 10
+const AWAITED_STEPS_PRODUCTION_DEFAULT = false
+const FAIL_THE_RUN_ON_STEP_ERROR = 'abort' as const
 
 type WorkflowStepType = Extract<HogFlowAction['type'], 'function' | 'function_email'>
 
@@ -206,7 +208,7 @@ export class TemplatePipeline {
             hub.integrationManager,
             undefined,
             undefined,
-            { awaitedStepsEnabled: hub.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
+            { awaitedStepsEnabled: AWAITED_STEPS_PRODUCTION_DEFAULT }
         )
         const transformer = createHogTransformerService(
             { ...hub, TRANSFORMATIONS_HOG_TIMEOUT_MS: EXECUTION_BUDGET_MS, CDP_HOG_RUST_VM_EXECUTION_ENABLED: false },
@@ -287,10 +289,9 @@ export class TemplatePipeline {
                     trigger: { type: 'trigger', config: MATCH_ALL_TRIGGER },
                     step: {
                         type: stepType,
-                        // A failed step then fails the run, which is where the invariants read the outcome.
-                        on_error: 'abort',
+                        on_error: FAIL_THE_RUN_ON_STEP_ERROR,
                         config: {
-                            template_id: await this.registerTemplate(template),
+                            template_id: await this.registerTemplateUnderTeamScopedId(template),
                             inputs: { ...hogFunction.inputs, ...hogFunction.encrypted_inputs },
                         },
                     } as SimpleHogFlowAction,
@@ -321,8 +322,7 @@ export class TemplatePipeline {
         return { ...result, logs }
     }
 
-    private async registerTemplate(template: HogFunctionTemplate): Promise<string> {
-        // Templates are global rows, so a per-run id keeps other suites and earlier runs from serving stale bytecode.
+    private async registerTemplateUnderTeamScopedId(template: HogFunctionTemplate): Promise<string> {
         const { template_id } = await insertHogFunctionTemplate(this.hub.postgres, {
             ...template,
             id: `${template.id}-contract-${this.team.id}`,
@@ -559,7 +559,7 @@ export class TemplatePipeline {
 
 type SesHttpRequest = Parameters<NodeHttpHandler['handle']>[0]
 type Execution = Pick<PipelineRun, 'invocationErrors' | 'result' | 'thrown'>
-type SimpleHogFlowAction = Parameters<FixtureHogFlowBuilder['withWorkflow']>[0]['actions'][string]
+type SimpleHogFlowAction = SimpleHogFlowRepresentation['actions'][string]
 
 const EMAIL_MESSAGE = {
     to: { email: '{{ person.properties.email }}', name: '{{ person.properties.name }}' },

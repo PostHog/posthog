@@ -44,14 +44,21 @@ const FAILURES_EXEMPTIONS: Exemptions = {}
 const DESTINATION_CASES = casesFor(HOG_FUNCTION_TEMPLATES_DESTINATIONS)
 const TRANSFORMATION_CASES = casesFor(HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS)
 
-// Success bodies whose shape a template checks before it reports success.
-const SUCCESS_BODIES: Record<string, unknown> = {
+const SUCCESS_BODIES_OF_POSTHOG_APIS: Record<string, unknown> = {
     'template-posthog-create-customer-task': { id: '01920000-0000-7000-8000-000000000005' },
+    'template-posthog-create-task': {
+        id: '01920000-0000-7000-8000-000000000006',
+        run_id: '01920000-0000-7000-8000-000000000007',
+    },
+    'template-posthog-run-scout': {
+        scout: 'example-skill_name',
+        workflow_id: 'example-scout-workflow-id',
+    },
 }
 
 const okFor = ({ template }: TemplateCase): ResponseScenario => ({
     status: 200,
-    body: SUCCESS_BODIES[template.id] ?? {},
+    body: SUCCESS_BODIES_OF_POSTHOG_APIS[template.id] ?? {},
 })
 const REJECTED = { status: 401, body: {}, echoRequest: true }
 const CLIENT_ERROR = { status: 400, body: { error: 'Bad request' } }
