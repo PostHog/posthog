@@ -70,7 +70,10 @@ Write them to be read aloud too, when the video has a voiceover.
 A caption holds for about a third of a second per word, at least two and a half seconds.
 Aim for one to two minutes in total.
 
-For a voiceover or music, add `voiceover` or `music` to the storyboard and ask the developer for an ElevenLabs API key in `ELEVENLABS_API_KEY`.
+For a voiceover or music, add `voiceover` or `music` to the storyboard.
+They need an ElevenLabs API key in `ELEVENLABS_API_KEY`. Do not ask the developer to paste the key into the chat.
+Without the key, the recorder leaves out the voiceover and generated music and records a captioned video.
+The log lists what it left out under `skipped_without_elevenlabs_key`. Tell the developer, and point them to [references/troubleshooting.md](references/troubleshooting.md#elevenlabs-calls-fail) to set the key.
 Settle the captions in a silent take first, because every changed line costs credits.
 
 ### 4. Record

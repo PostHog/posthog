@@ -111,6 +111,7 @@ v3 audio tags such as `[excited]` in a `say` line steer the delivery.
 
 The voiceover needs `ELEVENLABS_API_KEY` in the environment.
 Never put the key in a storyboard, a commit, or the chat. Ask the developer to set it in the shell or as a task secret.
+Without the key, the recorder records the video with no voiceover and lists `voiceover` under `skipped_without_elevenlabs_key` in the log.
 Takes are cached in `~/.cache/posthog-demo-videos/voiceover/` by text and voice, so recording again with the same script costs no credits.
 A changed line reads the whole take again. A video is about 1,500 characters, and shared accounts have a monthly limit, so settle the captions before you add the voiceover.
 

@@ -770,6 +770,16 @@ def contact_sheet(video: Path) -> None:
     )  # fmt: skip
 
 
+def without_elevenlabs(storyboard: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Drop the voiceover and generated music, so a developer without an ElevenLabs key still gets a captioned video."""
+    skipped = []
+    if "voiceover" in storyboard:
+        skipped.append("voiceover")
+    if "music" in storyboard and "file" not in storyboard["music"]:
+        skipped.append("music")
+    return {name: value for name, value in storyboard.items() if name not in skipped}, skipped
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit(__doc__)
@@ -777,6 +787,9 @@ def main() -> None:
         raise SystemExit("ffmpeg is missing. Install it first (apt-get install -y ffmpeg, or brew install ffmpeg).")
     storyboard_path = Path(sys.argv[1]).resolve()
     storyboard = json.loads(storyboard_path.read_text())
+    skipped: list[str] = []
+    if not os.environ.get("ELEVENLABS_API_KEY"):
+        storyboard, skipped = without_elevenlabs(storyboard)
     repo_root = Path(
         subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or "."
     )
@@ -786,6 +799,8 @@ def main() -> None:
     recorder = Recorder(storyboard, Brand(repo_root), Vars(values, storyboard.get("secrets", [])))
     recorder.base = storyboard_path.parent
     log = asyncio.run(recorder.run(output))
+    if skipped:
+        log["skipped_without_elevenlabs_key"] = skipped
     output.with_suffix(".log.json").write_text(json.dumps(log, indent=2))
     sys.stdout.write(json.dumps(log, indent=2) + "\n")
     if "error" in log:

@@ -55,7 +55,7 @@ Run `hogli start -y -d` and `hogli wait`, then the seed script. Start any extra 
 
 ## ElevenLabs calls fail
 
-- `ELEVENLABS_API_KEY` missing: the developer has to set it. In a cloud task, add it as an environment variable of the task's environment in PostHog Desktop, under Settings and Environments. Never paste it into a storyboard or a commit.
+- `ELEVENLABS_API_KEY` missing: the recorder leaves out the voiceover and generated music, and lists them under `skipped_without_elevenlabs_key` in the log. A music `file` still plays. To add them, the developer sets the key in the shell. In a cloud task, add it as an environment variable of the task's environment in PostHog Desktop, under Settings and Environments. Never paste it into a storyboard or a commit.
 - `401` or `quota_exceeded`: the key is wrong, lacks access to the endpoint, or the account ran out of credits. Takes already in the cache still work.
 - A certificate error: the recorder uses `certifi`'s certificates, which the repo's Python environment has. Run it with `uv run python` from the checkout.
 
