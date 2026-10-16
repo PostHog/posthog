@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, time, timedelta
 from typing import Any, cast
 
@@ -13,6 +14,7 @@ from posthog.hogql.visitor import clone_expr
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
+from posthog.utils import relative_date_parse
 
 from products.actions.backend.facade.api import action_filter_conditions
 from products.customer_analytics.backend.facade.contracts import KeyMetric
@@ -26,6 +28,8 @@ KEY_METRICS = {
 PEOPLE_METRIC = "activity_event"
 DAYS = 35
 EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+DATE_OPERATORS = {"is_date_exact", "is_date_before", "is_date_after"}
+RELATIVE_DATE = re.compile(r"^-?[0-9]+[hdwmqysHDWMQY]")
 DAILY = (
     "SELECT toDate(timestamp) AS day FROM events"
     " WHERE timestamp >= {start} AND timestamp < {end}"
@@ -52,15 +56,28 @@ def _action_ids(nodes: dict[str, dict[str, Any]]) -> list[int]:
     return [int(node["id"]) for node in nodes.values() if node["kind"] == "ActionsNode"]
 
 
-def _condition(node: dict[str, Any], team: Team, actions: dict[int, ast.Expr]) -> ast.Expr:
+def _anchored(filters: Any, team: Team, anchor: datetime) -> Any:
+    if isinstance(filters, list):
+        return [_anchored(item, team, anchor) for item in filters]
+    if not isinstance(filters, dict):
+        return filters
+    anchored = {key: _anchored(value, team, anchor) if key == "values" else value for key, value in filters.items()}
+    value = anchored.get("value")
+    if anchored.get("operator") in DATE_OPERATORS and isinstance(value, str) and RELATIVE_DATE.match(value):
+        resolved = relative_date_parse(value, team.timezone_info, now=anchor)
+        anchored["value"] = resolved.strftime("%Y-%m-%d %H:%M:%S")
+    return anchored
+
+
+def _condition(node: dict[str, Any], team: Team, anchor: datetime) -> ast.Expr:
     if node["kind"] == "ActionsNode":
-        match = clone_expr(actions[int(node["id"])])
+        match = parse_expr("matchesAction({id})", placeholders={"id": ast.Constant(value=int(node["id"]))})
     elif node.get("event"):
         match = parse_expr("event = {event}", placeholders={"event": ast.Constant(value=node["event"])})
     else:
         match = ast.Constant(value=True)
     if node.get("properties"):
-        return ast.And(exprs=[match, property_to_expr(node["properties"], team)])
+        return ast.And(exprs=[match, property_to_expr(_anchored(node["properties"], team, anchor), team)])
     return match
 
 
@@ -91,16 +108,17 @@ def _day(value: date | str) -> date:
 
 def key_metrics(team: Team, user: User) -> list[KeyMetric] | None:
     nodes = _configured_nodes(team)
-    actions = action_filter_conditions(team=team, action_ids=_action_ids(nodes))
+    live_actions = action_filter_conditions(team=team, action_ids=_action_ids(nodes))
+    today = timezone.now().astimezone(team.timezone_info).date()
+    anchor = datetime.combine(today, time.min, tzinfo=team.timezone_info)
     conditions = {
-        key: _condition(node, team, actions)
+        key: _condition(node, team, anchor)
         for key, node in nodes.items()
-        if node["kind"] == "EventsNode" or int(node["id"]) in actions
+        if node["kind"] == "EventsNode" or int(node["id"]) in live_actions
     }
     if not conditions:
         return []
-    test_accounts = property_to_expr(team.test_account_filters or [], team)
-    today = timezone.now().astimezone(team.timezone_info).date()
+    test_accounts = property_to_expr(_anchored(team.test_account_filters or [], team, anchor), team)
 
     daily = _select(
         DAILY,

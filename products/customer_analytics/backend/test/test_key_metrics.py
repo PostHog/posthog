@@ -140,18 +140,34 @@ class TestKeyMetrics(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual((metrics, enqueue.call_count), (None, 1))
 
-    def test_a_new_day_does_not_reuse_the_previous_days_result(self) -> None:
+    @parameterized.expand(
+        [
+            ("a later minute reuses the result", timedelta(minutes=10), True),
+            ("a new day calculates again", timedelta(days=1), False),
+        ]
+    )
+    def test_a_relative_date_filter_keeps_the_cached_result_until_the_day_changes(
+        self, _name: str, later: timedelta, reused: bool
+    ) -> None:
+        self.team.test_account_filters = [
+            {"key": "signed_up_at", "value": "-30d", "operator": "is_date_after", "type": "person"}
+        ]
+        self.team.save()
         config = self.team.customer_analytics_config
-        config.activity_event = {"kind": "EventsNode", "event": "opened_file"}
+        config.activity_event = {
+            "kind": "EventsNode",
+            "event": "opened_file",
+            "properties": [{"key": "opened_at", "value": "-7d", "operator": "is_date_after", "type": "event"}],
+        }
         config.save()
 
         with time_machine.travel("2026-03-02T12:00:00Z", tick=False) as traveller:
-            yesterday = get_key_metrics(team=self.team, user=self.user)
-            traveller.shift(timedelta(days=1))
+            first = get_key_metrics(team=self.team, user=self.user)
+            traveller.shift(later)
             with (
                 patch.object(key_metrics_logic, "EXECUTION_MODE", ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE),
-                patch("posthog.hogql_queries.query_runner.QueryRunner.enqueue_async_calculation") as enqueue,
+                patch("posthog.hogql_queries.query_runner.QueryRunner.enqueue_async_calculation"),
             ):
-                today = get_key_metrics(team=self.team, user=self.user)
+                second = get_key_metrics(team=self.team, user=self.user)
 
-        self.assertEqual((yesterday is not None, today, enqueue.call_count), (True, None, 1))
+        self.assertEqual((first is not None, second == first), (True, reused))
