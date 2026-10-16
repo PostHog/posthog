@@ -73,6 +73,10 @@ class HogQLModifiersField(serializers.JSONField):
                 messages.append(f"{location}: {error['msg']}" if location else error["msg"])
             raise serializers.ValidationError(messages) from e
         else:
+            if modifiers.useNewEventsCluster:
+                raise serializers.ValidationError(
+                    "Native events cluster queries are only supported by the synchronous query API"
+                )
             self.loaded = modifiers
         return modifiers.model_dump(mode="json", exclude_none=True)
 

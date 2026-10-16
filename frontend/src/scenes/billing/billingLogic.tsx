@@ -43,6 +43,7 @@ import {
     canViewUsageAndSpend as canViewUsageAndSpendUtil,
     getMinimumBillingAccessLevel,
     getMinimumUsageSpendReadAccessLevel,
+    isCompanionProduct,
     isUsageApproachingLimit,
     isUsageAtOrOverLimit,
     isMemberUsageSpendReadAccessEnabled,
@@ -109,7 +110,7 @@ export type SwitchPlanPayload = {
 }
 
 // Billing can answer with an empty body (a proxy error page, an upstream failure), so this takes null.
-const parseBillingResponse = (data: Partial<BillingType> | null): BillingType | null => {
+export const parseBillingResponse = (data: Partial<BillingType> | null): BillingType | null => {
     if (!data) {
         return null
     }
@@ -1536,9 +1537,14 @@ export const billingLogic = kea<billingLogicType>([
         switchFlatrateSubscriptionPlan: async (payload) => {
             actions.setSwitchPlanLoading(payload.to_product_key)
         },
-        loadBillingSuccess: async (_, breakpoint) => {
+        loadBillingSuccess: async ({ payload }, breakpoint) => {
             actions.registerInstrumentationProps()
             actions.determineBillingAlert()
+            // Scoped payment refreshes update their organization's entitlements separately.
+            // The endpoints below read the server's selected organization.
+            if (payload) {
+                return
+            }
             actions.loadCreditOverview()
 
             // If the activation is successful, we reload the user/organization to get the updated available features
@@ -1623,7 +1629,8 @@ export const billingLogic = kea<billingLogicType>([
 
             const productsAtOrOverLimit =
                 values.billing.products?.filter((x: BillingProductV2Type) => {
-                    if (!isUsageAtOrOverLimit(x.percentage_usage) || !x.usage_key) {
+                    // Companions have no billing limit, so their usage percentage is not a limit.
+                    if (!isUsageAtOrOverLimit(x.percentage_usage) || !x.usage_key || isCompanionProduct(x)) {
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
@@ -1669,7 +1676,10 @@ export const billingLogic = kea<billingLogicType>([
 
             const productsApproachingLimit =
                 values.billing.products?.filter((x: BillingProductV2Type) => {
-                    if (!isUsageApproachingLimit(x.percentage_usage, ALLOCATION_THRESHOLD_ALERT)) {
+                    if (
+                        !isUsageApproachingLimit(x.percentage_usage, ALLOCATION_THRESHOLD_ALERT) ||
+                        isCompanionProduct(x)
+                    ) {
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`

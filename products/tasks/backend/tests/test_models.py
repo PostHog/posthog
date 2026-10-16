@@ -1,7 +1,7 @@
 import json
 import uuid
 from contextlib import nullcontext
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import ClassVar
 
 from unittest.mock import AsyncMock, patch
@@ -1126,6 +1126,23 @@ class TestTaskRun(TestCase):
         run = self.task.create_run(mode="interactive")
 
         self.assertNotIn("initial_permission_mode", run.state)
+
+    @parameterized.expand([("immediate", None), ("future", 1), ("overdue", -1)])
+    def test_create_run_stamps_server_startup_time_and_preserves_it_in_analytics(
+        self, _name: str, scheduled_days: int | None
+    ) -> None:
+        requested_at = django_timezone.now()
+        scheduled_at = requested_at + timedelta(days=scheduled_days) if scheduled_days is not None else None
+        run = self.task.create_run(
+            extra_state={"startup_requested_at": "untrusted-time"},
+            startup_requested_at=requested_at,
+            scheduled_at=scheduled_at,
+        )
+        run.refresh_from_db()
+
+        expected = max(requested_at, scheduled_at) if scheduled_at is not None else requested_at
+        self.assertEqual(run.state["startup_requested_at"], expected.isoformat())
+        self.assertEqual(run.analytics_properties()["startup_requested_at"], run.state["startup_requested_at"])
 
     def test_create_run_snapshots_task_ownership_version(self):
         ownership_version = str(uuid.uuid4())

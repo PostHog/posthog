@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -6,6 +7,7 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { exposureCriteriaModalLogic } from 'scenes/experiments/ExperimentView/exposureCriteriaModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
+import { FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -37,7 +39,7 @@ export function HealthFindingActionButton({
         // pinned: `data-attr` value, so renaming it breaks autocapture insights
         'data-attr': `experiment-health-action-${actionKind}`,
     } as const
-    // Every action except the flag link opens a form that saves the experiment.
+    // Every action except the flag links opens a form that saves the experiment.
     const editProps = {
         ...buttonProps,
         disabledReason: canEdit ? null : "You don't have permission to edit this experiment.",
@@ -53,6 +55,17 @@ export function HealthFindingActionButton({
                     onClick={onClick}
                 >
                     Open feature flag
+                </LemonButton>
+            ) : null
+        case 'open_feature_flag_history':
+            return experiment.feature_flag ? (
+                <LemonButton
+                    {...buttonProps}
+                    to={combineUrl(urls.featureFlag(experiment.feature_flag.id), { tab: FeatureFlagsTab.HISTORY }).url}
+                    targetBlank
+                    onClick={onClick}
+                >
+                    View flag history
                 </LemonButton>
             ) : null
         case 'adjust_distribution':

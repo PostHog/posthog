@@ -14,6 +14,22 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const HogQLExpression = z.string()
+
+const AssistantEventsQuery = z
+    .object({
+        kind: z.literal('EventsQuery').default('EventsQuery'),
+        select: z.array(HogQLExpression).describe('Event columns as HogQL expressions.'),
+    })
+    .catchall(z.unknown())
+
+const AssistantDataTableNode = z
+    .object({
+        kind: z.literal('DataTableNode').default('DataTableNode'),
+        source: AssistantEventsQuery,
+    })
+    .catchall(z.unknown())
+
 const AssistantInsightVizNode = z.object({
     kind: z.literal('InsightVizNode').default('InsightVizNode'),
     source: z
@@ -88,7 +104,7 @@ const AssistantDataVisualizationAxisDisplaySettings = z.object({
     displayType: z
         .enum(['auto', 'line', 'bar', 'area'])
         .describe(
-            'Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.'
+            "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type."
         )
         .optional(),
     label: z
@@ -220,7 +236,7 @@ const AssistantDataVisualizationNode = z.object({
         'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
     ).optional(),
     display: AssistantDataVisualizationDisplayType.describe(
-        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Headline number with its change over time (KPI, scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Parts of one whole → `ActionsPie`, `ActionsDonut` or `ActionsProportionBar`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`.'
+        'Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures; `BoxPlot` = distribution summaries with `chartSettings.boxPlot`.'
     ).optional(),
     kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
     source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
@@ -255,10 +271,12 @@ const AssistantBareHogQLQuery = z
     .catchall(z.unknown())
 
 const InsightQuery = z.union([
+    AssistantDataTableNode,
     AssistantInsightVizNode,
     AssistantDataVisualizationNode,
     AssistantBareInsightQuery,
     AssistantBareHogQLQuery,
+    AssistantEventsQuery,
 ])
 
 const ElementsStatsRetrieveSchema = () => {
