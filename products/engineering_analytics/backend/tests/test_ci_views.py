@@ -1,7 +1,10 @@
 import json
 import tempfile
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
@@ -9,6 +12,7 @@ from unittest.mock import patch
 import pandas as pd
 from parameterized import parameterized
 
+from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -20,10 +24,12 @@ from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
+    JobSourceTables,
 )
 from products.engineering_analytics.backend.logic.views import (
     ci_failures,
     ci_job_history,
+    ci_rows,
     depot_ci,
     job_costs,
     pr_friction,
@@ -98,31 +104,33 @@ def _run_row(
     }
 
 
+def _create_table(test: BaseTest, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
+    df = pd.DataFrame(rows, columns=list(columns.keys()))
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
+    df.to_csv(tmp.name, index=False)
+    tmp.close()
+    test.addCleanup(Path(tmp.name).unlink, missing_ok=True)
+    with seeding_object_storage(test):
+        table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
+            csv_path=Path(tmp.name),
+            table_name=base_name,
+            table_columns=columns,
+            test_bucket=TEST_BUCKET,
+            team=test.team,
+            source_prefix=GITHUB_SOURCE_PREFIX,
+        )
+    test.addCleanup(cleanup)
+    return table.name
+
+
 class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
     """The generated ci_job_history SQL must expose exactly the FIELDS columns and correctly derive
     commit attribution — the substrate the green/red boundary analysis reads. Skips when object
     storage is unreachable so the suite still runs without the dev stack."""
 
-    def _create_table(self, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
-        df = pd.DataFrame(rows, columns=list(columns.keys()))
-        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
-        df.to_csv(tmp.name, index=False)
-        tmp.close()
-        self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
-        with seeding_object_storage(self):
-            table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
-                csv_path=Path(tmp.name),
-                table_name=base_name,
-                table_columns=columns,
-                test_bucket=TEST_BUCKET,
-                team=self.team,
-                source_prefix=GITHUB_SOURCE_PREFIX,
-            )
-        self.addCleanup(cleanup)
-        return table.name
-
     def test_exposes_fields_and_derives_commit_attribution(self) -> None:
-        jobs_table = self._create_table(
+        jobs_table = _create_table(
+            self,
             "github_workflow_jobs",
             WORKFLOW_JOBS_COLUMNS,
             [
@@ -136,7 +144,8 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
                 _job_row(5, run_id=400, name="job-e"),
             ],
         )
-        runs_table = self._create_table(
+        runs_table = _create_table(
+            self,
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
             [
@@ -246,10 +255,11 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
     def test_union_all_of_two_sources_parses_and_stacks(self) -> None:
         # build_team_view stitches per-source SELECTs with UNION ALL; the columns must line up across
         # the boundary. Unioning one source's SELECT with itself proves the shape agrees and stacks.
-        jobs_table = self._create_table(
-            "github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [_job_row(1, run_id=100, name="job-a")]
+        jobs_table = _create_table(
+            self, "github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [_job_row(1, run_id=100, name="job-a")]
         )
-        runs_table = self._create_table(
+        runs_table = _create_table(
+            self,
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
             [_run_row(100, head_sha="s", pr_numbers=[1], head_commit={"message": "m"})],
@@ -354,6 +364,72 @@ class TestCIFailuresView(ClickhouseTestMixin, BaseTest):
         assert no_detail[field_index["fingerprint"]] == "posthog/api/test_baz.py::test_qux | "
 
 
+class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            ("runs", ci_rows.runs_select, ci_rows.RUN_FIELDS, 2, {"is_handoff_shell": 0}),
+            ("jobs", ci_rows.jobs_select, ci_rows.JOB_FIELDS, 3, {"is_rerun_copy": 0}),
+        ]
+    )
+    def test_view_runs_with_the_window_start_bound(
+        self,
+        _name: str,
+        select: Callable[[JobSourceTables], str],
+        fields: dict[str, Any],
+        seeded_rows: int,
+        flags: dict[str, int],
+    ) -> None:
+        # GitHub lands ISO-8601 strings with a T, and the floors compare them as strings.
+        created_at = "2026-01-01T10:00:00Z"
+        jobs_table = _create_table(
+            self,
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                {**_job_row(1, run_id=100, name="a"), "created_at": created_at},
+                {**_job_row(2, run_id=100, name="b"), "created_at": created_at},
+                {**_job_row(3, run_id=200, name="c"), "created_at": created_at},
+            ],
+        )
+        runs_table = _create_table(
+            self,
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                {**_run_row(100, head_sha="s100", pr_numbers=[5], head_commit={}), "created_at": created_at},
+                {**_run_row(200, head_sha="s200", pr_numbers=[], head_commit={}), "created_at": created_at},
+            ],
+        )
+        source = JobSourceTables(
+            github_workflow_jobs=jobs_table,
+            github_workflow_runs=runs_table,
+            source_id=str(uuid4()),
+            repository=_REPO,
+        )
+        query = f"SELECT {', '.join(fields)} FROM ({select(source)}) ORDER BY id"
+
+        rows_by_window = {}
+        for since, expected_rows in (
+            (None, seeded_rows),
+            (datetime(2026, 1, 1, 9, tzinfo=UTC), seeded_rows),
+            (datetime(2026, 1, 1, 11, tzinfo=UTC), 0),
+        ):
+            response = execute_hogql_query(
+                query=query,
+                team=self.team,
+                query_type="engineering_analytics.test",
+                placeholders={"incremental_window_start": ast.Constant(value=since)},
+            )
+            assert response.columns == list(fields)
+            assert len(response.results) == expected_rows, since
+            rows_by_window[since] = response.results
+
+        first = dict(zip(fields, rows_by_window[None][0]))
+        assert first["repository"] == _REPO.casefold()
+        assert first["created_at_raw"] == created_at
+        assert {flag: first[flag] for flag in flags} == flags
+
+
 class TestExpectedWarehouseViews(BaseTest):
     """The facade must expose all three views together for a qualifying GitHub source, and nothing
     for a team without one — so a consumer sees a coherent set, never a partial one."""
@@ -387,10 +463,20 @@ class TestExpectedWarehouseViews(BaseTest):
     def test_no_source_exposes_no_views(self) -> None:
         assert get_expected_warehouse_views(self.team) == []
 
-    def test_qualifying_source_exposes_all_three_views(self) -> None:
+    def test_qualifying_source_exposes_every_view(self) -> None:
         self._qualifying_source()
-        names = {view.name for view in get_expected_warehouse_views(self.team)}
-        assert names == {job_costs.VIEW_NAME, ci_job_history.VIEW_NAME, ci_failures.VIEW_NAME}
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            views = {view.name: view for view in get_expected_warehouse_views(self.team)}
+        assert set(views) == {
+            job_costs.VIEW_NAME,
+            ci_job_history.VIEW_NAME,
+            ci_failures.VIEW_NAME,
+            ci_rows.RUNS_VIEW_NAME,
+            ci_rows.JOBS_VIEW_NAME,
+        }
+        for name in (ci_rows.RUNS_VIEW_NAME, ci_rows.JOBS_VIEW_NAME):
+            assert views[name].sync_frequency == ci_rows.SYNC_FREQUENCY
+            assert views[name].incremental_config == ci_rows.INCREMENTAL_CONFIG
 
     @parameterized.expand(
         [
@@ -423,4 +509,5 @@ class TestExpectedWarehouseViews(BaseTest):
         with patch("posthoganalytics.feature_enabled", return_value=flag):
             materialized = {view.name: view.materialized for view in get_expected_warehouse_views(self.team)}
         per_job = {job_costs.VIEW_NAME: False, ci_job_history.VIEW_NAME: False, ci_failures.VIEW_NAME: False}
-        assert materialized == ({**per_job, pr_friction.VIEW_NAME: True} if expected else per_job)
+        stored = {ci_rows.RUNS_VIEW_NAME: True, ci_rows.JOBS_VIEW_NAME: True, pr_friction.VIEW_NAME: True}
+        assert materialized == ({**per_job, **stored} if expected else per_job)
