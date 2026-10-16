@@ -1,5 +1,6 @@
 import { api } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -7,9 +8,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_success.json'
 import { useMocks } from '~/mocks/jest'
 import { tagsModel } from '~/models/tagsModel'
@@ -131,6 +133,34 @@ describe('experimentLogic', () => {
     })
 
     describe('refreshExperimentResults', () => {
+        it.each([
+            [
+                'sends no queries for a legacy experiment',
+                [
+                    {
+                        kind: NodeKind.ExperimentTrendsQuery,
+                        uuid: 'legacy-metric',
+                        count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                    },
+                ],
+                false,
+            ],
+            ['sends queries for a new-engine experiment', experiment.metrics, true],
+        ])('%s', async (_, metrics, expectQueries) => {
+            const queryHandler = jest.fn(() => [200, {}])
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': queryHandler,
+                    '/api/environments/:team/query/:kind': queryHandler,
+                },
+            })
+            logic.actions.setExperiment({ ...experiment, metrics } as Experiment)
+
+            await logic.asyncActions.refreshExperimentResults(true, 'manual')
+
+            expect(queryHandler.mock.calls.length > 0).toBe(expectQueries)
+        })
+
         const unevenExposures = {
             timeseries: [{ variant: 'control' }, { variant: 'test' }, { variant: '$multiple' }],
             total_exposures: { control: 600, test: 350, $multiple: 50 },
@@ -212,7 +242,6 @@ describe('experimentLogic', () => {
             'reports the exposure state with the completed refresh: $desc',
             async ({ exposures, handling, expected }) => {
                 const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
-                // The fixture holds legacy metrics, so the refresh keeps the exposures that are set here.
                 logic.actions.setExperiment({
                     ...experiment,
                     exposure_criteria: { ...experiment.exposure_criteria, multiple_variant_handling: handling },
@@ -222,10 +251,17 @@ describe('experimentLogic', () => {
                 }
                 useMocks({
                     post: {
-                        '/api/environments/:team/query': () => [
-                            200,
-                            { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
-                        ],
+                        // The exposure query fails, so the refresh keeps the exposures that are set here.
+                        '/api/environments/:team/query/:kind': ({ params }) =>
+                            params.kind === NodeKind.ExperimentExposureQuery
+                                ? [500, { detail: 'Exposures are unavailable' }]
+                                : [
+                                      200,
+                                      {
+                                          cache_key: 'cache_key',
+                                          query_status: experimentMetricResultsSuccessJson.query_status,
+                                      },
+                                  ],
                     },
                     get: {
                         '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
@@ -1072,6 +1108,46 @@ describe('experimentLogic', () => {
                 .toFinishAllListeners()
 
             expect(logic.values.experiment.metrics).toEqual([otherPrimaryMetric, primaryMetric])
+        })
+    })
+    describe('migrateLegacyExperiment', () => {
+        const MIGRATED_EXP_ID = 777
+
+        it.each([
+            {
+                name: 'opens the migrated experiment when the migration succeeds',
+                response: [200, { ...experiment, id: MIGRATED_EXP_ID }],
+                expectedPath: urls.experiment(MIGRATED_EXP_ID),
+            },
+            {
+                name: 'stays on the legacy experiment when the migration fails',
+                response: [400, { type: 'validation_error', detail: "Couldn't migrate this experiment" }],
+                expectedPath: urls.experiment(experiment.id),
+            },
+        ])('$name', async ({ response, expectedPath }) => {
+            useMocks({
+                get: { '/api/projects/:team/experiments/:id': experiment },
+                post: {
+                    '/api/projects/:team/experiments/:id/migrate': () => response,
+                    '/api/environments/:team/query': () => [
+                        200,
+                        { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                    ],
+                },
+            })
+            router.actions.push(urls.experiment(experiment.id))
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            await expectLogic(keyed).toFinishAllListeners()
+
+            await expectLogic(keyed, () => {
+                keyed.actions.migrateLegacyExperiment()
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ migrateLegacyExperimentLoading: false })
+
+            expect(router.values.location.pathname).toContain(expectedPath)
+            keyed.unmount()
         })
     })
     describe('tags refresh', () => {
@@ -2297,8 +2373,17 @@ describe('experimentLogic', () => {
         })
 
         const running = { start_date: '2020-01-01', end_date: undefined }
-        // The fixture holds legacy metrics, and a legacy experiment never shows the health panel.
         const newEngineMetrics = { metrics: [], metrics_secondary: [], saved_metrics: [] }
+        // A legacy experiment never shows the health panel.
+        const legacyMetrics = {
+            metrics: [
+                {
+                    kind: NodeKind.ExperimentTrendsQuery,
+                    uuid: 'legacy-metric',
+                    count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                },
+            ],
+        } as Partial<Experiment>
 
         it.each<{
             desc: string
@@ -2542,7 +2627,7 @@ describe('experimentLogic', () => {
             },
             {
                 desc: 'a reader with the flag on a legacy experiment, which shows the separate warnings',
-                overrides: { ...running, feature_flag: flag(true, multivariantFilters) },
+                overrides: { ...running, ...legacyMetrics, feature_flag: flag(true, multivariantFilters) },
                 health: { findings: [] },
                 expected: { health_ui: 'warnings', health_finding_count: 0 },
             },
@@ -2682,6 +2767,7 @@ describe('experimentLogic', () => {
                 .map(([event, properties]) => [event, properties])
 
         it('reports a shown finding once per experiment load, without customer text', () => {
+            setHealthFindingsFlag(false)
             const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
             const draft = { ...experiment, id: 7, status: ExperimentStatus.Draft, start_date: undefined } as Experiment
             const finding: ExperimentHealthFinding = {
@@ -2756,6 +2842,7 @@ describe('experimentLogic', () => {
         })
 
         it('reports a finding as shown before it reports the finding as opened', () => {
+            setHealthFindingsFlag(false)
             const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
             const running = {
                 ...experiment,

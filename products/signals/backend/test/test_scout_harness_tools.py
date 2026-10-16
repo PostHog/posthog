@@ -95,6 +95,7 @@ from products.signals.backend.scout_harness.tools.runs import (
 from products.signals.backend.scout_harness.tools.scratchpad import (
     MAX_SCRATCHPAD_CONTENT_LENGTH,
     MAX_SCRATCHPAD_SEARCH_LIMIT,
+    search_scratchpad_naming,
 )
 from products.signals.backend.scout_report.judge import (
     _chart_signal,
@@ -708,6 +709,31 @@ class TestForget(BaseTest):
 
 
 class TestSearchScratchpad(BaseTest):
+    @parameterized.expand(
+        [
+            ("search", lambda team_id: search_scratchpad(team_id=team_id, text="shared")),
+            (
+                "naming",
+                lambda team_id: search_scratchpad_naming(team_id=team_id, key_prefix="person:", terms=["shared"]),
+            ),
+        ]
+    )
+    def test_resolves_attribution_in_one_query_without_heavy_joined_columns(self, _name: str, search) -> None:
+        for i in range(2):
+            remember(
+                team_id=self.team.id, key=f"person:{i}", content="shared login", run_id=str(_create_run(self.team).id)
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            entries = search(self.team.id)
+
+        assert len(entries) == 2
+        assert all(e.created_by_skill == "signals-scout-errors" and e.created_by_run_url for e in entries)
+        assert len(queries.captured_queries) == 1
+        sql = queries.captured_queries[0]["sql"]
+        for column in ("summary", "metadata", "state", "output", "artifacts", "imported_mcp_servers"):
+            assert f'."{column}"' not in sql
+
     def test_returns_all_team_entries(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="a", content="alpha")
         SignalScratchpad.objects.create(team=self.team, key="b", content="beta")

@@ -117,6 +117,9 @@ DEFAULT_FINDINGS_WINDOW_HOURS = 72
 MAX_FINDINGS_WINDOW_HOURS = 168
 FLEET_FINDINGS_SUMMARY_RUN_CAP = 120
 FLEET_FINDINGS_SUMMARY_REPORT_CAP = 50
+# The completion-time sort has no index, so it only ranks this many of the newest output runs by
+# `created_at`. The slack over the run cap keeps a run that completes after newer runs in the set.
+FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS = 2 * FLEET_FINDINGS_SUMMARY_RUN_CAP
 
 # `failure_reason` is the concise, list-safe derived signal; `error` carries the full
 # `TaskRun.error_message`. Bound the derived reason so it stays cheap to scan in bulk.
@@ -527,12 +530,17 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     touched_a_report = (~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)) | (
         ~Q(edited_report_ids=[]) & ~Q(edited_report_ids__isnull=True)
     )
-    # Order by completion (fall back to creation) so the cap keeps the *most recently emitted* runs,
-    # matching the frontend's `completed_at ?? created_at` sort; `-id` tie-breaks on the time-ordered PK.
-    rows = (
+    candidate_ids = (
         SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start)
         .exclude(metadata__has_key="scout_trial")
         .filter(Q(emitted_count__gt=0) | touched_a_report)
+        .order_by("-created_at", "-id")
+        .values("id")[:FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS]
+    )
+    # Order by completion (fall back to creation) so the cap keeps the *most recently emitted* runs,
+    # matching the frontend's `completed_at ?? created_at` sort; `-id` tie-breaks on the time-ordered PK.
+    rows = (
+        SignalScoutRun.objects.filter(team_id=team_id, id__in=candidate_ids)
         .annotate(_emitted_at=Coalesce("task_run__completed_at", "created_at"))
         .order_by("-_emitted_at", "-id")
         .values_list("emitted_count", "skill_name", "_emitted_at", "emitted_report_ids", "edited_report_ids")[

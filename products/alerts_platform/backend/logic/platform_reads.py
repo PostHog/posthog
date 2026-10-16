@@ -4,17 +4,22 @@ Separate from `platform_lifecycle`, which serves the source adapters. These serv
 outside the product, so they return views rather than rows and never change one.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
+from datetime import datetime
 from uuid import UUID
 
-from django.db.models import Prefetch, QuerySet
+from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
 
 from products.alerts_platform.backend.facade.contracts import (
     InstanceCheckState,
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
+    PlatformAlertHistory,
+    PlatformAlertRuntime,
     PlatformAlertSnapshot,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.logic import platform_alert_events
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 
@@ -113,3 +118,72 @@ def alert_snapshot(team_id: int, configuration_id: str, grouping_key: str) -> Pl
         .first()
     )
     return instance_view(alert, alert.configuration) if alert is not None else None
+
+
+def runtime_by_legacy_id(
+    *, team_id: int, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformAlertRuntime]:
+    """The runtime state of each named alert the platform owns, keyed by the source's id, in one query.
+
+    An alert the platform does not own is left out, because its source's own row is then the one
+    that moves. Only the ungrouped instance is read: a source that shows one state per alert has
+    no groups, and a copy with no instance yet has not been checked since the handover.
+    """
+    if not legacy_configuration_ids:
+        return {}
+    ungrouped = PlatformAlert.objects.for_team(team_id).filter(configuration=OuterRef("pk"), grouping_key="")
+    rows = (
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(legacy_configuration_id__in=list(legacy_configuration_ids), owner=PlatformAlertOwner.PLATFORM)
+        .annotate(
+            instance_state=Subquery(ungrouped.values("state")[:1]),
+            instance_last_notified_at=Subquery(ungrouped.values("last_notified_at")[:1]),
+        )
+        .values_list(
+            "legacy_configuration_id",
+            "instance_state",
+            "check_status",
+            "instance_last_notified_at",
+            "consecutive_failures",
+            "next_check_at",
+        )
+    )
+    return {
+        legacy_id: PlatformAlertRuntime(
+            state=PlatformAlertState(
+                InstanceCheckState.composed(
+                    grouping_key="",
+                    state=state or PlatformAlertState.NOT_FIRING,
+                    check_status=check_status,
+                    configuration_snooze_until=None,
+                ).state
+            ),
+            last_notified_at=last_notified_at,
+            consecutive_failures=consecutive_failures,
+            next_check_at=next_check_at,
+        )
+        for legacy_id, state, check_status, last_notified_at, consecutive_failures, next_check_at in rows
+        if legacy_id is not None
+    }
+
+
+def history_by_legacy_id(
+    *, team_id: int, legacy_configuration_ids: Collection[UUID], since: datetime, until: datetime
+) -> dict[UUID, PlatformAlertHistory]:
+    """The check history in `[since, until)` of each named alert the platform owns, keyed by the
+    source's id.
+
+    One Postgres query finds the platform's ids and one ClickHouse query reads the history. An
+    alert the platform does not own is left out, as in `runtime_by_legacy_id`.
+    """
+    if not legacy_configuration_ids:
+        return {}
+    legacy_by_platform_id = {
+        platform_id: legacy_id
+        for platform_id, legacy_id in PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(legacy_configuration_id__in=list(legacy_configuration_ids), owner=PlatformAlertOwner.PLATFORM)
+        .values_list("id", "legacy_configuration_id")
+        if legacy_id is not None
+    }
+    histories = platform_alert_events.history(team_id, legacy_by_platform_id, since=since, until=until)
+    return {legacy_by_platform_id[platform_id]: history for platform_id, history in histories.items()}
