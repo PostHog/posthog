@@ -40,10 +40,7 @@ _MAX_PAGES_PER_PROJECT = 500
 _RUM_METRICS_INFO_KEY = "info"
 
 
-# One endpoint's row stream, built from the session, the auth headers and the watermark an
-# incremental sync starts from.
 _RowFetcher = Callable[[Session, dict[str, str], Optional[datetime]], Iterator[dict[str, Any]]]
-# The same stream for a single project, for the endpoints that fan out over the project listing.
 _ProjectFetcher = Callable[[Session, dict[str, str], dict[str, Any], Optional[datetime]], Iterator[dict[str, Any]]]
 
 
@@ -366,8 +363,6 @@ def _iter_rum_page_views_for_project(
 def _iter_annotations_for_project(
     session: Session, headers: dict[str, str], project: dict[str, Any], since: datetime | None = None
 ) -> Iterator[dict[str, Any]]:
-    # `since` keeps every per-project fetcher one shape. The annotations endpoint takes no date
-    # filter, so an incremental sync reads the whole list.
     project_fields = _project_fields(project)
     if project_fields is None:
         return
