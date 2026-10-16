@@ -68,6 +68,12 @@ class TestDefaultIngestionAlert(BaseTest):
         assert alert.enabled == email_available
         assert alert.skip_weekend
         assert alert.calculation_interval == "daily"
+        assert alert.detector_config is not None
+        assert alert.detector_config["type"] == "knn"
+        assert alert.detector_config["window"] == 14
+        assert alert.detector_config["threshold"] == 0.99
+        assert alert.detector_config["n_neighbors"] == 5
+        assert alert.detector_config["method"] == "largest"
         assert alert.next_check_at == datetime(2026, 10, 18, 12, tzinfo=UTC) + alert_check_offset(
             CalendarInterval.DAILY, alert.id
         )
@@ -150,6 +156,7 @@ class TestEventVolumeAnomalies(ClickhouseTestMixin, BaseTest):
             ("decrease", "UTC", 10, True),
             ("stop", "UTC", 0, True),
             ("usual_variation", "UTC", 21, False),
+            ("small_increase", "UTC", 23, False),
             ("timezone", "America/New_York", 0, True),
         ]
     )
@@ -171,7 +178,7 @@ class TestEventVolumeAnomalies(ClickhouseTestMixin, BaseTest):
         assert alert_id is not None
         alert = AlertConfiguration.objects.get(team_id=self.team.id, id=alert_id)
         today = datetime.now(ZoneInfo(timezone)).date()
-        daily_counts = [(days_ago, 20 + (days_ago % 3 - 1) * 2) for days_ago in range(2, 16)]
+        daily_counts = [(days_ago, 20 + (days_ago % 3 - 1) * 2) for days_ago in range(2, 17)]
         for days_ago, count in [*daily_counts, (1, current_count), (0, 100)]:
             event_at = datetime.combine(today - timedelta(days=days_ago), time(23), tzinfo=ZoneInfo(timezone))
             for _ in range(count):

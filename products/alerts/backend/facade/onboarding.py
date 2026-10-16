@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-INGESTION_DETECTOR_CONFIG = {"type": "zscore", "window": 14, "threshold": 0.95}
+INGESTION_DETECTOR_CONFIG = {"type": "knn", "window": 14, "threshold": 0.99, "n_neighbors": 5, "method": "largest"}
 
 
 @transaction.atomic
@@ -36,7 +36,7 @@ def _create_default_ingestion_alert(team: Team, user: User) -> UUID | None:
         name="Event volume changes",
         description=(
             "Alert when a complete day has unusually high or low event volume. "
-            "Compare daily counts with 14 previous days. Start after 16 complete days. "
+            "Use the KNN detector with recent daily counts. Start after 16 complete days. "
             "Weekend checks are off. Late events count on their event date. "
             "Edit the insight or alert to change these settings."
         ),
