@@ -2318,6 +2318,8 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision, d
             "system_one_skip_below": SYSTEM_ONE_SKIP_BELOW,
             "own_commits": decision.own_commits,
             "own_code_lines": decision.own_code_lines,
+            "net_code_lines": decision.net_code_lines,
+            "small_change_deferrals": decision.small_change_deferrals,
             "pr_draft": draft,
             "next_push_probability": decision.next_push_probability,
         },
@@ -2344,6 +2346,7 @@ def _pr_is_draft_now(repository: str, pr_number: int, *, token: str, installatio
 def _gate_push(input: GatePushInput) -> PushGateDecision:
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     draft = _pr_draft(current)
+    gate: PushGate | None = None
     if current is None:
         decision = PushGateDecision(skip=False, would_skip=False, reason="snapshot_unavailable")
     else:
@@ -2355,6 +2358,7 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
             previous_head_sha=input.previous_head_sha,
             head_sha=input.head_sha,
             base_branch=current.pr_metadata.base_branch,
+            pr_number=current.pr_metadata.number,
         )
         decision = apply_draft_rule(push_decision, draft=bool(draft))
         # Every turn fetches the PR before the gate and the snapshot load is latest-wins, so a PR marked
@@ -2376,6 +2380,10 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
                 pr_lines=current.pr_metadata.additions + current.pr_metadata.deletions,
             )
     decision = apply_throttle(decision, report_id=input.report_id, head_sha=input.head_sha)
+    if gate is not None and current is not None:
+        decision = gate.record_small_change_streak(
+            decision, pr_number=current.pr_metadata.number, head_sha=input.head_sha
+        )
     if decision.skip:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
     try:
