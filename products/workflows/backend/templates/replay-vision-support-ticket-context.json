@@ -103,7 +103,7 @@
                     "analysis": {
                         "value": {
                             "type": "summarizer",
-                            "prompt": "This customer just created a support ticket. Summarize what they were trying to do in this session, the steps they took, and any errors or confusion they ran into."
+                            "prompt": "This customer just created a support ticket. Whoever picks up the ticket will read your summary first, so they understand the problem before replying.\n\nSummarize the session with a focus on the moments before the ticket:\n1. What the customer was trying to do, and the steps they took.\n2. The page or feature they were on when they asked for help.\n3. Any errors, failed requests, error messages on screen, or broken or slow pages, with when they happened.\n4. Where they got stuck or confused, for example repeated attempts, rage clicks, or going back and forth between pages.\n5. Anything they tried to fix it themselves, such as reloading or searching the docs.\n\nKeep it short and factual. If the session shows no clear problem, say so."
                         }
                     },
                     "non_failure_status_codes": {

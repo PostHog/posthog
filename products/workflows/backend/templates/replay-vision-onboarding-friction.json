@@ -126,7 +126,7 @@
                     "analysis": {
                         "value": {
                             "type": "scorer",
-                            "prompt": "This person just signed up. Score how smoothly they got started in this session. 5 means they set up without trouble. 1 means they got stuck, hit errors, or gave up.",
+                            "prompt": "This person just signed up. Score how smoothly they got started in this session, so the team can reach out to people who struggled.\n\nLook at what happened after signup: whether they reached the product's main setup steps, how long that took, and what got in the way. Signs of friction are errors, failed requests, empty or broken pages, rage clicks, repeated attempts, long pauses on one screen, going back and forth, or leaving partway through setup.\n\nUse this scale:\n5: Got set up without trouble.\n4: Got set up, with a small hiccup.\n3: Got set up, but slowly or with clear confusion.\n2: Hit real problems and only partly got set up.\n1: Got stuck, hit blocking errors, or gave up.\n\nIn your reasoning, name the moment that most affected the score.",
                             "scale": {
                                 "min": 1,
                                 "max": 5

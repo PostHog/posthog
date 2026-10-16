@@ -214,7 +214,7 @@
                     "analysis": {
                         "value": {
                             "type": "summarizer",
-                            "prompt": "This person just left negative survey feedback. Summarize what they were trying to do in this session, where they had trouble, and anything that may explain the low rating."
+                            "prompt": "This person just completed a survey and gave a low rating. The team will read your summary next to their feedback to understand what led to it.\n\nSummarize the session with a focus on the moments before the survey:\n1. What they were trying to do, and whether they managed it.\n2. Where they had trouble: errors, failed requests, slow or broken pages, rage clicks, repeated attempts, or moments where they seemed lost.\n3. The page or feature they were on when the survey appeared.\n4. Anything else that may explain the low rating, such as a missing feature they looked for or a confusing flow.\n\nIf the session shows no clear problem, say so. Don't guess at a cause the recording doesn't show."
                         }
                     },
                     "non_failure_status_codes": {
