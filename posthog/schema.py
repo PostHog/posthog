@@ -520,9 +520,7 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
     )
     displayType: DisplayType | None = Field(
         default=None,
-        description=(
-            "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type."
-        ),
+        description=("Chart type. `auto` uses `display`."),
     )
     label: str | None = Field(
         default=None,

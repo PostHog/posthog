@@ -340,7 +340,7 @@
                                                             "type": "string"
                                                         },
                                                         "displayType": {
-                                                            "description": "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type.",
+                                                            "description": "Chart type. `auto` uses `display`.",
                                                             "enum": ["auto", "line", "bar", "area"],
                                                             "type": "string"
                                                         },
@@ -413,7 +413,7 @@
                                                                 "type": "string"
                                                             },
                                                             "displayType": {
-                                                                "description": "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type.",
+                                                                "description": "Chart type. `auto` uses `display`.",
                                                                 "enum": ["auto", "line", "bar", "area"],
                                                                 "type": "string"
                                                             },
@@ -523,7 +523,7 @@
                                                                 "type": "string"
                                                             },
                                                             "displayType": {
-                                                                "description": "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type.",
+                                                                "description": "Chart type. `auto` uses `display`.",
                                                                 "enum": ["auto", "line", "bar", "area"],
                                                                 "type": "string"
                                                             },
