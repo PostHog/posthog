@@ -113,12 +113,13 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
 
 class HealthExposureInputsStatus(LabeledStrEnum):
     READY = "ready"
-    # The cached answer is past its age. A recalculation runs in the background.
+    # The cached answer is past its age. A recalculation runs in the background, or the last one failed.
     STALE = "stale"
     # No cached answer. A calculation runs in the background.
     CALCULATING = "calculating"
     NOT_LAUNCHED = "not_launched"
     NO_QUERY_ACCESS = "no_query_access"
+    # The query could not be built, or no answer is cached and the last background calculation failed.
     FAILED = "failed"
 
 

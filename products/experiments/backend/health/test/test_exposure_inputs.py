@@ -13,13 +13,20 @@ from posthog.schema import (
     SampleRatioMismatch,
 )
 
+from posthog.clickhouse.client.execute_async import QueryStatusManager, get_query_status
+
 from products.experiments.backend.facade.contracts import HealthExposureInputsStatus
 from products.experiments.backend.health.exposure_inputs import load_exposure_inputs
+from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
+    ExperimentExposuresQueryRunner,
+    build_experiment_exposure_query,
+)
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 LAUNCHED_AT = datetime(2026, 10, 1, 12, tzinfo=UTC)
 COMPUTED_AT = LAUNCHED_AT + timedelta(hours=30)
+CALCULATION_ERROR = "The exposure criteria name an event property that does not exist."
 
 
 def _cached_answer(*, recalculating: bool) -> CachedExperimentExposureQueryResponse:
@@ -38,23 +45,10 @@ def _cached_answer(*, recalculating: bool) -> CachedExperimentExposureQueryRespo
 
 
 class TestLoadExposureInputs(BaseTest):
-    @parameterized.expand(
-        [
-            ("fresh_answer", _cached_answer(recalculating=False), HealthExposureInputsStatus.READY, True),
-            ("stale_answer", _cached_answer(recalculating=True), HealthExposureInputsStatus.STALE, True),
-            ("no_answer", CacheMissResponse(cache_key="exposures"), HealthExposureInputsStatus.CALCULATING, False),
-        ]
-    )
-    def test_reads_what_the_exposure_checks_read_from_the_cached_answer(
-        self,
-        _name: str,
-        response: CachedExperimentExposureQueryResponse | CacheMissResponse,
-        expected_status: HealthExposureInputsStatus,
-        has_totals: bool,
-    ) -> None:
+    def _create_experiment(self, key: str) -> Experiment:
         flag = FeatureFlag.objects.create(
             team=self.team,
-            key=f"exposure-inputs-{_name}",
+            key=key,
             created_by=self.user,
             filters={
                 "groups": [{"properties": [], "rollout_percentage": 100}],
@@ -66,9 +60,49 @@ class TestLoadExposureInputs(BaseTest):
                 },
             },
         )
-        experiment = Experiment.objects.create(
-            team=self.team, name="exposure-inputs", feature_flag=flag, start_date=LAUNCHED_AT
+        return Experiment.objects.create(team=self.team, name=key, feature_flag=flag, start_date=LAUNCHED_AT)
+
+    def _store_failed_calculation(self, experiment: Experiment) -> str:
+        runner = ExperimentExposuresQueryRunner(
+            query=build_experiment_exposure_query(experiment), team=self.team, user=self.user, error_event_context=None
         )
+        cache_key = runner.get_cache_key()
+        QueryStatusManager(cache_key, self.team.pk).store_query_status(
+            QueryStatus(id=cache_key, team_id=self.team.pk, complete=True, error=True, error_message=CALCULATION_ERROR)
+        )
+        return cache_key
+
+    @parameterized.expand(
+        [
+            ("fresh_answer", _cached_answer(recalculating=False), False, HealthExposureInputsStatus.READY, True),
+            ("stale_answer", _cached_answer(recalculating=True), False, HealthExposureInputsStatus.STALE, True),
+            (
+                "answer_after_a_failed_refresh",
+                _cached_answer(recalculating=False),
+                True,
+                HealthExposureInputsStatus.STALE,
+                True,
+            ),
+            (
+                "no_answer",
+                CacheMissResponse(cache_key="exposures"),
+                False,
+                HealthExposureInputsStatus.CALCULATING,
+                False,
+            ),
+        ]
+    )
+    def test_reads_what_the_exposure_checks_read_from_the_cached_answer(
+        self,
+        _name: str,
+        response: CachedExperimentExposureQueryResponse | CacheMissResponse,
+        refresh_failed: bool,
+        expected_status: HealthExposureInputsStatus,
+        has_totals: bool,
+    ) -> None:
+        experiment = self._create_experiment(f"exposure-inputs-{_name}")
+        if refresh_failed:
+            self._store_failed_calculation(experiment)
 
         with patch(
             "products.experiments.backend.health.exposure_inputs.ExperimentExposuresQueryRunner.run",
@@ -76,7 +110,9 @@ class TestLoadExposureInputs(BaseTest):
         ):
             inputs = load_exposure_inputs(experiment, user=self.user, can_query_events=True)
 
-        self.assertEqual(inputs.status, expected_status)
+        self.assertEqual(
+            (inputs.status, inputs.error), (expected_status, CALCULATION_ERROR if refresh_failed else None)
+        )
         if not has_totals:
             self.assertIsNone(inputs.totals)
             return
@@ -111,3 +147,12 @@ class TestLoadExposureInputs(BaseTest):
         inputs = load_exposure_inputs(experiment, user=self.user, can_query_events=True)
 
         self.assertEqual(inputs.status, HealthExposureInputsStatus.FAILED)
+
+    def test_reports_a_failed_calculation_and_does_not_start_another(self) -> None:
+        experiment = self._create_experiment("exposure-inputs-failed-calculation")
+        cache_key = self._store_failed_calculation(experiment)
+
+        inputs = load_exposure_inputs(experiment, user=self.user, can_query_events=True)
+
+        self.assertEqual((inputs.status, inputs.error), (HealthExposureInputsStatus.FAILED, CALCULATION_ERROR))
+        self.assertEqual(get_query_status(team_id=self.team.pk, query_id=cache_key).error_message, CALCULATION_ERROR)

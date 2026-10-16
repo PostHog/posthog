@@ -3186,7 +3186,7 @@ export interface ExperimentHealthInputsExposureTotalsApi {
 }
 
 export interface ExperimentHealthInputsExposuresApi {
-    /** Whether a cached answer was read. 'stale' and 'calculating' mean a calculation runs in the background, so a later request reads a fresh answer.
+    /** Whether a cached answer was read. 'calculating' means no answer is cached and a calculation runs in the background, so a later request reads a fresh answer. 'stale' means the cached answer is past its age: a recalculation runs in the background, or the last one failed and 'error' says why. After a failed calculation, no new one starts for 20 minutes.
      *
      * * `ready` - Ready
      * * `stale` - Stale
@@ -3205,7 +3205,7 @@ export interface ExperimentHealthInputsExposuresApi {
     /** The findings of the exposure checks on this answer: zero exposures, SRM and bias risk. */
     findings: ExperimentHealthFindingApi[]
     /**
-     * Why the query failed. Null unless the status is 'failed'.
+     * Why the query or its last background calculation failed. Set for 'failed', and for 'stale' when the recalculation failed.
      * @nullable
      */
     error: string | null

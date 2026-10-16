@@ -3250,8 +3250,10 @@ class ExperimentHealthInputsExposuresSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=HealthExposureInputsStatus.choices,
         help_text=(
-            "Whether a cached answer was read. 'stale' and 'calculating' mean a calculation runs in the "
-            "background, so a later request reads a fresh answer."
+            "Whether a cached answer was read. 'calculating' means no answer is cached and a calculation runs in the "
+            "background, so a later request reads a fresh answer. 'stale' means the cached answer is past its age: a "
+            "recalculation runs in the background, or the last one failed and 'error' says why. After a failed "
+            "calculation, no new one starts for 20 minutes."
         ),
     )
     computed_at = serializers.DateTimeField(allow_null=True, help_text="When the answer was computed.")
@@ -3262,7 +3264,11 @@ class ExperimentHealthInputsExposuresSerializer(serializers.Serializer):
         many=True, help_text="The findings of the exposure checks on this answer: zero exposures, SRM and bias risk."
     )
     error = serializers.CharField(
-        allow_null=True, help_text="Why the query failed. Null unless the status is 'failed'."
+        allow_null=True,
+        help_text=(
+            "Why the query or its last background calculation failed. Set for 'failed', and for 'stale' when the "
+            "recalculation failed."
+        ),
     )
 
 
