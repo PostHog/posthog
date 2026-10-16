@@ -9,6 +9,10 @@ pub struct Config {
     #[envconfig(default = "session_recording_snapshot_item_events")]
     pub kafka_topic: String,
 
+    /// Capture sends replay-limited and force-overflow sessions here. Empty turns it off.
+    #[envconfig(default = "session_recording_snapshot_item_overflow")]
+    pub kafka_overflow_topic: String,
+
     /// The main replay lane's overflow mode. With `redirect`, that lane moves force-overflow messages of the main topic
     /// to the overflow topic, so v4 records them there and not twice.
     #[envconfig(from = "INGESTION_OVERFLOW_MODE", default = "disabled")]
