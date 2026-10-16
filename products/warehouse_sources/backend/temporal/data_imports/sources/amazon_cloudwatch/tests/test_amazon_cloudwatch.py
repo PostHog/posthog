@@ -253,7 +253,16 @@ class TestLogEvents:
             "log_events",
             by_origin(
                 logs=[
-                    ScriptedResponse(json={"logGroups": [{"logGroupName": "/discovered"}]}),
+                    ScriptedResponse(
+                        json={
+                            "logGroups": [
+                                {"logGroupName": "/discovered"},
+                                # FilterLogEvents rejects these classes, which would fail the whole table.
+                                {"logGroupName": "/infrequent", "logGroupClass": "INFREQUENT_ACCESS"},
+                                {"logGroupName": "/delivery", "logGroupClass": "DELIVERY"},
+                            ]
+                        }
+                    ),
                     logs_page([event("d1")]),
                 ]
             ),
@@ -651,6 +660,8 @@ class TestValidateCredentials:
                 {"metric_queries": "{"},
                 "Invalid metric queries: not valid JSON (Expecting property name enclosed in double quotes: line 1 column 2 (char 1)).",
             ),
+            # Falling back to the default range would drop the history the user asked for.
+            ({"start_date": "2024-02-30"}, "Invalid start date: enter it as YYYY-MM-DD, for example 2024-01-31."),
         ],
     )
     def test_local_checks_fail_before_any_request(self, overrides: dict[str, Any], expected: str) -> None:
@@ -658,7 +669,12 @@ class TestValidateCredentials:
 
         with scripted_network([]) as network:
             assert validate_credentials(
-                c.aws_access_key_id, c.aws_secret_access_key, c.aws_session_token, c.aws_region, c.metric_queries
+                c.aws_access_key_id,
+                c.aws_secret_access_key,
+                c.aws_session_token,
+                c.aws_region,
+                c.metric_queries,
+                c.start_date,
             ) == (False, expected)
 
         assert network.requests == 0

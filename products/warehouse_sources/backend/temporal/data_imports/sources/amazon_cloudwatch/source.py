@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_cloudwatch.amazon_cloudwatch import (
     INVALID_METRIC_QUERIES,
     INVALID_REQUEST_ERROR_CODES,
+    INVALID_START_DATE,
     METRIC_QUERY_FORBIDDEN,
     METRIC_QUERY_INTERNAL_ERROR,
     METRIC_QUERY_PARTIAL_DATA,
@@ -77,6 +78,9 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
             "A log group was not found in this region. Check the log group names on the source."
         )
         errors[INVALID_METRIC_QUERIES] = "The metric queries on the source are not valid. Fix them and retry the sync."
+        errors[INVALID_START_DATE] = (
+            "The start date on the source is not a date. Enter it as YYYY-MM-DD and retry the sync."
+        )
         errors[f"Amazon CloudWatch request failed: {METRIC_QUERY_PARTIAL_DATA}"] = (
             "A metric query returns more datapoints than CloudWatch sends in one response. Use a longer period, "
             "or fewer metrics in the expression, then retry the sync."
@@ -143,6 +147,7 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
             config.aws_session_token,
             config.aws_region,
             config.metric_queries,
+            config.start_date,
         )
 
     def get_resumable_source_manager(

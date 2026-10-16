@@ -92,6 +92,7 @@ class AmazonCloudWatchThrottledError(AmazonCloudWatchTransientError):
 METRIC_QUERY_FORBIDDEN = "MetricQueryForbidden"
 METRIC_QUERY_PARTIAL_DATA = "MetricQueryPartialData"
 INVALID_METRIC_QUERIES = "Invalid metric queries"
+INVALID_START_DATE = "Invalid start date"
 # The cursor a slice's last page stages when no slice follows it, so a resumed attempt knows the run is done.
 COMPLETED_SLICE = "__complete__"
 METRIC_QUERY_INTERNAL_ERROR = "MetricQueryInternalError"
@@ -411,8 +412,9 @@ def validate_credentials(
     aws_session_token: Optional[str],
     aws_region: str,
     metric_queries: Optional[str],
+    start_date: Optional[str] = None,
 ) -> tuple[bool, Optional[str]]:
-    """One `GetCallerIdentity` probe, plus a local check of the metric queries JSON.
+    """One `GetCallerIdentity` probe, plus a local check of the metric queries and start date.
 
     STS answers any valid key without an IAM permission, so a key scoped to metrics or alarms only
     still connects. A missing permission for a table surfaces when that table syncs."""
@@ -422,6 +424,7 @@ def validate_credentials(
         return False, "Enter an AWS region code, for example us-east-1."
     try:
         parse_metric_queries(metric_queries)
+        parse_start_date(start_date)
     except ValueError as error:
         return False, str(error)
 
@@ -448,6 +451,17 @@ def validate_credentials(
     return True, None
 
 
+def parse_start_date(value: Optional[str]) -> Optional[dt.datetime]:
+    """The configured start date, or None when it is empty. A value that is not a date raises,
+    because falling back to the default range would drop the history the user asked for."""
+    if not value or not value.strip():
+        return None
+    parsed = coerce_datetime(value.strip())
+    if parsed is None:
+        raise ValueError(f"{INVALID_START_DATE}: enter it as YYYY-MM-DD, for example 2024-01-31.")
+    return parsed
+
+
 def resolve_window(
     endpoint_config: CloudWatchEndpointConfig,
     configured_start_date: Optional[str],
@@ -460,7 +474,7 @@ def resolve_window(
 
     The default lookback only bounds a first run. A run after a long pause starts at its watermark,
     so the gap is read, not dropped."""
-    configured = coerce_datetime(configured_start_date)
+    configured = parse_start_date(configured_start_date)
     start = configured or (now - dt.timedelta(days=endpoint_config.lookback_days or 0))
     if should_use_incremental_field:
         watermark = coerce_datetime(db_incremental_field_last_value)
@@ -540,8 +554,8 @@ class CloudWatchClient:
             names.extend(
                 group["logGroupName"]
                 for group in body.get("logGroups") or []
-                # A Delivery-class group only forwards logs elsewhere; FilterLogEvents cannot read it.
-                if group.get("logGroupName") and group.get("logGroupClass") != "DELIVERY"
+                # FilterLogEvents reads Standard groups only; other classes would fail the whole table.
+                if group.get("logGroupName") and group.get("logGroupClass", "STANDARD") == "STANDARD"
             )
             next_token = body.get("nextToken")
             if not next_token:
