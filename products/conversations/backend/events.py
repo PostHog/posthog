@@ -402,7 +402,7 @@ def _groups_from_org_id(organization_id: str) -> dict:
 
 
 def _get_ticket_base_properties(ticket: Ticket) -> dict:
-    return {
+    properties = {
         "ticket_id": str(ticket.id),
         "ticket_number": ticket.ticket_number,
         "channel_source": ticket.channel_source,
@@ -410,6 +410,10 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
         "status": ticket.status,
         "priority": ticket.priority,
     }
+    # Links the event to the customer's recording, so workflows can act on the session the ticket came from.
+    if ticket.session_id:
+        properties["$session_id"] = ticket.session_id
+    return properties
 
 
 def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = False) -> dict:

@@ -21,7 +21,14 @@
             ],
             "source": "events",
             "actions": [],
-            "bytecode": ["_H", 1, 32, "user signed up", 32, "event", 1, 1, 11]
+            "properties": [
+                {
+                    "key": "$session_id",
+                    "type": "event",
+                    "operator": "is_set"
+                }
+            ],
+            "filter_test_accounts": true
         }
     },
     "trigger_masking": null,
@@ -83,7 +90,14 @@
                     ],
                     "source": "events",
                     "actions": [],
-                    "bytecode": ["_H", 1, 32, "user signed up", 32, "event", 1, 1, 11]
+                    "properties": [
+                        {
+                            "key": "$session_id",
+                            "type": "event",
+                            "operator": "is_set"
+                        }
+                    ],
+                    "filter_test_accounts": true
                 }
             }
         },
@@ -118,12 +132,6 @@
                                 "max": 5
                             }
                         }
-                    },
-                    "session_id": {
-                        "value": "{event.properties.$session_id}"
-                    },
-                    "wait_for_session_end": {
-                        "value": true
                     },
                     "non_failure_status_codes": {
                         "value": [409]

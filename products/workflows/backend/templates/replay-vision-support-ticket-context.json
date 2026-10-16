@@ -18,7 +18,13 @@
                     "type": "events"
                 }
             ],
-            "bytecode": ["_H", 1, 32, "$conversation_ticket_created", 32, "event", 1, 1, 11]
+            "properties": [
+                {
+                    "key": "$session_id",
+                    "type": "event",
+                    "operator": "is_set"
+                }
+            ]
         }
     },
     "trigger_masking": null,
@@ -48,7 +54,7 @@
         {
             "id": "trigger_node",
             "name": "Support ticket created",
-            "description": "Runs when a customer creates a support ticket.",
+            "description": "Runs when a customer creates a support ticket from a session PostHog recorded.",
             "on_error": null,
             "created_at": 0,
             "updated_at": 0,
@@ -66,7 +72,13 @@
                             "type": "events"
                         }
                     ],
-                    "bytecode": ["_H", 1, 32, "$conversation_ticket_created", 32, "event", 1, 1, 11]
+                    "properties": [
+                        {
+                            "key": "$session_id",
+                            "type": "event",
+                            "operator": "is_set"
+                        }
+                    ]
                 }
             }
         },
@@ -93,12 +105,6 @@
                             "type": "summarizer",
                             "prompt": "This customer just created a support ticket. Summarize what they were trying to do in this session, the steps they took, and any errors or confusion they ran into."
                         }
-                    },
-                    "session_id": {
-                        "value": "{event.properties.$session_id}"
-                    },
-                    "wait_for_session_end": {
-                        "value": true
                     },
                     "non_failure_status_codes": {
                         "value": [409]

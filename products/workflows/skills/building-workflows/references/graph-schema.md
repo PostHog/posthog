@@ -131,8 +131,6 @@ The set of available `function` templates and their required inputs is **live da
 2. `cdp-function-templates-retrieve` with that id to read its **`inputs_schema`** — the exact keys, types, and which are required.
 3. Build `inputs` from that schema. A `template_id` not in the live list fails with "Template not found".
 
-The Replay Vision step is hidden from `cdp-function-templates-list`, so use its literal id, `template-posthog-replay-vision`. See [Replay Vision step](#replay-vision-step).
-
 `function_email`, `function_sms`, and `function_push` are the exception — their `template_id` is the fixed literal `template-email` / `template-twilio` / `template-native-push`, so you don't look the `template_id` up, and you can omit it entirely: the server infers the literal from the step type. A saved email template's UUID goes in `template_uuid` alongside the literal, never in `template_id` (a UUID sent as `template_id` is moved into `template_uuid` automatically). For `function_email`, referencing a template means you only author `from`/`to`: the server materializes the template's body at save (see the action-types table). `function_push` still has variable `inputs` (notably `channels`), so retrieve its `inputs_schema` even though the id is fixed.
 
 ### `function_push` worked example
@@ -163,9 +161,9 @@ Retrieve `template-native-push` with `cdp-function-templates-retrieve` for the f
 
 ### Replay Vision step
 
-Replay Vision is PostHog's AI that watches session recordings. It replays a session as video, together with its events, and answers a question about what the user did and saw: whether they hit an error, which category the session fits, how well a flow went, or what happened in it. It uses credits from the project's Replay Vision quota.
+Replay Vision is PostHog's AI that watches session recordings. It replays a session as video, together with its events, and answers a question about it. Each scan uses credits from the project's Replay Vision quota.
 
-A `function` node with `template_id: "template-posthog-replay-vision"` sends the triggering event's session recording to Replay Vision and waits for the answer. Use it when the next step depends on what happened in the session, which event properties alone can't tell. Examples are adding session context to a Slack alert, or branching on whether the user struggled. The project must record sessions, and the trigger event must carry a `$session_id`.
+A `function` node with `template_id: "template-posthog-replay-vision"` scans the trigger event's session and waits for the answer. Use it when the next step depends on what happened in the session, which event properties alone can't tell, for example to add session context to a Slack alert or to branch on whether the user struggled. The project must record sessions, and the trigger event must carry a `$session_id`.
 
 ```json
 {
@@ -175,8 +173,7 @@ A `function` node with `template_id: "template-posthog-replay-vision"` sends the
   "config": {
     "template_id": "template-posthog-replay-vision",
     "inputs": {
-      "analysis": { "value": { "type": "monitor", "prompt": "Did the user hit an error during checkout?" } },
-      "wait_for_session_end": { "value": true }
+      "analysis": { "value": { "type": "monitor", "prompt": "Did the user hit an error during checkout?" } }
     }
   },
   "output_variable": { "key": "replay_vision" }
@@ -185,7 +182,7 @@ A `function` node with `template_id: "template-posthog-replay-vision"` sends the
 
 - **`analysis` is a literal object, not a template.** Never set `"templating"` on it, and never put `{...}` expressions in it. Its `value` takes one of these shapes:
 
-  | `type`       | Other keys                                      | What the step answers                                     |
+  | `type`       | Required keys                                   | What the step answers                                     |
   | ------------ | ----------------------------------------------- | --------------------------------------------------------- |
   | `monitor`    | `prompt`                                        | A yes/no verdict on the question in `prompt`.             |
   | `classifier` | `prompt`, `tags` (1 to 100 category strings)    | Which of the categories in `tags` fit the session.        |
@@ -193,7 +190,7 @@ A `function` node with `template_id: "template-posthog-replay-vision"` sends the
   | `summarizer` | `prompt`                                        | A title, a summary, and chapters.                         |
   | `scanner`    | `scanner_id` (a saved scanner's UUID)           | The saved scanner's answer, with its own type and prompt. |
 
-- `prompt` is required for the inline types. Find saved scanners with the `vision-scanners` tools.
+- The inline types take the same optional settings as a saved scanner of that type. See the `creating-replay-vision-scanners` skill. Find saved scanners with the `vision-scanners` tools.
 - `session_id` defaults to `{event.properties.$session_id}`. Leave it unset unless the session ID is in another property.
 - `wait_for_session_end` defaults to `true`, which scans the recording after the session has been quiet for 35 minutes. Set it to `false` only when the trigger event comes after the session ended.
 - The step result is `{"state", "output", "warnings"}`. `state` is `succeeded`, `failed`, `skipped`, `ineligible` or `lost`. `output` is the scanner's answer, for example `verdict` for a monitor, `tags` for a classifier or `score` for a scorer, plus `reasoning` and `confidence`. Use `output_variable` to keep the result, then branch on it.

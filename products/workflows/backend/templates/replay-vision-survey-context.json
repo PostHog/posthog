@@ -217,12 +217,6 @@
                             "prompt": "This person just left negative survey feedback. Summarize what they were trying to do in this session, where they had trouble, and anything that may explain the low rating."
                         }
                     },
-                    "session_id": {
-                        "value": "{event.properties.$session_id}"
-                    },
-                    "wait_for_session_end": {
-                        "value": true
-                    },
                     "non_failure_status_codes": {
                         "value": [409]
                     }

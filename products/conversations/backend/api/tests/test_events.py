@@ -45,8 +45,11 @@ class TestConversationEvents(BaseTest):
             anonymous_traits={"name": "Test Customer", "email": "test@example.com"},
         )
 
+    @parameterized.expand([("with_session", "session-abc"), ("without_session", None)])
     @patch("products.conversations.backend.events.capture_internal")
-    def test_capture_ticket_created_uses_team_token(self, mock_capture):
+    def test_capture_ticket_created_uses_team_token(self, _name, session_id, mock_capture):
+        self.ticket.session_id = session_id
+        self.ticket.save(update_fields=["session_id"])
         capture_ticket_created(self.ticket)
 
         mock_capture.assert_called_once()
@@ -58,6 +61,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["ticket_id"] == str(self.ticket.id)
         assert call_kwargs["properties"]["customer_name"] == "Test Customer"
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
+        assert call_kwargs["properties"].get("$session_id") == session_id
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_status_changed_uses_team_token(self, mock_capture):
