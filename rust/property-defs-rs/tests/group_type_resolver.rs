@@ -471,6 +471,13 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<RaisePersonVersionFloorsResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+
+    async fn restore_persons(
+        &self,
+        _: Request<RestorePersonsRequest>,
+    ) -> Result<Response<RestorePersonsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------

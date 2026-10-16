@@ -1918,6 +1918,14 @@ impl storage::PersonRepair for FailingStorage {
     ) -> storage::StorageResult<Vec<storage::types::RaiseResult>> {
         Err(self.error.clone())
     }
+
+    async fn restore_persons(
+        &self,
+        _team_id: i64,
+        _persons: &[storage::types::RestoredPerson],
+    ) -> storage::StorageResult<Vec<storage::types::RestoreResult>> {
+        Err(self.error.clone())
+    }
 }
 
 #[async_trait]
@@ -1927,6 +1935,14 @@ impl storage::PersonRepair for SuccessStorage {
         _team_id: i64,
         _floors: &[(Uuid, i64)],
     ) -> storage::StorageResult<Vec<storage::types::RaiseResult>> {
+        Ok(Vec::new())
+    }
+
+    async fn restore_persons(
+        &self,
+        _team_id: i64,
+        _persons: &[storage::types::RestoredPerson],
+    ) -> storage::StorageResult<Vec<storage::types::RestoreResult>> {
         Ok(Vec::new())
     }
 }
@@ -1940,6 +1956,14 @@ impl storage::PersonRepair for PopulatedStorage {
     ) -> storage::StorageResult<Vec<storage::types::RaiseResult>> {
         Ok(Vec::new())
     }
+
+    async fn restore_persons(
+        &self,
+        _team_id: i64,
+        _persons: &[storage::types::RestoredPerson],
+    ) -> storage::StorageResult<Vec<storage::types::RestoreResult>> {
+        Ok(Vec::new())
+    }
 }
 
 #[async_trait]
@@ -1949,6 +1973,14 @@ impl storage::PersonRepair for ConsistencyTrackingStorage {
         _team_id: i64,
         _floors: &[(Uuid, i64)],
     ) -> storage::StorageResult<Vec<storage::types::RaiseResult>> {
+        Ok(Vec::new())
+    }
+
+    async fn restore_persons(
+        &self,
+        _team_id: i64,
+        _persons: &[storage::types::RestoredPerson],
+    ) -> storage::StorageResult<Vec<storage::types::RestoreResult>> {
         Ok(Vec::new())
     }
 }

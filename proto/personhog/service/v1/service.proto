@@ -111,6 +111,8 @@ service PersonHogService {
   rpc ListPersonsForTeam(personhog.types.v1.ListPersonsForTeamRequest) returns (personhog.types.v1.ListPersonsForTeamResponse);
 
   // Writes for the person consistency repair. Raises claim lifecycle marks on the persons they
-  // raise. Versions only go up. Same routing caveat as DeletePersons above.
+  // raise; restores only insert absent persons. Versions only go up. Same routing caveat as
+  // DeletePersons above.
   rpc RaisePersonVersionFloors(personhog.types.v1.RaisePersonVersionFloorsRequest) returns (personhog.types.v1.RaisePersonVersionFloorsResponse);
+  rpc RestorePersons(personhog.types.v1.RestorePersonsRequest) returns (personhog.types.v1.RestorePersonsResponse);
 }

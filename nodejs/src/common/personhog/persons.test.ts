@@ -88,6 +88,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     getDistinctIdRows: () => ({ rows: [] }),
     listPersonsForTeam: () => ({ persons: [] }),
     raisePersonVersionFloors: () => ({ results: [] }),
+    restorePersons: () => ({ results: [] }),
     fencePerson: () => ({}),
     fencePersons: () => ({}),
     releaseFence: () => ({}),
