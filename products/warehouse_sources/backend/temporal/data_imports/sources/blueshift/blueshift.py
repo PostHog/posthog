@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.blueshift.
     DEFAULT_REGION,
     PAGE_SIZE,
     STATS_BACKFILL_DAYS,
+    STATS_REREAD_DAYS,
     BlueshiftEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
@@ -134,8 +135,6 @@ def _campaign_stats_rows(
     # same amount, so a lookback still reads earlier days again.
     before_lookback = parse_datetime_value(db_incremental_field_last_value_before_lookback)
     lookback = max(before_lookback - last_value, timedelta(0)) if before_lookback and last_value else timedelta(0)
-    # The watermark day and the cursor day were still in progress when the last sync read them,
-    # so the walk reads them again.
     known_starts = [
         *([(datetime.combine(date.fromisoformat(stored.next_date), time.min) - lookback).date()] if stored else []),
         *([last_value.date()] if last_value is not None else []),
@@ -143,7 +142,7 @@ def _campaign_stats_rows(
     if resume is not None and resume.next_date is not None:
         day = date.fromisoformat(resume.next_date)
     elif known_starts:
-        day = max(known_starts)
+        day = max(known_starts) - timedelta(days=STATS_REREAD_DAYS)
     else:
         day = today - timedelta(days=STATS_BACKFILL_DAYS)
 
@@ -191,7 +190,7 @@ def blueshift_source(
 ) -> SourceResponse:
     config = BLUESHIFT_ENDPOINTS[endpoint]
 
-    if endpoint == "campaign_stats":
+    if config.pagination == "daily":
         return _source_response(
             config,
             lambda: _campaign_stats_rows(
@@ -232,7 +231,7 @@ def blueshift_source(
 
 def _probe_url(region: str, schema_name: Optional[str]) -> str:
     config = BLUESHIFT_ENDPOINTS[schema_name or "segments"]
-    if config.name == "campaign_stats":
+    if config.pagination == "daily":
         params = _stats_window(datetime.now(UTC).date())
     elif config.pagination == "page":
         params = {"per_page": "1"}

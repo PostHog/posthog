@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.blueshift.
     DEFAULT_REGION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MERGE_ONLY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -48,11 +49,10 @@ class BlueshiftSource(
     codebase_detection = detect(
         env=("^BLUESHIFT_",),
         script_hosts=("cdn.getblueshift.com",),
-        npm=("blueshift-react-native", "blueshift-inbox-react-native", "blueshift-expo"),
-        pypi=("blueshift-python",),
+        npm=("blueshift-react-native",),
         cocoapods=("BlueShift-iOS-SDK",),
         maven=("com.blueshift:android-sdk",),
-        pub=("blueshift_flutter_plugin",),
+        pub=("blueshift_plugin",),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -129,8 +129,7 @@ Use a **user API key** from **Account settings > API keys** in Blueshift. Pick t
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every stats sync reads its last day again, so append would store that day twice.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=["campaign_stats"])
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=MERGE_ONLY_ENDPOINTS)
 
     def validate_credentials(
         self,
@@ -183,6 +182,6 @@ Use a **user API key** from **Account settings > API keys** in Blueshift. Pick t
             else None,
             # A full refresh rebuilds the table, so it starts from the backfill and keeps no cursor.
             cursor_manager=self.get_cursor_manager(inputs)
-            if inputs.schema_name == "campaign_stats" and inputs.should_use_incremental_field
+            if inputs.schema_name in MERGE_ONLY_ENDPOINTS and inputs.should_use_incremental_field
             else None,
         )

@@ -16,6 +16,9 @@ PAGE_SIZE = 100
 # The v1 performance summary returns totals for a time window, so the stats table walks one UTC
 # day at a time. The first sync reaches this far back when no watermark exists yet.
 STATS_BACKFILL_DAYS = 365
+# Opens, clicks and purchases keep arriving for days after a campaign sends, so every incremental
+# stats sync reads this many days before its start position again.
+STATS_REREAD_DAYS = 7
 
 STATS_DATE_INCREMENTAL_FIELD: IncrementalField = {
     "label": "date",
@@ -32,7 +35,8 @@ class BlueshiftEndpointConfig:
     # JSON key wrapping the list, or None when the body is the list itself.
     data_selector: Optional[str]
     primary_keys: list[str]
-    pagination: Literal["page", "single"] = "page"
+    # "daily" reads one UTC day per request through the stats walk instead of the REST framework.
+    pagination: Literal["page", "single", "daily"] = "page"
     incremental_fields: list[IncrementalField] | None = None
     partition_key: Optional[str] = None
 
@@ -53,7 +57,7 @@ BLUESHIFT_ENDPOINTS: dict[str, BlueshiftEndpointConfig] = {
         path="/api/v1/campaigns.json",
         data_selector="campaigns",
         primary_keys=["uuid", "date"],
-        pagination="single",
+        pagination="daily",
         incremental_fields=[STATS_DATE_INCREMENTAL_FIELD],
         partition_key="date",
     ),
@@ -98,6 +102,9 @@ BLUESHIFT_ENDPOINTS: dict[str, BlueshiftEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(BLUESHIFT_ENDPOINTS.keys())
+
+# Daily tables read their last days again on every sync, so append would store those days twice.
+MERGE_ONLY_ENDPOINTS = tuple(name for name, config in BLUESHIFT_ENDPOINTS.items() if config.pagination == "daily")
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: list(config.incremental_fields) for name, config in BLUESHIFT_ENDPOINTS.items() if config.incremental_fields

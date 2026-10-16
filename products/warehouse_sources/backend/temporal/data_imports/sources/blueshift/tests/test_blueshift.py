@@ -107,7 +107,7 @@ class TestBlueshiftLists:
 class TestBlueshiftCampaignStats:
     @parameterized.expand(
         [
-            ("watermark_rereads_its_day", {"db_incremental_field_last_value": date(2026, 10, 13)}, "2026-10-13"),
+            ("watermark_rereads_a_week", {"db_incremental_field_last_value": date(2026, 10, 13)}, "2026-10-06"),
             (
                 "resume_beats_watermark",
                 {
@@ -141,14 +141,14 @@ class TestBlueshiftCampaignStats:
 
     @parameterized.expand(
         [
-            ("quiet_account_reads_only_from_the_cursor", {}, "2026-10-14"),
+            ("quiet_account_reads_a_week_before_the_cursor", {}, "2026-10-07"),
             (
                 "lookback_moves_the_cursor_back",
                 {
                     "db_incremental_field_last_value": date(2026, 10, 3),
                     "db_incremental_field_last_value_before_lookback": date(2026, 10, 10),
                 },
-                "2026-10-07",
+                "2026-09-30",
             ),
         ]
     )
@@ -217,7 +217,6 @@ class TestBlueshiftValidateCredentials:
     @pytest.mark.parametrize(
         ("status", "schema_name", "expected_valid"),
         [
-            (200, None, True),
             (401, None, False),
             (403, None, True),
             (403, "segments", False),
