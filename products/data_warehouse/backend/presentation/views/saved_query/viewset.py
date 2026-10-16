@@ -196,28 +196,31 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             base_queryset = base_queryset.defer("columns")
 
         # Detect whether we should include managed views in the queryset
-        is_managed_viewset_enabled = posthoganalytics.feature_enabled(
-            "managed-viewsets",
-            str(self.team.uuid),
-            groups={
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(self.team.organization_id),
-                },
-                "project": {
-                    "id": str(self.team.id),
-                },
-            },
-            send_feature_flag_events=False,
-        )
-
-        if not is_managed_viewset_enabled:
+        if self.action == "list" and not self._is_managed_viewset_enabled():
             base_queryset = base_queryset.filter(managed_viewset__isnull=True)
 
         return base_queryset
+
+    def _is_managed_viewset_enabled(self) -> bool:
+        return bool(
+            posthoganalytics.feature_enabled(
+                "managed-viewsets",
+                str(self.team.uuid),
+                groups={
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team.id),
+                },
+                group_properties={
+                    "organization": {
+                        "id": str(self.team.organization_id),
+                    },
+                    "project": {
+                        "id": str(self.team.id),
+                    },
+                },
+                send_feature_flag_events=False,
+            )
+        )
 
     def create(self, request, *args, **kwargs):
         # Check for UPSERT logic
