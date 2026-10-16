@@ -706,6 +706,7 @@ export interface sqlEditorLogicActions {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?:
             | (Partial<DataWarehouseSavedQuery> & {
+                  deferCreatedToast?: boolean
                   folder_id?: string | null
                   types: string[][]
               })
@@ -713,6 +714,7 @@ export interface sqlEditorLogicActions {
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: Partial<DataWarehouseSavedQuery> & {
+            deferCreatedToast?: boolean
             folder_id?: string | null
             types: string[][]
         }
@@ -735,8 +737,10 @@ export interface sqlEditorLogicActions {
     materializeDataWarehouseSavedQuery: (
         viewId: string,
         syncFrequency?: import('~/types').DataModelingSyncInterval | undefined,
-        incremental?: DataWarehouseSavedQueryIncremental | null | undefined
+        incremental?: DataWarehouseSavedQueryIncremental | null | undefined,
+        createdViewName?: string | undefined
     ) => {
+        createdViewName: string | undefined
         incremental: DataWarehouseSavedQueryIncremental | null | undefined
         syncFrequency: import('~/types').DataModelingSyncInterval | undefined
         viewId: string
@@ -2690,6 +2694,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ...(folderId ? { folder_id: folderId } : {}),
                         ...(isTest ? { is_test: true } : {}),
                         ...(incremental ? { incremental } : {}),
+                        ...(materializeAfterSave ? { deferCreatedToast: true } : {}),
                     })
                     captureBIEditorQuerySaved(biEditorState, 'view', 'create')
 
@@ -2699,7 +2704,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     )
 
                     if (materializeAfterSave && savedQuery) {
-                        await dataWarehouseViewsLogic.asyncActions.materializeDataWarehouseSavedQuery(savedQuery.id)
+                        await dataWarehouseViewsLogic.asyncActions.materializeDataWarehouseSavedQuery(
+                            savedQuery.id,
+                            undefined,
+                            undefined,
+                            savedQuery.name
+                        )
                     }
                     if (fromDraft) {
                         actions.deleteDraft(fromDraft, savedQuery?.name)

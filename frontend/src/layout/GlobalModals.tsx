@@ -29,8 +29,6 @@ import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsView
 import { traceDialogLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogLogic'
 
 import { globalModalsLogic } from './globalModalsLogic'
-import { navigationLogic } from './navigation/navigationLogic'
-import { ConfigureHomeModal } from './scenes/ConfigureHomeModal'
 
 // The session player modal anchors the entire replay player graph; loading it only when a
 // recording is opened keeps that graph out of the chunk every logged-in page downloads.
@@ -75,8 +73,6 @@ export function GlobalModals(): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
-    const { isConfigureHomeModalOpen } = useValues(navigationLogic)
-    const { hideConfigureHomeModal } = useActions(navigationLogic)
 
     return (
         <>
@@ -109,7 +105,6 @@ export function GlobalModals(): JSX.Element {
             <LinkToModal />
             <ItemSelectModal />
             {superpowersEnabled && <SuperpowersModal />}
-            <ConfigureHomeModal isOpen={isConfigureHomeModalOpen} onClose={hideConfigureHomeModal} />
             <MaybeWelcomeDialog />
             <MaybeProductPushWelcome />
             <MaybePhaiOnboarding />
