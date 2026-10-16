@@ -28,12 +28,28 @@ describe('useHogfetti', () => {
             act(() => {
                 animated = result.current.trigger()
             })
-            const { container } = render(<result.current.HogfettiComponent />)
+            render(<result.current.HogfettiComponent />)
 
             expect(animated).toBe(expectedReturn)
-            expect(container.querySelectorAll('img')).toHaveLength(expectedHogs)
+            expect(document.body.querySelectorAll('.Hogfetti img')).toHaveLength(expectedHogs)
         }
     )
+
+    it('mounts on the body so a host inside a stacking context still draws above modals', () => {
+        mockReducedMotion(false)
+        const { result } = renderHook(() => useHogfetti())
+        act(() => {
+            result.current.trigger()
+        })
+
+        render(
+            <div className="relative z-10">
+                <result.current.HogfettiComponent />
+            </div>
+        )
+
+        expect(document.querySelector('.Hogfetti')?.parentElement).toBe(document.body)
+    })
 
     it('stops scheduling animation frames once unmounted', () => {
         mockReducedMotion(false)
