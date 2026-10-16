@@ -35,6 +35,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.feature_flags.backend.user_blast_radius import BlastRadiusResult
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
@@ -4439,6 +4440,23 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         realtime_cohort = response.json()["realtime_cohort"]
         assert (realtime_cohort or {}).get("id") == (cohort.pk if shows_cohort else None)
+
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
+    def test_user_blast_radius_counts_the_project_total_once_for_repeated_realtime_checks(self):
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=False)
+        audience = {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]}
+        with patch(
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2",
+            return_value=BlastRadiusResult(affected=500, total=500),
+        ) as mock_count:
+            for _ in range(3):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {"filters": audience}
+                )
+                assert response.status_code == 200, response.json()
+                assert response.json()["total"] == 500
+
+        assert mock_count.call_count == 1
 
     def test_user_blast_radius_personal_api_key_requires_person_read_scope(self):
         # Sizing an audience queries person data, so a hog_flow:read-only token must NOT be able to use
