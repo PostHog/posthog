@@ -72,15 +72,16 @@ class TestBuildSignalExtra:
 
     @parameterized.expand(
         [
-            ("firing", {}),
-            ("broken", {}),
-            ("grouped_firing", {"service_name": "checkout", "severity_text": "error"}),
+            ("firing", "firing", {}),
+            ("broken", "broken", {}),
+            ("grouped_firing", "firing", {"service_name": "checkout", "severity_text": "error"}),
         ]
     )
-    def test_built_extra_satisfies_signal_schema(self, name, group_labels):
+    def test_built_extra_satisfies_signal_schema(
+        self, _name: str, action: AlertSignalAction, group_labels: dict[str, str]
+    ) -> None:
         # emit_signal validates extra against this variant with extra="forbid";
         # if build_signal_extra drifts from the schema, every emit fails validation.
-        action = "broken" if name == "broken" else "firing"
         notified = dataclasses.replace(_notified(action), group_labels=group_labels)
         LogsAlertStateChangeSignalExtra.model_validate(build_signal_extra(notified))
 
