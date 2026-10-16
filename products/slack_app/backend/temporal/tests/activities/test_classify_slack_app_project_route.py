@@ -8,7 +8,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.slack_app.backend.temporal.activities.classifiers import classify_slack_app_project_route
-from products.slack_app.backend.temporal.posthog_code_slack_mention import POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
+from products.slack_app.backend.temporal.slack_app_mention_processing import POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
 
 
 def _project(*, team_id: int, integration_id: int, name: str) -> Integration:

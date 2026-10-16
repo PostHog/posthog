@@ -34,14 +34,13 @@ function TodayPulseSkeleton(): JSX.Element {
 }
 
 function TodayMetaLine(): JSX.Element {
-    const { now, currentTeam } = useValues(todayLogic)
+    const { now } = useValues(todayLogic)
     const date = new Date(now)
     return (
         <p className="TodayHome__meta">
             <time translate="no" dateTime={date.toISOString()}>
                 {DATE_FORMAT.format(date)}
             </time>
-            <span className="whitespace-pre">{` · ${currentTeam?.name ?? 'Your project'}`}</span>
         </p>
     )
 }

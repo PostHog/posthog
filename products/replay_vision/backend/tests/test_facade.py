@@ -178,6 +178,19 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
                 {"verdict": "yes", "reasoning": "x" * 1500},
                 ["The answer was cut to fit the step result: reasoning"],
             ),
+            (
+                "internal_fields_dropped",
+                {
+                    "scanner_type": "monitor",
+                    "verdict": "yes",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "reasoning_segments": [{"text": "r", "t": 12}] * 200,
+                    "notability_reason": "n" * 2000,
+                },
+                {"confidence": 0.9, "verdict": "yes", "reasoning": "r"},
+                [],
+            ),
         ]
     )
     def test_returns_the_answer_at_once_when_the_session_was_already_scanned(
@@ -192,6 +205,22 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
         # The step never parks, so the sweep must not try to wake it.
         request = ReplayObservationRequest.objects.for_team(self.team.id).get(id=started.request_id)
         assert request.completed_at is not None
+
+    def test_a_long_summary_keeps_the_short_fields_when_the_answer_is_cut(self) -> None:
+        scanner = self._scanner_with_answer(
+            {
+                "scanner_type": "summarizer",
+                "title": "Checkout stalls",
+                "summary": "s" * 20000,
+                "chapters": [{"title": "c" * 200, "start_ms": 0, "end_ms": 1}] * 20,
+                "confidence": 0.8,
+            }
+        )
+
+        output = self._start(scanner_id=scanner.id, inline=None).result["output"]
+
+        assert (output["confidence"], output["title"]) == (0.8, "Checkout stalls")
+        assert len(output["summary"]) < 20000
 
     def test_withholds_a_cached_answer_recorded_under_an_experiment_the_owner_cannot_view(self) -> None:
         experiment = create_experiment(self.team, "restricted-flag")
@@ -280,6 +309,7 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
                 {"inline": WorkflowInlineScan(scanner_type="classifier", scanner_config={"prompt": "p"})},
                 "invalid",
             ),
+            ("experiment_scanner", {"inline": None}, "invalid"),
         ]
     )
     def test_refuses(self, name: str, overrides: dict[str, Any], kind: str) -> None:
@@ -296,6 +326,14 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
             ]
             self.organization.save()
             AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+        if name == "experiment_scanner":
+            scanner = ReplayScanner.objects.create(
+                team=self.team,
+                name="experiment",
+                scanner_type=ScannerType.EXPERIMENT,
+                scanner_config={"prompt": "p", "experiment_id": create_experiment(self.team, "workflow-flag").id},
+            )
+            overrides = {**overrides, "scanner_id": scanner.id}
 
         with pytest.raises(ObservationRequestRejected) as error:
             self._start(**overrides)

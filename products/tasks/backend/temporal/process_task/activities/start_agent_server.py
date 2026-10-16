@@ -499,7 +499,9 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
     task_run_session_token: str | None = None
     if event_stream_ingest_enabled or task.runtime == Task.Runtime.PI:
         try:
-            run_token = create_sandbox_event_ingest_token(task_run, sandbox_id=sandbox_id)
+            run_token = create_sandbox_event_ingest_token(
+                task_run, sandbox_id=sandbox_id, stream_generation=ctx.stream_generation
+            )
         except Exception as e:
             raise SandboxExecutionError(
                 "Failed to create sandbox task run token",
