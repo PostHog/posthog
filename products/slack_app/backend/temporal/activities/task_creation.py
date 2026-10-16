@@ -13,7 +13,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
-from products.slack_app.backend.logic.reply_suggestions import clear_open_suggestions, person_message_for_suggestions
+from products.slack_app.backend.logic.reply_suggestions import clear_open_suggestions
 from products.slack_app.backend.services.slack_messages import (
     SlackThreadMessage,
     context_block,
@@ -691,7 +691,7 @@ def create_posthog_code_task_for_repo_activity(
         thread_ts=thread_ts,
         user_message_ts=user_message_ts,
         mentioning_slack_user_id=slack_user_id,
-        person_message=person_message_for_suggestions(title_text),
+        person_message=title_text or None,
     )
 
     # Points at the thread the agent answers in — the DM for a fork, not the thread
@@ -994,7 +994,7 @@ def forward_posthog_code_followup_activity(
 
     user_text = decode_slack_event_text(slack, integration, event_text)
     # Taken before the thread digest and the speaker prefix join it, so it holds only this person's words.
-    person_message = person_message_for_suggestions(labeled_mentions_to_display_names(user_text))
+    person_message = labeled_mentions_to_display_names(user_text) or None
     bot_token = get_slack_bot_token(slack, integration)
     event_files = parse_slack_file_refs(inputs.event.get("files"))
     # Shared with the thread fetch below, so the reply and the catch-up files draw on one
@@ -1364,7 +1364,7 @@ def _resume_task_with_new_run(
 
     integration = slack.integration
     user_text = decode_slack_event_text(slack, integration, event_text)
-    person_message = person_message_for_suggestions(labeled_mentions_to_display_names(user_text))
+    person_message = labeled_mentions_to_display_names(user_text) or None
     prepared_attachments = prepare_slack_file_artifacts(
         parse_slack_file_refs(inputs.event.get("files")), get_slack_bot_token(slack, integration)
     )

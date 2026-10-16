@@ -20,7 +20,7 @@ from products.tasks.backend.temporal.process_task.activities.slack_agent_design 
     start_slack_agent_design_stream,
     stop_slack_agent_design_stream,
 )
-from products.tasks.backend.temporal.process_task.utils import record_message_actor, record_message_person_message
+from products.tasks.backend.temporal.process_task.utils import record_delivered_message
 
 PROJECT_URL = "https://us.posthog.com/project/7"
 
@@ -121,31 +121,28 @@ class TestSlackAgentDesignStream(TestCase):
 
     @parameterized.expand(
         [
-            ("first_turn_answers_the_mention", None, True, "Why is the export slow?"),
-            ("follow_up_answers_its_own_message", "msg-2", False, "Add the index too"),
-            # The record expired. The mention is not what this turn answers, so it gets nothing.
-            ("follow_up_without_a_record", "msg-3", False, None),
+            ("first_turn_answers_the_mention", None, "Why is the export slow?", "Why is the export slow?"),
+            ("follow_up_answers_its_own_message", "msg-2", None, "Add the index too"),
+            # The record expired, and the relay passes no mention past the first turn, so it gets nothing.
+            ("follow_up_without_a_record", "msg-3", None, None),
         ]
     )
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.stop_status_stream", autospec=True)
     def test_closing_the_stream_hands_the_suggestions_what_the_turn_answers(
-        self, _name, message_id, first_turn, expected, mock_stop
+        self, _name, message_id, mention, expected, mock_stop
     ) -> None:
-        record_message_person_message(str(self.task_run.id), "msg-2", "Add the index too")
+        record_delivered_message(
+            str(self.task_run.id), "msg-2", actor_slack_user_id=None, person_message="Add the index too"
+        )
 
         stop_slack_agent_design_stream(
             StopSlackAgentDesignStreamInput(
-                slack_thread_context={
-                    "integration_id": self.integration.id,
-                    "channel": "C1",
-                    "thread_ts": "1.0",
-                    "person_message": "Why is the export slow?",
-                },
+                slack_thread_context={"integration_id": self.integration.id, "channel": "C1", "thread_ts": "1.0"},
                 ts="2.0",
                 final_markdown="Should I add the index?",
                 run_id=str(self.task_run.id),
                 message_id=message_id,
-                first_turn=first_turn,
+                mention=mention,
             )
         )
 
@@ -186,7 +183,7 @@ class TestSlackAgentDesignStream(TestCase):
     def test_opening_the_stream_tags_the_turns_sender_not_the_thread_creator(
         self, _name, message_id, expected_target, mock_start
     ) -> None:
-        record_message_actor(str(self.task_run.id), "msg-2", "U789")
+        record_delivered_message(str(self.task_run.id), "msg-2", actor_slack_user_id="U789", person_message=None)
 
         stream = start_slack_agent_design_stream(
             StartSlackAgentDesignStreamInput(

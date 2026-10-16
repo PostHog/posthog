@@ -5514,11 +5514,8 @@ def signal_task_run_user_message(
         raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
     accepted_at = django_timezone.now()
     try:
-        context = {
-            key: value
-            for key, value in (("actor_slack_user_id", actor_slack_user_id), ("person_message", person_message))
-            if value
-        } or None
+        context = {"actor_slack_user_id": actor_slack_user_id, "person_message": person_message}
+        context = {key: value for key, value in context.items() if value} or None
         signal_task_followup_message(
             workflow_id or run.workflow_id,
             content,

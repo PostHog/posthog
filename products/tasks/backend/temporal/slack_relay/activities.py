@@ -204,7 +204,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     from products.slack_app.backend.slack_thread import ReplyKind, SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.temporal.process_task.utils import get_message_person_message, slack_reply_target
+    from products.tasks.backend.temporal.process_task.utils import slack_reply_target, turn_person_message
 
     try:
         task_run = TaskRun.objects.get(id=input.run_id)
@@ -250,7 +250,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     context = SlackThreadContext.from_mapping(mapping, user_message_ts=input.user_message_ts)
     # Resolved before the handler, so the handler knows whoever this reply is for.
     target = slack_reply_target(task_run, mapping, input.message_id)
-    person_message = get_message_person_message(str(task_run.id), input.message_id) if input.message_id else None
+    person_message = turn_person_message(str(task_run.id), input.message_id)
 
     handler = SlackThreadHandler.for_run(
         context,

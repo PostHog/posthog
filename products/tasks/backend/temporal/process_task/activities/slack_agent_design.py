@@ -76,10 +76,10 @@ class StopSlackAgentDesignStreamInput:
     # The turn's whole answer, which `final_markdown` omits when the stream opened with it. Set only
     # for a finished turn, because a stopped turn waits for nothing from the reader.
     answer_markdown: Optional[str] = None
-    # The message this turn answers, and whether it is the mention that opened the run. Together
-    # they find what the person said, for the reply suggestions.
+    # The message this turn answers, and, on the run's first turn only, the mention that opened the
+    # run. One of them says what the person asked, for the reply suggestions.
     message_id: Optional[str] = None
-    first_turn: bool = False
+    mention: Optional[str] = None
 
 
 def _rewrite_object_tags(text: Optional[str], project_url: str) -> Optional[str]:
@@ -105,23 +105,6 @@ def _reply_target(run_id: Optional[str], message_id: Optional[str]) -> Optional[
         return None
     mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
     return slack_reply_target(task_run, mapping, message_id)
-
-
-def _turn_person_message(
-    slack_thread_context: dict[str, Any], run_id: Optional[str], message_id: Optional[str], first_turn: bool
-) -> Optional[str]:
-    """What the person said to start this turn.
-
-    A later turn never falls back to the mention, because the mention is not what that turn answers.
-    """
-    from products.tasks.backend.temporal.process_task.utils import get_message_person_message
-
-    if first_turn:
-        mention = slack_thread_context.get("person_message")
-        return mention if isinstance(mention, str) else None
-    if run_id and message_id:
-        return get_message_person_message(run_id, message_id)
-    return None
 
 
 def _chunk_dicts(task_updates: list[TaskUpdateChunk]) -> list[dict[str, Any]]:
@@ -184,6 +167,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
         stream_pending_slack_attachments,
     )
     from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.temporal.process_task.utils import turn_person_message
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
@@ -192,9 +176,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             input.run_id,
             actor_slack_user_id=input.actor_slack_user_id,
             turn_trace_id=input.trace_id,
-            turn_person_message=_turn_person_message(
-                input.slack_thread_context, input.run_id, input.message_id, input.first_turn
-            ),
+            turn_person_message=turn_person_message(input.run_id, input.message_id, mention=input.mention),
         )
         task_run = TaskRun.objects.get(id=input.run_id) if input.run_id else None
         deliveries: list[SlackFileDeliveryResult] = []

@@ -12,6 +12,7 @@ from slack_sdk import WebClient
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_openai_client
 from posthog.llm.semantic_enrichment import extract_json_object
+from posthog.slack.channels import clip_text
 
 logger = structlog.get_logger(__name__)
 
@@ -68,8 +69,8 @@ for example "Use the cards layout". Do not name a choice only by its number or l
 or "Use option 1". The reply can add the number after the name, for example \
 "Use the cards layout (option 2)".
 - If the answer asks two or more separate questions, do not write a reply for each combination of \
-answers. Write a reply only if it answers every question, and offer only the combinations that the answer \
-recommends. If the answer recommends none, return an empty list.
+answers. Write a reply only if it answers every question with a combination that the answer recommends. \
+If there is none, return an empty list.
 - Offer only actions that the answer names or clearly implies. Do not invent new work.
 - If the answer offers to investigate or check something first and then make a change, such as a pull \
 request or a code or config change, keep the two steps apart. Put first a reply that asks only for the \
@@ -152,15 +153,10 @@ def _clip_answer(answer: str) -> str:
 
 def _user_content(answer_markdown: str, person_message: str | None) -> str:
     answer = f"<agent_answer>\n{_clip_answer(answer_markdown)}\n</agent_answer>"
-    if not person_message:
+    message = clip_text(" ".join((person_message or "").split()), PERSON_MESSAGE_CHARS)
+    if not message:
         return answer
-    return f"<person_message>\n{person_message}\n</person_message>\n\n{answer}"
-
-
-def person_message_for_suggestions(text: str | None) -> str | None:
-    """The person's own words, cut to fit, as the turn carries them to the reply suggestions."""
-    message = " ".join((text or "").split())
-    return message[:PERSON_MESSAGE_CHARS] or None
+    return f"<person_message>\n{message}\n</person_message>\n\n{answer}"
 
 
 def _clean_suggestions(raw: object) -> list[SuggestedReply]:
