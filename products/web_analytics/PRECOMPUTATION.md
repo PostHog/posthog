@@ -36,6 +36,12 @@ Both are `ReplacingMergeTree` (version column `computed_at`), sharded by `sipHas
   For each team on a region-scoped allowlist it drives `ensure_precomputed` over a rolling 90-day window, chunked to one UTC day per INSERT.
   Every window is a `PreaggregationJob` (Postgres) with a `job_id` and a TTL by age (today 1h, ≤2 days 1 day, older 90 days); re-runs recompute only expired windows.
   The allowlist defaults per Cloud region (`DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION`) and is overridable via `WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS`; an empty list disables the job.
+  Each INSERT runs with `DIMENSIONAL_INSERT_SETTINGS`, the memory, spill, and time ceilings of the legacy pre-aggregation job, with `load_balancing=random` to spread the sessions reads over replicas.
+  The INSERT modifiers set `sessionTimestampBufferMinutes` to 25 hours (`DIMENSIONAL_SESSION_BUFFER_MINUTES`) instead of the 3-day default, which roughly halves the sessions it reads.
+  The DAG builds with `read_after_write=False` and has no stale-while-revalidate or forced-refresh logic of its own.
+  Today's window refreshes only when a run finds its job expired, so the today TTL must be clearly shorter than the cron period.
+  Otherwise a run skips a still-fresh window, the job then expires between runs, and reads see a gap until the following run.
+  The today TTL (1 hour) currently equals the cron period (hourly at :20), so a future read path needs a stale grace or a shorter today TTL.
 - **Coverage**: the same stats-breakdown and overview shapes v2 serves — about 45% of user-facing web-analytics reads by shape (stats breakdowns on the stored dimensions, plus overview).
   Not goals, vitals, frustration metrics, external clicks, or the other engines (Trends / Retention / HogQL).
   Its differentiator over lazy: arbitrary multi-dimension filters within the fixed set resolve from one table, with no per-filter-combination warming.
@@ -115,7 +121,7 @@ The 24 h pad matches the JS SDK's hard `SESSION_LENGTH_LIMIT` and covers effecti
 - `query.sampling.enabled` is True
 - `query.modifiers.sessionsV2JoinMode == "uuid"` (column type mismatch — temporary; should be re-enabled by re-typing `uniq_sessions_state` to `(uniq, UUID)`)
 - The team has any property-level access controls (`team_has_property_access_rules`) — precompute results are built userless and shared by a user-independent cache key, so they can't honor per-user property restrictions; the query falls through to the live path, which enforces them per requesting user
-- Date range exceeds `MAX_PRECOMPUTE_DAYS` (90)
+- Date range exceeds `MAX_PRECOMPUTE_DAYS` (366)
 - Either date_from or date_to is None
 
 Any event/person filter shape is accepted: the `query.properties` list is translated via `property_to_expr`, and each distinct filter set becomes its own cache key (namespace). Session and cohort filters are refused (they fall through to the live path) — the userless precompute INSERT would apply them, but the live runners handle those types differently per family (web vitals drops them), so precomputing them would serve a different population than the live fallback. Filters the INSERT can't express fail the job and fall back to the live query automatically. Because any filter combination mints a new namespace, `web_ensure_precomputed` enforces a per-team distinct-shape ceiling (`WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM`, default 1000): once a team holds that many live shapes, a build for a _new_ shape drops to a check-only pass and serves live instead, while shapes the team already holds keep serving and refreshing. It is a coarse backstop, not a quota; 0 disables it.
@@ -134,9 +140,19 @@ Different freshness per how recent the data is:
 | 8–14d     | 7 days  | Distinct per-week TTLs force weekly job boundaries, keeping INSERT scans bounded |
 | 15–21d    | 10 days | —                                                                                |
 | 22–35d    | 12–14 d | —                                                                                |
-| 36d+      | 21 days | Bounded in practice by hash rotations (AST-affecting deploys rebuild everything) |
+| 36d+      | 90 days | A year-long shape does not rescan a year of events each time the band expires    |
 
 Stored via the `LAZY_TTL_SECONDS` dict in `web_lazy_precompute_common.py` (see the comment there for the full freshness-vs-job-sizing reasoning); consumed by `lazy_computation_executor.parse_ttl_schedule` against the team's timezone.
+
+`lazy_ttl_schedule(team)` builds the schedule every family uses, and `web_ensure_precomputed` adjusts it per request:
+
+- **Job width**: `LAZY_MAX_WINDOW_DAYS` (7) caps each job at 7 days, so the long `default` band does not put a year of history into one INSERT. A 366-day backfill runs as about 53 jobs.
+- **OOM pin**: a team whose INSERT hits a memory limit is pinned in Redis for 14 days, and its schedule then caps jobs at 1 day (`OOM_PIN_WINDOW_DAYS`).
+- **Settling**: every schedule gets a 24-hour settling period (`SESSION_SETTLING_SECONDS`), so a job built before its sessions closed recomputes once they close.
+- **Forced refresh**: a user forced refresh (`is_forced_refresh_request`) gets no stale grace. It also prepends a 1-second TTL rule for the current team-local day, so today's bucket counts as expired for that read only. The read falls through to the live query, and the background warm rebuilds the bucket.
+- **Forced refresh is user-only**: the 1-second rule never applies to background requests. The schedule also stamps `expires_at` on the jobs it builds, and the revalidation task runs in the forced execution mode, so a background build with the rule would store buckets that expire after 1 second.
+
+The framework README explains how a reader's TTL and the creator's `expires_at` interact.
 
 ### Read path
 
@@ -273,7 +289,7 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 
 ### Eligibility gate
 
-`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate with `require_integer_timezone=False` (see "Bucketing and timezones" above). The shared gate rejects: org feature flag off, explicit per-query opt-out (`useWebAnalyticsPrecompute=False` — an untouched toggle defaults on), conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, missing date range, and date range over 90 days. Any event/person property-filter shape is accepted (each distinct set becomes its own cache key, bounded by the per-team shape ceiling — see the web overview eligibility gate above); session/cohort filters fall through to live.
+`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate with `require_integer_timezone=False` (see "Bucketing and timezones" above). The shared gate rejects: org feature flag off, explicit per-query opt-out (`useWebAnalyticsPrecompute=False` — an untouched toggle defaults on), conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, missing date range, and date range over `MAX_PRECOMPUTE_DAYS` (366). Any event/person property-filter shape is accepted (each distinct set becomes its own cache key, bounded by the per-team shape ceiling — see the web overview eligibility gate above); session/cohort filters fall through to live.
 
 ### Observability
 
@@ -287,6 +303,18 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 1. **`WebVitalsQuery` (line-chart tile) is not covered.** That query wraps a `TrendsQuery` and dispatches through `TrendsQueryRunner`; lazy precompute for it would need a different shape and is deferred.
 2. **Adding a metric** (e.g. TTFB) is a schema change — add the column to `web_vitals_paths_preaggregated`, the HogQL table registration, the INSERT template, and the `_METRIC_STATE_COLUMN` map.
 3. **Bands are computed in ClickHouse from the runtime thresholds**, not stored — so a threshold change is free on the read side.
+
+## Keeping lazy buckets fresh
+
+User reads never build (`run_inserts` is true only for background requests). These mechanisms rebuild buckets behind them, all in `web_lazy_precompute_common.py` unless noted:
+
+- **Stale-while-revalidate**: a user read whose buckets expired within `WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS` (default 4 hours) gets the stale rows and calls `handle_stale_served`, which enqueues `revalidate_web_analytics_precompute` (`backend/tasks/lazy_precompute_revalidation.py`).
+- **Warm on check miss**: a user read with no covering buckets serves live and enqueues the same task.
+- **Revalidation debounce**: each (team, family, shape) enqueues at most once per 10 minutes (`REVALIDATION_DEBOUNCE_SECONDS`).
+- **Revalidation budget**: each team gets at most 25 enqueues per debounce window (`REVALIDATION_TEAM_BUDGET_PER_WINDOW`). The budget applies only to user-facing requests.
+- **Start delay**: each task waits 20 seconds (`REVALIDATION_START_DELAY_SECONDS`) so it does not compete with the dashboard load that enqueued it. The queue drops a task that waits longer than 15 minutes.
+- **Sticky warm set**: a shape that check-misses twice within 24 hours joins a Redis set (`record_sticky_warm_shape`). The hourly demand warmer in `dags/cache_warming.py` adds those shapes to its warm pass, up to its per-team cap. Entries expire after 24 hours.
+- **OOM pin clearing**: the manual Dagster job `web_analytics_clear_precompute_oom_pins` (`dags/clear_oom_pins.py`) lists pinned teams, or clears one pin (`team_id`) or all pins (`clear_all`). Clear a pin once the memory pressure is gone, so the team builds 7-day jobs again.
 
 ## Eager baseline warming (hourly Dagster job)
 
