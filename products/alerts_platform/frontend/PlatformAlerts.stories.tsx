@@ -14,8 +14,7 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     enabled: true,
     source_kind: 'logs',
     source_config: {
-        serviceNames: ['checkout'],
-        severityLevels: ['error'],
+        filters: { serviceNames: ['checkout'], severityLevels: ['error'] },
         condition: { threshold_count: 100, threshold_operator: 'above', window_minutes: 5 },
     },
     check_interval_minutes: 1,
