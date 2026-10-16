@@ -61,7 +61,7 @@ export function ProjectLogoUpload(): JSX.Element {
                     icon={<IconX />}
                     onClick={() => updateCurrentProject({ logo_media_id: null })}
                     disabledReason={restrictionReason}
-                    loading={currentProjectLoading}
+                    loading={uploading || currentProjectLoading}
                     data-attr="project-logo-remove"
                 >
                     Remove logo
