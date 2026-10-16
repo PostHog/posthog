@@ -13,6 +13,76 @@ export namespace Schemas {
     /**
      *
      */
+    export interface AEOPrompt {
+      /** Prompt id. */
+      id: string;
+      /** The question asked to the answer engines, as a user would phrase it. */
+      prompt: string;
+      /** Theme the prompt belongs to. The runner alternates between topics on each run. */
+      topic: string;
+      /** Where the prompt came from: 'imported' or 'manual'. */
+      prompt_source: string;
+      /** Seeding score. Within a topic, higher runs first. */
+      rank: number;
+      /** Only active prompts are run against the answer engines. */
+      active: boolean;
+      /**
+         * When the runner last ran this prompt. Null when it never ran.
+         * @nullable
+         */
+      last_checked_at: string | null;
+      /**
+         * Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set came from. Kept to benchmark against our own citation rate. Null when the import carried none.
+         * @nullable
+         */
+      external_visibility: number | null;
+      /** When the prompt was added. */
+      created_at: string;
+      /**
+         * When the prompt last changed.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    export interface AEOPromptImport {
+      /**
+         * The question to ask the answer engines, as a user would phrase it. Matching ignores case and whitespace, so a re-import updates the existing prompt.
+         * @maxLength 10000
+         */
+      prompt: string;
+      /**
+         * Theme the prompt belongs to. The runner alternates between topics on each run.
+         * @maxLength 200
+         */
+      topic?: string;
+      /**
+         * Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set came from. Kept to benchmark against our own citation rate.
+         * @minimum 0
+         * @maximum 100
+         * @nullable
+         */
+      external_visibility?: number | null;
+    }
+
+    export interface AEOPromptBulkImportRequest {
+      /**
+         * Prompts to add or update, at most 2000 per request.
+         * @minItems 1
+         * @maxItems 2000
+         */
+      prompts: AEOPromptImport[];
+    }
+
+    export interface AEOPromptImportResult {
+      /** Prompts added to the set. */
+      created: number;
+      /** Existing prompts that were updated. They keep their active state. */
+      updated: number;
+      /** Prompts that were empty or too long for the answer engines. */
+      skipped: number;
+    }
+
     export interface AIContextAccountProperty {
       /** Customer analytics account property definition id. */
       id: string;
@@ -26243,6 +26313,27 @@ export namespace Schemas {
       Agent: 'agent',
     } as const;
 
+    export type ThresholdScalingEnum = typeof ThresholdScalingEnum[keyof typeof ThresholdScalingEnum];
+
+
+    export const ThresholdScalingEnum = {
+      Linear: 'linear',
+      Fixed: 'fixed',
+    } as const;
+
+    export interface MonitoringMetricConfig {
+      /**
+         * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
+         * @maximum 527040
+         * @exclusiveMinimum 0
+         */
+      reference_period_minutes: number;
+      /** How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution. */
+      threshold_scaling: ThresholdScalingEnum;
+      /** The actual period measured by baseline_value, in minutes. Required when a baseline is supplied. */
+      baseline_period_minutes?: number | null;
+    }
+
     /**
      * How to draw this measurement; copied from a referenced metric.
      */
@@ -26299,6 +26390,8 @@ export namespace Schemas {
       metric_id?: string | null;
       /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already. */
       query?: MetricThresholdConfigQuery;
+      /** Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks. */
+      monitoring?: MonitoringMetricConfig | null;
       /** What the measured value must satisfy to pass. */
       comparison: CheckComparison;
       /** The value observed when the check was written, recorded on each result for context. */
@@ -70160,6 +70253,15 @@ export namespace Schemas {
       seconds_per_merged_pr: number;
     }
 
+    export interface PaginatedAEOPromptList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AEOPrompt[];
+    }
+
     export interface PaginatedAccountChannelSummaryList {
       count: number;
       /** @nullable */
@@ -78144,6 +78246,11 @@ export namespace Schemas {
          * @nullable
          */
       success_rate: number | null;
+    }
+
+    export interface PatchedAEOPromptUpdateRequest {
+      /** Turn the prompt on or off for future runs. */
+      active?: boolean;
     }
 
     /**
@@ -119796,6 +119903,17 @@ export namespace Schemas {
     export const AdvancedActivityLogsListSchema = {
       Ocsf: 'ocsf',
     } as const;
+
+    export type AeoPromptsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
     /**
