@@ -903,6 +903,25 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(_stale_counter() - before_stale, 0.0)
 
+    def test_list_tickets_legacy_hash_rejected_after_independent_rotation(self):
+        # Even with the kill switch on, an independent rotation must revoke the legacy
+        # token for verification, or old hashes stay valid forever.
+        SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team, secret="an_independent_secret", rotated_independently=True
+        )
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_list_tickets_post_backfill_reports_the_signing_secret_as_the_source(self):
         # After the backfill both stores hold the same value, so the response is 200 either
         # way and only the counter shows which one matched. Without this, reordering the

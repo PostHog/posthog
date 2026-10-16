@@ -5,11 +5,14 @@ from typing import Any
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import SessionAuthentication
 from posthog.models.utils import generate_random_token
 from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission
 
@@ -29,6 +32,15 @@ class SigningSecretSerializer(serializers.Serializer):
     )
 
 
+class _SessionOnlyPermission(BasePermission):
+    # "INTERNAL" only rejects scoped tokens; impersonation JWTs would otherwise pass both
+    # the scope check and the session-freshness check without carrying a session.
+    message = "The signing secret is only available in the web app."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return isinstance(request.successful_authenticator, SessionAuthentication)
+
+
 class _SingletonSchema(PostHogAutoSchema):
     """A project has one signing secret, so ``list`` must not wrap the response in an array."""
 
@@ -42,7 +54,7 @@ class SigningSecretViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     pagination_class = None
     serializer_class = SigningSecretSerializer
-    permission_classes = [TimeSensitiveActionPermission, TeamMemberStrictManagementPermission]
+    permission_classes = [_SessionOnlyPermission, TimeSensitiveActionPermission, TeamMemberStrictManagementPermission]
 
     @extend_schema(
         responses=SigningSecretSerializer,

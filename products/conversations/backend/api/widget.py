@@ -139,6 +139,9 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
     # staleness guard above already ran, so a row holding a retired key stays excluded.
     if not settings.ACCEPT_TEAM_SECRET_TOKENS:
         return secrets
+    # An independent rotation revokes the legacy credentials for identity verification.
+    if signing_secret and signing_secret.rotated_independently:
+        return secrets
     return secrets + legacy_secrets
 
 

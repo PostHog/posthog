@@ -1,4 +1,5 @@
 import time
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 
@@ -7,6 +8,7 @@ from django.conf import settings as django_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.organization import OrganizationMembership
 
 from products.conversations.backend.models import SigningSecret
@@ -75,5 +77,17 @@ class TestSigningSecretAPI(APIBaseTest):
 
         url = self._url() if method == "get" else self._url("rotate/")
         response = getattr(self.client, method)(url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand([("get",), ("post",)])
+    def test_impersonation_jwt_cannot_reach_the_raw_secret(self, method):
+        # JWTs carry no session, so they would skip the freshness check if auth let them in.
+        self._make_admin()
+        token = encode_jwt({"id": self.user.id}, timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER)
+        self.client.logout()
+
+        url = self._url() if method == "get" else self._url("rotate/")
+        response = getattr(self.client, method)(url, HTTP_AUTHORIZATION=f"Bearer {token}")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
