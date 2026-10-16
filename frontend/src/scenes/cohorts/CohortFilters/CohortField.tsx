@@ -36,6 +36,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyCohortCriteriaType,
     AnyPropertyFilter,
+    BehavioralEventType,
     PropertyDefinitionType,
     PropertyFilterType,
     PropertyFilterValue,
@@ -180,8 +181,18 @@ export function CohortTaxonomicField({
             groupType={groupType}
             loading={calculatedValueLoading(groupType)}
             value={calculatedValue(groupType) as TaxonomicFilterValue}
-            onChange={(v, g) => {
-                onChange({ [fieldKey]: v, [groupTypeFieldKey]: g })
+            onChange={(v, g, item) => {
+                const recentFilter = item?._recentContext?.propertyFilter as AnyPropertyFilter | undefined
+                const selectedGroupType = item?._recentContext?.sourceGroupType ?? g
+                const recentPersonFilter =
+                    fieldKey === 'key' &&
+                    criteria.value === BehavioralEventType.HaveProperty &&
+                    recentFilter?.key === v &&
+                    (recentFilter.type === PropertyFilterType.Person ||
+                        recentFilter.type === PropertyFilterType.PersonMetadata)
+                        ? { operator: recentFilter.operator, value_property: recentFilter.value }
+                        : {}
+                onChange({ [fieldKey]: v, [groupTypeFieldKey]: selectedGroupType, ...recentPersonFilter })
             }}
             excludedProperties={{
                 [TaxonomicFilterGroupType.Events]: [null], // "All events" isn't supported by Cohorts currently
