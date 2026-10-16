@@ -1816,7 +1816,9 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 first_review=input.run_index == 1,
             )
             survivors = flash_selection.kept
-            flash_stats = flash_turn_stats(issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines)
+            flash_stats = flash_turn_stats(
+                issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines, changed_since=changed_since
+            )
         else:
             # Flash posts what it finds whatever other comments say; only Full checks the PR's comments.
             pr_comments = (
@@ -2225,6 +2227,9 @@ def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionS
                 "flash_kept": turn.kept,
                 "flash_dedup_fallback": turn.dedup_fell_back,
                 "flash_budget_left": turn.budget_left,
+                "flash_changed_lines": turn.changed_lines,
+                "flash_must_fix_on_change": turn.must_fix_on_change,
+                "flash_must_fix_off_change": turn.must_fix_off_change,
             }
         )
     if sessions is not None:

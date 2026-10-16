@@ -25,7 +25,10 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.project_secret_api_key import delete_project_secret_api_keys_for_token
+from posthog.models.project_secret_api_key import (
+    create_project_secret_api_key_for_token,
+    delete_project_secret_api_keys_for_token,
+)
 from posthog.models.signals import mutable_receiver, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
@@ -1006,21 +1009,24 @@ class Team(UUIDTClassicModel):
     def rotate_secret_token_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
-        # Rotate the tokens
-        old_primary_token = self.secret_api_token
         new_token = generate_random_token_secret()
-        expired_token = self.secret_api_token_backup
         # One transaction with the signal receivers: the conversations signing secret must
         # never diverge from the column, so a failed copy rolls the rotation back whole.
         try:
             with transaction.atomic():
+                # A rotation racing this one would overwrite the token this save writes while
+                # its mirror row lives on as a working credential, so read under lock.
+                locked = Team.objects.select_for_update(no_key=True).get(pk=self.pk)
+                old_primary_token = locked.secret_api_token
+                expired_token = locked.secret_api_token_backup
                 self.secret_api_token = new_token
                 self.secret_api_token_backup = old_primary_token
                 self.save()
                 if expired_token:
-                    # The migrated PSAK row holding this exact token (#63111 backfill) must
-                    # retire with it, or the dropped token keeps authenticating via PSAK.
+                    # Retire the expiring token's mirror row with it, or it keeps authenticating.
                     delete_project_secret_api_keys_for_token(self.id, expired_token)
+                # With the legacy verifiers off, only the mirror row authenticates the new token.
+                create_project_secret_api_key_for_token(self.id, new_token)
                 secret_api_token_rotated.send(sender=self.__class__, team=self)
         except Exception:
             # save() already cached this team (post_save) with the new tokens, which the
@@ -1152,21 +1158,24 @@ class Team(UUIDTClassicModel):
     def delete_secret_token_backup_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
-        old_backup_token = self.secret_api_token_backup
-        if not old_backup_token:
-            # Nothing to delete.
-            return
-
-        masked_old_backup_token = mask_key_value(old_backup_token)
         try:
             with transaction.atomic():
+                # A rotation racing this delete rewrites the backup column, so read under lock.
+                # No in-memory precheck: this instance may predate a rotation that set the backup.
+                locked = Team.objects.select_for_update(no_key=True).get(pk=self.pk)
+                old_backup_token = locked.secret_api_token_backup
+                if not old_backup_token:
+                    return
+                # save() writes every field, so a stale primary here would clobber a
+                # concurrently rotated token while its mirror row keeps authenticating.
+                self.secret_api_token = locked.secret_api_token
                 self.secret_api_token_backup = None
                 self.save()
                 delete_project_secret_api_keys_for_token(self.id, old_backup_token)
         except Exception:
             # save() already cached this team (post_save) with the cleared backup, which
             # the rollback discarded. Rewrite that entry from the committed row.
-            self.refresh_from_db(fields=["secret_api_token_backup"])
+            self.refresh_from_db(fields=["secret_api_token", "secret_api_token_backup"])
             set_team_in_cache(self.api_token, self)
             raise
         set_team_in_cache(old_backup_token, None)
@@ -1186,7 +1195,7 @@ class Team(UUIDTClassicModel):
                         type="Team",
                         action="deleted",
                         field="secret_api_token_backup",
-                        before=masked_old_backup_token,
+                        before=mask_key_value(old_backup_token),
                         after=None,
                     )
                 ],

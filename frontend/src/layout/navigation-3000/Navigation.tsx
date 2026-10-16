@@ -253,7 +253,10 @@ export function Navigation({
                                 {/* The attribute rides a spread with the empty-string form: React 18's
                                     types lack `inert`, and its runtime serializes `inert={false}` to a
                                     string, which is still inert (presence-based attribute). */}
-                                <div className="contents" {...(sceneTakeoverActive ? { inert: '' } : {})}>
+                                <div
+                                    className="contents [--side-panel-width:initial]"
+                                    {...(sceneTakeoverActive ? { inert: '' } : {})}
+                                >
                                     {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
                                         <div
                                             className={cn({

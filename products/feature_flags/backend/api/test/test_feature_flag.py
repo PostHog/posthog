@@ -2271,7 +2271,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Personal-key requests are the app's preview feature, not SDK usage, so they aren't counted.
         self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
 
-    def test_remote_config_with_project_secret_api_key(self):
+    @parameterized.expand(
+        [
+            ("legacy_verifiers_on", True),
+            # With the verifiers off, only the mirror row the rotation minted authenticates the token.
+            ("legacy_verifiers_off", False),
+        ]
+    )
+    def test_remote_config_with_project_secret_api_key(self, _name, accept_team_secret_tokens):
         self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
         FeatureFlag.objects.create(
             team=self.team,
@@ -2290,10 +2297,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             is_remote_configuration=True,
         )
         self.client.logout()
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
-        )
+        with self.settings(ACCEPT_TEAM_SECRET_TOKENS=accept_team_secret_tokens):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+                headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
 
