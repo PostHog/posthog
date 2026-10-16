@@ -13127,10 +13127,10 @@ Today (9): `apps`, `audit_logs`, `completed_jobs`, `flows`, `queued_jobs`, `reso
 
 Diffed against: <https://raw.githubusercontent.com/windmill-labs/windmill/main/backend/windmill-api/openapi.yaml>
 
-- [ ] `folders/list (GET /w/{workspace}/folders/list)` — lookup that resolves the f/<folder>/ path prefix carried by every script, flow, app and resource we already sync (high)
-- [ ] `groups/list + groups/get (GET /w/{workspace}/groups/list, /groups/get)` — group membership and ownership lookup for the ACLs on synced runnables (high)
-- [ ] `workspaces/list (GET /workspaces/list)` — lookup resolving the workspace id every other table is scoped by (high)
-- [ ] `users/list_usage + workspaces/usage` — per-user and per-workspace execution counts, the natural cost/usage metric (medium)
+- [x] `folders/list (GET /w/{workspace}/folders/list)` — lookup that resolves the f/<folder>/ path prefix carried by every script, flow, app and resource we already sync (high)
+- [x] `groups/list + groups/get (GET /w/{workspace}/groups/list, /groups/get)` — group membership and ownership lookup for the ACLs on synced runnables (high)
+- [x] `workspaces/list (GET /workspaces/list)` — lookup resolving the workspace id every other table is scoped by (high)
+- [x] `users/list_usage + workspaces/usage` — per-user and per-workspace execution counts, the natural cost/usage metric (medium)
 - [ ] `workers/list, workers/queue_counts, workers/queue_metrics` — worker capacity and queue depth telemetry to pair with queued_jobs/completed_jobs (medium)
 - [ ] `scripts/history, flows/history, apps/history` — deployment version history for the runnables we already sync (medium)
 - [ ] `concurrency_groups/list (GET /concurrency_groups/list)` — concurrency limits and running counts explaining job queue waits (medium)
