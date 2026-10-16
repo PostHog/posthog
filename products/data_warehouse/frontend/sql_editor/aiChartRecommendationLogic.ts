@@ -199,8 +199,7 @@ export interface aiChartRecommendationLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
-            | null
-            | undefined,
+            | null,
         payload?:
             | {
                   overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
@@ -232,7 +231,6 @@ export interface aiChartRecommendationLogicActions {
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
             | null
-            | undefined
     } // dataNodeLogic
     _setQuery: (node: VisualizationNode) => {
         node: VisualizationNode

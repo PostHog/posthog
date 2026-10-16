@@ -23,6 +23,7 @@ import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
+    HogFlowInFlightApi,
     HogFlowInvocationApi,
     HogFlowOptimizationApi,
     HogFlowPublishRequestApi,
@@ -526,6 +527,21 @@ export const hogFlowsGraphPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedHogFlowGraphUpdateApi),
+    })
+}
+
+export const getHogFlowsInFlightRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/in_flight/`
+}
+
+export const hogFlowsInFlightRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowInFlightApi> => {
+    return apiMutator<HogFlowInFlightApi>(getHogFlowsInFlightRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

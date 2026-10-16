@@ -67,17 +67,25 @@ describe('TraceDrawer', () => {
         captureSpy.mock.calls.filter(([event]) => event === 'tracing trace unavailable')
 
     // A trace with no spans yet is still loading, so the notice and its capture must wait for the result.
+    // Without filters the notice must not blame them, since the trace dialog never has any.
     it.each([
-        { loading: false, showsNotice: true },
-        { loading: true, showsNotice: false },
-    ])('with no spans and loading=$loading, shows the unavailable notice: $showsNotice', ({ loading, showsNotice }) => {
-        renderDrawer({ loading, filtersActive: true })
+        { loading: false, filtersActive: true, showsNotice: true },
+        { loading: false, filtersActive: false, showsNotice: true },
+        { loading: true, filtersActive: true, showsNotice: false },
+    ])(
+        'with no spans, loading=$loading and filtersActive=$filtersActive, shows the unavailable notice: $showsNotice',
+        ({ loading, filtersActive, showsNotice }) => {
+            renderDrawer({ loading, filtersActive })
 
-        expect(screen.queryByText('Trace unavailable') !== null).toBe(showsNotice)
-        expect(unavailableCaptures()).toEqual(
-            showsNotice ? [['tracing trace unavailable', { filters_active: true }]] : []
-        )
-    })
+            expect(screen.queryByText('Trace unavailable') !== null).toBe(showsNotice)
+            if (showsNotice) {
+                expect(screen.queryByText(/current filters/) !== null).toBe(filtersActive)
+            }
+            expect(unavailableCaptures()).toEqual(
+                showsNotice ? [['tracing trace unavailable', { filters_active: filtersActive, surface: 'drawer' }]] : []
+            )
+        }
+    )
 
     // A failed fetch must read as an error, not as "this trace has no spans" — the two share the
     // same empty `spans` array but mean opposite things to the user.
