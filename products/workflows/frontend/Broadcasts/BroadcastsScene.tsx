@@ -24,6 +24,8 @@ import {
     isMessagingSetupTab,
 } from '../messagingTabs'
 import { SendCalendar } from '../SendCalendar/SendCalendar'
+import { SendCalendarTabLabel } from '../SendCalendar/SendCalendarTabLabel'
+import { NewWorkflowModal } from '../Workflows/NewWorkflowModal'
 import { BroadcastsFeaturePreview } from './BroadcastsFeaturePreview'
 import { BroadcastsTable } from './BroadcastsTable'
 import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
@@ -97,7 +99,7 @@ export function BroadcastsScene(): JSX.Element {
                     broadcastsTab,
                     showCalendar
                         ? {
-                              label: 'Calendar',
+                              label: <SendCalendarTabLabel />,
                               key: 'calendar',
                               link: urls.broadcasts('calendar'),
                               content: <SendCalendar />,
@@ -123,6 +125,8 @@ export function BroadcastsScene(): JSX.Element {
                 ]}
                 sceneInset
             />
+            {/* The calendar can start a workflow, and its template picker lives in this modal. */}
+            {showCalendar ? <NewWorkflowModal /> : null}
         </SceneContent>
     )
 }

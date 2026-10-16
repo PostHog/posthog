@@ -15,6 +15,7 @@ import { LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-u
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
+import { SendCalendarLegend } from './SendCalendarLegend'
 import { SendCalendarList } from './SendCalendarList'
 import { sendCalendarLogic } from './sendCalendarLogic'
 import { SendCalendarMonth } from './SendCalendarMonth'
@@ -90,6 +91,7 @@ export function SendCalendar(): JSX.Element {
                 Times use the project time zone ({timezone}). Drafts and event-triggered workflows do not show.{' '}
                 <span className="hidden @min-[40rem]:inline">Drag a scheduled send to another day to move it.</span>
             </div>
+            <SendCalendarLegend />
             {scheduledFlowsLoading && !scheduledFlows ? (
                 <div className="flex justify-center p-8">
                     <Spinner className="text-2xl" />

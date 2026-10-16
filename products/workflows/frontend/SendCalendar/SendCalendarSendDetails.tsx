@@ -23,61 +23,75 @@ const CATEGORY_TYPES: Record<NonNullable<SendCategory['type']>, { label: string;
 }
 
 export function SendCalendarSendDetails({ send }: { send: CalendarSend }): JSX.Element {
-    const { messageCategoryNames } = useValues(sendCalendarLogic)
+    const { messageCategoryNames, timezone } = useValues(sendCalendarLogic)
     const isBroadcast = send.kind === 'broadcast'
     const moveReason = send.state === 'planned' ? moveBlockedReason(send) : null
     const categoryType = send.category.type ? CATEGORY_TYPES[send.category.type] : null
     const categoryName = send.category.id ? messageCategoryNames[send.category.id] : null
 
     return (
-        <div className="flex w-72 flex-col gap-2 p-2" data-attr="send-calendar-send-details">
-            <div className="flex items-center gap-1">
-                <LemonTag type={isBroadcast ? 'primary' : 'muted'}>{isBroadcast ? 'Broadcast' : 'Workflow'}</LemonTag>
-                <LemonTag type={STATE_TAGS[send.state].type}>{STATE_TAGS[send.state].label}</LemonTag>
-            </div>
-            <div>
-                <div className="text-sm font-semibold">{send.name}</div>
-                {send.repeat ? <div className="text-xs text-secondary">{send.repeat}</div> : null}
-            </div>
+        <div className="flex w-96 max-w-[calc(100vw-2rem)] flex-col gap-3 p-3" data-attr="send-calendar-send-details">
             <div className="flex flex-col gap-1">
-                <div className="text-xs font-semibold text-secondary">Sends to</div>
-                <SendCalendarAudience audience={send.audience} />
+                <div className="flex items-center gap-1">
+                    <LemonTag type={isBroadcast ? 'primary' : 'muted'}>
+                        {isBroadcast ? 'Broadcast' : 'Workflow'}
+                    </LemonTag>
+                    <LemonTag type={STATE_TAGS[send.state].type}>{STATE_TAGS[send.state].label}</LemonTag>
+                </div>
+                <div className="text-base font-semibold">{send.name}</div>
             </div>
-            <div className="flex flex-col gap-1">
-                <div className="text-xs font-semibold text-secondary">Message category</div>
-                {categoryType || categoryName ? (
-                    <div className="flex min-w-0 items-center gap-1 text-xs">
-                        {categoryType ? (
-                            <LemonTag size="small" type={categoryType.type}>
-                                {categoryType.label}
-                            </LemonTag>
-                        ) : null}
-                        {categoryName ? <span className="truncate">{categoryName}</span> : null}
-                    </div>
-                ) : (
-                    <div className="text-xs text-secondary">No category</div>
-                )}
-                {send.category.type === 'transactional' && !send.audience.address ? (
-                    <div className="text-xs text-warning">
-                        Transactional emails go to everyone in the audience, including people who unsubscribed.
-                    </div>
+            <dl className="m-0 grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-2 text-sm">
+                <dt className="text-secondary">When</dt>
+                <dd className="m-0">{send.at.tz(timezone).format('ddd, MMM D [at] h:mm A')}</dd>
+                {send.repeat ? (
+                    <>
+                        <dt className="text-secondary">Repeats</dt>
+                        <dd className="m-0">{send.repeat}</dd>
+                    </>
                 ) : null}
-            </div>
+                <dt className="text-secondary">Sends to</dt>
+                <dd className="m-0 min-w-0">
+                    <SendCalendarAudience audience={send.audience} />
+                </dd>
+                <dt className="text-secondary">Category</dt>
+                <dd className="m-0 min-w-0">
+                    {categoryType || categoryName ? (
+                        <div className="flex min-w-0 items-center gap-1">
+                            {categoryType ? (
+                                <LemonTag size="small" type={categoryType.type}>
+                                    {categoryType.label}
+                                </LemonTag>
+                            ) : null}
+                            {categoryName ? <span className="truncate">{categoryName}</span> : null}
+                        </div>
+                    ) : (
+                        <span className="text-secondary">No category</span>
+                    )}
+                </dd>
+                {send.createdBy ? (
+                    <>
+                        <dt className="text-secondary">Created by</dt>
+                        <dd className="m-0 flex items-center gap-1">
+                            <ProfilePicture
+                                user={{ first_name: send.createdBy.first_name, email: send.createdBy.email }}
+                                size="xs"
+                            />
+                            {send.createdBy.first_name || send.createdBy.email}
+                        </dd>
+                    </>
+                ) : null}
+            </dl>
+            {send.category.type === 'transactional' && !send.audience.address ? (
+                <div className="text-xs text-warning">
+                    Transactional emails go to everyone in the audience, including people who unsubscribed.
+                </div>
+            ) : null}
             {send.state === 'paused' ? (
                 <div className="text-xs text-secondary">
                     This schedule paused because its recipients changed. Open it to schedule it again.
                 </div>
             ) : moveReason ? (
                 <div className="text-xs text-secondary">{moveReason}</div>
-            ) : null}
-            {send.createdBy ? (
-                <div className="flex items-center gap-1 text-xs text-secondary">
-                    <ProfilePicture
-                        user={{ first_name: send.createdBy.first_name, email: send.createdBy.email }}
-                        size="xs"
-                    />
-                    Created by {send.createdBy.first_name || send.createdBy.email}
-                </div>
             ) : null}
             <LemonButton
                 type="primary"

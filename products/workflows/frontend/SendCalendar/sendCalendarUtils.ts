@@ -245,8 +245,9 @@ export function moveBlockedReason(send: Pick<CalendarSend, 'state' | 'schedule' 
     if (!isOneTimeSchedule(send.schedule.rrule)) {
         const state = parseRRuleToState(send.schedule.rrule)
         // Shifting the weekdays keeps a weekly cadence. Other repeat rules have no single shift that keeps
-        // their pattern, for example "the last day of the month".
-        if (state.frequency !== 'weekly' || state.interval !== 1) {
+        // their pattern, for example "the last day of the month". Every N weeks keeps its pattern only with
+        // one weekday: with two, a shift across the week start moves one of them into the skipped week.
+        if (state.frequency !== 'weekly' || (state.interval !== 1 && state.weekdays.length !== 1)) {
             return 'Open the schedule to move a send that repeats this way.'
         }
     }

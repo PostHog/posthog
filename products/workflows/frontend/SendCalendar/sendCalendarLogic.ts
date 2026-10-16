@@ -20,11 +20,14 @@ import {
 } from 'products/workflows/frontend/generated/api'
 import type { HogFlowScheduleApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { newBroadcastAgentLogic } from '../Broadcasts/newBroadcastAgentLogic'
 import { MessageCategory, optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
 import { SCHEDULED_TRIGGER_TYPES } from '../Workflows/hogflows/steps/types'
+import { newWorkflowLogic } from '../Workflows/newWorkflowLogic'
 import {
     CalendarRange,
     CalendarSend,
+    CalendarSendKind,
     CalendarTypeFilter,
     CalendarView,
     ScheduledEmailFlow,
@@ -76,12 +79,18 @@ export interface sendCalendarLogicActions {
     loadCohortsByIds: (args_0: { ids: number[] }) => {
         ids: number[]
     } // cohortsModel
+    startNewBroadcast: () => {
+        value: true
+    } // newBroadcastAgentLogic
+    startNewWorkflow: () => {
+        value: true
+    } // newWorkflowLogic
     applyMove: (
         send: CalendarSend,
         days: number,
-        at: dayjs.Dayjs
+        at: string
     ) => {
-        at: dayjs.Dayjs
+        at: string
         days: number
         send: CalendarSend
     }
@@ -142,6 +151,13 @@ export interface sendCalendarLogicActions {
     setView: (view: CalendarView) => {
         view: CalendarView
     }
+    startNewSend: (
+        kind: CalendarSendKind,
+        day: string
+    ) => {
+        day: string
+        kind: CalendarSendKind
+    }
     undoMove: (
         send: CalendarSend,
         previous: HogFlowScheduleApi
@@ -165,7 +181,9 @@ export interface sendCalendarLogicMeta {
             typeFilter: CalendarTypeFilter
         ) => CalendarSend[]
         sendsByDay: (sends: CalendarSend[], timezone: string) => Record<string, CalendarSend[]>
-        messageCategoryNames: (categories: any) => Record<string, string>
+        messageCategoryNames: (
+            categories: import('products/messaging/frontend/generated/api.schemas').MessageCategoryApi[]
+        ) => Record<string, string>
     }
 }
 
@@ -189,7 +207,14 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
             optOutCategoriesLogic,
             ['categories'],
         ],
-        actions: [cohortsModel, ['loadCohortsByIds']],
+        actions: [
+            cohortsModel,
+            ['loadCohortsByIds'],
+            newBroadcastAgentLogic,
+            ['startNewBroadcast'],
+            newWorkflowLogic,
+            ['startNewWorkflow'],
+        ],
     })),
     actions({
         setView: (view: CalendarView) => ({ view }),
@@ -199,8 +224,9 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
         goForward: true,
         goBackward: true,
         reportSendOpened: (send: CalendarSend) => ({ send }),
+        startNewSend: (kind: CalendarSendKind, day: string) => ({ kind, day }),
         moveSend: (send: CalendarSend, day: string) => ({ send, day }),
-        applyMove: (send: CalendarSend, days: number, at: dayjs.Dayjs) => ({ send, days, at }),
+        applyMove: (send: CalendarSend, days: number, at: string) => ({ send, days, at }),
         undoMove: (send: CalendarSend, previous: HogFlowScheduleApi) => ({ send, previous }),
         scheduleChanged: (flowId: string, schedule: HogFlowScheduleApi) => ({ flowId, schedule }),
         setScheduleSaving: (scheduleId: string, saving: boolean) => ({ scheduleId, saving }),
@@ -319,7 +345,7 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
                 return
             }
             if (!send.isRecurring) {
-                actions.applyMove(send, target.days, target.at)
+                actions.applyMove(send, target.days, target.at.toISOString())
                 return
             }
             const distance = `${Math.abs(target.days)} ${Math.abs(target.days) === 1 ? 'day' : 'days'}`
@@ -328,7 +354,7 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
                 description: `${send.name} repeats. This moves every future send ${target.days > 0 ? 'later' : 'earlier'} by ${distance}.`,
                 primaryButton: {
                     children: 'Move all future sends',
-                    onClick: () => actions.applyMove(send, target.days, target.at),
+                    onClick: () => actions.applyMove(send, target.days, target.at.toISOString()),
                     'data-attr': 'send-calendar-move-series',
                 },
                 secondaryButton: { children: 'Cancel' },
@@ -361,7 +387,7 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
                 const repeat = describeRepeat(fields)
                 const message = send.isRecurring
                     ? `Moved ${send.name}. It now sends ${repeat.charAt(0).toLowerCase()}${repeat.slice(1)}.`
-                    : `Moved ${send.name} to ${at.tz(values.timezone).format('ddd, MMM D [at] h:mm A')}.`
+                    : `Moved ${send.name} to ${dayjs(at).tz(values.timezone).format('ddd, MMM D [at] h:mm A')}.`
                 lemonToast.success(message, {
                     button: {
                         label: 'Undo',
@@ -418,6 +444,18 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
                 scheduled_flows: values.scheduledFlows?.length ?? 0,
                 sends_in_range: values.sends.length,
             })
+        },
+        startNewSend: ({ kind, day }) => {
+            // pinned: analytics event name
+            posthog.capture('send calendar new send started', {
+                kind,
+                days_from_today: dayjs.utc(day).diff(dayjs.utc(values.today), 'day'),
+            })
+            if (kind === 'broadcast') {
+                actions.startNewBroadcast()
+            } else {
+                actions.startNewWorkflow()
+            }
         },
         reportSendOpened: ({ send }) => {
             // pinned: analytics event name

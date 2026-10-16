@@ -187,9 +187,10 @@ describe('sendCalendarUtils', () => {
             plannedSend('FREQ=WEEKLY;BYDAY=TU', { state: 'paused' }),
             'This schedule is paused. Open it to schedule it again.',
         ],
+        ['a send that repeats every 2 weeks', plannedSend('FREQ=WEEKLY;INTERVAL=2;BYDAY=TH'), null],
         [
-            'a send that repeats every 2 weeks',
-            plannedSend('FREQ=WEEKLY;INTERVAL=2;BYDAY=TH'),
+            'a send that repeats every 2 weeks on two weekdays',
+            plannedSend('FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,FR'),
             'Open the schedule to move a send that repeats this way.',
         ],
         [
@@ -233,6 +234,12 @@ describe('sendCalendarUtils', () => {
             schedule('FREQ=WEEKLY;BYDAY=SU', '2026-09-06T09:00:00Z', 'active', 'UTC'),
             1,
             { starts_at: '2026-09-07T09:00:00.000Z', rrule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO' },
+        ],
+        [
+            'keeps the interval of a send that repeats every 2 weeks',
+            schedule('FREQ=WEEKLY;INTERVAL=2;BYDAY=TU', '2026-09-01T16:00:00Z', 'active', 'UTC'),
+            2,
+            { starts_at: '2026-09-03T16:00:00.000Z', rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TH' },
         ],
     ])('%s', (_, value, days, expected) => {
         expect(movedScheduleFields(value, days)).toEqual(expected)

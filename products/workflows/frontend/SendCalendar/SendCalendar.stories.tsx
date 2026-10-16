@@ -215,6 +215,15 @@ function useCalendarMocks(flows: HogFlowMinimalApi[]): void {
     })
 }
 
+// The test runner shrinks the story root to its content, and a container query root has no width of its own.
+function FullWidthCalendar(): JSX.Element {
+    return (
+        <div className="w-[75rem]">
+            <SendCalendar />
+        </div>
+    )
+}
+
 function CalendarAt({ view, anchor }: { view: 'month' | 'week'; anchor: string }): JSX.Element {
     useMountedLogic(sendCalendarLogic)
     const { setView, setAnchor } = useActions(sendCalendarLogic)
@@ -222,12 +231,12 @@ function CalendarAt({ view, anchor }: { view: 'month' | 'week'; anchor: string }
         setView(view)
         setAnchor(anchor)
     }, [setView, setAnchor, view, anchor])
-    return <SendCalendar />
+    return <FullWidthCalendar />
 }
 
 export const MonthView: StoryFn = () => {
     useCalendarMocks(FLOWS)
-    return <SendCalendar />
+    return <FullWidthCalendar />
 }
 
 // The week with four sends on one day, which a month cell cuts to three.
@@ -254,7 +263,7 @@ NarrowWidth.parameters = {
 
 export const NothingScheduled: StoryFn = () => {
     useCalendarMocks([])
-    return <SendCalendar />
+    return <FullWidthCalendar />
 }
 NothingScheduled.parameters = {
     testOptions: { waitForLoadersToDisappear: true, waitForSelector: '[data-attr=send-calendar]' },

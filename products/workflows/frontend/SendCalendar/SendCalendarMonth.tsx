@@ -10,6 +10,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { SendCalendarDraggableSend } from './SendCalendarDraggableSend'
 import { SendCalendarDropZone } from './SendCalendarDropZone'
 import { sendCalendarLogic } from './sendCalendarLogic'
+import { SendCalendarNewSendButton } from './SendCalendarNewSendButton'
 import { CalendarSend } from './sendCalendarUtils'
 
 const MAX_VISIBLE_SENDS = 3
@@ -19,7 +20,11 @@ export function SendCalendarMonth(): JSX.Element {
     const month = anchorDate.slice(0, 7)
 
     return (
-        <div className="overflow-hidden rounded border bg-surface-primary" data-attr="send-calendar-month">
+        // On a wide screen the weeks share the height under the toolbar, so the grid fills the screen.
+        <div
+            className="flex flex-col overflow-hidden rounded border bg-surface-primary @min-[60rem]:min-h-[calc(100vh-16rem)]"
+            data-attr="send-calendar-month"
+        >
             <div className="grid grid-cols-7 border-b bg-surface-secondary">
                 {days.slice(0, 7).map((day) => (
                     <div key={day} className="px-2 py-1 text-xs font-semibold uppercase text-secondary">
@@ -27,7 +32,7 @@ export function SendCalendarMonth(): JSX.Element {
                     </div>
                 ))}
             </div>
-            <div className="grid grid-cols-7">
+            <div className="grid flex-1 auto-rows-fr grid-cols-7">
                 {days.map((day, index) => {
                     const sends = sendsByDay[day] ?? []
                     const date = dayjs.utc(day)
@@ -36,13 +41,13 @@ export function SendCalendarMonth(): JSX.Element {
                             key={day}
                             day={day}
                             className={clsx(
-                                'flex min-h-28 min-w-0 flex-col gap-0.5 p-1',
+                                'group flex min-h-28 min-w-0 flex-col gap-0.5 p-1',
                                 index % 7 !== 6 && 'border-r',
                                 index < days.length - 7 && 'border-b',
                                 !day.startsWith(month) && 'bg-surface-secondary'
                             )}
                         >
-                            <div className="px-1 text-xs font-semibold">
+                            <div className="flex h-6 items-center justify-between pl-1 text-xs font-semibold">
                                 <span
                                     className={clsx(
                                         day === today && 'rounded-full bg-accent px-1.5 py-0.5 text-primary-inverse',
@@ -51,6 +56,7 @@ export function SendCalendarMonth(): JSX.Element {
                                 >
                                     {date.date() === 1 ? date.format('MMM D') : date.format('D')}
                                 </span>
+                                {day >= today ? <SendCalendarNewSendButton day={day} /> : null}
                             </div>
                             {sends.slice(0, MAX_VISIBLE_SENDS).map((send) => (
                                 <SendCalendarDraggableSend key={send.key} send={send} />
