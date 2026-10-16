@@ -28,9 +28,9 @@ from posthog.permissions import posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG, MetricFilter
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp
-from products.metrics.backend.hogql_queries.metrics_query_runner import metrics_query_date_range
 from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _QUERY_SETTINGS, _interval_step
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.variables import (

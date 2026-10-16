@@ -15,7 +15,8 @@ from functools import partial
 from itertools import islice
 from typing import Any
 
-from django.core.cache import cache
+from django.core.cache import caches
+from django.utils.connection import ConnectionProxy
 
 from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSource
 
@@ -57,6 +58,7 @@ _OPTIONS_CACHE_SECONDS = 60
 # The lock outlasts the slowest query, a 60 second Snuffle or ClickHouse query, so a slow query runs only once.
 _OPTIONS_LOCK_SECONDS = 90
 _OPTIONS_POLL_SECONDS = 0.1
+cache = ConnectionProxy(caches, "metrics_variable_options")
 # The selection API accepts values up to this length, so a longer option could not be selected.
 MAX_OPTION_LENGTH = 1024
 

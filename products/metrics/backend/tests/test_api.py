@@ -26,7 +26,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.facade.user_access_control import AccessControlLevelResource
 from products.access_control.backend.models.access_control import AccessControl
 from products.error_tracking.backend.facade.testing import create_issue, create_spike_event
-from products.metrics.backend.hogql_queries.metrics_query_runner import metrics_query_date_range
+from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.variable_options import fill_all_values
 from products.metrics.backend.variables import Variable
 
@@ -95,6 +95,19 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
             assert self._fill_all(window.date_from(), window.date_to()) == ["api", "worker"]
 
         assert run.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("wider_than_tiles", {"dateFrom": "-60d"}),
+            ("start_after_end", {"dateFrom": "-1h", "dateTo": "-2h"}),
+        ]
+    )
+    def test_rejects_windows_that_tiles_reject(self, _name: str, window: dict[str, str]) -> None:
+        with patch("products.metrics.backend.variable_options.run_metrics_sql_values") as run:
+            response = self._post({"source": "sql", "query": OPTIONS_SQL, **window})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        run.assert_not_called()
 
     def test_clickhouse_limits_are_shown_to_the_user(self) -> None:
         with patch(
