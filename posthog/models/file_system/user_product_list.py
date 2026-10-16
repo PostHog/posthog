@@ -1,86 +1,20 @@
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import ClassVar
 
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models.expressions import F
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
-from django.utils import timezone
 
-from posthog.models.file_system.starred_products import star_custom_products
+from posthog.models.file_system.starred_products import star_default_products
 from posthog.models.utils import UpdatedMetaFields, UUIDModel, uuid7
-from posthog.products import Products
-from posthog.schema_enums import ProductItemCategory, ProductKey
-
-if TYPE_CHECKING:
-    from posthog.models.organization import Organization
-    from posthog.models.product_intent.product_intent import ProductIntent
-    from posthog.models.team import Team
-    from posthog.models.user import User
-
-# The baseline sidebar: every user gets these whenever they gain access to a project.
-# Paths must match `path` values in frontend/src/products.json.
-DEFAULT_PRODUCT_PATHS = [
-    "Product analytics",
-    "Dashboards",
-    "Web analytics",
-    "Error tracking",
-    "Session replay",
-]
-
-
-def add_default_products_for_user(user: "User", team: "Team") -> "list[UserProductList]":
-    """
-    Add the default set of products to a user's sidebar for a team.
-
-    Called whenever a user/project connection is created (project creation, invite
-    acceptance, access grants). Rows the user already has - enabled or intentionally
-    disabled - are left untouched.
-    """
-    existing_paths = set(
-        UserProductList.objects.filter(user=user, team=team, product_path__in=DEFAULT_PRODUCT_PATHS).values_list(
-            "product_path", flat=True
-        )
-    )
-    missing_paths = [path for path in DEFAULT_PRODUCT_PATHS if path not in existing_paths]
-    if not missing_paths:
-        return []
-
-    had_custom_products = user_has_custom_products(user)
-    # `ignore_conflicts` + `unique_together` on (team, user, product_path) keep this
-    # idempotent under concurrent seeding.
-    created = UserProductList.objects.bulk_create(
-        [UserProductList(user=user, team=team, product_path=path, enabled=True) for path in missing_paths],
-        ignore_conflicts=True,
-    )
-    star_custom_products(user, team, missing_paths, had_custom_products=had_custom_products)
-    return created
-
-
-def user_has_custom_products(user: "User") -> bool:
-    """Whether the user has any enabled custom product in any project."""
-    return UserProductList.objects.filter(user=user, enabled=True).exists()
-
-
-def add_default_products_for_accessible_teams(user: "User", organization: "Organization") -> None:
-    """
-    Add the default products to the user's sidebar for every team in the organization
-    they have access to. Called when a user/organization connection is created (invite
-    acceptance, domain/SSO auto-join).
-    """
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
-
-    uac = UserAccessControl(user=user, organization_id=str(organization.id))
-    accessible_teams = uac.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
-
-    for team in accessible_teams:
-        add_default_products_for_user(user, team)
 
 
 class UserProductList(UUIDModel, UpdatedMetaFields):
     """
-    Stores a user's custom list of products they care about.
-    Products are identified by their path from the static products list.
+    A user's custom sidebar products from before starred products replaced them.
+
+    Nothing writes it anymore. It stays until the starred products backfill has moved every user over.
     """
 
     # django-stubs normally injects the default `objects` manager during mypy's semantic pass,
@@ -115,82 +49,15 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         verbose_name = "User Product List"
         verbose_name_plural = "User Product Lists"
 
-    @staticmethod
-    def enable_all_for_user(user: "User", team: "Team") -> "list[UserProductList]":
-        """Enable every released product in the sidebar for a user on a given team.
-
-        Skips Unreleased/alpha products — those are intentionally opt-in (mirroring the
-        EditCustomProductsModal "Unreleased" group, which the user must enable one-by-one).
-        Re-enables rows the user previously disabled.
-        """
-        target_paths = [
-            product.path for product in Products.products() if product.category != ProductItemCategory.UNRELEASED
-        ]
-        if not target_paths:
-            return []
-
-        # Bulk-create rows that don't yet exist (~one query) instead of N sequential
-        # `get_or_create` round-trips, then bulk-flip any rows the user had previously
-        # disabled. `unique_together` on (team, user, product_path) makes this idempotent.
-        # `auto_now` doesn't fire on bulk update, so set updated_at explicitly.
-        had_custom_products = user_has_custom_products(user)
-        already_enabled = set(
-            UserProductList.objects.filter(
-                user=user, team=team, product_path__in=target_paths, enabled=True
-            ).values_list("product_path", flat=True)
-        )
-        UserProductList.objects.bulk_create(
-            [UserProductList(user=user, team=team, product_path=path, enabled=True) for path in target_paths],
-            ignore_conflicts=True,
-        )
-        UserProductList.objects.filter(user=user, team=team, product_path__in=target_paths, enabled=False).update(
-            enabled=True, updated_at=timezone.now()
-        )
-        # Products that were already enabled keep whatever star choice the user made for them.
-        newly_enabled = [path for path in target_paths if path not in already_enabled]
-        star_custom_products(user, team, newly_enabled, had_custom_products=had_custom_products)
-        return list(UserProductList.objects.filter(user=user, team=team, product_path__in=target_paths))
-
-    @staticmethod
-    def create_from_product_intent(product_intent: "ProductIntent", user: "User") -> "list[UserProductList]":
-        if user.allow_sidebar_suggestions is False:
-            return []
-
-        products = Products.get_products_by_intent(cast(ProductKey, product_intent.product_type))
-        if not products:
-            return []
-
-        had_custom_products = user_has_custom_products(user)
-        user_product_lists = []
-        added_paths = []
-        for product in products:
-            item, created = UserProductList.objects.get_or_create(
-                user=user,
-                team=product_intent.team,
-                product_path=product.path,
-                defaults={"enabled": True},
-            )
-            user_product_lists.append(item)
-            if created:
-                added_paths.append(product.path)
-
-        star_custom_products(user, product_intent.team, added_paths, had_custom_products=had_custom_products)
-        return user_product_lists
-
 
 @receiver(post_save, sender="ee.AccessControl")
 def access_control_created(sender, instance, created, **kwargs):
-    """
-    Handle AccessControl creation to seed UserProductList for users gaining access to a team.
-
-    When a user is granted access to a team via AccessControl, we add the default set of
-    products to their sidebar for that team.
-    """
+    """Star the default products for a user who is granted access to a project."""
     if created and instance.organization_member and instance.resource == "project":
         user = instance.organization_member.user
         team = instance.team
 
         if settings.TEST:
-            add_default_products_for_user(user, team)
+            star_default_products(user, team)
         else:
-            transaction.on_commit(lambda: add_default_products_for_user(user, team))
+            transaction.on_commit(lambda: star_default_products(user, team))

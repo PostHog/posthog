@@ -19,6 +19,7 @@ import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -267,6 +268,27 @@ export interface projectTreeDataLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
+    addProductIntentForCrossSellSuccess: (
+        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
+        payload?: import('../../../lib/utils/product-intents').ProductCrossSellProperties | undefined
+    ) => {
+        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
+        payload?: import('../../../lib/utils/product-intents').ProductCrossSellProperties
+    } // teamLogic
+    addProductIntentSuccess: (
+        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
+        payload?: import('../../../lib/utils/product-intents').ProductIntentProperties | undefined
+    ) => {
+        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
+        payload?: import('../../../lib/utils/product-intents').ProductIntentProperties
+    } // teamLogic
+    recordProductIntentOnboardingCompleteSuccess: (
+        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
+        payload?: import('scenes/teamLogic').ProductOnboardingCompleteProperties | undefined
+    ) => {
+        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
+        payload?: import('scenes/teamLogic').ProductOnboardingCompleteProperties
+    } // teamLogic
     addLoadedResults: (results: RecentResults | SearchResults) => {
         results: RecentResults | SearchResults
     }
@@ -644,7 +666,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             userLogic,
             ['user'],
         ],
-        actions: [router, ['locationChanged']],
+        actions: [
+            router,
+            ['locationChanged'],
+            teamLogic,
+            [
+                'addProductIntentSuccess',
+                'addProductIntentForCrossSellSuccess',
+                'recordProductIntentOnboardingCompleteSuccess',
+            ],
+        ],
     })),
     actions({
         setStarredNavigationRef: (ref: ProjectTreeRef | null, href?: string) => ({ ref, href }),
@@ -1724,6 +1755,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 // Matching paths can belong to folders in other environments that did not move.
                 actions.loadShortcuts()
             }
+        },
+        // A new product intent can star products on the backend.
+        addProductIntentSuccess: () => {
+            actions.loadShortcuts()
+        },
+        addProductIntentForCrossSellSuccess: () => {
+            actions.loadShortcuts()
+        },
+        recordProductIntentOnboardingCompleteSuccess: () => {
+            actions.loadShortcuts()
         },
         loadHomeFolderSuccess: () => {
             actions.loadShortcuts()

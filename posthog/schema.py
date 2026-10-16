@@ -3529,17 +3529,6 @@ class UserBasicType(BaseModel):
     uuid: str
 
 
-class UserProductListItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: str
-    enabled: bool
-    id: str
-    product_path: str
-    updated_at: str
-
-
 class VectorSearchResponseItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
