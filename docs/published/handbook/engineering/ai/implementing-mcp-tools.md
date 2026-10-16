@@ -113,11 +113,9 @@ The server validates the name, positive integer version, and nonblank text of at
 It reads the snapshot from the existing flag evaluation, without another prompt fetch during tool discovery.
 Start with a release condition matching one authenticated user's distinct ID; do not add an unconditional release condition.
 
-On a trial tool listing, the existing SDK `captureToolsList` response field records one tool's served `context` schema.
-This bounded projection excludes the command reference and other tool arguments.
-Compare that description against the immutable prompt version to establish which text the server supplied.
-The flag's current value alone does not prove exposure: clients cache schemas and may need a fresh connection.
-Calls without a matching observed listing have unknown prompt exposure.
+Clients cache tool schemas. Refresh the client's tool list or reconnect after deployment before collecting trial data.
+Use the targeted user's calls after that refresh for offline evaluation, and record when the prompt snapshot changes.
+Existing intent analytics stay unchanged; the server does not capture the prompt text separately.
 
 This collection trial changes no tool results and adds no recommendations or elicitation.
 Evaluate intent against independently recorded abstract task goals, checking invented goals, identifying details, and appropriate uncertainty.

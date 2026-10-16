@@ -60,7 +60,7 @@ import {
     type ToolCallAnalyticsMeta,
 } from './analytics'
 import type { InstructionsBuilder } from './instructions'
-import { type IntentPrompt, sampleIntentPrompt } from './intent-prompt'
+import type { IntentPrompt } from './intent-prompt'
 import { getEffectiveMCPClientContext, getEffectiveMCPClientIdentity, resolveSessionKey } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
@@ -159,8 +159,7 @@ export class ToolExecutor {
 
         void trackToolsList(
             tools.map((t) => t.name),
-            state,
-            sampleIntentPrompt(tools, state.intentPrompt)
+            state
         )
 
         return { tools }

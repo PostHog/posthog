@@ -1,4 +1,3 @@
-import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 
 import type { FlagValue } from '@/lib/posthog/flags'
@@ -20,27 +19,4 @@ export function resolveIntentPrompt(value: FlagValue, payload: unknown): IntentP
     }
     const result = intentPromptSchema.safeParse(payload)
     return result.success ? result.data : undefined
-}
-
-export function sampleIntentPrompt(
-    tools: ListToolsResult['tools'],
-    prompt?: IntentPrompt
-): ListToolsResult | undefined {
-    if (!prompt) {
-        return undefined
-    }
-    const tool = tools.find((entry) => {
-        const context = entry.inputSchema.properties?.context as { description?: unknown } | undefined
-        return context?.description === prompt.prompt
-    })
-    return tool
-        ? {
-              tools: [
-                  {
-                      name: tool.name,
-                      inputSchema: { type: 'object', properties: { context: { description: prompt.prompt } } },
-                  },
-              ],
-          }
-        : undefined
 }
