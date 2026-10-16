@@ -110,11 +110,17 @@ const TRAILING_LIST_MARKER = /\n[ \t]*(?:[-*+]|\d+[.)])[ \t]*$/
 interface ChatMarkdownProps {
     text: string
     streaming?: boolean
+    tone?: 'reply' | 'thought'
 }
 
-export function ChatMarkdown({ text, streaming = false }: ChatMarkdownProps): ReactElement {
+export function ChatMarkdown({ text, streaming = false, tone = 'reply' }: ChatMarkdownProps): ReactElement {
     return (
-        <Markdown markdownit={markdownIt} rules={rules} style={markdownStyles} onLinkPress={openLink}>
+        <Markdown
+            markdownit={markdownIt}
+            rules={rules}
+            style={tone === 'thought' ? thoughtStyles : replyStyles}
+            onLinkPress={openLink}
+        >
             {streaming ? text.replace(TRAILING_LIST_MARKER, '') : text}
         </Markdown>
     )
@@ -125,7 +131,7 @@ const code = {
     color: colors.ink,
 } as const
 
-const markdownStyles = StyleSheet.create({
+const replyStyles = StyleSheet.create({
     body: {
         fontSize: 16,
         lineHeight: 23.2,
@@ -227,5 +233,46 @@ const markdownStyles = StyleSheet.create({
     },
     td: {
         padding: 8,
+    },
+})
+
+const thoughtCode = {
+    fontFamily: fonts.mono,
+    color: colors.muted,
+    // Code inherits the italic body style, and italic monospace is hard to read.
+    fontStyle: 'normal',
+} as const
+
+const thoughtHeading = { ...type.bodySmallStrong, color: colors.muted, marginTop: 4, marginBottom: 6 } as const
+
+const thoughtStyles = StyleSheet.create({
+    ...replyStyles,
+    body: {
+        ...type.bodySmall,
+        color: colors.muted,
+        fontStyle: 'italic',
+    },
+    heading1: thoughtHeading,
+    heading2: thoughtHeading,
+    heading3: thoughtHeading,
+    heading4: thoughtHeading,
+    heading5: thoughtHeading,
+    heading6: thoughtHeading,
+    link: {
+        color: colors.muted,
+        textDecorationLine: 'underline',
+    },
+    code_inline: {
+        ...replyStyles.code_inline,
+        ...thoughtCode,
+        fontSize: 13,
+    },
+    code_block: {
+        ...replyStyles.code_block,
+        ...thoughtCode,
+    },
+    fence: {
+        ...replyStyles.fence,
+        ...thoughtCode,
     },
 })

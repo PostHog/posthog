@@ -5,6 +5,7 @@ import type { TaskRunStatus } from '@/model/types'
 
 import { parsePermissionRequest, requestKind } from './permissionRequest'
 import { routePermissionRequest } from './toolPolicy'
+import { describeToolCall, mergeToolCallSource, toolCallSource } from './toolTitle'
 import type { PermissionRecord, RunStreamState } from './types'
 
 // Frame formats are in `docs/HANDOFF.md`. Web reference: `products/posthog_ai/frontend/logics/runStreamLogic.ts`.
@@ -28,17 +29,7 @@ const AGENT_GENERATING_UPDATES: ReadonlySet<string> = new Set([
     'plan',
 ])
 
-const TOOL_TITLE_CHARS = 80
 const HANDLED_REQUEST_LIMIT = 200
-
-const TOOL_VERBS: Record<string, string> = {
-    Read: 'Reading',
-    Edit: 'Editing',
-    Write: 'Writing',
-    Find: 'Finding',
-    Fetch: 'Fetching',
-    Search: 'Searching',
-}
 
 export function isTerminalRunStatus(status: TaskRunStatus): boolean {
     return TERMINAL_STATUSES.has(status)
@@ -88,6 +79,7 @@ function settle(state: RunStreamState): RunStreamState {
               messageOpen: false,
               toolTitle: undefined,
               latestToolCallId: undefined,
+              latestToolCall: undefined,
               progressLabel: undefined,
               serverStage: undefined,
           }
@@ -123,21 +115,6 @@ export function applyRunSnapshot(state: RunStreamState, run: TaskRunApi): RunStr
     return run.id === state.runId && run.task === state.taskId
         ? applyRunFields(state, run as unknown as Record<string, unknown>)
         : state
-}
-
-export function shortenToolTitle(title: string): string {
-    const words = title
-        .trim()
-        .split(/\s+/)
-        .map((word) =>
-            word.includes('/') && !word.includes('://') ? (word.split('/').filter(Boolean).pop() ?? word) : word
-        )
-    const first = words[0]
-    if (first && TOOL_VERBS[first]) {
-        words[0] = TOOL_VERBS[first] as string
-    }
-    const short = words.join(' ')
-    return short.length > TOOL_TITLE_CHARS ? `${short.slice(0, TOOL_TITLE_CHARS - 1).trimEnd()}…` : short
 }
 
 export function displayStage(state: RunStreamState): string | undefined {
@@ -228,21 +205,24 @@ function reduceSessionUpdate(
             return { ...next, messageOpen: false, activity: next.activity + 1 }
         case 'tool_call': {
             const toolCallId = asString(update.toolCallId)
-            const title = asString(update.title)
+            const source = toolCallSource(update)
+            const { title } = describeToolCall(source, asString(update.title))
             next = { ...next, messageOpen: false, activity: next.activity + 1 }
             if (toolCallId) {
                 next.latestToolCallId = toolCallId
+                next.latestToolCall = source
             }
             if (title) {
-                next.toolTitle = shortenToolTitle(title)
+                next.toolTitle = title
             }
             return next
         }
         case 'tool_call_update': {
             const toolCallId = asString(update.toolCallId)
-            const title = asString(update.title)
-            if (title && toolCallId && toolCallId === next.latestToolCallId) {
-                next = { ...next, toolTitle: shortenToolTitle(title) }
+            if (toolCallId && toolCallId === next.latestToolCallId) {
+                const source = mergeToolCallSource(next.latestToolCall, toolCallSource(update))
+                const { title } = describeToolCall(source, asString(update.title))
+                next = { ...next, latestToolCall: source, ...(title ? { toolTitle: title } : {}) }
             }
             // Another client answered: the tool the agent asked about has finished. Resolution
             // frames only arrive in the durable-log replay, never live.
@@ -317,6 +297,7 @@ function reduceNotification(
                 phase: 'idle',
                 toolTitle: undefined,
                 latestToolCallId: undefined,
+                latestToolCall: undefined,
                 serverStage: undefined,
                 messageOpen: false,
                 progressLabel: undefined,

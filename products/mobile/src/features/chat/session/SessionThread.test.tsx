@@ -49,6 +49,7 @@ const EDITING: SessionToolInvocation = {
     kind: 'edit',
     status: 'in_progress',
     title: 'Edit Legend.tsx',
+    detail: 'Pass the series name to the legend',
 }
 
 const INVOCATIONS = new Map<string, SessionToolInvocation>([
@@ -62,7 +63,7 @@ const TWO_GROUPS: SessionThreadItem[] = [
     { kind: 'tool', id: 't1', toolCallId: 'c1' },
     { kind: 'tool', id: 't2', toolCallId: 'c2' },
     { kind: 'assistant', id: 'a1', text: 'The legend reads a stale prop.', complete: true },
-    { kind: 'thought', id: 'th1', text: 'Change the prop name', complete: true },
+    { kind: 'thought', id: 'th1', text: 'Change the **prop** `name`', complete: true },
     { kind: 'tool', id: 't3', toolCallId: 'c3' },
 ]
 
@@ -92,8 +93,10 @@ describe('SessionThread', () => {
         )
         expect(screen.getByLabelText('Ran 1 command, read a file')).toBeTruthy()
         expect(screen.queryByTestId('session-tool-c1')).toBeNull()
-        expect(screen.getByTestId('session-tool-c3')).toBeTruthy()
-        expect(screen.getByText('Change the prop name')).toBeTruthy()
+        expect(screen.getByTestId('session-tool-c3')).toHaveTextContent(/Pass the series name to the legend/)
+        expect(screen.getByText('prop')).toBeTruthy()
+        expect(screen.getByText('name')).toBeTruthy()
+        expect(screen.queryByText(/\*\*|`/)).toBeNull()
         expect(screen.getByTestId('chat-progress')).toHaveTextContent('Editing')
 
         fireEvent.press(screen.getByLabelText('Ran 1 command, read a file'))

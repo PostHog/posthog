@@ -15,6 +15,8 @@ export interface SessionToolInvocation {
     toolName: string
     /** The ACP `title`, already shortened for a phone row. */
     title?: string
+    /** The PostHog MCP `context` sentence: why the agent made this call. */
+    detail?: string
     /** The ACP `kind` (`execute`, `read`, `edit`, …), which the activity summary counts. */
     kind?: string
     status: SessionToolStatus

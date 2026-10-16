@@ -1,6 +1,6 @@
 import type { FrameContext } from '@/features/handoff/runStream'
-import { shortenToolTitle } from '@/features/handoff/runStream'
 import { extractAgentToolName, isPostHogExecTool, resolveToolCall } from '@/features/handoff/toolPolicy'
+import { describeToolCall } from '@/features/handoff/toolTitle'
 import { asRecord, isRecord } from '@/lib/records'
 
 import { stripInjectedContext } from '../contextPrompt'
@@ -473,12 +473,13 @@ class Draft {
             meta: update._meta,
         }
         this.rawToolCalls.set(toolCallId, raw)
-        const title = asText(update.title)
+        const { title, detail } = describeToolCall(raw, asText(update.title))
         const kind = asText(update.kind)
         this.invocations.set(toolCallId, {
             toolCallId,
             toolName: toolDisplayName(raw),
-            ...(title ? { title: shortenToolTitle(title) } : {}),
+            ...(title ? { title } : {}),
+            ...(detail ? { detail } : {}),
             ...(kind ? { kind } : {}),
             status: toolStatus(update.status),
         })
@@ -507,12 +508,15 @@ class Draft {
         }
         this.rawToolCalls.set(toolCallId, raw)
         const toolName = toolDisplayName(raw) || (existing?.toolName ?? '')
-        const title = asText(update.title)
+        const described = describeToolCall(raw, asText(update.title))
+        const title = described.title ?? existing?.title
+        const detail = described.detail ?? existing?.detail
         const kind = existing?.kind ?? asText(update.kind)
         this.invocations.set(toolCallId, {
             toolCallId,
             toolName,
-            ...(title ? { title: shortenToolTitle(title) } : existing?.title ? { title: existing.title } : {}),
+            ...(title ? { title } : {}),
+            ...(detail ? { detail } : {}),
             ...(kind ? { kind } : {}),
             status,
             ...(errorMessage ? { errorMessage } : {}),
