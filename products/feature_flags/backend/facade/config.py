@@ -13,9 +13,9 @@ A JSON string or boolean never selects a version, and a stored value that is not
 reader with only a v1 branch checks the format before it touches any v1 key.
 
 The v2 DTOs are structural reads of a stored document. They carry the fields later consumers
-route on (return type, ordered rule identities and values, experiment identity, and the cohort
-and flag targeting predicates) and nothing else. The full v2 schema lives in the contract; do not
-grow this module into a second copy of it.
+route on (return type, ordered rule identities and values, and the cohort and flag targeting
+predicates) and nothing else. The full v2 schema lives in the contract; do not grow this module
+into a second copy of it.
 
 Deliberately free of Django/DRF imports (same reason as ``facade.filters``): consumer model
 modules import this at module level.
@@ -91,9 +91,10 @@ class RuleV2:
     # The targeting predicates that name a cohort or another flag, as stored.
     reference_predicates: tuple[Mapping[str, Any], ...] = ()
     rule_type: RuleType
-    experiment_id: int | None
     # None for an experiment rule, whose values sit on its variants.
     value: FlagValue | None
+    # An experiment rule's variant values in stored order, equal values included; empty for other rules.
+    variant_values: tuple[FlagValue, ...] = ()
 
     def __post_init__(self) -> None:
         if self.rule_type not in get_args(RuleType):
@@ -170,6 +171,6 @@ def _rule_v2(rule: Mapping[str, Any]) -> RuleV2:
             prop for prop in rule["targeting"]["properties"] if prop.get("type") in _REFERENCE_PREDICATE_TYPES
         ),
         rule_type=rule_type,
-        experiment_id=rule["experiment_id"] if rule_type == "experiment" else None,
         value=None if rule_type == "experiment" else rule["value"],
+        variant_values=tuple(variant["value"] for variant in rule["variants"]) if rule_type == "experiment" else (),
     )
