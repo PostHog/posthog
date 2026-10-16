@@ -9903,6 +9903,13 @@
                     "description": "Executed ClickHouse query",
                     "type": "string"
                 },
+                "column_formats": {
+                    "description": "Display formats for directly selected virtual properties, aligned with columns.",
+                    "items": {
+                        "type": ["string", "null"]
+                    },
+                    "type": "array"
+                },
                 "columns": {
                     "description": "Returned columns",
                     "items": {},
@@ -19123,6 +19130,13 @@
                                 "clickhouse": {
                                     "description": "Executed ClickHouse query",
                                     "type": "string"
+                                },
+                                "column_formats": {
+                                    "description": "Display formats for directly selected virtual properties, aligned with columns.",
+                                    "items": {
+                                        "type": ["string", "null"]
+                                    },
+                                    "type": "array"
                                 },
                                 "columns": {
                                     "description": "Returned columns",
@@ -29846,6 +29860,13 @@
                 "clickhouse": {
                     "description": "Executed ClickHouse query",
                     "type": "string"
+                },
+                "column_formats": {
+                    "description": "Display formats for directly selected virtual properties, aligned with columns.",
+                    "items": {
+                        "type": ["string", "null"]
+                    },
+                    "type": "array"
                 },
                 "columns": {
                     "description": "Returned columns",
@@ -42377,6 +42398,13 @@
                             "description": "Executed ClickHouse query",
                             "type": "string"
                         },
+                        "column_formats": {
+                            "description": "Display formats for directly selected virtual properties, aligned with columns.",
+                            "items": {
+                                "type": ["string", "null"]
+                            },
+                            "type": "array"
+                        },
                         "columns": {
                             "description": "Returned columns",
                             "items": {},
@@ -44976,6 +45004,13 @@
                         "clickhouse": {
                             "description": "Executed ClickHouse query",
                             "type": "string"
+                        },
+                        "column_formats": {
+                            "description": "Display formats for directly selected virtual properties, aligned with columns.",
+                            "items": {
+                                "type": ["string", "null"]
+                            },
+                            "type": "array"
                         },
                         "columns": {
                             "description": "Returned columns",
