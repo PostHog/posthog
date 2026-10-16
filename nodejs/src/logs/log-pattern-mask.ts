@@ -162,7 +162,8 @@ export const MASK_RULES: readonly MaskRule[] = [
     // `snakenum` takes digits that run into a UUID and leaves the rest of the UUID as literals.
     {
         name: 'snakeuuid',
-        pattern: '_\\d{4,}(?:_\\d+)*_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
+        pattern:
+            '_\\d{4,}(?:_\\d+)*_[0-9a-fA-F]*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
         replacement: '_<N>_<UUID>',
     },
     {
@@ -170,9 +171,11 @@ export const MASK_RULES: readonly MaskRule[] = [
         pattern: '_[0-9a-fA-F]*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
         replacement: '_<UUID>',
     },
+    // The leading hex run takes characters glued to the front of a UUID, which `hex` or `num` would
+    // otherwise claim first and so leave the UUID's other groups behind as literals.
     {
         name: 'uuid',
-        pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
+        pattern: '[0-9a-fA-F]*[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
         replacement: '<UUID>',
     },
     { name: 'snakenum', pattern: '_\\d{4,}(?:_\\d+)*\\b', replacement: '_<N>' },

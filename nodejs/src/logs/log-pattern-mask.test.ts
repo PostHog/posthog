@@ -75,6 +75,16 @@ describe('log-pattern-mask', () => {
                 'export job_<N>_<UUID> done',
             ],
             [
+                'digits glued to a uuid at the end of a digit chain mask with it',
+                'copy x_1234_123456789012-07e3-4cff-bf47-7efa1024aee2 done',
+                'copy x_<N>_<UUID> done',
+            ],
+            [
+                'a hex run glued to a uuid at the end of a digit chain masks with it',
+                'copy x_1234_ab12cd34ef-07e3-4cff-bf47-7efa1024aee2 done',
+                'copy x_<N>_<UUID> done',
+            ],
+            [
                 'a short digit run before a uuid stays literal',
                 'copy v_12_01905063-07e3-4cff-bf47-7efa1024aee2 done',
                 'copy v_12_<UUID> done',
@@ -516,7 +526,7 @@ describe('log-pattern-mask', () => {
             3: 'd7b045b1054244d1',
             4: '357baaab19f622df',
             5: '130ce70d5eeff09e',
-            6: '1cb0d767b3290bd8',
+            6: '9cb90c3c0ef4135a',
         }
 
         /**
@@ -617,7 +627,15 @@ describe('log-pattern-mask', () => {
                     const hex = pick(rand, ['0123456789abcdef', '0123456789ABCDEF', DIGITS])
                     const uuid = [8, 4, 4, 4, 12].map((length) => chars(rand, hex, length, length)).join('-')
                     const glued = chars(rand, DIGITS + 'abcdef', 0, 6)
-                    return { text: glued ? `${chars(rand, LOWER, 1, 4)}_${glued}${uuid}` : uuid, notBefore: '' }
+                    const chain = pick(rand, [
+                        '',
+                        `_${chars(rand, DIGITS, 4, 8)}`,
+                        `_${chars(rand, DIGITS, 4, 8)}_${chars(rand, DIGITS, 1, 4)}`,
+                    ])
+                    return {
+                        text: glued || chain ? `${chars(rand, LOWER, 1, 4)}${chain}_${glued}${uuid}` : uuid,
+                        notBefore: '',
+                    }
                 },
                 () => ({ text: `${chars(rand, LOWER, 1, 4)}.example.io`, notBefore: '', notAfter: '.-' }),
                 () => ({ text: '0xdeadbeef', notBefore: '_' }),
@@ -671,6 +689,31 @@ describe('log-pattern-mask', () => {
                 }
             }
             expect(changed).toEqual([])
+        })
+
+        it('never leaves part of a uuid visible, whatever is glued in front of it', () => {
+            const rand = mulberry32(20261020)
+            const leaked: string[] = []
+            for (let i = 0; i < 20000 && leaked.length < 5; i++) {
+                const hex = pick(rand, ['0123456789abcdef', '0123456789ABCDEF', DIGITS])
+                const groups = [8, 4, 4, 4, 12].map((length) => chars(rand, hex, length, length))
+                const prefix = Array.from({ length: Math.floor(rand() * 5) }, () =>
+                    pick(rand, [
+                        () => chars(rand, LOWER, 1, 6),
+                        () => `_${chars(rand, DIGITS, 1, 14)}`,
+                        () => `_${chars(rand, '0123456789abcdef', 1, 14)}`,
+                        () => chars(rand, DIGITS, 1, 14),
+                        () => chars(rand, '0123456789abcdef', 1, 14),
+                        () => pick(rand, [' ', '/', '.', ':', '=', ',', '_']),
+                    ])()
+                ).join('')
+                const input = `${prefix}${groups.join('-')} ok`
+                const masked = maskString(input).masked
+                if (groups.slice(1).some((group) => masked.includes(`${group}-`) || masked.includes(`-${group}`))) {
+                    leaked.push(input)
+                }
+            }
+            expect(leaked).toEqual([])
         })
 
         it('masks a digit run after an underscore only at 4 digits or more', () => {
