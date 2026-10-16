@@ -147,6 +147,20 @@ checkpoint without pruning the live workspace. Directory names such as `.cache` 
 `.venv` do not establish that their contents can be rebuilt. The legacy
 `allow_pruning` activity field remains readable but no longer enables deletion.
 
+`TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED` defaults to `false` during rollout.
+Deploy generation-aware token issuers and ingest handlers everywhere before enabling it.
+Leave rotation off until old workers drain; otherwise a resumed sandbox can receive
+an old-format token that the new ingest handlers reject. Already rotated streams
+keep their generation if rotation is disabled again.
+Stream completion is bound to the workflow's stream generation. A resume replaces
+that generation atomically with the stream reset, so late cleanup cannot close it.
+Dispatch saves the generation on the run and workflow input before context loading.
+Cancellation can tear down the sandbox without Redis and retains that generation across completion retries.
+Sandbox ingest tokens carry the same generation. Django and agent-proxy check it
+atomically when accepting events or completion, rejecting stale senders with HTTP 403
+and `stream_generation_mismatch`. The sender discards its buffer and stops on this code.
+Tokens issued before generation tracking remain valid only until the stream resets.
+
 ## Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what
