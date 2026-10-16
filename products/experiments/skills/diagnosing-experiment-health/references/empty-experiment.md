@@ -354,22 +354,21 @@ A user who adds `$feature/<flag-key>` to metric events changes nothing in the re
 
 Where the property does matter:
 
-- **Legacy experiments** (E13 in `mid-run-changes.md`) attribute metric events by `$feature/<flag-key>`, so events without it are not counted there.
+- **Legacy experiments** (E13 in `mid-run-changes.md`) attributed metric events by `$feature/<flag-key>`. They no longer show results, so migrate them instead.
 - **A custom exposure event** needs it (B4).
 - **The user's own insight or SQL** that filters or breaks down by `$feature/<flag-key>`.
   It undercounts events from a server SDK, which adds the property only when the capture call is given the evaluated flags or asked to evaluate them `[MEDIUM]`.
   It also overcounts in the other direction: the property is on events of everyone whose SDK holds the flag's value, including people who were never exposed, so it is not a filter for participants.
 
 **Verify directly.** `is_legacy` in `experiment-get`.
-It is true when any primary, secondary or shared metric is legacy, and only a metric whose `kind` is `ExperimentTrendsQuery` or `ExperimentFunnelsQuery` attributes metric events by the property.
-When it is false, or the metric in question has another `kind`, look elsewhere for a missing conversion: B2 (ids), B8 (order), D1 in `numbers-vs-sql.md` (scope).
+It is true when any primary, secondary or shared metric is legacy.
+When it is false, look elsewhere for a missing conversion: B2 (ids), B8 (order), D1 in `numbers-vs-sql.md` (scope).
 
 Part of the public docs still asks for the property on metric events.
 The exposures page states the current rule.
 
 <!-- Source for maintainers (may rot): build_variant_property in
-products/experiments/backend/hogql_queries/experiment_exposure_query_builder.py reads the property on the exposure side only;
-the legacy runners experiment_trends_query_runner.py and experiment_funnels_query_runner.py break down metric events by it.
+products/experiments/backend/hogql_queries/experiment_exposure_query_builder.py reads the property on the exposure side only.
 Docs: https://posthog.com/docs/experiments/exposures#metric-events-dont-need-a-variant-property -->
 
 ## B12 — An exposure criteria filter that cannot match [MEDIUM]
