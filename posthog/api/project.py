@@ -680,6 +680,7 @@ class ProjectBackwardCompatSerializer(
     logo_media_id = ProjectScopedPrimaryKeyRelatedField(
         source="logo_media",
         queryset=UploadedMedia.objects.all(),
+        pk_field=serializers.UUIDField(),
         required=False,
         allow_null=True,
         error_messages={"does_not_exist": "This image was not uploaded to this project."},
