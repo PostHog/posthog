@@ -115,6 +115,56 @@ def _extract_hog_output_text(output: Any) -> str:
     return _extract_hog_message_text(messages)
 
 
+# Content blocks that hold a model's reasoning rather than its reply, as the SDKs record them:
+# Anthropic `thinking` and `redacted_thinking`, OpenAI Responses `reasoning`, and Gemini parts
+# flagged with `thought`.
+_REASONING_BLOCK_TYPES = frozenset({"thinking", "redacted_thinking", "reasoning"})
+# Roles of OTel follow-up messages that carry reasoning or tool results, not the reply.
+_NON_REPLY_ROLES = frozenset({"thinking", "tool"})
+
+
+def _is_reasoning_block(value: Any) -> bool:
+    return isinstance(value, dict) and (value.get("type") in _REASONING_BLOCK_TYPES or value.get("thought") is True)
+
+
+def _extract_hog_reply_text(output: Any) -> str:
+    """The text of the model's reply alone, without reasoning, tool calls, tool results, or role labels.
+
+    `output_text` keeps all of those because LLM judges read it as a conversation. Checks on the
+    reply itself, such as "is this valid JSON" or "is it empty", need the reply on its own.
+    """
+    if isinstance(output, dict) and isinstance(output.get("choices"), list):
+        output = output["choices"]
+
+    replies: list[str] = []
+    for choice in output if isinstance(output, list) else [output]:
+        if isinstance(choice, str):
+            replies.append(choice)
+            continue
+        if not isinstance(choice, dict):
+            replies.append(coerce_hog_io_value(choice))
+            continue
+        message = choice.get("message")
+        if isinstance(message, dict):
+            choice = message
+        if _is_reasoning_block(choice) or choice.get("role") in _NON_REPLY_ROLES:
+            continue
+        if isinstance(choice.get("parts"), list):
+            # OTel messages keep their text in `parts` next to reasoning and tool-call parts.
+            content: Any = [part for part in choice["parts"] if isinstance(part, dict) and part.get("type") == "text"]
+        elif any(key in choice for key in ("content", "refusal", "text", "tool_calls", "role")):
+            content = _get_hog_output_choice_content(choice)
+        else:
+            # A structured-output payload such as `{"entities": [...]}` is the reply itself.
+            replies.append(json.dumps(choice, default=str))
+            continue
+        if isinstance(content, list):
+            content = [block for block in content if not _is_reasoning_block(block)]
+        if content:
+            replies.append(extract_text_from_messages([{"content": content}]))
+    return "\n".join(reply for reply in replies if reply.strip())
+
+
 def hog_bytecode_references_global(bytecode: list[Any], global_name: str) -> bool:
     """Return whether compiled Hog bytecode reads a specific global."""
     return any(
@@ -149,6 +199,7 @@ def build_hog_event_global(
     if include_text:
         event_global["input_text"] = _extract_hog_message_text(io.input_raw)
         event_global["output_text"] = _extract_hog_output_text(io.output_raw)
+        event_global["reply_text"] = _extract_hog_reply_text(io.output_raw)
     return event_global
 
 

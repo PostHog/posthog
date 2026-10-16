@@ -302,6 +302,63 @@ class TestHogEvalExamplesBehavior:
             ("empty_openai", "Empty or failed output", [{"message": {"role": "assistant", "content": ""}}], False),
             ("empty_otel_parts", "Empty or failed output", [{"role": "assistant", "parts": []}], False),
             (
+                "json_anthropic_thinking",
+                "Valid JSON output",
+                [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "thinking", "thinking": "Checking the fields.", "signature": "sig"},
+                            {"type": "text", "text": '{"ok": true}'},
+                        ],
+                    }
+                ],
+                True,
+            ),
+            (
+                "json_anthropic_redacted_thinking",
+                "Valid JSON output",
+                [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "redacted_thinking", "data": "opaque"},
+                            {"type": "text", "text": '{"ok": true}'},
+                        ],
+                    }
+                ],
+                True,
+            ),
+            (
+                "json_openai_responses_reasoning",
+                "Valid JSON output",
+                [
+                    {"type": "reasoning", "summary": [{"type": "summary_text", "text": "Checking the fields."}]},
+                    {"role": "assistant", "content": [{"type": "output_text", "text": '{"ok": true}'}]},
+                ],
+                True,
+            ),
+            (
+                "json_gemini_thought",
+                "Valid JSON output",
+                [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "text", "text": "Checking the fields.", "thought": True},
+                            {"type": "text", "text": '{"ok": true}'},
+                        ],
+                    }
+                ],
+                True,
+            ),
+            (
+                "empty_anthropic_thinking_only",
+                "Empty or failed output",
+                [{"role": "assistant", "content": [{"type": "thinking", "thinking": "Thinking it over."}]}],
+                False,
+            ),
+            (
                 "json_otel_with_reasoning",
                 "Valid JSON output",
                 [
@@ -344,6 +401,23 @@ class TestHogEvalExamplesBehavior:
 
         assert result["error"] is None
         assert result["verdict"] is expected
+
+    def test_failed_output_passes_a_reply_that_only_calls_tools(self) -> None:
+        bytecode = compile_hog(_get_source("Empty or failed output"), "destination")
+        event = _make_event(
+            ai_output_choices=[
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{"id": "call_1", "function": {"name": "get_weather", "arguments": "{}"}}],
+                }
+            ]
+        )
+        event["properties"]["$ai_tools_called"] = "get_weather"
+
+        result = run_hog_eval(bytecode, event)
+
+        assert result["verdict"] is True
 
     @parameterized.expand(
         [
