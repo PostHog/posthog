@@ -238,7 +238,8 @@ If your account is hosted in New Relic's EU data center, select the EU region.
         # An invalid or revoked User API key surfaces as a requests HTTPError from
         # `raise_for_status()`. Retrying can never fix a credential problem, so stop the
         # sync. Match the stable status text and base host (one entry per region), not the
-        # per-request path.
+        # per-request path. NerdGraph can also deny access inside the `errors` array of an
+        # HTTP 200, which surfaces as a NewRelicGraphQLError.
         invalid_key = "Your New Relic API key is invalid or has been revoked. Create a new User API key in your New Relic account, then reconnect."
         missing_permissions = "Your New Relic API key does not have permission to read this data. Check the key's user permissions in New Relic, then reconnect."
         return {
@@ -246,6 +247,7 @@ If your account is hosted in New Relic's EU data center, select the EU region.
             "401 Client Error: Unauthorized for url: https://api.eu.newrelic.com": invalid_key,
             "403 Client Error: Forbidden for url: https://api.newrelic.com": missing_permissions,
             "403 Client Error: Forbidden for url: https://api.eu.newrelic.com": missing_permissions,
+            "New Relic GraphQL error: Access denied": missing_permissions,
         }
 
     def get_schemas(
