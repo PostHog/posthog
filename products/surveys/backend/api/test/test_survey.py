@@ -1601,7 +1601,7 @@ class TestSurvey(APIBaseTest):
         ).json()
 
         # Includes one query for the project's replay gates
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(19):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -4992,6 +4992,54 @@ class TestSurveyWithActions(APIBaseTest):
         assert len(survey.actions.all()) == 1
         assert survey.actions.filter(name="user subscribed").exists()
         assert not survey.actions.filter(name="user unsubscribed").exists()
+
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_linking_an_action_needs_viewer_access_to_it(self) -> None:
+        restricted = Action.objects.create(team=self.team, name="restricted", steps_json=[{"event": "$pageview"}])
+        AccessControl.objects.create(
+            team=self.team, resource="action", resource_id=str(restricted.id), access_level="none"
+        )
+        questions = [{"type": "open", "question": "Why's a hedgehog?"}]
+        stored = Survey.objects.create(
+            team=self.team, created_by=self.user, name="linked", type="popover", questions=questions
+        )
+        stored.actions.set([restricted])
+        conditions = {"actions": {"values": [{"name": "restricted", "id": restricted.id}]}}
+        self.client.force_login(self._create_user("survey-member@example.com"))
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "new", "type": "popover", "questions": questions, "conditions": conditions},
+            format="json",
+        )
+        edited = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{stored.id}/",
+            data={"name": "renamed", "conditions": conditions},
+            format="json",
+        )
+
+        assert created.status_code == status.HTTP_400_BAD_REQUEST, created.json()
+        assert created.json()["attr"] == "conditions"
+        assert not Survey.objects.filter(team=self.team, name="new").exists()
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+
+    @parameterized.expand([("text", "abc"), ("object", {"id": 1}), ("too_large", "9" * 30)])
+    def test_linking_an_action_rejects_an_invalid_id(self, _name: str, action_id: object) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "bad action id",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
+                "conditions": {"actions": {"values": [{"name": "bad", "id": action_id}]}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "conditions"
 
     def test_can_clear_associated_actions(self):
         Action.objects.create(
