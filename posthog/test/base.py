@@ -122,7 +122,7 @@ from posthog.models.event.sql import (
     WRITABLE_EVENTS_JSON_TABLE_SQL,
     WRITABLE_EVENTS_TABLE_SQL,
 )
-from posthog.models.event.util import _resolve_person_for_bulk_event, bulk_create_events
+from posthog.models.event.util import ZERO_DATE, _resolve_person_for_bulk_event, bulk_create_events
 from posthog.models.exchange_rate.sql import (
     DROP_EXCHANGE_RATE_DICTIONARY_SQL,
     DROP_EXCHANGE_RATE_TABLE_SQL,
@@ -1812,18 +1812,20 @@ def _create_flag_evaluations(
     *,
     distinct_id: str = "evaluator",
     person_id: uuid.UUID | str | None = None,
+    person_created_at: dt.datetime | None = None,
     response: str | bool = True,
     properties: dict[str, Any] | None = None,
 ) -> None:
     """Insert `count` $feature_flag_called rows for flag_key into flag_evaluations. Unlike _create_event, it writes
-    the rows immediately. Each row gets a new random person_id unless the caller passes one."""
+    the rows immediately. Each row gets a new random person_id unless the caller passes one. Without a
+    person_created_at, a row stores the Unix epoch, as a production row written without person columns does."""
     timestamp = timestamp or dt.datetime.now(dt.UTC)
     properties_json = json.dumps({**(properties or {}), "$feature_flag": flag_key, "$feature_flag_response": response})
     # writable_flag_evaluations does not declare flag_key. The shard computes it from properties.$feature_flag.
     sync_execute(
         """
         INSERT INTO writable_flag_evaluations
-            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id)
+            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id, person_created_at)
         VALUES
         """,
         [
@@ -1836,6 +1838,7 @@ def _create_flag_evaluations(
                 distinct_id,
                 timestamp,
                 str(person_id or uuid.uuid4()),
+                person_created_at or ZERO_DATE,
             )
             for _ in range(count)
         ],

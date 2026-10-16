@@ -1,4 +1,3 @@
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -27,9 +26,11 @@ from posthog.schema import (
     FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
+    HogQLQueryModifiers,
     IntervalType,
     LifecycleDataWarehouseNode,
     LifecycleQuery,
+    PersonsOnEventsMode,
     PropertyOperator,
     RetentionQuery,
     StickinessQuery,
@@ -37,6 +38,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_HOGQL_TABLE
+
+from posthog.models.group.util import create_group
+from posthog.models.person import Person
 
 from products.product_analytics.backend.facade.queries import (
     FunnelsQueryRunner,
@@ -49,6 +53,8 @@ from products.product_analytics.backend.facade.queries import (
 TABLE = FLAG_EVALUATIONS_HOGQL_TABLE
 NOW = datetime(2025, 1, 10, 12, 0, tzinfo=UTC)
 DATE_RANGE = DateRange(date_from="2025-01-08", date_to="2025-01-10")
+IN_DATE_RANGE = datetime(2025, 1, 8, 8, 0, tzinfo=UTC)
+BEFORE_DATE_RANGE = datetime(2024, 12, 1, tzinfo=UTC)
 PROBE_FLAG = DataWarehousePropertyFilter(key="flag_key", operator=PropertyOperator.EXACT, value="probe-flag")
 
 
@@ -65,6 +71,14 @@ def _flag_calls_series(**kwargs: Any) -> DataWarehouseNode:
 
 def _aggregation_target(aggregation_group_type_index: int | None) -> str:
     return "person_id" if aggregation_group_type_index is None else f"$group_{aggregation_group_type_index}"
+
+
+def _created_at_field(aggregation_group_type_index: int | None) -> str:
+    return (
+        "person.created_at"
+        if aggregation_group_type_index is None
+        else f"group_{aggregation_group_type_index}.created_at"
+    )
 
 
 def _retention_entity(aggregation_target_field: str) -> dict[str, Any]:
@@ -87,13 +101,13 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
         )
         table_gate.start()
         self.addCleanup(table_gate.stop)
-        person_created_at = datetime(2025, 1, 8, 8, 0, tzinfo=UTC)
-        alice = _create_person(team_id=self.team.pk, distinct_ids=["alice"], created_at=person_created_at)
-        bob = _create_person(team_id=self.team.pk, distinct_ids=["bob"], created_at=person_created_at)
-        for distinct_id, person_id, flag_key, response, occurred_at, properties in [
+        alice = _create_person(team_id=self.team.pk, distinct_ids=["alice"], created_at=IN_DATE_RANGE)
+        bob = _create_person(team_id=self.team.pk, distinct_ids=["bob"], created_at=IN_DATE_RANGE)
+        alice_2 = _create_person(team_id=self.team.pk, distinct_ids=["alice-2"], created_at=IN_DATE_RANGE)
+        for distinct_id, person, flag_key, response, occurred_at, properties in [
             (
                 "alice",
-                alice.uuid,
+                alice,
                 "probe-flag",
                 "test",
                 datetime(2025, 1, 8, 10, tzinfo=UTC),
@@ -101,7 +115,7 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
             ),
             (
                 "alice",
-                alice.uuid,
+                alice,
                 "probe-flag",
                 "test",
                 datetime(2025, 1, 8, 11, tzinfo=UTC),
@@ -109,32 +123,24 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
             ),
             (
                 "bob",
-                bob.uuid,
+                bob,
                 "probe-flag",
                 "control",
                 datetime(2025, 1, 8, 12, tzinfo=UTC),
                 {"$session_id": "s-bob", "$group_0": "org-b"},
             ),
-            ("bob", bob.uuid, "other-flag", "true", datetime(2025, 1, 9, 9, tzinfo=UTC), {}),
+            ("bob", bob, "other-flag", "true", datetime(2025, 1, 9, 9, tzinfo=UTC), {}),
             # The row stores the person alice-2 had before the merge. Only the override makes it alice's call.
             (
                 "alice-2",
-                uuid.uuid4(),
+                alice_2,
                 "probe-flag",
                 "test",
                 datetime(2025, 1, 8, 13, tzinfo=UTC),
                 {"$session_id": "s-alice-2"},
             ),
         ]:
-            _create_flag_evaluations(
-                self.team.pk,
-                flag_key,
-                timestamp=occurred_at,
-                distinct_id=distinct_id,
-                person_id=person_id,
-                response=response,
-                properties=properties,
-            )
+            self._create_flag_call(distinct_id, person, flag_key, response, occurred_at, properties)
         _create_event(
             team=self.team,
             event="$pageview",
@@ -144,6 +150,33 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
         create_person_id_override_by_distinct_id("alice-2", "alice", self.team.pk, version=1)
+
+    def _create_flag_call(
+        self,
+        distinct_id: str,
+        person: Person,
+        flag_key: str,
+        response: str,
+        occurred_at: datetime,
+        properties: dict[str, str],
+    ) -> None:
+        _create_flag_evaluations(
+            self.team.pk,
+            flag_key,
+            timestamp=occurred_at,
+            distinct_id=distinct_id,
+            person_id=person.uuid,
+            person_created_at=person.created_at,
+            response=response,
+            properties=properties,
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id=distinct_id,
+            timestamp=occurred_at,
+            properties={**properties, "$feature_flag": flag_key, "$feature_flag_response": response},
+        )
 
     @parameterized.expand(
         [
@@ -246,22 +279,39 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
             (
                 "by_person",
                 None,
-                {"new": [2, 0, 0], "returning": [0, 1, 0], "resurrecting": [0, 0, 0], "dormant": [0, -1, -1]},
+                {"new": [2, 0, 0], "returning": [0, 1, 0], "resurrecting": [0, 1, 0], "dormant": [0, -1, -2]},
             ),
             (
                 "by_group",
                 0,
-                {"new": [2, 0, 0], "returning": [0, 0, 0], "resurrecting": [0, 0, 0], "dormant": [0, -2, 0]},
+                {"new": [1, 0, 0], "returning": [0, 0, 0], "resurrecting": [1, 1, 0], "dormant": [0, -2, -1]},
             ),
         ]
     )
-    def test_lifecycle(
+    def test_lifecycle_matches_events(
         self,
         _name: str,
         aggregation_group_type_index: int | None,
         expected: dict[str, list[int]],
     ):
-        # Lifecycle excludes this personless call. Counting it would add a third new user or group on 2025-01-08.
+        for group_key, group_created_at in [
+            ("org-a", IN_DATE_RANGE),
+            ("org-b", BEFORE_DATE_RANGE),
+            ("org-c", BEFORE_DATE_RANGE),
+        ]:
+            create_group(team_id=self.team.pk, group_type_index=0, group_key=group_key, timestamp=group_created_at)
+        # Carol, org-b and org-c predate the date range, so their first call in it makes them resurrecting, not new.
+        # Bob, org-b's only caller, was created in the range, so org-b reads new if by_group uses person creation time.
+        carol = _create_person(team_id=self.team.pk, distinct_ids=["carol"], created_at=BEFORE_DATE_RANGE)
+        self._create_flag_call(
+            "carol",
+            carol,
+            "other-flag",
+            "true",
+            datetime(2025, 1, 9, 12, tzinfo=UTC),
+            {"$group_0": "org-c"},
+        )
+        # Lifecycle excludes this personless call. Counting it would add an active user or group on 2025-01-08.
         _create_flag_evaluations(
             self.team.pk,
             "probe-flag",
@@ -273,17 +323,26 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
             dateRange=DATE_RANGE,
             interval=IntervalType.DAY,
             aggregation_group_type_index=aggregation_group_type_index,
+            # This mode reads the person creation time stored on the row and the merge-corrected person, as
+            # flag_evaluations does.
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
             series=[
                 LifecycleDataWarehouseNode(
                     id=TABLE,
                     table_name=TABLE,
                     timestamp_field="timestamp",
                     aggregation_target_field=_aggregation_target(aggregation_group_type_index),
-                    created_at_field="timestamp",
+                    created_at_field=_created_at_field(aggregation_group_type_index),
                 )
             ],
         )
+        events_query = query.model_copy(update={"series": [EventsNode(event="$feature_flag_called")]})
 
         results = LifecycleQueryRunner(query=query, team=self.team).calculate().results
+        events_results = LifecycleQueryRunner(query=events_query, team=self.team).calculate().results
 
-        assert {r["status"]: r["data"] for r in results} == expected
+        lifecycle = {r["status"]: r["data"] for r in results}
+        assert lifecycle == expected
+        assert lifecycle == {r["status"]: r["data"] for r in events_results}

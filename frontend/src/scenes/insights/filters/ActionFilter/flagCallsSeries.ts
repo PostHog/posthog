@@ -41,8 +41,9 @@ export const FLAG_EVALUATIONS_SERIES_FIELDS: Required<
     distinct_id_field: 'distinct_id',
     // person_id is the merge-corrected person. A flag calls step counts the same person as an events step.
     aggregation_target_field: 'person_id',
-    // The table stores no person creation time. Lifecycle takes the earliest flag call it reads instead.
-    created_at_field: 'timestamp',
+    // Lifecycle calls a person new in the period the person was created, as it does on events.
+    // withFlagCallsAggregationTarget swaps in the group's creation time when the query counts groups.
+    created_at_field: 'person.created_at',
 }
 
 /** Trends computes these maths from events for every series. On a flag calls series they would count events, not flag calls. */
@@ -65,19 +66,33 @@ export function readsFlagCalls(query: InsightQueryNode): boolean {
     return nodes.some((node) => (node as { table_name?: string } | undefined)?.table_name === FLAG_EVALUATIONS_TABLE)
 }
 
-/** Sets the actor column of each flag calls series to the query's aggregation: a group key, the funnel's SQL expression, or the person. */
+/** Sets the actor columns of each flag calls series to the query's aggregation.
+ * The actor is a group key, the funnel's SQL expression, or the person.
+ * A lifecycle series also gets the creation time of that group or person. */
 export function withFlagCallsAggregationTarget<Q extends InsightQueryNode>(query: Q): Q {
     const groupTypeIndex = 'aggregation_group_type_index' in query ? query.aggregation_group_type_index : null
     // The flag_evaluations row carries the event's properties.
     // An expression such as properties.$session_id reads the same value there as on events.
     const aggregateByHogQL = query.kind === NodeKind.FunnelsQuery ? query.funnelsFilter?.funnelAggregateByHogQL : null
     const target = getHogQLValue(groupTypeIndex, aggregateByHogQL)
+    const createdAtField =
+        groupTypeIndex != null ? `group_${groupTypeIndex}.created_at` : FLAG_EVALUATIONS_SERIES_FIELDS.created_at_field
     const retarget = <T>(node: T): T => {
-        const fields = node as { table_name?: string; aggregation_target_field?: string } | null | undefined
-        return fields?.table_name === FLAG_EVALUATIONS_TABLE &&
-            fields.aggregation_target_field != null &&
-            fields.aggregation_target_field !== target
-            ? { ...node, aggregation_target_field: target }
+        const fields = node as
+            | { table_name?: string; aggregation_target_field?: string; created_at_field?: string }
+            | null
+            | undefined
+        if (fields?.table_name !== FLAG_EVALUATIONS_TABLE) {
+            return node
+        }
+        const retargetsActor = fields.aggregation_target_field != null && fields.aggregation_target_field !== target
+        const retargetsCreatedAt = fields.created_at_field != null && fields.created_at_field !== createdAtField
+        return retargetsActor || retargetsCreatedAt
+            ? {
+                  ...node,
+                  ...(retargetsActor ? { aggregation_target_field: target } : {}),
+                  ...(retargetsCreatedAt ? { created_at_field: createdAtField } : {}),
+              }
             : node
     }
 

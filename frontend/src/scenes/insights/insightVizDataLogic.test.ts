@@ -511,12 +511,30 @@ describe('insightVizDataLogic', () => {
             {
                 kind: NodeKind.FunnelsQuery,
                 flagCalls: { series: [{ ...flagCallsNode, kind: NodeKind.FunnelsDataWarehouseNode }] },
-                targets: (source: any) => [source.series[0].aggregation_target_field],
+                targets: (source: any) => [
+                    source.series[0].aggregation_target_field,
+                    source.series[0].created_at_field,
+                ],
+                byGroup: ['$group_1', undefined],
+                byPerson: ['person_id', undefined],
             },
             {
                 kind: NodeKind.LifecycleQuery,
-                flagCalls: { series: [{ ...flagCallsNode, kind: NodeKind.LifecycleDataWarehouseNode }] },
-                targets: (source: any) => [source.series[0].aggregation_target_field],
+                flagCalls: {
+                    series: [
+                        {
+                            ...flagCallsNode,
+                            kind: NodeKind.LifecycleDataWarehouseNode,
+                            created_at_field: 'person.created_at',
+                        },
+                    ],
+                },
+                targets: (source: any) => [
+                    source.series[0].aggregation_target_field,
+                    source.series[0].created_at_field,
+                ],
+                byGroup: ['$group_1', 'group_1.created_at'],
+                byPerson: ['person_id', 'person.created_at'],
             },
             {
                 kind: NodeKind.RetentionQuery,
@@ -524,18 +542,22 @@ describe('insightVizDataLogic', () => {
                 targets: (source: any) => [
                     source.retentionFilter.targetEntity.aggregation_target_field,
                     source.retentionFilter.returningEntity.aggregation_target_field,
+                    source.retentionFilter.targetEntity.created_at_field,
+                    source.retentionFilter.returningEntity.created_at_field,
                 ],
+                byGroup: ['$group_1', '$group_1', undefined, undefined],
+                byPerson: ['person_id', 'person_id', undefined, undefined],
             },
-        ])('counts $kind flag calls by the aggregation group', ({ kind, flagCalls, targets }) => {
+        ])('counts $kind flag calls by the aggregation group', ({ kind, flagCalls, targets, byGroup, byPerson }) => {
             const update = (source: Record<string, unknown>): void =>
                 builtInsightVizDataLogic.actions.updateQuerySource({ kind, ...source } as QuerySourceUpdate)
 
             update({ aggregation_group_type_index: 1 })
             update(flagCalls)
-            expect(new Set(targets(builtInsightVizDataLogic.values.querySource))).toEqual(new Set(['$group_1']))
+            expect(targets(builtInsightVizDataLogic.values.querySource)).toEqual(byGroup)
 
             update({ aggregation_group_type_index: undefined })
-            expect(new Set(targets(builtInsightVizDataLogic.values.querySource))).toEqual(new Set(['person_id']))
+            expect(targets(builtInsightVizDataLogic.values.querySource)).toEqual(byPerson)
         })
 
         it('counts funnel flag calls by the funnel aggregation expression', () => {
