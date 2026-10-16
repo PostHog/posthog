@@ -5,9 +5,9 @@ import base64
 import hashlib
 import binascii
 from collections.abc import Callable, Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from email.utils import format_datetime
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 from urllib.parse import quote, urlparse
 
 import requests
@@ -17,6 +17,7 @@ from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
@@ -31,18 +32,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cosmosdb.s
 )
 
 REQUEST_TIMEOUT_SECONDS = (30, 120)
-MAX_RETRY_ATTEMPTS = 5
+# Server errors get a few attempts. Throttles (429) are bounded by the time budget only, because
+# Cosmos asks for waits of milliseconds and a busy container throttles many times in a row.
+MAX_SERVER_ERROR_ATTEMPTS = 5
 MAX_BACKOFF_SECONDS = 60.0
 # One request with its retries and waits holds the worker for five minutes at most (the source
-# contract), so a retry only starts when a full-length attempt still fits in the budget.
+# contract), so a retry only starts when the wait and a full-length attempt still fit.
 RETRY_BUDGET_SECONDS = 300.0
 MAX_REQUEST_SECONDS = float(sum(REQUEST_TIMEOUT_SECONDS))
-# A run reads only documents written before this long ago. Rows arrive unordered across
-# partitions, so without a ceiling a write that lands during the run in an already-read partition
-# would sit below the watermark the run promotes and never sync. The margin also covers clock skew
-# and replication lag.
-TS_CEILING_MARGIN_SECONDS = 5 * 60
+# The next incremental run reads from this long before the current run started. Rows arrive
+# unordered across partitions, so a write that lands during the scan in an already-read partition
+# is read by the next run. The margin also covers clock skew and replication lag.
+TS_FLOOR_MARGIN_SECONDS = 5 * 60
 INVALID_KEY_MESSAGE = "Azure Cosmos DB account key is not valid base64"
+# Any account key can read the account, so a 403 is the account's network rules or disabled
+# key-based auth, not the choice of key.
+FORBIDDEN_MESSAGE = (
+    "Azure Cosmos DB refused the request. Check that the account's firewall allows PostHog's IP addresses, "
+    "that public network access is on, and that key-based authentication isn't turned off."
+)
 
 
 class CosmosDBRetryableError(Exception):
@@ -53,11 +61,19 @@ class CosmosDBRetryableError(Exception):
 
 @frozen
 class CosmosDBResumeConfig:
-    # Cosmos continuation tokens are only valid for the exact query they came from, so the
-    # watermark the query was built with travels with the token.
+    # Cosmos continuation tokens are only valid for the exact query they came from, so the floor
+    # the query was built with travels with the token, and so does the floor the run hands on.
     continuation: str | None = None
     ts_floor: int | None = None
-    ts_ceiling: int | None = None
+    next_ts_floor: int | None = None
+
+
+@frozen
+class CosmosDBTsCursor:
+    """Where the next incremental run starts reading `_ts`."""
+
+    cursor_kind: ClassVar[str] = "cosmosdb_ts_floor"
+    ts_floor: int
 
 
 @frozen
@@ -120,7 +136,8 @@ def _error_description(response: requests.Response) -> str:
 
 
 def _retry_after_seconds(response: requests.Response) -> Optional[float]:
-    # Cosmos reports its throttle wait in milliseconds under its own header name.
+    # Cosmos reports its throttle wait in milliseconds under its own header name. The wait is not
+    # capped: retrying before Cosmos said to only earns another 429.
     for header, scale in (("x-ms-retry-after-ms", 1000.0), ("Retry-After", 1.0)):
         raw = response.headers.get(header)
         if raw is None:
@@ -130,7 +147,7 @@ def _retry_after_seconds(response: requests.Response) -> Optional[float]:
         except (TypeError, ValueError):
             continue
         if seconds >= 0:
-            return min(seconds, MAX_BACKOFF_SECONDS)
+            return seconds
     return None
 
 
@@ -176,6 +193,7 @@ class CosmosDBClient:
     ) -> requests.Response:
         url = f"{self._base_url}/{path}"
         attempt = 0
+        server_errors = 0
         started = time.monotonic()
 
         while True:
@@ -191,11 +209,17 @@ class CosmosDBClient:
                 method, url, data=body, headers=request_headers, timeout=REQUEST_TIMEOUT_SECONDS
             )
 
-            if response.status_code == 429 or response.status_code >= 500:
+            # 408 is Cosmos's own transient request timeout.
+            if response.status_code in (408, 429) or response.status_code >= 500:
                 attempt += 1
+                if response.status_code != 429:
+                    server_errors += 1
                 delay = _backoff_seconds(response, attempt)
                 elapsed = time.monotonic() - started
-                if attempt >= MAX_RETRY_ATTEMPTS or elapsed + delay + MAX_REQUEST_SECONDS > RETRY_BUDGET_SECONDS:
+                if (
+                    server_errors >= MAX_SERVER_ERROR_ATTEMPTS
+                    or elapsed + delay + MAX_REQUEST_SECONDS > RETRY_BUDGET_SECONDS
+                ):
                     raise CosmosDBRetryableError(
                         f"Azure Cosmos DB error (retryable): status={response.status_code}, path={path}"
                     )
@@ -331,37 +355,13 @@ def shape_document(document: dict[str, Any], paths: tuple[str, ...]) -> dict[str
     return row
 
 
-def to_epoch_seconds(value: Any) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return int(value.timestamp())
-    if isinstance(value, date):
-        return int(datetime(value.year, value.month, value.day, tzinfo=UTC).timestamp())
-    try:
-        return int(float(value))
-    except (TypeError, ValueError):
-        pass
-    try:
-        return int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
-    except ValueError:
-        raise ValueError(f"Azure Cosmos DB incremental value is not an epoch timestamp: {value!r}")
-
-
-def build_query(ts_floor: int | None, ts_ceiling: int | None) -> tuple[str, list[dict[str, Any]]]:
+def build_query(ts_floor: int | None) -> tuple[str, list[dict[str, Any]]]:
     # No ORDER BY: the REST gateway refuses a cross-partition ORDER BY (the SDKs plan it client-side),
-    # so rows arrive in partition order. `>=` re-reads the watermark second, because writes that
-    # landed in it after the last sync read it would otherwise be skipped; merge dedupes the overlap.
-    conditions: list[str] = []
-    parameters: list[dict[str, Any]] = []
-    if ts_floor is not None:
-        conditions.append(f"c.{TIMESTAMP_FIELD} >= @floor")
-        parameters.append({"name": "@floor", "value": ts_floor})
-    if ts_ceiling is not None:
-        conditions.append(f"c.{TIMESTAMP_FIELD} < @ceiling")
-        parameters.append({"name": "@ceiling", "value": ts_ceiling})
-    where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
-    return f"SELECT * FROM c{where}", parameters
+    # so rows arrive in partition order. No upper bound either: a document rewritten every few
+    # seconds always has a fresh `_ts`, and an upper bound would skip it on every run.
+    if ts_floor is None:
+        return "SELECT * FROM c", []
+    return f"SELECT * FROM c WHERE c.{TIMESTAMP_FIELD} >= @floor", [{"name": "@floor", "value": ts_floor}]
 
 
 def validate_credentials(endpoint: str, key: str, database: str, api_version: str) -> tuple[bool, Optional[str]]:
@@ -382,10 +382,7 @@ def validate_credentials(endpoint: str, key: str, database: str, api_version: st
                 "Azure Cosmos DB rejected the account key. Copy a key from the account's Keys page and try again.",
             )
         if status == 403:
-            return (
-                False,
-                "This key cannot read the account. Use a read-write or read-only key from the account's Keys page.",
-            )
+            return False, FORBIDDEN_MESSAGE + _error_description(error.response)
         if status == 404:
             return False, f"No database named {database} exists in this account. Check the database name."
         return False, f"Azure Cosmos DB returned an error: {error}"
@@ -406,26 +403,31 @@ def get_rows(
     database: str,
     collection: CosmosDBCollection,
     ts_floor: int | None,
+    next_ts_floor: int | None,
     resumable_source_manager: ResumableSourceManager[CosmosDBResumeConfig],
+    cursor_manager: SourceCursorManager[CosmosDBTsCursor] | None,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     continuation: str | None = None
-    ts_ceiling = int(time.time()) - TS_CEILING_MARGIN_SECONDS
     if resume is not None and resume.continuation:
         continuation = resume.continuation
         ts_floor = resume.ts_floor
-        ts_ceiling = resume.ts_ceiling if resume.ts_ceiling is not None else ts_ceiling
+        next_ts_floor = resume.next_ts_floor
         logger.debug(f"Azure Cosmos DB: resuming {collection.id} from a saved continuation token")
 
-    query, parameters = build_query(ts_floor, ts_ceiling)
+    # The pipeline stores the staged cursor only once this run's rows are written.
+    if cursor_manager is not None and next_ts_floor is not None:
+        cursor_manager.stage(CosmosDBTsCursor(ts_floor=next_ts_floor))
+
+    query, parameters = build_query(ts_floor)
 
     while True:
         documents, continuation = client.query_page(database, collection.id, query, parameters, continuation)
         if continuation:
             # Staged before the yield it covers: the pipeline commits it once this page is written.
             resumable_source_manager.save_state(
-                CosmosDBResumeConfig(continuation=continuation, ts_floor=ts_floor, ts_ceiling=ts_ceiling)
+                CosmosDBResumeConfig(continuation=continuation, ts_floor=ts_floor, next_ts_floor=next_ts_floor)
             )
         rows = [shape_document(document, collection.partition_key_paths) for document in documents]
         if rows:
@@ -446,21 +448,41 @@ def cosmosdb_source(
     api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[CosmosDBResumeConfig],
+    cursor_manager: SourceCursorManager[CosmosDBTsCursor] | None,
+    should_use_incremental_field: bool,
     db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     client = CosmosDBClient(endpoint, key, api_version, logger, safe_point=resumable_source_manager.safe_point)
-    ts_floor = to_epoch_seconds(db_incremental_field_last_value)
+
+    ts_floor: int | None = None
+    next_ts_floor: int | None = None
+    if should_use_incremental_field:
+        stored = cursor_manager.load() if cursor_manager is not None else None
+        if stored is not None:
+            ts_floor = stored.ts_floor
+        elif db_incremental_field_last_value is not None:
+            ts_floor = int(db_incremental_field_last_value)
+        next_ts_floor = int(time.time()) - TS_FLOOR_MARGIN_SECONDS
 
     def items() -> Iterator[list[dict[str, Any]]]:
         collection = client.get_collection(database, collection_name)
-        yield from get_rows(client, database, collection, ts_floor, resumable_source_manager, logger)
+        yield from get_rows(
+            client,
+            database,
+            collection,
+            ts_floor,
+            next_ts_floor,
+            resumable_source_manager,
+            cursor_manager,
+            logger,
+        )
 
     return SourceResponse(
         name=collection_name,
         items=items,
         primary_keys=PRIMARY_KEYS,
         # Rows arrive in partition order, not `_ts` order. `desc` makes the pipeline promote the
-        # watermark only when the run completes, which is the safe reading of an unordered stream.
+        # watermark only when the run completes; the next run starts from the source cursor anyway.
         sort_mode="desc",
         on_complete=resumable_source_manager.clear_state,
     )

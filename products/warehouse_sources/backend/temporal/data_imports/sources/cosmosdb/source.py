@@ -11,14 +11,17 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cosmosdb.cosmosdb import (
+    FORBIDDEN_MESSAGE,
     CosmosDBClient,
     CosmosDBResumeConfig,
+    CosmosDBTsCursor,
     cosmosdb_source,
     hostname_of,
     validate_credentials as validate_cosmosdb_credentials,
@@ -34,9 +37,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class CosmosDBSource(ResumableSource[CosmosDBSourceConfig, CosmosDBResumeConfig], ValidateDatabaseHostMixin):
+class CosmosDBSource(
+    ResumableSource[CosmosDBSourceConfig, CosmosDBResumeConfig],
+    CursorSource[CosmosDBTsCursor],
+    ValidateDatabaseHostMixin,
+):
     codebase_detection = detect(
-        env=("^(AZURE_COSMOS|COSMOS_DB|COSMOSDB|COSMOS)_",),
+        env=("^(AZURE_COSMOS|COSMOS_DB|COSMOSDB)_",),
         npm=("@azure/cosmos",),
         pypi=("azure-cosmos",),
         go=("github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos",),
@@ -103,7 +110,7 @@ Enter the account endpoint (`https://<account>.documents.azure.com`), a read-onl
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url:": "Azure Cosmos DB rejected the account key. Copy a current key from the account's Keys page and reconnect.",
-            "403 Client Error: Forbidden for url:": "This key cannot read the account. Use a read-write or read-only key from the account's Keys page and reconnect.",
+            "403 Client Error: Forbidden for url:": FORBIDDEN_MESSAGE,
             "404 Client Error:": "The database or container no longer exists in this Cosmos DB account. Check the source settings and the table list.",
             "Azure Cosmos DB account key is not valid base64": "The account key is not valid. Copy the primary or secondary key from the account's Keys page and reconnect.",
         }
@@ -169,6 +176,12 @@ Enter the account endpoint (`https://<account>.documents.azure.com`), a read-onl
             api_version=self.resolve_api_version(api_version),
         )
 
+    def cursor_class(self) -> type[CosmosDBTsCursor]:
+        return CosmosDBTsCursor
+
+    def merge_cursors(self, current: CosmosDBTsCursor, candidate: CosmosDBTsCursor) -> CosmosDBTsCursor:
+        return candidate if candidate.ts_floor >= current.ts_floor else current
+
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CosmosDBResumeConfig]:
         return ResumableSourceManager[CosmosDBResumeConfig](inputs, CosmosDBResumeConfig)
 
@@ -190,7 +203,8 @@ Enter the account endpoint (`https://<account>.documents.azure.com`), a read-onl
             api_version=self.resolve_api_version(inputs.api_version),
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value
-            if inputs.should_use_incremental_field
-            else None,
+            # The pipeline always builds one for a cursor source; the test drivers do not.
+            cursor_manager=inputs.source_cursor,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

@@ -6,15 +6,19 @@ from urllib.parse import unquote
 import pytest
 import time_machine
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cosmosdb.cosmosdb import (
     CosmosDBResumeConfig,
     CosmosDBRetryableError,
+    CosmosDBTsCursor,
     decode_account_key,
     master_key_signature,
     normalize_account_endpoint,
@@ -31,7 +35,7 @@ ACCOUNT_KEY = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU2Nzg5YWJjZGVmZ2hpamtsb
 ENDPOINT = "https://unit-test.documents.azure.com"
 # Each run reads documents written before now minus five minutes.
 NOW = datetime(2023, 11, 14, 22, 18, 20, tzinfo=UTC)
-CEILING = 1700000000
+CURSOR_FLOOR = 1700000000
 COLLECTION = {"id": "orders", "partitionKey": {"paths": ["/tenantId"], "kind": "Hash"}}
 
 
@@ -117,6 +121,27 @@ class TestPartitionKeyValue:
         assert len({partition_key_value(document, ("/k",)) for document in documents}) == len(documents)
 
 
+class _SourceWithCursor(CosmosDBSource):
+    """Hands the source a cursor manager, as the pipeline does for a cursor source."""
+
+    def __init__(self, stored: CosmosDBTsCursor | None = None) -> None:
+        super().__init__()
+        self.cursor_manager = SourceCursorManager(CosmosDBTsCursor, stored, self)
+
+    def source_for_pipeline(
+        self,
+        config: CosmosDBSourceConfig,
+        resumable_source_manager: ResumableSourceManager[CosmosDBResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        inputs.source_cursor = self.cursor_manager
+        return super().source_for_pipeline(config, resumable_source_manager, inputs)
+
+
+def _config() -> CosmosDBSourceConfig:
+    return CosmosDBSourceConfig(account_endpoint=ENDPOINT, key=ACCOUNT_KEY, database="shop")
+
+
 class TestQueryDocuments:
     @pytest.fixture(autouse=True)
     def _frozen_clock(self) -> Iterator[None]:
@@ -140,73 +165,84 @@ class TestQueryDocuments:
         assert [row["id"] for row in result.rows] == ["1", "2", "3"]
         assert [row["_partition_key"] for row in result.rows] == ['"a"', '"b"', '"a"']
         assert result.saved_states == [
-            CosmosDBResumeConfig(continuation="tok-2", ts_floor=None, ts_ceiling=CEILING),
-            CosmosDBResumeConfig(continuation="tok-3", ts_floor=None, ts_ceiling=CEILING),
+            CosmosDBResumeConfig(continuation="tok-2"),
+            CosmosDBResumeConfig(continuation="tok-3"),
         ]
         assert result.committed_states == result.saved_states
         assert result.completed_state is None
 
     @pytest.mark.parametrize(
-        ("inputs", "expected_query", "expected_parameters"),
+        ("stored", "inputs", "expected_floor", "expected_staged"),
         [
-            ({}, "SELECT * FROM c WHERE c._ts < @ceiling", [{"name": "@ceiling", "value": CEILING}]),
+            # A full refresh reads every document, including ones written moments ago.
+            (None, {}, None, None),
             (
-                {"incremental_field": "_ts", "db_incremental_field_last_value": 1699990000},
-                "SELECT * FROM c WHERE c._ts >= @floor AND c._ts < @ceiling",
-                [{"name": "@floor", "value": 1699990000}, {"name": "@ceiling", "value": CEILING}],
-            ),
-            (
-                {"incremental_field": "_ts", "db_incremental_field_last_value": "1699990000"},
-                "SELECT * FROM c WHERE c._ts >= @floor AND c._ts < @ceiling",
-                [{"name": "@floor", "value": 1699990000}, {"name": "@ceiling", "value": CEILING}],
-            ),
-            (
-                {
-                    "incremental_field": "_ts",
-                    "db_incremental_field_last_value": datetime(2023, 11, 14, 19, 26, 40, tzinfo=UTC),
-                },
-                "SELECT * FROM c WHERE c._ts >= @floor AND c._ts < @ceiling",
-                [{"name": "@floor", "value": 1699990000}, {"name": "@ceiling", "value": CEILING}],
-            ),
-            (
+                CosmosDBTsCursor(ts_floor=1699995000),
                 {
                     "incremental_field": "_ts",
                     "should_use_incremental_field": False,
-                    "db_incremental_field_last_value": 1699990000,
+                    "db_incremental_field_last_value": 1,
                 },
-                "SELECT * FROM c WHERE c._ts < @ceiling",
-                [{"name": "@ceiling", "value": CEILING}],
+                None,
+                None,
+            ),
+            # The first incremental run after a reset reads everything and hands on run start minus the margin.
+            (None, {"incremental_field": "_ts"}, None, CosmosDBTsCursor(ts_floor=CURSOR_FLOOR)),
+            # A schema that synced before this source kept a cursor starts from its `_ts` watermark.
+            (
+                None,
+                {"incremental_field": "_ts", "db_incremental_field_last_value": 1699990000},
+                1699990000,
+                CosmosDBTsCursor(ts_floor=CURSOR_FLOOR),
+            ),
+            # The stored cursor wins over the watermark, which can sit ahead of writes made during the last run.
+            (
+                CosmosDBTsCursor(ts_floor=1699995000),
+                {"incremental_field": "_ts", "db_incremental_field_last_value": 1699999999},
+                1699995000,
+                CosmosDBTsCursor(ts_floor=CURSOR_FLOOR),
             ),
         ],
     )
-    def test_incremental_run_filters_on_ts_and_full_refresh_does_not(
-        self, inputs: dict[str, Any], expected_query: str, expected_parameters: list[dict[str, Any]]
+    def test_incremental_runs_read_from_the_cursor_with_no_upper_bound(
+        self,
+        stored: CosmosDBTsCursor | None,
+        inputs: dict[str, Any],
+        expected_floor: int | None,
+        expected_staged: CosmosDBTsCursor | None,
     ) -> None:
-        result = _driver().run("orders", [_collection(), _page([{"id": "1", "tenantId": "a", "_ts": 1}])], **inputs)
+        source = _SourceWithCursor(stored)
+        result = SourceDriver(source, _config()).run(
+            "orders", [_collection(), _page([{"id": "1", "tenantId": "a", "_ts": 1}])], **inputs
+        )
 
         assert result.raised is None
         query_request = result.requests[1]
-        assert query_request.json() == {"query": expected_query, "parameters": expected_parameters}
-        assert query_request.headers["x-ms-documentdb-isquery"] == "True"
+        if expected_floor is None:
+            assert query_request.json() == {"query": "SELECT * FROM c", "parameters": []}
+        else:
+            assert query_request.json() == {
+                "query": "SELECT * FROM c WHERE c._ts >= @floor",
+                "parameters": [{"name": "@floor", "value": expected_floor}],
+            }
         assert query_request.headers["x-ms-documentdb-query-enablecrosspartition"] == "True"
         assert query_request.headers["x-ms-version"] == "2018-12-31"
+        assert source.cursor_manager.staged == expected_staged
 
-    def test_resume_replays_the_saved_token_with_the_query_it_came_from(self) -> None:
-        result = _driver().run(
+    def test_resume_replays_the_saved_token_and_hands_on_the_first_attempts_floor(self) -> None:
+        source = _SourceWithCursor(CosmosDBTsCursor(ts_floor=30))
+        result = SourceDriver(source, _config()).run(
             "orders",
             [_collection(), _page([{"id": "9", "tenantId": "a", "_ts": 50}])],
-            resume_state=CosmosDBResumeConfig(continuation="tok-7", ts_floor=40, ts_ceiling=90),
+            resume_state=CosmosDBResumeConfig(continuation="tok-7", ts_floor=40, next_ts_floor=90),
             incremental_field="_ts",
-            db_incremental_field_last_value=45,
         )
 
         assert result.raised is None
         query_request = result.requests[1]
         assert query_request.headers["x-ms-continuation"] == "tok-7"
-        assert query_request.json()["parameters"] == [
-            {"name": "@floor", "value": 40},
-            {"name": "@ceiling", "value": 90},
-        ]
+        assert query_request.json()["parameters"] == [{"name": "@floor", "value": 40}]
+        assert source.cursor_manager.staged == CosmosDBTsCursor(ts_floor=90)
 
     def test_empty_pages_with_a_token_keep_walking(self) -> None:
         result = _driver().run(
@@ -229,7 +265,8 @@ class TestQueryDocuments:
             json={"code": "TooManyRequests", "message": "Request rate is large."},
             headers={"x-ms-retry-after-ms": "250"},
         )
-        answers = iter([_collection(), throttled, throttled, _page([{"id": "1", "tenantId": "a", "_ts": 1}])])
+        # More throttles than the server-error cap: a busy container throttles many times in a row.
+        answers = iter([_collection(), *[throttled] * 7, _page([{"id": "1", "tenantId": "a", "_ts": 1}])])
 
         def respond(_request: RecordedRequest) -> ScriptedResponse:
             return next(answers)
@@ -237,8 +274,19 @@ class TestQueryDocuments:
         result = _driver().run("orders", respond)
 
         assert result.raised is None
-        assert len(result.requests) == 4
+        assert len(result.requests) == 9
         assert [row["id"] for row in result.rows] == ["1"]
+
+    def test_a_throttle_wait_longer_than_the_budget_fails_without_retrying(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/dbs/shop/colls/orders":
+                return _collection()
+            return ScriptedResponse(status=429, json={"code": "TooManyRequests"}, headers={"Retry-After": "86400"})
+
+        result = _driver().run("orders", respond)
+
+        assert isinstance(result.raised, CosmosDBRetryableError)
+        assert len(result.requests) == 2
 
     def test_retries_stop_before_a_full_attempt_would_overrun_five_minutes(self) -> None:
         unavailable = ScriptedResponse(status=503, json={"code": "ServiceUnavailable"}, headers={"Retry-After": "60"})
@@ -285,9 +333,15 @@ class TestValidateCredentials:
                 "rejected the account key",
             ),
             (
-                ScriptedResponse(status=403, json={"code": "Forbidden", "message": "Request blocked."}),
+                ScriptedResponse(
+                    status=403,
+                    json={
+                        "code": "Forbidden",
+                        "message": "Request originated from IP 203.0.113.7 through public internet. This is blocked by your Cosmos DB account firewall settings.",
+                    },
+                ),
                 False,
-                "cannot read the account",
+                "blocked by your Cosmos DB account firewall",
             ),
             (
                 ScriptedResponse(
