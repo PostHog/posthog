@@ -45,7 +45,10 @@ export function SimpleOnboarding(): JSX.Element {
                     </LemonButton>
                 }
             >
-                <OnboardingFlowHost />
+                {/* A block wrapper: the step's `mx-auto` content would shrink to fit as a flex child. */}
+                <div>
+                    <OnboardingFlowHost />
+                </div>
             </OnboardingStepFooterStartContext.Provider>
         </div>
     )

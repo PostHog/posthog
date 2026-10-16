@@ -48,7 +48,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     project_id: MOCK_TEAM_ID,
     uuid: MOCK_TEAM_UUID,
     organization: MOCK_ORGANIZATION_ID,
-    api_token: 'default-team-api-token',
+    api_token: 'phc_default-team-api-token',
     secret_api_token: 'phs_default-team-secret-api-token',
     secret_api_token_backup: 'phs_default-team-secret-api-token-backup',
     app_urls: ['https://posthog.com/', 'https://app.posthog.com', 'https://example.com', 'http://127.0.0.1:*'],

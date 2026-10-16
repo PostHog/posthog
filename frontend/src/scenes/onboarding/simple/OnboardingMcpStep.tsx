@@ -7,6 +7,7 @@ import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStep } from '../OnboardingStep'
 import { WizardCommandBlock } from '../shared/wizard-sync/WizardCommandBlock'
+import { PurpleWizardHog } from '../shared/wizardHog'
 import { onboardingMcpStepLogic } from './onboardingMcpStepLogic'
 
 export function OnboardingMcpStep(): JSX.Element {
@@ -21,6 +22,7 @@ export function OnboardingMcpStep(): JSX.Element {
         >
             <div className="max-w-xl mx-auto mt-6 space-y-6">
                 <WizardCommandBlock
+                    hog={PurpleWizardHog}
                     subcommand="mcp add"
                     description="Run this in your terminal. It asks which agents to connect, then signs your agent in to PostHog."
                 />
