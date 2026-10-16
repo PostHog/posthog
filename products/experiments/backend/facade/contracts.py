@@ -151,6 +151,7 @@ class ExperimentHealthReaderAccess:
 
     can_read_flag_history: bool
     can_query_events: bool
+    denied_event_properties: frozenset[str]
 
 
 @dataclass(frozen=True)

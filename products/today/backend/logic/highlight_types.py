@@ -21,16 +21,14 @@ from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
 )
 
+from ..facade.contracts import DailyValueNotReady
+
 logger = structlog.get_logger(__name__)
 T = TypeVar("T")
 
 CACHE_SECONDS = 15 * 60
 DAILY_CACHE_SECONDS = 24 * 60 * 60
 DAILY_LOCK_SECONDS = 30
-
-
-class DailyValueNotReady(Exception):
-    pass
 
 
 def property_restrictions(team: Team, user: User) -> str:

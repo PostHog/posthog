@@ -255,6 +255,7 @@ dev = [
     "orjson==3.11.9",
     "packaging==25.0",
     "parameterized==0.9.0",
+    "prompt-toolkit~=3.0.51",
     "prance==23.6.21.0",
     "pyarrow==23.0.1",
     "pyarrow-stubs==20.0.0.20260625",

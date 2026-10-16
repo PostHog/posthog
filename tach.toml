@@ -1141,6 +1141,8 @@ depends_on = [
     # Facade-only: the Replay Vision step's endpoint starts a scan through
     # products.replay_vision.backend.facade.api.
     "products.replay_vision",
+    # Facade-only: workflows declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -1561,6 +1563,8 @@ depends_on = [
     "products.product_analytics",
     "products.warehouse_sources",
     "products.data_modeling", "products.access_control",
+    # Facade-only: data catalog declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -1759,9 +1763,16 @@ from = [
 
 [[modules]]
 path = "products.commands"
-# Facade-only (enforced by each product's [[interfaces]] block): pull request comment commands
-# dispatch into these products.
-depends_on = ["posthog", "products.review_hog", "products.security", "products.stamphog", "products.tasks"]
+# Facade-only (enforced by each product's [[interfaces]] block): commands dispatch into these
+# products.
+depends_on = [
+    "posthog",
+    "products.error_tracking",
+    "products.review_hog",
+    "products.security",
+    "products.stamphog",
+    "products.tasks",
+]
 layer = "modules"
 
 [[interfaces]]

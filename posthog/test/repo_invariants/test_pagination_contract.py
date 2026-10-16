@@ -28,6 +28,7 @@ LIST_VIEWSETS_WITHOUT_DIRECT_SHARED_PAGINATION = {
 }
 
 EXISTING_CUSTOM_LIST_VIEWSETS = {
+    "products.aeo.backend.presentation.views.AEOPromptViewSet",
     "ee.api.billing.BillingViewset",
     "ee.api.quota_limits.QuotaLimitsViewSet",
     "ee.api.subscription.SubscriptionDeliveryViewSet",

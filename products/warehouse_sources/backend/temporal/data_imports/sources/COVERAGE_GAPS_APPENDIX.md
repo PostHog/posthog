@@ -4258,10 +4258,10 @@ Diffed against: <https://docs.envzero.com/llms.txt>
 - [x] `drift/get-drift-causes` — drift causes detected across an organization, with the environments each one affects (high)
 - [ ] `environments/get-a-drifted-resources-events (and find-deployment-drift-status)` — drift detection events, one of env0's headline signals and absent from the current tables (high). Not syncable: `get-a-drifted-resources-events` is keyed on a cloud `resourceId`/`resourceType` pair that no listing endpoint enumerates, and `find-deployment-drift-status` is a per-deployment point lookup returning a copy of a deployment log the `deployments` table already carries (including `driftDetected` and `driftCause`). `drift/get-drift-causes` covers the drift signal instead.
 - [x] `organization/list-users` — lookup resolving the user ids stamped on deployments, environments and role assignments (high)
-- [ ] `roles/get-user-role-assignments and roles/get-team-role-assignments (+ roles/get-all-roles)` — membership and permission mapping between users, teams and projects (medium)
-- [ ] `deployment-logs/find-all-steps-by-deployment-id` — per-step timing and status within a deployment, needed for duration and failure-stage analysis (medium)
-- [ ] `cost/get-a-projects-budget and cost/get-projects-budget-summary-of-the-current-period` — budget targets to compare actual spend against (medium)
-- [ ] `audit-events/fetch-audit-logs` — state and transition history across the organization (medium)
+- [x] `roles/get-user-role-assignments and roles/get-team-role-assignments (+ roles/get-all-roles)` — membership and permission mapping between users, teams and projects (medium)
+- [x] `deployment-logs/find-all-steps-by-deployment-id` — per-step timing and status within a deployment, needed for duration and failure-stage analysis (medium)
+- [x] `cost/get-a-projects-budget and cost/get-projects-budget-summary-of-the-current-period` — budget targets to compare actual spend against (medium)
+- [x] `audit-events/fetch-audit-logs` — state and transition history across the organization (medium)
 - [ ] `modules/list-modules and modules/list-module-versions` — module registry inventory that templates and environments reference (medium)
 - [ ] `cloud-compass/find-cloud-resources and cloud-compass/get-resource-events` — cloud resource inventory and change events across linked cloud accounts (medium)
 - [ ] `cost/get-weekly-costs-for-projects-or-environments` — pre-bucketed weekly cost series for trend reporting (low)
@@ -9840,8 +9840,8 @@ Diffed against: <https://docs.qonto.com/llms.txt>
 
 - [ ] `Cards (GET /v2/cards)` — resolve card identifiers in transactions into card holders and card status (high)
 - [ ] `Cash flow categories (GET /v2/cash_flow_categories)` — resolve transaction cash flow categories and subcategories into readable labels (high)
-- [ ] `SEPA beneficiaries (GET /v2/sepa/beneficiaries)` — resolve beneficiary identifiers in existing transfer records (high)
-- [ ] `Client invoices (GET /v2/client_invoices)` — analyze receivables, due dates, and invoice payment status (high)
+- [x] `SEPA beneficiaries (GET /v2/sepa/beneficiaries)` — resolve beneficiary identifiers in existing transfer records (high)
+- [x] `Client invoices (GET /v2/client_invoices)` — analyze receivables, due dates, and invoice payment status (high)
 - [ ] `Supplier invoices (GET /v2/supplier_invoices)` — analyze payables and documents requiring payment or review (high)
 - [ ] `Teams (GET /v2/teams)` — group memberships and spending by organizational team (medium)
 - [ ] `Clients (GET /v2/clients)` — enrich invoice analysis with customer identities and billing details (medium)
@@ -12001,10 +12001,10 @@ Today (5): `candidates`, `departments`, `job_applications`, `jobs`, `users`
 
 Diffed against: <https://docs.teamtailor.com/api/collections/14157246/TVzSiGxA>
 
-- [ ] `stages` — pipeline stage lookup resolving the stage each job_application sits in — without it application data has no funnel (high)
-- [ ] `movements` — candidate stage-transition history — the fact table for time-in-stage and conversion analysis (high)
-- [ ] `reject-reasons` — lookup resolving the rejection reason IDs on job applications (high)
-- [ ] `locations` — location lookup for the jobs we already sync; standard hiring breakdown dimension (high)
+- [x] `stages` — pipeline stage lookup resolving the stage each job_application sits in — without it application data has no funnel (high)
+- [x] `movements` — candidate stage-transition history — the fact table for time-in-stage and conversion analysis (high)
+- [x] `reject-reasons` — lookup resolving the rejection reason IDs on job applications (high)
+- [x] `locations` — location lookup for the jobs we already sync; standard hiring breakdown dimension (high)
 - [ ] `job-offers` — offer records with status — the bottom of the hiring funnel (medium)
 - [ ] `interviews` — scheduled interview events per application, needed for interview-load and scheduling metrics (medium)
 - [ ] `scorecard-scores` — per-criterion interview ratings — the structured evaluation data (medium)
@@ -12619,7 +12619,7 @@ Diffed against: <https://raw.githubusercontent.com/twilio/twilio-oai/main/spec/j
 
 - [x] `Usage/Records (+ Daily/Monthly/Yearly variants)` — per-category usage and spend — the headline metric for anyone modeling Twilio cost (high)
 - [ ] `Conferences/{ConferenceSid}/Participants` — per-participant rows are the only way to analyze conference attendance and talk time; conferences alone give no membership (high)
-- [ ] `Accounts (subaccount list)` — lookup table resolving the AccountSid carried on every message, call and recording already synced (high)
+- [x] `Accounts (subaccount list)` — lookup table resolving the AccountSid carried on every message, call and recording already synced (high)
 - [ ] `Calls/{CallSid}/Events` — per-call state/transition history for debugging and funnel analysis of call flow (medium)
 - [ ] `Notifications` — account-wide error and warning log, keyed to calls/messages — the standard delivery-failure diagnostic table (medium)
 - [ ] `Messages/{MessageSid}/Media` — MMS media items per message; needed for attachment volume and storage analysis (medium)
@@ -13332,10 +13332,10 @@ Today (9): `devices`, `dynamic_teams`, `events`, `groups`, `people`, `plans`, `r
 
 Diffed against: <https://help.xmatters.com/xmapi/index.html>
 
-- [ ] `audits (GET /api/xm/1/audits)` — the notification, response and event audit records — the main analytical fact table for alerting (high)
-- [ ] `incidents (GET /api/xm/1/incidents, /incidents/{id}/timeline-entries)` — incident objects and their timeline; the headline object of xMatters incident management (high)
-- [ ] `group members (GET /api/xm/1/groups/{id}/members)` — membership lookup joining the people and groups we already sync (high)
-- [ ] `group shifts (GET /api/xm/1/groups/{id}/shifts)` — on-call rotation definitions; without them groups carry no schedule (high)
+- [x] `audits (GET /api/xm/1/audits)` — the notification, response and event audit records — the main analytical fact table for alerting (high)
+- [x] `incidents (GET /api/xm/1/incidents, /incidents/{id}/timeline-entries)` — incident objects and their timeline; the headline object of xMatters incident management (high)
+- [x] `group members (GET /api/xm/1/groups/{id}/members)` — membership lookup joining the people and groups we already sync (high)
+- [x] `group shifts (GET /api/xm/1/groups/{id}/shifts)` — on-call rotation definitions; without them groups carry no schedule (high)
 - [ ] `on-call (GET /api/xm/1/on-call)` — who is on call over a timeframe, the vendor's headline query (high)
 - [ ] `services (GET /api/xm/1/services)` — lookup resolving the service referenced by incidents and signals (high)
 - [ ] `event user deliveries (GET /api/xm/1/events/{id}/user-deliveries)` — per-recipient delivery and response outcomes for each event (medium)

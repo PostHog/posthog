@@ -20,6 +20,9 @@ from .series import pretty, usable_series
 
 ROUTINE_WINDOW_DAYS = 28
 DAILY_ROUTINE_DAYS = 8
+WARMUP_ROUTINE_DAYS = 2
+WARMUP_HISTORY_DAYS = 14
+VIEW_DAYS_RECORDED_SINCE = date(2026, 10, 16)
 WEEKLY_ROUTINE_WEEKS = 3
 ROUTINE_CANDIDATES = 6
 ROUTINE_TILES = 2
@@ -36,11 +39,17 @@ def find_routine(context: HighlightContext) -> HighlightFindings:
     return HighlightFindings(pulse=tuple(metrics))
 
 
-def routine_days(view_days: Sequence[date], today: date) -> int:
+def routine_days(view_days: Sequence[date], today: date, warming_up: bool = False) -> int:
     recent = {day for day in view_days if today - timedelta(days=ROUTINE_WINDOW_DAYS) < day <= today}
-    daily = sum(1 for day in recent if day > today - timedelta(days=14)) >= DAILY_ROUTINE_DAYS
+    needed = WARMUP_ROUTINE_DAYS if warming_up else DAILY_ROUTINE_DAYS
+    daily = sum(1 for day in recent if day > today - timedelta(days=14)) >= needed
     weekly = len({day.isocalendar()[:2] for day in recent}) >= WEEKLY_ROUTINE_WEEKS
     return len(recent) if daily or weekly else 0
+
+
+def is_warming_up(today: date) -> bool:
+    """Whether view days have been recorded for too short a time for the daily rule."""
+    return (today - VIEW_DAYS_RECORDED_SINCE).days < WARMUP_HISTORY_DAYS
 
 
 def _routine_insights(context: HighlightContext) -> list[str]:
@@ -50,8 +59,10 @@ def _routine_insights(context: HighlightContext) -> list[str]:
         type="insight",
         viewed_at__gte=timezone.now() - timedelta(days=ROUTINE_WINDOW_DAYS),
     ).values_list("ref", "view_days", "viewed_at")
+    warming_up = is_warming_up(context.today)
     ranked = sorted(
-        ((routine_days(days or [], context.today), viewed_at, ref) for ref, days, viewed_at in views), reverse=True
+        ((routine_days(days or [], context.today, warming_up), viewed_at, ref) for ref, days, viewed_at in views),
+        reverse=True,
     )
     return [ref for days, _viewed_at, ref in ranked if days][:ROUTINE_CANDIDATES]
 

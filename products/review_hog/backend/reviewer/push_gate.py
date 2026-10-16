@@ -25,11 +25,21 @@ The rules, in order. The first rule that matches gives the reason:
 7. `draft`: the PR is a draft and no rule above skips the push. A draft cannot merge, and marking it
    ready starts a turn that reviews everything since the last reviewed head. The rules above still run,
    so a draft decision keeps the System One answer and the push size for calibration.
-8. `next_push_likely`: on a PR that is not a draft, when no rule above matched, another automatic
+8. `late_follow_up`: the push would start review number `LATE_FOLLOW_UP_RUN_INDEX` of the PR or a later one.
+9. `small_pr`: the PR has fewer than `SMALL_PR_REVIEWABLE_LINES_BELOW` reviewable lines, the changed lines
+   without generated and vendored files that the lens parts are sized by.
+10. `quiet_small_push`: the last review kept no finding and the push changes at most
+   `QUIET_PUSH_MAX_OWN_CODE_LINES` own code lines. Skipped pushes add up, so a later push that brings the
+   own code lines over the limit runs the review.
+   Rules 8 to 10 match the follow-ups that surfaced the least per review in production. A skipped push
+   does not move the baseline, so the next review covers its changes. These rules take over a shadow
+   match of the rules above, so a push that only a shadow rule matched can still skip. They never take
+   over a gate failure, and they do not run on a retry of a turn that already finalized its head.
+11. `next_push_likely`: on a PR that is not a draft, when no rule above matched, another automatic
    follow-up is likely to come. Skipped changes add up and the next review covers them. The chance
    comes from a table fitted offline on the follow-up number and the PR size. Every decision on a
    PR that is not a draft records the chance, also when another rule decided.
-9. `throttled`: the PR spent its review budget. Each PR has a token bucket (Turner 1986) that holds
+12. `throttled`: the PR spent its review budget. Each PR has a token bucket (Turner 1986) that holds
    `PUSH_BUDGET.burst` reviews and gets one back every `3600 / PUSH_BUDGET.per_hour` seconds. A push
    that every rule above lets through takes a token, and a push that finds the bucket empty waits:
    the next turn that runs reviews everything since the last reviewed head. This caps bursts of
@@ -72,6 +82,9 @@ SKIP_DOCS_ONLY = False
 SKIP_SMALL_CHANGE = False
 SKIP_SYSTEM_ONE = False
 SKIP_DRAFT = True
+SKIP_LATE_FOLLOW_UP = True
+SKIP_SMALL_PR = True
+SKIP_QUIET_SMALL_PUSH = True
 # Before this goes on, `next_push_likely` must defer only once per reviewed head. A skip does not
 # advance run_index, so the same chance would match every later push and no review would run.
 SKIP_NEXT_PUSH = False
@@ -91,6 +104,10 @@ end
 redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
 return 1
 """
+# Picked by a replay of production follow-ups in `review-eval/experiments/2026-10-16-follow-up-value`.
+LATE_FOLLOW_UP_RUN_INDEX = 9
+SMALL_PR_REVIEWABLE_LINES_BELOW = 150
+QUIET_PUSH_MAX_OWN_CODE_LINES = 30
 # Picked by the replay in `review-eval/experiments/2026-10-14-review-throttle`.
 PUSH_BUDGET = Budget(burst=2, per_hour=2)
 # Longer than a turn and its retry take, so a retried turn finds that its head paid already.
@@ -198,6 +215,9 @@ SkipReason = Literal[
     "small_change",
     "system_one_below_threshold",
     "draft",
+    "late_follow_up",
+    "small_pr",
+    "quiet_small_push",
     "next_push_likely",
     "throttled",
 ]
@@ -228,6 +248,9 @@ class PushGateDecision:
     net_code_lines: int | None = None
     # Small-change deferrals in a row after this decision. None when the gate did not read the counter.
     small_change_deferrals: int | None = None
+    # Inputs of rules 8 to 10. None when the gate could not read them.
+    reviewable_lines: int | None = None
+    previous_findings: int | None = None
 
 
 @frozen
@@ -273,6 +296,12 @@ def _rule_enabled(reason: SkipReason) -> bool:
         return SKIP_SMALL_CHANGE
     if reason == "draft":
         return SKIP_DRAFT
+    if reason == "late_follow_up":
+        return SKIP_LATE_FOLLOW_UP
+    if reason == "small_pr":
+        return SKIP_SMALL_PR
+    if reason == "quiet_small_push":
+        return SKIP_QUIET_SMALL_PUSH
     if reason == "next_push_likely":
         return SKIP_NEXT_PUSH
     if reason == "throttled":
@@ -633,10 +662,48 @@ def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDeci
     )
 
 
+# A decision that runs the review because the gate could not judge the push. Rules 8 to 10 keep it.
+_FAIL_OPEN_REASONS: frozenset[RunReason] = frozenset(
+    {"commits_removed", "system_one_unavailable", "interdiff_too_large", "compare_unavailable", "snapshot_unavailable"}
+)
+
+
+def _low_value_reason(
+    decision: PushGateDecision, *, run_index: int, reviewable_lines: int | None, previous_findings: int | None
+) -> SkipReason | None:
+    if run_index >= LATE_FOLLOW_UP_RUN_INDEX:
+        return "late_follow_up"
+    if reviewable_lines is not None and reviewable_lines < SMALL_PR_REVIEWABLE_LINES_BELOW:
+        return "small_pr"
+    own_code_lines = decision.own_code_lines
+    if previous_findings == 0 and own_code_lines is not None and own_code_lines <= QUIET_PUSH_MAX_OWN_CODE_LINES:
+        return "quiet_small_push"
+    return None
+
+
+def apply_follow_up_value_rules(
+    decision: PushGateDecision, *, run_index: int, reviewable_lines: int | None, previous_findings: int | None
+) -> PushGateDecision:
+    """Rules 8 to 10, on top of the draft rule. An input that is None matches no rule, so the push runs.
+
+    `run_index` is the turn this push would start. `previous_findings` is the number of findings the last
+    turn kept.
+    """
+    decision = replace(decision, reviewable_lines=reviewable_lines, previous_findings=previous_findings)
+    if decision.skip or decision.reason in _FAIL_OPEN_REASONS:
+        return decision
+    reason = _low_value_reason(
+        decision, run_index=run_index, reviewable_lines=reviewable_lines, previous_findings=previous_findings
+    )
+    if reason is None:
+        return decision
+    return replace(decision, skip=_rule_enabled(reason), would_skip=True, reason=reason)
+
+
 def apply_next_push_rule(
     decision: PushGateDecision, *, follow_up: int | None, pr_lines: int | None
 ) -> PushGateDecision:
-    """Rule 8, only for a PR that is not a draft. It records the chance also when another rule decided.
+    """Rule 11, only for a PR that is not a draft. It records the chance also when another rule decided.
 
     `follow_up` is the number of this automatic follow-up (1-based) and `pr_lines` is the PR's
     additions plus deletions. Both are None when they are unknown.
@@ -645,20 +712,12 @@ def apply_next_push_rule(
     if follow_up is not None and pr_lines is not None:
         probability = next_push_probability(follow_up=follow_up, pr_lines=pr_lines)
     if probability is not None and probability >= NEXT_PUSH_SKIP_AT and not decision.would_skip:
-        decision = _matched(
-            "next_push_likely",
-            own_commits=decision.own_commits,
-            probability=decision.probability,
-            model=decision.model,
-            own_code_lines=decision.own_code_lines,
-            net_code_lines=decision.net_code_lines,
-            small_change_deferrals=decision.small_change_deferrals,
-        )
+        decision = replace(decision, skip=_rule_enabled("next_push_likely"), would_skip=True, reason="next_push_likely")
     return replace(decision, next_push_probability=probability)
 
 
 def apply_throttle(decision: PushGateDecision, *, report_id: str, head_sha: str) -> PushGateDecision:
-    """Rule 9, last: a push that the rules before it skip takes no token. Without Redis the push runs.
+    """Rule 12, last: a push that the rules before it skip takes no token. Without Redis the push runs.
 
     A head pays once. A failed turn runs again as a new activity or a new child workflow, and a
     retry that charged again could find the bucket empty and drop a review that passed the budget.

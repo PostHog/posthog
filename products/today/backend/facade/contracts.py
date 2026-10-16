@@ -201,6 +201,10 @@ class Highlights:
     items: list[HighlightItem]
 
 
+class DailyValueNotReady(Exception):
+    """A source raises this when a value it needs is still being computed. Today retries the source soon."""
+
+
 @frozen
 class HighlightCandidate:
     """One fact a source offers to "For you today". Today ranks every candidate and shows the best few."""

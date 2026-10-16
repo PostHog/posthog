@@ -885,18 +885,15 @@ export interface ActivityEventsListWidgetConfigApi {
     properties?: ActivityEventsPropertyFilterApi[] | null
 }
 
-/**
- * Issue ranking column.
- */
-export type ErrorTrackingListWidgetConfigApiOrderBy =
-    (typeof ErrorTrackingListWidgetConfigApiOrderBy)[keyof typeof ErrorTrackingListWidgetConfigApiOrderBy]
+export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
 
-export const ErrorTrackingListWidgetConfigApiOrderBy = {
+export const ErrorTrackingOrderByApi = {
     LastSeen: 'last_seen',
     FirstSeen: 'first_seen',
     Occurrences: 'occurrences',
     Users: 'users',
     Sessions: 'sessions',
+    Severity: 'severity',
 } as const
 
 /**
@@ -950,7 +947,7 @@ export interface ErrorTrackingListWidgetConfigApi {
      */
     limit?: number
     /** Issue ranking column. */
-    orderBy?: ErrorTrackingListWidgetConfigApiOrderBy
+    orderBy?: ErrorTrackingOrderByApi
     /** Sort direction for orderBy. */
     orderDirection?: ErrorTrackingListWidgetConfigApiOrderDirection
     /** Issue status filter. */
@@ -8187,17 +8184,6 @@ export interface MarketingAnalyticsAggregatedQueryApi {
     /** version of the node, used for schema migrations */
     version?: number | null
 }
-
-export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
-
-export const ErrorTrackingOrderByApi = {
-    LastSeen: 'last_seen',
-    FirstSeen: 'first_seen',
-    Occurrences: 'occurrences',
-    Users: 'users',
-    Sessions: 'sessions',
-    Severity: 'severity',
-} as const
 
 export type OrderDirection2Api = (typeof OrderDirection2Api)[keyof typeof OrderDirection2Api]
 
