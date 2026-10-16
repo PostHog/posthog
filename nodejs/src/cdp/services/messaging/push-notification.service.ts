@@ -19,6 +19,7 @@ import { EncryptedFields } from '../../utils/encryption-utils'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { DeviceSubscription, getDevicePushSubscriptions } from '../../utils/push-subscription-utils'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
+import { subscribeApnsConnectionDiagnostics, takeRejectedApnsConnection } from './apns-connection-diagnostics'
 import { MessageAssetsService } from './message-assets.service'
 import {
     NormalizedPushError,
@@ -222,6 +223,27 @@ class ApnsTokenRejectionError extends PushSendError {
     }
 }
 
+// Ties each rejection to the connection and Apple server that sent it. Pod logs only: the customer-facing log
+// must not carry our egress addresses. The token is identified by a hash prefix, never logged itself.
+function logApnsTokenRejection(
+    teamId: number,
+    apns: { apnsHost: string; jwt: string; keyRef: string },
+    code: string,
+    apnsId: string | undefined
+): void {
+    const issuedAtMs = apnsJwtIssuedAtMs(apns.jwt)
+    logger.warn('🍎', 'APNs rejected the provider token', {
+        code,
+        teamId,
+        keyRef: apns.keyRef,
+        apnsHost: apns.apnsHost,
+        tokenRef: createHash('sha256').update(apns.jwt).digest('hex').slice(0, 8),
+        tokenIssuedAt: issuedAtMs === null ? null : new Date(issuedAtMs).toISOString(),
+        apnsId,
+        connection: takeRejectedApnsConnection(apnsId) ?? null,
+    })
+}
+
 function retriableTokenRejection(error: PushSendError): PushSendError {
     if (!error.code || !APNS_REJECTED_TOKEN_CODES.has(error.code)) {
         return error
@@ -257,7 +279,9 @@ export class PushNotificationService {
         private fetchUtils: PushNotificationFetchUtils,
         private valkey: RedisV2,
         private messageAssetsService?: MessageAssetsService
-    ) {}
+    ) {
+        subscribeApnsConnectionDiagnostics()
+    }
 
     // Both Valkey calls for the APNs token are failOpen, so an outage turns every send into a fresh mint —
     // the exact pattern Apple answers with 429 TooManyProviderTokenUpdates. This per-pod copy bounds that
@@ -644,7 +668,7 @@ export class PushNotificationService {
                 result,
                 params,
                 subscription,
-                { apnsHost, bundleId, jwt, templateId },
+                { apnsHost, bundleId, jwt, templateId, keyRef },
                 addLog
             )
             if (!tokenRefreshed && outcome.error?.code && APNS_REJECTED_TOKEN_CODES.has(outcome.error.code)) {
@@ -657,7 +681,7 @@ export class PushNotificationService {
                         result,
                         params,
                         subscription,
-                        { apnsHost, bundleId, jwt, templateId },
+                        { apnsHost, bundleId, jwt, templateId, keyRef },
                         addLog
                     )
                 }
@@ -705,7 +729,7 @@ export class PushNotificationService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
         subscription: DeviceSubscription,
-        apns: { apnsHost: string; bundleId: string; jwt: string; templateId: string },
+        apns: { apnsHost: string; bundleId: string; jwt: string; templateId: string; keyRef: string },
         addLog: ReturnType<typeof createAddLogFunction>
     ): Promise<{ sent: boolean; unregistered?: boolean; message?: string; error?: PushSendError }> {
         const payload = params.payload
@@ -773,6 +797,9 @@ export class PushNotificationService {
             // retrying a token that will never work; other reasons are surfaced as failures.
             if (err.unregistered) {
                 return { sent: false, unregistered: true, message: err.message }
+            }
+            if (err.code && APNS_REJECTED_TOKEN_CODES.has(err.code)) {
+                logApnsTokenRejection(result.invocation.teamId, apns, err.code, fetchResponse?.headers?.['apns-id'])
             }
             return { sent: false, error: pushSendError('apns', err, parseRetryAfterMs(fetchResponse)) }
         }
