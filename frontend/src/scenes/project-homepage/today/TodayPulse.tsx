@@ -74,22 +74,12 @@ export function TodayPulse({ metrics }: { metrics: HighlightMetricApi[] }): JSX.
     return (
         <ul className="TodayPulse" aria-label="Key numbers, against the period before">
             {metrics.map((metric) => {
-                const tone = metric.key.startsWith('insight:') ? 'neutral' : metricTone(metric.change_pct, metric.value)
+                const isInsight = metric.key.startsWith('insight:')
+                const tone = isInsight ? 'neutral' : metricTone(metric.change_pct, metric.value)
                 const formatValue = metricFormatter(metric, baseCurrency)
-                return (
-                    <li key={metric.key} className="TodayPulse__metric">
-                        {metric.url ? (
-                            <LinkPrimitive
-                                to={metric.url}
-                                className="TodayPulse__name TodayPulse__link"
-                                title={metric.name}
-                                data-attr="today-pulse-insight"
-                            >
-                                {metric.name}
-                            </LinkPrimitive>
-                        ) : (
-                            <span className="TodayPulse__name">{metric.name}</span>
-                        )}
+                const content = (
+                    <>
+                        <span className="TodayPulse__name">{metric.name}</span>
                         <span className="TodayPulse__row">
                             <span className="TodayPulse__value" translate="no">
                                 {metric.value_format ? formatValue(metric.value) : todayNumber(metric.value)}
@@ -105,6 +95,22 @@ export function TodayPulse({ metrics }: { metrics: HighlightMetricApi[] }): JSX.
                                 />
                             </span>
                         </span>
+                    </>
+                )
+                return (
+                    <li key={metric.key} className="TodayPulse__metric">
+                        {metric.url ? (
+                            <LinkPrimitive
+                                to={metric.url}
+                                className="TodayPulse__link"
+                                title={metric.name}
+                                data-attr={isInsight ? 'today-pulse-insight' : 'today-pulse-key-metric'}
+                            >
+                                {content}
+                            </LinkPrimitive>
+                        ) : (
+                            content
+                        )}
                     </li>
                 )
             })}
