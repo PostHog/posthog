@@ -7,15 +7,15 @@ from typing import Union
 
 import structlog
 import temporalio
-
-from posthog.schema import EmbeddingModelName
+from asgiref.sync import async_to_sync
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.embedding_worker import DocumentKey, async_get_recently_seen_documents, emit_embedding_request
+from posthog.api.embedding_worker import DocumentKey, async_get_recently_seen_documents
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
@@ -29,6 +29,7 @@ from products.signals.backend.signal_metadata import (
     _report_placeholders,
     _signals_for_report_query,
 )
+from products.signals.backend.spend import SignalMetadataChange, submit_signal_metadata_updates
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.types import SignalCandidate, SignalData, SignalTypeExample
@@ -109,22 +110,11 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
         placeholders=_report_placeholders(report_id),
     )
 
-    for row in result.results or []:
-        document_id, content, metadata_str, timestamp_raw, _inserted_at_raw = row
-        metadata = json.loads(metadata_str)
-        metadata["deleted"] = True
-
-        emit_embedding_request(
-            content=content,
-            team_id=team_id,
-            product=SIGNAL_DOCUMENT_PRODUCT,
-            document_type=SIGNAL_DOCUMENT_TYPE,
-            rendering=SIGNAL_DOCUMENT_RENDERING,
-            document_id=document_id,
-            models=[m.value for m in EmbeddingModelName],
-            timestamp=_ensure_tz_aware(timestamp_raw),
-            metadata=metadata,
-        )
+    async_to_sync(submit_signal_metadata_updates)(
+        team_id=team_id,
+        signal_ids=[row[0] for row in result.results or []],
+        change=SignalMetadataChange(deleted=True, expected_report_id=report_id),
+    )
 
 
 _RETRACT_PAGE_SIZE = 500
@@ -169,22 +159,12 @@ def retract_source_signals(*, team: Team, source_product: str, source_type: str,
             },
         )
         rows = result.results or []
-        for row in rows:
-            document_id, _content, metadata_str, timestamp_raw = row
-            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else dict(metadata_str or {})
-            metadata["deleted"] = True
-            emit_embedding_request(
-                content="",
-                team_id=team.id,
-                product=SIGNAL_DOCUMENT_PRODUCT,
-                document_type=SIGNAL_DOCUMENT_TYPE,
-                rendering=SIGNAL_DOCUMENT_RENDERING,
-                document_id=document_id,
-                models=[model.value for model in EmbeddingModelName],
-                timestamp=_ensure_tz_aware(timestamp_raw),
-                metadata=metadata,
-            )
-            retracted += 1
+        async_to_sync(submit_signal_metadata_updates)(
+            team_id=team.id,
+            signal_ids=[row[0] for row in rows],
+            change=SignalMetadataChange(deleted=True, clear_content=True),
+        )
+        retracted += len(rows)
         if len(rows) < _RETRACT_PAGE_SIZE:
             return retracted
         after = rows[-1][0]
@@ -205,24 +185,13 @@ def reassign_report_signals(*, source_report_id: str, survivor_report_id: str, t
         placeholders=_report_placeholders(source_report_id),
     )
 
-    moved = 0
-    for row in result.results or []:
-        document_id, content, metadata_str, timestamp_raw, _inserted_at_raw = row
-        metadata = json.loads(metadata_str)
-        metadata["report_id"] = survivor_report_id
-
-        emit_embedding_request(
-            content=content,
-            team_id=team_id,
-            product=SIGNAL_DOCUMENT_PRODUCT,
-            document_type=SIGNAL_DOCUMENT_TYPE,
-            rendering=SIGNAL_DOCUMENT_RENDERING,
-            document_id=document_id,
-            models=[m.value for m in EmbeddingModelName],
-            timestamp=_ensure_tz_aware(timestamp_raw),
-            metadata=metadata,
-        )
-        moved += 1
+    signal_ids = [row[0] for row in result.results or []]
+    async_to_sync(submit_signal_metadata_updates)(
+        team_id=team_id,
+        signal_ids=signal_ids,
+        change=SignalMetadataChange(report_id=survivor_report_id, expected_report_id=source_report_id),
+    )
+    moved = len(signal_ids)
     if moved >= REASSIGN_SIGNAL_ROW_CAP:
         logger.warning(
             "signals_reassign_hit_row_cap",
@@ -419,10 +388,13 @@ class WaitForClickHouseMode(StrEnum):
     CH_CONFIRMED: a store confirmation triggers an immediate ClickHouse confirm, and
     ClickHouse stays authoritative — the store only decides when to start querying.
 
+    METADATA_UPDATE: wait for the per-signal writer, which confirms its own replacement
+    version in ClickHouse without passing through the embedding worker.
     """
 
     OPTIMISTIC = "optimistic"
     CH_CONFIRMED = "ch_confirmed"
+    METADATA_UPDATE = "metadata_update"
 
 
 @dataclass
@@ -499,6 +471,18 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
     minutes old.
     """
     if not input.signals:
+        return
+
+    if input.mode == WaitForClickHouseMode.METADATA_UPDATE:
+        client = await async_connect()
+        for start in range(0, len(input.signals), 20):
+            temporalio.activity.heartbeat()
+            await asyncio.gather(
+                *(
+                    client.get_workflow_handle(f"signal-spend-{input.team_id}-{signal.signal_id}").result()
+                    for signal in input.signals[start : start + 20]
+                )
+            )
         return
 
     from django.utils import timezone

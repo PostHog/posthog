@@ -949,12 +949,19 @@ class TestGitHubIntegrationModel(BaseTest):
                 self.team.id, "PostHog/posthog", source="test", priority=Priority.CRITICAL
             )
         assert result is not None
-        mock_access.assert_called_once_with("PostHog/posthog")
+        mock_access.assert_called_once_with("PostHog/posthog", raise_on_transient=True)
+
+    def test_repository_access_probe_raises_after_transient_retries_are_exhausted(self):
+        github = GitHubIntegration(MagicMock(kind="github"), source="test", priority=Priority.CRITICAL)
+        with patch.object(github, "api_request", return_value=MagicMock(status_code=503)):
+            with pytest.raises(GitHubIntegrationError, match="failed transiently"):
+                github.installation_can_access_repository("PostHog/posthog", raise_on_transient=True)
 
     @parameterized.expand(
         [
             ("our_budget", GitHubEgressBudgetExhausted("shed")),
             ("githubs_limit", GitHubRateLimitError("429")),
+            ("transient_failure", GitHubIntegrationError("unavailable", status_code=503)),
         ]
     )
     def test_first_for_team_repository_looks_past_an_exhausted_installation(self, _name, error):
@@ -973,6 +980,7 @@ class TestGitHubIntegrationModel(BaseTest):
         [
             ("our_budget", GitHubEgressBudgetExhausted("shed")),
             ("githubs_limit", GitHubRateLimitError("429")),
+            ("transient_failure", GitHubIntegrationError("unavailable", status_code=503)),
         ]
     )
     def test_first_for_team_repository_raises_when_only_an_exhausted_installation_could_have_covered(

@@ -97,7 +97,7 @@ def test_harness_tears_down_infrastructure_before_draining_uploads(
         if interrupted:
             raise KeyboardInterrupt
 
-    def bootstrap(required: frozenset[Infra]) -> None:
+    def bootstrap(required: frozenset[Infra], reporter: lifecycle.ProgressReporter) -> None:
         harness._demo_data = MagicMock()
         if teardown_phase == "sync":
             harness._stack.callback(teardown)

@@ -1679,7 +1679,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise PermissionDenied("The analytics data in this task run is not available to you.")
         if gate.runtime == tasks_facade.TaskRuntime.PI or not self._warm_enabled(gate.origin_product):
             return Response(status=status.HTTP_200_OK)
-        if access_response := code_access_required_response(request, self.organization, task_id=pk):
+        if not tasks_facade.task_exempt_from_code_access(pk, self.team_id) and (
+            access_response := code_access_required_response(request, self.organization, task_id=pk)
+        ):
             return access_response
 
         user_id = self._user_id()

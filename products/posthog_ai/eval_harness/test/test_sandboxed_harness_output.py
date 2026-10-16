@@ -935,7 +935,7 @@ def test_console_detail_does_not_remove_transcript_logs(
         None,
     )
     try:
-        raise ValueError("service unavailable")
+        raise ValueError("service unavailable\nconnection details")
     except ValueError:
         error = logging.LogRecord(
             "products.posthog_ai.eval_harness.example",
@@ -977,6 +977,8 @@ def test_console_detail_does_not_remove_transcript_logs(
     assert ("optional dependency detail" in output.err) is verbose
     assert "agent detail" in saved
     assert "ValueError: service unavailable" in saved
+    assert "ValueError: service unavailable" in output.err
+    assert ("connection details" in output.err) is verbose
     assert "case error" in output.err
     assert ("agent detail" in output.err) is verbose
     assert ("Traceback" in output.err) is verbose
@@ -984,11 +986,13 @@ def test_console_detail_does_not_remove_transcript_logs(
 
 
 @pytest.mark.parametrize("verbose", [False, True])
+@pytest.mark.parametrize("interactive", [False, True])
 def test_native_child_output_stays_in_transcript_and_file_descriptors_restore(
-    tmp_path: Path, capfd: pytest.CaptureFixture[str], verbose: bool
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], verbose: bool, interactive: bool
 ) -> None:
     transcript = RunTranscript.create(tmp_path)
-    with transcript.capture(verbose=verbose):
+    console: list[str] = []
+    with transcript.capture(verbose=verbose, console_output=console.append if interactive else None):
         subprocess.run(
             [sys.executable, "-c", "import os; os.write(1, b'native stdout\\n'); os.write(2, b'native stderr')"],
             check=True,
@@ -1000,7 +1004,8 @@ def test_native_child_output_stays_in_transcript_and_file_descriptors_restore(
     saved = transcript.path.read_text()
     assert "native stdout" not in output.out
     assert "native stderr" not in output.err
-    assert "SETUP START example service" in output.out
+    assert ("SETUP START example service" in output.out) is (not interactive)
+    assert ("SETUP START example service\n" in console) is interactive
     assert "descriptors restored" in output.out
     assert "native stdout\nnative stderr" in saved
     assert saved.count("SETUP START example service") == 1
