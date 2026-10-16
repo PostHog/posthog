@@ -55,7 +55,7 @@ AUDIT_TRAIL_LOOKBACK_DAYS = 90
 BILLING_CONSUMPTION_LOOKBACK_MONTHS = 12
 
 
-@dataclass
+@dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new fields shift the backlog finding into diff
 class ScalewayEndpointConfig:
     name: str
     # Path relative to the API base URL. May contain a `{region}` or `{zone}` placeholder that the

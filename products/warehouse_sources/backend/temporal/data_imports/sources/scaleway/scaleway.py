@@ -25,7 +25,7 @@ REQUEST_TIMEOUT = 60
 _UNSCOPED = "_"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class ScalewayResumeConfig:
     # Index into the endpoint's scope list (regions/zones) currently being processed. The scope list
     # is static, so a positional index is a stable bookmark across a crash + retry. Stays 0 for
@@ -243,20 +243,27 @@ def get_rows(
             start_page = None
             start_token = None
 
-        for items, has_more, next_cursor in _iter_pages(
-            session, url, scope_params, config, logger, start_page, start_token
-        ):
-            if items:
-                yield _shape_rows(config, scope, items)
+        try:
+            for items, has_more, next_cursor in _iter_pages(
+                session, url, scope_params, config, logger, start_page, start_token
+            ):
+                if items:
+                    yield _shape_rows(config, scope, items)
+                else:
+                    # Empty regions, clusters and months return no rows, so the pipeline sees no item here.
+                    resumable_source_manager.safe_point()
+                # Save AFTER yielding so a crash re-yields the last page rather than skipping it (merge
+                # dedupes on the primary key). Only persist when more pages remain in this scope.
+                if has_more:
+                    resumable_source_manager.save_state(
+                        ScalewayResumeConfig(scope_index=scope_index, scope_key=scope, **next_cursor)
+                    )
+        except requests.HTTPError as e:
+            # A cluster deleted after it was listed answers 404; skip it instead of failing the whole table.
+            if config.scope == "k8s_cluster" and e.response is not None and e.response.status_code == 404:
+                logger.warning(f"Scaleway cluster {scope} no longer exists, skipping it")
             else:
-                # Empty regions, clusters and months return no rows, so the pipeline sees no item here.
-                resumable_source_manager.safe_point()
-            # Save AFTER yielding so a crash re-yields the last page rather than skipping it (merge
-            # dedupes on the primary key). Only persist when more pages remain in this scope.
-            if has_more:
-                resumable_source_manager.save_state(
-                    ScalewayResumeConfig(scope_index=scope_index, scope_key=scope, **next_cursor)
-                )
+                raise
 
         # Advance the bookmark to the next scope so a crash between scopes resumes correctly.
         if scope_index + 1 < len(scopes):

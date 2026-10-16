@@ -298,6 +298,19 @@ class TestKubernetesClusterFanOut:
         assert result.paths[len(K8S_REGIONS) :] == expected_child_paths
         assert result.requests[len(K8S_REGIONS)].param("page") == first_page
 
+    def test_a_cluster_deleted_after_listing_is_skipped(self) -> None:
+        listing = self._cluster_listing({"fr-par": ["c-gone", "c-1"]})
+        children = [_response({}, status=404), _response({"pools": [{"id": "p-1"}]})]
+
+        result = _drive("kubernetes_pools", listing + children)
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["p-1"]
+        assert result.paths[len(K8S_REGIONS) :] == [
+            "/k8s/v1/regions/fr-par/clusters/c-gone/pools",
+            "/k8s/v1/regions/fr-par/clusters/c-1/pools",
+        ]
+
 
 class TestFetchErrors:
     def test_non_ok_response_raises(self) -> None:
