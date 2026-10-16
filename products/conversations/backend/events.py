@@ -448,9 +448,7 @@ def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = Fals
 
 def _message_author_identity(ticket: Ticket, item_context: Mapping[str, object]) -> str:
     # The ticket's attested identity belongs to the person who opened it, but other Slack or Teams
-    # thread members, other email senders, and an unsigned widget session can add messages to the
-    # ticket. This returns the identity that a server check attested for the message's author, in the
-    # same form as the ticket's attested identity, or "" when no check attested the author.
+    # thread members, other email senders, and an unsigned widget session can add messages to it.
     author: object = None
     if ticket.channel_source == Channel.EMAIL:
         if item_context.get("email_sender_authenticated") is True:
