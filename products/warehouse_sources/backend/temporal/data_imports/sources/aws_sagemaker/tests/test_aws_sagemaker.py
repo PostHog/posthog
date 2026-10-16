@@ -113,7 +113,7 @@ def test_signed_json_request(
 
 
 @pytest.mark.parametrize(
-    "endpoint,list_operation,result_key,describe_operation,name_field,arn_field,column",
+    "endpoint,list_operation,result_key,describe_operation,name_field,arn_field,column,list_filters,describe_payload",
     [
         (
             "training_jobs",
@@ -123,6 +123,8 @@ def test_signed_json_request(
             "TrainingJobName",
             "TrainingJobArn",
             "training_job_arn",
+            {},
+            {"TrainingJobName": "example"},
         ),
         (
             "processing_jobs",
@@ -132,9 +134,75 @@ def test_signed_json_request(
             "ProcessingJobName",
             "ProcessingJobArn",
             "processing_job_arn",
+            {},
+            {"ProcessingJobName": "example"},
         ),
-        ("endpoints", "ListEndpoints", "Endpoints", "DescribeEndpoint", "EndpointName", "EndpointArn", "endpoint_arn"),
-        ("models", "ListModels", "Models", "DescribeModel", "ModelName", "ModelArn", "model_arn"),
+        (
+            "endpoints",
+            "ListEndpoints",
+            "Endpoints",
+            "DescribeEndpoint",
+            "EndpointName",
+            "EndpointArn",
+            "endpoint_arn",
+            {},
+            {"EndpointName": "example"},
+        ),
+        (
+            "models",
+            "ListModels",
+            "Models",
+            "DescribeModel",
+            "ModelName",
+            "ModelArn",
+            "model_arn",
+            {},
+            {"ModelName": "example"},
+        ),
+        (
+            "endpoint_configs",
+            "ListEndpointConfigs",
+            "EndpointConfigs",
+            "DescribeEndpointConfig",
+            "EndpointConfigName",
+            "EndpointConfigArn",
+            "endpoint_config_arn",
+            {},
+            {"EndpointConfigName": "example"},
+        ),
+        (
+            "model_packages",
+            "ListModelPackages",
+            "ModelPackageSummaryList",
+            "DescribeModelPackage",
+            "ModelPackageName",
+            "ModelPackageArn",
+            "model_package_arn",
+            {"ModelPackageType": "Both"},
+            {"ModelPackageName": "arn-of-example"},
+        ),
+        (
+            "hyperparameter_tuning_jobs",
+            "ListHyperParameterTuningJobs",
+            "HyperParameterTuningJobSummaries",
+            "DescribeHyperParameterTuningJob",
+            "HyperParameterTuningJobName",
+            "HyperParameterTuningJobArn",
+            "hyper_parameter_tuning_job_arn",
+            {},
+            {"HyperParameterTuningJobName": "example"},
+        ),
+        (
+            "automl_jobs",
+            "ListAutoMLJobs",
+            "AutoMLJobSummaries",
+            "DescribeAutoMLJobV2",
+            "AutoMLJobName",
+            "AutoMLJobArn",
+            "auto_ml_job_arn",
+            {},
+            {"AutoMLJobName": "example"},
+        ),
     ],
 )
 def test_pagination_describes_rows_and_stages_only_complete_pages(
@@ -147,9 +215,11 @@ def test_pagination_describes_rows_and_stages_only_complete_pages(
     name_field: str,
     arn_field: str,
     column: str,
+    list_filters: dict[str, str],
+    describe_payload: dict[str, str],
 ) -> None:
     transport.post.side_effect = [
-        response({result_key: [{name_field: "example"}], "NextToken": "second"}),
+        response({result_key: [{name_field: "example", arn_field: "arn-of-example"}], "NextToken": "second"}),
         response(
             {
                 arn_field: "arn:aws:sagemaker:eu-west-1:123456789012:example/item",
@@ -158,7 +228,7 @@ def test_pagination_describes_rows_and_stages_only_complete_pages(
             }
         ),
         response({result_key: [], "NextToken": "last"}),
-        response({result_key: [{name_field: "other"}]}),
+        response({result_key: [{name_field: "other", arn_field: "arn-of-other"}]}),
         response({arn_field: "arn:aws:sagemaker:eu-west-1:123456789012:example/other", "CreationTime": 1704153600}),
     ]
     resume = manager()
@@ -181,8 +251,9 @@ def test_pagination_describes_rows_and_stages_only_complete_pages(
         "MaxResults": 100,
         "SortBy": "CreationTime",
         "SortOrder": "Ascending",
+        **list_filters,
     }
-    assert json.loads(calls[1].kwargs["data"]) == {name_field: "example"}
+    assert json.loads(calls[1].kwargs["data"]) == describe_payload
     assert json.loads(calls[2].kwargs["data"])["NextToken"] == "second"
     assert json.loads(calls[3].kwargs["data"])["NextToken"] == "last"
     assert [call.args[0] for call in resume.save_state.call_args_list] == [

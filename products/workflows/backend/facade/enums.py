@@ -56,6 +56,17 @@ class WorkflowProposalStatus(LabeledStrEnum):
     APPLIED = "applied", "Applied"
 
 
+class WorkflowIdeaStatus(LabeledStrEnum):
+    SUGGESTED = "suggested", "Suggested"
+    ACCEPTED = "accepted", "Accepted"
+    DISMISSED = "dismissed", "Dismissed"
+
+
+class WorkflowIdeaSource(LabeledStrEnum):
+    MANUAL = "manual", "Manual"
+    SCOUT = "scout", "Scout"
+
+
 class HogFlowState(LabeledStrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
@@ -67,6 +78,7 @@ class HogFlowOriginProduct(LabeledStrEnum):
 
     LOOPS = "loops", "Loops"
     BROADCASTS = "broadcasts", "Broadcasts"
+    TRANSACTIONAL_EMAILS = "transactional_emails", "Transactional emails"
 
 
 class HogFlowEmailSendingPausedBy(LabeledStrEnum):

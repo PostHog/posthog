@@ -667,7 +667,9 @@ describe('PushNotificationService', () => {
 
             // The JWT is written to Valkey once and read back on the second send. Minting a new token per
             // send is what makes Apple return 429 TooManyProviderTokenUpdates.
-            expect(mockValkeySet).toHaveBeenCalledTimes(1)
+            expect(
+                mockValkeySet.mock.calls.filter(([key]: [string]) => key.startsWith('@posthog/apns-provider-jwt/'))
+            ).toHaveLength(1)
             // Apple accepts a provider token for up to an hour, so the TTL has to stay under that.
             expect(mockValkeySet).toHaveBeenCalledWith(
                 expect.stringContaining('@posthog/apns-provider-jwt/'),
@@ -1017,9 +1019,32 @@ describe('PushNotificationService', () => {
             const sentTokens = (): string[] =>
                 mockTrackedFetch.mock.calls.map((call: any) => call[0].fetchParams.headers.Authorization)
             const jwtCacheKey = `@posthog/apns-provider-jwt/${createHash('sha256').update(`TEAM456:KEY123:${testEcKey}`).digest('hex')}`
+            const forgetSharedAcceptance = (): void => {
+                for (const key of [...valkeyStore.keys()]) {
+                    if (key.startsWith('@posthog/apns-key-accepted/')) {
+                        valkeyStore.delete(key)
+                    }
+                }
+            }
+            const tokenIssuedMinutesAgo = (minutes: number): string =>
+                `e30.${Buffer.from(JSON.stringify({ iat: Math.floor(Date.now() / 1000) - minutes * 60 })).toString('base64url')}.sig`
 
             beforeEach(() => {
                 mockTrackedFetch.mockReset()
+                valkeyStore.set(jwtCacheKey, tokenIssuedMinutesAgo(30))
+            })
+
+            it('keeps a rejected token that is younger than the refresh window', async () => {
+                const youngToken = tokenIssuedMinutesAgo(1)
+                valkeyStore.set(jwtCacheKey, youngToken)
+                mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'InvalidProviderToken'))
+
+                const result = await send()
+
+                expect(result.error).toContain('InvalidProviderToken')
+                expect(sentTokens()).toHaveLength(1)
+                expect(valkeyStore.get(jwtCacheKey)).toBe(youngToken)
+                expect([...valkeyStore.keys()].some((key) => key.includes('jwt-refresh'))).toBe(false)
             })
 
             it.each(['InvalidProviderToken', 'ExpiredProviderToken'])(
@@ -1066,7 +1091,8 @@ describe('PushNotificationService', () => {
                 mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'InvalidProviderToken'))
 
                 const rescheduled = await send()
-                // The retry can run on a pod that has not delivered with this key yet.
+                // The retry can run on a pod that has not delivered with this key yet. Only the carried evidence counts.
+                forgetSharedAcceptance()
                 const otherPod = new PushNotificationService(
                     integrationManager,
                     encryptedFields,
@@ -1096,6 +1122,43 @@ describe('PushNotificationService', () => {
                 expect(failed.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
             })
 
+            it('reschedules a young token rejection on a pod that has not delivered with a key another pod delivered with', async () => {
+                mockTrackedFetch.mockResolvedValueOnce(apnsResponse(200))
+                await send()
+                valkeyStore.set(jwtCacheKey, tokenIssuedMinutesAgo(1))
+                mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'InvalidProviderToken'))
+
+                const result = await new PushNotificationService(
+                    integrationManager,
+                    encryptedFields,
+                    fetchUtils,
+                    mockValkey
+                ).executeSendPushNotification(
+                    createSendPushNotificationInvocation({
+                        '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+                    })
+                )
+
+                expect(result.finished).toBe(false)
+                expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
+            })
+
+            it('does not read shared acceptance for a failure a working key cannot explain', async () => {
+                mockTrackedFetch.mockResolvedValue(apnsResponse(429, 'TooManyRequests'))
+
+                await service.executeSendPushNotification(
+                    createSendPushNotificationInvocation({
+                        [deviceSubscriptionKey('com.example.app', 'token-a')]: encryptedFields.encrypt('token-a'),
+                        [deviceSubscriptionKey('com.example.app', 'token-b')]: encryptedFields.encrypt('token-b'),
+                    })
+                )
+
+                expect(mockValkey.useClient).not.toHaveBeenCalledWith(
+                    expect.objectContaining({ name: 'apns-key-accepted-read' }),
+                    expect.anything()
+                )
+            })
+
             it('carries the working key when another device asks for a longer Retry-After', async () => {
                 mockTrackedFetch.mockResolvedValueOnce(apnsResponse(200))
                 await send()
@@ -1116,6 +1179,7 @@ describe('PushNotificationService', () => {
                 expect(rescheduled.finished).toBe(false)
 
                 // On a fresh pod the throttled device is gone, so only the carried evidence keeps the rejection retriable.
+                forgetSharedAcceptance()
                 mockTrackedFetch.mockImplementation(({ url }: { url: string }) =>
                     Promise.resolve(
                         url.endsWith('/token-a')

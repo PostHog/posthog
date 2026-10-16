@@ -1,7 +1,6 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -10,7 +9,8 @@ import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api
 
 import { withPanelLoadTimeout } from '../utils/panelLoadTimeout'
 import { SCOUT_ROSTER_WINDOW_HOURS, isPipelineWriter } from '../utils/scoutRunsWindow'
-import { BOOKKEEPING_KINDS, isReportUuid, scratchpadKindOf, scratchpadTopicOf } from '../utils/scratchpadKeys'
+import { BOOKKEEPING_KINDS, scratchpadKindOf, scratchpadReportIdOf, scratchpadTopicOf } from '../utils/scratchpadKeys'
+import { isReportUnreachable, rememberUnreachableReport } from '../utils/unreachableReports'
 
 // Search reruns the server-side ILIKE on every keystroke; debounce so typing doesn't
 // fire a request per character.
@@ -712,9 +712,9 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             (filteredEntries: ScratchpadEntryApi[] | null, reportTitles: Record<string, string | null>): string[] => {
                 const ids: string[] = []
                 for (const entry of filteredEntries ?? []) {
-                    const topic = scratchpadTopicOf(entry.key)
-                    if (topic && isReportUuid(topic) && !Object.hasOwn(reportTitles, topic) && !ids.includes(topic)) {
-                        ids.push(topic)
+                    const reportId = scratchpadReportIdOf(entry.key)
+                    if (reportId && !Object.hasOwn(reportTitles, reportId) && !ids.includes(reportId)) {
+                        ids.push(reportId)
                         if (ids.length >= REPORT_TITLE_RESOLVE_CAP) {
                             break
                         }
@@ -865,11 +865,19 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             if (!projectId || projectId === '@current' || ids.length === 0) {
                 return
             }
-            for (const reportId of ids) {
+            // A 404 from an earlier mount, or from the findings feed, is already terminal.
+            const fetchIds = ids.filter((reportId) => {
+                if (isReportUnreachable(reportId)) {
+                    actions.setReportTitle(reportId, null)
+                    return false
+                }
+                return true
+            })
+            for (const reportId of fetchIds) {
                 inFlight.add(reportId)
             }
             await Promise.all(
-                ids.map(async (reportId) => {
+                fetchIds.map(async (reportId) => {
                     try {
                         const report = await signalsReportsRetrieve(String(projectId), reportId)
                         actions.setReportTitle(reportId, report.title ?? null)
@@ -878,7 +886,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                         // for again, so only a 404 earns one. Anything else is transient: leave the
                         // id unresolved, so the next pass asks again rather than pinning the row to
                         // its shortened UUID for the rest of the session.
-                        if (error instanceof ApiError && error.status === 404) {
+                        if (rememberUnreachableReport(reportId, error)) {
                             actions.setReportTitle(reportId, null)
                         }
                     } finally {

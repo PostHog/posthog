@@ -28,9 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.set
 
 PAGE_SIZE = 100
 
-# The workflow deployment that parents the execution-events fan-out.
-_FANOUT_PARENT = "workflow_deployments"
-
 
 @dataclasses.dataclass
 class VellumResumeConfig:
@@ -141,25 +138,27 @@ def _fanout_resource(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[VellumResumeConfig],
 ) -> Iterable[Any]:
-    """Fan out over every workflow deployment, pulling its execution events and stamping the parent id.
+    """Fan out over every row of `config.fan_out_parent`, pulling the child list and stamping the parent id.
 
     The parent deployment id is injected into each child row under `parent_id_field` so the composite
-    primary key (`[workflow_deployment_id, span_id]`) stays unique table-wide. A deployment deleted
+    primary key (e.g. `[workflow_deployment_id, span_id]`) stays unique table-wide. A deployment deleted
     between enumeration and its fetch 404s — `response_actions` treats that as an empty page and skips
     it rather than failing the whole sync; any other error propagates. Single dependent resource, so
     the fan-out is resumable: fully-synced deployments are skipped and the in-progress one resumes.
     """
+    parent_name = config.fan_out_parent
     parent_id_field = config.parent_id_field
+    assert parent_name is not None, "fan-out endpoints must define fan_out_parent"
     assert parent_id_field is not None, "fan-out endpoints must define parent_id_field"
 
-    parent_config = VELLUM_ENDPOINTS[_FANOUT_PARENT]
+    parent_config = VELLUM_ENDPOINTS[parent_name]
     parent_params: dict[str, Any] = {"limit": PAGE_SIZE}
     if parent_config.ordering:
         parent_params["ordering"] = parent_config.ordering
 
     parent_resource: EndpointResource = {
-        "name": _FANOUT_PARENT,
-        "table_name": _FANOUT_PARENT,
+        "name": parent_name,
+        "table_name": parent_name,
         "write_disposition": "replace",
         "table_format": "delta",
         "endpoint": {
@@ -180,7 +179,7 @@ def _fanout_resource(
         "endpoint": {
             "path": config.path,
             "params": {
-                "deployment_id": {"type": "resolve", "resource": _FANOUT_PARENT, "field": "id"},
+                "deployment_id": {"type": "resolve", "resource": parent_name, "field": "id"},
                 "limit": PAGE_SIZE,
             },
             "data_selector": "results",
@@ -215,9 +214,9 @@ def _fanout_resource(
         initial_paginator_state=initial_paginator_state,
     )
     child = next(r for r in resources if r.name == endpoint)
-    # include_from_parent injects the parent id under `_workflow_deployments_id`; rename it to the
-    # composite-key column the child rows are expected to carry.
-    return child.add_map(rename_parent_fields(_FANOUT_PARENT, {"id": parent_id_field}))
+    # include_from_parent injects the parent id under `_<parent>_id`; rename it to the composite-key
+    # column the child rows are expected to carry.
+    return child.add_map(rename_parent_fields(parent_name, {"id": parent_id_field}))
 
 
 def vellum_source(
@@ -230,7 +229,7 @@ def vellum_source(
 ) -> SourceResponse:
     config = VELLUM_ENDPOINTS[endpoint]
 
-    if config.fan_out_over_workflow_deployments:
+    if config.fan_out_parent:
         resource = _fanout_resource(api_key, config, endpoint, team_id, job_id, resumable_source_manager)
     else:
         resource = _simple_resource(api_key, config, endpoint, team_id, job_id, resumable_source_manager)
