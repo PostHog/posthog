@@ -756,6 +756,7 @@ export interface CorrelationConfigType {
 }
 
 export interface ProjectType extends ProjectBasicType {
+    logo_media_id: string | null
     created_at: string
     is_pending_deletion: boolean
     deletion_scheduled_at: string | null
