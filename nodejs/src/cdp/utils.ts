@@ -451,7 +451,11 @@ export const redactSensitiveValues = (message: string, sensitiveValues?: string[
             .join('|'),
         'g'
     )
-    return redactBasicAuthTokens(message, secrets).replace(pattern, REDACTED)
+    // The Basic auth pass inserts markers first, so the values are only replaced between them.
+    return redactBasicAuthTokens(message, secrets)
+        .split(REDACTED)
+        .map((text) => text.replace(pattern, REDACTED))
+        .join(REDACTED)
 }
 
 const BASIC_AUTH_TOKEN = /\b(Basic\s+)([A-Za-z0-9+/]+={0,2})/gi
