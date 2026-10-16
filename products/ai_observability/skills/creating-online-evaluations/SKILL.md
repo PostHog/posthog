@@ -317,6 +317,8 @@ WHERE event = '$ai_generation'
 
 For generation targets, `count()` is the run volume. For trace targets, count distinct non-empty
 `$ai_trace_id` values because matching generations from the same trace schedule only one run.
+Use this SQL to size a draft, not `posthog:llma-evaluation-backfill-estimate`: the estimate refuses a
+disabled eval.
 
 If volume is high, set `rollout_percentage` below 100 to sample. Spot-check the evaluator with
 `llma-evaluation-test-hog` (hog) or `llma-evaluation-run` against one generation (llm_judge; skip the
@@ -349,7 +351,8 @@ enable yet) and what would unblock it.
 ### 2.7 — Offer to evaluate past data
 
 An enabled eval only scores traffic from now on. If the user wants results on data they already have, offer
-a backfill over a recent window, at most the last 30 days.
+a backfill over a recent window, at most the last 30 days. Both backfill tools refuse a disabled eval, so
+enable it first (2.6).
 
 1. Call `posthog:llma-evaluation-backfill-estimate` with the window, `conditions`, and `rerun_existing` the
    user wants. Tell the user `total_units`, the
