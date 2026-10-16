@@ -98,6 +98,8 @@ function setDataSourceInConfig(config: BIConfig, source: BIDataSource): BIConfig
         localFields: undefined,
         hierarchies: undefined,
         colorBy: undefined,
+        querySnapshot: undefined,
+        catalogMetric: undefined,
         comparisonPeriod: undefined,
         rows: [],
         columns: [],
@@ -1325,7 +1327,9 @@ export const biEditorLogic = kea<biEditorLogicType>([
         generatedQuery: [
             (selectors) => [selectors.config],
             (config: BIConfig): BIQueryBuildResult | null =>
-                config.rows.length || config.columns.length || config.values.length ? buildBIQuery(config) : null,
+                config.querySnapshot || config.rows.length || config.columns.length || config.values.length
+                    ? buildBIQuery(config)
+                    : null,
         ],
         sortOptions: [
             (selectors) => [selectors.config],
@@ -1540,7 +1544,11 @@ export const biEditorLogic = kea<biEditorLogicType>([
         upsertHierarchy: () => actions.runAfterChange(),
         removeHierarchy: () => actions.runAfterChange(),
         setDataSource: () => {
-            captureBIWorksheetAction('source_selected', values.config)
+            captureBIWorksheetAction('source_selected', values.config, {
+                source_certification:
+                    values.allTables.find((table) => table.name === values.config.source?.table)?.certification
+                        ?.status ?? 'unmarked',
+            })
             actions.runAfterChange()
         },
         setValueAggregation: () => actions.runAfterChange(),
