@@ -36,8 +36,9 @@ FLAG_EVALUATIONS_HOGQL_TABLE = "posthog.flag_evaluations"
 
 # The expression the events table uses under the persons-on-events modes that apply overrides. This table
 # applies it for every team instead of following the mode, because the mode decides where person properties
-# come from and this table stores none. A team on `PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS` therefore
-# reads a merge-aware person here, and from `events` the write-time person until the squash rewrites it.
+# come from and this table does not follow the mode for those either. A team on
+# `PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS` therefore reads a merge-aware person here, and from `events` the
+# write-time person until the squash rewrites it.
 # The table and its `poe` subtable each take their own copy. The tests in test_flag_evaluations.py select
 # `person_id` and `person.id` together, so the two drifting apart fails there.
 def _person_id() -> ExpressionField:
@@ -57,13 +58,15 @@ def _person_id() -> ExpressionField:
 class FlagEvaluationsPersonSubTable(VirtualTable):
     """The person the flag-evaluation row resolves to, corrected by `person_distinct_id_overrides`.
 
-    Narrower than EventsPersonSubTable, which also declares `person_created_at` and `properties` --
-    columns this table does not store, so reusing it would let `person.created_at`,
-    `person.properties` and `SELECT person.*` compile into a column the shards lack.
+    `properties` and `created_at` read the columns stored at evaluation time, as events does under
+    persons-on-events. EventsPersonSubTable does not fit, because its `id` reads the stored person and
+    the printer treats it as part of `events`.
     """
 
     fields: dict[str, FieldOrTable] = {
         "id": _person_id(),
+        "created_at": DateTimeDatabaseField(name="person_created_at", nullable=False),
+        "properties": StringJSONDatabaseField(name="person_properties", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):
@@ -148,18 +151,31 @@ class FlagEvaluationsTable(Table):
         "$session_id": ExpressionField(
             name="$session_id", expr=ast.Field(chain=["session_id"]), isolate_scope=True, hidden=True
         ),
+        # The sessions join that database.py copies from events reads $session_id and $session_id_uuid from here.
+        "$session_id_uuid": ExpressionField(
+            name="$session_id_uuid",
+            expr=uuid_string_expr_to_uint128_expr(ast.Field(chain=["session_id"])),
+            isolate_scope=True,
+            hidden=True,
+        ),
         "request_id": StringDatabaseField(
             name="request_id",
             nullable=False,
             description="Identifier of the flag-evaluation request, shared by every flag evaluated in it.",
         ),
+        "person_mode": StringDatabaseField(
+            name="person_mode",
+            nullable=False,
+            description="How ingestion processed the person: 'full', 'propertyless' or 'force_upgrade'. A "
+            "'propertyless' evaluation had no person profile, and its `person.properties` is '{}'.",
+        ),
         # Should not be used directly; reached via `person`.
         "poe": FlagEvaluationsPersonSubTable(),
         "person": FieldTraverser(
             chain=["poe"],
-            description="The person the evaluation is attributed to, corrected for any later identify or merge, so "
-            "`uniq(person.id)` counts a merged person once. Carries the id alone: the row stores no person "
-            "properties, so join to `persons` to read them.",
+            description="The person the evaluation is attributed to. `person.id` is corrected for any later identify "
+            "or merge, so `uniq(person.id)` counts a merged person once. `person.properties` and `person.created_at` "
+            "are the values stored at evaluation time, not the person's current ones.",
         ),
         # Group keys only. The row carries no group properties, so there is nothing to traverse to:
         # join to `groups` on one of these keys to read a group's current properties.
@@ -173,6 +189,34 @@ class FlagEvaluationsTable(Table):
         "$group_2": StringDatabaseField(name="$group_2", nullable=False, description="Key of the type-2 group."),
         "$group_3": StringDatabaseField(name="$group_3", nullable=False, description="Key of the type-3 group."),
         "$group_4": StringDatabaseField(name="$group_4", nullable=False, description="Key of the type-4 group."),
+        # A group property filter, such as a team's test account filter, compiles to `group_N.properties`.
+        # These joins let it resolve here as it does on events.
+        **{
+            f"group_{index}": LazyJoin(
+                from_field=[f"$group_{index}"],
+                join_table="groups",
+                resolver=GROUP_N,
+                resolver_params={"group_index": index},
+                hidden=True,
+            )
+            for index in range(GROUP_TYPES_LIMIT)
+        },
+        # The table stores no elements, and a flag call on events has none either. An element filter therefore
+        # resolves here and matches nothing, as it does on events. The empty array keeps its String element type.
+        **{
+            name: ExpressionField(name=name, expr=ast.Constant(value=""), hidden=True)
+            for name in ("elements_chain", "elements_chain_href")
+        },
+        **{
+            name: ExpressionField(
+                name=name,
+                expr=ast.Call(
+                    name="arrayResize", args=[ast.Array(exprs=[ast.Constant(value="")]), ast.Constant(value=0)]
+                ),
+                hidden=True,
+            )
+            for name in ("elements_chain_texts", "elements_chain_ids", "elements_chain_elements")
+        },
     }
 
     def avoid_asterisk_fields(self) -> list[str]:
@@ -187,46 +231,21 @@ class FlagEvaluationsTable(Table):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
 
 
-# The fields add_events_list_fields_to_flag_evaluations adds that join another table.
+# The fields an events list reads from flag_evaluations that join another table.
 EVENTS_LIST_JOINED_FIELDS = frozenset({"person", "session", *(f"group_{index}" for index in range(GROUP_TYPES_LIMIT))})
 
 
 def add_events_list_fields_to_flag_evaluations(database: "Database") -> None:
-    """Add the fields an events list reads to `posthog.flag_evaluations` in `database`, so a list query resolves there.
+    """Make `person` on `posthog.flag_evaluations` in `database` a persons join, as an events list reads it.
 
-    This changes the table instance that `database` holds. Every later query compiled against `database` sees the wider
-    table. Pass a database that only the events list runner uses, such as its `shared_database`.
+    This changes the table instance that `database` holds. Every later query compiled against `database` reads each
+    person's current properties instead of the stored ones. Pass a database that only the events list runner uses,
+    such as its `shared_database`.
     """
     flag_evaluations = database.get_table(["posthog", "flag_evaluations"])
-    events_session = database.get_table("events").fields["session"]
-    assert isinstance(events_session, LazyJoin)
 
     # This joins persons on the merge-corrected person_id, the way events does under
     # PERSON_ID_OVERRIDE_PROPERTIES_JOINED. The join is lazy. A query that reads no person field skips it.
     flag_evaluations.fields["person"] = LazyJoin(
         from_field=["person_id"], join_table=database.get_table("persons"), resolver=PERSONS
     )
-    groups = database.get_table("groups")
-    for index in range(GROUP_TYPES_LIMIT):
-        flag_evaluations.fields[f"group_{index}"] = LazyJoin(
-            from_field=[f"$group_{index}"], join_table=groups, resolver=GROUP_N, resolver_params={"group_index": index}
-        )
-
-    # The events session resolvers ignore from_field and read $session_id and $session_id_uuid from the source table.
-    # Copying the events join keeps the sessions table version that the team's modifiers chose.
-    flag_evaluations.fields["$session_id_uuid"] = ExpressionField(
-        name="$session_id_uuid",
-        expr=uuid_string_expr_to_uint128_expr(ast.Field(chain=["session_id"])),
-        isolate_scope=True,
-    )
-    flag_evaluations.fields["session"] = events_session.model_copy()
-
-    # The table stores no elements and no person mode. A flag call on events has no elements either.
-    # An element filter therefore matches nothing on both tables. The empty array keeps its String element type.
-    for name in ("elements_chain", "elements_chain_href", "person_mode"):
-        flag_evaluations.fields[name] = ExpressionField(name=name, expr=ast.Constant(value=""))
-    for name in ("elements_chain_texts", "elements_chain_ids", "elements_chain_elements"):
-        flag_evaluations.fields[name] = ExpressionField(
-            name=name,
-            expr=ast.Call(name="arrayResize", args=[ast.Array(exprs=[ast.Constant(value="")]), ast.Constant(value=0)]),
-        )
