@@ -223,6 +223,7 @@ export class TemplatePipeline {
         const sensitiveValues = [
             ...this.sensitiveInputValues(hogFunction),
             ...connections.flatMap((connection) => Object.values(connection.secrets)),
+            ...connections.flatMap((connection) => (connection.pushDevice ? [connection.pushDevice.token] : [])),
         ]
 
         if (hogFunction.type === 'transformation') {

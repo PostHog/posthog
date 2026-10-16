@@ -555,7 +555,10 @@ export class PushNotificationService {
             // clutter the workflow log — the user-facing explanation is the normalized message below.
             addLog(
                 'debug',
-                redactSensitiveValues(`FCM response ${status ?? '(none)'}: ${stringifyBody(body)}`, [accessToken])
+                redactSensitiveValues(`FCM response ${status ?? '(none)'}: ${stringifyBody(body)}`, [
+                    accessToken,
+                    subscription.token,
+                ])
             )
             if (err.unregistered) {
                 return { sent: false, unregistered: true, message: err.message }
@@ -726,7 +729,10 @@ export class PushNotificationService {
             const err = normalizeApnsError(status, body, fetchError)
             addLog(
                 'debug',
-                redactSensitiveValues(`APNs response ${status ?? '(none)'}: ${stringifyBody(body)}`, [apns.jwt])
+                redactSensitiveValues(`APNs response ${status ?? '(none)'}: ${stringifyBody(body)}`, [
+                    apns.jwt,
+                    subscription.token,
+                ])
             )
             // Apple signals a dead token with 410 / reason "Unregistered". Prune it and skip rather than
             // retrying a token that will never work; other reasons are surfaced as failures.
