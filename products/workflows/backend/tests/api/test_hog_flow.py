@@ -36,6 +36,7 @@ from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
 from products.workflows.backend.facade.writes import update_workflow
@@ -410,6 +411,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("automation", "automation", {"Webhook sync"}),
             ("loop", "loop", {"Loop with email action"}),
             ("broadcast", "broadcast", {"Announcement"}),
+            ("transactional_email", "transactional_email", {"Password reset"}),
             # What the workflows page sends: everything except the surfaces with their own page.
             (
                 "everything_but_broadcasts",
@@ -458,6 +460,13 @@ class TestHogFlowAPI(APIBaseTest):
             name="Announcement",
             created_by=self.user,
             origin_product="broadcasts",
+            actions=[{"id": "a", "type": "function_email", "config": {}}],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Password reset",
+            created_by=self.user,
+            origin_product="transactional_emails",
             actions=[{"id": "a", "type": "function_email", "config": {}}],
         )
 
@@ -7638,6 +7647,19 @@ class TestReplayVisionActionValidation(APIBaseTest):
         response = self._save_step({"type": "scanner", "scanner_id": str(scanner.id)})
 
         assert response.status_code == expected, response.json()
+
+    def test_the_step_refuses_an_experiment_scanner(self) -> None:
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="experiment",
+            scanner_type="experiment",
+            scanner_config={"prompt": "p", "experiment_id": create_experiment(self.team, "workflow-flag").id},
+        )
+
+        response = self._save_step({"type": "scanner", "scanner_id": str(scanner.id)})
+
+        assert response.status_code == 400, response.json()
+        assert "Experiment scanners can't run from a workflow" in str(response.json())
 
     @parameterized.expand(
         [

@@ -2403,7 +2403,7 @@
                     "type": "string"
                 },
                 "displayType": {
-                    "description": "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type.",
+                    "description": "Chart type. `auto` uses `display`.",
                     "enum": ["auto", "line", "bar", "area"],
                     "type": "string"
                 },
@@ -3782,6 +3782,10 @@
                 "source": {
                     "description": "Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery",
                     "type": "object"
+                },
+                "vizSpecificOptions": {
+                    "$ref": "#/definitions/AssistantVizSpecificOptions",
+                    "description": "Chart rendering options."
                 }
             },
             "required": ["kind", "source"],
@@ -4324,6 +4328,16 @@
                 }
             },
             "required": ["kind", "pathsFilter"],
+            "type": "object"
+        },
+        "AssistantPieChartOptions": {
+            "additionalProperties": false,
+            "properties": {
+                "hideAggregation": {
+                    "description": "Hide the total on a pie chart.",
+                    "type": "boolean"
+                }
+            },
             "type": "object"
         },
         "AssistantPropertyFilter": {
@@ -5814,6 +5828,15 @@
                 }
             },
             "required": ["id", "tool_call_id", "content"],
+            "type": "object"
+        },
+        "AssistantVizSpecificOptions": {
+            "additionalProperties": false,
+            "properties": {
+                "ActionsPie": {
+                    "$ref": "#/definitions/AssistantPieChartOptions"
+                }
+            },
             "type": "object"
         },
         "AssistantWebAnalyticsQueryBase": {

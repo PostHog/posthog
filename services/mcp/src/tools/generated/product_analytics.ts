@@ -30,6 +30,14 @@ const AssistantDataTableNode = z
     })
     .catchall(z.unknown())
 
+const AssistantPieChartOptions = z.object({
+    hideAggregation: z.coerce.boolean().describe('Hide the total on a pie chart.').optional(),
+})
+
+const AssistantVizSpecificOptions = z.object({
+    ActionsPie: AssistantPieChartOptions.optional(),
+})
+
 const AssistantInsightVizNode = z.object({
     kind: z.literal('InsightVizNode').default('InsightVizNode'),
     source: z
@@ -37,6 +45,7 @@ const AssistantInsightVizNode = z.object({
         .describe(
             'Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery'
         ),
+    vizSpecificOptions: AssistantVizSpecificOptions.describe('Chart rendering options.').optional(),
 })
 
 const AssistantDataVisualizationBoxPlotSettings = z.object({
@@ -101,12 +110,7 @@ const PieChartSettings = z.object({
 
 const AssistantDataVisualizationAxisDisplaySettings = z.object({
     color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
-    displayType: z
-        .enum(['auto', 'line', 'bar', 'area'])
-        .describe(
-            "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type."
-        )
-        .optional(),
+    displayType: z.enum(['auto', 'line', 'bar', 'area']).describe('Chart type. `auto` uses `display`.').optional(),
     label: z
         .string()
         .describe('Custom label for this series, shown in the legend and tooltips instead of the column name.')

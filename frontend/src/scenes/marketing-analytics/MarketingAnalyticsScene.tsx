@@ -262,8 +262,14 @@ const MarketingAnalyticsDashboardSkeleton = (): JSX.Element => (
 
 const LegacyMarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { hasSources, hasNoConfiguredSources, loading, isAdPerformance, includeConversionGoals } =
-        useValues(marketingAnalyticsLogic)
+    const {
+        hasSources,
+        hasNoConfiguredSources,
+        loading,
+        sourcesInitialLoading,
+        isAdPerformance,
+        includeConversionGoals,
+    } = useValues(marketingAnalyticsLogic)
     const { setAdPerformanceConversionGoals } = useActions(marketingAnalyticsLogic)
     const { loadSources } = useActions(sourcesDataLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
@@ -326,7 +332,9 @@ const LegacyMarketingAnalyticsDashboard = (): JSX.Element => {
         )
     }
 
-    if (loading) {
+    // Only the first load gets the skeleton: a background refresh (window focus, sync polling)
+    // also sets `loading`, and swapping the tiles for the skeleton would remount and refetch them.
+    if (sourcesInitialLoading) {
         return (
             <>
                 {feedbackBanner}

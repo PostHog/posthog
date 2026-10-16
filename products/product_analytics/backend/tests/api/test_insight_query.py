@@ -99,6 +99,17 @@ class TestMCPInsightSerializer(SimpleTestCase):
         assert box_plot["xAxisColumn"] is None
         assert box_plot["seriesColumn"] is None
 
+    def test_keeps_pie_chart_options_under_their_wire_names(self) -> None:
+        normalized_query = MCPInsightSerializer().validate_query(
+            {
+                "kind": "InsightVizNode",
+                "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "vizSpecificOptions": {"ActionsPie": {"hideAggregation": True}},
+            }
+        )
+
+        assert normalized_query["vizSpecificOptions"] == {"ActionsPie": {"hideAggregation": True}}
+
     @parameterized.expand(
         [
             (
