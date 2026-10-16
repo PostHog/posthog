@@ -22,12 +22,9 @@ function pendingDestinationView(notification: PendingVisionAlertNotification): {
     return { title: 'Webhook', detail: notification.webhookUrl }
 }
 
-export function ScannerAlertNotifications({
-    savesAutomatically = false,
-}: {
-    savesAutomatically?: boolean
-}): JSX.Element {
+export function ScannerAlertNotifications(): JSX.Element {
     const {
+        autoSavesDestinations,
         existingHogFunctionsLoading,
         destinationGroups,
         pendingNotifications,
@@ -77,7 +74,7 @@ export function ScannerAlertNotifications({
     return (
         <AlertNotificationDestinationEditor
             description={
-                savesAutomatically
+                autoSavesDestinations
                     ? 'Each destination receives every notification this alert sends. Added and removed destinations save automatically.'
                     : 'Each destination receives every notification this alert sends.'
             }
@@ -86,6 +83,9 @@ export function ScannerAlertNotifications({
                 existingLoading: existingHogFunctionsLoading,
                 existing: existingDestinations,
                 pending: pendingDestinations,
+                pendingTooltip: autoSavesDestinations
+                    ? 'Not added yet. If it stays pending, save the alert to add it.'
+                    : undefined,
             }}
             notificationType={{
                 options: VISION_ALERT_NOTIFICATION_TYPE_OPTIONS,

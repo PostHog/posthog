@@ -70,7 +70,7 @@ function ScannerAlertEditModalContent({
         scannerAlertFormLogic(formLogicProps)
     )
     const { touchAlertFormField } = useActions(scannerAlertFormLogic(formLogicProps))
-    const { destinationGroups } = useValues(scannerAlertNotificationLogic(notificationLogicProps))
+    const { destinationGroups, pendingNotifications } = useValues(scannerAlertNotificationLogic(notificationLogicProps))
     const { busyAlertIds } = useValues(scannerAlertsLogic({ scannerId }))
     const { deleteAlert, snoozeAlertUntil, toggleAlertEnabled, unsnoozeAlert } = useActions(
         scannerAlertsLogic({ scannerId })
@@ -131,7 +131,7 @@ function ScannerAlertEditModalContent({
             ),
             content: (
                 <div className="pt-3">
-                    <ScannerAlertNotifications savesAutomatically />
+                    <ScannerAlertNotifications />
                 </div>
             ),
         },
@@ -205,7 +205,8 @@ function ScannerAlertEditModalContent({
                         isEditing
                         isSubmitting={isAlertFormSubmitting}
                         hasChanges={alertFormChanged}
-                        noChangesReason="No changes to save. Destination and Enabled changes save automatically."
+                        hasPendingChanges={pendingNotifications.length > 0}
+                        noChangesReason="No changes to save. Destination, snooze, and Enabled changes save automatically."
                         onSubmitAttempted={() => touchAlertFormField('name')}
                         leadingActions={leadingActions}
                         trailingActions={
@@ -213,6 +214,7 @@ function ScannerAlertEditModalContent({
                                 checked={alert.enabled ?? true}
                                 label="Enabled"
                                 tooltip="Saves automatically"
+                                disabledReason={busyAlertIds.has(alert.id) ? 'Updating' : undefined}
                                 onChange={() => toggleAlertEnabled(alert)}
                             />
                         }
