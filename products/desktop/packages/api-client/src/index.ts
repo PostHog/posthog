@@ -1,4 +1,5 @@
 import "./generated.augment";
 
 export { buildApiFetcher } from "./fetcher";
-export { createApiClient, type Schemas } from "./generated";
+export type { Schemas } from "./generated";
+export { createApiClient } from "./generated.runtime";

@@ -16,6 +16,19 @@ const REPO_ROOT = path.resolve(process.cwd(), "../../../..");
 const OPENAPI_PATH = path.resolve(REPO_ROOT, "frontend/tmp/openapi.json");
 const TEMP_SCHEMA_PATH = "temp-openapi.json";
 const OUTPUT_PATH = "src/generated.ts";
+// The client class and its helpers go in their own file, so loading the client at runtime
+// never transforms the twenty-thousand lines of types above them.
+const RUNTIME_PATH = "src/generated.runtime.ts";
+const RUNTIME_START = "// <ApiClientTypes>";
+const RUNTIME_END = "// </ApiClient>";
+const RUNTIME_IMPORTS = [
+  "DeleteEndpoints",
+  "EndpointByMethod",
+  "GetEndpoints",
+  "PatchEndpoints",
+  "PostEndpoints",
+  "PutEndpoints",
+];
 
 // Only the endpoints the desktop calls through the typed client are generated. The full
 // schema documents thousands of routes, and every backend change to any of them would
@@ -186,15 +199,44 @@ function generateClient() {
   }
 }
 
+function splitRuntime() {
+  console.log("Splitting the runtime client out...");
+  const source = fs.readFileSync(OUTPUT_PATH, "utf-8");
+  const start = source.indexOf(RUNTIME_START);
+  const end = source.indexOf(RUNTIME_END);
+  if (start === -1 || end === -1) {
+    console.error(
+      `Markers ${RUNTIME_START} and ${RUNTIME_END} not found in ${OUTPUT_PATH}`,
+    );
+    return false;
+  }
+  const runtime = source.slice(start, end + RUNTIME_END.length);
+  fs.writeFileSync(
+    RUNTIME_PATH,
+    `import type { ${RUNTIME_IMPORTS.join(", ")} } from "./generated";\n\n${runtime}\n`,
+    "utf-8",
+  );
+  fs.writeFileSync(
+    OUTPUT_PATH,
+    `${source.slice(0, start).trimEnd()}\n`,
+    "utf-8",
+  );
+  console.log(`✓ Runtime client written to ${RUNTIME_PATH}`);
+  return true;
+}
+
 // typed-openapi emits long single-line types. Formatting the output makes a regen diff show
 // the types that changed instead of rewrapping the whole file, and matches how the
-// checked-in file has always been formatted. Biome skips this file, so prettier does it.
+// checked-in file has always been formatted. Biome skips these files, so prettier does it.
 function formatClient() {
   console.log("Formatting generated client...");
   try {
-    execSync(`pnpm prettier --write ${OUTPUT_PATH} --log-level warn`, {
-      stdio: "inherit",
-    });
+    execSync(
+      `pnpm prettier --write ${OUTPUT_PATH} ${RUNTIME_PATH} --log-level warn`,
+      {
+        stdio: "inherit",
+      },
+    );
     console.log("✓ Client formatted");
     return true;
   } catch (error) {
@@ -222,7 +264,7 @@ async function main() {
     process.exit(1);
   }
 
-  const clientGenerated = generateClient() && formatClient();
+  const clientGenerated = generateClient() && splitRuntime() && formatClient();
 
   cleanup();
 

@@ -3,20 +3,17 @@ import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import type { RootLogger } from "@posthog/di/logger";
 import { ROOT_LOGGER } from "@posthog/di/logger";
 import { getCloudUrlFromRegion } from "@posthog/shared";
+import { Container } from "inversify";
+import { describe, expect, it, vi } from "vitest";
 import {
   AGENT_AUTH,
   AGENT_MCP_APPS,
   MCP_SERVER_CONNECTION_SOURCE,
-} from "@posthog/workspace-server/services/agent/identifiers";
-import type {
-  AgentAuth,
-  AgentMcpApps,
-} from "@posthog/workspace-server/services/agent/ports";
-import type { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
-import { AUTH_PROXY_SERVICE } from "@posthog/workspace-server/services/auth-proxy/identifiers";
-import { Container } from "inversify";
-import { describe, expect, it, vi } from "vitest";
-import { DesktopPiRpcClientFactory } from "./desktop-pi-rpc-client-factory";
+} from "../agent/identifiers";
+import type { AgentAuth, AgentMcpApps } from "../agent/ports";
+import type { AuthProxyService } from "../auth-proxy/auth-proxy";
+import { AUTH_PROXY_SERVICE } from "../auth-proxy/identifiers";
+import { LocalPiRpcClientFactory } from "./pi-rpc-client-factory";
 
 const createPiRpcClient = vi.hoisted(() => vi.fn());
 const createLocalRuntimeMcpServers = vi.hoisted(() =>
@@ -51,7 +48,7 @@ vi.mock("@posthog/agent/pi/rpc-client", () => ({
   createRuntimeMcpServers,
 }));
 
-describe("DesktopPiRpcClientFactory", () => {
+describe("LocalPiRpcClientFactory", () => {
   it("routes Dev Cloud Pi sessions through the hosted development gateway", async () => {
     const auth = {
       getOAuthCredentials: vi.fn(async () => ({
@@ -108,7 +105,7 @@ describe("DesktopPiRpcClientFactory", () => {
       addServerConfigs: vi.fn(),
       handleDiscovery: vi.fn(async () => {}),
     };
-    const factory = new DesktopPiRpcClientFactory(
+    const factory = new LocalPiRpcClientFactory(
       auth,
       authProxy,
       mcpServerSource,
@@ -233,7 +230,7 @@ describe("DesktopPiRpcClientFactory", () => {
         fallBack: vi.fn(),
       };
       createPiRpcClient.mockReturnValue({} as PiRpcClient);
-      const factory = new DesktopPiRpcClientFactory(
+      const factory = new LocalPiRpcClientFactory(
         auth,
         authProxy,
         {
@@ -295,7 +292,7 @@ it("refuses to resolve the Pi factory without a gateway credential source", () =
   ]) {
     container.bind(token).toConstantValue({});
   }
-  container.bind(DesktopPiRpcClientFactory).toSelf();
+  container.bind(LocalPiRpcClientFactory).toSelf();
 
-  expect(() => container.get(DesktopPiRpcClientFactory)).toThrow();
+  expect(() => container.get(LocalPiRpcClientFactory)).toThrow();
 });

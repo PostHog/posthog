@@ -1,0 +1,517 @@
+import {
+  convertStoredEntriesToEvents,
+  hasSessionPromptEvent,
+} from "@posthog/core/sessions/sessionEvents";
+import {
+  type AgentConversationEvent,
+  type AgentRuntime,
+  type StoredLogEntry,
+  showActionSchema,
+} from "@posthog/shared";
+import {
+  buildAgentConversationItems,
+  buildConversationItems,
+  type ConversationItem,
+} from "@posthog/ui/features/sessions/components/buildConversationItems";
+import { z } from "zod";
+import type { Mode } from "./models";
+import { tokenCount } from "./usage";
+
+export type TranscriptLine =
+  | UserLine
+  | { kind: "assistant"; id: string; text: string }
+  | ToolLine
+  | { kind: "notice"; id: string; text: string; tone: "info" | "error" }
+  // The sheet is titled "Suggested actions" unless the offer names its own title.
+  | { kind: "actions"; id: string; actions: ShowAction[]; title?: string }
+  | ShellLine;
+
+// A message the user sent, with the images that went with it.
+export interface UserLine {
+  kind: "user";
+  id: string;
+  text: string;
+  images?: SentImage[];
+}
+
+export interface SentImage {
+  data: string;
+  mimeType: string;
+}
+
+// A shell command the user ran with ! in the composer, not one the agent ran.
+export interface ShellLine {
+  kind: "shell";
+  id: string;
+  command: string;
+  status: string;
+  output: string;
+}
+
+// A command shown before the run's log has it; seen counts the logged runs of the same command when it started.
+export interface PendingShell {
+  line: ShellLine;
+  seen: number;
+}
+
+// The agent's own kind for a call (read, edit, execute…); Claude Code names each call by what it is for, so the kind says what it did.
+export type ToolKind = string;
+
+export interface ToolLine {
+  kind: "tool";
+  id: string;
+  title: string;
+  tool?: ToolKind;
+  status: string;
+  // What the call worked on, such as a shell command or a file path.
+  detail: string;
+  output: string;
+}
+
+export interface Transcript {
+  lines: TranscriptLine[];
+  // The agent is mid-turn: a prompt it has not finished answering.
+  turnOpen: boolean;
+  // The latest turn once it has finished: how long it took, when it ended (epoch ms) and why it stopped.
+  lastTurn: { durationMs: number; endedAt: number; stopReason?: string } | null;
+  // When the open turn started (epoch ms), or null between turns.
+  turnStartedAt: number | null;
+  // The wake-up the agent scheduled in its last turn (Claude Code's ScheduleWakeup), and why it waits.
+  wake: { reason: string } | null;
+  // The modes a Claude Code or Codex session offers and the one it is in, from its config options; null without any.
+  modes: { available: Mode[]; current: string } | null;
+}
+
+// A session names its modes in the `mode` option of its opening result, and again whenever one changes.
+const modeOption = z.object({
+  id: z.literal("mode"),
+  currentValue: z.string(),
+  options: z.array(z.object({ value: z.string(), name: z.string() })),
+});
+const configOptions = z.object({
+  configOptions: z.array(z.unknown()),
+});
+
+// Only an entry that carries config options is parsed: a zod miss builds an error object, and a long log
+// has tens of thousands of entries without any, which once cost most of a transcript rebuild.
+const configHolder = (value: unknown): unknown[] | undefined => {
+  const options = (value as { configOptions?: unknown } | null | undefined)
+    ?.configOptions;
+  return Array.isArray(options)
+    ? configOptions.safeParse(value).data?.configOptions
+    : undefined;
+};
+
+function modesOf(entries: StoredLogEntry[]): Transcript["modes"] {
+  let modes: Transcript["modes"] = null;
+  for (const entry of entries) {
+    const notification = (entry as { notification?: unknown }).notification as
+      | { result?: unknown; params?: { update?: unknown } }
+      | undefined;
+    const holder =
+      configHolder(notification?.result) ??
+      configHolder(notification?.params?.update);
+    for (const candidate of holder ?? []) {
+      const option = modeOption.safeParse(candidate).data;
+      if (option)
+        modes = {
+          available: option.options.map(({ value, name }) => ({
+            id: value,
+            name,
+          })),
+          current: option.currentValue,
+        };
+    }
+  }
+  return modes;
+}
+
+const WAKE_TOOL = "ScheduleWakeup";
+const wakeInput = z.object({ reason: z.string().optional() });
+const wakeOutput = z.object({ scheduledFor: z.number() });
+
+// The last turn's scheduled wake-up: the items after its user message hold the call, with its reason.
+function wakeOf(items: ConversationItem[]): Transcript["wake"] {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.type === "user_message") return null;
+    if (item.type !== "session_update") continue;
+    const update = item.update;
+    if (update.sessionUpdate !== "tool_call" || update.title !== WAKE_TOOL)
+      continue;
+    if (!wakeOutput.safeParse(update.rawOutput).success) return null;
+    return { reason: wakeInput.safeParse(update.rawInput).data?.reason ?? "" };
+  }
+  return null;
+}
+
+// Pi runs log conversation events; ACP runs (Claude, Codex) log raw ACP notifications.
+export function transcriptFrom(
+  runtime: AgentRuntime | undefined,
+  entries: StoredLogEntry[],
+  taskDescription?: string,
+): Transcript {
+  const built =
+    runtime === "pi"
+      ? buildAgentConversationItems(
+          withCompactions(
+            entries.flatMap((entry): AgentConversationEvent[] =>
+              entry.type === "pi_event" && entry.event ? [entry.event] : [],
+            ),
+          ),
+          null,
+        )
+      : buildConversationItems(
+          // A Claude or Codex cloud log holds its first prompt; a pi cloud log omits it, so the task's description stands in.
+          convertStoredEntriesToEvents(
+            entries,
+            hasSessionPromptEvent(convertStoredEntriesToEvents(entries))
+              ? undefined
+              : taskDescription,
+          ),
+          null,
+        );
+  const lines =
+    runtime === "pi"
+      ? withImages(built.items.flatMap(toLine), entries)
+      : built.items.flatMap(toLine);
+  const info = built.lastTurnInfo;
+  // A turn the builder opened itself ends with its negated start still in place. One with agent activity in it is a log window
+  // that started mid-turn, so it is still running; an empty one is the chatter of a reopen.
+  const lastActivity = built.items.at(-1);
+  const lost =
+    info?.isComplete === true &&
+    info.durationMs < 0 &&
+    lastActivity !== undefined &&
+    "timestamp" in lastActivity &&
+    typeof lastActivity.timestamp === "number" &&
+    lastActivity.timestamp >= -info.durationMs;
+  const turnOpen = info?.isComplete === false || lost;
+  // An open turn holds its negated start time until it completes.
+  const turnStartedAt = turnOpen && info ? -info.durationMs : null;
+  const lastTurn =
+    info?.isComplete && info.durationMs >= 0 && built.lastActivityAt !== null
+      ? {
+          durationMs: info.durationMs,
+          endedAt: built.lastActivityAt,
+          stopReason: info.stopReason,
+        }
+      : null;
+  const wake = lastTurn ? wakeOf(built.items) : null;
+  const modes = runtime === "pi" ? null : modesOf(entries);
+  // The sandbox echoes a new chat's first message only once it boots, so show it until then.
+  if (
+    runtime === "pi" &&
+    taskDescription &&
+    !lines.some((line) => line.kind === "user")
+  ) {
+    return {
+      lines: [
+        { kind: "user", id: "first-message", text: taskDescription },
+        ...lines,
+      ],
+      turnOpen,
+      lastTurn,
+      turnStartedAt,
+      wake,
+      modes,
+    };
+  }
+  return { lines, turnOpen, lastTurn, turnStartedAt, wake, modes };
+}
+
+// The conversation builder keeps a message's text and drops its images, so each user line takes them back
+// from the first unclaimed pi message with the same text.
+function withImages(
+  lines: TranscriptLine[],
+  entries: StoredLogEntry[],
+): TranscriptLine[] {
+  const sent = entries.flatMap((entry) => {
+    const event = entry.type === "pi_event" ? entry.event : undefined;
+    if (event?.type !== "user_message") return [];
+    const images = event.content.flatMap((block) =>
+      block.type === "image"
+        ? [{ data: block.data, mimeType: block.mimeType }]
+        : [],
+    );
+    if (images.length === 0) return [];
+    const text = event.content
+      .flatMap((block) => (block.type === "text" ? [block.text] : []))
+      .join("")
+      .trim();
+    return [{ text, images }];
+  });
+  if (sent.length === 0) return lines;
+  return lines.map((line) => {
+    if (line.kind !== "user") return line;
+    const index = sent.findIndex(({ text }) => text === line.text.trim());
+    if (index < 0) return line;
+    const [{ images }] = sent.splice(index, 1);
+    return { ...line, images };
+  });
+}
+
+// Statuses that stand in for a compaction: the /compact that started it, and what it freed.
+const COMPACT_REQUESTED = "tui_compact_requested";
+const COMPACTED = "tui_compacted";
+
+type Compaction = Extract<
+  AgentConversationEvent,
+  { type: "runtime_status" }
+>["compaction"];
+
+// A compaction's summary is for the model, so the chat shows a line about it in its place.
+// The summary arrives as an agent message with the same time as the compaction's end.
+function withCompactions(
+  events: AgentConversationEvent[],
+): AgentConversationEvent[] {
+  return events.flatMap((event, index) => {
+    const previous = events[index - 1];
+    const ended = (status: AgentConversationEvent | undefined): boolean =>
+      status?.type === "runtime_status" &&
+      status.status === "compacting" &&
+      status.isComplete === true;
+    if (
+      event.type === "assistant_message_chunk" &&
+      ended(previous) &&
+      previous.timestamp === event.timestamp
+    )
+      return [];
+    if (event.type !== "runtime_status" || event.status !== "compacting")
+      return [event];
+    if (!event.isComplete) {
+      return event.compaction?.reason === "manual"
+        ? [
+            event,
+            {
+              ...event,
+              status: COMPACT_REQUESTED,
+              message: ["/compact", event.compaction.instructions]
+                .filter(Boolean)
+                .join(" "),
+            },
+          ]
+        : [event];
+    }
+    // A stopped compaction ends without a summary, and freed nothing.
+    const summary = events[index + 1];
+    const compacted =
+      summary?.type === "assistant_message_chunk" &&
+      summary.timestamp === event.timestamp;
+    return compacted
+      ? [
+          event,
+          {
+            ...event,
+            status: COMPACTED,
+            isComplete: undefined,
+            message: compactedText(event.compaction),
+          },
+        ]
+      : [event];
+  });
+}
+
+function compactedText(compaction: Compaction): string {
+  const automatic = compaction && compaction.reason !== "manual";
+  const before = compaction?.tokensBefore;
+  if (before === undefined)
+    return automatic ? "Compacted automatically" : "Compacted";
+  const after = compaction?.estimatedTokensAfter;
+  const sizes = `${tokenCount(before)}${after === undefined ? "" : ` → ~${tokenCount(after)}`} tokens`;
+  return automatic ? `Compacted automatically: ${sizes}` : `Compacted ${sizes}`;
+}
+
+// Bookkeeping the harness asks for every turn; it says nothing about the work.
+const SUMMARY_TOOL = "task_summary_update";
+// Buttons the agent offers; the desktop app draws them, and here the action picker does.
+const ACTIONS_TOOL = "show_actions";
+const actionsInput = z.object({ actions: z.array(showActionSchema).min(1) });
+const planInput = z.object({ plan: z.string().min(1) });
+export type ShowAction = z.infer<typeof showActionSchema>;
+
+function toLine(item: ConversationItem): TranscriptLine[] {
+  if (item.type === "user_message") {
+    return [{ kind: "user", id: item.id, text: item.content }];
+  }
+  if (item.type === "turn_cancelled") {
+    return [{ kind: "notice", id: item.id, text: "Cancelled", tone: "info" }];
+  }
+  // A ! command the TUI ran itself for a Claude Code chat, logged as the desktop app logs its own.
+  if (item.type === "user_shell_execute") {
+    const { result } = item;
+    return [
+      {
+        kind: "shell",
+        id: item.id,
+        command: item.command,
+        status: result ? "completed" : "in_progress",
+        output: result ? result.stdout || result.stderr : "",
+      },
+    ];
+  }
+  if (item.type !== "session_update") return [];
+  const update = item.update;
+  switch (update.sessionUpdate) {
+    case "agent_message_chunk":
+      return update.content.type === "text"
+        ? [{ kind: "assistant", id: item.id, text: update.content.text }]
+        : [];
+    case "tool_call":
+      if (update.title.endsWith(SUMMARY_TOOL)) return [];
+      if ("origin" in update && update.origin === "user_shell") {
+        return [
+          {
+            kind: "shell",
+            id: item.id,
+            command: update.title,
+            status: update.status ?? "pending",
+            output: toolOutput(update.content, update.rawOutput),
+          },
+        ];
+      }
+      if (update.title.endsWith(ACTIONS_TOOL)) {
+        const input = actionsInput.safeParse(update.rawInput);
+        return update.status !== "failed" && input.success
+          ? [{ kind: "actions", id: item.id, actions: input.data.actions }]
+          : [];
+      }
+      // Claude Code asks to leave plan mode with the plan in the call; the plan is what the user reads.
+      if (update.kind === "switch_mode") {
+        const plan = planInput.safeParse(update.rawInput).data?.plan;
+        if (plan) return [{ kind: "assistant", id: item.id, text: plan }];
+      }
+      return [
+        {
+          kind: "tool",
+          id: item.id,
+          title: update.title,
+          tool: update.kind ?? undefined,
+          status: update.status ?? "pending",
+          detail: toolDetail(update.rawInput),
+          output: toolOutput(update.content, update.rawOutput),
+        },
+      ];
+    case "status":
+      if (update.status === COMPACT_REQUESTED && update.message)
+        return [{ kind: "user", id: item.id, text: update.message }];
+      if (update.status === COMPACTED && update.message)
+        return [
+          { kind: "notice", id: item.id, text: update.message, tone: "info" },
+        ];
+      return update.error
+        ? [{ kind: "notice", id: item.id, text: update.error, tone: "error" }]
+        : [];
+    default:
+      return [];
+  }
+}
+
+function toolDetail(input: unknown): string {
+  if (!input || typeof input !== "object") return "";
+  const fields = input as Record<string, unknown>;
+  const main = fields.command ?? fields.path ?? fields.file_path;
+  return typeof main === "string" ? main : JSON.stringify(input);
+}
+
+const textOf = (blocks: unknown): string[] =>
+  Array.isArray(blocks)
+    ? blocks.flatMap((block) => {
+        const inner = block?.type === "content" ? block.content : block;
+        return inner?.type === "text" ? [inner.text as string] : [];
+      })
+    : [];
+
+function toolOutput(content: unknown, rawOutput: unknown): string {
+  const text = [...textOf(content), ...textOf(rawOutput)].join("\n");
+  return text || (typeof rawOutput === "string" ? rawOutput : "");
+}
+
+const plural = (count: number, noun: string): string =>
+  `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+const KIND_PHRASES: Record<string, [string, string, string]> = {
+  execute: ["ran", "shell command", "Running"],
+  read: ["read", "file", "Reading"],
+  edit: ["edited", "file", "Editing"],
+  delete: ["edited", "file", "Editing"],
+  move: ["edited", "file", "Editing"],
+  search: ["searched", "time", "Searching"],
+  fetch: ["fetched", "page", "Fetching"],
+  think: ["thought", "time", "Thinking"],
+};
+
+// What each tool's calls count as, a verb and the noun it counts, and what a call in flight is doing.
+function phraseOf(
+  tool: Pick<ToolLine, "title" | "tool">,
+): [string, string, string] {
+  const byKind = tool.tool && KIND_PHRASES[tool.tool];
+  if (byKind) return byKind;
+  const name = tool.title.toLowerCase();
+  if (name === "bash") return ["ran", "shell command", "Running"];
+  if (name === "read") return ["read", "file", "Reading"];
+  if (name === "edit" || name === "write") return ["edited", "file", "Editing"];
+  if (name === "grep" || name === "find" || name === "ls")
+    return ["searched", "time", "Searching"];
+  const label = name.includes("posthog") ? "PostHog" : name;
+  return [`called ${label}`, "time", `Calling ${label}`];
+}
+
+export const activityOf = (tool: Pick<ToolLine, "title" | "tool">): string =>
+  phraseOf(tool)[2];
+
+// How a run of tool calls reads collapsed, like "Ran 5 shell commands · read 2 files".
+export function toolSummary(tools: ToolLine[]): string {
+  const counts = new Map<string, { noun: string; count: number }>();
+  for (const tool of tools) {
+    const [verb, noun] = phraseOf(tool);
+    const entry = counts.get(verb) ?? { noun, count: 0 };
+    counts.set(verb, { ...entry, count: entry.count + 1 });
+  }
+  const text = [...counts]
+    .map(([verb, { noun, count }]) => `${verb} ${plural(count, noun)}`)
+    .join(" · ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+// A message the user just sent shows at once, until the run's log echoes it back as its latest user message.
+export const PENDING_ID = "pending";
+export function withPending(
+  lines: TranscriptLine[],
+  pending: string | null,
+): TranscriptLine[] {
+  if (!pending) return lines;
+  const lastUser = lines.findLast((line) => line.kind === "user");
+  if (lastUser?.kind === "user" && lastUser.text === pending) return lines;
+  return [...lines, { kind: "user", id: PENDING_ID, text: pending }];
+}
+
+// A message sent mid-turn that the agent has not read yet: pi hands it over once the current step ends, and only then
+// does the run's log echo it. Until then it is not part of the conversation.
+export function queuedMessage(
+  lines: TranscriptLine[],
+  turnOpen: boolean,
+): UserLine | null {
+  const last = lines.at(-1);
+  return turnOpen && last?.kind === "user" && last.id === PENDING_ID
+    ? last
+    : null;
+}
+
+// How many runs of a command the transcript already shows.
+export function shellRuns(lines: TranscriptLine[], command: string): number {
+  return lines.filter(
+    (line) => line.kind === "shell" && line.command === command,
+  ).length;
+}
+
+// Commands the user just ran show at once, each until the run's log has a run of it beyond the ones it saw.
+export function withPendingShells(
+  lines: TranscriptLine[],
+  pending: PendingShell[],
+): TranscriptLine[] {
+  const waiting = pending.filter(
+    ({ line, seen }) => shellRuns(lines, line.command) <= seen,
+  );
+  return [...lines, ...waiting.map(({ line }) => line)];
+}

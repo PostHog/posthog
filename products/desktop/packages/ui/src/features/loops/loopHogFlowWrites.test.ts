@@ -3,7 +3,7 @@ import {
   type ApiClient,
   createApiClient,
   type Fetcher,
-} from "@posthog/api-client/generated";
+} from "@posthog/api-client/generated.runtime";
 import { describe, expect, it, vi } from "vitest";
 import { emptyLoopFormValues } from "./loopFormTypes";
 import {

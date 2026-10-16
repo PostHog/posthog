@@ -10,6 +10,8 @@ import {
 import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
 import { isSteerPromptParams } from "@posthog/core/sessions/sessionEvents";
 import { isSessionStartupPhase } from "@posthog/core/sessions/sessionStartup";
+import type { SkillButtonId } from "@posthog/core/skill-buttons/catalog";
+import { extractSkillButtonId } from "@posthog/core/skill-buttons/prompts";
 import {
   type AcpMessage,
   type AgentConversationEvent,
@@ -23,7 +25,7 @@ import {
 import {
   type GitActionType,
   parseGitActionMessage,
-} from "@posthog/ui/features/sessions/components/GitActionMessage";
+} from "@posthog/ui/features/sessions/components/gitActionMarker";
 import type { UserShellExecute } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import type {
   CompactBoundaryMetadata,
@@ -31,10 +33,6 @@ import type {
   ToolCall,
 } from "@posthog/ui/features/sessions/types";
 import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
-import {
-  extractSkillButtonId,
-  type SkillButtonId,
-} from "@posthog/ui/features/skill-buttons/prompts";
 import type { Step, StepStatus } from "@posthog/ui/primitives/StepList";
 import type { RenderItem } from "./session-update/SessionUpdateView";
 
@@ -403,9 +401,22 @@ export function processEvent(
     return;
   }
 
-  if (isJsonRpcResponse(msg) && b.pendingPrompts.has(msg.id)) {
+  if (
+    isJsonRpcResponse(msg) &&
+    b.pendingPrompts.has(msg.id) &&
+    !isPermissionOutcome(msg)
+  ) {
     handlePromptResponse(b, msg, event.ts);
   }
+}
+
+// The agent's own requests (permissions) use the same id space as the host's prompts, so an outcome never answers a prompt.
+function isPermissionOutcome(msg: { result?: unknown }): boolean {
+  return (
+    typeof msg.result === "object" &&
+    msg.result !== null &&
+    "outcome" in msg.result
+  );
 }
 
 /**

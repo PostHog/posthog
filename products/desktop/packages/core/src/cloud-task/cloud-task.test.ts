@@ -5345,6 +5345,34 @@ describe("CloudTaskEngine credential relay", () => {
     },
   );
 
+  it.each([
+    ["from its start, with a resume count", 0, false],
+    ["at its latest entry, without one", undefined, true],
+  ])(
+    "reads a watched run's stream %s, since the sandbox's request is one live frame a late stream never sees",
+    async (_, resumeFromEntryCount, latest) => {
+      tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
+      mockStreamFetch.mockResolvedValueOnce(
+        createOpenSseResponse(credentialRequestSseLine()),
+      );
+      await relayService.designateClaudeSubscription({
+        taskId: "task-1",
+        runId: "run-1",
+      });
+      relayService.watch({
+        taskId: "task-1",
+        runId: "run-1",
+        apiHost: "https://app.example.com",
+        teamId: 2,
+        ...(resumeFromEntryCount !== undefined && { resumeFromEntryCount }),
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const [streamUrl] = mockStreamFetch.mock.calls[0] as [string];
+      expect(String(streamUrl).includes("start=latest")).toBe(latest);
+    },
+  );
+
   it("retries a temporary auth failure before reading the token", async () => {
     tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
     mockStreamFetch.mockResolvedValueOnce(

@@ -1,0 +1,466 @@
+import { execFileSync } from "node:child_process";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import {
+  keepUserClaudeConfigDir,
+  machineClaudeAuth,
+} from "@posthog/agent/adapters/claude/machine-auth";
+import { hasClaudeLogin } from "@posthog/agent/adapters/claude/subscription-login";
+import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
+import type { AuthService } from "@posthog/core/auth/auth";
+import { createCloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
+import { GatewayTokenService } from "@posthog/core/llm-gateway/gateway-token";
+import { CloudArtifactService } from "@posthog/core/sessions/cloudArtifactService";
+import type { RootLogger, ScopedLogger } from "@posthog/di/logger";
+import type { IAnalytics } from "@posthog/platform/analytics";
+import type { IWorkspaceSettings } from "@posthog/platform/workspace-settings";
+import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
+import type { IWorkspaceRepository } from "@posthog/workspace-server/db/repositories/workspace-repository";
+import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
+import { AgentAuthAdapter } from "@posthog/workspace-server/services/agent/auth-adapter";
+import type {
+  AgentAuth,
+  AgentMcpApps,
+} from "@posthog/workspace-server/services/agent/ports";
+import { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
+import { McpProxyService } from "@posthog/workspace-server/services/mcp-proxy/mcp-proxy";
+import { McpRelayServiceImpl } from "@posthog/workspace-server/services/mcp-relay/mcp-relay";
+import { LocalPiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/pi-rpc-client-factory";
+import type { PosthogPluginService } from "@posthog/workspace-server/services/posthog-plugin/posthog-plugin";
+import { ProcessTrackingService } from "@posthog/workspace-server/services/process-tracking/process-tracking";
+import { identify } from "./analytics";
+import type { TuiAuth } from "./auth";
+import { type LocalStart, localStartFor } from "./billing";
+import { chatgptAccount } from "./chatgpt";
+import { currentRepository, PiChats, type StartPick } from "./chats";
+import { ClaudeLocalSession } from "./claudeLocal";
+import { claudeTokenStore } from "./claudeToken";
+import { LOG_PATH } from "./errors";
+import type { CodexCloudClient } from "./hooks/useSettings";
+import { type LocalAgent, LocalSession } from "./local";
+import { LocalChats } from "./localChats";
+import { localMcpServers, type McpClient, relayedMcpServers } from "./mcp";
+import { type PiCommand, type PiControl, piControl } from "./models";
+import { loadPrefs } from "./prefs";
+import { CloudRuns } from "./runs";
+import { TodayClient } from "./today";
+
+interface TokenSource {
+  getAccessToken(): Promise<string>;
+  refreshAccessToken(): Promise<string>;
+}
+
+export function authenticatedFetch(
+  auth: TokenSource,
+  fetch: (
+    input: string | Request,
+    init?: RequestInit,
+  ) => Promise<Response> = globalThis.fetch,
+): (input: string | Request, init?: RequestInit) => Promise<Response> {
+  const send = (
+    input: string | Request,
+    init: RequestInit | undefined,
+    token: string,
+  ) => {
+    const headers = new Headers(init?.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    return fetch(input, { ...init, headers });
+  };
+  return async (input, init) => {
+    const response = await send(input, init, await auth.getAccessToken());
+    if (response.status !== 401) return response;
+    return send(input, init, await auth.refreshAccessToken());
+  };
+}
+
+// Ink owns the screen, so logs go to a file.
+function fileLogger(scope: string): ScopedLogger {
+  const write =
+    (level: string) =>
+    (...args: unknown[]): void =>
+      appendFileSync(
+        LOG_PATH,
+        `${new Date().toISOString()} ${level} [${scope}] ${args
+          .map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg)))
+          .join(" ")}\n`,
+      );
+  return {
+    debug: write("debug"),
+    info: write("info"),
+    warn: write("warn"),
+    error: write("error"),
+  };
+}
+
+const logger: RootLogger = { ...fileLogger("tui"), scope: fileLogger };
+
+const noAnalytics: IAnalytics = {
+  initialize: () => {},
+  track: () => {},
+  identify: () => {},
+  setCurrentUserId: () => {},
+  getCurrentUserId: () => null,
+  getOrCreateSessionId: () => "posthog-tui",
+  resetUser: () => {},
+  captureException: () => {},
+  flush: async () => {},
+  shutdown: async () => {},
+};
+
+// MCP apps render inside the desktop app; the terminal has nowhere to show them.
+// The user's own Claude Code and its own login: the desktop app keeps a separate config dir and login, the TUI does not.
+keepUserClaudeConfigDir();
+
+function claudeBinary(): string {
+  try {
+    return execFileSync("which", ["claude"], { encoding: "utf8" }).trim();
+  } catch {
+    return join(homedir(), ".local", "bin", "claude");
+  }
+}
+
+// The desktop app's agent service, with its Electron-only needs stubbed: it only runs Claude Code here.
+async function createClaudeAgent(
+  mcp: AgentAuthAdapter,
+  logger: RootLogger,
+): Promise<AgentService> {
+  // Its module graph takes over a second to load, so it loads on the first Claude chat, after the first paint.
+  const { AgentService } = await import(
+    "@posthog/workspace-server/services/agent/agent"
+  );
+  const dataDir = join(homedir(), ".config", "posthog-tui", "agent");
+  mkdirSync(join(dataDir, "plugin", "skills"), { recursive: true });
+  const claude = claudeBinary();
+  return new AgentService(
+    new ProcessTrackingService(),
+    { acquire: () => {}, release: () => {} },
+    { readRepoFile: async () => null, writeRepoFile: async () => {} },
+    {
+      getPluginPath: () => join(dataDir, "plugin"),
+    } as unknown as PosthogPluginService,
+    mcp,
+    noMcpApps,
+    {
+      onResume: () => () => {},
+      preventSleep: () => () => {},
+      hasBuiltInBattery: async () => false,
+    },
+    {
+      resolve: (path) =>
+        path.endsWith("/claude") ? claude : join(dataDir, path),
+    },
+    {
+      version: "0.0.0-dev",
+      isProduction: false,
+      platform: process.platform,
+      arch: process.arch,
+    },
+    { appDataPath: dataDir, logsPath: dataDir, logFolderPath: dataDir },
+    {
+      getAdditionalDirectories: async () => [],
+    } as unknown as IWorkspaceRepository,
+    {
+      getWorktreeLocation: () => join(dataDir, "worktrees"),
+    } as unknown as IWorkspaceSettings,
+    logger,
+  );
+}
+
+const claudeLoggedIn = async (): Promise<boolean> =>
+  (
+    await hasClaudeLogin({
+      claudeCliPath: claudeBinary(),
+      machineAuth: machineClaudeAuth(),
+    })
+  ).state === "logged-in";
+
+const noMcpApps: AgentMcpApps = {
+  handleDiscovery: async () => {},
+  setServerConfigs: () => {},
+  addServerConfigs: () => {},
+  setConfigResolver: () => {},
+  notifyToolCancelled: () => {},
+  notifyToolInput: () => {},
+  notifyToolResult: () => {},
+  cleanup: async () => {},
+};
+
+// The cloud engine for an account, built once. Kept on globalThis because a hot swap of src/ re-runs this module,
+// and the watchers it holds answer a sandbox's Claude token request, which arrives once and waits 120 seconds:
+// a watcher torn down and rebuilt around that request never sees it, and the run fails. A reload signs in again
+// from the saved session, so the engine reads its tokens through `latest`, which each sign-in replaces.
+const hotSwapSafe = globalThis as {
+  __posthogTuiEngines?: Map<string, { engine: unknown; latest: TokenSource }>;
+};
+hotSwapSafe.__posthogTuiEngines ??= new Map();
+export function cloudEngineFor<Engine>(
+  account: string,
+  signIn: TokenSource,
+  build: (tokens: TokenSource) => Engine,
+): Engine {
+  const engines = hotSwapSafe.__posthogTuiEngines as Map<
+    string,
+    { engine: Engine; latest: TokenSource }
+  >;
+  const kept = engines.get(account);
+  if (kept) {
+    kept.latest = signIn;
+    return kept.engine;
+  }
+  const holder = { engine: undefined as unknown as Engine, latest: signIn };
+  holder.engine = build({
+    getAccessToken: () => holder.latest.getAccessToken(),
+    refreshAccessToken: () => holder.latest.refreshAccessToken(),
+  });
+  engines.set(account, holder);
+  return holder.engine;
+}
+
+export function createCloud(
+  auth: TuiAuth,
+  api: PostHogAPIClient,
+): {
+  runs: CloudRuns;
+  chats: PiChats;
+  control: (taskId: string, runId: string) => PiControl;
+  startLocal: (id: string, pick?: StartPick) => Promise<LocalAgent>;
+  today: TodayClient;
+  codexCloud: CodexCloudClient;
+  mcp: McpClient;
+} {
+  let teamId: Promise<number> | null = null;
+  const context = async () => {
+    teamId ??= api.getCurrentUser().then(
+      (user) => {
+        identify((user as { distinct_id?: string }).distinct_id ?? user.uuid);
+        return user.team.id;
+      },
+      (error: unknown) => {
+        teamId = null;
+        throw error;
+      },
+    );
+    return { apiHost: auth.apiHost, teamId: await teamId };
+  };
+  // The engine sends a Claude plan token only to a run the signed-in account started; the token file is that account's.
+  const contextWithAccount = async (options?: { includeAccount?: boolean }) =>
+    options?.includeAccount
+      ? { ...(await context()), accountKey: auth.apiHost }
+      : context();
+  const engine = cloudEngineFor(
+    `${auth.apiHost} ${auth.account ?? ""}`,
+    auth,
+    (tokens) =>
+      createCloudTaskEngine({
+        auth: {
+          authenticatedFetch: authenticatedFetch(tokens),
+          getCloudContext: contextWithAccount,
+        },
+        analytics: noAnalytics,
+        logger,
+        transcriptTailWindow: TRANSCRIPT_TAIL_WINDOW,
+        claudeSubscriptionTokenStore: claudeTokenStore(),
+        // Answers a sandbox's calls to this machine's MCP servers, the desktop app's own executor.
+        mcpRelayExecutor: new McpRelayServiceImpl(logger),
+      }),
+  );
+  const runs = new CloudRuns(
+    engine,
+    context,
+    (taskId, runId, options) =>
+      api.getTaskRunSessionLogsPage(taskId, runId, options),
+    async (taskId) => (await api.getTaskUsage(taskId)).total_cost_usd,
+    async (taskId, runId) => {
+      const all = await api.listTaskRuns(taskId);
+      const current = all.find((run) => run.id === runId);
+      return all
+        .filter(
+          (run) =>
+            run.id !== runId &&
+            (!current || run.created_at < current.created_at),
+        )
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .map((run) => run.id);
+    },
+  );
+  const sendMessage = async (
+    taskId: string,
+    runId: string,
+    content: string,
+    artifactIds: string[],
+  ) => {
+    const result = await engine.sendCommand({
+      taskId,
+      runId,
+      ...(await context()),
+      method: "user_message",
+      params: { content, artifact_ids: artifactIds, steer: true },
+    });
+    if (!result.success)
+      throw new Error(result.error ?? "Couldn't send the message");
+  };
+  // The desktop app's uploader for cloud attachments. The TUI sends only images, never skills.
+  const noSkills = (): never => {
+    throw new Error("The TUI does not send skills");
+  };
+  const artifacts = new CloudArtifactService(
+    async (filePath) => {
+      try {
+        return readFileSync(filePath).toString("base64");
+      } catch {
+        return null;
+      }
+    },
+    noSkills,
+    async () => [],
+  );
+  let projectId: number | null = null;
+  const agentAuth: AgentAuth = {
+    getValidAccessToken: async () => ({
+      accessToken: await auth.getAccessToken(),
+      apiHost: auth.apiHost,
+    }),
+    refreshAccessToken: async () => ({
+      accessToken: await auth.refreshAccessToken(),
+      apiHost: auth.apiHost,
+    }),
+    getOAuthCredentials: () => auth.oauthCredentials(),
+    getState: () => ({ currentProjectId: projectId }),
+    authenticatedFetch: (fetch, input, init) =>
+      authenticatedFetch(auth, fetch)(input, init),
+  };
+  // createCloud runs once per sign-in, so the auth state the token service reads never changes.
+  const gateway = new GatewayTokenService(
+    {
+      getValidAccessToken: agentAuth.getValidAccessToken,
+      authenticatedFetch: authenticatedFetch(auth),
+    },
+    { goEnabled: true, override: null },
+    {
+      getState: () => ({
+        status: "authenticated",
+        cloudRegion: auth.region,
+        currentProjectId: projectId,
+      }),
+      on: () => {},
+    } as unknown as AuthService,
+    logger,
+  );
+  // The same auth proxy, MCP servers and gateway attribution the desktop app gives local pi sessions.
+  const authProxy = new AuthProxyService(
+    { authenticatedFetch: authenticatedFetch(auth) },
+    logger,
+    gateway,
+  );
+  const mcp = new AgentAuthAdapter(
+    agentAuth,
+    authProxy,
+    new McpProxyService(
+      {
+        authenticatedFetch: authenticatedFetch(auth),
+        refreshAccessToken: () => auth.refreshAccessToken(),
+      },
+      logger,
+    ),
+    logger,
+    gateway,
+  );
+  const piClients = new LocalPiRpcClientFactory(
+    agentAuth,
+    authProxy,
+    mcp,
+    noMcpApps,
+    logger,
+    gateway,
+  );
+  const localChats = new LocalChats();
+  let claudeAgent: Promise<AgentService> | undefined;
+  const sendPi: PiCommand = async (input) =>
+    engine.sendCommand({ ...input, ...(await context()) });
+  return {
+    runs,
+    codexCloud: {
+      get: () => api.getCodexUserIntegration(),
+      connect: (tokens) => api.connectCodexUserIntegration(tokens),
+      disconnect: () => api.disconnectCodexUserIntegration(),
+    },
+    mcp: {
+      installations: () => api.getMcpServerInstallations(),
+      install: (options) => api.installCustomMcpServer(options),
+      authorize: (installationId) =>
+        api.authorizeMcpInstallation({
+          installation_id: installationId,
+          install_source: "posthog-code",
+        }),
+    },
+    chats: new PiChats(
+      api,
+      sendMessage,
+      currentRepository(),
+      {
+        toTask: (taskId, filePaths) =>
+          artifacts.uploadTaskStagedAttachments(api, taskId, filePaths),
+        toRun: (taskId, runId, filePaths) =>
+          artifacts.uploadRunAttachments(api, taskId, runId, filePaths),
+      },
+      (taskId, runId, since) => runs.agentRestarted(taskId, runId, since),
+      {
+        servers: () =>
+          loadPrefs().relayLocalMcp ? relayedMcpServers(localMcpServers()) : [],
+        designate: (runId, servers) =>
+          engine.designateRelayedMcpServers(runId, servers),
+      },
+    ),
+    control: (taskId, runId) => piControl(sendPi, taskId, runId),
+    today: new TodayClient(authenticatedFetch(auth), auth.apiHost, async () => {
+      const user = await api.getCurrentUser();
+      return {
+        teamId: user.team.id,
+        firstName: (user as { first_name?: string }).first_name || null,
+      };
+    }),
+    // A local chat runs the harness in the folder the TUI started in, on the same PostHog login.
+    startLocal: async (id, pick = {}) => {
+      projectId = (await context()).teamId;
+      // A chat keeps the agent it started with; only a new chat follows today's billing.
+      const remembered = localChats.harnessOf(id);
+      const start: LocalStart = remembered
+        ? { harness: remembered }
+        : localStartFor(loadPrefs().billing, {
+            chatgptAccount: chatgptAccount(),
+          });
+      localChats.remember(id, start.harness);
+      if (start.harness === "claude") {
+        claudeAgent ??= createClaudeAgent(mcp, logger);
+        const session = new ClaudeLocalSession(
+          await claudeAgent,
+          {
+            taskId: id,
+            taskRunId: id,
+            cwd: process.cwd(),
+            apiHost: auth.apiHost,
+            projectId,
+            mode: loadPrefs().claudeMode,
+            ...pick,
+          },
+          claudeLoggedIn,
+          localChats.acpLog(id),
+        );
+        await session.start();
+        return session;
+      }
+      const session = new LocalSession(
+        await piClients.create({
+          sessionFile: localChats.sessionFile(id),
+          taskContext: { taskId: id, cwd: process.cwd() },
+          model: start.harness === "pi" ? start.model : undefined,
+        }),
+        mcp,
+        start.harness === "pi" && start.model !== undefined,
+      );
+      await session.start();
+      return session;
+    },
+  };
+}

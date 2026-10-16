@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiRequestError } from "./fetcher";
-import { type ApiClient, createApiClient, type Fetcher } from "./generated";
+import {
+  type ApiClient,
+  createApiClient,
+  type Fetcher,
+} from "./generated.runtime";
 import {
   createHogFlow,
   createHogFlowSchedule,

@@ -1,0 +1,125 @@
+import { PostHogAPIClient } from "@posthog/api-client/posthog-client";
+import type { Task } from "@posthog/shared";
+import { describe, expect, it } from "vitest";
+import { findTask, WorkList } from "./work";
+
+function fakeApi(total: number, hang = false) {
+  const requests: URL[] = [];
+  const api = new PostHogAPIClient(
+    "https://us.posthog.com",
+    async () => "token",
+    async () => "token",
+    undefined,
+    {
+      fetch: async (input) => {
+        const url = new URL(input instanceof Request ? input.url : input);
+        requests.push(url);
+        if (url.pathname === "/api/users/@me/") {
+          return Response.json({ id: 7, uuid: "u", team: { id: 2 } });
+        }
+        if (hang) return new Promise<Response>(() => {});
+        const limit = Number(url.searchParams.get("limit"));
+        const results = Array.from(
+          { length: Math.min(limit, total) },
+          (_, i) => ({ id: `t${i}` }),
+        );
+        return Response.json({ results, count: total });
+      },
+    },
+  );
+  return { api, requests };
+}
+
+describe("WorkList", () => {
+  it.each([
+    ["more tasks than shown", 25, 10, true],
+    ["every task shown", 10, 10, false],
+  ])(
+    "lists my most recently active tasks when there are %s",
+    async (_, total, limit, hasMore) => {
+      const { api, requests } = fakeApi(total);
+
+      const page = await new WorkList(api).listRecent(limit);
+
+      expect(page.tasks).toHaveLength(limit);
+      expect(page.hasMore).toBe(hasMore);
+      const list = requests.find((url) => url.pathname.endsWith("/tasks/"));
+      expect(list?.pathname).toBe("/api/projects/2/tasks/");
+      expect(Object.fromEntries(list?.searchParams ?? [])).toMatchObject({
+        limit: String(limit),
+        ordering: "-last_activity_at",
+        created_by: "7",
+      });
+    },
+  );
+
+  it("searches my tasks for a term", async () => {
+    const { api, requests } = fakeApi(3);
+
+    const tasks = await new WorkList(api).search("flaky");
+
+    expect(tasks).toHaveLength(3);
+    const list = requests.find((url) => url.pathname.endsWith("/tasks/"));
+    expect(Object.fromEntries(list?.searchParams ?? [])).toMatchObject({
+      search: "flaky",
+      created_by: "7",
+    });
+  });
+
+  it("shares one request between overlapping refreshes", async () => {
+    const { api, requests } = fakeApi(3);
+    const list = new WorkList(api);
+
+    await Promise.all([list.listRecent(10), list.listRecent(10)]);
+
+    expect(
+      requests.filter((url) => url.pathname.endsWith("/tasks/")),
+    ).toHaveLength(1);
+  });
+
+  it("gives up on a request that hangs so the next refresh can try again", async () => {
+    const { api } = fakeApi(3, true);
+    const list = new WorkList(api, 50);
+
+    await expect(list.listRecent(10)).rejects.toThrow("Timed out loading work");
+  });
+});
+
+describe("findTask", () => {
+  const task = (runId: string, title: string, updatedAt = ""): Task =>
+    ({
+      id: "t1",
+      title,
+      latest_run: { id: runId, updated_at: updatedAt },
+    }) as Task;
+  const at = (minute: number): string =>
+    new Date(Date.UTC(2026, 0, 1, 0, minute)).toISOString();
+
+  it.each([
+    ["a just-started run until the list catches up", ["r1"], ["r2"], "started"],
+    ["the listed task once it shows the same run", ["r2"], ["r2"], "listed"],
+    [
+      "a run brought back until the list shows it changed",
+      ["r1", at(1)],
+      ["r1", at(5)],
+      "started",
+    ],
+    [
+      "the listed run once it is newer than the one brought back",
+      ["r1", at(9)],
+      ["r1", at(5)],
+      "listed",
+    ],
+  ])(
+    "returns %s",
+    (_, [listedRun, listedAt], [freshRun, freshAt], expected) => {
+      const found = findTask("t1", {
+        listed: [task(listedRun, "listed", listedAt)],
+        known: new Map(),
+        fresh: new Map([["t1", task(freshRun, "started", freshAt)]]),
+      });
+
+      expect(found?.title).toBe(expected);
+    },
+  );
+});

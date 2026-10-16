@@ -1,4 +1,5 @@
-import type { ApiClient, Schemas } from "@posthog/api-client/generated";
+import type { Schemas } from "@posthog/api-client/generated";
+import type { ApiClient } from "@posthog/api-client/generated.runtime";
 import {
   createHogFlow,
   createHogFlowSchedule,

@@ -1,0 +1,444 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { type StoredLogEntry, TypedEventEmitter } from "@posthog/shared";
+import { describe, expect, it, vi } from "vitest";
+import { ClaudeLocalSession, claudePlan } from "./claudeLocal";
+import type { AgentPrompt } from "./prompts";
+import { emptyRunView } from "./runs";
+import { shellMessage } from "./shell";
+import { transcriptFrom } from "./transcript";
+
+function fakeLog(
+  saved: { sessionId?: string; entries: StoredLogEntry[] } = { entries: [] },
+) {
+  return {
+    load: vi.fn(() => saved),
+    append: vi.fn(),
+    session: vi.fn(),
+  };
+}
+
+function fakeAgent() {
+  const events = new TypedEventEmitter<Record<string, unknown>>();
+  const agent = Object.assign(events, {
+    startSession: vi.fn(async () => ({ sessionId: "s1", channel: "c1" })),
+    reconnectSession: vi.fn(async () => ({ sessionId: "s1", channel: "c1" })),
+    prompt: vi.fn(async () => ({ stopReason: "end_turn" })),
+    cancelPrompt: vi.fn(async () => true),
+    cancelSession: vi.fn(async () => true),
+    respondToPermission: vi.fn(),
+    cancelPermission: vi.fn(),
+  });
+  return agent;
+}
+
+const input = {
+  taskId: "t1",
+  taskRunId: "local-1",
+  cwd: "/repo",
+  apiHost: "https://us.posthog.com",
+  projectId: 7,
+};
+
+describe("ClaudeLocalSession", () => {
+  it("starts Claude Code on the user's plan in the chat's folder and shows its messages", async () => {
+    const agent = fakeAgent();
+    const session = new ClaudeLocalSession(
+      agent as never,
+      { ...input, model: "claude-opus-5-5", effort: "high" },
+      async () => true,
+    );
+    const views: unknown[] = [];
+    session.watch((view) => views.push(view));
+
+    await session.start();
+
+    expect(session.model).toBe("claude-opus-5-5");
+    expect(agent.startSession).toHaveBeenCalledWith({
+      taskId: "t1",
+      taskRunId: "local-1",
+      repoPath: "/repo",
+      apiHost: "https://us.posthog.com",
+      projectId: 7,
+      adapter: "claude",
+      claudeModelAccess: "own-subscription",
+      permissionMode: "auto",
+      runMode: "local",
+      skipLogPersistence: true,
+      model: "claude-opus-5-5",
+      effort: "high",
+    });
+    const message = {
+      method: "session/update",
+      params: { update: { sessionUpdate: "agent_message_chunk" } },
+    };
+    agent.emit("session-event", {
+      taskRunId: "local-1",
+      payload: { type: "acp_message", ts: 1, message },
+    });
+    agent.emit("session-event", {
+      taskRunId: "other",
+      payload: { type: "acp_message", ts: 2, message },
+    });
+    const last = views.at(-1) as { entries: { notification: unknown }[] };
+    expect(last.entries).toHaveLength(1);
+    expect(last.entries[0].notification).toEqual(message);
+    expect(session.runtime).toBe("acp");
+  });
+
+  it("runs a ! command on this machine, shows it in the chat, and hands its output to the next prompt", async () => {
+    const agent = fakeAgent();
+    const log = fakeLog();
+    const session = new ClaudeLocalSession(
+      agent as never,
+      { ...input, cwd: process.cwd() },
+      async () => true,
+      log,
+    );
+    let view = emptyRunView;
+    session.watch((next) => {
+      view = next;
+    });
+    await session.start();
+
+    const result = await session.control.bash("echo hi");
+
+    expect(result).toMatchObject({ output: "hi", exitCode: 0 });
+    const shells = transcriptFrom("acp", view.entries).lines.filter(
+      (line) => line.kind === "shell",
+    );
+    expect(shells).toEqual([
+      expect.objectContaining({
+        command: "echo hi",
+        status: "completed",
+        output: "hi",
+      }),
+    ]);
+    // The agent hears about the command at once, as a message saying what ran and what it printed.
+    const blocksSent = (): { type: string; text?: string }[] =>
+      (agent.prompt.mock.calls as unknown as unknown[][]).at(-1)?.[1] as {
+        type: string;
+        text?: string;
+      }[];
+    expect(agent.prompt).toHaveBeenCalledTimes(1);
+    expect(blocksSent().map((block) => block.text)).toEqual([
+      shellMessage("echo hi", "hi"),
+    ]);
+  });
+
+  it("refuses to start when Claude Code is not logged in, so nothing bills PostHog", async () => {
+    const session = new ClaudeLocalSession(
+      fakeAgent() as never,
+      input,
+      async () => false,
+    );
+    await expect(session.start()).rejects.toThrow(
+      "Log in to Claude Code first: run `claude auth login` in a terminal",
+    );
+  });
+
+  it("sends a message to the session, steering a turn already running", async () => {
+    const agent = fakeAgent();
+    let finishTurn: (() => void) | undefined;
+    agent.prompt.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishTurn = () => resolve({ stopReason: "end_turn" });
+        }),
+    );
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+    );
+    await session.start();
+
+    const first = session.prompt("Fix the test");
+    await session.prompt("And the docs");
+    finishTurn?.();
+    await first;
+
+    expect(agent.prompt).toHaveBeenNthCalledWith(
+      1,
+      "s1",
+      [{ type: "text", text: "Fix the test" }],
+      { steer: false },
+    );
+    expect(agent.prompt).toHaveBeenNthCalledWith(
+      2,
+      "s1",
+      [{ type: "text", text: "And the docs" }],
+      { steer: true },
+    );
+  });
+
+  it("sends attached images after the message", async () => {
+    const agent = fakeAgent();
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+    );
+    await session.start();
+
+    await session.prompt("Look at this", [
+      { type: "image", data: "aGk=", mimeType: "image/png" },
+    ]);
+
+    expect(agent.prompt).toHaveBeenCalledWith(
+      "s1",
+      [
+        { type: "text", text: "Look at this" },
+        { type: "image", data: "aGk=", mimeType: "image/png" },
+      ],
+      { steer: false },
+    );
+  });
+
+  it("reconnects the session the agent service killed for idling before the next message", async () => {
+    const agent = fakeAgent();
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+      fakeLog({ sessionId: "claude-abc", entries: [] }),
+    );
+    await session.start();
+    agent.emit("session-idle-killed", { taskRunId: "local-1", taskId: "t1" });
+    agent.reconnectSession.mockResolvedValueOnce({
+      sessionId: "s2",
+      channel: "c1",
+    } as never);
+
+    await session.prompt("Still there?");
+
+    expect(agent.reconnectSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionId: "claude-abc" }),
+    );
+    expect(agent.prompt).toHaveBeenCalledWith(
+      "s2",
+      [{ type: "text", text: "Still there?" }],
+      { steer: false },
+    );
+  });
+
+  it("holds a permission request until answered and sends the chosen option back", async () => {
+    const agent = fakeAgent();
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+    );
+    await session.start();
+    const lists: AgentPrompt[][] = [];
+    session.watchPrompts((list) => lists.push(list));
+
+    agent.emit("permission-request", {
+      taskRunId: "local-1",
+      toolCall: { toolCallId: "tc1", title: "Run pnpm test" },
+      options: [
+        { optionId: "allow", name: "Allow", kind: "allow_once" },
+        { optionId: "reject", name: "Reject", kind: "reject_once" },
+      ],
+    });
+    const prompt = lists.at(-1)?.[0];
+    expect(prompt?.kind).toBe("acp");
+    await session.answer(prompt as AgentPrompt, {
+      kind: "acp",
+      taskRunId: "local-1",
+      toolCallId: "tc1",
+      optionId: "allow",
+    });
+
+    expect(agent.respondToPermission).toHaveBeenCalledWith(
+      "local-1",
+      "tc1",
+      "allow",
+      undefined,
+      undefined,
+    );
+    expect(lists.at(-1)).toEqual([]);
+  });
+
+  it("carries a question's list through the prompt and its answers back to the agent", async () => {
+    const agent = fakeAgent();
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+    );
+    const lists: AgentPrompt[][] = [];
+    session.watchPrompts((list) => lists.push(list));
+    await session.start();
+    const questions = [{ question: "Which?", options: [{ label: "A" }] }];
+    agent.emit("permission-request", {
+      taskRunId: "local-1",
+      toolCall: {
+        toolCallId: "q1",
+        title: "Which?",
+        _meta: { codeToolKind: "question", questions },
+      },
+      options: [{ optionId: "option_0", name: "A", kind: "allow_once" }],
+    });
+    const prompt = lists.at(-1)?.[0];
+    expect(prompt).toMatchObject({ kind: "acp", request: { questions } });
+    await session.answer(prompt as AgentPrompt, {
+      kind: "acp",
+      taskRunId: "local-1",
+      toolCallId: "q1",
+      optionId: "option_0",
+      answers: { "Which?": "A" },
+    });
+    expect(agent.respondToPermission).toHaveBeenCalledWith(
+      "local-1",
+      "q1",
+      "option_0",
+      undefined,
+      { "Which?": "A" },
+    );
+  });
+
+  it("lists Claude's modes and switches one", async () => {
+    const agent = fakeAgent();
+    const modeOption = {
+      id: "mode",
+      name: "Approval Preset",
+      type: "select",
+      currentValue: "auto",
+      options: [
+        { value: "plan", name: "Plan Mode" },
+        { value: "auto", name: "Auto Mode" },
+      ],
+    };
+    agent.startSession.mockResolvedValueOnce({
+      sessionId: "s1",
+      channel: "c1",
+      configOptions: [modeOption],
+    } as never);
+    const setSessionConfigOption = vi.fn(async () => {});
+    Object.assign(agent, { setSessionConfigOption });
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+    );
+    await session.start();
+
+    expect(await session.control.modes?.()).toEqual({
+      available: [
+        { id: "plan", name: "Plan Mode" },
+        { id: "auto", name: "Auto Mode" },
+      ],
+      current: "auto",
+    });
+    await session.control.setMode?.("plan");
+    expect(setSessionConfigOption).toHaveBeenCalledWith("s1", "mode", "plan");
+    expect((await session.control.modes?.())?.current).toBe("plan");
+  });
+
+  it("names the plan Claude Code is signed in on, and a plain plan without one", () => {
+    const path = join(
+      mkdtempSync(join(tmpdir(), "posthog-tui-")),
+      ".claude.json",
+    );
+    expect(claudePlan(path)).toBe("Claude plan");
+    writeFileSync(
+      path,
+      JSON.stringify({ oauthAccount: { organizationType: "claude_max" } }),
+    );
+    expect(claudePlan(path)).toBe("Claude Max");
+  });
+
+  it("stops the session and its turn", async () => {
+    const agent = fakeAgent();
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+    );
+    await session.start();
+    await session.control.abort();
+    await session.stop();
+    expect(agent.cancelPrompt).toHaveBeenCalledWith("s1");
+    expect(agent.cancelSession).toHaveBeenCalledWith("s1");
+  });
+
+  it("keeps its log, remembers Claude's session id, and resumes both on reopen", async () => {
+    const agent = fakeAgent();
+    const log = fakeLog();
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+      log,
+    );
+    await session.start();
+    const message = { method: "session/update", params: {} };
+    agent.emit("session-event", {
+      taskRunId: "local-1",
+      payload: { type: "acp_message", ts: 1, message },
+    });
+    agent.emit("session-event", {
+      taskRunId: "local-1",
+      payload: {
+        type: "acp_message",
+        ts: 2,
+        message: {
+          method: "_posthog/sdk_session",
+          params: { sessionId: "claude-abc" },
+        },
+      },
+    });
+    agent.emit("session-event", {
+      taskRunId: "local-1",
+      payload: {
+        type: "acp_message",
+        ts: 3,
+        message: {
+          method: "session/new",
+          params: { _meta: { model: "claude-opus-5-5" } },
+        },
+      },
+    });
+    expect(log.append).toHaveBeenCalledTimes(3);
+    expect(log.session).toHaveBeenCalledWith("claude-abc");
+    expect(session.model).toBe("claude-opus-5-5");
+
+    const saved = {
+      sessionId: "claude-abc",
+      entries: [
+        { type: "acp_message", notification: message } as StoredLogEntry,
+      ],
+    };
+    const reopened = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+      fakeLog(saved),
+    );
+    const views: { entries: unknown[] }[] = [];
+    reopened.watch((view) => views.push(view as never));
+    await reopened.start();
+    expect(agent.reconnectSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskRunId: "local-1",
+        sessionId: "claude-abc",
+      }),
+    );
+    expect(views.at(-1)?.entries).toEqual(saved.entries);
+  });
+
+  it("starts afresh when the remembered session cannot be resumed", async () => {
+    const agent = fakeAgent();
+    agent.reconnectSession.mockResolvedValueOnce(null as never);
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+      fakeLog({ sessionId: "gone", entries: [] }),
+    );
+    await session.start();
+    expect(agent.startSession).toHaveBeenCalled();
+  });
+});
