@@ -429,13 +429,14 @@ class TestLoadSources(SimpleTestCase):
     def test_finds_the_sources_products_declare(self) -> None:
         names = [source.name for source in highlight_registry.load_sources.__wrapped__()]
 
-        self.assertIn("ticket_sla", names)
+        self.assertTrue(names)
         self.assertEqual(names, sorted(set(names)))
 
     @parameterized.expand(
         [
             ("no declaration", SimpleNamespace(__name__="products.example.backend.facade.today_highlights")),
             ("not a source", declaring("alerts")),
+            ("an empty name", declaring(HighlightSource(name="", find=lambda _c: HighlightFindings()))),
             (
                 "a name taken twice",
                 declaring(

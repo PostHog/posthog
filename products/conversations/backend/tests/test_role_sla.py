@@ -6,9 +6,9 @@ from posthog.models import Organization, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
-from products.conversations.backend.facade.api import list_role_sla_breaches
 from products.conversations.backend.models import Status, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel
+from products.conversations.backend.role_sla import list_role_sla_breaches
 
 NOW = datetime(2026, 10, 15, 12, 0, tzinfo=UTC)
 DUE_BEFORE = NOW + timedelta(hours=24)

@@ -25,8 +25,10 @@ def load_sources() -> tuple[HighlightSource, ...]:
         if declared is None:
             raise HighlightRegistryError(f"{module.__name__} has no {SOURCES_ATTRIBUTE}")
         for source in declared:
-            if not isinstance(source, HighlightSource):
-                raise HighlightRegistryError(f"{module.__name__} declares {source!r}, which is not a HighlightSource")
+            if not isinstance(source, HighlightSource) or not source.name or not callable(source.find):
+                raise HighlightRegistryError(
+                    f"{module.__name__} declares {source!r}, which is not a usable HighlightSource"
+                )
             if source.name in sources:
                 raise HighlightRegistryError(f"{module.__name__} declares the source name {source.name!r} again")
             sources[source.name] = source
