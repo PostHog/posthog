@@ -6,7 +6,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
 import { sendCalendarLogic } from './sendCalendarLogic'
-import { CalendarSend, CalendarSendState } from './sendCalendarUtils'
+import { CalendarSend, CalendarSendState, moveBlockedReason } from './sendCalendarUtils'
 
 const STATE_TAGS: Record<CalendarSendState, { label: string; type: LemonTagType }> = {
     planned: { label: 'Scheduled', type: 'warning' },
@@ -19,6 +19,7 @@ const STATE_TAGS: Record<CalendarSendState, { label: string; type: LemonTagType 
 export function SendCalendarSendDetails({ send }: { send: CalendarSend }): JSX.Element {
     const { timezone } = useValues(sendCalendarLogic)
     const isBroadcast = send.kind === 'broadcast'
+    const moveReason = send.state === 'planned' ? moveBlockedReason(send) : null
 
     return (
         <div className="flex w-72 flex-col gap-2 p-2" data-attr="send-calendar-send-details">
@@ -35,6 +36,8 @@ export function SendCalendarSendDetails({ send }: { send: CalendarSend }): JSX.E
                 <div className="text-xs text-secondary">
                     This schedule paused because its recipients changed. Open it to schedule it again.
                 </div>
+            ) : moveReason ? (
+                <div className="text-xs text-secondary">{moveReason}</div>
             ) : null}
             {send.createdBy ? (
                 <div className="flex items-center gap-1 text-xs text-secondary">

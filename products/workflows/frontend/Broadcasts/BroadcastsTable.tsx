@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -15,7 +14,6 @@ import { urls } from 'scenes/urls'
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
-import { BroadcastNextSend } from './BroadcastNextSend'
 import { BroadcastsEmptyState } from './BroadcastsEmptyState'
 import {
     BROADCASTS_PAGE_SIZE,
@@ -40,7 +38,6 @@ export function BroadcastsTable(): JSX.Element {
     // Rows from other filters stay behind the loading state, and are dropped once the load for these fails.
     const hideRows = loadFailed && filtersPending
     const { setFilters, archiveBroadcast, restoreBroadcast, deleteBroadcast } = useActions(broadcastsLogic)
-    const showNextSend = useFeatureFlag('WORKFLOWS_SEND_CALENDAR')
     const { page } = filters
     const isFiltered = !!filters.search || filters.status !== 'all' || !!filters.createdBy
 
@@ -82,16 +79,6 @@ export function BroadcastsTable(): JSX.Element {
                 return <BroadcastStatusTag status={getBroadcastStatus(item, rowDetailsById[item.id])} />
             },
         },
-        ...(showNextSend
-            ? [
-                  {
-                      title: 'Next send',
-                      render: (_: unknown, item: HogFlowMinimalApi) => (
-                          <BroadcastNextSend broadcast={item} details={rowDetailsById[item.id]} />
-                      ),
-                  },
-              ]
-            : []),
         ...METRIC_COLUMNS.map(({ title, metricName }) => ({
             title,
             width: 0,

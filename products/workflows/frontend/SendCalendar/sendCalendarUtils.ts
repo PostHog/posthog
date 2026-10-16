@@ -9,8 +9,14 @@ import type {
     UserBasicApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
-import { describeRepeat } from '../Broadcasts/broadcastNextSend'
-import { fakeUtcToReal, isOneTimeSchedule } from '../Workflows/hogflows/steps/components/rrule-helpers'
+import { manageDisabledReason } from '../Broadcasts/broadcastLifecycle'
+import {
+    fakeUtcToReal,
+    isOneTimeSchedule,
+    parseRRuleToState,
+    scheduleToText,
+    stateToRRule,
+} from '../Workflows/hogflows/steps/components/rrule-helpers'
 import { SCHEDULED_TRIGGER_TYPES } from '../Workflows/hogflows/steps/types'
 
 export type CalendarView = 'month' | 'week'
@@ -35,6 +41,9 @@ export interface CalendarSend {
     repeat: string | null
     isRecurring: boolean
     createdBy: UserBasicApi | null
+    /** The schedule behind a planned or paused send. Null for a past run. */
+    schedule: HogFlowScheduleApi | null
+    userAccessLevel: string | null
 }
 
 /** From the start of the first day to the start of the day after the last day, in the project time zone. */
@@ -65,6 +74,14 @@ export function matchesTypeFilter(
         return true
     }
     return (flow.origin_product === 'broadcasts') === (filter === 'broadcasts')
+}
+
+export function describeRepeat(schedule: Pick<HogFlowScheduleApi, 'rrule' | 'starts_at'>): string {
+    if (isOneTimeSchedule(schedule.rrule)) {
+        return 'Once'
+    }
+    const text = scheduleToText(parseRRuleToState(schedule.rrule), schedule.starts_at)
+    return text ? text.charAt(0).toUpperCase() + text.slice(1) : 'Repeats'
 }
 
 /** The send times of a schedule inside a range, as real moments. */
@@ -102,6 +119,7 @@ export function calendarSendsForFlow(
         name: flow.name || 'Untitled',
         kind: (flow.origin_product === 'broadcasts' ? 'broadcast' : 'workflow') as CalendarSendKind,
         createdBy: flow.created_by ?? null,
+        userAccessLevel: flow.user_access_level ?? null,
     }
     const sends: CalendarSend[] = []
     // A schedule shows only the sends still to come. An occurrence in the past is not proof that a send
@@ -122,6 +140,7 @@ export function calendarSendsForFlow(
                     at,
                     repeat,
                     isRecurring,
+                    schedule,
                 })
             }
         }
@@ -131,7 +150,15 @@ export function calendarSendsForFlow(
         if (at.isBefore(range.start) || !at.isBefore(range.end)) {
             continue
         }
-        sends.push({ ...base, key: job.id, state: batchJobState(job.status), at, repeat: null, isRecurring: false })
+        sends.push({
+            ...base,
+            key: job.id,
+            state: batchJobState(job.status),
+            at,
+            repeat: null,
+            isRecurring: false,
+            schedule: null,
+        })
     }
     return sends
 }
@@ -144,6 +171,68 @@ function batchJobState(status: HogFlowBatchJobApi['status']): CalendarSendState 
         return 'failed'
     }
     return 'sending'
+}
+
+/** Why a send cannot move with drag and drop, or null when it can. */
+export function moveBlockedReason(send: Pick<CalendarSend, 'state' | 'schedule' | 'userAccessLevel'>): string | null {
+    if (send.state === 'sent' || send.state === 'failed') {
+        return 'This send already went out.'
+    }
+    if (send.state === 'sending') {
+        return 'This send is in progress.'
+    }
+    if (send.state === 'paused' || !send.schedule) {
+        return 'This schedule is paused. Open it to schedule it again.'
+    }
+    const accessReason = manageDisabledReason(send.userAccessLevel)
+    if (accessReason) {
+        return accessReason
+    }
+    if (!isOneTimeSchedule(send.schedule.rrule)) {
+        const state = parseRRuleToState(send.schedule.rrule)
+        // Shifting the weekdays keeps a weekly cadence. Other repeat rules have no single shift that keeps
+        // their pattern, for example "the last day of the month".
+        if (state.frequency !== 'weekly' || state.interval !== 1) {
+            return 'Open the schedule to move a send that repeats this way.'
+        }
+    }
+    return null
+}
+
+/** Moves a time by whole calendar days, so it keeps its wall-clock time in the time zone across a DST change. */
+function shiftDays(time: dayjs.Dayjs, days: number, timezone: string): dayjs.Dayjs {
+    const local = time.tz(timezone)
+    const date = dayjs.utc(local.format('YYYY-MM-DD')).add(days, 'day').format('YYYY-MM-DD')
+    return dayjs.tz(`${date} ${local.format('HH:mm:ss')}`, timezone)
+}
+
+/** Where a send lands when someone drops it on a day, or null when that day cannot take it. */
+export function dropTarget(
+    send: Pick<CalendarSend, 'at' | 'schedule'>,
+    day: string,
+    timezone: string,
+    now: dayjs.Dayjs
+): { days: number; at: dayjs.Dayjs } | null {
+    const days = dayjs.utc(day).diff(dayjs.utc(send.at.tz(timezone).format('YYYY-MM-DD')), 'day')
+    if (days === 0 || !send.schedule) {
+        return null
+    }
+    const at = shiftDays(send.at, days, send.schedule.timezone || 'UTC')
+    return at.isAfter(now) ? { days, at } : null
+}
+
+/** The schedule fields that move every future send of a schedule by a number of days. */
+export function movedScheduleFields(
+    schedule: Pick<HogFlowScheduleApi, 'rrule' | 'starts_at' | 'timezone'>,
+    days: number
+): { starts_at: string; rrule: string } {
+    const starts_at = shiftDays(dayjs(schedule.starts_at), days, schedule.timezone || 'UTC').toISOString()
+    if (isOneTimeSchedule(schedule.rrule)) {
+        return { starts_at, rrule: schedule.rrule }
+    }
+    const state = parseRRuleToState(schedule.rrule)
+    const weekdays = state.weekdays.map((weekday) => (((weekday + days) % 7) + 7) % 7)
+    return { starts_at, rrule: stateToRRule({ ...state, weekdays }, starts_at) }
 }
 
 /** The days that the grid shows, as YYYY-MM-DD. A month view starts and ends on full weeks. */

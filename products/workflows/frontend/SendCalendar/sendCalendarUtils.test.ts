@@ -7,10 +7,15 @@ import type {
 } from 'products/workflows/frontend/generated/api.schemas'
 
 import {
+    CalendarSend,
     calendarDays,
     calendarRange,
     calendarSendsForFlow,
+    describeRepeat,
+    dropTarget,
     isScheduledEmailFlow,
+    moveBlockedReason,
+    movedScheduleFields,
     periodLabel,
     scheduleSendTimes,
 } from './sendCalendarUtils'
@@ -120,5 +125,84 @@ describe('sendCalendarUtils', () => {
         ['a week across two months', 'week', '2026-09-30', 'Sep 28 to Oct 4, 2026'],
     ] as const)('labels %s', (_, view, anchor, expected) => {
         expect(periodLabel(view, anchor, calendarDays(view, anchor, 1))).toBe(expected)
+    })
+
+    it.each([
+        ['a one-time send', 'FREQ=DAILY;COUNT=1', 'Once'],
+        ['a weekly send', 'FREQ=WEEKLY;BYDAY=TU', 'Every week on Tuesday'],
+    ])('describes the repeat rule of %s', (_, rrule, expected) => {
+        expect(describeRepeat({ rrule, starts_at: '2026-09-01T08:00:00Z' })).toBe(expected)
+    })
+
+    const plannedSend = (rrule: string, overrides: Partial<CalendarSend> = {}): CalendarSend =>
+        ({
+            state: 'planned',
+            schedule: schedule(rrule, '2026-10-20T10:00:00Z', 'active', 'UTC'),
+            userAccessLevel: 'editor',
+            ...overrides,
+        }) as CalendarSend
+
+    it.each([
+        ['a one-time send', plannedSend('FREQ=DAILY;COUNT=1'), null],
+        ['a weekly send', plannedSend('FREQ=WEEKLY;BYDAY=TU'), null],
+        [
+            'a send that already went out',
+            plannedSend('FREQ=DAILY;COUNT=1', { state: 'sent', schedule: null }),
+            'This send already went out.',
+        ],
+        [
+            'a paused schedule',
+            plannedSend('FREQ=WEEKLY;BYDAY=TU', { state: 'paused' }),
+            'This schedule is paused. Open it to schedule it again.',
+        ],
+        [
+            'a send that repeats every 2 weeks',
+            plannedSend('FREQ=WEEKLY;INTERVAL=2;BYDAY=TH'),
+            'Open the schedule to move a send that repeats this way.',
+        ],
+        [
+            'a send that the person can only view',
+            plannedSend('FREQ=DAILY;COUNT=1', { userAccessLevel: 'viewer' }),
+            expect.any(String),
+        ],
+    ])('decides whether %s can move', (_, send, expected) => {
+        expect(moveBlockedReason(send)).toEqual(expected)
+    })
+
+    it.each([
+        ['the same day', '2026-10-20', null],
+        ['a day in the past', '2026-10-14', null],
+        ['a later day', '2026-10-22', { days: 2, at: '2026-10-22T10:00:00.000Z' }],
+    ])('drops a send on %s', (_, day, expected) => {
+        const send = {
+            at: dayjs('2026-10-20T10:00:00Z'),
+            schedule: schedule('FREQ=DAILY;COUNT=1', '2026-10-20T10:00:00Z', 'active', 'UTC'),
+        }
+        const target = dropTarget(send, day, 'UTC', dayjs('2026-10-16T12:00:00Z'))
+
+        expect(target && { days: target.days, at: target.at.toISOString() }).toEqual(expected)
+    })
+
+    it.each([
+        [
+            'keeps the local time of a one-time send across the DST change',
+            schedule('FREQ=DAILY;COUNT=1', '2026-10-23T15:00:00Z'),
+            3,
+            { starts_at: '2026-10-26T16:00:00.000Z', rrule: 'FREQ=DAILY;COUNT=1' },
+        ],
+        [
+            'moves the weekday of a weekly send',
+            schedule('FREQ=WEEKLY;BYDAY=TU', '2026-09-01T09:00:00Z', 'active', 'UTC'),
+            1,
+            { starts_at: '2026-09-02T09:00:00.000Z', rrule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=WE' },
+        ],
+        [
+            'wraps a weekday past the end of the week',
+            schedule('FREQ=WEEKLY;BYDAY=SU', '2026-09-06T09:00:00Z', 'active', 'UTC'),
+            1,
+            { starts_at: '2026-09-07T09:00:00.000Z', rrule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO' },
+        ],
+    ])('%s', (_, value, days, expected) => {
+        expect(movedScheduleFields(value, days)).toEqual(expected)
     })
 })

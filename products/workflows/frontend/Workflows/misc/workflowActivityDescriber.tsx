@@ -7,8 +7,12 @@ import {
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+
+import { describeRepeat } from '../../SendCalendar/sendCalendarUtils'
+import { isOneTimeSchedule } from '../hogflows/steps/components/rrule-helpers'
 
 const nameOrLinkToWorkflow = (id?: string | null, name?: string | null): string | JSX.Element => {
     const displayName = name || '(empty string)'
@@ -103,6 +107,49 @@ function describeWorkflowItems(change: ActivityChange, itemType: 'action' | 'var
           )
 }
 
+interface ScheduleTiming {
+    rrule: string
+    starts_at: string
+    timezone: string
+}
+
+function describeScheduleTiming(timing: ScheduleTiming): string {
+    const start = dayjs(timing.starts_at).tz(timing.timezone || 'UTC')
+    if (isOneTimeSchedule(timing.rrule)) {
+        return `${start.format('MMM D, YYYY [at] h:mm A')} (${timing.timezone})`
+    }
+    const repeat = describeRepeat(timing)
+    return `${repeat.charAt(0).toLowerCase()}${repeat.slice(1)} at ${start.format('h:mm A')} (${timing.timezone})`
+}
+
+function describeScheduleChange(change: ActivityChange): JSX.Element {
+    const before = change.before as ScheduleTiming | null
+    const after = change.after as ScheduleTiming | null
+    if (change.action === 'created' && after) {
+        return (
+            <>
+                added a schedule: <strong>{describeScheduleTiming(after)}</strong>
+            </>
+        )
+    }
+    if (change.action === 'deleted' && before) {
+        return (
+            <>
+                removed a schedule: <strong>{describeScheduleTiming(before)}</strong>
+            </>
+        )
+    }
+    if (before && after) {
+        return (
+            <>
+                moved a schedule from <strong>{describeScheduleTiming(before)}</strong> to{' '}
+                <strong>{describeScheduleTiming(after)}</strong>
+            </>
+        )
+    }
+    return <>updated a schedule</>
+}
+
 function describeWorkflowField(change: ActivityChange): JSX.Element[] {
     switch (change.field) {
         case 'name':
@@ -119,6 +166,8 @@ function describeWorkflowField(change: ActivityChange): JSX.Element[] {
             return describeWorkflowItems(change, 'action')
         case 'variables':
             return describeWorkflowItems(change, 'variable')
+        case 'schedule':
+            return [describeScheduleChange(change)]
         default:
             return [<>updated {change.field}</>]
     }

@@ -7,8 +7,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { Popover } from 'lib/lemon-ui/Popover'
 
+import { SendCalendarDraggableSend } from './SendCalendarDraggableSend'
+import { SendCalendarDropZone } from './SendCalendarDropZone'
 import { sendCalendarLogic } from './sendCalendarLogic'
-import { SendCalendarSendButton } from './SendCalendarSendButton'
 import { CalendarSend } from './sendCalendarUtils'
 
 const MAX_VISIBLE_SENDS = 3
@@ -31,8 +32,9 @@ export function SendCalendarMonth(): JSX.Element {
                     const sends = sendsByDay[day] ?? []
                     const date = dayjs.utc(day)
                     return (
-                        <div
+                        <SendCalendarDropZone
                             key={day}
+                            day={day}
                             className={clsx(
                                 'flex min-h-28 min-w-0 flex-col gap-0.5 p-1',
                                 index % 7 !== 6 && 'border-r',
@@ -51,10 +53,10 @@ export function SendCalendarMonth(): JSX.Element {
                                 </span>
                             </div>
                             {sends.slice(0, MAX_VISIBLE_SENDS).map((send) => (
-                                <SendCalendarSendButton key={send.key} send={send} />
+                                <SendCalendarDraggableSend key={send.key} send={send} />
                             ))}
                             {sends.length > MAX_VISIBLE_SENDS ? <MoreSends day={day} sends={sends} /> : null}
-                        </div>
+                        </SendCalendarDropZone>
                     )
                 })}
             </div>
@@ -64,6 +66,8 @@ export function SendCalendarMonth(): JSX.Element {
 
 function MoreSends({ day, sends }: { day: string; sends: CalendarSend[] }): JSX.Element {
     const [open, setOpen] = useState(false)
+    // The first sends already show in the day cell, and each send can render as a draggable only once.
+    const hiddenSends = sends.slice(MAX_VISIBLE_SENDS)
     return (
         <Popover
             visible={open}
@@ -72,14 +76,14 @@ function MoreSends({ day, sends }: { day: string; sends: CalendarSend[] }): JSX.
             overlay={
                 <div className="flex w-64 flex-col gap-0.5 p-1">
                     <div className="px-1 pb-1 text-xs font-semibold">{dayjs.utc(day).format('ddd, MMM D')}</div>
-                    {sends.map((send) => (
-                        <SendCalendarSendButton key={send.key} send={send} />
+                    {hiddenSends.map((send) => (
+                        <SendCalendarDraggableSend key={send.key} send={send} />
                     ))}
                 </div>
             }
         >
             <LemonButton size="xsmall" sideIcon={null} onClick={() => setOpen(!open)} data-attr="send-calendar-more">
-                +{sends.length - MAX_VISIBLE_SENDS} more
+                +{hiddenSends.length} more
             </LemonButton>
         </Popover>
     )

@@ -1,4 +1,14 @@
+import {
+    DndContext,
+    DragEndEvent,
+    DragOverlay,
+    PointerSensor,
+    pointerWithin,
+    useSensor,
+    useSensors,
+} from '@dnd-kit/core'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
@@ -8,13 +18,25 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { SendCalendarList } from './SendCalendarList'
 import { sendCalendarLogic } from './sendCalendarLogic'
 import { SendCalendarMonth } from './SendCalendarMonth'
-import { CalendarTypeFilter, CalendarView } from './sendCalendarUtils'
+import { SendCalendarSendLabel } from './SendCalendarSendLabel'
+import { CalendarSend, CalendarTypeFilter, CalendarView } from './sendCalendarUtils'
 import { SendCalendarWeek } from './SendCalendarWeek'
 
 export function SendCalendar(): JSX.Element {
     const { view, typeFilter, periodLabel, timezone, scheduledFlows, scheduledFlowsLoading, loadFailed } =
         useValues(sendCalendarLogic)
-    const { setView, setTypeFilter, goToToday, goForward, goBackward } = useActions(sendCalendarLogic)
+    const { setView, setTypeFilter, goToToday, goForward, goBackward, moveSend } = useActions(sendCalendarLogic)
+    const [draggedSend, setDraggedSend] = useState<CalendarSend | null>(null)
+    // A drag starts only after the pointer moves a few pixels, so a click on a send still opens its details.
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+
+    const onDragEnd = ({ active, over }: DragEndEvent): void => {
+        setDraggedSend(null)
+        const send = active.data.current?.send as CalendarSend | undefined
+        if (send && over) {
+            moveSend(send, String(over.id))
+        }
+    }
 
     return (
         <div className="@container flex flex-col gap-2" data-attr="send-calendar">
@@ -65,7 +87,8 @@ export function SendCalendar(): JSX.Element {
                 </div>
             </div>
             <div className="text-xs text-secondary">
-                Times use the project time zone ({timezone}). Drafts and event-triggered workflows do not show.
+                Times use the project time zone ({timezone}). Drafts and event-triggered workflows do not show.{' '}
+                <span className="hidden @min-[40rem]:inline">Drag a scheduled send to another day to move it.</span>
             </div>
             {scheduledFlowsLoading && !scheduledFlows ? (
                 <div className="flex justify-center p-8">
@@ -80,14 +103,29 @@ export function SendCalendar(): JSX.Element {
                     Nothing is scheduled yet. Active broadcasts, and scheduled workflows with an email step, show here.
                 </div>
             ) : (
-                <>
+                <DndContext
+                    sensors={sensors}
+                    // The day under the pointer takes the drop, as in other calendars, even when the dragged
+                    // label overlaps the next day.
+                    collisionDetection={pointerWithin}
+                    onDragStart={({ active }) => setDraggedSend((active.data.current?.send as CalendarSend) ?? null)}
+                    onDragEnd={onDragEnd}
+                    onDragCancel={() => setDraggedSend(null)}
+                >
                     <div className="hidden @min-[40rem]:block">
                         {view === 'month' ? <SendCalendarMonth /> : <SendCalendarWeek />}
                     </div>
                     <div className="@min-[40rem]:hidden">
                         <SendCalendarList />
                     </div>
-                </>
+                    <DragOverlay dropAnimation={null}>
+                        {draggedSend ? (
+                            <div className="cursor-grabbing rounded border bg-surface-primary px-2 py-1 text-xs shadow">
+                                <SendCalendarSendLabel send={draggedSend} timezone={timezone} />
+                            </div>
+                        ) : null}
+                    </DragOverlay>
+                </DndContext>
             )}
         </div>
     )
