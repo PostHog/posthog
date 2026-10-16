@@ -9,12 +9,14 @@ mod common;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 
+use chrono::{DateTime, Utc};
 use common::{FailingSink, RecordingSink, TestContext};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
 use personhog_identity::publish::claim::claim_sql;
-use personhog_identity::publish::messages::DistinctIdRow;
+use personhog_identity::publish::config::MergeEventsAllowlist;
+use personhog_identity::publish::messages::{DistinctIdRow, PersonMergeEvent};
 use personhog_identity::publish::{DrainError, PassReport};
 
 impl TestContext {
@@ -540,4 +542,182 @@ async fn an_analyzed_backlog_is_claimed_through_the_pending_index_without_a_sort
         "claim plan:\n{plan}"
     );
     assert!(!plan.contains("Sort"), "claim plan:\n{plan}");
+}
+
+/// A completed merge op whose one source, `source_uuid`, merged into
+/// `target_uuid` with `moved` repoints, recorded in the outcome the way
+/// the merge saga writes it, plus its pointer. Returns the op id.
+async fn insert_merged_op(
+    ctx: &TestContext,
+    target_uuid: Uuid,
+    source_uuid: Uuid,
+    moved: Value,
+) -> Uuid {
+    let source_person_id = next_person_id();
+    let op_id = Uuid::now_v7();
+    let outcome = json!({
+        "aborted": false,
+        "survivor": null,
+        "results": [{"distinct_id": "merged-did", "outcome": "merged", "person_id": source_person_id}],
+    });
+    sqlx::query(
+        r#"
+        INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, outcome, completed_at)
+        VALUES ($1, 'merge', $2, 'completed', '{}'::jsonb, $3, now())
+        "#,
+    )
+    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .bind(outcome)
+    .execute(&ctx.pool)
+    .await
+    .expect("insert merged op");
+    ctx.insert_op_person(
+        op_id,
+        next_person_id(),
+        target_uuid,
+        "target",
+        Some(json!({"dispositions": []})),
+    )
+    .await;
+    ctx.insert_op_person(op_id, source_person_id, source_uuid, "source", Some(moved))
+        .await;
+    ctx.insert_pointer(op_id, "merge_op").await;
+    op_id
+}
+
+// The event has to go out with exactly one chunk, and the final chunk is
+// the one the drain can tell apart without extra state, because it deletes
+// the pointer in the same pass; per chunk would repeat the event on every
+// pass. Twelve rows give a short final chunk; ten end exactly at the limit,
+// so the final chunk is empty and the event rides a pass that resolves no
+// row.
+#[tokio::test]
+async fn merge_events_go_out_once_with_the_final_chunk() {
+    let ctx = TestContext::new().await;
+    let _drain_lock = ctx.hold_drain_lock().await;
+    for total in [12_i64, 10] {
+        let (target, source) = (Uuid::now_v7(), Uuid::now_v7());
+        let entries: Vec<(String, i64)> = (1..=total).map(|i| (format!("m-{i}"), i)).collect();
+        let op_id = insert_merged_op(&ctx, target, source, moved(&as_refs(&entries))).await;
+        let completed_at: DateTime<Utc> =
+            sqlx::query_scalar("SELECT completed_at FROM lifecycle_op WHERE op_id = $1")
+                .bind(op_id)
+                .fetch_one(&ctx.pool)
+                .await
+                .expect("op row");
+
+        let sink = RecordingSink::default();
+        let publisher = ctx.publisher_with_merge_events(sink.clone(), 5, MergeEventsAllowlist::All);
+        publisher.drain_once().await.expect("first chunk");
+        publisher.drain_once().await.expect("second chunk");
+        assert_eq!(sink.rows_for_team(ctx.team_id).len(), 10, "{total} rows");
+        assert!(
+            sink.merge_events_for_team(ctx.team_id).is_empty(),
+            "{total} rows: no event before the final chunk"
+        );
+
+        publisher.drain_once().await.expect("final chunk");
+        assert_eq!(sink.rows_for_team(ctx.team_id).len() as i64, total);
+        assert_eq!(
+            sink.merge_events_for_team(ctx.team_id),
+            vec![PersonMergeEvent {
+                team_id: ctx.team_id as i32,
+                old_person_uuid: source,
+                new_person_uuid: target,
+                merged_at_ms: completed_at.timestamp_millis(),
+                schema_version: 1,
+            }],
+            "{total} rows"
+        );
+        assert!(ctx.outbox_rows().await.is_empty(), "{total} rows");
+    }
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+// The outcome and the per-person rows are two records of the same merge;
+// an event built from one while the other disagrees would name a person
+// that was not merged, so the pointer stays pending instead, rows and all,
+// and publishes on its own once the records agree again.
+#[tokio::test]
+async fn a_merge_op_whose_outcome_and_rows_disagree_is_deferred_until_repaired() {
+    let ctx = TestContext::new().await;
+    let _drain_lock = ctx.hold_drain_lock().await;
+    let (target, source) = (Uuid::now_v7(), Uuid::now_v7());
+    let op_id = insert_merged_op(&ctx, target, source, moved(&[("d-1", 1)])).await;
+    let pool = &ctx.pool;
+    let set_source_status = |status: &'static str| async move {
+        sqlx::query(
+            "UPDATE lifecycle_op_person SET status = $1 WHERE op_id = $2 AND role = 'source'",
+        )
+        .bind(status)
+        .bind(op_id)
+        .execute(pool)
+        .await
+        .expect("set the source status");
+    };
+    set_source_status("sealed").await;
+
+    let sink = RecordingSink::default();
+    let publisher = ctx.publisher_with_merge_events(sink.clone(), 100, MergeEventsAllowlist::All);
+    publisher.drain_once().await.expect("the pass commits");
+    assert!(
+        sink.rows_for_team(ctx.team_id).is_empty(),
+        "a deferred pointer publishes none of its rows"
+    );
+    assert!(sink.merge_events_for_team(ctx.team_id).is_empty());
+    let rows = ctx.outbox_rows().await;
+    assert_eq!(rows.len(), 1);
+    assert!(!rows[0].given_up);
+    assert_eq!(rows[0].attempts, 1);
+    assert!(
+        rows[0]
+            .last_error
+            .as_deref()
+            .unwrap_or("")
+            .contains("recorded merged sources"),
+        "{:?}",
+        rows[0].last_error
+    );
+
+    set_source_status("deleted").await;
+    publisher.drain_once().await.expect("the pass commits");
+    assert_eq!(
+        sink.rows_for_team(ctx.team_id),
+        vec![ctx.row(target, "d-1", 1, 0)]
+    );
+    let events = sink.merge_events_for_team(ctx.team_id);
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(
+        (events[0].old_person_uuid, events[0].new_person_uuid),
+        (source, target)
+    );
+    assert!(ctx.outbox_rows().await.is_empty());
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+// A merge's events ride its final chunk, so a pass full of merge pointers
+// could enqueue events past the row budget unless they count against it.
+#[tokio::test]
+async fn merge_events_count_against_the_pass_budget() {
+    let ctx = TestContext::new().await;
+    let _drain_lock = ctx.hold_drain_lock().await;
+    let (target, source_a, source_b) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+    insert_merged_op(&ctx, target, source_a, moved(&[("a-1", 1)])).await;
+    insert_merged_op(&ctx, target, source_b, moved(&[("b-1", 1)])).await;
+
+    let sink = RecordingSink::default();
+    let publisher = ctx.publisher_with_merge_events(sink.clone(), 1, MergeEventsAllowlist::All);
+    let first = publisher.drain_once().await.expect("first pass");
+    assert_eq!((first.advanced, first.unprocessed), (1, 1));
+    let second = publisher.drain_once().await.expect("second pass");
+    assert_eq!(
+        (second.finished, second.messages, second.unprocessed),
+        (1, 1, 1)
+    );
+    assert_eq!(sink.merge_events_for_team(ctx.team_id).len(), 1);
+
+    ctx.cleanup().await.expect("cleanup");
 }

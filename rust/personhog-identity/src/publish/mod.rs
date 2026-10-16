@@ -2,22 +2,26 @@
 //! (kinds `create` and `attach`) that publishes as it is, and an op pointer
 //! (kinds `merge_op` and `delete_op`) that resolves against the saga's
 //! `moved` records. Identity enqueues pointers in
-//! [`crate::lifecycle::engine::complete_op_in_tx`]; this module drains the
-//! outbox to Kafka from the separate `personhog-publisher` binary.
+//! [`crate::lifecycle::engine::complete_op_in_tx`] and mapping rows from the
+//! stub-create and attach paths; this module drains the outbox to Kafka from
+//! the separate `personhog-publisher` binary.
 //!
 //! One pass is one transaction: claim the oldest pending rows with `FOR
 //! UPDATE SKIP LOCKED`, resolve pointers against `moved` within a per-pass
 //! row budget, produce, await every ack, then delete finished rows, advance
-//! unfinished pointers, defer rows that cannot be read, and commit. A
-//! produce error rolls the whole pass back, so the only failure mode is a
-//! repeat publish, which every consumer of these topics absorbs by version.
+//! unfinished pointers, defer rows that cannot be read, and commit. A merge
+//! pointer's final chunk also carries that merge's `person_merge_events`,
+//! one per merged source person, so they go out in the pass that deletes
+//! the pointer and never once per chunk. A produce error rolls the whole
+//! pass back, so the only failure mode is a repeat publish, which every
+//! consumer of these topics absorbs.
 //! A row the publisher cannot read (an op row that is gone, a `moved` entry
-//! the saga could not have written) stays pending with `last_error` and a
-//! raised `attempts`: the rest of its batch publishes, the row is retried
-//! on every pass and publishes on its own once the state is repaired, and
-//! the lag gauge reports it meanwhile. The publisher never parks a row;
-//! `given_up_at` is an operator's switch to take a row out of the claim.
-//! Kafka failures retry forever with backoff.
+//! the saga could not have written, an outcome that disagrees with the rows)
+//! stays pending with `last_error` and a raised `attempts`: the rest of its
+//! batch publishes, the row is retried on every pass and publishes on its
+//! own once the state is repaired, and the lag gauge reports it meanwhile.
+//! The publisher never parks a row; `given_up_at` is an operator's switch
+//! to take a row out of the claim. Kafka failures retry forever with backoff.
 
 pub mod claim;
 pub mod config;
@@ -25,17 +29,24 @@ pub mod messages;
 pub mod pointer;
 pub mod sink;
 
+use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Utc};
 use common_sqlx_macros::mirrored_query;
 use lifecycle::Handle;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::config::IdentityTables;
 use crate::lifecycle::engine::Tx;
-use crate::publish::claim::{claim, ClaimedRow};
-use crate::publish::messages::DistinctIdRow;
-use crate::publish::pointer::{load_op, outbox_depth, resolve_chunk, Cursor};
+use crate::lifecycle::merge::{MergeSourceRecord, OUTCOME_MERGED};
+use crate::publish::claim::{claim, ClaimedRow, KIND_MERGE_OP};
+use crate::publish::config::MergeEventsAllowlist;
+use crate::publish::messages::{DistinctIdRow, PersonMergeEvent, MERGE_EVENT_SCHEMA_VERSION};
+use crate::publish::pointer::{
+    load_op, load_outcome_results, merged_sources, outbox_depth, resolve_chunk, Cursor, PointerOp,
+};
 use crate::publish::sink::{PublishBatch, PublishError, PublishSink};
 
 const PUBLISH_ROWS_TOTAL: &str = "personhog_lifecycle_publish_rows_total";
@@ -54,12 +65,16 @@ const MAX_BACKOFF: Duration = Duration::from_secs(30);
 #[derive(Clone, Debug)]
 pub struct DrainConfig {
     pub batch_size: i64,
-    /// Distinct id rows one pass produces at most. A pointer's chunk is
-    /// bounded by what is left of it, so a pass of large ops stays inside
-    /// the produce timeout instead of failing the same way forever.
+    /// Messages one pass produces at most, distinct id rows and merge
+    /// events together. A pointer's chunk is bounded by what is left of it,
+    /// so a pass of large ops stays inside the produce timeout instead of
+    /// failing the same way forever. A merge's events ride its final chunk
+    /// whole, so one pointer can overshoot by its source count, which the
+    /// merge request cap bounds.
     pub max_rows_per_pass: i64,
     pub interval: Duration,
     pub lag_alert: Duration,
+    pub merge_events: Option<MergeEventsAllowlist>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -207,7 +222,7 @@ impl<S: PublishSink> Publisher<S> {
             if remaining <= 0 {
                 break;
             }
-            let before = batch.distinct_id_rows.len();
+            let before = batch.distinct_id_rows.len() + batch.merge_events.len();
             let disposition = if row.is_pointer() {
                 self.resolve_pointer(&mut tx, row, &mut batch, remaining)
                     .await
@@ -225,7 +240,7 @@ impl<S: PublishSink> Publisher<S> {
                 batch.distinct_id_rows.push(mapping_row(row)?);
                 Disposition::Finished
             };
-            remaining -= (batch.distinct_id_rows.len() - before) as i64;
+            remaining -= (batch.distinct_id_rows.len() + batch.merge_events.len() - before) as i64;
             dispositions.push((row, disposition));
         }
         let unprocessed = rows.len() - dispositions.len();
@@ -287,13 +302,14 @@ impl<S: PublishSink> Publisher<S> {
             advanced: advanced.0.len(),
             deferred: deferred.0.len(),
             unprocessed,
-            messages: batch.distinct_id_rows.len(),
+            messages: batch.distinct_id_rows.len() + batch.merge_events.len(),
         })
     }
 
     /// Resolve one pointer's next chunk, at most `limit` rows, into
-    /// `batch`. Rows are added only once the whole chunk decodes, so a
-    /// poisoned pointer contributes nothing to the batch it is deferred in.
+    /// `batch`, plus the merge events on a merge pointer's final chunk.
+    /// Rows and events are added only once the chunk decodes and the events
+    /// resolve, so a deferred pointer contributes nothing to the batch.
     async fn resolve_pointer(
         &self,
         tx: &mut Tx<'_>,
@@ -309,11 +325,11 @@ impl<S: PublishSink> Publisher<S> {
         };
         // Pointers are written only by a completed op's own commit, so any
         // of these is corrupt state rather than a case to handle.
-        if op.completed_at.is_none() {
+        let Some(completed_at) = op.completed_at else {
             return Ok(Disposition::Deferred(format!(
                 "op {op_id} is not completed"
             )));
-        }
+        };
         if format!("{}_op", op.op_type) != row.kind {
             return Ok(Disposition::Deferred(format!(
                 "op {op_id} is a {} op but the pointer kind is {}",
@@ -362,16 +378,91 @@ impl<S: PublishSink> Publisher<S> {
                 is_deleted: u8::from(resolved.is_deleted),
             });
         }
-        batch.distinct_id_rows.extend(rows);
 
         // A chunk shorter than the limit it was asked for is the last one.
         // A chunk exactly at the limit may also be the last, which costs
         // one more pass that finds nothing; cheaper than probing past the
         // limit on every chunk.
-        Ok(match chunk.last() {
+        let disposition = match chunk.last() {
             Some(last) if chunk.len() as i64 >= limit => Disposition::Advanced(last.cursor()),
             _ => Disposition::Finished,
-        })
+        };
+
+        let mut merge_events = Vec::new();
+        if matches!(disposition, Disposition::Finished) && row.kind == KIND_MERGE_OP {
+            if let Some(allowlist) = &self.config.merge_events {
+                if allowlist.allows(i64::from(row.team_id)) {
+                    match self
+                        .merge_events_for(tx, op_id, &op, row.team_id, completed_at)
+                        .await?
+                    {
+                        Ok(events) => merge_events = events,
+                        Err(reason) => return Ok(Disposition::Deferred(reason)),
+                    }
+                }
+            }
+        }
+
+        batch.distinct_id_rows.extend(rows);
+        batch.merge_events.extend(merge_events);
+        Ok(disposition)
+    }
+
+    /// One `person_merge_events` message per source person the merge
+    /// deleted, with `merged_at_ms` the op's completion time. The source
+    /// rows and the recorded outcome have to name the same persons;
+    /// anything else is corrupt state, reported as the deferral reason.
+    async fn merge_events_for(
+        &self,
+        tx: &mut Tx<'_>,
+        op_id: Uuid,
+        op: &PointerOp,
+        team_id: i32,
+        completed_at: DateTime<Utc>,
+    ) -> Result<Result<Vec<PersonMergeEvent>, String>, sqlx::Error> {
+        let Some(new_person_uuid) = op.target_uuid else {
+            return Ok(Err(format!("merge op {op_id} has no target row")));
+        };
+        let Some(results) = load_outcome_results(tx, &self.tables, op_id).await? else {
+            return Ok(Err(format!(
+                "merge op {op_id} has no recorded outcome results"
+            )));
+        };
+        let results: Vec<MergeSourceRecord> = match serde_json::from_value(results) {
+            Ok(results) => results,
+            Err(e) => {
+                return Ok(Err(format!(
+                    "merge op {op_id} has malformed outcome results: {e}"
+                )))
+            }
+        };
+        let mut recorded: BTreeSet<i64> = BTreeSet::new();
+        for result in results.iter().filter(|r| r.outcome == OUTCOME_MERGED) {
+            let Some(person_id) = result.person_id else {
+                return Ok(Err(format!(
+                    "merge op {op_id} recorded a merged source without a person id"
+                )));
+            };
+            recorded.insert(person_id);
+        }
+        let sources = merged_sources(tx, &self.tables, op_id).await?;
+        let deleted: BTreeSet<i64> = sources.iter().map(|s| s.person_id).collect();
+        if recorded != deleted {
+            return Ok(Err(format!(
+                "merge op {op_id} recorded merged sources {recorded:?} but its deleted source rows are {deleted:?}"
+            )));
+        }
+        let merged_at_ms = completed_at.timestamp_millis();
+        Ok(Ok(sources
+            .into_iter()
+            .map(|source| PersonMergeEvent {
+                team_id,
+                old_person_uuid: source.person_uuid,
+                new_person_uuid,
+                merged_at_ms,
+                schema_version: MERGE_EVENT_SCHEMA_VERSION,
+            })
+            .collect()))
     }
 
     async fn write_back(

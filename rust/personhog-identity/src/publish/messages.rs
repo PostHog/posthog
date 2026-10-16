@@ -1,7 +1,8 @@
 //! Wire payloads the publisher produces. Field names and types are the
 //! Node ingestion worker's, byte for byte: the ClickHouse Kafka engine
-//! table, `flags-consumer` and the hogflow subscription matcher all decode
-//! the same topic whichever path produced the row.
+//! table, `flags-consumer`, the hogflow subscription matcher and the cohort
+//! stream processor all decode the same topics whichever path produced the
+//! message.
 
 use serde::Serialize;
 use uuid::Uuid;
@@ -17,6 +18,32 @@ pub struct DistinctIdRow {
     pub distinct_id: String,
     pub version: i64,
     pub is_deleted: u8,
+}
+
+/// Mirrors `MERGE_EVENT_SCHEMA_VERSION` in the cohort stream processor.
+pub const MERGE_EVENT_SCHEMA_VERSION: u32 = 1;
+
+/// One `person_merge_events` message: the committed merge of
+/// `old_person_uuid` into `new_person_uuid`. The cohort stream processor
+/// reads `team_id` as i32, `merged_at_ms` as i64 and `schema_version` as
+/// u32, so each has to serialize as a JSON number. It is produced under
+/// [`PersonMergeEvent::key`]; the partitioner that places the key is
+/// pinned by [`crate::publish::config::MURMUR2_RANDOM`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PersonMergeEvent {
+    pub team_id: i32,
+    pub old_person_uuid: Uuid,
+    pub new_person_uuid: Uuid,
+    pub merged_at_ms: i64,
+    pub schema_version: u32,
+}
+
+impl PersonMergeEvent {
+    /// Node's key, `"{team_id}:{old_person_uuid}"`: the old person, because
+    /// its state is what the merge moves.
+    pub fn key(&self) -> String {
+        format!("{}:{}", self.team_id, self.old_person_uuid)
+    }
 }
 
 #[cfg(test)]
@@ -37,6 +64,22 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&row).unwrap(),
             r#"{"person_id":"01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee","team_id":2,"distinct_id":"user-1","version":3,"is_deleted":1}"#
+        );
+    }
+
+    #[test]
+    fn merge_event_serializes_and_keys_exactly_as_the_node_producer_does() {
+        let event = PersonMergeEvent {
+            team_id: 2,
+            old_person_uuid: Uuid::parse_str("01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap(),
+            new_person_uuid: Uuid::parse_str("01928bbb-cccc-dddd-eeee-ffffffffffff").unwrap(),
+            merged_at_ms: 1_700_000_000_000,
+            schema_version: MERGE_EVENT_SCHEMA_VERSION,
+        };
+        assert_eq!(event.key(), "2:01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        assert_eq!(
+            serde_json::to_string(&event).unwrap(),
+            r#"{"team_id":2,"old_person_uuid":"01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee","new_person_uuid":"01928bbb-cccc-dddd-eeee-ffffffffffff","merged_at_ms":1700000000000,"schema_version":1}"#
         );
     }
 }

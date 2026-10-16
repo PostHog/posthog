@@ -34,7 +34,8 @@ use personhog_identity::lifecycle::merge::{
     OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT,
     OUTCOME_SKIPPED_MOVE_LIMIT,
 };
-use personhog_identity::publish::messages::DistinctIdRow;
+use personhog_identity::publish::config::MergeEventsAllowlist;
+use personhog_identity::publish::messages::{DistinctIdRow, PersonMergeEvent};
 use personhog_proto::personhog::types::v1::LifecycleOpType;
 
 struct MergeHarness {
@@ -3967,4 +3968,93 @@ fn nel_only_ids_match_the_javascript_trim_semantics() {
     assert!(!is_distinct_id_illegal("\u{0085}"));
     assert!(is_distinct_id_illegal(" \t\n "));
     assert!(is_distinct_id_illegal("\u{FEFF}"));
+}
+
+// One event per merged person, however many of its distinct ids the request
+// named, none for a source the saga skipped, and none at all for a team
+// outside the allowlist; the pointer is deleted either way.
+#[tokio::test]
+async fn merge_events_are_one_per_merged_person_and_gated_by_the_team_allowlist() {
+    let h = MergeHarness::new_publishing().await;
+    let _drain_lock = h.ctx.hold_drain_lock().await;
+
+    h.ctx.insert_person_with_distinct_id("ev-target").await;
+    h.ctx.insert_person_with_distinct_id("ev-source").await;
+    h.execute(Uuid::now_v7(), &merge_request("ev-target", &["ev-source"]))
+        .await
+        .expect("merge completes");
+    let silent = RecordingSink::default();
+    h.ctx
+        .publisher_with_merge_events(
+            silent.clone(),
+            100,
+            MergeEventsAllowlist::Teams(HashSet::new()),
+        )
+        .drain_once()
+        .await
+        .expect("publish pass");
+    assert_eq!(silent.rows_for_team(h.ctx.team_id).len(), 1);
+    assert!(silent.merge_events_for_team(h.ctx.team_id).is_empty());
+    assert!(h.ctx.outbox_rows().await.is_empty());
+
+    let target = h.ctx.insert_person_with_distinct_id("ev-target-2").await;
+    let source = h.ctx.insert_person_with_distinct_id("ev-source-2").await;
+    h.add_distinct_id(source, "ev-source-2-alias").await;
+    let held = h.ctx.insert_person_with_distinct_id("ev-held").await;
+    h.foreign_mark(held).await;
+    let op_id = Uuid::now_v7();
+    let outcome = h
+        .execute(
+            op_id,
+            &merge_request(
+                "ev-target-2",
+                &["ev-source-2", "ev-source-2-alias", "ev-held"],
+            ),
+        )
+        .await
+        .expect("second merge completes");
+    assert_eq!(
+        result_map(&outcome),
+        HashMap::from([
+            ("ev-source-2".to_string(), OUTCOME_MERGED.to_string()),
+            ("ev-source-2-alias".to_string(), OUTCOME_MERGED.to_string()),
+            ("ev-held".to_string(), OUTCOME_SKIPPED_CONFLICT.to_string()),
+        ])
+    );
+    let sink = RecordingSink::default();
+    h.ctx
+        .publisher_with_merge_events(sink.clone(), 100, MergeEventsAllowlist::All)
+        .drain_once()
+        .await
+        .expect("publish pass");
+    assert_eq!(sink.rows_for_team(h.ctx.team_id).len(), 2);
+    let source_uuid: Uuid = sqlx::query_scalar("SELECT uuid FROM posthog_person WHERE id = $1")
+        .bind(source)
+        .fetch_one(&h.ctx.pool)
+        .await
+        .unwrap();
+    let target_uuid: Uuid = sqlx::query_scalar("SELECT uuid FROM posthog_person WHERE id = $1")
+        .bind(target)
+        .fetch_one(&h.ctx.pool)
+        .await
+        .unwrap();
+    let completed_at: chrono::DateTime<Utc> =
+        sqlx::query_scalar("SELECT completed_at FROM lifecycle_op WHERE op_id = $1")
+            .bind(op_id)
+            .fetch_one(&h.ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        sink.merge_events_for_team(h.ctx.team_id),
+        vec![PersonMergeEvent {
+            team_id: h.ctx.team_id as i32,
+            old_person_uuid: source_uuid,
+            new_person_uuid: target_uuid,
+            merged_at_ms: completed_at.timestamp_millis(),
+            schema_version: 1,
+        }]
+    );
+    assert!(h.ctx.outbox_rows().await.is_empty());
+
+    h.ctx.cleanup().await.expect("cleanup");
 }

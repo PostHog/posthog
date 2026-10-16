@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='publish_load_outcome_results' */ SELECT outcome -> 'results' AS \"results: Value\" FROM lifecycle_op WHERE op_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "results: Value",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "54e3a67cc43e9d80047e350828607ebab0f5d102a4cff055f32a40106983f3d3"
+}

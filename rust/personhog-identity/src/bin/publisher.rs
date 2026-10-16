@@ -1,8 +1,8 @@
 //! `personhog-publisher`: drains the publish outbox that personhog-identity
-//! writes and produces the ClickHouse distinct id feed. A separate
-//! deployment because publish load follows the create rate and merge sizes
-//! while identity load follows RPC traffic, and because a Kafka outage must
-//! hold this process's connections, not identity's.
+//! writes and produces the ClickHouse distinct id feed and the person merge
+//! events. A separate deployment because publish load follows the create
+//! rate and merge sizes while identity load follows RPC traffic, and because
+//! a Kafka outage must hold this process's connections, not identity's.
 
 use std::time::Duration;
 
@@ -18,7 +18,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use personhog_identity::publish::config::PublisherConfig;
+use personhog_identity::publish::config::{MergeEventsAllowlist, PublisherConfig};
 use personhog_identity::publish::sink::KafkaSink;
 use personhog_identity::publish::Publisher;
 
@@ -51,7 +51,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let tables = config.tables();
     tables.validate().expect("Invalid identity table set");
-    let drain_config = config.drain_config();
+    let kafka = config.kafka().expect("Invalid Kafka producer settings");
+    let merge_events = config
+        .merge_events()
+        .expect("Invalid PERSON_MERGE_EVENTS settings");
+    let drain_config = config.drain_config(merge_events.as_ref());
 
     tracing::info!("Starting personhog-publisher");
     tracing::info!("Metrics port: {}", config.metrics_port);
@@ -62,12 +66,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_rows_per_pass = drain_config.max_rows_per_pass,
         interval_ms = drain_config.interval.as_millis() as u64,
         produce_timeout_ms = config.produce_timeout().as_millis() as u64,
+        partitioner = ?kafka.kafka_producer_partitioner,
         "Publish settings"
     );
+    match &merge_events {
+        Some(settings) => {
+            tracing::info!(
+                topic = %settings.topic,
+                team_allowlist = ?settings.team_allowlist,
+                "Person merge events enabled"
+            );
+            // The cohort seeder reads an empty allowlist as every team, so
+            // a value copied from there silences this one without an error.
+            if matches!(&settings.team_allowlist, MergeEventsAllowlist::Teams(teams) if teams.is_empty())
+            {
+                tracing::warn!(
+                    "PERSON_MERGE_EVENTS_TEAM_ALLOWLIST is empty, which allows no team; no merge event will be produced"
+                );
+            }
+        }
+        None => tracing::info!("Person merge events disabled"),
+    }
     if tables.is_validation() {
         tracing::warn!(
             outbox = %tables.person_publish_outbox,
             distinct_id_topic = %config.person_distinct_id_topic,
+            merge_events_topic = ?merge_events.as_ref().map(|s| s.topic.as_str()),
             "Publisher runs on the validation table set; its topics must be capture topics, never the production names"
         );
     }
@@ -123,7 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pool = get_pool_with_config(&config.primary_database_url, config.pool_config())
         .expect("Failed to create database pool");
 
-    let producer = match create_kafka_producer(&config.kafka, kafka_handle.clone()).await {
+    let producer = match create_kafka_producer(&kafka, kafka_handle.clone()).await {
         Ok(producer) => producer,
         Err(e) => {
             tracing::error!(error = %e, "failed to create Kafka producer");
@@ -135,6 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sink = KafkaSink::new(
         producer,
         config.person_distinct_id_topic.clone(),
+        merge_events.as_ref().map(|s| s.topic.clone()),
         config.produce_timeout(),
     );
     let publisher = Publisher::new(pool, tables, sink, drain_config);
