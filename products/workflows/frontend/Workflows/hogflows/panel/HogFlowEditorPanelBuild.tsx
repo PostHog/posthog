@@ -104,6 +104,18 @@ const CLASSIFY_ACTION_NODE: CreateActionType = {
     ],
 }
 
+const EXTRACT_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Extract with AI',
+    description: 'Ask an AI model to fill named fields from the output of an earlier step, such as an AI task.',
+    config: { template_id: 'template-posthog-extract', inputs: {} },
+    // Matches the template's default fields, so the step stores both values with no setup.
+    output_variable: [
+        { key: 'pr_url', result_path: 'pr_url', label: 'PR URL' },
+        { key: 'summary', result_path: 'summary', label: 'Summary' },
+    ],
+}
+
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     {
         type: 'delay',
@@ -409,6 +421,13 @@ export function HogFlowEditorPanelBuild({
                     <HogFlowEditorToolbarNode
                         key="classify"
                         action={CLASSIFY_ACTION_NODE}
+                        onActionSelect={onActionSelect}
+                    />
+                )}
+                {featureFlags[FEATURE_FLAGS.WORKFLOW_EXTRACT_ACTION] && (
+                    <HogFlowEditorToolbarNode
+                        key="extract"
+                        action={EXTRACT_ACTION_NODE}
                         onActionSelect={onActionSelect}
                     />
                 )}

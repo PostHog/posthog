@@ -27,6 +27,7 @@ from posthog.test.authentication_checks import covers_authentication
 from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
+from products.tasks.backend.facade.workflow_tasks import get_workflow_task_run_final_message
 from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
@@ -939,6 +940,58 @@ class TestWorkflowTasksAPI(APIBaseTest):
         mapping = SlackThreadTaskMapping.objects.get()
         assert str(mapping.task_run_id) == response.json()["run_id"]
         assert mapping.mentioning_slack_user_id == "U123"
+
+
+class TestWorkflowTaskRunFinalMessage(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.hog_flow = create_workflow_for_test(
+            team_id=self.team.id, name="Fix and report", created_by_id=self.user.id, trigger={"type": "manual"}
+        )
+
+    def _run(self, *, team: Team | None = None, hog_flow_id: UUID | None = None, output: dict | None = None) -> UUID:
+        team = team or self.team
+        task = Task.objects.create(
+            team=team,
+            title="fix",
+            description="fix",
+            origin_product=Task.OriginProduct.WORKFLOW,
+            hog_flow_id=hog_flow_id or self.hog_flow.id,
+        )
+        return TaskRun.objects.create(task=task, team=team, status="completed", output=output).id
+
+    def test_returns_the_full_final_message_of_a_run_this_workflow_started(self) -> None:
+        report = "Fixed the parser. " * 500
+        run_id = self._run(output={"final_message": report})
+
+        assert (
+            get_workflow_task_run_final_message(team_id=self.team.id, hog_flow_id=self.hog_flow.id, run_id=run_id)
+            == report
+        )
+
+    @parameterized.expand(
+        [
+            ("another_workflow", {"hog_flow_id": uuid4(), "output": {"final_message": "secret"}}),
+            ("no_final_message_yet", {"output": {"pr_url": "https://github.com/example/repo/pull/7"}}),
+            ("no_output", {"output": None}),
+        ]
+    )
+    def test_returns_nothing_for_a_run_the_workflow_cannot_read(self, _name: str, run: dict) -> None:
+        run_id = self._run(**run)
+
+        assert (
+            get_workflow_task_run_final_message(team_id=self.team.id, hog_flow_id=self.hog_flow.id, run_id=run_id)
+            is None
+        )
+
+    def test_returns_nothing_for_a_run_in_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        run_id = self._run(team=other_team, output={"final_message": "secret"})
+
+        assert (
+            get_workflow_task_run_final_message(team_id=self.team.id, hog_flow_id=self.hog_flow.id, run_id=run_id)
+            is None
+        )
 
 
 class TestWorkflowOriginIsReserved(SimpleTestCase):

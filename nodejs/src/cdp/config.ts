@@ -229,6 +229,8 @@ export type CdpConfig = ClickhouseConfig & {
     WORKFLOW_SCOUT_RUN_JWT_SECRET: string
     // Scoped JWT keys signing the workflow engine's classify calls to Django. Its own key, for the same reason.
     WORKFLOW_CLASSIFY_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's extract calls to Django. Its own key, for the same reason.
+    WORKFLOW_EXTRACT_JWT_SECRET: string
     CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
     CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
     CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
@@ -437,6 +439,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         WORKFLOW_SCOUT_RUN_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-scout-run-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOW_CLASSIFY_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-classify-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOW_EXTRACT_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-extract-jwt' : '',
         CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
         CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
         CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,

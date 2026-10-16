@@ -720,3 +720,17 @@ def _bind_slack_thread(*, team: Team, task: Task, binding: _SlackBinding) -> Non
         )
     except Exception:
         logger.exception("workflow_task_slack_bind_failed", team_id=team.id, task_id=str(task.id))
+
+
+def get_workflow_task_run_final_message(*, team_id: int, hog_flow_id: uuid.UUID, run_id: uuid.UUID) -> str | None:
+    """The full final message of a run that this workflow's own AI task step started, or None.
+
+    A later step reads the report here because the step result cuts it to `RESULT_STRING_CAP`.
+    """
+    output = (
+        TaskRun.objects.filter(id=run_id, team_id=team_id, task__hog_flow_id=hog_flow_id)
+        .values_list("output", flat=True)
+        .first()
+    )
+    final_message = output.get("final_message") if isinstance(output, dict) else None
+    return final_message if isinstance(final_message, str) and final_message else None
