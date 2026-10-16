@@ -28,6 +28,7 @@ import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
 import { getPostHogClient } from '@/lib/posthog'
+import { offloadToolResult } from '@/lib/result-files'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import {
     createExecTool,
@@ -85,6 +86,7 @@ interface ExecMetricState {
     /** Which kind of skill lookup missed, when the dispatcher rewrote a 404. */
     skillLookupMissKind: SkillLookupMissKind | undefined
     resultEmpty: boolean
+    recordCompletion?: (durationMs: number) => void
 }
 
 /**
@@ -434,11 +436,6 @@ export class ToolExecutor {
                 void state.reqCtx.trackContextSwitchEvent(tool.name, state.context, previousContext)
             }
 
-            toolCallsTotal.inc({ tool: tool.name, status: 'success' })
-            stop({ status: 'success' })
-
-            const duration = Date.now() - startMs
-
             let response: ToolResultPayload
             if (isToolCallPayload(handlerResult)) {
                 response = handlerResult
@@ -464,6 +461,14 @@ export class ToolExecutor {
                 })
             }
 
+            const responseAnalyticsProperties = toolResultAnalyticsProperties(response)
+            const spanOutput = response
+            response = await offloadToolResult(response, state)
+
+            toolCallsTotal.inc({ tool: tool.name, status: 'success' })
+            stop({ status: 'success' })
+            const duration = Date.now() - startMs
+
             void trackToolCall(
                 tool.name,
                 duration,
@@ -474,7 +479,7 @@ export class ToolExecutor {
                     ...skillShape,
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
-                    ...toolResultAnalyticsProperties(response),
+                    ...responseAnalyticsProperties,
                 },
                 analyticsMeta,
                 this.servedToolDescription(tool.name)
@@ -494,7 +499,7 @@ export class ToolExecutor {
                 durationMs: duration,
                 isError: false,
                 input: validation.data,
-                output: response,
+                output: spanOutput,
             })
 
             return response
@@ -641,9 +646,8 @@ export class ToolExecutor {
 
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
-            const duration = Date.now() - startMs
 
-            const response = isToolCallPayload(handlerResult)
+            let response = isToolCallPayload(handlerResult)
                 ? handlerResult
                 : buildToolResultPayload({
                       handlerResult,
@@ -663,6 +667,12 @@ export class ToolExecutor {
                 ? errorAnalyticsProperties(classifyToolError(innerFailure.error, execToolName()), innerFailure.error)
                 : undefined
 
+            const responseAnalyticsProperties = toolResultAnalyticsProperties(response)
+            if (!innerFailure) {
+                response = await offloadToolResult(response, state)
+            }
+            const duration = Date.now() - startMs
+
             void trackToolCall(
                 execToolName(),
                 duration,
@@ -679,7 +689,7 @@ export class ToolExecutor {
                     output_tokens: estimateResponseTokens(response),
                     ...execMetrics.commandMeta,
                     ...(execMetrics.resultEmpty ? { mcp_result_empty: true } : {}),
-                    ...toolResultAnalyticsProperties(response),
+                    ...responseAnalyticsProperties,
                 },
                 analyticsMeta,
                 this.servedToolDescription(execToolName())
@@ -724,6 +734,8 @@ export class ToolExecutor {
                     isPrivateScoutTrialTool(metricTool) ||
                     isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool)
             )
+        } finally {
+            execMetrics.recordCompletion?.(Date.now() - startMs)
         }
     }
 
@@ -783,35 +795,37 @@ export class ToolExecutor {
             execMetrics.resultEmpty = properties.result_empty === true
             const status = properties.success ? 'success' : properties.validation_error ? 'validation_error' : 'error'
             toolCallsTotal.inc({ tool: toolName, status })
-            // Mirror the native path: schema rejections never start a handler, so
-            // they get no duration observation (`callTool` starts its timer only
-            // after validation passes).
-            if (!properties.validation_error) {
-                toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
+            execMetrics.recordCompletion = (durationMs) => {
+                // Mirror the native path: schema rejections never start a handler, so
+                // they get no duration observation (`callTool` starts its timer only
+                // after validation passes).
+                if (!properties.validation_error) {
+                    toolCallDurationSeconds.observe({ tool: toolName, status }, durationMs / 1000)
+                }
+                const errorMessage = properties.validation_error
+                    ? properties.error_message
+                    : extractErrorMessage(properties.error)
+                if (toolName === EXECUTE_SQL_TOOL_NAME && properties.input) {
+                    void trackExecuteSqlGeneration(
+                        toolName,
+                        properties.input,
+                        state,
+                        {
+                            durationMs: properties.validation_error ? 0 : durationMs,
+                            isError: !properties.success,
+                            errorMessage,
+                        },
+                        analyticsMeta
+                    )
+                }
+                void trackToolSpan(toolName, state, {
+                    durationMs: properties.validation_error ? 0 : durationMs,
+                    isError: !properties.success,
+                    errorMessage,
+                    input: properties.input,
+                    output: properties.output,
+                })
             }
-            const errorMessage = properties.validation_error
-                ? properties.error_message
-                : extractErrorMessage(properties.error)
-            if (toolName === EXECUTE_SQL_TOOL_NAME && properties.input) {
-                void trackExecuteSqlGeneration(
-                    toolName,
-                    properties.input,
-                    state,
-                    {
-                        durationMs: properties.duration_ms,
-                        isError: !properties.success,
-                        errorMessage,
-                    },
-                    analyticsMeta
-                )
-            }
-            void trackToolSpan(toolName, state, {
-                durationMs: properties.duration_ms,
-                isError: !properties.success,
-                errorMessage,
-                input: properties.input,
-                output: properties.output,
-            })
         }
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
 

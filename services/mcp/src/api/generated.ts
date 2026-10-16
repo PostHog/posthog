@@ -65306,6 +65306,21 @@ export namespace Schemas {
       readonly intent: string;
     }
 
+    export interface MCPStoredResultRequest {
+      /**
+         * Complete MCP tool response serialized as JSON, limited to 8 MiB of UTF-8 text.
+         * @maxLength 8388608
+         */
+      content: string;
+    }
+
+    export interface MCPStoredResultResponse {
+      /** Presigned URL for downloading the complete MCP response as JSON. */
+      download_url: string;
+      /** Number of seconds until the download URL expires. */
+      expires_in: number;
+    }
+
     export interface MCPToolCall {
       /** ClickHouse uuid of the $mcp_tool_call event. */
       readonly event_id: string;

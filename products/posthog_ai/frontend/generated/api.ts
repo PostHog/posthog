@@ -15,6 +15,8 @@ import type {
     DocsSearchRequestApi,
     DocsSearchResponseApi,
     HandsFreeTokenApi,
+    MCPStoredResultRequestApi,
+    MCPStoredResultResponseApi,
     MCPToolRequestApi,
     MCPToolResponseApi,
     MaxCoreMemoryApi,
@@ -445,6 +447,23 @@ export const docsSearch = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(docsSearchRequestApi),
+    })
+}
+
+export const getMcpToolsResultsStoreCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_tools/results/store/`
+}
+
+export const mcpToolsResultsStoreCreate = async (
+    projectId: string,
+    mCPStoredResultRequestApi: MCPStoredResultRequestApi,
+    options?: RequestInit
+): Promise<MCPStoredResultResponseApi> => {
+    return apiMutator<MCPStoredResultResponseApi>(getMcpToolsResultsStoreCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(mCPStoredResultRequestApi),
     })
 }
 

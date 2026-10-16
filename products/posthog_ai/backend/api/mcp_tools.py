@@ -16,6 +16,8 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.viewsets import GenericViewSet
 from structlog import get_logger
 
@@ -27,7 +29,15 @@ from posthog.event_usage import get_event_source
 from posthog.exceptions_capture import exception_context
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.renderers import SafeJSONRenderer
+from posthog.storage.object_storage import ObjectStorageError
+
+from products.posthog_ai.backend.mcp_result_files import (
+    MCP_RESULT_FILE_MAX_BYTES,
+    MCP_RESULT_FILE_URL_TTL_SECONDS,
+    MCPResultFiles,
+)
 
 from ee.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolError, MaxToolErrorType
@@ -79,9 +89,44 @@ class _DocsSearchUnavailable(APIException):
     default_code = "docs_search_unavailable"
 
 
+class MCPStoredResultRequestSerializer(serializers.Serializer):
+    content = serializers.CharField(
+        max_length=MCP_RESULT_FILE_MAX_BYTES,
+        trim_whitespace=False,
+        help_text="Complete MCP tool response serialized as JSON, limited to 8 MiB of UTF-8 text.",
+    )
+
+    def validate_content(self, value: str) -> str:
+        if len(value.encode("utf-8")) > MCP_RESULT_FILE_MAX_BYTES:
+            raise serializers.ValidationError("The result exceeds the 8 MiB file limit.")
+        try:
+            json.loads(value)
+        except (ValueError, RecursionError):
+            raise serializers.ValidationError("The result must contain valid JSON.")
+        return value
+
+
+class MCPStoredResultResponseSerializer(serializers.Serializer):
+    download_url = serializers.URLField(help_text="Presigned URL for downloading the complete MCP response as JSON.")
+    expires_in = serializers.IntegerField(help_text="Number of seconds until the download URL expires.")
+
+
+class _MCPResultFileUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Result file storage is unavailable. Use the original inline response."
+    default_code = "mcp_result_file_unavailable"
+
+
+class MCPResultFileThrottle(UserRateThrottle):
+    scope = "mcp_result_files"
+    rate = "60/hour"
+
+
 class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "project"
     serializer_class = _FallbackSerializer
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = {"mcp-openai-result-files": ["store_result"]}
 
     renderer_classes = [SafeJSONRenderer]
 
@@ -91,6 +136,30 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             scopes = mcp_tool_registry.get_scopes(tool_name)
             return scopes or None
         return None
+
+    @validated_request(
+        request_serializer=MCPStoredResultRequestSerializer,
+        responses={200: MCPStoredResultResponseSerializer},
+        extensions={"x-internal": True},
+    )
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="results/store",
+        required_scopes=["project:read"],
+        throttle_classes=[*api_settings.DEFAULT_THROTTLE_CLASSES, MCPResultFileThrottle],
+    )
+    def store_result(self, request: ValidatedRequest, **kwargs: object) -> Response:
+        if not settings.OBJECT_STORAGE_ENABLED:
+            raise _MCPResultFileUnavailable()
+        content = cast(str, request.validated_data["content"])
+        try:
+            url = MCPResultFiles.store(team_id=self.team.id, content=content)
+        except ObjectStorageError:
+            raise _MCPResultFileUnavailable() from None
+        return Response(
+            MCPStoredResultResponseSerializer({"download_url": url, "expires_in": MCP_RESULT_FILE_URL_TTL_SECONDS}).data
+        )
 
     @validated_request(
         request_serializer=DocsSearchRequestSerializer,

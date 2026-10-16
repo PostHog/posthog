@@ -23,9 +23,11 @@ vi.mock('@/resources', () => ({
 
 import { z } from 'zod'
 
+import { MCP_OPENAI_RESULT_FILES_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
+import { MCPClientProfile } from '@/lib/client-detection'
 import { estimateTokens } from '@/lib/estimate-tokens'
 
 import { makeToolExecutorState, toolFromPreBuilt } from '../shared/test-utils'
@@ -68,6 +70,38 @@ describe('ToolExecutor token estimates', () => {
         catalog = new ToolCatalog()
         await catalog.warmup()
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
+    })
+
+    it.each([false, true])('offloads large results and measures the pointer in exec mode %s', async (useSingleExec) => {
+        const text = 'synthetic result '.repeat(4000)
+        const tool = makeFakeTool('docs-search', async () => text)
+        vi.spyOn(catalog, 'getToolByName').mockReturnValue(tool as any)
+        const state = makeToolExecutorState(
+            [{ name: 'docs-search', schema: z.object({}), handler: tool.base.handler } as any],
+            {
+                useSingleExec,
+                toolFeatureFlags: { [MCP_OPENAI_RESULT_FILES_FEATURE_FLAG]: true },
+                clientProfile: new MCPClientProfile({ clientName: 'openai-mcp' }),
+            }
+        )
+        const store = vi
+            .fn()
+            .mockResolvedValue({ download_url: 'https://storage.example.com/result.json', expires_in: 3600 })
+        state.context.api.request = store
+        state.context.stateManager.getProjectId = vi.fn().mockResolvedValue('123')
+
+        const response = (await executor.handleToolCall(
+            useSingleExec
+                ? { name: 'exec', arguments: { command: 'call docs-search {}' } }
+                : { name: 'docs-search', arguments: {} },
+            state
+        )) as { content: Array<{ type: 'text'; text: string }> }
+
+        expect(store).toHaveBeenCalledOnce()
+        expect(JSON.parse(store.mock.calls[0]![0].body.content).content[0].text).toBe(text)
+        expect(JSON.parse(response.content[0]!.text).download_url).toBe('https://storage.example.com/result.json')
+        const call = mockTrackToolCall.mock.calls.find((args) => args[0] === 'docs-search')!
+        expect(call[4].output_tokens).toBe(estimateTokens(joinedText(response)))
     })
 
     describe('direct tool calls', () => {

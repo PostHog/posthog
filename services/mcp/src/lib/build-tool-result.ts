@@ -57,6 +57,7 @@ export const EXEC_BUILT_PAYLOAD = '__execBuiltPayload' as const
 
 export interface ToolResultPayload {
     content: Array<{ type: 'text'; text: string }>
+    isError?: boolean
     structuredContent?: Record<string, unknown>
     _meta?: Record<string, unknown>
     [EXEC_BUILT_PAYLOAD]?: true

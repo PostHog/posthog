@@ -26,7 +26,7 @@ import type { Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/to
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_OPENAI_RESULT_FILES_FEATURE_FLAG } from './constants'
 import {
     type InterviewRecruitmentConfig,
     resolveInterviewRecruitmentConfig,
@@ -170,6 +170,7 @@ export class RequestStateResolver {
                 MCP_GATEWAY_FLAG,
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
+                MCP_OPENAI_RESULT_FILES_FEATURE_FLAG,
             ]),
         ]
 
