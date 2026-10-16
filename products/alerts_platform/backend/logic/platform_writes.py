@@ -9,11 +9,13 @@ from dataclasses import replace
 from uuid import UUID
 
 from django.db import transaction
+from django.utils import timezone as django_timezone
 
 from pydantic import ValidationError as PydanticValidationError
 
 from products.alerts_platform.backend.facade.contracts import (
     MAX_EVALUATION_PERIODS,
+    MAX_STORED_INTEGER,
     Grouping,
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
@@ -23,8 +25,8 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
-from products.alerts_platform.backend.logic import platform_reads, source_configs
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
+from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads, source_configs
+from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
 
 def edit_of(configuration: PlatformAlertConfiguration) -> PlatformAlertConfigurationEdit:
@@ -54,8 +56,8 @@ def _validated(
             raise InvalidPlatformAlertEdit(name, f"Must be between 1 and {MAX_EVALUATION_PERIODS}.")
     if edit.datapoints_to_alarm > edit.evaluation_periods:
         raise InvalidPlatformAlertEdit("datapoints_to_alarm", "Cannot exceed evaluation_periods.")
-    if edit.cooldown_minutes < 0:
-        raise InvalidPlatformAlertEdit("cooldown_minutes", "Cannot be negative.")
+    if not 0 <= edit.cooldown_minutes <= MAX_STORED_INTEGER:
+        raise InvalidPlatformAlertEdit("cooldown_minutes", f"Must be between 0 and {MAX_STORED_INTEGER}.")
     try:
         schedule_restriction = validate_and_normalize_schedule_restriction(edit.schedule_restriction)
     except ValueError as error:
@@ -104,33 +106,8 @@ def update_configuration(
         current = edit_of(configuration)
         edit = _validated(SourceKind(configuration.source_kind), current, change(current))
 
-        if (edit.grouping.mode, edit.grouping.keys) != (current.grouping.mode, current.grouping.keys):
-            # The old keys never come back from a check, so each old instance would resolve and
-            # announce a recovery that did not happen. They go, threads included, without a message.
-            PlatformAlert.objects.for_team(team_id, canonical=True).filter(configuration=configuration).delete()
-            PlatformAlertThread.objects.for_team(team_id, canonical=True).filter(configuration=configuration).delete()
-
-        configuration.name = edit.name
-        configuration.enabled = edit.enabled
-        configuration.source_config = edit.source_config
-        configuration.grouping = edit.grouping.to_stored()
-        configuration.schedule_restriction = edit.schedule_restriction
-        configuration.evaluation_periods = edit.evaluation_periods
-        configuration.datapoints_to_alarm = edit.datapoints_to_alarm
-        configuration.cooldown_minutes = edit.cooldown_minutes
-        configuration.save(
-            update_fields=[
-                "name",
-                "enabled",
-                "source_config",
-                "grouping",
-                "schedule_restriction",
-                "evaluation_periods",
-                "datapoints_to_alarm",
-                "cooldown_minutes",
-                "updated_at",
-            ]
-        )
+        regrouped = (edit.grouping.mode, edit.grouping.keys) != (current.grouping.mode, current.grouping.keys)
+        platform_lifecycle.write_edit(configuration, edit, regrouped=regrouped, now=django_timezone.now())
 
     return platform_reads.get_configuration(
         team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id

@@ -119,6 +119,8 @@ DEFAULT_MAX_INSTANCES: Final = 100
 # One check's outcome carries a group per instance, and it crosses Temporal whole, so
 # `MAX_BATCH_PAYLOAD_BYTES` is sized to hold this many groups with their keys and labels at full length.
 MAX_INSTANCES_CEILING: Final = 100
+# The largest value a Postgres `integer` column holds, which bounds every stored count and duration.
+MAX_STORED_INTEGER: Final = 2_147_483_647
 # The most recent checks an N-of-M decision can look back over.
 MAX_EVALUATION_PERIODS: Final = 10
 

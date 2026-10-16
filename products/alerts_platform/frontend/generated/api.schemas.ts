@@ -246,9 +246,6 @@ export interface PaginatedPlatformAlertConfigurationListApi {
 
 /**
  * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
- *
- * * `logs` - Logs
- * * `insight` - Insight
  */
 export type LogsPlatformAlertConfigurationEditApiSourceKind =
     (typeof LogsPlatformAlertConfigurationEditApiSourceKind)[keyof typeof LogsPlatformAlertConfigurationEditApiSourceKind]
@@ -682,10 +679,7 @@ export interface LogsPlatformAlertSourceConfigApi {
  * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
  */
 export interface LogsPlatformAlertConfigurationEditApi {
-    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value.
-     *
-     * * `logs` - Logs
-     * * `insight` - Insight */
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
     source_kind: LogsPlatformAlertConfigurationEditApiSourceKind
     /**
      * Human-readable name of the alert.
@@ -715,6 +709,7 @@ export interface LogsPlatformAlertConfigurationEditApi {
     /**
      * Minimum minutes between notifications for the same alert.
      * @minimum 0
+     * @maximum 2147483647
      */
     cooldown_minutes: number
 }
@@ -723,9 +718,6 @@ export type PlatformAlertConfigurationEditApi = LogsPlatformAlertConfigurationEd
 
 /**
  * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
- *
- * * `logs` - Logs
- * * `insight` - Insight
  */
 export type PatchedLogsPlatformAlertConfigurationEditApiSourceKind =
     (typeof PatchedLogsPlatformAlertConfigurationEditApiSourceKind)[keyof typeof PatchedLogsPlatformAlertConfigurationEditApiSourceKind]
@@ -738,10 +730,7 @@ export const PatchedLogsPlatformAlertConfigurationEditApiSourceKind = {
  * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
  */
 export interface PatchedLogsPlatformAlertConfigurationEditApi {
-    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value.
-     *
-     * * `logs` - Logs
-     * * `insight` - Insight */
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
     source_kind: PatchedLogsPlatformAlertConfigurationEditApiSourceKind
     /**
      * Human-readable name of the alert.
@@ -771,6 +760,7 @@ export interface PatchedLogsPlatformAlertConfigurationEditApi {
     /**
      * Minimum minutes between notifications for the same alert.
      * @minimum 0
+     * @maximum 2147483647
      */
     cooldown_minutes?: number
 }

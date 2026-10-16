@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     DEFAULT_MAX_INSTANCES,
     MAX_EVALUATION_PERIODS,
     MAX_INSTANCES_CEILING,
+    MAX_STORED_INTEGER,
     Grouping,
     GroupingMode,
     InvalidPlatformAlertEdit,
@@ -205,8 +206,8 @@ UNSERVED_SOURCE_KINDS: frozenset[str] = frozenset({PlatformAlertConfigurationSou
 class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
     """The settings an edit can change. Each source kind subclasses it with a typed `source_config`."""
 
-    source_kind = serializers.ChoiceField(
-        choices=PlatformAlertConfigurationSourceKind.choices,
+    # A plain string: each subclass serves one kind, and the request schema's discriminator lists them.
+    source_kind = serializers.CharField(
         help_text="Product whose data the alert evaluates. It cannot change, so it must match the stored value.",
     )
     name = serializers.CharField(max_length=255, help_text="Human-readable name of the alert.")
@@ -230,7 +231,9 @@ class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
         "Cannot exceed evaluation_periods.",
     )
     cooldown_minutes = serializers.IntegerField(
-        min_value=0, help_text="Minimum minutes between notifications for the same alert."
+        min_value=0,
+        max_value=MAX_STORED_INTEGER,
+        help_text="Minimum minutes between notifications for the same alert.",
     )
 
 

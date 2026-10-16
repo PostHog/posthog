@@ -22,16 +22,13 @@ export const platformAlertsUpdateBodyOneEvaluationPeriodsMax = 10
 export const platformAlertsUpdateBodyOneDatapointsToAlarmMax = 10
 
 export const platformAlertsUpdateBodyOneCooldownMinutesMin = 0
+export const platformAlertsUpdateBodyOneCooldownMinutesMax = 2147483647
 
 export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod
     .object({
         source_kind: zod
-            .enum(['logs', 'insight'])
-            .describe('\* `logs` - Logs\n\* `insight` - Insight')
             .enum(['logs'])
-            .describe(
-                'Product whose data the alert evaluates. It cannot change, so it must match the stored value.\n\n\* `logs` - Logs\n\* `insight` - Insight'
-            ),
+            .describe('Product whose data the alert evaluates. It cannot change, so it must match the stored value.'),
         name: zod.string().max(platformAlertsUpdateBodyOneNameMax).describe('Human-readable name of the alert.'),
         enabled: zod.boolean().describe('Whether the alert is evaluated on schedule.'),
         source_config: zod
@@ -155,6 +152,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod
         cooldown_minutes: zod
             .number()
             .min(platformAlertsUpdateBodyOneCooldownMinutesMin)
+            .max(platformAlertsUpdateBodyOneCooldownMinutesMax)
             .describe('Minimum minutes between notifications for the same alert.'),
     })
     .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.')
@@ -172,16 +170,13 @@ export const platformAlertsPartialUpdateBodyOneEvaluationPeriodsMax = 10
 export const platformAlertsPartialUpdateBodyOneDatapointsToAlarmMax = 10
 
 export const platformAlertsPartialUpdateBodyOneCooldownMinutesMin = 0
+export const platformAlertsPartialUpdateBodyOneCooldownMinutesMax = 2147483647
 
 export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         source_kind: zod
-            .enum(['logs', 'insight'])
-            .describe('\* `logs` - Logs\n\* `insight` - Insight')
             .enum(['logs'])
-            .describe(
-                'Product whose data the alert evaluates. It cannot change, so it must match the stored value.\n\n\* `logs` - Logs\n\* `insight` - Insight'
-            ),
+            .describe('Product whose data the alert evaluates. It cannot change, so it must match the stored value.'),
         name: zod
             .string()
             .max(platformAlertsPartialUpdateBodyOneNameMax)
@@ -314,6 +309,7 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod
         cooldown_minutes: zod
             .number()
             .min(platformAlertsPartialUpdateBodyOneCooldownMinutesMin)
+            .max(platformAlertsPartialUpdateBodyOneCooldownMinutesMax)
             .optional()
             .describe('Minimum minutes between notifications for the same alert.'),
     })
