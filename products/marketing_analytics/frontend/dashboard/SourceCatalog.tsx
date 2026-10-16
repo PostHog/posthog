@@ -100,7 +100,7 @@ export function SourceCatalog({ onContinue, hasSources, onBack }: SourceCatalogP
     const totalConnected = validNativeSources.length + validExternalTables.length
 
     return (
-        <LemonCard hoverEffect={false} className="max-w-3xl w-full mx-auto mt-6 !p-0 overflow-hidden">
+        <LemonCard hoverEffect={false} className="max-w-3xl w-full mx-auto mt-6 p-0 overflow-hidden">
             <div className="p-6 space-y-3">
                 {/* Header */}
                 <div className="flex items-start justify-between gap-4">

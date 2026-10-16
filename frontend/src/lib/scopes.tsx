@@ -332,7 +332,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'stamphog', objectName: 'Stamphog', objectPlural: 'stamphog' },
     { key: 'streamlit_app', objectName: 'Streamlit app', objectPlural: 'Streamlit apps' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
-    { key: 'today', objectName: 'Today briefing', objectPlural: 'Today briefings' },
+    { key: 'today', objectName: 'Today home', objectPlural: 'Today home' },
     { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
     { key: 'vision_alert', objectName: 'Vision alert', objectPlural: 'vision alerts' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },

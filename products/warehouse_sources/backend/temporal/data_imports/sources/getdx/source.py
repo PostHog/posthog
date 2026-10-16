@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GetdxSource(ResumableSource[GetdxSourceConfig, GetdxResumeConfig]):
+    codebase_detection = detect(env=("^GETDX_",))
+
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.getdx.com/webapi/overview/"
 

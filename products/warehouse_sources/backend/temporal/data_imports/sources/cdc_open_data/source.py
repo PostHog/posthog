@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CdcOpenDataSource(ResumableSource[CdcOpenDataSourceConfig, CdcOpenDataResumeConfig]):
+    codebase_detection = detect(env=("^(CDC_OPEN_DATA|CDCOPENDATA)_",))
+
     api_docs_url = "https://dev.socrata.com/consumers/getting-started.html"
     supported_versions = (SODA2_API_VERSION, SODA3_API_VERSION)
     default_version = SODA3_API_VERSION

@@ -118,6 +118,7 @@ const OWNED_CONFIG: SignalScoutConfigApi = { ...BASE_CONFIG, scout_origin: 'cust
 function makeRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
     return {
         run_id: 'run-1',
+        total_spend: null,
         skill_name: BASE_CONFIG.skill_name,
         skill_version: 1,
         status: 'completed',
@@ -1050,9 +1051,15 @@ describe('scoutFleetLogic', () => {
             // eagerly is the worse failure though: the roster would show a frozen cost forever.
             // Each strip reads its own scout's slice, so a moved cost must replace only that
             // scout's slice and leave every other strip's slice, and its render, alone.
+            // Both runs are live, so each poll asks for their costs again.
             mockSignalsScoutRunsRecentPerScout.mockResolvedValue([
-                makeRun({ run_id: 'run-priced' }),
-                makeRun({ run_id: 'run-other', skill_name: 'signals-scout-other' }),
+                makeRun({ run_id: 'run-priced', status: 'in_progress', completed_at: null }),
+                makeRun({
+                    run_id: 'run-other',
+                    skill_name: 'signals-scout-other',
+                    status: 'in_progress',
+                    completed_at: null,
+                }),
             ])
             mockSignalsScoutRunsTokenCosts.mockResolvedValue({
                 costs: [
@@ -1088,6 +1095,35 @@ describe('scoutFleetLogic', () => {
             expect(slices.get(BASE_CONFIG.skill_name)).not.toBe(firstSlices.get(BASE_CONFIG.skill_name))
             expect(slices.get(BASE_CONFIG.skill_name)?.get('run-priced')).toBe(5.11)
             expect(slices.get('signals-scout-other')).toBe(firstSlices.get('signals-scout-other'))
+        })
+
+        it('asks for a settled run once, and keeps asking for a live or newly settled one', async () => {
+            const recentlySettled = new Date(Date.now() - 60_000).toISOString()
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([
+                makeRun({ run_id: 'run-settled' }),
+                makeRun({ run_id: 'run-just-settled', completed_at: recentlySettled }),
+                makeRun({ run_id: 'run-live', status: 'in_progress', completed_at: null }),
+            ])
+            mockSignalsScoutRunsTokenCosts.mockResolvedValue({
+                costs: [
+                    { run_id: 'run-settled', token_cost_usd: 4.03 },
+                    { run_id: 'run-just-settled', token_cost_usd: 1 },
+                    { run_id: 'run-live', token_cost_usd: 2 },
+                ],
+                available: true,
+            })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+
+            expect(mockSignalsScoutRunsTokenCosts.mock.calls.map(([, body]) => body.run_ids)).toEqual([
+                ['run-settled', 'run-just-settled', 'run-live'],
+                ['run-just-settled', 'run-live'],
+            ])
+            expect(logic.values.scoutRunCosts.get('run-settled')).toBe(4.03)
         })
 
         it('sends no further batches once the deployment reports it cannot price runs', async () => {
@@ -1161,6 +1197,32 @@ describe('scoutFleetLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
 
             expect(logic.values.scoutRunCosts.get('run-0')).toBe(4.03)
+        })
+
+        it('asks again for a batch whose costs never reached the store because a sibling failed', async () => {
+            const runIds = Array.from({ length: 401 }, (_, index) => `run-${index}`)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue(runIds.map((run_id) => makeRun({ run_id })))
+            mockSignalsScoutRunsTokenCosts.mockImplementation(async (_projectId, body) => {
+                if (body.run_ids.includes('run-200')) {
+                    throw new ApiError('nope', 500)
+                }
+                if (body.run_ids.includes('run-400')) {
+                    await new Promise((resolve) => setTimeout(resolve, 5))
+                }
+                return { costs: body.run_ids.map((run_id) => ({ run_id, token_cost_usd: 1 })), available: true }
+            })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            mockSignalsScoutRunsTokenCosts.mockClear().mockResolvedValue({ costs: [], available: true })
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+
+            const askedAgain = mockSignalsScoutRunsTokenCosts.mock.calls.flatMap(([, body]) => body.run_ids)
+            expect(askedAgain).toContain('run-400')
+            expect(askedAgain).not.toContain('run-0')
         })
 
         // Recovering in the loader skips the gate `initKea` applies to loader failures, so the

@@ -869,6 +869,35 @@ const dashboardWidgetsRun = (): ToolBase<
     },
 })
 
+const DashboardsBulkDeleteSchema = () => {
+    const DashboardsBulkDeleteCreateBody = orvalSchemas.DashboardsBulkDeleteCreateBody()
+    return DashboardsBulkDeleteCreateBody
+}
+
+const dashboardsBulkDelete = (): ToolBase<
+    ReturnType<typeof DashboardsBulkDeleteSchema>,
+    Schemas.DashboardBulkDeleteResponse
+> => ({
+    name: 'dashboards-bulk-delete',
+    schema: DashboardsBulkDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardsBulkDeleteSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        if (params.delete_insights !== undefined) {
+            body['delete_insights'] = params.delete_insights
+        }
+        const result = await context.api.request<Schemas.DashboardBulkDeleteResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/bulk_delete/`,
+            body,
+        })
+        return result
+    },
+})
+
 const DashboardsGetAllSchema = () => {
     const DashboardsListQueryParams = orvalSchemas.DashboardsListQueryParams()
     return DashboardsListQueryParams.omit({ format: true }).extend({
@@ -930,5 +959,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-widgets-batch-add': dashboardWidgetsBatchAdd,
     'dashboard-widgets-batch-update': dashboardWidgetsBatchUpdate,
     'dashboard-widgets-run': dashboardWidgetsRun,
+    'dashboards-bulk-delete': dashboardsBulkDelete,
     'dashboards-get-all': dashboardsGetAll,
 }

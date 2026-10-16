@@ -15,7 +15,7 @@ import { todayShellLogic } from './todayShellLogic'
 export function TodayPhoneHeader(): JSX.Element {
     const { sceneBreadcrumbs } = useValues(breadcrumbsLogic)
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
-    const { onAiPage, phoneCanGoBack } = useValues(todayShellLogic)
+    const { onAiPage, phoneCanGoBack, paneHasSidebar } = useValues(todayShellLogic)
     const { goBackOnPhone, setMobileSidebarOpen } = useActions(todayShellLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const [scrolled, setScrolled] = useState(false)
@@ -38,7 +38,7 @@ export function TodayPhoneHeader(): JSX.Element {
                 <Button size="icon" aria-label="Back" data-attr="today-phone-back" onClick={goBackOnPhone}>
                     <IconChevronLeft />
                 </Button>
-            ) : (
+            ) : paneHasSidebar ? (
                 <Button
                     size="icon"
                     aria-label="Open sidebar"
@@ -47,7 +47,7 @@ export function TodayPhoneHeader(): JSX.Element {
                 >
                     <IconShowSidebar />
                 </Button>
-            )}
+            ) : null}
             <h2 className="m-0 min-w-0 flex-1 truncate text-base font-bold text-foreground">{title}</h2>
             {!onAiPage && (
                 <Button

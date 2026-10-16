@@ -1,4 +1,4 @@
-import type { XAxisConfig } from '@posthog/quill-charts'
+import type { XAxisConfig, YAxisConfig } from '@posthog/quill-charts'
 
 import type { MetricsDisplaySettings } from '~/queries/schema/schema-general'
 
@@ -8,9 +8,11 @@ const X_AXIS: XAxisConfig = {}
 
 const build = (
     display: MetricsDisplaySettings | undefined,
-    seriesCount = 1
+    seriesCount = 1,
+    unit?: string,
+    values?: number[]
 ): ReturnType<typeof buildMetricsChartConfig> =>
-    buildMetricsChartConfig({ display, xAxis: X_AXIS, seriesCount, labelFormatter: (l) => l })
+    buildMetricsChartConfig({ display, xAxis: X_AXIS, seriesCount, labelFormatter: (l) => l, unit, values })
 
 describe('metricsChartConfig', () => {
     it('omits the settings keys entirely when a query carries no display', () => {
@@ -43,6 +45,25 @@ describe('metricsChartConfig', () => {
         const config = build({ yAxis: { scale: 'log', startAtZero: false, max: 100 } })
 
         expect(config.yAxis).toEqual({ scale: 'log', startAtZero: false, max: 100 })
+    })
+
+    it('formats axis ticks and tooltip values with the unit and keeps the y-axis settings', () => {
+        const config = build({ yAxis: { scale: 'log' } }, 1, 'ms')
+        const yAxis = config.yAxis as YAxisConfig
+
+        expect(yAxis.scale).toBe('log')
+        expect(yAxis.tickFormatter?.(250)).toBe('250 ms')
+        expect(config.tooltip?.valueFormatter?.(1500, {} as never)).toBe('1.5 s')
+    })
+
+    it.each([
+        ['bare numbers when a plotted value exceeds 1', [0.2, 1.5, 2], '0.5', '1'],
+        ['percents when every plotted value is within 1', [0.2, 0.8], '50%', '100%'],
+    ])('formats every ratio tick and tooltip value on one scale: %s', (_name, values, tick, tooltipValue) => {
+        const config = build(undefined, 1, '1', values)
+
+        expect((config.yAxis as YAxisConfig).tickFormatter?.(0.5)).toBe(tick)
+        expect(config.tooltip?.valueFormatter?.(1, {} as never)).toBe(tooltipValue)
     })
 
     it('only shows the legend once there is more than one series', () => {

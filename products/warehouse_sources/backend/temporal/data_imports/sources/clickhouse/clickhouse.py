@@ -53,7 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     render_named_conditions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType, PartitionSettings
 
 # Why a connection is allowed to skip the egress proxy, or None to stay proxied. A reason
 # rather than a bool so `_get_client` — where every call site converges — can check the
@@ -1654,6 +1654,7 @@ def clickhouse_source(
     stored_primary_keys: Optional[list[str]] = None,
     bypass_env_proxy: BypassEnvProxy = None,
     server_hostname: str | None = None,
+    sync_type: ExternalDataSchemaSyncType | None = None,
 ) -> SourceResponse:
     """Build a SourceResponse that pulls a single ClickHouse table.
 
@@ -1747,7 +1748,8 @@ def clickhouse_source(
                 stored_primary_keys, primary_keys, [column.name for column in table.columns]
             )
             has_duplicate_primary_keys = False
-            if should_use_incremental_field and should_probe_for_duplicates(
+            # Only an incremental sync merges, so it is the only sync that reads the probe result.
+            if sync_type == ExternalDataSchemaSyncType.INCREMENTAL and should_probe_for_duplicates(
                 merge_keys, primary_keys, constraints_enforced=False
             ):
                 probed = _has_duplicate_primary_keys(client, database, table_name, merge_keys, logger)

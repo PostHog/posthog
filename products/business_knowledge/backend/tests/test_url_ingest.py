@@ -11,10 +11,17 @@ Design notes:
   attempt should fail fast).
 """
 
+import ipaddress
+from collections.abc import Iterator
+
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
+import requests
 from parameterized import parameterized
+from requests.adapters import HTTPAdapter
 from rest_framework import status
 
 from posthog.security.url_validation import PinnedUrlVerdict
@@ -61,7 +68,7 @@ def _mock_response(
     return response
 
 
-class TestNormalizeUrl(BaseTest):
+class TestNormalizeUrl(SimpleTestCase):
     def test_strips_userinfo(self) -> None:
         assert url_fetch.strip_userinfo("https://user:pass@example.com/x") == "https://example.com/x"
 
@@ -84,7 +91,7 @@ class TestNormalizeUrl(BaseTest):
             url_fetch.normalize_url(raw)
 
 
-class TestFetchUrl(BaseTest):
+class TestFetchUrl(SimpleTestCase):
     @patch(
         "products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips",
         return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set()),
@@ -141,6 +148,30 @@ class TestFetchUrl(BaseTest):
         # SSRF check was re-run on the redirect target.
         assert mock_ssrf.call_count == 2
 
+    @patch("products.business_knowledge.backend.url_fetch.requests.Session")
+    @patch("products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips")
+    def test_pins_ipv4_when_aaaa_is_also_validated(self, mock_ssrf: MagicMock, mock_session_cls: MagicMock) -> None:
+        class _Ipv6First(set[ipaddress.IPv4Address | ipaddress.IPv6Address]):
+            def __iter__(self) -> Iterator[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+                items = list(super().__iter__())
+                items.sort(key=lambda ip: (ip.version != 6, int(ip)))
+                return iter(items)
+
+        ipv4 = ipaddress.ip_address("93.184.216.34")
+        ipv6 = ipaddress.ip_address("2600:1f18::1")
+        mock_ssrf.return_value = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=_Ipv6First({ipv4, ipv6}))
+        session = mock_session_cls.return_value
+        session.get.return_value = _mock_response(body=b"<html>hi</html>")
+
+        url_fetch.fetch_url("https://example.com/x")
+
+        adapter = session.mount.call_args_list[0].args[1]
+        request = requests.Request("GET", "https://example.com/x").prepare()
+        with patch.object(HTTPAdapter, "send", return_value=MagicMock()):
+            adapter.send(request)
+        assert request.url == "https://93.184.216.34/x"
+        assert request.headers["Host"] == "example.com"
+
     @patch(
         "products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips",
         return_value=PinnedUrlVerdict(allowed=False, reason="Loopback", pinned_ips=set()),
@@ -161,7 +192,7 @@ _BASIC_HTML = b"""<!doctype html>
 </body></html>"""
 
 
-class TestParseHtml(BaseTest):
+class TestParseHtml(SimpleTestCase):
     def test_blocks_are_blank_line_separated_and_chunk_on_paragraphs(self) -> None:
         # Regression: txt extraction separated blocks with single newlines, so
         # the chunker (which splits on blank lines) saw one mega-paragraph and
@@ -207,6 +238,15 @@ class TestParseHtml(BaseTest):
         assert "Первый абзац" in text
         assert "\ufffd" not in text
         assert title == "Тест"
+
+    def test_control_characters_are_stripped_from_the_metadata_title(self) -> None:
+        html = (
+            b'<html><head><title>Raw</title><script type="application/ld+json">'
+            b'{"@type": "Article", "headline": "Refund\\u0000 policy"}</script></head>'
+            b"<body><article><p>We issue full refunds within 30 days of purchase.</p></article></body></html>"
+        )
+        title, _ = parse_html(html, "https://example.com/refunds")
+        assert title == "Refund policy"
 
 
 class TestCreateUrlSource(BaseTest):

@@ -90,6 +90,132 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
 
+## Interview recruitment with URL elicitation
+
+> [!CAUTION]
+> **Unsolicited elicitation can spam users and damage trust in the MCP.**
+> A native dialog interrupts the user's work even when it is easy to implement or feature-flag.
+> This recruitment flow is a narrow exception, not a general-purpose advertising or survey channel.
+> Read the [MCP agent policy](../../../../../services/mcp/AGENTS.md#unsolicited-elicitation-high-risk) before adding unsolicited prompts or expanding this flow.
+> Reviewers should challenge the interruption's user value, audience, timing, frequency, opt-out behavior, and measurement.
+
+The `mcp-interview-recruitment` multivariate flag selects one optional interview invitation before a tool call.
+Each variant key identifies a campaign and has its own invitation payload.
+To add an approved study, read [the integration guide](../../../../../services/mcp/INTERVIEW_RECRUITMENT.md).
+Create the flag in the MCP server's analytics project and manage its audience and rollout there.
+A missing or disabled flag skips recruitment. Local development also keeps it disabled unless a
+development flag override explicitly enables it with an explicit `MCP_INTERVIEW_RECRUITMENT_PAYLOAD`.
+See the [local testing instructions](../../../../../services/mcp/INTERVIEW_RECRUITMENT.md#code-and-checks).
+
+Set each variant's JSON payload to customize its invitation without deploying:
+
+```json
+{
+  "message": "Squeal on our MCP. Book a 20-minute chat. We'll pay you in PostHog merch.",
+  "booking_url": "https://cal.com/adam-posthog/posthog-chat",
+  "min_completed_tool_calls": 3,
+  "min_session_age_seconds": 120
+}
+```
+
+Each variant must explicitly supply `message` and `booking_url`; omitted timing fields use the defaults above.
+A boolean `true` identifies the original `mcp-research` campaign, but requires the same explicit copy and URL.
+A missing payload skips recruitment; no invitation copy or booking URL is supplied by the code.
+A malformed payload, an empty message, a message over 1,000
+characters, or a non-HTTPS booking URL skips recruitment. Flag values and payloads come from the same
+evaluation, with the same audience properties. Payload edits apply to subsequent requests without
+restarting the server. A displayed invitation keeps its original campaign, copy, and URL even if targeting changes.
+Use release conditions to assign variants, with higher-priority conditions first. One evaluation selects
+one campaign; no invitation queue is created for overlapping audiences.
+
+By default, an eligible conversation must complete three successful product tool calls and have been
+observed for at least 120 seconds. The earliest invitation is before its fourth product call, once both
+thresholds are met. Discovery commands, skills, documentation lookups, private scout tools, and failed calls do not count.
+The timer starts at the first eligible product request; it does not measure when the chat UI opened.
+The payload accepts 0–1,000 completed calls and 0–86,400 seconds. Setting both to zero permits an
+immediate invitation for testing.
+
+Progress is updated atomically in shared Redis, scoped to the user, instance, client, and conversation
+handle already resolved by the MCP Analytics SDK. The SDK returns a handle on the first call for the
+agent to echo on subsequent calls. If it is missing or changes, progress does not accumulate across
+those calls. This measures calls observed under that handle, not chat messages or an independently
+verified client UI conversation boundary. A client reusing a handle across chats also reuses its progress.
+The counter expires after 24 hours without eligible activity, caps at 1,000 completions, and deduplicates
+identical RPC IDs and tool arguments. A retried call with a new RPC ID is a new request. Continuations
+of an invitation do not increment it.
+
+Flag evaluation uses the authenticated user's distinct ID and the existing organization/project groups.
+Use existing person or group properties and cohorts for additional audience filters. The server does
+not inject client metadata as person-property overrides during flag evaluation.
+
+No client-name or task conditions are required in the flag. The server requires native URL
+elicitation support and enforces its surface and task exclusions independently of the flag.
+Use the flag for rollout and any additional audience filters. Alternative condition groups are OR
+conditions.
+
+Only requests classified as `mcp` can recruit. Other surfaces, including PostHog AI and recognized
+self-driving OAuth applications, always skip recruitment. Task-bound requests and credentials with
+`internal_run:read` also skip recruitment even if their source is `mcp` and the flag is enabled.
+Client names and consumer headers are self-reported; they do not prove a human is present.
+A third-party unattended agent using the same identity and capabilities as an interactive client
+cannot be distinguished by this feature.
+
+The invitation uses native URL elicitation on protocol revision `2026-07-28`, for clients advertising
+URL support. Legacy protocol connections and clients with only form support continue without an
+invitation. No MCP App, extra tool, or agent instruction is involved. The client displays the booking
+URL and asks permission to open it, using its own controls and labels. No questionnaire is displayed.
+The original tool runs after the client returns the invitation response, without waiting for a booking.
+Claude Code can keep its dialog open after opening the URL until the user chooses “I'm done.”
+The server cannot remove that client-controlled step. The `2026-07-28` protocol has no URL-elicitation
+completion notification; see the [SDK protocol notes](https://ts.sdk.modelcontextprotocol.io/v2/servers/elicitation).
+
+- Accepting the link records `booking_link_accepted` and stops further invitations. This records
+  permission to open the booking page, not a completed booking or permission to contact an account email.
+- Declining the invitation records `do_not_ask_again` and stops further invitations.
+- Canceling or abandoning the invitation starts a seven-day cooldown.
+
+Responses are JSON records in the MCP server's shared Redis, under
+`mcp:interview:{<identity hash>}:response`. The identity hash is the SHA-256 hex digest of
+`JSON.stringify([publicPostHogBaseUrl, distinctId])`; it scopes the preference to the authenticated
+user and PostHog instance, across tokens, sessions, and projects. Submitted records contain
+`distinct_id`, `campaign_id`, `response`, and `responded_at`. Suppression is shared across campaigns. Use `SCAN MATCH 'mcp:interview:*:response'` and `GET`
+to inspect responses. This implementation records the invitation response; it does not send an email or track completed bookings.
+
+Accepted-link and opted-out records have no TTL. They remain suppressed until reset, provided Redis
+retains the records; this is not a separate durable database. Do not put these keys behind an
+expiring cache or delete them during cache maintenance. Cooldown records expire after seven days.
+Already-suppressed users skip progress writes and booking-link creation; the final reservation remains atomic.
+Redis failures skip new invitations. A response write must succeed before the original tool runs;
+the client can retry the continuation if that write fails.
+
+Recruitment analytics use the existing PostHog SDK and the MCP server's analytics project:
+
+| Event                                | Meaning                                                                                                               |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `mcp interview invitation sent`      | The server returns a native invitation after reserving it. This does not confirm that the client rendered the dialog. |
+| `mcp interview booking link opened`  | The invitation's redirect URL receives its first GET request. Repeated opens do not add events.                       |
+| `mcp interview invitation responded` | A valid response is saved, with `response` equal to `accept`, `decline`, or `cancel`.                                 |
+
+Every event carries the authenticated user's distinct ID, `campaign_id`, `invitation_id`, and the `feature_flag`
+key. The campaign comes from the selected variant and is retained for link opens and responses. Count distinct people for reach and invitation IDs for attempts. Invitations without a response
+are unanswered, which can include abandonment, an open dialog, or a lost connection. An accepted
+response records permission to open the link; it does not establish that the booking page opened.
+
+The native dialog opens `/interview/<opaque UUID>` on the MCP host, which redirects to the configured
+HTTPS booking URL. Redis holds the destination and identity for seven days. Unknown or expired links
+return 404. Redirects disable caching and referrer forwarding, and HEAD requests do not count as opens.
+A GET can also come from a link scanner; this is a measured redirect request, not proof of a human visit
+or completed booking. Analytics delivery uses the SDK's normal best-effort pipeline and never blocks
+the original tool or a known booking redirect. Suppressed and impersonated requests do not recruit.
+
+To reset one user, delete that user's `:response` key and any matching
+`:response:mcp-interview:*` pending keys. Disable the flag or finish any open invitation before
+resetting. Do not reset all users just to test a change. Pending continuations expire after ten minutes
+and are bound to the original token, tool arguments, organization, and project. A changed context
+rejects the continuation before the tool runs. Consumed continuations retain a ten-minute marker
+and cannot run again. Expired or consumed errors require checking the original tool's outcome
+before retrying, because a write may already have succeeded.
+
 ## Claude web and desktop exec schema budget
 
 Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.
@@ -174,6 +300,14 @@ Explicit date ranges are unchanged; a start date without an end date still ends 
 This also applies to the organization usage/spend time-series endpoints and CSV exports.
 The billing overview, usage, and spend tools do not need a rollout flag.
 API scopes and billing access checks still apply.
+
+The underlying root billing API also supports an optional `organization_id` UUID on overview reads.
+Use it when refreshing billing after a payment so another tab changing the user's current project cannot change the target.
+The `billing-overview-get` tool does not expose it.
+Subscription activation, payment authorization, and authorization status requests require an explicit `organization_id` in the body.
+They reject missing or invalid IDs rather than falling back to the current project, and require billing access in the requested organization.
+These payment actions remain unavailable to personal API keys and OAuth tokens.
+The browser keeps the organization through Stripe redirects; payment links from older clients must be restarted from billing.
 
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
@@ -603,7 +737,7 @@ The marker only controls schema inclusion. The endpoint stays reachable, and aut
 ## HogQL query schemas (WIP)
 
 [`frontend/src/queries/schema/schema-assistant-queries.ts`](https://github.com/PostHog/posthog/blob/master/frontend/src/queries/schema/schema-assistant-queries.ts) defines structured query types
-for the AI assistant (trends, funnels, retention, etc.).
+for the AI assistant (trends, funnels, retention, events tables, etc.).
 
 These schemas describe the shape of analytical queries with rich JSDoc comments
 that help agents generate correct HogQL.

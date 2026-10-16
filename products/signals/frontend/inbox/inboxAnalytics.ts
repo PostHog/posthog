@@ -4,6 +4,7 @@ import type { CaptureOptions } from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 
 import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import type { InboxSummaryApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import type { ReportDiscussionIntent } from './inboxTaskKickoffLogic'
@@ -33,6 +34,8 @@ export const INBOX_EVENTS = {
     WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
     INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
+    VALUE_SUMMARY_VIEWED: 'Inbox value summary viewed',
+    VALUE_SUMMARY_DISMISSED: 'Inbox value summary dismissed',
     PANEL_LOAD_TIMED_OUT: 'Inbox panel load timed out',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
@@ -75,6 +78,14 @@ export const INBOX_EVENTS = {
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
+
+export function captureInboxValueSummary(action: 'viewed' | 'dismissed', summary: InboxSummaryApi): void {
+    captureInboxEvent(action === 'viewed' ? INBOX_EVENTS.VALUE_SUMMARY_VIEWED : INBOX_EVENTS.VALUE_SUMMARY_DISMISSED, {
+        merged_pr_count: summary.merged_pr_count,
+        people_count: summary.people_count,
+        participation_complete: summary.participation_complete,
+    })
+}
 
 /**
  * Action surface an `Inbox report action` fired from. `context_menu` is the right-click menu on a list row.
@@ -139,7 +150,8 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
 /**
  * Report actions cloud actually emits. Names match the desktop enum one-for-one (so the
  * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Dismissed
- * section), `resolve` (marking a report done without an inbox PR), `view_diff`, `show_more` (a list
+ * section), `resolve` (marking a report done without an inbox PR), `resume_discussion` (reopening the
+ * last Ask AI run from the report composer), `view_diff`, `show_more` (a list
  * section widening its window), and the section expand/collapse pair (desktop splits those per
  * section instead).
  * Desktop-only variants we don't fire yet are intentionally omitted.
@@ -149,6 +161,7 @@ export type InboxReportActionType =
     | 'clear_feedback'
     | 'resolve'
     | 'discuss'
+    | 'resume_discussion'
     | 'restore'
     | 'create_pr'
     | 'copy_implementation_prompt'
@@ -261,6 +274,10 @@ export type ScoutActionType =
     | 'choose_create_path'
     | 'switch_create_path'
     | 'test_precheck'
+    | 'focus_ask_ai'
+    | 'click_ask_ai_starter'
+    | 'ask_ai'
+    | 'save_note_from_ai'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -276,6 +293,16 @@ function reportAgeHours(report: Pick<SignalReport, 'created_at'>): number {
     }
     const hours = dayjs().diff(dayjs(report.created_at), 'hour', true)
     return Math.max(0, Math.round(hours * 10) / 10)
+}
+
+// The ranker that ordered the Inbox list in view, from the latest list response. Inbox report actions
+// and sort changes read it, so the ranking test can join them to the ranker without each caller
+// passing it. The Inbox scene clears it on unmount.
+let servedInboxRankerId: string | null = null
+
+/** Record the ranker of the latest list response. Null when the sort is not Recommended. */
+export function setInboxServedRanker(rankerId: string | null): void {
+    servedInboxRankerId = rankerId
 }
 
 interface BaseReportProperties {
@@ -434,6 +461,8 @@ export function captureInboxReportsImpressed(params: {
     sortField: string
     sortDirection: string
     createdWindow: string | null
+    /** The ranker the server used for a Recommended list. Null for other sorts. */
+    rankerId: string | null
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
     captureInboxEvent(INBOX_EVENTS.REPORTS_IMPRESSED, {
@@ -445,6 +474,7 @@ export function captureInboxReportsImpressed(params: {
         sort_field: params.sortField,
         sort_direction: params.sortDirection,
         created_window: params.createdWindow,
+        ranker_id: params.rankerId,
         impression_count: params.reports.length,
         impressions: params.reports.map((report, index) => ({
             ...baseReportProperties(report),
@@ -473,6 +503,8 @@ export function captureInboxReportOpened(
         rank: number | null
         listSize: number | null
         section: InboxReportSectionKey | null
+        /** The ranker of the list the report was opened from. Null for other sorts and for a cold deep-link. */
+        rankerId: string | null
     },
     /** The unload flush passes `{ send_instantly: true }` so the open leaves before the page does. */
     options?: CaptureOptions
@@ -489,6 +521,7 @@ export function captureInboxReportOpened(
             rank: params.rank,
             list_size: params.listSize,
             section: params.section,
+            ranker_id: params.rankerId,
         },
         options
     )
@@ -552,6 +585,8 @@ export function captureInboxReportAction(params: {
         surface: params.surface,
         is_bulk: params.isBulk ?? false,
         bulk_size: params.bulkSize ?? 1,
+        // Today lists reports in its own order, so its actions never belong to an Inbox ranker.
+        ranker_id: params.surface === 'today' ? null : servedInboxRankerId,
         ...params.extra,
     })
 }
@@ -893,6 +928,8 @@ export function captureInboxQueryChanged(params: {
         search_length: search.length,
         has_active_filters: params.hasActiveFilters,
         created_window: params.createdWindow,
+        // The ranker of the list the user changed away from, not of the list the change requests.
+        ranker_id: servedInboxRankerId,
     })
 }
 
