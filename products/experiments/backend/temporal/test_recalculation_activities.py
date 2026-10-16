@@ -741,6 +741,7 @@ class TestCalculateActivity(BaseTest):
         if legacy_result:
             calculation_config = get_metric_calculation_config(exp, "m1")
             assert calculation_config is not None
+            assert exp.start_date is not None
             ExperimentMetricResult.objects.create(
                 experiment=exp,
                 metric_uuid="m1",
