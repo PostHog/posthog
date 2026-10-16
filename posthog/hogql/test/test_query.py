@@ -51,7 +51,7 @@ from posthog.hogql.test.utils import (
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
-from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
+from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3InvalidTableConfig, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.team import Team
@@ -2397,14 +2397,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(mock_sync_execute.call_count, 2)
 
-    def test_non_transient_errors_are_not_retried(self):
+    @parameterized.expand(
+        [
+            ("unknown_error", InternalCHQueryError("Unknown error.", code=1000)),
+            ("s3_invalid_table_config", CHQueryErrorS3InvalidTableConfig("Invalid access key.", code=499)),
+        ]
+    )
+    def test_non_transient_errors_are_not_retried(self, _name: str, error: InternalCHQueryError):
         with (
-            patch(
-                "posthog.hogql.query.sync_execute", side_effect=InternalCHQueryError("Unknown error.", code=1000)
-            ) as mock_sync_execute,
+            patch("posthog.hogql.query.sync_execute", side_effect=error) as mock_sync_execute,
             patch("posthog.hogql.query.sleep") as mock_sleep,
         ):
-            with self.assertRaises(InternalCHQueryError):
+            with self.assertRaises(type(error)):
                 execute_hogql_query("SELECT 1", team=self.team)
 
         self.assertEqual(mock_sync_execute.call_count, 1)

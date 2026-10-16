@@ -2,9 +2,12 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
+    S3_TABLE_CONFIG_ERROR_MESSAGE,
     CHQueryErrorCannotParseBool,
     CHQueryErrorCannotParseUuid,
     CHQueryErrorInvalidJoinOnExpression,
+    CHQueryErrorS3InvalidTableConfig,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
@@ -173,3 +176,25 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, InternalCHQueryError)
         assert not isinstance(wrapped, ExposedCHQueryError)
+
+    @parameterized.expand(
+        [
+            ("InvalidAccessKeyId", "The AWS Access Key Id you provided does not exist in our records"),
+            ("SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided"),
+            ("NoSuchBucket", "The specified bucket does not exist"),
+        ]
+    )
+    def test_s3_table_config_errors_are_exposed_and_not_retried(self, s3_code: str, s3_message: str) -> None:
+        raw_message = (
+            "DB::Exception: Failed to get object info: No response body.. HTTP response code: 403: "
+            f"while reading key: data/*.parquet, from bucket: fake-private-bucket: Code: {s3_code}, "
+            f"Message: {s3_message}. (S3_ERROR)"
+        )
+
+        wrapped = wrap_clickhouse_query_error(ServerException(raw_message, code=499))
+
+        assert isinstance(wrapped, CHQueryErrorS3InvalidTableConfig)
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert str(wrapped) == S3_TABLE_CONFIG_ERROR_MESSAGE
+        assert wrapped.code_name == "s3_invalid_table_config"
+        assert not isinstance(wrapped, CH_TRANSIENT_ERRORS)

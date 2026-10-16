@@ -94,6 +94,17 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
 )
 
 
+# S3 error codes that mean the table's own credentials or bucket are wrong. A retry can't fix these.
+S3_TABLE_CONFIG_ERROR_CODES = ("InvalidAccessKeyId", "SignatureDoesNotMatch", "NoSuchBucket")
+
+# The raw ClickHouse message echoes the bucket URL, so carry a fixed message instead.
+S3_TABLE_CONFIG_ERROR_MESSAGE = (
+    "PostHog can't read the files behind this table. The storage provider rejected the access key "
+    "or can't find the bucket. Check the access key, secret, and files URL pattern on the table, "
+    "then run the query again."
+)
+
+
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     match = STORAGE_FILE_URI_PATTERN.search(err.message)
     file_uri = match.group(1) if match else "unknown file"
@@ -150,6 +161,10 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "S3_ERROR":
         if "The requested range is not satisfiable" in err.message:
             return _wrap_storage_file_changed_error(err)
+        if any(code in err.message for code in S3_TABLE_CONFIG_ERROR_CODES):
+            return CHQueryErrorS3InvalidTableConfig(
+                S3_TABLE_CONFIG_ERROR_MESSAGE, code=err.code, code_name="s3_invalid_table_config"
+            )
         return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
         return _wrap_storage_file_changed_error(err)
@@ -251,6 +266,12 @@ class CHQueryErrorS3Error(InternalCHQueryError):
 
 class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
     """A file backing a warehouse table was overwritten or deleted while ClickHouse was reading it."""
+
+    pass
+
+
+class CHQueryErrorS3InvalidTableConfig(ExposedCHQueryError):
+    """A warehouse table has an invalid access key or points at a bucket that doesn't exist."""
 
     pass
 
