@@ -111,15 +111,16 @@ class TestProxyRecordAPI(APIBaseTest):
             "legacy.example.com": False,
         }
 
+    @parameterized.expand([("lowercase", "test.example.com"), ("mixed_case", "Test.Example.com")])
     @patch("posthog.api.proxy_record.sync_connect")
     @patch("posthoganalytics.capture")
-    def test_create_proxy_record(self, mock_capture, mock_sync_connect):
+    def test_create_proxy_record(self, _name, domain, mock_capture, mock_sync_connect):
         mock_temporal = AsyncMock()
         mock_sync_connect.return_value = mock_temporal
 
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/proxy_records/",
-            {"domain": "test.example.com"},
+            {"domain": domain},
         )
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
