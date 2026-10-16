@@ -124,6 +124,14 @@ class BillingServiceError(APIException):
     default_detail = "Billing could not answer this request. Try again in a moment."
 
 
+class PaymentAuthorizationRejected(APIException):
+    """Billing refused to start the payment authorization."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "payment_authorization_rejected"
+    default_detail = "We could not start the payment setup. Close this window and try again."
+
+
 class BillingManagedByProviderError(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_code = "billing_managed_by_provider"
@@ -998,8 +1006,20 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        with translate_managed_by_provider_refusal():
-            res = billing_manager.authorize(organization)
+        try:
+            with translate_managed_by_provider_refusal():
+                res = billing_manager.authorize(organization)
+        except BillingServiceResponseError as e:
+            # The billing body can hold database error text, so the caller gets a controlled message.
+            logger.warning(
+                "billing_authorize_error",
+                organization_id=str(organization.id),
+                upstream_status=e.status_code,
+                body=str(e.body)[:500],
+            )
+            if 400 <= e.status_code < 500:
+                raise PaymentAuthorizationRejected() from e
+            raise BillingServiceError() from e
         return Response(res, status=status.HTTP_200_OK)
 
     @extend_schema(

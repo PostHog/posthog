@@ -130312,6 +130312,10 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Filter surveys by the ID of the feature flag they are linked to.
+     */
+    linked_flag_id?: number;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
