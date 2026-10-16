@@ -1,7 +1,7 @@
 """Reports that matter to one person, for the Today briefing.
 
 This module answers "which reports relate to this person, and how". The inbox `for_you` list
-orders these reports with the Recommended inbox sort.
+orders these reports with the inbox priority order.
 """
 
 import re

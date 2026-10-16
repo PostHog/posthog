@@ -1675,13 +1675,7 @@ class TestSignalReportListAPI(APIBaseTest):
         assert [row["id"] for row in page["results"]] == [by_priority[None]]
         assert page["count"] == 2
 
-    @parameterized.expand(
-        [
-            ("control", ["P0 low score", "P1 unscored", "P2 high score"]),
-            ("open", ["P2 high score", "P0 low score", "P1 unscored"]),
-        ]
-    )
-    def test_for_you_follows_the_inbox_recommended_sort(self, variant: str, expected_titles: list[str]):
+    def test_for_you_uses_the_inbox_control_order_without_joining_the_sort_experiment(self):
         titles: dict[str, str] = {}
         for title, priority, open_score in [
             ("P0 low score", "P0", 0.15),
@@ -1699,16 +1693,21 @@ class TestSignalReportListAPI(APIBaseTest):
             if open_score is not None:
                 self._ranking_score_artefact(report, scores={"open": open_score})
             titles[str(report.id)] = title
+        flag = "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag"
 
-        with patch(
-            "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value=variant
-        ):
+        with patch(flag, return_value="control"):
             inbox = self.client.get(self._list_url(sort="recommended", suggested_reviewers=str(self.user.uuid)))
+        with patch(flag, return_value="open") as get_flag:
             for_you = self.client.get(f"{self._list_url()}for_you/?limit=20")
 
         assert inbox.status_code == status.HTTP_200_OK
         assert for_you.status_code == status.HTTP_200_OK
-        assert [titles[row["id"]] for row in inbox.json()["results"]] == expected_titles
+        get_flag.assert_not_called()
+        assert [titles[row["id"]] for row in for_you.json()["results"]] == [
+            "P0 low score",
+            "P1 unscored",
+            "P2 high score",
+        ]
         assert for_you.json()["results"] == inbox.json()["results"]
 
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):

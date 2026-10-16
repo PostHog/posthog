@@ -1315,7 +1315,7 @@ class SignalReportViewSet(
         if self._needs_priority_annotation():
             qs = self._annotate_signal_report_priority(qs)
             qs = self._apply_signal_report_priority_filter(qs)
-        if self.action in {"list", "for_you"}:
+        if self.action == "list":
             qs = self._annotate_signal_report_ranking(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         if self.action != "bulk_state":
@@ -2059,9 +2059,11 @@ class SignalReportViewSet(
 
     @cached_property
     def _inbox_ranker(self) -> InboxRanker | None:
+        if self.action == "for_you":
+            # The recommended sort experiment covers the web inbox only, so `for_you` uses its control order.
+            return "priority"
         params = self.request.query_params
-        recommended = params.get("ordering") is None and params.get("sort") == "recommended"
-        if self.action != "for_you" and not recommended:
+        if params.get("ordering") is not None or params.get("sort") != "recommended":
             return None
         return resolve_recommended_ranker(self.team, cast(User, self.request.user))
 
@@ -2667,8 +2669,8 @@ class SignalReportViewSet(
         summary="List the reports that matter most to the current user",
         description=(
             "One page of the open, actionable reports for the current user, and how many there are in "
-            "total, in the order of the inbox Recommended sort. Uses the same ranking and count as the Today "
-            "briefing, so this is the short list to show someone who asks what needs them. Pass `exclude` to leave out reports already "
+            "total, in the inbox priority order: priority, then status, then most recently updated. Uses the "
+            "same ranking and count as the Today briefing, so this is the short list to show someone who asks what needs them. Pass `exclude` to leave out reports already "
             "on screen and `offset` to get the next page. Pass `include_unowned=false` to leave out the "
             "P0 reports nobody owns, which belong to the project rather than to this person."
         ),

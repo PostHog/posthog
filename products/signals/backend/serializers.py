@@ -1954,8 +1954,8 @@ class SignalReportsForYouResponseSerializer(serializers.Serializer):
     results = SignalReportListSerializer(
         many=True,
         help_text=(
-            "One page of the open, actionable reports that matter most to the current user, in the order "
-            "of the inbox Recommended sort. They are reports waiting for their input, reports they claimed, "
+            "One page of the open, actionable reports that matter most to the current user, in the inbox "
+            "priority order: priority, then status, then most recently updated. They are reports waiting for their input, reports they claimed, "
             "reports naming them as a reviewer, and P0 reports that nobody owns unless `include_unowned` "
             "is false. The Today briefing ranks reports the same way."
         ),
