@@ -32,10 +32,9 @@ import { dataUntil, pinChartSeries } from './pinChart'
 import { useMenuTrigger } from './useMenuTrigger'
 import { ViewIcon, viewTypeLabel } from './viewMeta'
 
-// Fixed card heights per mode, so the list never jumps when a value arrives or a chart's canvas mounts in place of its
-// sparkline placeholder. Each one is the rendered height of the layout below, borders included.
+// Fixed row and chart heights keep the list still when a chart's canvas replaces its sparkline placeholder.
 const HEAD_HEIGHT = 62
-const NUMBER_BODY_HEIGHT = 75
+const NUMBER_BODY_HEIGHT = 50
 const VALUE_ROW_HEIGHT = 33
 const CHART_BOTTOM = 14
 export const PIN_ROW_HEIGHT = HEAD_HEIGHT + 2
@@ -210,7 +209,7 @@ function NumberPin({ pin, data, onOpen, onMenu, onUnpin }: DataPinProps): ReactE
     const values = (snapshot?.series?.points ?? []).slice(-SPARKLINE_BUCKETS).map((point) => point.value)
     const label = [pin.name, value, delta?.spoken, second].filter(Boolean).join(', ')
     return (
-        <View ref={menu.ref} style={[styles.card, { height: PIN_NUMBER_HEIGHT }]} testID={pinTestId(pin)}>
+        <View ref={menu.ref} style={styles.card} testID={pinTestId(pin)}>
             <Pressable44
                 onPress={() => onOpen(pin)}
                 onLongPress={menu.onLongPress}
@@ -218,7 +217,6 @@ function NumberPin({ pin, data, onOpen, onMenu, onUnpin }: DataPinProps): ReactE
                 onAccessibilityAction={menu.onAccessibilityAction}
                 accessibilityLabel={label}
                 pressedBackground={colors.sunken}
-                style={styles.fill}
             >
                 <View style={styles.head}>
                     <PinHeadContent pin={pin} second={second} />
@@ -229,10 +227,12 @@ function NumberPin({ pin, data, onOpen, onMenu, onUnpin }: DataPinProps): ReactE
                             <Text style={styles.bigValue} numberOfLines={1} testID={pinTestId(pin, 'value')}>
                                 {value ?? '–'}
                             </Text>
-                            <View style={styles.deltaRow}>
-                                {delta ? <DeltaPill {...delta.props} /> : null}
-                                {at ? <Text style={styles.meta}>{at}</Text> : null}
-                            </View>
+                            {delta || at ? (
+                                <View style={styles.deltaRow}>
+                                    {delta ? <DeltaPill {...delta.props} /> : null}
+                                    {at ? <Text style={styles.meta}>{at}</Text> : null}
+                                </View>
+                            ) : null}
                         </View>
                         {values.length > 1 ? (
                             <View style={snapshot?.refreshFailed && styles.stale}>
@@ -413,9 +413,6 @@ const styles = StyleSheet.create({
         borderRadius: radii.option,
         overflow: 'hidden',
     },
-    fill: {
-        flex: 1,
-    },
     head: {
         height: HEAD_HEIGHT,
         flexDirection: 'row',
@@ -447,7 +444,7 @@ const styles = StyleSheet.create({
         color: colors.tertiary,
     },
     numberBody: {
-        height: NUMBER_BODY_HEIGHT,
+        minHeight: NUMBER_BODY_HEIGHT,
         flexDirection: 'row',
         alignItems: 'flex-end',
         justifyContent: 'space-between',

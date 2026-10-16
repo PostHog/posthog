@@ -79,10 +79,11 @@ A pin shows in one of three modes, chosen on this phone:
 | Mode | Shows | Height | Reads data |
 | --- | --- | --- | --- |
 | Row | Icon, name, the view type ("Dashboard", "Built-in view" for web analytics, "Notebook · Opens on the web") | 64 pt | No |
-| Number | The value, a neutral change pill, the saved range or the tile name, a 14-bucket sparkline | 139 pt | Yes |
+| Number | The value, a neutral change pill, the saved range or the tile name, a 14-bucket sparkline | At least 114 pt, sized to its content | Yes |
 | Chart | The value, the change pill, a compact `MetricChart` | 207 pt | Yes |
 
-Each mode has a fixed height, so the list never moves when a value arrives or a chart's canvas replaces its sparkline placeholder.
+Row and Chart modes have fixed heights, so a chart's canvas can replace its sparkline placeholder without moving the list.
+Number cards fit their content and only include the comparison and date row when either is present.
 Chart pins pass `canvasSlot` and sit inside `ChartCanvasBudget`, so at most six Skia canvases are mounted; the list feeds both the budget and the refresh rules from one `onViewableItemsChanged`. The list and each dashboard pass `active={useIsFocused()}`, so a screen under a pushed view or behind another tab gives its canvases back, and a stack holds only the focused screen's canvases.
 A tap on a Chart pin's plot pins a tooltip, and a tap on its name or value opens the view.
 A tap on the pinned tooltip opens the Point sheet. `ViewsScreen` wraps the list in `ChartSheetsProvider`, and the sheet follows the pin's own cache entry, which reads the saved range.
