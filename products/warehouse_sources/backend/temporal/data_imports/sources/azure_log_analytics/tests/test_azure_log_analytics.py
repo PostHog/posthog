@@ -66,7 +66,6 @@ def _queries(requests: list[RecordedRequest]) -> list[str]:
     return [request.json()["query"] for request in requests if request.path == QUERY_PATH]
 
 
-# Every run in this class starts on 2026-10-02 at noon, so earlier days are closed windows.
 NOW = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
 RUN_END = "2026-10-02T12:00:00.000000Z"
 WATERMARK_TODAY = {"incremental_field": "_IngestionTime", "db_incremental_field_last_value": "2026-10-02T09:30:00Z"}

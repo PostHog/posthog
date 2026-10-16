@@ -13,14 +13,11 @@ PAGE_SIZE = 5000
 TIMESTAMP_FIELD = "TimeGenerated"
 ITEM_ID_FIELD = "_ItemId"
 PRIMARY_KEYS = [ITEM_ID_FIELD]
-# `ingestion_time()`, added to each row. Reads page on it rather than TimeGenerated, because an
-# agent that was offline delivers records hours after their TimeGenerated.
+# Reads page on ingestion time: an agent that was offline delivers records hours after their TimeGenerated.
 INGESTION_TIME_FIELD = "_IngestionTime"
-# ingestion_time() is approximate and concurrent ingestions can land out of order, so each
-# incremental run re-reads a short overlap; merge dedupes it on _ItemId.
+# ingestion_time() is approximate and concurrent ingestions land out of order.
 INGESTION_LOOKBACK_SECONDS = 15 * 60
-# Azure replaces a TimeGenerated more than two days older than its arrival, so a row ingested after
-# a cursor has a TimeGenerated no older than this before it. The filter lets Azure skip old data.
+# Azure replaces a TimeGenerated more than two days older than its arrival, so this bound loses no row.
 TIME_GENERATED_PRUNE = "3d"
 # Discovery reads table names from the Usage table, which every workspace has.
 DISCOVERY_LOOKBACK_DAYS = 30

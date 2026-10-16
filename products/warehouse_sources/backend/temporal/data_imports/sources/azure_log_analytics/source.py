@@ -78,15 +78,12 @@ WORKSPACE_FIELDS: list[FieldType] = [
 class LogAnalyticsWorkspaceSource(ResumableSource[ConfigType, AzureLogAnalyticsResumeConfig], Generic[ConfigType]):
     """A source that syncs tables of one Log Analytics workspace. Subclasses pick the tables."""
 
-    # Shown when a table the source reads does not exist in the workspace: in the schema picker,
-    # on a failed sync, and when a named table is checked.
     missing_table_reason = (
         "This table doesn't exist in the workspace. Check the table name, or remove it from the list."
     )
     missing_table_message = (
         "The workspace has no table named {table}. Check the table name, or remove it from the list."
     )
-    # Shown when the creation probe finds none of the source's tables.
     no_tables_message = missing_table_reason
 
     @abstractmethod

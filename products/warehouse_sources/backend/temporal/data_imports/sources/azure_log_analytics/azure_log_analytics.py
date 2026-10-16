@@ -53,7 +53,6 @@ _GUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F
 _DATETIME_LITERAL_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?Z$")
 _ITEM_ID_LITERAL_RE = re.compile(r"^[A-Za-z0-9-]{0,128}$")
 # The ingestion time as KQL renders it (100 ns precision), so the cursor matches rows exactly.
-# Dropped from every row before it is yielded.
 CURSOR_COLUMN = "__posthog_cursor"
 
 
@@ -395,7 +394,6 @@ def get_rows(
         except AzureLogAnalyticsPartialResultError:
             if page_size <= MIN_PAGE_SIZE:
                 raise
-            # A smaller window shrinks the scan; a smaller page shrinks the response.
             hourly = True
             page_size = max(MIN_PAGE_SIZE, page_size // 2)
             logger.debug(f"Azure Log Analytics: {table} page hit a service limit, retrying with {page_size} rows")
