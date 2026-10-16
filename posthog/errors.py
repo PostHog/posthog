@@ -86,6 +86,12 @@ def clickhouse_error_type(e: Exception) -> str:
 
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
+BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
+    r"\bBad get: has (?P<actual>[A-Za-z][A-Za-z0-9_]{0,63}), "
+    r"requested (?P<expected>[A-Za-z][A-Za-z0-9_]{0,63})(?:\.|$)"
+)
+
+BAD_GET_FALLBACK_MESSAGE = "A value in the query has the wrong type. Check function parameters and type conversions."
 
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "A Parquet file backing this table has corrupted or oversized metadata and can't be read. "
@@ -104,6 +110,17 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
         code=err.code,
         code_name="s3_file_changed_during_read",
     )
+
+
+def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
+    match = BAD_GET_TYPE_MISMATCH_PATTERN.search(err.message)
+    message = BAD_GET_FALLBACK_MESSAGE
+    if match:
+        message = (
+            f"A value in the query has the wrong type: got {match.group('actual')}, "
+            f"expected {match.group('expected')}. Check function parameters and type conversions."
+        )
+    return CHQueryErrorBadGet(message, code=err.code, code_name="bad_get")
 
 
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
@@ -171,6 +188,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorQueryWasCancelled(err.message, code=err.code, code_name="query_was_cancelled")
 
     # user query errors - pass through original message with proper code_name
+    elif name == "BAD_GET":
+        return _wrap_bad_get_error(err)
     elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
         return CHQueryErrorIllegalTypeOfArgument(err.message, code=err.code, code_name="illegal_type_of_argument")
     elif name == "NO_COMMON_TYPE":
@@ -271,6 +290,10 @@ class CHQueryErrorCorruptedParquetMetadata(ExposedCHQueryError):
 
 # User query errors - these are errors caused by user input/queries
 class CHQueryErrorIllegalTypeOfArgument(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorBadGet(ExposedCHQueryError):
     pass
 
 
@@ -490,7 +513,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     ),
     122: ErrorCodeMeta("INCOMPATIBLE_COLUMNS", user_safe=True),  # column types don't match expected schema
     123: ErrorCodeMeta("UNKNOWN_TYPE_OF_AST_NODE"),
-    124: ErrorCodeMeta("INCORRECT_ELEMENT_OF_SET"),
+    124: ErrorCodeMeta(
+        "INCORRECT_ELEMENT_OF_SET",
+        user_safe="An element of an IN set is invalid. Make sure each tuple in the IN list has the same number "
+        "of elements as the left side, and that each element is a constant.",
+    ),
     125: ErrorCodeMeta(
         "INCORRECT_RESULT_OF_SCALAR_SUBQUERY",
         user_safe="A scalar subquery returned more than one row, or an empty result that cannot be nullable. "
@@ -534,7 +561,8 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     167: ErrorCodeMeta("TOO_DEEP_AST", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
     168: ErrorCodeMeta("TOO_BIG_AST", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
     169: ErrorCodeMeta("BAD_TYPE_OF_FIELD"),
-    170: ErrorCodeMeta("BAD_GET"),
+    # The wrapper exposes only allowlisted ClickHouse type identifiers from the raw message.
+    170: ErrorCodeMeta("BAD_GET", user_safe=True),
     172: ErrorCodeMeta("CANNOT_CREATE_DIRECTORY"),
     173: ErrorCodeMeta("CANNOT_ALLOCATE_MEMORY", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
     174: ErrorCodeMeta("CYCLIC_ALIASES", user_safe=True),

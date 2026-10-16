@@ -115,6 +115,13 @@ class ScoutFleetEntry(_Section):
     # The cause behind an `auto_paused` entry (`no_output` / `ignored` / `repeated_failures`);
     # null for every other entry.
     pause_reason: str | None
+    # Where the scout's pre-check query comes from: `config` or `skill_default`. Null means no
+    # pre-check, so the scout runs on every due tick.
+    precheck_source: str | None
+    # The latest scheduled pre-check. A `skip` writes no run row, so a gated scout with nothing new
+    # on its surface keeps a stale `last_run_at` while `last_precheck_at` stays fresh.
+    last_precheck_at: str | None
+    last_precheck_outcome: str | None
 
 
 class ScoutFleet(_Section):
@@ -339,8 +346,9 @@ class SurfaceEntry(_Section):
     in_use: bool | None
     evaluated_at: str | None
     # `skill_default` when the shipped default query answered. Otherwise the reason `in_use` is
-    # null: `query_error`, `no_acting_user`, or `time_budget`.
-    source: Literal["skill_default", "query_error", "no_acting_user", "time_budget"]
+    # null: `query_error`, `no_acting_user`, `time_budget`, or `deferred` when a background build
+    # has not run the query yet.
+    source: Literal["skill_default", "query_error", "no_acting_user", "time_budget", "deferred"]
     # The rows the query returned, capped at the pre-check row cap. Null when `in_use` is null.
     row_count: int | None
 

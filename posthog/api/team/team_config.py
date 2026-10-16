@@ -17,6 +17,12 @@ from products.customer_analytics.backend.facade.contracts import PinnedAccountPr
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+from products.replay_vision.backend.facade.workflow_scan_limits import (
+    MAX_SELF_SERVE_WORKFLOW_SCAN_RATE_CAP_PER_DAY,
+    MAX_SELF_SERVE_WORKFLOW_SCAN_TEAM_RATE_CAP_PER_DAY,
+    WORKFLOW_SCAN_RATE_CAP_PER_DAY,
+    WORKFLOW_SCAN_TEAM_RATE_CAP_PER_DAY,
+)
 from products.tasks.backend.facade.workflow_tasks import (
     MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY,
     MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
@@ -266,6 +272,28 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         ),
     )
 
+    replay_vision_scan_rate_limit_per_day = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text=(
+            "How many Replay Vision scans one workflow can request in a rolling 24 hours. "
+            f"Null uses the default of {WORKFLOW_SCAN_RATE_CAP_PER_DAY}; zero pauses scans "
+            f"for every workflow in the project. Support raises the limit above "
+            f"{MAX_SELF_SERVE_WORKFLOW_SCAN_RATE_CAP_PER_DAY}."
+        ),
+    )
+    replay_vision_scan_team_rate_limit_per_day = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text=(
+            "How many Replay Vision scans all workflows in the project request together in a rolling "
+            f"24 hours. Null uses the default of {WORKFLOW_SCAN_TEAM_RATE_CAP_PER_DAY}; zero pauses "
+            f"scans for the project. Support raises the limit above "
+            f"{MAX_SELF_SERVE_WORKFLOW_SCAN_TEAM_RATE_CAP_PER_DAY}."
+        ),
+    )
     default_email_integration_id = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -283,6 +311,8 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "email_tracking_consent_mode",
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
+            "replay_vision_scan_rate_limit_per_day",
+            "replay_vision_scan_team_rate_limit_per_day",
             "default_email_integration_id",
             "marketing_frequency_cap_max_messages",
             "marketing_frequency_cap_window_days",
@@ -314,6 +344,16 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
     def validate_workflow_task_team_rate_limit_per_day(self, value: int | None) -> int | None:
         return self._enforce_self_serve_ceiling(
             "workflow_task_team_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY
+        )
+
+    def validate_replay_vision_scan_rate_limit_per_day(self, value: int | None) -> int | None:
+        return self._enforce_self_serve_ceiling(
+            "replay_vision_scan_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_SCAN_RATE_CAP_PER_DAY
+        )
+
+    def validate_replay_vision_scan_team_rate_limit_per_day(self, value: int | None) -> int | None:
+        return self._enforce_self_serve_ceiling(
+            "replay_vision_scan_team_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_SCAN_TEAM_RATE_CAP_PER_DAY
         )
 
     def validate_default_email_integration_id(self, value: int | None) -> int | None:

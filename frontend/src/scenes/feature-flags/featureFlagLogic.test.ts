@@ -4097,8 +4097,11 @@ describe('validateFeatureFlagVariantKey', () => {
         { key: 'provider/model-1.2', desc: 'slashes and dots (model-id style)' },
         { key: '0.85', desc: 'dotted number' },
         { key: 'a/b/c.d_e-f', desc: 'mixed dots, slashes, hyphens, underscores' },
-    ])('accepts valid variant key: $desc', ({ key }) => {
-        expect(validateFeatureFlagVariantKey(key)).toBeUndefined()
+        { key: 'NULL', desc: 'uppercase NULL' },
+        { key: 'Null', desc: 'title-case Null' },
+        { key: 'null', savedKeys: ['control', 'null'], desc: 'null the saved flag already has' },
+    ])('accepts valid variant key: $desc', ({ key, savedKeys }) => {
+        expect(validateFeatureFlagVariantKey(key, savedKeys)).toBeUndefined()
     })
 
     it.each([
@@ -4107,8 +4110,10 @@ describe('validateFeatureFlagVariantKey', () => {
         { key: 'foo?bar', error: 'Only letters', desc: 'question marks' },
         { key: '', error: 'Please set a key', desc: 'empty key' },
         { key: 'a'.repeat(401), error: '400 characters', desc: 'over 400 characters' },
-    ])('rejects variant key with $desc', ({ key, error }) => {
-        expect(validateFeatureFlagVariantKey(key)).toContain(error)
+        { key: 'null', error: 'reserved', desc: 'null on a new flag' },
+        { key: 'null', savedKeys: ['control', 'test'], error: 'reserved', desc: 'null the saved flag lacks' },
+    ])('rejects variant key with $desc', ({ key, savedKeys, error }) => {
+        expect(validateFeatureFlagVariantKey(key, savedKeys)).toContain(error)
     })
 })
 

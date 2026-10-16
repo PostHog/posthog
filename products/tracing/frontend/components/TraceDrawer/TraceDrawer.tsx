@@ -179,7 +179,7 @@ export function TraceDrawer({
             {traceId && !loading && anyLoadFailed && spans.length === 0 ? (
                 <TraceLoadErrorNotice onRetry={canRetry ? retryFailedLoads : undefined} />
             ) : traceId && !loading && !aiEventsResponseLoading && spans.length === 0 ? (
-                <TraceUnavailableNotice traceId={traceId} filtersActive={filtersActive} />
+                <TraceUnavailableNotice traceId={traceId} filtersActive={filtersActive} surface="drawer" />
             ) : (
                 <div className="relative min-h-32 flex gap-4 items-start">
                     {(loading || (aiEventsResponseLoading && spans.length === 0)) && <SpinnerOverlay />}

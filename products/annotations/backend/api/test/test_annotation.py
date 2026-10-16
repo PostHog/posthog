@@ -13,6 +13,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
@@ -508,6 +509,39 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == 400
         assert response.json()["detail"] == f"Invalid date range: {error_message}"
+
+    @parameterized.expand([("dashboard", "dashboard_id"), ("dashboard_item", "dashboard_item")])
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_attaching_needs_viewer_access_to_the_parent(self, scope: str, field: str) -> None:
+        parent: Dashboard | Insight
+        if scope == "dashboard":
+            parent = Dashboard.objects.create(team=self.team, name="Restricted")
+            AccessControl.objects.create(
+                team=self.team, resource="dashboard", resource_id=str(parent.id), access_level="none"
+            )
+            stored = Annotation.objects.create(
+                organization=self.organization, team=self.team, scope=scope, dashboard=parent
+            )
+        else:
+            parent = Insight.objects.create(team=self.team, name="Restricted")
+            AccessControl.objects.create(
+                team=self.team, resource="insight", resource_id=str(parent.id), access_level="none"
+            )
+            stored = Annotation.objects.create(
+                organization=self.organization, team=self.team, scope=scope, dashboard_item=parent
+            )
+        self.client.force_login(self._create_user("annotation-member@example.com"))
+        payload = {"content": "x", "scope": scope, "date_marker": "2024-01-01T00:00:00.000000Z", field: parent.id}
+
+        created = self.client.post(f"/api/projects/{self.team.id}/annotations/", payload)
+        edited = self.client.patch(f"/api/projects/{self.team.id}/annotations/{stored.id}/", payload)
+
+        assert created.status_code == status.HTTP_400_BAD_REQUEST, created.json()
+        assert created.json()["attr"] == field
+        assert Annotation.objects.filter(team=self.team).count() == 1
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
 
     def test_creating_annotation_with_dashboard_from_same_team(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")

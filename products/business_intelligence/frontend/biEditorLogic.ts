@@ -53,6 +53,7 @@ import {
     normalizeBIConfig,
 } from 'products/business_intelligence/frontend/biEditorTypes'
 
+import type { BIPaneSettings } from '../../../frontend/src/queries/schema/schema-business-intelligence'
 import { getBILocalFields, localFieldError, localFieldExpression, upsertBILocalField } from './biLocalFields'
 import { matchesBIFieldSearch } from './biPropertyFields'
 import { getBIDateField } from './biQueryFilters'
@@ -97,6 +98,8 @@ function setDataSourceInConfig(config: BIConfig, source: BIDataSource): BIConfig
         localFields: undefined,
         hierarchies: undefined,
         colorBy: undefined,
+        querySnapshot: undefined,
+        catalogMetric: undefined,
         comparisonPeriod: undefined,
         rows: [],
         columns: [],
@@ -631,6 +634,9 @@ export interface biEditorLogicActions {
     setMissingDates: (missingDates: BIConfig['missingDates']) => {
         missingDates: 'gap' | 'zero' | undefined
     }
+    setPanes: (panes: BIConfig['panes']) => {
+        panes: BIPaneSettings | undefined
+    }
     setSort: (sort: BISort | null) => {
         sort: BISort | null
     }
@@ -850,6 +856,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
             update,
         }),
         setLimit: (limit: BIQueryLimit) => ({ limit }),
+        setPanes: (panes: BIConfig['panes']) => ({ panes }),
         setSort: (sort: BISort | null) => ({ sort }),
         setFieldExpression: (shelf: BIShelf, index: number, expression: string) => ({ shelf, index, expression }),
         setFieldDateBucket: (shelf: BIShelf, index: number, dateBucket: BIDateBucket | null) => ({
@@ -1190,6 +1197,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     ),
                 }),
                 setLimit: (config, { limit }) => normalizeBIConfig({ ...config, limit }),
+                setPanes: (config, { panes }) => normalizeBIConfig({ ...config, panes }),
                 setSort: (config, { sort }) => normalizeBIConfig({ ...config, sort }),
                 setFieldExpression: (config, { shelf, index, expression }) =>
                     setFieldExpressionInConfig(config, shelf, index, expression),
@@ -1319,7 +1327,9 @@ export const biEditorLogic = kea<biEditorLogicType>([
         generatedQuery: [
             (selectors) => [selectors.config],
             (config: BIConfig): BIQueryBuildResult | null =>
-                config.rows.length || config.columns.length || config.values.length ? buildBIQuery(config) : null,
+                config.querySnapshot || config.rows.length || config.columns.length || config.values.length
+                    ? buildBIQuery(config)
+                    : null,
         ],
         sortOptions: [
             (selectors) => [selectors.config],
@@ -1534,7 +1544,11 @@ export const biEditorLogic = kea<biEditorLogicType>([
         upsertHierarchy: () => actions.runAfterChange(),
         removeHierarchy: () => actions.runAfterChange(),
         setDataSource: () => {
-            captureBIWorksheetAction('source_selected', values.config)
+            captureBIWorksheetAction('source_selected', values.config, {
+                source_certification:
+                    values.allTables.find((table) => table.name === values.config.source?.table)?.certification
+                        ?.status ?? 'unmarked',
+            })
             actions.runAfterChange()
         },
         setValueAggregation: () => actions.runAfterChange(),
@@ -1547,6 +1561,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setFilterValue: () => actions.runAfterChange(),
         updateFilter: () => actions.runAfterChange(),
         setLimit: () => actions.runAfterChange(),
+        setPanes: () => actions.runAfterChange(),
         setSort: () => actions.runAfterChange(),
         setFieldExpression: () => actions.runAfterChange(),
         setFieldDateBucket: () => actions.runAfterChange(),
