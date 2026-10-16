@@ -13,7 +13,6 @@
 //! for `stall_timeout`, the state machine fails, so a wedged batcher restarts
 //! instead of growing lag.
 
-use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -102,7 +101,7 @@ impl BatcherStateMachine {
             return Err("set a pack target in events or bytes".to_string());
         }
         Ok(BatcherStateMachine::Running(ActiveState {
-            keys: KeyQueues::new(packer.targets().run_cap()),
+            keys: KeyQueues::new(packer.run_cap()),
             packer,
             assigner,
             in_flight: InFlightRequests::new(),
@@ -442,12 +441,7 @@ impl ActiveState {
         effects: &mut Effects,
     ) -> Result<(), String> {
         let free_slots = self.assigner.free_slots(workers);
-        let mut batch = self.packer.pack(&mut self.keys, now, free_slots, draining);
-        if self.assigner.prefers_largest_first() {
-            // Bin-packing places the heavy requests first, so they drive
-            // the load distribution.
-            batch.sort_by_key(|request| Reverse(request.message_count));
-        }
+        let batch = self.packer.pack(&mut self.keys, now, free_slots, draining);
         for request in batch {
             let worker = self
                 .assigner
@@ -572,6 +566,7 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use super::*;
+    use crate::batcher::key_queues::RunCap;
     use crate::batcher::packer::PackTargets;
     use crate::batcher::test_support::{message, offsets};
     use crate::routing::{Router, RoutingStrategy};
@@ -601,8 +596,16 @@ mod tests {
             bytes: None,
             latency_budget: budget,
         });
+        batcher_with(packer, max_requests_per_worker, now)
+    }
+
+    fn batcher_with(
+        packer: Packer,
+        max_requests_per_worker: usize,
+        now: Instant,
+    ) -> BatcherStateMachine {
         let assigner = WorkerAssigner::new(
-            Router::new(RoutingStrategy::BinPack),
+            Router::with_seed(RoutingStrategy::P2c, 0),
             max_requests_per_worker,
         )
         .expect("valid request cap");
@@ -736,24 +739,6 @@ mod tests {
     }
 
     #[test]
-    fn bin_packing_places_the_largest_request_first() {
-        let now = Instant::now();
-        let workers = pool(&["w1", "w2"]);
-        let batcher = packing_batcher(10, Duration::ZERO, 4, now);
-
-        // Different epochs keep the two runs in separate requests.
-        let (batcher, _) = batcher.on_groups(now, &pool(&[]), 0, vec![run("small", &[1])]);
-        let (batcher, _) = batcher.on_groups(now, &pool(&[]), 1, vec![run("large", &[2, 3, 4])]);
-        let (_, effects) = batcher.on_wakeup(now, &workers);
-        let placed: Vec<_> = effects
-            .sends
-            .iter()
-            .map(|send| (&*send.runs[0].routing_key, send.worker.as_ref()))
-            .collect();
-        assert_eq!(placed, vec![("large", "w1"), ("small", "w2")]);
-    }
-
-    #[test]
     fn a_request_without_a_worker_waits_and_is_sent_when_one_appears() {
         let now = Instant::now();
         let batcher = batcher(4, now);
@@ -840,7 +825,7 @@ mod tests {
     #[test]
     fn a_pack_budget_over_half_the_stall_timeout_is_rejected() {
         let assigner =
-            WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).expect("valid cap");
+            WorkerAssigner::new(Router::new(RoutingStrategy::P2c), 1).expect("valid cap");
         let packer = Packer::new(PackTargets {
             events: NonZeroUsize::new(1),
             bytes: None,
@@ -854,7 +839,7 @@ mod tests {
     #[test]
     fn a_packer_without_a_target_is_rejected() {
         let assigner =
-            WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).expect("valid cap");
+            WorkerAssigner::new(Router::new(RoutingStrategy::P2c), 1).expect("valid cap");
         let created = BatcherStateMachine::new(
             Packer::new(PackTargets::default()),
             assigner,
@@ -889,7 +874,7 @@ mod tests {
     #[test]
     fn a_zero_stall_timeout_is_rejected() {
         let assigner =
-            WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).expect("valid cap");
+            WorkerAssigner::new(Router::new(RoutingStrategy::P2c), 1).expect("valid cap");
         let created = BatcherStateMachine::new(
             Packer::new(PackTargets {
                 events: NonZeroUsize::new(1),
@@ -1168,6 +1153,34 @@ mod tests {
             assert_eq!(shape(&effects.sends[0]), vec![("hot", expected)]);
             request = effects.sends[0].request;
         }
+    }
+
+    #[test]
+    fn a_run_cap_above_the_target_sends_a_hot_keys_backlog_in_one_round_trip() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let packer = Packer::new(PackTargets {
+            events: NonZeroUsize::new(2),
+            bytes: None,
+            latency_budget: Duration::ZERO,
+        })
+        .with_run_cap(RunCap {
+            messages: NonZeroUsize::new(6),
+            bytes: None,
+        });
+        let batcher = batcher_with(packer, 2, now);
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("hot", &[1])]);
+        let request = effects.sends[0].request;
+
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("hot", &[2, 3, 4])]);
+        assert!(effects.sends.is_empty());
+        let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("hot", &[5, 6, 7, 8])]);
+
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
+        assert_eq!(
+            effects.sends.iter().map(shape).collect::<Vec<_>>(),
+            vec![vec![("hot", vec![2, 3, 4, 5, 6, 7])]]
+        );
     }
 
     #[test]

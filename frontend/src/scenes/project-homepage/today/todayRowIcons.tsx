@@ -1,0 +1,54 @@
+import {
+    IconBell,
+    IconDatabase,
+    IconFlask,
+    IconMessage,
+    IconRewindPlay,
+    IconToggle,
+    IconTrends,
+    IconWarning,
+} from '@posthog/icons'
+
+import { SignalReport } from 'products/signals/frontend/inbox/types'
+import type { BriefingItemApi, HighlightItemApi } from 'products/today/frontend/generated/api.schemas'
+
+import { TodayIcon } from './TodayIcon'
+import { sourceStyle } from './todaySignalReports'
+
+export interface TodayRowIcon {
+    color?: string
+    glyph: JSX.Element
+}
+
+const ANALYTICS: TodayRowIcon = {
+    color: 'var(--color-product-product-analytics-light)',
+    glyph: <IconTrends />,
+}
+
+const HIGHLIGHT_ICONS: Record<string, TodayRowIcon> = {
+    alerts: { color: 'var(--color-product-alerts-light)', glyph: <IconBell /> },
+    errors: { color: 'var(--color-product-error-tracking-light)', glyph: <IconWarning /> },
+    experiments: { color: 'var(--color-product-experiments-light)', glyph: <IconFlask /> },
+    flags: { color: 'var(--color-product-feature-flags-light)', glyph: <IconToggle /> },
+    rage: { color: 'var(--color-product-session-replay-light)', glyph: <IconRewindPlay /> },
+    surveys: { color: 'var(--color-product-surveys-light)', glyph: <IconMessage /> },
+    warehouse_syncs: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
+}
+
+function sourceIcon(source: string | null | undefined): TodayRowIcon {
+    const style = sourceStyle(source)
+    const colored = style.color.startsWith('var(--color-product-')
+    return { color: colored ? style.color : undefined, glyph: <TodayIcon icon={style.icon} /> }
+}
+
+export function reportIcon(report: Pick<SignalReport, 'source_products'>): TodayRowIcon {
+    return sourceIcon(report.source_products?.[0])
+}
+
+export function briefingItemIcon(item: Pick<BriefingItemApi, 'source' | 'source_product'>): TodayRowIcon {
+    return sourceIcon(item.source_product ?? item.source)
+}
+
+export function highlightIcon(item: Pick<HighlightItemApi, 'source'>): TodayRowIcon {
+    return HIGHLIGHT_ICONS[item.source] ?? ANALYTICS
+}

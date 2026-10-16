@@ -47,11 +47,7 @@ async def test_untagged_followup_with_files_classifier_gating(text: str, expect_
 
         raise AssertionError(f"unexpected activity: {activity_fn.__name__}")
 
-    with (
-        # Runs outside a workflow context, where the real marker call would raise.
-        patch.object(posthog_code_slack_mention.workflow, "deprecate_patch"),
-        patch.object(posthog_code_slack_mention, "_execute_posthog_code_activity", side_effect=fake_execute_activity),
-    ):
+    with patch.object(posthog_code_slack_mention, "_execute_posthog_code_activity", side_effect=fake_execute_activity):
         await workflow.run(inputs)
 
     expected = ["enforce_posthog_code_billing_quota_activity"]
@@ -92,11 +88,7 @@ async def test_confirmed_untagged_followup_skips_the_classifier_and_the_prompt()
             return True
         raise AssertionError(f"unexpected activity: {activity_fn.__name__}")
 
-    with (
-        # Runs outside a workflow context, where the real marker call would raise.
-        patch.object(posthog_code_slack_mention.workflow, "deprecate_patch"),
-        patch.object(posthog_code_slack_mention, "_execute_posthog_code_activity", side_effect=fake_execute_activity),
-    ):
+    with patch.object(posthog_code_slack_mention, "_execute_posthog_code_activity", side_effect=fake_execute_activity):
         await workflow.run(inputs)
 
     assert calls == [

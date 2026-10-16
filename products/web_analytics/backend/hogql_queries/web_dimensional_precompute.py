@@ -302,6 +302,17 @@ def _base_placeholders() -> dict[str, ast.Expr]:
     }
 
 
+# Same ceilings as the legacy pre-aggregation job (`WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS`), whose
+# tables these replace. One UTC day of a very large team's events, grouped by every fixed dimension,
+# outgrows the default 42 GiB limit in the step that merges the shards' partial aggregates.
+DIMENSIONAL_INSERT_SETTINGS: dict[str, int | str] = {
+    "max_memory_usage": 140 * 1024**3,
+    "max_bytes_before_external_group_by": 70 * 1024**3,
+    "distributed_aggregation_memory_efficient": 1,
+    "max_execution_time": 2200,
+}
+
+
 def ensure_web_stats_dimensional_precomputed(
     team: Team,
     time_range_start: datetime,
@@ -317,6 +328,7 @@ def ensure_web_stats_dimensional_precomputed(
         placeholders=_base_placeholders(),
         query_type="web_stats_dimensional_insert",
         read_after_write=False,
+        insert_settings=DIMENSIONAL_INSERT_SETTINGS,
     )
 
 
@@ -335,4 +347,5 @@ def ensure_web_bounces_dimensional_precomputed(
         placeholders=_base_placeholders(),
         query_type="web_bounces_dimensional_insert",
         read_after_write=False,
+        insert_settings=DIMENSIONAL_INSERT_SETTINGS,
     )

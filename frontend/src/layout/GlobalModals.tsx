@@ -26,6 +26,7 @@ import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
 import { composeTicketLogic } from 'products/conversations/frontend/components/ComposeTicket/composeTicketLogic'
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
+import { traceDialogLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogLogic'
 
 import { globalModalsLogic } from './globalModalsLogic'
 import { navigationLogic } from './navigation/navigationLogic'
@@ -46,6 +47,12 @@ const LogsViewerModal = lazyWithRetry(() =>
     }))
 )
 
+const TraceDialog = lazyWithRetry(() =>
+    import('products/tracing/frontend/components/TraceDialog/TraceDialog').then((m) => ({
+        default: m.TraceDialog,
+    }))
+)
+
 // The compose ticket modal anchors the support rich text editor (tiptap and prosemirror).
 const ComposeTicketModal = lazyWithRetry(() =>
     import('products/conversations/frontend/components/ComposeTicket/ComposeTicketModal').then((m) => ({
@@ -61,6 +68,8 @@ export function GlobalModals(): JSX.Element {
     // Grace-extended so the modals' exit animations finish before the lazy subtree unmounts.
     const shouldRenderSessionPlayerModal = useKeepMountedWhileOpen(!!activeSessionRecording)
     const shouldRenderLogsViewerModal = useKeepMountedWhileOpen(isLogsViewerModalOpen)
+    const { isOpen: isTraceDialogOpen } = useValues(traceDialogLogic)
+    const shouldRenderTraceDialog = useKeepMountedWhileOpen(isTraceDialogOpen)
     const { isOpen: isComposeTicketModalOpen } = useValues(composeTicketLogic)
     const shouldRenderComposeTicketModal = useKeepMountedWhileOpen(isComposeTicketModalOpen)
     const { isInviteModalShown } = useValues(inviteLogic)
@@ -84,6 +93,11 @@ export function GlobalModals(): JSX.Element {
             {shouldRenderLogsViewerModal ? (
                 <Suspense fallback={null}>
                     <LogsViewerModal />
+                </Suspense>
+            ) : null}
+            {shouldRenderTraceDialog ? (
+                <Suspense fallback={null}>
+                    <TraceDialog />
                 </Suspense>
             ) : null}
             <PreviewingCustomCssModal />

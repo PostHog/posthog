@@ -327,7 +327,10 @@ const meta: Meta<typeof SearchPerformanceTab> = {
         mockDate: '2025-02-15T12:00:00Z',
         msw: { mocks: MOCKS },
         pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&date_from=-7d`,
-        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
+        featureFlags: [
+            FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS,
+        ],
     },
 }
 export default meta
@@ -846,6 +849,35 @@ export const PostHogConversions: Story = {
         await expect(canvas.findByRole('columnheader', { name: /Reported conversions/ })).resolves.toBeVisible()
         await userEvent.click(canvas.getByRole('switch', { name: 'Include conversion goals' }))
         await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
+    },
+}
+
+export const PostHogConversionsFlagOff: Story = {
+    ...PostHogConversions,
+    parameters: {
+        ...PostHogConversions.parameters,
+        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...teamLogic.values.currentTeam!,
+            marketing_analytics_config: {
+                conversion_goals: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: 'purchase',
+                        conversion_goal_id: 'purchase-goal',
+                        conversion_goal_name: 'Purchases',
+                        schema_map: {},
+                    },
+                ],
+            },
+        })
+        await userEvent.click(await canvas.findByText('Landing pages'))
+        await userEvent.click(await canvas.findByText('Conversions'))
+        await expect(canvas.findByText('Reported conversions')).resolves.toBeVisible()
+        expect(canvas.queryByText('Cost per Purchases')).not.toBeInTheDocument()
     },
 }
 

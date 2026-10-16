@@ -1549,14 +1549,6 @@ class MetricRecalculationResultSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         read_only=True, allow_null=True, help_text="Error message when status is failed; otherwise null"
     )
-    legacy = serializers.BooleanField(
-        read_only=True,
-        help_text=(
-            "True when this result was stored before the calculation key covered every analytical setting "
-            "(baseline, CUPED, statistics, entity, test account filters). It may come from other settings than "
-            "the current ones. Show it as history; a new run computes a current result."
-        ),
-    )
 
 
 class ExperimentTimeseriesResultsStatus(models.TextChoices):
@@ -1583,14 +1575,6 @@ class ExperimentTimeseriesResultsSerializer(serializers.Serializer):
         help_text=(
             "Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start "
             "date to the end date or today. Null for a day without a completed result."
-        ),
-    )
-    legacy_dates = serializers.ListField(
-        child=serializers.DateField(),
-        help_text=(
-            "Days whose result was stored before the calculation key covered every analytical setting, because no "
-            "result under the current settings exists for that day. Show them as history: they may come from "
-            "other settings than the current ones."
         ),
     )
     computed_at = serializers.DateTimeField(
@@ -2915,13 +2899,6 @@ class ExperimentSetupOutcomeSerializer(serializers.Serializer):
             "The last moment the result covers. A backfill writes an older day with a recent completed_at, so "
             "this says how current the numbers are."
         ),
-    )
-    result_is_legacy = serializers.BooleanField(
-        help_text=(
-            "True when the result was stored before the calculation key covered every analytical setting "
-            "(baseline, CUPED, statistics, entity, test account filters), because no result under the current "
-            "settings exists. Its numbers may come from other settings than the current ones."
-        )
     )
 
 

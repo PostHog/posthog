@@ -1225,7 +1225,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             last_run_at=datetime(2026, 8, 1, tzinfo=UTC)
         )
 
-        with patch("products.review_hog.backend.presentation.views.reviews.PERSPECTIVE_STATS_REPORT_LIMIT", 2):
+        with patch("products.review_hog.backend.review_listing.PERSPECTIVE_STATS_REPORT_LIMIT", 2):
             res = self.client.get(f"{self.url}perspective_stats/?scope=own_deep")
 
         assert res.status_code == 200

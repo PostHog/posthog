@@ -1378,9 +1378,7 @@ tools:
 
             Returns a timeseries object keyed by date (YYYY-MM-DD) with per-variant statistical results for each day,
             overall status ("pending", "completed", "partial", "failed"), computed_at timestamp, and
-            recalculation_status if a recalculation is in progress. legacy_dates lists the days whose result was stored
-            before the calculation covered every analytical setting; those numbers may come from other settings, so say
-            so if you report them.
+            recalculation_status if a recalculation is in progress.
         param_overrides:
             id:
                 cast: string-int

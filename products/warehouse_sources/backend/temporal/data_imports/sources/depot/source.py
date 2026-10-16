@@ -4,6 +4,7 @@ from typing import ClassVar, Optional, cast
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -52,6 +53,10 @@ class DepotReconciliationCursor:
 
 @SourceRegistry.register
 class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliationCursor]):
+    codebase_detection = detect(
+        env=("^DEPOT_",), npm=("@depot/cli", "@depot/sdk-node"), go=("github.com/depot/depot-go",)
+    )
+
     api_docs_url = "https://depot.dev/docs/api/ci/reference"
     lists_tables_without_credentials = True
     history_lookback = datetime.timedelta(days=7)

@@ -69,7 +69,6 @@ from products.experiments.backend.logic.result_stats import MetricTimeseries
 from products.experiments.backend.logic.timeseries_text import ExperimentTimeseriesFormatter
 from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
-    MetricCalculationConfig,
     build_primary_calculation_configs,
     get_metric_calculation_config,
     saved_metric_calculation_keys,
@@ -4426,8 +4425,8 @@ class ExperimentService:
         """Retrieve timeseries results for an experiment-metric combination.
 
         The calculation key comes from the metric's current calculation config, never from the client, so the chart
-        shows the rows of the current settings. A day without such a row shows its row from before calculation key
-        version 2, and `legacy_dates` lists those days.
+        shows the rows of the current settings. `MetricResultStore.timeseries` says which row a day without such a row
+        shows.
         """
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
 
@@ -4452,7 +4451,7 @@ class ExperimentService:
         stored = (
             MetricResultStore(experiment_id=experiment.id).timeseries(calculation_config, timezone=project_tz)
             if calculation_config is not None
-            else DailyTimeseries(by_day={}, legacy_days=frozenset(), earliest=None, latest=None)
+            else DailyTimeseries(by_day={}, earliest=None, latest=None)
         )
 
         completed_count = 0
@@ -4496,7 +4495,7 @@ class ExperimentService:
             overall_status = "partial"
 
         active_recalculation = (
-            self._active_timeseries_backfill(experiment, calculation_config) if calculation_config is not None else None
+            self._active_timeseries_backfill(experiment, metric_uuid) if calculation_config is not None else None
         )
 
         response = {
@@ -4504,11 +4503,6 @@ class ExperimentService:
             "metric_uuid": metric_uuid,
             "status": overall_status,
             "timeseries": timeseries,
-            "legacy_dates": [
-                experiment_date.isoformat()
-                for experiment_date in experiment_dates
-                if experiment_date in stored.legacy_days
-            ],
             "errors": errors if errors else None,
             "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
             "created_at": stored.earliest.created_at.isoformat()
@@ -4523,16 +4517,16 @@ class ExperimentService:
         ).format()
         return response
 
-    def request_timeseries_recalculation(self, experiment: Experiment, *, metric: dict) -> dict:
+    def request_timeseries_recalculation(self, experiment: Experiment, *, metric_uuid: str) -> dict:
         """Create an idempotent recalculation request for experiment timeseries data.
 
         The backfill computes the metric's current definition and files the days under its calculation key, both
-        from the experiment, so the chart finds them. The client's copy of the metric only names it by uuid.
+        from the experiment, so the chart finds them.
         """
         if not experiment.is_launched:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
 
-        calculation_config = get_metric_calculation_config(experiment, metric.get("uuid") or "")
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
         if calculation_config is None:
             raise ValidationError(
                 "This metric is not on the experiment, or it uses an older metric format that has no daily results. "
@@ -4544,28 +4538,33 @@ class ExperimentService:
         # The backfill runs this metric without a user, so the caller's warehouse access is checked here.
         enforce_warehouse_metric_access([metric], team=self.team, user=self.user)
 
-        existing_recalculation = self._active_timeseries_backfill(experiment, calculation_config)
+        with transaction.atomic():
+            # A metric's active backfill must be reused even if its calculation key changes between requests.
+            Experiment.objects.select_for_update(no_key=True).filter(id=experiment.id, team=self.team).exists()
+            existing_recalculation = self._active_timeseries_backfill(experiment, calculation_config.metric_id)
 
-        if existing_recalculation:
-            return {
-                "id": existing_recalculation.id,
-                "experiment_id": experiment.id,
-                "metric_uuid": existing_recalculation.metric.get("uuid"),
-                "fingerprint": fingerprint,
-                "status": existing_recalculation.status,
-                "created_at": existing_recalculation.created_at.isoformat(),
-                "is_existing": True,
-            }
+            if existing_recalculation:
+                return {
+                    "id": existing_recalculation.id,
+                    "experiment_id": experiment.id,
+                    "metric_uuid": existing_recalculation.metric.get("uuid"),
+                    "fingerprint": fingerprint,
+                    "status": existing_recalculation.status,
+                    "created_at": existing_recalculation.created_at.isoformat(),
+                    "is_existing": True,
+                }
 
-        MetricResultStore(experiment_id=experiment.id).delete_daily_points(calculation_config.metric_id, fingerprint)
+            MetricResultStore(experiment_id=experiment.id).delete_daily_points(
+                calculation_config.metric_id, fingerprint
+            )
 
-        recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
-            team=experiment.team,
-            experiment=experiment,
-            metric=metric,
-            fingerprint=fingerprint,
-            status=ExperimentTimeseriesRecalculation.Status.PENDING,
-        )
+            recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
+                team=experiment.team,
+                experiment=experiment,
+                metric=metric,
+                fingerprint=fingerprint,
+                status=ExperimentTimeseriesRecalculation.Status.PENDING,
+            )
 
         return {
             "id": recalculation_request.id,
@@ -4579,9 +4578,9 @@ class ExperimentService:
 
     @staticmethod
     def _active_timeseries_backfill(
-        experiment: Experiment, calculation_config: MetricCalculationConfig
+        experiment: Experiment, metric_uuid: str
     ) -> ExperimentTimeseriesRecalculation | None:
-        """The pending or running backfill of the metric that `calculation_config` describes, under any key.
+        """The pending or running backfill of the metric with this uuid, under any key.
 
         A backfill requested before a settings edit or before calculation key version 2 carries another key but
         writes the same days. It counts as the active backfill, so that a second backfill does not race it for the
@@ -4590,7 +4589,7 @@ class ExperimentService:
         return (
             ExperimentTimeseriesRecalculation.objects.filter(
                 experiment=experiment,
-                metric__uuid=calculation_config.metric_id,
+                metric__uuid=metric_uuid,
                 status__in=[
                     ExperimentTimeseriesRecalculation.Status.PENDING,
                     ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,

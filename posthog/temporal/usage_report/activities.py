@@ -9,7 +9,10 @@ elsewhere so these stay easy to read and mock in tests.
 import json
 import time
 import asyncio
+import dataclasses
+from functools import partial
 from itertools import batched
+from threading import Event
 from typing import Any
 
 from django.conf import settings
@@ -19,7 +22,7 @@ from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
-from posthog.tasks.usage_report import get_instance_metadata
+from posthog.tasks.usage_report import apply_usage_counter_metadata, get_instance_metadata
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.metrics import ExecutionTimeRecorder
 from posthog.temporal.usage_report.aggregator import (
@@ -31,6 +34,7 @@ from posthog.temporal.usage_report.aggregator import (
     get_org_user_counts,
     iter_chunk_lines,
     load_all_data,
+    load_usage_counter_report,
     sort_org_reports,
 )
 from posthog.temporal.usage_report.metrics import (
@@ -47,8 +51,10 @@ from posthog.temporal.usage_report.storage import (
     chunk_key,
     chunks_prefix,
     delete_keys,
+    load_legacy_counter_counts,
     manifest_key,
     queries_key,
+    run_legacy_counter_query,
     write_json,
     write_jsonl_chunk_gzip,
 )
@@ -57,9 +63,12 @@ from posthog.temporal.usage_report.types import (
     AggregateResult,
     CleanupInputs,
     EnqueuePointerInputs,
+    RunLegacyCounterInputs,
     RunQueryToS3Inputs,
     RunQueryToS3Result,
+    WorkflowContext,
 )
+from posthog.usage_counters import LEGACY_QUERY_NAMES, UsageCounterPlan, UsageCounterReport, UsageCounterService
 from posthog.utils import DayRange, get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -73,6 +82,109 @@ SQS_POINTER_VERSION = 2
 SQS_QUEUE_NAME = "usage_reports_v2"
 
 
+@activity.defn(name="plan-usage-counters")
+async def plan_usage_counters(ctx: WorkflowContext) -> UsageCounterPlan:
+    return await sync_to_async(UsageCounterService().resolve_plan, thread_sensitive=False)(
+        DayRange(start=ctx.period_start, end=ctx.period_end),
+        caller="usage_reports_v2",
+        complete=ctx.report_completeness == "complete",
+    )
+
+
+def record_query_latency(query_name: str) -> ExecutionTimeRecorder:
+    return ExecutionTimeRecorder(
+        USAGE_REPORTS_QUERY_LATENCY,
+        description="Run a usage-reports query or persist its result to S3.",
+        histogram_attributes={"query_name": query_name},
+    )
+
+
+@activity.defn(name="fetch-usage-counter-report")
+async def fetch_usage_counter_report(ctx: WorkflowContext) -> RunQueryToS3Result:
+    async with Heartbeater():
+        with record_query_latency("usage_counters"):
+            if ctx.usage_counter_plan is None:
+                raise ValueError("Fetching usage counters requires a resolved plan")
+            started = time.monotonic()
+            stopped = Event()
+
+            def check_cancelled() -> None:
+                if stopped.is_set() or activity.is_cancelled():
+                    raise asyncio.CancelledError()
+
+            try:
+
+                @database_sync_to_async_pool
+                def fetch_report() -> UsageCounterReport:
+                    plan = ctx.usage_counter_plan
+                    assert plan is not None
+                    legacy_counts = (
+                        load_legacy_counter_counts(
+                            ctx,
+                            (
+                                LEGACY_QUERY_NAMES.get(counter, counter.value)
+                                for counter in ctx.prepared_legacy_counters
+                            ),
+                            check_cancelled=check_cancelled,
+                        )
+                        if ctx.prepared_legacy_counters is not None
+                        else None
+                    )
+                    return UsageCounterService(
+                        record_query=record_query_latency,
+                        run_legacy_query=partial(run_legacy_counter_query, ctx, check_cancelled=check_cancelled),
+                        check_cancelled=check_cancelled,
+                    ).fetch_report(
+                        DayRange(start=ctx.period_start, end=ctx.period_end), plan=plan, legacy_counts=legacy_counts
+                    )
+
+                report = await fetch_report()
+                key = queries_key(ctx, "usage_counters")
+
+                @sync_to_async(thread_sensitive=False)
+                def persist_report() -> None:
+                    check_cancelled()
+                    payload = dataclasses.asdict(report)
+                    check_cancelled()
+                    write_json(key, payload)
+
+                await persist_report()
+                return RunQueryToS3Result(
+                    query_name="usage_counters",
+                    s3_key=key,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                )
+            finally:
+                # Cancelling the await leaves its sync worker running. Stop it between IO operations.
+                stopped.set()
+
+
+@activity.defn(name="run-legacy-usage-counter")
+async def run_legacy_usage_counter(inputs: RunLegacyCounterInputs) -> bool:
+    """Return whether this query produced a checkpoint, including an empty result."""
+    plan = inputs.ctx.usage_counter_plan
+    if plan is None:
+        raise ValueError("Fetching a legacy counter requires a resolved plan")
+    plan = dataclasses.replace(plan, modes={inputs.counter: plan.modes[inputs.counter]})
+    stopped = Event()
+
+    def check_cancelled() -> None:
+        if stopped.is_set() or activity.is_cancelled():
+            raise asyncio.CancelledError()
+
+    async with Heartbeater():
+        try:
+            service = UsageCounterService(
+                record_query=record_query_latency,
+                run_legacy_query=partial(run_legacy_counter_query, inputs.ctx, check_cancelled=check_cancelled),
+                check_cancelled=check_cancelled,
+            )
+            counts = await database_sync_to_async_pool(service.fetch_legacy)(plan)
+            return bool(counts)
+        finally:
+            stopped.set()
+
+
 @activity.defn(name="run-usage-report-query")
 async def run_query_to_s3(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
     """Run one gather query and persist the raw result to S3 as JSON.
@@ -82,11 +194,7 @@ async def run_query_to_s3(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
     well under Temporal's payload limits).
     """
     async with Heartbeater():
-        with ExecutionTimeRecorder(
-            USAGE_REPORTS_QUERY_LATENCY,
-            description="Run one usage-reports gather query and write its result to S3.",
-            histogram_attributes={"query_name": inputs.query_name},
-        ):
+        with record_query_latency(inputs.query_name):
             spec = QUERY_INDEX[inputs.query_name]
 
             # Use the pooled variant so concurrent query activities on the same
@@ -131,6 +239,8 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
         ):
             all_data = await sync_to_async(load_all_data)(inputs.query_results)
             add_pre_sandbox_compute_patch_defaults(all_data, inputs.query_results)
+            counter_report = await sync_to_async(load_usage_counter_report)(inputs)
+            all_data.update({field: dict(rows) for field, rows in counter_report.counts.items()})
 
             @database_sync_to_async
             def aggregate_per_org() -> dict[str, Any]:
@@ -143,6 +253,14 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
                 return org_reports
 
             org_reports = await aggregate_per_org()
+
+            await sync_to_async(apply_usage_counter_metadata)(
+                org_reports,
+                counter_report,
+                caller="usage_reports_v2",
+                date=inputs.ctx.date_str,
+                organization_ids=inputs.ctx.organization_ids,
+            )
 
             instance_metadata = await database_sync_to_async(get_instance_metadata)(
                 DayRange(start=inputs.ctx.period_start, end=inputs.ctx.period_end)

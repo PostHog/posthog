@@ -132,6 +132,7 @@ SURVEY_APPEARANCE_HTML_FIELDS = (
     "introScreenHeader",
     "introScreenDescription",
     "introScreenButtonText",
+    "backButtonText",
 )
 SURVEY_QUESTION_HTML_FIELDS = (
     "question",
@@ -311,6 +312,7 @@ class GeneratedSurveyRootTranslationSerializer(serializers.Serializer):
     introScreenButtonText = serializers.CharField(
         required=False, allow_blank=True, help_text="Translated intro screen button text."
     )
+    backButtonText = serializers.CharField(required=False, allow_blank=True, help_text="Translated back button text.")
 
 
 class GeneratedSurveyQuestionTranslationSerializer(serializers.Serializer):

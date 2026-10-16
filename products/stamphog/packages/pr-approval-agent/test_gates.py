@@ -510,6 +510,18 @@ def test_dwh_source_mixed_still_denies() -> None:
         pytest.param("services/mcp/src/api/generated_helpers.ts", False, id="generated-underscore-counted"),
         pytest.param("frontend/src/queries/schema/schema-general.ts", True, id="queries-schema"),
         pytest.param("frontend/src/types.gen.ts", True, id="dot-gen-suffix"),
+        pytest.param(
+            "products/desktop/packages/workspace-server/src/db/migrations/meta/0009_snapshot.json",
+            True,
+            id="drizzle-snapshot",
+        ),
+        pytest.param(
+            "products/desktop/packages/workspace-server/src/db/migrations/meta/_journal.json",
+            False,
+            id="drizzle-journal-counted",
+        ),
+        pytest.param("frontend/src/meta/0001_snapshot.ts", False, id="snapshot-named-code-counted"),
+        pytest.param("config/meta/0001_snapshot.json", False, id="snapshot-outside-migrations-counted"),
         pytest.param("pnpm-lock.yaml", False, id="lockfile-yaml-counted"),
         pytest.param("uv.lock", True, id="lockfile-lock-ext"),
         pytest.param("posthog/api/insight.py", False, id="python-code"),

@@ -482,6 +482,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 plan_title=self._closing_plan_title(),
                 mention_sent=mention_sent,
                 actor_slack_user_id=self._stream.actor_slack_user_id,
+                answer_markdown=final_answer if self._turn_complete else None,
             ),
             # Attachments upload inside this activity. One attempt, because a retry would
             # append the answer a second time.

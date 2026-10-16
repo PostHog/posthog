@@ -87,3 +87,33 @@ class ImpactNumberKey(LabeledStrEnum):
 class FigureSourceKind(LabeledStrEnum):
     SIGNAL = "signal", "Signal"
     RESEARCH = "research", "Agent's research"
+
+
+class HighlightLabel(LabeledStrEnum):
+    RISK = "risk", "Risk"
+    OPPORTUNITY = "opportunity", "Opportunity"
+
+
+class HighlightsStatus(LabeledStrEnum):
+    COMPUTING = "computing", "Computing"
+    READY = "ready", "Ready"
+    FAILED = "failed", "Failed"
+
+
+class HighlightPriority(LabeledStrEnum):
+    P1 = "P1", "P1"
+    P2 = "P2", "P2"
+    P3 = "P3", "P3"
+    P4 = "P4", "P4"
+
+
+class HighlightUnit(LabeledStrEnum):
+    EVENTS = "events", "Events"
+    PEOPLE = "people", "People"
+    NUMBER = "number", "Number"
+
+
+class HighlightInterval(LabeledStrEnum):
+    DAY = "day", "Day"
+    WEEK = "week", "Week"
+    MONTH = "month", "Month"

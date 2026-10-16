@@ -122,6 +122,7 @@ from posthog.schema_enums import (
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
     EventMatchScope as EventMatchScope,
+    ExecutionTarget as ExecutionTarget,
     ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
     ExperimentApiPropertyBreakdownType as ExperimentApiPropertyBreakdownType,
     ExperimentExposureHealthFindingActionKind as ExperimentExposureHealthFindingActionKind,
@@ -983,6 +984,14 @@ class BIConditionGroup(BaseModel):
     operator: Operator1
 
 
+class Alias(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: str | None = None
+
+
 class BIDataSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1008,6 +1017,7 @@ class BILocalFieldDefinition2(BaseModel):
     groups: list[BICategoryGroup]
     kind: Literal["groups"] = "groups"
     other: str
+    preserveUngrouped: bool | None = None
 
 
 class BILocalFieldDefinition3(BaseModel):
@@ -2734,7 +2744,11 @@ class MetricsQuerySeries(BaseModel):
     points: list[MetricsQueryPoint]
     unit: str | None = Field(
         default=None,
-        description=('UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one.'),
+        description=(
+            'UCUM unit of the returned values, e.g. "By", "ms", "1/s". It is the'
+            " ingested unit, except that a count of series has no unit and a rate is"
+            " per second. Empty when the values have no unit."
+        ),
     )
 
 
@@ -5142,6 +5156,7 @@ class BIField(BaseModel):
     datePart: DatePart | None = None
     expression: str
     id: str
+    label: str | None = None
     localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | BILocalFieldDefinition3 | None = None
     localFieldId: str | None = None
     name: str
@@ -5156,6 +5171,7 @@ class BIFilter(BaseModel):
     customExpression: str | None = None
     enabled: bool | None = None
     field: BIField
+    label: str | None = None
     operator: BIFilterOperator
     value: str
     valueTo: str | None = None
@@ -5177,6 +5193,7 @@ class BIResultFilter(BaseModel):
     )
     enabled: bool | None = None
     id: str
+    label: str | None = None
     measureIndex: conint(ge=0)
     operator: Operator2
     value: str
@@ -6227,6 +6244,17 @@ class HogQLQueryModifiers(BaseModel):
         description=(
             "Merge sibling aggregating LEFT JOINs over federated Postgres tables into"
             " one UNION ALL join, so their scans overlap"
+        ),
+    )
+    negatedPersonFiltersNotIn: bool | None = Field(
+        default=None,
+        description=(
+            "Replace negated person-property filters in the WHERE of an `events` query"
+            " (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM"
+            " persons WHERE <the filters fail>)`, so the query no longer joins every"
+            " person. Applies only when every filtered person property has a"
+            " materialized column, nothing else in the query reads that persons join,"
+            " and the join would be a LEFT JOIN."
         ),
     )
     optimizeJoinedFilters: bool | None = None
@@ -11378,6 +11406,24 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
     )
 
 
+class HierarchyDrillPathItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filterIds: list[str]
+    hierarchyId: str
+    nextField: BIField
+    previousField: BIField
+
+
+class MemberAliase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aliases: list[Alias]
+    field: BIField
+
+
 class BIConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11400,10 +11446,12 @@ class BIConfig(BaseModel):
         default=None,
         description=("Named dimension sequences saved with the worksheet; imports are independent copies."),
     )
+    hierarchyDrillPath: list[HierarchyDrillPathItem] | None = None
     limit: BIQueryLimit
     localFields: list[BIField] | None = Field(
         default=None, description="Reusable expressions owned by this worksheet only."
     )
+    memberAliases: list[MemberAliase] | None = None
     missingDates: MissingDates | None = Field(
         default=None,
         description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
@@ -30739,6 +30787,10 @@ class HogQLQuery(BaseModel):
             " instead of ClickHouse — a pure-direct source, or a synced source with"
             " direct query enabled."
         ),
+    )
+    executionTarget: ExecutionTarget | None = Field(
+        default=None,
+        description="Compile and run this query against the hosted Trino target.",
     )
     explain: bool | None = None
     filters: HogQLFilters | None = Field(

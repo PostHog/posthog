@@ -910,6 +910,11 @@ export interface IterationTrailApi {
      * @nullable
      */
     readonly summary: string | null
+    /**
+     * Short title for this experiment, for people. Null if not written.
+     * @nullable
+     */
+    readonly headline: string | null
     /** Model class and hyperparameters tried in this iteration. */
     model_spec: IterationTrailApiModelSpec
 }
@@ -961,6 +966,11 @@ export interface AutoresearchTrainingRunApi {
      * @nullable
      */
     readonly reader_summary: string | null
+    /**
+     * Short title for this run, for people. Null if not written.
+     * @nullable
+     */
+    readonly headline: string | null
     /**
      * Short plain-language next steps for people, at most 5. Null if not written.
      * @nullable
@@ -1102,6 +1112,11 @@ export interface CompleteTrainingRunApi {
      */
     reader_summary?: string | null
     /**
+     * A short title for people, at most 60 characters, on what this run learned. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.
+     * @nullable
+     */
+    headline?: string | null
+    /**
      * Short next steps for people, at most 5 items of a few words each (max 80 characters per item).
      * @maxItems 5
      * @nullable
@@ -1206,6 +1221,11 @@ export interface RecordIterationApi {
      */
     summary?: string | null
     /**
+     * A short title for people, at most 60 characters, on what this experiment tried. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.
+     * @nullable
+     */
+    headline?: string | null
+    /**
      * Agent's self-assessed confidence (0-1) that this iteration helps.
      * @minimum 0
      * @maximum 1
@@ -1279,6 +1299,11 @@ export interface AutoresearchIterationApi {
      * @nullable
      */
     summary?: string | null
+    /**
+     * Short title for this experiment, for people.
+     * @nullable
+     */
+    headline?: string | null
     /**
      * Agent's self-assessed confidence 0–1
      * @nullable
@@ -1395,6 +1420,11 @@ export interface IterationTrailWithRecipeApi {
      * @nullable
      */
     readonly summary: string | null
+    /**
+     * Short title for this experiment, for people. Null if not written.
+     * @nullable
+     */
+    readonly headline: string | null
     /** Model class and hyperparameters tried in this iteration. */
     model_spec: IterationTrailWithRecipeApiModelSpec
     /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */

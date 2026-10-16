@@ -331,13 +331,16 @@ class TestCreateDataModelingJobActivity:
 
 
 class TestFailMaterializationActivity:
+    @pytest.mark.parametrize("node_deleted", [False, True])
     @pytest.mark.parametrize(
         "cancelled,expected_status",
         [(False, DataModelingJob.Status.FAILED), (True, DataModelingJob.Status.CANCELLED)],
     )
     async def test_marks_job_as_terminal(
-        self, activity_environment, ateam, anode, ajob, adag, cancelled, expected_status
+        self, activity_environment, ateam, anode, ajob, adag, cancelled, expected_status, node_deleted
     ):
+        if node_deleted:
+            await database_sync_to_async(Node.objects.filter(id=anode.id).delete)()
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),

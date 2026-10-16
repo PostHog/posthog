@@ -7771,6 +7771,39 @@ export class PostHogAPIClient {
   }
 
   /**
+   * The insight's name and description by short id. Reads the cache only, so
+   * a reference card never runs the insight's query.
+   */
+  async getInsightSummary(shortId: string): Promise<{
+    name: string | null;
+    description: string | null;
+  } | null> {
+    const projectId = (await this.getTeamId()).toString();
+    try {
+      const urlPath = `/api/projects/${projectId}/insights/${encodeURIComponent(shortId)}/`;
+      const url = new URL(`${this.api.baseUrl}${urlPath}`);
+      url.searchParams.set("basic", "true");
+      url.searchParams.set("refresh", "force_cache");
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path: urlPath,
+      });
+      const insight = (await response.json()) as Pick<
+        Schemas.Insight,
+        "name" | "derived_name" | "description"
+      >;
+      return {
+        name: insight.name || insight.derived_name || null,
+        description: insight.description || null,
+      };
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw error;
+    }
+  }
+
+  /**
    * Resolves an `evidence:<kind>/<id>` citation from an agent message to a
    * small live summary of the object it points at. Returns null for kinds
    * without a lookup and for ids that don't resolve, so the caller can fall

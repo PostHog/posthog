@@ -5,22 +5,33 @@ plain function a test can call without Temporal.
 """
 
 import datetime as dt
+import dataclasses
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
+    from django.conf import settings
+
+    from posthog.sync import database_sync_to_async_pool
     from posthog.temporal.common.utils import close_db_connections
 
     from products.alerts_platform.backend.facade.contracts import (
         RECORD_OUTCOMES_ACTIVITY,
+        AlertEventKind,
         SourceBatchEvaluation,
         SourceEvaluationInputs,
         SourceOutcomeInputs,
     )
     from products.alerts_platform.backend.facade.temporal import start_deliveries
+    from products.logs.backend.alert_signal_emitter import (
+        AlertSignalAction,
+        PlatformAlertSignal,
+        notified_alerts_for_platform,
+    )
 
 WORKFLOW_NAME = "logs-alert-evaluate"
 
@@ -40,8 +51,63 @@ EVALUATE_SCHEDULE_TO_CLOSE = EVALUATE_START_TO_CLOSE + EVALUATE_QUEUE_TOLERANCE
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 # What the source needs from its binding's `evaluation_timeout`, which has to hold both
-# activities and still leave room to start the delivery children.
+# activities and still leave room to start the delivery and signal children.
 EVALUATION_BUDGET = EVALUATE_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE
+
+SIGNALS_WORKFLOW_NAME = "logs-alert-platform-signals"
+# A child workflow with its own budget, so a large batch of signals never competes with the
+# evaluation's.
+SIGNALS_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
+SIGNALS_START_TO_CLOSE = dt.timedelta(minutes=4)
+
+# Workflows started before the signal step replay without it.
+SIGNALS_PATCH = "logs-alert-evaluate-platform-signals"
+
+_SIGNAL_ACTIONS: dict[AlertEventKind, AlertSignalAction] = {
+    AlertEventKind.FIRING: "firing",
+    AlertEventKind.BROKEN: "broken",
+}
+
+
+@dataclasses.dataclass(frozen=True)
+class PlatformSignalInputs:
+    team_id: int
+    signals: list[PlatformAlertSignal]
+
+
+def platform_signals(evaluation: SourceBatchEvaluation) -> list[PlatformAlertSignal]:
+    """The firings and auto-disables the platform sends a message for, on alerts it owns.
+
+    The logs stack signals the same moments, keyed on a notification going out, which here is a
+    delivery that sends messages. An alert the logs stack still owns gets its signal from the logs
+    stack, so it is left out. The delivery names the owner and the logs alert id, so the platform's
+    outcome contract needs neither.
+    """
+    announced = {
+        delivery.configuration_id: delivery.destination_alert_id
+        for delivery in evaluation.deliveries
+        if delivery.owned_by_platform and delivery.sends_messages
+    }
+    signals: list[PlatformAlertSignal] = []
+    for outcome in evaluation.outcomes:
+        if str(outcome.configuration_id) not in announced:
+            continue
+        # A failed check reports on the outcome and carries no groups, so a broken alert signals from there.
+        verdicts: list[tuple[AlertEventKind, float | None]] = [(group.kind, group.value) for group in outcome.groups]
+        if outcome.failure is not None:
+            verdicts.append((outcome.failure.kind, None))
+        signals.extend(
+            PlatformAlertSignal(
+                alert_id=announced[str(outcome.configuration_id)],
+                action=_SIGNAL_ACTIONS[kind],
+                result_count=int(value) if value is not None else None,
+                consecutive_failures=outcome.consecutive_failures,
+                evaluation_key=outcome.evaluation_key,
+            )
+            for kind, value in verdicts
+            if kind in _SIGNAL_ACTIONS
+        )
+    return signals
 
 
 @activity.defn
@@ -57,6 +123,34 @@ def evaluate_logs_alerts_activity(inputs: SourceEvaluationInputs) -> SourceBatch
     return evaluate_logs_batch(
         inputs.batch_key.team_id, inputs.batch_key.slot, dt.datetime.fromisoformat(inputs.cutoff)
     )
+
+
+@activity.defn
+async def emit_platform_alert_signals_activity(inputs: PlatformSignalInputs) -> int:
+    """Emits the Self-driving signals for alerts the platform owns. Never raises."""
+    # In the body, like the import above, because the workflow's sandbox refuses Django models.
+    from products.logs.backend.temporal.activities import emit_notified_alert_signals  # noqa: PLC0415
+
+    notified = await database_sync_to_async_pool(notified_alerts_for_platform)(inputs.team_id, inputs.signals)
+    return await emit_notified_alert_signals(notified)
+
+
+@workflow.defn(name=SIGNALS_WORKFLOW_NAME)
+class LogsPlatformAlertSignalsWorkflow(PostHogWorkflow):
+    """Emits one evaluation's Self-driving signals, apart from the evaluation itself."""
+
+    inputs_cls = PlatformSignalInputs
+
+    @workflow.run
+    async def run(self, inputs: PlatformSignalInputs) -> int:
+        # Retried, because each signal carries an idempotency key, so a retry sends only what the
+        # failed attempt had not.
+        return await workflow.execute_activity(
+            emit_platform_alert_signals_activity,
+            inputs,
+            start_to_close_timeout=SIGNALS_START_TO_CLOSE,
+            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=10)),
+        )
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -92,8 +186,30 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-        return await start_deliveries(evaluation.deliveries)
+        started = await start_deliveries(evaluation.deliveries)
+
+        # After the outcomes are recorded, so a signal never describes a firing that was not saved.
+        signals = platform_signals(evaluation)
+        if signals and workflow.patched(SIGNALS_PATCH):
+            try:
+                await workflow.start_child_workflow(
+                    LogsPlatformAlertSignalsWorkflow.run,
+                    PlatformSignalInputs(team_id=inputs.batch_key.team_id, signals=signals),
+                    id=f"{SIGNALS_WORKFLOW_NAME}-{inputs.batch_key.team_id}:{inputs.batch_key.slot}:{inputs.cutoff}",
+                    # The delivery queue, so a slow burst of signals never holds evaluation slots.
+                    task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=SIGNALS_EXECUTION_TIMEOUT,
+                )
+            except WorkflowAlreadyStartedError:
+                # A re-run of the same evaluation already started its signals.
+                pass
+
+        return started
 
 
 SOURCE_EVALUATION_WORKFLOWS = [LogsAlertEvaluateWorkflow]
 SOURCE_EVALUATION_ACTIVITIES = [evaluate_logs_alerts_activity]
+# Registered on the platform delivery queue, beside the deliveries the evaluation starts.
+PLATFORM_SIGNAL_WORKFLOWS = [LogsPlatformAlertSignalsWorkflow]
+PLATFORM_SIGNAL_ACTIVITIES = [emit_platform_alert_signals_activity]

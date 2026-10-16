@@ -385,13 +385,6 @@ impl Scheduler for PinStashScheduler {
             }
         }
 
-        // Route the unpinned groups via the configured strategy. Bin-packing
-        // wants the biggest groups placed first so heavy hitters drive the load
-        // distribution; P2C is per-group and order-independent.
-        if self.router.prefers_largest_first() {
-            unpinned_groups.sort_unstable_by(|a, b| b.messages.len().cmp(&a.messages.len()));
-        }
-
         for group in unpinned_groups {
             let Some(worker) = self.router.select(&snapshot.candidates, &working_load) else {
                 // No routable worker right now (e.g. the whole pool is draining
@@ -705,7 +698,7 @@ mod tests {
     }
 
     fn scheduler() -> PinStashScheduler {
-        PinStashScheduler::new(Router::with_seed(RoutingStrategy::BinPack, 0))
+        PinStashScheduler::new(Router::with_seed(RoutingStrategy::P2c, 0))
     }
 
     fn delivered(worker: &str, keys: &[&str], from_flush: bool) -> Settlement {
@@ -783,24 +776,6 @@ mod tests {
 
         assert_eq!(effects.dispatches.len(), 2);
         assert_ne!(effects.dispatches[0].worker, effects.dispatches[1].worker);
-    }
-
-    #[test]
-    fn test_binpack_places_largest_group_first() {
-        let mut sched = scheduler();
-        sched.register_batch("b1");
-
-        let effects = sched.on_groups(
-            &snapshot(&[A, B], &[], &[]),
-            "b1",
-            0,
-            vec![run("t:small", 1), run("t:big", 5)],
-        );
-
-        assert_eq!(
-            effects.dispatches[0].routing_key, "t:big",
-            "heavy hitters drive the load distribution"
-        );
     }
 
     #[test]

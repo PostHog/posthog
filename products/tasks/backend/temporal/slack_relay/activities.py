@@ -189,6 +189,8 @@ class RelaySlackMessageInput:
     # Gateway trace id of the turn that produced this answer. Trailing and defaulted so a
     # relay enqueued before this field existed still decodes.
     trace_id: str | None = None
+    # Set only for the agent's own answer, so a notice or a placeholder never gets reply buttons.
+    offer_reply_suggestions: bool = False
 
 
 @activity.defn
@@ -310,3 +312,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
+
+    # Last, because the model call behind it is the slowest step and the answer must not wait for it.
+    if answer_delivered and input.offer_reply_suggestions:
+        handler.offer_reply_suggestions(text)

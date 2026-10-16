@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_worker_shutdown_handoff_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    count_worker_deaths,
     handle_non_retryable_error,
     report_heartbeat_timeout,
     reset_pipeline_requested,
@@ -669,6 +670,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 activity_attempt=current_import_attempt(),
+                worker_deaths=await asyncio.to_thread(count_worker_deaths, inputs, logger),
                 source_cursor=source_cursor_manager,
             )
 

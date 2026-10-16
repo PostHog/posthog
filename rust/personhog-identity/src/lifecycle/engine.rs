@@ -287,9 +287,47 @@ impl Engine {
         team_id: i64,
         request: &Value,
     ) -> Result<OpRow, SagaError> {
+        self.execute_by(driver, op_id, team_id, request, self.execute_deadline())
+            .await
+    }
+
+    pub fn execute_deadline(&self) -> tokio::time::Instant {
+        tokio::time::Instant::now() + self.config.execute_timeout
+    }
+
+    pub async fn execute_by(
+        &self,
+        driver: &dyn OpDriver,
+        op_id: Uuid,
+        team_id: i64,
+        request: &Value,
+        deadline: tokio::time::Instant,
+    ) -> Result<OpRow, SagaError> {
         self.create_or_attach(driver, op_id, team_id, request)
             .await?;
-        self.drive(driver, op_id, true).await
+        self.drive(driver, op_id, true, deadline).await
+    }
+
+    pub async fn wait_for_lease_lapse(
+        &self,
+        op_id: Uuid,
+        deadline: tokio::time::Instant,
+    ) -> Result<bool, SagaError> {
+        loop {
+            let Some(row) = self.load(op_id).await? else {
+                return Ok(false);
+            };
+            if row.completed_at.is_some() {
+                return Ok(true);
+            }
+            if !row.lease_live {
+                return Ok(false);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(SagaError::Busy);
+            }
+            self.poll_pause().await;
+        }
     }
 
     /// The create-or-attach half of [`execute`], without driving: create
@@ -383,7 +421,8 @@ impl Engine {
     /// sweeper a live lease means "not abandoned", so this bails with `Busy`
     /// instead of polling out the execute timeout.
     pub async fn resume(&self, driver: &dyn OpDriver, op_id: Uuid) -> Result<OpRow, SagaError> {
-        self.drive(driver, op_id, false).await
+        self.drive(driver, op_id, false, self.execute_deadline())
+            .await
     }
 
     async fn drive(
@@ -391,9 +430,9 @@ impl Engine {
         driver: &dyn OpDriver,
         op_id: Uuid,
         wait_for_lease: bool,
+        deadline: tokio::time::Instant,
     ) -> Result<OpRow, SagaError> {
-        let drive_start = tokio::time::Instant::now();
-        let deadline = drive_start + self.config.execute_timeout;
+        let drive_start = deadline - self.config.execute_timeout;
         // The attempt number returned by our claim, used as a fencing token:
         // renew/release only touch the lease while `attempt` still matches,
         // so a driver whose lease was stolen (the stealer bumped `attempt`)
@@ -428,7 +467,10 @@ impl Engine {
                     // reports its full lifetime, not the last drive's.
                     common_metrics::histogram(
                         OP_DURATION_MS,
-                        &[("op_type".to_string(), row.op_type.clone())],
+                        &[
+                            ("op_type".to_string(), row.op_type.clone()),
+                            ("final_step".to_string(), row.step.clone()),
+                        ],
                         (completed_at - row.created_at).num_milliseconds() as f64,
                     );
                 }

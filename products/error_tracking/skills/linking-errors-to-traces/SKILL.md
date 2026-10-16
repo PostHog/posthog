@@ -49,7 +49,7 @@ you checked. Do not claim that an event never existed based on a bounded search.
    service lookup and exact log filter. Include every severity, including
    `info`. A trace can have logs even when no span was retained.
 
-Use `posthog:generate-app-url` with `/error_tracking/{id}` when the issue ID is known.
+Use `posthog:generate-app-url` with `/error-tracking/{id}` when the issue ID is known.
 Do not build PostHog links by hand.
 
 ## Report the result

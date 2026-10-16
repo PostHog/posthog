@@ -18,9 +18,8 @@ configs.
 The calculation key (version 2) hashes the metric and an explicit field list of each setting that equality
 compares, with numbers normalized. So equal configs have equal keys, and so do settings that differ only by float
 noise. Key version 1 (`legacy_key`) hashes only part of a config: the metric, the start date, the stats method,
-the exposure criteria as stored, maturity and the excluded variants. Results stored under version 1 can therefore
-come from other baseline, CUPED, statistics, entity or test account settings than the current ones, so readers
-show them as legacy history and never reuse them.
+the exposure criteria as stored, maturity and the excluded variants. Results stored before version 2 carry it until a
+one-time conversion gives them the version 2 key, and every result stores it as its display key.
 """
 
 import json
@@ -49,7 +48,7 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     get_multiple_variant_handling_from_experiment,
-    is_default_exposure_config,
+    has_activation_config,
     normalize_to_exposure_criteria,
     resolve_filter_test_accounts,
 )
@@ -221,7 +220,7 @@ def normalize_exposure(exposure_criteria: dict[str, Any] | None) -> dict[str, An
         "multiple_variant_handling": get_multiple_variant_handling_from_experiment(criteria).value,
         "filter_test_accounts": resolve_filter_test_accounts(criteria),
     }
-    if criteria is not None and criteria.activation_config is not None and is_default_exposure_config(exposure_config):
+    if criteria is not None and has_activation_config(criteria):
         normalized["activation"] = _exposure_entity(
             criteria.activation_config, stored.get("activation_config"), default_event_resolves=False
         )
@@ -431,8 +430,9 @@ class MetricCalculationConfig:
         return _sha256(payload)
 
     def legacy_key(self) -> str:
-        """Key version 1, which rows written before key version 2 carry. Readers use it only to show those
-        rows as legacy history. Nothing reuses a result found by this key."""
+        """Key version 1, which rows written before key version 2 carry until their conversion. It hashes only inputs
+        that the experiment owns, so it also serves as the display key that keeps chart history across a team
+        setting change."""
         settings = self.settings
         start_date = settings.start_date
         payload: dict[str, Any] = {

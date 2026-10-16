@@ -22,7 +22,7 @@ from ..facade.enums import BriefingStatus, BriefingTrigger, BriefingWriter, Item
 from ..models import DailyBriefing
 from ..temporal.inputs import GENERATE_WORKFLOW_NAME, GenerateBriefingInputs, generate_workflow_id
 from .content import BriefingContent
-from .eligibility import briefing_day, resolve_timezone
+from .eligibility import briefing_day, day_start, resolve_timezone
 from .fact_sheet import FactSheet, FactSheetItem, stored_fact_sheet
 
 VIEW_STAMP_EVERY = timedelta(hours=1)
@@ -35,6 +35,7 @@ _REPORT_STATES = {
     "suppressed": ItemState.DISMISSED,
     _DELETED_REPORT_STATUS: ItemState.DISMISSED,
 }
+_PRIORITY_RANK = {f"P{number}": number for number in range(5)}
 
 
 def start_generation(briefing: DailyBriefing) -> None:
@@ -274,6 +275,10 @@ def _report_contract(detail: signals.BriefingReportDetails) -> contracts.Briefin
     )
 
 
+def _priority_rank(report: contracts.BriefingItemReport | None) -> int:
+    return _PRIORITY_RANK.get((report and report.priority) or "", len(_PRIORITY_RANK))
+
+
 def to_contract(
     briefing: DailyBriefing,
     team: Team,
@@ -283,6 +288,8 @@ def to_contract(
     status: BriefingStatus | None = None,
 ) -> contracts.Briefing:
     """The briefing as the page shows it: only the items the text names, with live states and counts.
+
+    Items are in display order: by the live priority of their report, then by their rank when written.
 
     `status` overrides the row's own: while a newer briefing is being written, the
     page gets the last ready one as `writing`, so it keeps showing the text and keeps polling.
@@ -295,6 +302,8 @@ def to_contract(
     states = _live_states(reports)
     states |= dict.fromkeys(_left_item_keys(team, user, shown, states), ItemState.LEFT)
     counts = _inbox_counts(team, user, shown)
+    cards = {key: _report_contract(detail) for key, detail in reports.items()}
+    ordered = sorted(shown, key=lambda item: (_priority_rank(cards.get(item.key)), item.rank))
     return contracts.Briefing(
         id=str(briefing.id),
         status=status or BriefingStatus(briefing.status),
@@ -318,17 +327,18 @@ def to_contract(
                 label=content.labels.get(item.key) or item.title,
                 signal=content.signals.get(item.key, ""),
                 url=item.url,
-                rank=item.rank,
+                rank=rank,
                 state=states.get(item.key, ItemState.OPEN),
                 source_product=item.source_product,
-                report=_report_contract(reports[item.key]) if item.key in reports else None,
+                report=cards.get(item.key),
             )
-            for item in shown
+            for rank, item in enumerate(ordered, start=1)
         ],
         more_reports_count=counts.more_for_you,
         open_reports_count=counts.open_in_project,
         created_at=briefing.created_at,
         ready_at=briefing.ready_at,
+        refresh_at=day_start(briefing.local_day + timedelta(days=1), resolve_timezone(briefing.timezone, team)),
     )
 
 

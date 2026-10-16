@@ -39,7 +39,7 @@ import {
     rowCountFromResponse,
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { sqlVisualizationDisabledReason } from '~/queries/nodes/DataVisualization/sqlVisualizationSupport'
-import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'

@@ -261,17 +261,31 @@ def _create_png_export_asset(
     return asset
 
 
-def create_insight_png_export(
-    *, team: Team, created_by: User, insight_id: int, is_system: bool = False, expires_after: datetime | None = None
+def create_png_export(
+    *,
+    team: Team,
+    created_by: User,
+    insight_id: int | None = None,
+    query: dict | None = None,
+    is_system: bool = False,
+    expires_after: datetime | None = None,
 ) -> int:
     """Check access and create the PNG asset that ``ExportAssetWorkflow`` renders, without rendering it.
 
     Returns the asset id. For a caller that is itself a Temporal workflow: it runs the export as a
     child workflow instead of blocking a worker on ``render_png_export``. The access rules and the
     ``is_system`` and ``expires_after`` arguments are the same as for ``render_png_export``.
+
+    Pass exactly one of a saved ``insight_id`` or an ad hoc ``query``. A query must be an
+    InsightVizNode or a DataVisualizationNode over HogQL. A request that breaks a rule raises ``ValueError``.
     """
     return _create_png_export_asset(
-        team=team, created_by=created_by, insight_id=insight_id, is_system=is_system, expires_after=expires_after
+        team=team,
+        created_by=created_by,
+        insight_id=insight_id,
+        export_context={"source": query} if query is not None else None,
+        is_system=is_system,
+        expires_after=expires_after,
     ).id
 
 

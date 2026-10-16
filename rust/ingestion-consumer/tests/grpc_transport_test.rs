@@ -98,12 +98,14 @@ impl WorkerIngest for MockWorker {
                                 status: SubBatchStatus::Ok as i32,
                                 accepted,
                                 error: String::new(),
+                                unfinished: vec![],
                             },
                             ManualAck::Nack(seq) => SubBatchAck {
                                 seq,
                                 status: SubBatchStatus::Failed as i32,
                                 accepted: 0,
                                 error: "poisoned".to_string(),
+                                unfinished: vec![],
                             },
                         };
                         let _ = tx.send(Ok(IngestStreamResponse {
@@ -129,6 +131,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Ok as i32,
                                         accepted,
                                         error: String::new(),
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -139,6 +142,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Failed as i32,
                                         accepted: 0,
                                         error: "poisoned".to_string(),
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -149,6 +153,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Ok as i32,
                                         accepted,
                                         error: String::new(),
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -159,6 +164,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Busy as i32,
                                         accepted: 0,
                                         error: "at capacity".to_string(),
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -169,6 +175,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Ok as i32,
                                         accepted,
                                         error: String::new(),
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -180,6 +187,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Ok as i32,
                                         accepted,
                                         error: String::new(),
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -841,6 +849,7 @@ impl WorkerIngest for ControlledBusyWorker {
                         status,
                         accepted,
                         error,
+                        unfinished: vec![],
                     })),
                 }));
             }
@@ -893,10 +902,7 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
         format!("http://{second_addr}"),
     ];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        registry,
-        RoutingStrategy::BinPack,
-    ));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(registry, RoutingStrategy::P2c));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
@@ -980,10 +986,7 @@ async fn key_table_retries_a_busy_send_until_it_completes() {
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        registry,
-        RoutingStrategy::BinPack,
-    ));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(registry, RoutingStrategy::P2c));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
@@ -1029,10 +1032,7 @@ async fn key_table_watchdog_allows_in_flight_success_after_the_deadline() {
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        registry,
-        RoutingStrategy::BinPack,
-    ));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(registry, RoutingStrategy::P2c));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,

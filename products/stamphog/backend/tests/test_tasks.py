@@ -17,6 +17,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.review_requests import reviewing_team_ids
 from products.stamphog.backend.logic.audiences import ResolvedAudience
 from products.stamphog.backend.models import (
     PullRequest,
@@ -774,6 +775,30 @@ def test_installation_event_for_unbound_installation_is_a_noop(team, repo_config
 def _make_second_team(organization) -> Team:
     project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
     return Team.objects.create(id=project.id, project=project, organization=organization)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "enabled,connected_by_user_id,expected_reviewing",
+    [(True, 1, True), (False, 1, False), (True, None, False)],
+    ids=["enabled_and_synced", "disabled", "never_synced"],
+)
+def test_reviewing_team_ids_applies_the_manual_request_rule(team, enabled, connected_by_user_id, expected_reviewing):
+    other_team = _make_second_team(team.organization)
+    environment = Team.objects.create(organization=team.organization, parent_team=team, name="env")
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.create(
+            team_id=team.id,
+            repository=REPO,
+            installation_id=INSTALLATION_ID,
+            enabled=enabled,
+            connected_by_user_id=connected_by_user_id,
+        )
+
+    # An environment reviews where its project does.
+    assert reviewing_team_ids(REPO.upper(), [environment.id, team.id, other_team.id]) == (
+        [environment.id, team.id] if expected_reviewing else []
+    )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

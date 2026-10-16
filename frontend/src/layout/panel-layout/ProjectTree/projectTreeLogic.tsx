@@ -24,7 +24,6 @@ import { LemonTreeSelectMode, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonT
 import { getEntryAccessDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { PAGINATION_LIMIT, projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ProjectTreeRef } from '~/types'
@@ -44,6 +43,8 @@ import {
     splitPath,
     splitProtocolPath,
 } from './utils'
+
+export const PROJECT_TREE_KEY = 'project-tree'
 
 export type ProjectTreeSortMethod = 'folder' | 'recent'
 

@@ -8,6 +8,7 @@ use common::TestContext;
 use tonic::{Code, Request, Status};
 
 use personhog_identity::leader::{PersonStateReader, PropertyWriter};
+use personhog_identity::lifecycle::detach::DetachedDrives;
 use personhog_identity::lifecycle::merge::{MergeDriver, MergeOpExecutor};
 use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::validation::RequestLimits;
@@ -98,6 +99,7 @@ impl ServiceTestContext {
                     ctx.tables.clone(),
                     common::FAN_OUT_CONCURRENCY,
                 ),
+                DetachedDrives::new(common::FAN_OUT_CONCURRENCY),
             ),
         );
         let service = PersonHogIdentityService::new(

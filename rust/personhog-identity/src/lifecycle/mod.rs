@@ -8,6 +8,7 @@
 //! step handlers.
 
 pub mod delete;
+pub mod detach;
 pub mod engine;
 pub(crate) mod leader_calls;
 pub mod merge;

@@ -1,4 +1,4 @@
-"""Temporal activities. Each one only calls logic. Payloads carry ids only."""
+"""Temporal activities. Each one only calls logic. Payloads carry ids and small results only."""
 
 from datetime import datetime, timedelta
 
@@ -16,13 +16,16 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from ..facade.enums import BriefingStatus, BriefingTrigger
 from ..feature_flags import may_get_briefing
-from ..logic import generate
+from ..logic import generate, highlights
 from ..logic.briefings import create_briefing
 from ..logic.eligibility import due_day
 from ..models import DailyBriefing
 from .inputs import (
     GENERATE_WORKFLOW_NAME,
+    FinalizeHighlightsInputs,
     GenerateBriefingInputs,
+    HighlightSourceInputs,
+    HighlightSourceResult,
     MarkFailedInputs,
     SchedulerInputs,
     generate_workflow_id,
@@ -127,3 +130,13 @@ async def start_due_briefings_activity(inputs: SchedulerInputs) -> int:
         except WorkflowAlreadyStartedError:
             continue
     return started
+
+
+@temporalio.activity.defn
+async def run_highlight_source_activity(inputs: HighlightSourceInputs) -> HighlightSourceResult:
+    return await database_sync_to_async(highlights.run_source, thread_sensitive=False)(inputs)
+
+
+@temporalio.activity.defn
+async def finalize_highlights_activity(inputs: FinalizeHighlightsInputs) -> None:
+    await database_sync_to_async(highlights.finalize, thread_sensitive=False)(inputs)

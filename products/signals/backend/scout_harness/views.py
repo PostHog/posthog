@@ -65,7 +65,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
+from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, SCOUT_GRANTABLE_WRITE_SCOPES
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -3094,7 +3094,8 @@ def _resolve_scout_config_grants(
     config: SignalScoutConfig | None,
     data: dict[str, Any],
 ) -> dict[str, Any]:
-    current_scopes = set(_stored_write_scopes(config.write_scopes)) if config else set()
+    # A new config starts with the default grant, so a create that keeps or narrows it adds nothing.
+    current_scopes = set(_stored_write_scopes(config.write_scopes)) if config else set(SCOUT_DEFAULT_WRITE_SCOPES)
     current_tools = config.allowed_mcp_tools if config else None
     selects_tools = "allowed_mcp_tools" in data or "tool_preset" in data
     resolved = dict(data)
@@ -3151,13 +3152,17 @@ def _resolve_scout_config_grants(
             added_scopes=current_scopes,
         )
     elif "write_scopes" in data and set(data["write_scopes"]) != current_scopes:
-        assert_can_grant_scout_write_scopes(
-            request=request,
-            team=team,
-            skill_name=skill_name,
-            config=config,
-            added_scopes=set(data["write_scopes"]) - current_scopes,
-        )
+        added_scopes = set(data["write_scopes"]) - current_scopes
+        # Narrowing an existing grant is still a change to what the author approved. Narrowing the
+        # default on a new config changes nobody's approval, so only an addition needs the gate.
+        if config is not None or added_scopes:
+            assert_can_grant_scout_write_scopes(
+                request=request,
+                team=team,
+                skill_name=skill_name,
+                config=config,
+                added_scopes=added_scopes,
+            )
     return resolved
 
 

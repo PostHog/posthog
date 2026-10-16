@@ -29,10 +29,6 @@ impl WorkerAssigner {
         self.message_load.values().sum()
     }
 
-    pub fn prefers_largest_first(&self) -> bool {
-        self.router.prefers_largest_first()
-    }
-
     pub fn free_slots(&self, pool: &[WorkerId]) -> usize {
         pool.iter()
             .map(|worker| self.max_requests_per_worker - self.requests_on(worker))
@@ -88,30 +84,38 @@ mod tests {
 
     #[test]
     fn a_zero_request_cap_is_rejected() {
-        assert!(WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 0).is_err());
+        assert!(WorkerAssigner::new(Router::new(RoutingStrategy::P2c), 0).is_err());
     }
 
     #[test]
     fn a_worker_at_the_request_cap_is_skipped_until_a_request_settles() {
         let pool = vec![wid("a"), wid("b")];
-        let mut assigner = WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).unwrap();
+        let mut assigner =
+            WorkerAssigner::new(Router::with_seed(RoutingStrategy::P2c, 0), 1).unwrap();
 
-        assert_eq!(assigner.assign(&pool, 10), Some(wid("a")));
-        assert_eq!(assigner.assign(&pool, 10), Some(wid("b")));
+        let first = assigner.assign(&pool, 10).unwrap();
+        let second = assigner.assign(&pool, 10).unwrap();
+        assert_ne!(first, second);
         assert_eq!(assigner.assign(&pool, 10), None, "both at the cap");
         assert_eq!(assigner.free_slots(&pool), 0);
 
-        assert!(assigner.release(&wid("a"), 10));
-        assert_eq!(assigner.assign(&pool, 10), Some(wid("a")));
+        assert!(assigner.release(&first, 10));
+        assert_eq!(assigner.assign(&pool, 10), Some(first));
     }
 
     #[test]
     fn placement_follows_the_in_flight_message_load() {
         let pool = vec![wid("a"), wid("b")];
-        let mut assigner = WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 10).unwrap();
+        let mut assigner =
+            WorkerAssigner::new(Router::with_seed(RoutingStrategy::P2c, 0), 10).unwrap();
 
-        assert_eq!(assigner.assign(&pool, 100), Some(wid("a")));
-        assert_eq!(assigner.assign(&pool, 1), Some(wid("b")));
-        assert_eq!(assigner.assign(&pool, 1), Some(wid("b")), "b is lighter");
+        let heavy = assigner.assign(&pool, 100).unwrap();
+        let light = assigner.assign(&pool, 1).unwrap();
+        assert_ne!(heavy, light);
+        assert_eq!(
+            assigner.assign(&pool, 1),
+            Some(light),
+            "the other worker is lighter"
+        );
     }
 }

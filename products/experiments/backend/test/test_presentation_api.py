@@ -5182,7 +5182,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["timeseries"] == {start.date().isoformat(): {"variant_results": []}}
-        assert response.json()["legacy_dates"] == []
 
     def test_creating_draft_experiment_sets_status_draft(self):
         response = self.client.post(

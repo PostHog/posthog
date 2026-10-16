@@ -10,10 +10,13 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 
+import requests
 import posthoganalytics
 from temporalio import activity
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
@@ -29,7 +32,10 @@ from products.tasks.backend.exceptions import (
     ComputeBillingLimitError,
     CredentialUnavailableError,
     GitHubAuthenticationError,
+    GitHubRateLimitedError,
     OAuthTokenError,
+    ProcessTaskError,
+    ProcessTaskTransientError,
     RepositoryCloneError,
     SandboxNetworkPolicyError,
     TaskInvalidStateError,
@@ -77,6 +83,9 @@ from products.tasks.backend.temporal.observability import (
     emit_agent_log,
     log_activity_execution,
     log_with_activity_context,
+)
+from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
+    DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS,
 )
 from products.tasks.backend.temporal.process_task.organization import check_organization_execution
 from products.tasks.backend.temporal.process_task.sandbox_connection import persist_sandbox_connection
@@ -396,6 +405,17 @@ def _repository_snapshot_integration_id(ctx: TaskProcessingContext, *, has_repo:
     return ctx.github_integration_id
 
 
+def _github_token_error(error: Exception, message: str, context: dict[str, Any]) -> ProcessTaskError:
+    if isinstance(error, GitHubRateLimitError | GitHubEgressBudgetExhausted):
+        retry_after = getattr(error, "retry_after", None) or DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS
+        return GitHubRateLimitedError(f"{message}; retrying in {retry_after}s", context, retry_after=retry_after)
+    if isinstance(error, requests.ConnectionError | requests.Timeout) or (
+        isinstance(error, GitHubIntegrationError) and error.status_code is not None and error.status_code >= 500
+    ):
+        return ProcessTaskTransientError(message, context, cause=error)
+    return GitHubAuthenticationError(message, context, cause=error)
+
+
 def _resolve_sandbox_github_token(
     ctx: TaskProcessingContext,
     *,
@@ -420,7 +440,7 @@ def _resolve_sandbox_github_token(
     stays credential-less, and an entitled discussion can clone a private repository and push.
     """
     if ctx.github_read_access:
-        github_token = get_readonly_github_token(ctx.team_id) or ""
+        github_token = get_readonly_github_token(ctx.team_id, repositories=ctx.repositories) or ""
         emit_agent_log(
             ctx.run_id,
             "debug",
@@ -458,10 +478,10 @@ def _resolve_sandbox_github_token(
             cause=e,
         )
     except Exception as e:
-        raise GitHubAuthenticationError(
+        raise _github_token_error(
+            e,
             f"Failed to get GitHub token for integration {ctx.github_integration_id}",
             {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id, "error": str(e)},
-            cause=e,
         )
 
 
@@ -1355,7 +1375,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
             # Same priority rule as fresh provisioning (_resolve_sandbox_github_token): a
             # read-only run must never regain the write-capable token on resume, cloned repos or
             # not. Best-effort, since an empty token just leaves the sandbox without GitHub access.
-            github_token = get_readonly_github_token(ctx.team_id) or ""
+            github_token = get_readonly_github_token(ctx.team_id, repositories=ctx.repositories) or ""
         elif ctx.has_github_credentials:
             try:
                 github_token = (
@@ -1377,14 +1397,14 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                     cause=e,
                 )
             except Exception as e:
-                raise GitHubAuthenticationError(
+                raise _github_token_error(
+                    e,
                     f"Failed to refresh GitHub token for integration {ctx.github_integration_id}",
                     {
                         "github_integration_id": ctx.github_integration_id,
                         "task_id": ctx.task_id,
                         "error": str(e),
                     },
-                    cause=e,
                 )
 
         try:

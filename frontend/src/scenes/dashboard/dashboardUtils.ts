@@ -34,6 +34,12 @@ import {
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
 
+// The backend labels every transient capacity failure with this code, whatever its message: PostHog's
+// own per-org concurrency limit, and ClickHouse refusing the query because the cluster is busy.
+const RATE_LIMITED_ERROR_CODE = 'rate_limited'
+const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+const RATE_LIMIT_USER_MESSAGE = 'Too many queries are running right now.'
+
 export function getInsightQueryError(insight: InsightModel): ApiError | null {
     const queryStatus = insight.query_status
     if (!queryStatus?.error) {
@@ -45,9 +51,10 @@ export function getInsightQueryError(insight: InsightModel): ApiError | null {
     // A tile failure arrives without the HTTP status the query originally failed with, so the
     // status is rebuilt from the code. Out of memory must stay 513: as a 400 the tile tells the
     // user their query definition is broken, which sends them to fix a query that was never wrong.
-    const status = code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE ? 513 : 400
+    // A capacity rejection must stay 429 for the same reason: the query is fine, PostHog is busy.
+    const status = code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE ? 513 : code === RATE_LIMITED_ERROR_CODE ? 429 : 400
     return new ApiError(undefined, status, undefined, {
-        detail: parsedError.message,
+        detail: parsedError.message === RATE_LIMIT_ERROR_MESSAGE ? RATE_LIMIT_USER_MESSAGE : parsedError.message,
         code,
         queryId: queryStatus.id,
     })
@@ -205,11 +212,6 @@ export const SEARCH_PARAM_QUERY_VARIABLES_KEY = 'query_variables'
 export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
 export const AUTO_PREVIEW_TILE_LIMIT: number = 22
-
-// The backend labels every transient capacity failure with this code, whatever its message: PostHog's
-// own per-org concurrency limit, and ClickHouse refusing the query because the cluster is busy.
-const RATE_LIMITED_ERROR_CODE = 'rate_limited'
-const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
 // A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
 // insight-shaped payload: no result, an errored query_status. Committing it to the dashboard would wipe

@@ -599,9 +599,16 @@ def call_llm_judge(
         openrouter_enabled = provider == "openrouter" and decision_evaluations_enabled(
             team_id, base_url=OPENROUTER_DECISIONS_BASE_URL
         )
-        uses_decisions = is_decision_model(provider, model, openrouter_enabled=openrouter_enabled)
-        if provider == "openrouter" and not openrouter_enabled:
-            uses_decisions = model in (decision_model_ids(refresh=False) or ())
+        judge_method = evaluation["evaluation_config"].get("judge_method")
+        # Explicit selection takes precedence for models that support both methods.
+        # Models gaining decisions must not move existing chat evaluations onto a different API.
+        uses_decisions = (
+            judge_method == "decision"
+            if judge_method is not None
+            else is_decision_model(provider, model, openrouter_enabled=openrouter_enabled, decision_only=True)
+        )
+        if judge_method is None and provider == "openrouter" and not openrouter_enabled:
+            uses_decisions = model in (decision_model_ids(refresh=False, decision_only=True) or ())
         if uses_decisions:
             if output_type not in ("boolean", "categorical", "numeric"):
                 return build_skipped_evaluation_result(
@@ -678,9 +685,10 @@ def call_llm_judge(
             if allows_na:
                 questions["applicable"] = NoulQuestion(
                     instructions=(
-                        "Do these evaluation criteria apply to this input? Answer true when the criteria can be "
-                        "evaluated, even if they are not met. Answer false only when they are not relevant.\n\n"
-                        + prompt
+                        "Can this input be evaluated according to the evaluation instructions below? Answer false "
+                        "when those instructions require N/A, when essential context or evidence is missing, or "
+                        "when the criteria are irrelevant. Answer true when enough information is present to "
+                        "evaluate them, even if the result would be a fail. Do not invent missing facts.\n\n" + prompt
                     )
                 )
             decision_result = DecisionClient.evaluate(
@@ -875,7 +883,11 @@ def call_llm_judge(
         )
     except UnsupportedModelError:
         # A failed chat call can populate a cold catalogue; a disabled flag must not disable the evaluation.
-        if provider == "openrouter" and not openrouter_enabled and model in (decision_model_ids(refresh=False) or ()):
+        if (
+            provider == "openrouter"
+            and not openrouter_enabled
+            and model in (decision_model_ids(refresh=False, decision_only=True) or ())
+        ):
             return build_skipped_evaluation_result(
                 output_type=output_type,
                 allows_na=allows_na,

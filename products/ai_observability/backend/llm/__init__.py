@@ -19,6 +19,7 @@ class ModelInfo(TypedDict):
     description: str
     is_recommended: bool
     supports_decisions: NotRequired[bool]
+    supports_chat: NotRequired[bool]
 
 
 # Single registry of providers. Add new providers here and everything else

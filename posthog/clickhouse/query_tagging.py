@@ -87,6 +87,7 @@ class Product(StrEnum):
     SIGNALS = "signals"
     SQL_EDITOR = "sql_editor"
     SURVEYS = "surveys"
+    TODAY = "today"
     TRACING = "tracing"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"

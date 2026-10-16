@@ -2,7 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.core.cache import cache
-from django.db import OperationalError
+from django.db import OperationalError, connections
 from django.db.models import Q
 from django.utils import timezone
 
@@ -23,6 +23,7 @@ from posthog.models.organization import BillingPeriod
 from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 from products.signals.backend.billing import current_billing_period_bounds
 from products.signals.backend.implementation_dispatch_tasks import (
@@ -1136,8 +1137,13 @@ def prune_expired_scratchpad_entries_task() -> None:
         # A transient DB blip self-heals — the sweep runs again tomorrow — so don't page on it.
         logger.warning("signals_scout.scratchpad_prune_transient_db_error", error=str(exc))
     except Exception as exc:
-        capture_exception(exc)
-        logger.exception("signals_scout.scratchpad_prune_failed")
+        if is_stale_connection_read_only_error(exc):
+            # The pooled connection outlived a primary failover. Drop it so the next run reconnects to the primary.
+            connections.close_all()
+            logger.warning("signals_scout.scratchpad_prune_transient_db_error", error=str(exc))
+        else:
+            capture_exception(exc)
+            logger.exception("signals_scout.scratchpad_prune_failed")
     logger.info("signals_scout scratchpad prune finished", deleted=deleted)
 
 

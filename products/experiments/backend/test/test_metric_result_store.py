@@ -20,7 +20,6 @@ from products.experiments.backend.metric_calculation.results import (
     MetricResultStore,
     _recalc_fingerprint,
     previous_completed_metric_result,
-    record_daily_metric_failure,
     record_daily_metric_result,
 )
 from products.experiments.backend.models.experiment import (
@@ -109,10 +108,8 @@ class TestMetricResultStore(BaseTest):
             completed_at=completed_at,
         )
 
-    def _read(
-        self, reader: str, experiment: Experiment, calculation_config: MetricCalculationConfig
-    ) -> tuple[list[int], bool]:
-        """The samples of the row a reader returns at _WINDOW, and whether it marks that row legacy."""
+    def _read(self, reader: str, experiment: Experiment, calculation_config: MetricCalculationConfig) -> list[int]:
+        """The samples of the row a reader returns at _WINDOW."""
         store = MetricResultStore(experiment_id=experiment.id)
         match reader:
             case "for_run":
@@ -124,29 +121,26 @@ class TestMetricResultStore(BaseTest):
                     status=ExperimentMetricsRecalculation.Status.COMPLETED,
                     completed_at=django_timezone.now(),
                 )
-                # The run wrote the rows at its window, so it was created before them.
-                ExperimentMetricsRecalculation.objects.filter(id=run.id).update(
-                    created_at=django_timezone.now() - timedelta(hours=1)
-                )
-                stored = store.for_run(ExperimentMetricsRecalculation.objects.get(id=run.id))
-                return [sample for item in stored for sample in _samples(item.row)], any(i.legacy for i in stored)
+                return [sample for row in store.for_run(run) for sample in _samples(row)]
             case "latest_daily_point":
-                point = store.latest_daily_point(
-                    calculation_config, since=_WINDOW - timedelta(days=1), until=_WINDOW, include_legacy=True
+                return _samples(
+                    store.latest_daily_point(calculation_config, since=_WINDOW - timedelta(days=1), until=_WINDOW)
                 )
-                return (_samples(point.row), point.legacy) if point is not None else ([], False)
             case "timeseries":
-                series = store.timeseries(calculation_config, timezone=ZoneInfo("UTC"))
-                return _samples(series.by_day.get(_WINDOW_DAY)), _WINDOW_DAY in series.legacy_days
+                return _samples(store.timeseries(calculation_config, timezone=ZoneInfo("UTC")).by_day.get(_WINDOW_DAY))
             case "previous_completed":
-                row = store.previous_completed(
-                    "m1", calculation_config.calculation_key(), before=_WINDOW + timedelta(days=1)
+                return _samples(
+                    store.previous_completed(
+                        "m1",
+                        calculation_config.calculation_key(),
+                        legacy_key=calculation_config.legacy_key(),
+                        before=_WINDOW + timedelta(days=1),
+                    )
                 )
-                return _samples(row), False
             case "current_outcome":
                 summary = store.current_outcome(calculation_config)
                 assert summary is not None and summary.baseline_samples is not None
-                return [int(summary.baseline_samples)], summary.legacy
+                return [int(summary.baseline_samples)]
         raise AssertionError(f"unknown reader {reader}")
 
     def _allow_rows_sharing_a_window(self) -> None:
@@ -187,16 +181,16 @@ class TestMetricResultStore(BaseTest):
             self._row(experiment, fingerprint, query_to=_WINDOW, completed_at=_WINDOW + timedelta(hours=1), samples=1)
             self._row(experiment, fingerprint, query_to=_WINDOW, completed_at=_WINDOW + timedelta(hours=1), samples=2)
 
-        assert self._read(reader, experiment, calculation_config) == ([2], False)
+        assert self._read(reader, experiment, calculation_config) == [2]
 
     @parameterized.expand(
         [
             (f"{reader}_{case}", reader, case)
-            for reader in ("for_run", "latest_daily_point", "timeseries", "current_outcome")
-            for case in ("only_a_legacy_row", "a_current_row_covers_it")
+            for reader in ("for_run", "latest_daily_point", "timeseries", "previous_completed", "current_outcome")
+            for case in ("only_a_version_1_row", "a_version_2_row_covers_it")
         ]
     )
-    def test_a_legacy_row_is_shown_only_where_no_current_row_covers_it(
+    def test_a_version_1_row_stands_in_only_where_no_version_2_row_covers_it(
         self, _name: str, reader: str, case: str
     ) -> None:
         experiment = self._experiment()
@@ -204,9 +198,9 @@ class TestMetricResultStore(BaseTest):
         assert calculation_config is not None
         salt = _recalc_fingerprint if reader == "for_run" else (lambda key: key)
         self._allow_rows_sharing_a_window()
-        # The legacy row is the newer write, so only the key family keeps it behind the current row.
+        # The version 1 row is the newer write, so only the key family keeps it behind the version 2 row.
         self._row(experiment, salt(calculation_config.legacy_key()), query_to=_WINDOW, completed_at=_WINDOW, samples=1)
-        if case == "a_current_row_covers_it":
+        if case == "a_version_2_row_covers_it":
             self._row(
                 experiment,
                 salt(calculation_config.calculation_key()),
@@ -215,7 +209,7 @@ class TestMetricResultStore(BaseTest):
                 samples=2,
             )
 
-        expected = ([2], False) if case == "a_current_row_covers_it" else ([1], True)
+        expected = [2] if case == "a_version_2_row_covers_it" else [1]
         assert self._read(reader, experiment, calculation_config) == expected
 
     def test_the_latest_window_inside_a_day_stands_for_that_day(self) -> None:
@@ -257,13 +251,11 @@ class TestMetricResultStore(BaseTest):
             experiment, key, query_to=_WINDOW - timedelta(days=1), completed_at=_WINDOW - timedelta(hours=9), samples=3
         )
 
-        assert self._read("current_outcome", experiment, calculation_config) == ([2], False)
+        assert self._read("current_outcome", experiment, calculation_config) == [2]
 
-    @parameterized.expand(
-        [("without_a_current_row", False, ([1], True)), ("with_an_older_current_row", True, ([2], False))]
-    )
+    @parameterized.expand([("without_a_current_row", False, 1), ("with_an_older_current_row", True, 2)])
     def test_a_batch_outcome_ranks_each_experiment_by_its_own_keys(
-        self, _name: str, older_current_row: bool, expected: tuple[list[int], bool]
+        self, _name: str, older_current_row: bool, expected_samples: int
     ) -> None:
         earlier_stats = {"method": "bayesian", "bayesian": {"ci_level": 0.9}}
         experiment = self._experiment()
@@ -310,14 +302,20 @@ class TestMetricResultStore(BaseTest):
         ]
 
         assert outcome.baseline_samples is not None
-        assert ([int(outcome.baseline_samples)], outcome.legacy) == expected
+        assert int(outcome.baseline_samples) == expected_samples
 
     @parameterized.expand(
         [
-            ("own_team", True, [("current", _WINDOW, 7)], 7),
-            ("other_team", False, [("current", _WINDOW, 7)], None),
-            # A legacy point can come from other settings, so the significance check must not compare with it.
-            ("only_a_legacy_point", True, [("legacy", _WINDOW, 7)], None),
+            ("own_team", True, [("version_2", _WINDOW, 7)], 7),
+            ("other_team", False, [("version_2", _WINDOW, 7)], None),
+            ("only_a_point_from_before_the_conversion", True, [("version_1", _WINDOW, 7)], 7),
+            ("only_a_point_under_earlier_settings", True, [("earlier_settings", _WINDOW, 7)], 7),
+            (
+                "an_older_version_2_point_wins",
+                True,
+                [("version_2", _WINDOW - timedelta(days=1), 5), ("earlier_settings", _WINDOW, 7)],
+                5,
+            ),
         ]
     )
     def test_previous_completed_metric_result(
@@ -327,8 +325,20 @@ class TestMetricResultStore(BaseTest):
         calculation_config = get_metric_calculation_config(experiment, "m1")
         assert calculation_config is not None
         for family, query_to, samples in points:
-            key = calculation_config.calculation_key() if family == "current" else calculation_config.legacy_key()
-            self._row(experiment, key, query_to=query_to, completed_at=query_to, samples=samples)
+            fingerprint = {
+                "version_2": calculation_config.calculation_key(),
+                "version_1": calculation_config.legacy_key(),
+                "earlier_settings": "key-of-the-earlier-team-settings",
+            }[family]
+            display_key = calculation_config.legacy_key() if family == "earlier_settings" else None
+            self._row(
+                experiment,
+                fingerprint,
+                display_key=display_key,
+                query_to=query_to,
+                completed_at=query_to,
+                samples=samples,
+            )
 
         result = previous_completed_metric_result(
             experiment.id,
@@ -339,63 +349,6 @@ class TestMetricResultStore(BaseTest):
         )
 
         assert result == (_stored_result(expected_samples) if expected_samples is not None else None)
-
-    @parameterized.expand(
-        [
-            # A run from before key version 2 that finished after a daily write under the current key.
-            ("written_by_the_run", ExperimentMetricsRecalculation.Status.COMPLETED, 1, True, True),
-            # A later run at the same window that failed without a row of its own, before any current write.
-            ("written_before_the_run", ExperimentMetricsRecalculation.Status.FAILED, -1, False, False),
-        ]
-    )
-    def test_a_run_shows_only_the_legacy_rows_that_it_wrote(
-        self,
-        _name: str,
-        status: str,
-        written_hours_after_the_run: int,
-        daily_write_under_the_current_key: bool,
-        shows_legacy: bool,
-    ) -> None:
-        experiment = self._experiment()
-        calculation_config = get_metric_calculation_config(experiment, "m1")
-        assert calculation_config is not None
-        run_created_at = django_timezone.now() - timedelta(days=1)
-        run = ExperimentMetricsRecalculation.objects.create(
-            team=self.team,
-            experiment=experiment,
-            metric_uuids=["m1"],
-            query_to=_WINDOW,
-            status=status,
-            completed_at=run_created_at + timedelta(hours=2),
-        )
-        ExperimentMetricsRecalculation.objects.filter(id=run.id).update(created_at=run_created_at)
-        legacy_row = self._row(
-            experiment,
-            _recalc_fingerprint(calculation_config.legacy_key()),
-            query_to=_WINDOW,
-            completed_at=_WINDOW,
-            samples=1,
-        )
-        ExperimentMetricResult.objects.filter(id=legacy_row.id).update(
-            updated_at=run_created_at + timedelta(hours=written_hours_after_the_run)
-        )
-        if daily_write_under_the_current_key:
-            current_row = self._row(
-                experiment,
-                calculation_config.calculation_key(),
-                query_to=_START + timedelta(days=1),
-                completed_at=_START,
-                samples=2,
-            )
-            ExperimentMetricResult.objects.filter(id=current_row.id).update(
-                updated_at=run_created_at + timedelta(minutes=90)
-            )
-
-        stored = MetricResultStore(experiment_id=experiment.id).for_run(
-            ExperimentMetricsRecalculation.objects.get(id=run.id)
-        )
-
-        assert [(_samples(item.row), item.legacy) for item in stored] == ([([1], True)] if shows_legacy else [])
 
     @parameterized.expand(
         [
@@ -462,18 +415,11 @@ class TestMetricResultStore(BaseTest):
 
         series = store.timeseries(changed_config, timezone=ZoneInfo("UTC"))
         outcome = store.current_outcome(changed_config)
-        shown = (
-            _samples(series.by_day.get(_WINDOW_DAY)),
-            _WINDOW_DAY in series.legacy_days,
-            outcome and (outcome.baseline_samples, outcome.legacy),
-        )
-        assert shown == (([3], True, ("4", True)) if history_shown else ([], False, None))
+        shown = (_samples(series.by_day.get(_WINDOW_DAY)), outcome and outcome.baseline_samples)
+        assert shown == (([3], "4") if history_shown else ([], None))
         assert not store.has_completed(changed_config, window=run_window)
         assert store.for_run(ExperimentMetricsRecalculation.objects.get(id=run.id)) == []
-        cold_start = store.latest_daily_point(
-            changed_config, since=_WINDOW - timedelta(days=1), until=_WINDOW, include_legacy=True
-        )
-        assert cold_start is None
+        assert store.latest_daily_point(changed_config, since=_WINDOW - timedelta(days=1), until=_WINDOW) is None
 
     def _run(self, experiment: Experiment, status: str) -> ExperimentMetricsRecalculation:
         return ExperimentMetricsRecalculation.objects.create(
@@ -532,18 +478,8 @@ class TestMetricResultStore(BaseTest):
                     query_from=_START,
                     result=_stored_result(9),
                 )
-            case "daily_metric_failure":
-                record_daily_metric_failure(
-                    experiment.id,
-                    team_id=self.team.id,
-                    metric_uuid="m1",
-                    calculation_key=key,
-                    window=_WINDOW,
-                    query_from=_START,
-                    error_message="boom",
-                )
             case "sync_copy":
-                point = ExperimentMetricResult(result=_stored_result(9))
+                point = ExperimentMetricResult(fingerprint=key, result=_stored_result(9))
                 store.copy_into_sync_run(
                     _WINDOW, [(calculation_config, point)], query_from=_START, completed_at=_WINDOW
                 )
@@ -624,7 +560,7 @@ class TestMetricResultStore(BaseTest):
                 ExperimentMetricResult.Status.COMPLETED,
                 [1],
             )
-            assert self._read("for_run", experiment, calculation_config) == ([1], False)
+            assert self._read("for_run", experiment, calculation_config) == [1]
         else:
             assert (row.fingerprint, row.status, row.result, row.error_message) == (
                 key,

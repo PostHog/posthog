@@ -46,6 +46,8 @@ class PlatformAlertEventRow:
     """
 
     team_id: int
+    # The source whose check this was, so a reader can tell sources apart without a Postgres join.
+    source_kind: str
     configuration_id: UUID
     alert_id: UUID
     grouping_key: str
@@ -202,6 +204,7 @@ def announcement(
             source_config=_snapshot(source_config_snapshot),
             error_message=error_message or None,
             occurred_at=occurred_at,
+            evaluation_key=evaluation_key,
         )
         for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, occurred_at, _, _ in rows
     )

@@ -355,7 +355,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         initial_notebook_count = Notebook.objects.filter(team=self.team).count()
         self.assertEqual(initial_notebook_count, 0)
 
-        with self.assertLogs(level="ERROR") as logs:
+        with self.assertLogs(PATH, level="ERROR") as logs:
             response = self.client.get(
                 f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}"
             )

@@ -174,27 +174,27 @@ SEVERITY_RANKING: list[str] = [
 def order_by_exprs(query: ErrorTrackingQuery) -> list[ast.OrderExpr]:
     direction = order_direction(query)
 
-    if query.orderBy != ErrorTrackingOrderBy.SEVERITY:
-        return [ast.OrderExpr(expr=ast.Field(chain=[query.orderBy]), order=direction)]
+    primary: ast.Expr = ast.Field(chain=[query.orderBy])
+    if query.orderBy == ErrorTrackingOrderBy.SEVERITY:
+        # Sorting on the `severity` column itself is wrong two ways, and both fail silently. It is a
+        # Nullable(String), so the order is alphabetical (critical, high, low, medium), and ClickHouse
+        # ranks NULL above every value, so DESC leads with the unset majority. Sort on the position in
+        # SEVERITY_RANKING instead. `indexOf` gives 1 to 4 for a known level and 0 for a value that is
+        # not in the array, and a NULL needle also gives 0, so unset ranks below `low`.
+        primary = ast.Call(
+            name="indexOf",
+            args=[
+                ast.Array(exprs=[ast.Constant(value=level) for level in SEVERITY_RANKING]),
+                ast.Field(chain=["severity"]),
+            ],
+        )
 
-    # Sorting on the `severity` column itself is wrong two ways, and both fail silently. It is a
-    # Nullable(String), so the order is alphabetical (critical, high, low, medium), and ClickHouse
-    # ranks NULL above every value, so DESC leads with the unset majority. Sort on the position in
-    # SEVERITY_RANKING instead. `indexOf` gives 1 to 4 for a known level and 0 for a value that is
-    # not in the array, and a NULL needle also gives 0, so unset ranks below `low`.
-    severity_rank = ast.Call(
-        name="indexOf",
-        args=[
-            ast.Array(exprs=[ast.Constant(value=level) for level in SEVERITY_RANKING]),
-            ast.Field(chain=["severity"]),
-        ],
-    )
-    # Four levels plus unset leave most rows sharing a rank. The paginator pages with LIMIT/OFFSET
-    # over a re-run query, so rows move between pages and the infinite scroll repeats and drops
-    # them unless the order is total. `last_seen` puts the most recently seen issue first within a
-    # rank, and `id` is the GROUP BY key of both query shapes, so adding it makes the order total.
-    return [
-        ast.OrderExpr(expr=severity_rank, order=direction),
-        ast.OrderExpr(expr=ast.Field(chain=["last_seen"]), order="DESC"),
-        ast.OrderExpr(expr=ast.Field(chain=["id"]), order="DESC"),
+    # The paginator pages with LIMIT/OFFSET over a re-run query, and ClickHouse returns tied rows in
+    # any order, so tied rows move between pages and the infinite scroll repeats and drops them
+    # unless the order is total. Small counts such as occurrences and users tie often, and so do the
+    # few severity ranks. `last_seen` puts the most recently seen issue first within a tie, and `id`
+    # is the GROUP BY key of both query shapes, so adding it makes the order total.
+    tiebreakers = [
+        ast.OrderExpr(expr=ast.Field(chain=[key]), order="DESC") for key in ("last_seen", "id") if key != query.orderBy
     ]
+    return [ast.OrderExpr(expr=primary, order=direction), *tiebreakers]

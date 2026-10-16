@@ -195,10 +195,11 @@ describe('BI connections', () => {
         expect(person).toMatchObject({ state: 'ready', tableName: undefined, connections: [] })
         expect(person.fields.dimensions).toEqual([
             expect.objectContaining({ name: 'person.created_at', type: 'unknown', source }),
-            expect.objectContaining({ name: 'person.id', type: 'unknown', source }),
             expect.objectContaining({ name: 'person.properties', type: 'unknown', source }),
         ])
-        expect(person.fields.measures).toEqual([])
+        expect(person.fields.measures).toEqual([
+            expect.objectContaining({ name: 'person.id', type: 'unknown', source }),
+        ])
         expect(getPendingBIConnectionTables([person])).toEqual([])
     })
 

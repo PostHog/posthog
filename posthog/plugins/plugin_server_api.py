@@ -1,3 +1,4 @@
+import re
 import json
 from datetime import timedelta
 from typing import Optional, Union
@@ -288,7 +289,24 @@ def generate_messaging_preferences_token(team_id: int, identifier: str) -> str:
     return ""
 
 
+# A preferences token is a three-segment base64url JWT. The charset has no path separators, so a
+# conforming token cannot alter the request path when interpolated below. Reject anything else
+# before the call, so an unauthenticated caller can't steer this internal, secret-bearing request
+# at another CDP endpoint (requests collapses `..` path segments).
+_PREFERENCES_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
+
+
+def _invalid_token_response() -> requests.Response:
+    response = requests.Response()
+    response.status_code = 400
+    response._content = json.dumps({"error": "Invalid recipient token"}).encode()
+    response.headers["Content-Type"] = "application/json"
+    return response
+
+
 def validate_messaging_preferences_token(token: str) -> requests.Response:
+    if not isinstance(token, str) or not _PREFERENCES_TOKEN_RE.fullmatch(token):
+        return _invalid_token_response()
     return internal_requests.get(
         CDP_API_URL + f"/api/messaging/validate_preferences_token/{token}",
         headers=get_internal_api_headers(),

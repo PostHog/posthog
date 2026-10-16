@@ -529,6 +529,8 @@ export interface HogQLQueryModifiers {
     sessionPropertyPreAggregation?: boolean
     /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
     personIdPushdown?: boolean
+    /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
+    negatedPersonFiltersNotIn?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     timings?: boolean
@@ -724,6 +726,8 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     query: string
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
+    /** Compile and run this query against the hosted Trino target. */
+    executionTarget?: 'default' | 'managed_trino'
     /** Run the selected connection query directly without translating it through HogQL first */
     sendRawQuery?: boolean
     /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
@@ -4923,7 +4927,7 @@ export interface MetricsQuerySeries {
     metricName?: string
     /** Clause alias that produced this series (`formula` for the formula result) */
     clause?: string
-    /** UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one. */
+    /** UCUM unit of the returned values, e.g. "By", "ms", "1/s". It is the ingested unit, except that a count of series has no unit and a rate is per second. Empty when the values have no unit. */
     unit?: string
 }
 

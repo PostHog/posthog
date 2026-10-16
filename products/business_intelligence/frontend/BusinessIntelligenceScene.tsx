@@ -17,9 +17,14 @@ import { Query } from '~/queries/Query/Query'
 import { isDataVisualizationNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { BIChartAxis } from './BIChartAxisControls'
+import { BIChartAxisModal } from './BIChartAxisModal'
 import { BIEditor } from './BIEditor'
 import { biEditorLogic } from './biEditorLogic'
+import { BIEditorView } from './biEditorTypes'
+import { getBIHierarchyParent } from './biHierarchies'
 import { BIResultSummary } from './BIResultSummary'
+import { keepBIScatterRows } from './biScatter'
 import { biSceneLogic } from './biSceneLogic'
 
 export const scene: SceneExport = {
@@ -32,9 +37,10 @@ export const scene: SceneExport = {
 
 export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { activePanel } = useValues(biEditorLogic({ tabId }))
-    const { setActivePanel } = useActions(biEditorLogic({ tabId }))
+    const { activePanel, dataPaneFields, dataPaneFieldsLoading } = useValues(biEditorLogic({ tabId }))
+    const { setActivePanel, startSuggestedChart, restoreState, runAfterChange } = useActions(biEditorLogic({ tabId }))
     const [settingsContainer, setSettingsContainer] = useState<HTMLDivElement | null>(null)
+    const [editingAxis, setEditingAxis] = useState<BIChartAxis | null>(null)
     const logic = biSceneLogic({ tabId })
     const {
         name,
@@ -50,6 +56,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         canRedo,
         copyDisabledReason,
         worksheet,
+        displayedQueryIsCurrent,
     } = useValues(logic)
     const {
         setName,
@@ -57,12 +64,16 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         discardChanges,
         shareWorksheet,
         setVisualization,
+        setChartSettings,
         setExportViewOpen,
         setExportViewName,
         exportView,
         undo,
         redo,
+        navigateHierarchy,
     } = useActions(logic)
+
+    const hierarchyParent = getBIHierarchyParent(worksheet)
 
     useKeyboardHotkeys({
         z: {
@@ -173,6 +184,37 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                     </div>
                 ) : (
                     <BIEditor tabId={tabId} settingsPanelRef={setSettingsContainer}>
+                        {!!worksheet.config.hierarchyDrillPath?.length && (
+                            <div
+                                className="flex flex-wrap items-center gap-2 px-3 py-1 text-xs"
+                                data-attr="bi-hierarchy-path"
+                            >
+                                <span>
+                                    {[
+                                        worksheet.config.hierarchyDrillPath[0].previousField.name,
+                                        ...worksheet.config.hierarchyDrillPath.map((step) => step.nextField.name),
+                                    ].join(' → ')}
+                                </span>
+                                <LemonButton
+                                    size="xsmall"
+                                    disabledReason={
+                                        !hierarchyParent ? 'The hierarchy or active field has changed' : undefined
+                                    }
+                                    onClick={() => {
+                                        if (hierarchyParent) {
+                                            navigateHierarchy(hierarchyParent)
+                                        }
+                                    }}
+                                >
+                                    Drill up to{' '}
+                                    {hierarchyParent?.config.hierarchyDrillPath?.at(-1)?.nextField.name ??
+                                        worksheet.config.hierarchyDrillPath[0].previousField.name}
+                                </LemonButton>
+                                <span className="text-secondary">
+                                    Drill up removes only filters added by this drill.
+                                </span>
+                            </div>
+                        )}
                         {lastRunQuery ? (
                             <Query
                                 query={lastRunQuery}
@@ -187,6 +229,20 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                     insightProps: { dashboardItemId: `new-bi-${tabId}` },
                                     showOpenEditorButton: false,
                                     chartTypeSelectorClassName: 'hidden',
+                                    onEditBIAxis: setEditingAxis,
+                                    onDrillBIHierarchy: (next) => navigateHierarchy(next),
+                                    biHierarchyDrillDisabledReason: displayedQueryIsCurrent
+                                        ? undefined
+                                        : 'Run the worksheet before drilling into edited fields',
+                                    onKeepBISelection: displayedQueryIsCurrent
+                                        ? (records) => {
+                                              const config = keepBIScatterRows(worksheet.config, records)
+                                              if (config) {
+                                                  restoreState({ editorView: BIEditorView.BI, config })
+                                                  runAfterChange()
+                                              }
+                                          }
+                                        : undefined,
                                     visualizationSettingsPanel: {
                                         isOpen: activePanel === 'display',
                                         onToggle: () => setActivePanel(activePanel === 'display' ? null : 'display'),
@@ -195,18 +251,46 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                 }}
                             />
                         ) : (
-                            <div className="flex flex-1 items-center justify-center p-4 text-secondary">
-                                {worksheet.config.source
-                                    ? worksheet.config.rows.length ||
-                                      worksheet.config.columns.length ||
-                                      worksheet.config.values.length
-                                        ? 'Press Run to see the results of this worksheet.'
-                                        : 'Drag or double-click a field to start. Dimensions define groups; measures calculate a value for each group.'
-                                    : 'Select a table and add fields to build your worksheet.'}
+                            <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-secondary">
+                                <span>
+                                    {worksheet.config.source
+                                        ? worksheet.config.rows.length ||
+                                          worksheet.config.columns.length ||
+                                          worksheet.config.values.length
+                                            ? 'Press Run to see the results of this worksheet.'
+                                            : 'Drag or double-click a field to start. Dimensions define groups; measures calculate a value for each group.'
+                                        : 'Select a table and add fields to build your worksheet.'}
+                                </span>
+                                {worksheet.config.source &&
+                                    !worksheet.config.rows.length &&
+                                    !worksheet.config.columns.length &&
+                                    !worksheet.config.values.length && (
+                                        <LemonButton
+                                            type="secondary"
+                                            onClick={startSuggestedChart}
+                                            disabledReason={dataPaneFieldsLoading ? 'Loading fields' : undefined}
+                                            data-attr="bi-start-suggested-chart"
+                                        >
+                                            {dataPaneFields.dimensions.some((field) =>
+                                                ['date', 'datetime'].includes(field.type)
+                                            )
+                                                ? 'Start with daily row count'
+                                                : 'Start with row count'}
+                                        </LemonButton>
+                                    )}
                             </div>
                         )}
                         <BIResultSummary tabId={tabId} />
                     </BIEditor>
+                )}
+                {editingAxis && (
+                    <BIChartAxisModal
+                        key={editingAxis}
+                        axis={editingAxis}
+                        settings={lastRunQuery?.chartSettings ?? {}}
+                        onSave={setChartSettings}
+                        onClose={() => setEditingAxis(null)}
+                    />
                 )}
                 <LemonModal
                     title="Save as SQL view"

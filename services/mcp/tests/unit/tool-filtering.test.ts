@@ -429,7 +429,7 @@ describe('Tool Filtering - API Scopes', () => {
 
     it('should expose managed warehouse Trino monitoring only with its read scope and feature flag', async () => {
         const trinoTools = ['managed-warehouse-trino-monitoring-get', 'managed-warehouse-trino-metric-history-get']
-        const enabledOptions = { featureFlags: { 'data-warehouse-scene-trino': true } }
+        const enabledOptions = { featureFlags: { 'managed-warehouse-trino-query': true } }
 
         const authorizedTools = await getToolsFromContext(createMockContext(['warehouse_view:read']), enabledOptions)
         const wrongScopeTools = await getToolsFromContext(createMockContext(['query:read']), enabledOptions)
@@ -1046,6 +1046,7 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(off).not.toContain('notebooks-set-variables')
         expect(off).not.toContain('notebooks-run')
         expect(off).not.toContain('notebooks-run-status')
+        expect(off).not.toContain('notebooks-run-cell')
         expect(off).not.toContain('notebooks-get')
 
         const on = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': true } })
@@ -1056,13 +1057,13 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('notebooks-set-variables')
         expect(on).toContain('notebooks-run')
         expect(on).toContain('notebooks-run-status')
+        expect(on).toContain('notebooks-run-cell')
         expect(on).toContain('notebooks-run-cell-result')
         expect(on).toContain('notebooks-get')
         expect(on).toContain('notebooks-list-frames')
         expect(on).toContain('notebooks-configure-compute')
         expect(on).not.toContain('notebooks-create')
         expect(on).not.toContain('notebooks-retrieve')
-        expect(on).not.toContain('notebooks-run-cell')
 
         // notebook-edit keeps its collaboration gate but retires under the cell tools.
         const collabOnly = getToolsForFeatures({
@@ -1087,7 +1088,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'scouts-tool-access',
             'replay-vision-scanner-dashboard',
             'metrics-dashboard-import',
-            'data-warehouse-scene-trino',
+            'managed-warehouse-trino-query',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and

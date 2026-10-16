@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -50,6 +51,28 @@ class WhopSource(
     ResumableSource[WhopSourceConfig, WhopResumeConfig],
     WebhookSource[WhopSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^WHOP_", "^NEXT_PUBLIC_WHOP_"),
+        script_hosts=("cdn.whop.com",),
+        npm=(
+            "@whop/api",
+            "@whop-apps/sdk",
+            "@whop/sdk",
+            "@whop/react",
+            "@whop/checkout",
+            "@whop/embedded-components-react-js",
+            "@whop/elements",
+            "@whop/elements-react",
+        ),
+        pypi=("whop-sdk", "whop"),
+        go=("github.com/whopio/whopsdk-go",),
+        swiftpm=(
+            "github.com/whopio/whop-ios-react-native-kit",
+            "github.com/whopio/whopsdk-checkout-swift",
+            "github.com/whopio/whopsdk-elements-swift",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Whop's dated `Api-Version-Date` header pins the Experimental API. The stable `/api/v1`
     # endpoints this source calls are served on the unversioned contract when the header is omitted,

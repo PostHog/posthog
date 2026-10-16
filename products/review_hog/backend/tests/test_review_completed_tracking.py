@@ -19,6 +19,7 @@ from products.review_hog.backend.reviewer.constants import (
     VALIDATION_MODEL,
     VALIDATION_REASONING_EFFORT,
 )
+from products.review_hog.backend.reviewer.finding_budget import budget_arm
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
@@ -204,6 +205,8 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_commits"] == 3
         assert props["pr_reviewable_additions"] == 80
         assert props["pr_draft"] is True
+        # The finding budget's effect is measured by splitting on this, so it must be on every turn.
+        assert props["finding_budget_arm"] == budget_arm("o/r", 7)
         assert 90 <= props["duration_seconds"] < 600
         assert props["reviewhog_version"] == "reviewhog-full-9-9"
         assert props["reviewhog_fingerprint"] == "abc1234"
@@ -223,6 +226,7 @@ class TestTrackReviewCompleted(BaseTest):
             dropped={"dedup_anchor": 2, "cap": 1},
             kept=4,
             dedup_fell_back=True,
+            budget_left=3,
         )
         sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5)
 
@@ -242,6 +246,7 @@ class TestTrackReviewCompleted(BaseTest):
             "flash_dropped": {"dedup_anchor": 2, "cap": 1},
             "flash_kept": 4,
             "flash_dedup_fallback": True,
+            "flash_budget_left": 3,
             "flash_lens_failures": 1,
             "flash_lens_timeouts": 1,
             "flash_slowest_session_seconds": 412.5,

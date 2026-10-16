@@ -45,6 +45,7 @@ from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
 from products.review_hog.backend.pull_request_events import REVIEW_LABELS, has_skip_agent_review_label
 from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
+from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
     CHUNKING_MODEL,
@@ -53,6 +54,7 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_RUNTIME_ADAPTER,
     COORDINATOR_MAX_SUBAGENTS,
     FLASH_LENSES,
+    FLASH_WHOLE_PR_TURNS,
     NON_RETRYABLE_UNIT_FAILURE_CATEGORIES,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
@@ -69,6 +71,7 @@ from products.review_hog.backend.reviewer.constants import (
     validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.feature_flags import flash_pipeline_kill_switch_on, standard_coordinator_on
+from products.review_hog.backend.reviewer.finding_budget import FindingBudget, budget_arm
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
@@ -208,7 +211,12 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     reconcile_chunks,
 )
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
-from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
+from products.review_hog.backend.temporal.types import (
+    REQUESTED_TRIGGERS,
+    TRIGGER_AUTOMATIC,
+    TRIGGER_LABEL,
+    TRIGGER_MANUAL,
+)
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
 from products.signals.backend.enums import ReportPriority
@@ -403,6 +411,8 @@ class SandboxStageInput:
     review_mode: str = field(default=REVIEW_MODE_FULL, kw_only=True)
     flash_reasoning_effort: str = field(default=ReasoningEffort.MEDIUM.value, kw_only=True)
     review_design: str = field(default=REVIEW_DESIGN_PIPELINE, kw_only=True)
+    # Only an automatic turn is held to the finding budget. None on payloads from before the field.
+    trigger_source: str | None = field(default=None, kw_only=True)
 
 
 @dataclass
@@ -1675,6 +1685,13 @@ def _combine_and_clean(
     return clean_issues(raw_issues, pr_files)
 
 
+def _finding_budget(
+    team_id: int, report_id: str, prior_findings: list[tuple[ReviewIssueFinding, ValidationVerdict | None]]
+) -> FindingBudget:
+    report = ReviewReport.objects.for_team(team_id).get(id=report_id)
+    return FindingBudget.for_turn(report, prior_findings)
+
+
 def _changed_since_last_review(
     team_id: int, report_id: str, head_sha: str, current_files: list[PRFile]
 ) -> ChangedSinceReview | None:
@@ -1768,6 +1785,12 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             changed_since = await database_sync_to_async(_changed_since_last_review, thread_sensitive=False)(
                 input.team_id, input.report_id, input.head_sha, snapshot.pr_files
             )
+            budget_left = None
+            if input.trigger_source == TRIGGER_AUTOMATIC:
+                budget = await database_sync_to_async(_finding_budget, thread_sensitive=False)(
+                    input.team_id, input.report_id, prior_findings
+                )
+                budget_left = budget.left
             flash_selection = await dedupe_flash_findings(
                 team_id=input.team_id,
                 user_id=input.user_id,
@@ -1780,6 +1803,10 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
                 fall_back_on_any_error=_is_final_attempt(),
                 changed_since=changed_since,
+                budget_left=budget_left,
+                # Requested reviews and the first whole-PR turns still look at code the push did not change.
+                changed_code_only=input.trigger_source == TRIGGER_AUTOMATIC and input.run_index > FLASH_WHOLE_PR_TURNS,
+                first_review=input.run_index == 1,
             )
             survivors = flash_selection.kept
             flash_stats = flash_turn_stats(issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines)
@@ -2042,10 +2069,12 @@ def _publish(input: PublishInput) -> PublishResult:
     if input.trigger_source == TRIGGER_LABEL and comment_commands_enabled(input.team_id):
         footer = label_commands_hint(input.review_mode)
     # Only an automatic turn can promise the review on ready: a label or UI review runs for authors
-    # without automatic reviews too.
+    # without automatic reviews too. Only an automatic turn is held to the finding budget, too.
     draft_notice = ""
+    comment_commands_on = False
     if input.trigger_source == TRIGGER_AUTOMATIC:
-        draft_notice = draft_review_notice(comment_commands_enabled(input.team_id))
+        comment_commands_on = comment_commands_enabled(input.team_id)
+        draft_notice = draft_review_notice(comment_commands_on)
     outcome = publish_persisted_review(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -2061,6 +2090,8 @@ def _publish(input: PublishInput) -> PublishResult:
         capped_lens_parts=input.capped_lens_parts,
         footer=footer,
         draft_notice=draft_notice,
+        answers_request=input.trigger_source in REQUESTED_TRIGGERS,
+        comment_commands_on=comment_commands_on,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
@@ -2186,6 +2217,7 @@ def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionS
                 "flash_dropped": turn.dropped,
                 "flash_kept": turn.kept,
                 "flash_dedup_fallback": turn.dedup_fell_back,
+                "flash_budget_left": turn.budget_left,
             }
         )
     if sessions is not None:
@@ -2407,6 +2439,8 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             ),
             **_pr_size_properties(snapshot),
             "pr_draft": _pr_draft(snapshot),
+            # Split by this to measure the finding budget against pull requests that keep posting.
+            "finding_budget_arm": budget_arm(report.repository, report.pr_number),
             "duration_seconds": duration_seconds,
             # No marker means a turn started before the marker shipped, or a failed marker: the version is unknown.
             "reviewhog_version": input.marker.version if input.marker is not None else None,

@@ -15,6 +15,7 @@ import {
     IconReceipt,
     IconRefresh,
     IconStack,
+    IconStar,
     IconSupport,
 } from '@posthog/icons'
 import { LemonTagType } from '@posthog/lemon-ui'
@@ -79,6 +80,13 @@ export interface InboxSortOption {
 }
 
 export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
+    {
+        label: 'Recommended',
+        field: 'recommended',
+        direction: 'asc',
+        icon: <IconStar />,
+        description: 'The reports most worth a look come first.',
+    },
     { label: 'Priority first', field: 'priority', direction: 'asc', icon: <IconList /> },
     { label: 'Last updated first', field: 'updated_at', direction: 'desc', icon: <IconRefresh /> },
     { label: 'Newest first', field: 'created_at', direction: 'desc', icon: <IconCalendar /> },

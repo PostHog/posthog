@@ -7,6 +7,7 @@ import ViewRecordingButton, {
     RecordingPlayerType,
     ViewRecordingButtonVariant,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType, PropertyFilterType } from '~/types'
@@ -18,7 +19,6 @@ import { useCellScroll } from 'products/logs/frontend/components/VirtualizedLogs
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
-import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
 export interface AttributeCellProps {
     attributeKey: string

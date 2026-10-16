@@ -674,16 +674,19 @@ class TestSurvey(APIBaseTest):
         assert "default" not in result
         assert "en" not in result
 
-    def test_sdk_payload_keeps_intro_screen_translation_fields(self) -> None:
-        intro_fields = {
+    def test_sdk_payload_keeps_appearance_translation_fields(self) -> None:
+        appearance_fields = {
             "introScreenHeader": "Bienvenido",
             "introScreenDescription": "Dos preguntas rápidas",
             "introScreenButtonText": "Comenzar",
+            "backButtonText": "Atrás",
         }
 
-        result = get_survey_api_translations({"es": {**intro_fields, "unknownField": "dropped"}}, base_language="en")
+        result = get_survey_api_translations(
+            {"es": {**appearance_fields, "unknownField": "dropped"}}, base_language="en"
+        )
 
-        assert result == {"es": intro_fields}
+        assert result == {"es": appearance_fields}
 
     @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
@@ -715,7 +718,12 @@ class TestSurvey(APIBaseTest):
             f"/api/projects/{self.team.id}/surveys/{survey.id}/generate_translations/",
             data={
                 "target_language": "pt-BR",
-                "survey": {"name": "Draft feedback", "linked_flag": None, "questions": survey.questions},
+                "survey": {
+                    "name": "Draft feedback",
+                    "linked_flag": None,
+                    "questions": survey.questions,
+                    "appearance": {"allowGoBack": True, "backButtonText": "Go back", "position": "right"},
+                },
             },
             format="json",
         )
@@ -728,6 +736,9 @@ class TestSurvey(APIBaseTest):
         ]
         assert mock_generate_survey_translation.call_args.kwargs["survey"]["name"] == "Draft feedback"
         assert "linked_flag" not in mock_generate_survey_translation.call_args.kwargs["survey"]
+        assert mock_generate_survey_translation.call_args.kwargs["survey"]["appearance"] == {
+            "backButtonText": "Go back"
+        }
         # source_language falls back to the survey's base_language when not provided
         assert mock_generate_survey_translation.call_args.kwargs["source_language"] == "en"
 
@@ -935,8 +946,15 @@ class TestSurvey(APIBaseTest):
         assert "<strong>Cerrar</strong>" in survey.translations["es"]["thankYouMessageCloseButtonText"]
         assert "<script>" not in survey.translations["es"]["thankYouMessageCloseButtonText"]
 
-    @parameterized.expand([("introScreenHeader",), ("introScreenDescription",), ("introScreenButtonText",)])
-    def test_intro_screen_translations_are_persisted_and_sanitized(self, field: str):
+    @parameterized.expand(
+        [
+            ("introScreenHeader",),
+            ("introScreenDescription",),
+            ("introScreenButtonText",),
+            ("backButtonText",),
+        ]
+    )
+    def test_appearance_translations_are_persisted_and_sanitized(self, field: str):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={

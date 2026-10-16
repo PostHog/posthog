@@ -74,6 +74,7 @@ from products.tasks.backend.constants import (
     ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
     ANALYSIS_TARGET_RUN_ID_STATE_KEY,
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
+    ARTIFACT_SCRIPT_SHA256_KEY as ARTIFACT_SCRIPT_SHA256_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG as CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     DEV_STACK_PREVIEW_PORT,
@@ -93,6 +94,7 @@ from products.tasks.backend.constants import (
     TIMED_OUT_INACTIVITY_STATE_KEY as TIMED_OUT_INACTIVITY_STATE_KEY,  # re-exported for the scout reaper
     get_required_model_flag,
     is_blocked_sandbox_env_key,
+    is_html_artifact as is_html_artifact,
     is_same_run_resume_state,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
@@ -338,7 +340,10 @@ __all__ = [
     "presign_task_run_artifact_download",
     "presign_task_run_living_artifact_version_download",
     "read_task_run_artifact",
+    "read_task_run_html_artifact",
     "read_task_run_living_artifact_version",
+    "sandbox_token_has_open_network",
+    "is_html_artifact",
     "get_task_run_log_urls",
     "get_task_run_log_size",
     "read_task_run_log_content",
@@ -2691,6 +2696,7 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        "sandbox_environment_id",
         # Worker-interpreted trial markers must never be caller-writable.
         "scout_trial",
         "scout_trial_judge",
@@ -4118,6 +4124,7 @@ def _build_artifact_manifest_entry(
     content_type: str,
     storage_path: str,
     uploaded_at: str,
+    script_sha256: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     entry: dict[str, Any] = {
@@ -4130,6 +4137,8 @@ def _build_artifact_manifest_entry(
         "storage_path": storage_path,
         "uploaded_at": uploaded_at,
     }
+    if script_sha256 is not None:
+        entry[ARTIFACT_SCRIPT_SHA256_KEY] = script_sha256
     if metadata:
         entry["metadata"] = metadata
     return entry
@@ -4140,6 +4149,37 @@ def _find_artifact_manifest_entry(manifest: list[dict], artifact_id: str, storag
         (e for e in manifest if e.get("id") == artifact_id or e.get("storage_path") == storage_path),
         None,
     )
+
+
+ARTIFACT_SCRIPT_HASH_BUDGET_BYTES = 64 * 1024 * 1024
+
+
+def _earlier_versions_run_scripts(manifest: list[dict], name: str) -> bool:
+    return all(isinstance(e.get(ARTIFACT_SCRIPT_SHA256_KEY), str) for e in manifest if e.get("name") == name)
+
+
+def _new_version_may_run_scripts(manifest: list[dict], name: str, base: dict | None, budget: int) -> tuple[bool, int]:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        stored_bytes_match_digest,
+    )
+
+    if not _earlier_versions_run_scripts([*manifest, *([base] if base else [])], name):
+        return False, 0
+    previous = base or next((e for e in reversed(manifest) if e.get("name") == name), None)
+    if previous is None:
+        return True, 0
+    size = previous.get("size")
+    if not isinstance(size, int) or size > budget:
+        return False, 0
+    return stored_bytes_match_digest(previous.get("storage_path"), previous.get(ARTIFACT_SCRIPT_SHA256_KEY)), size
+
+
+def _append_versions(manifest: list[dict], entries: list[dict]) -> list[dict]:
+    for entry in entries:
+        if ARTIFACT_SCRIPT_SHA256_KEY in entry and not _earlier_versions_run_scripts(manifest, entry["name"]):
+            del entry[ARTIFACT_SCRIPT_SHA256_KEY]
+        manifest.append(entry)
+    return manifest
 
 
 def _save_artifact_manifest(run: TaskRun, manifest: list[dict]) -> None:
@@ -4154,6 +4194,7 @@ def upload_task_run_artifacts(
     *,
     artifacts: list[dict],
     uploaded_by: Literal["agent", "user"] | None = None,
+    written_with_open_network: bool = False,
 ) -> tuple[list[dict], list[dict]] | None:
     """Write artifact bytes to S3 and append them to the run manifest.
 
@@ -4174,6 +4215,7 @@ def upload_task_run_artifacts(
         return None
 
     uploaded: list[dict] = []
+    hash_budget = ARTIFACT_SCRIPT_HASH_BUDGET_BYTES
     for artifact in artifacts:
         artifact_id = str(artifact.get("id") or uuid_module.uuid4().hex)
         safe_name, storage_path = _build_artifact_storage_path(run, artifact_id, artifact["name"])
@@ -4183,6 +4225,14 @@ def upload_task_run_artifacts(
         content_type = artifact.get("content_type")
         if content_type:
             extras["ContentType"] = content_type
+
+        may_run_scripts = written_with_open_network
+        if may_run_scripts and is_html_artifact(safe_name, content_type or ""):
+            may_run_scripts, spent = _new_version_may_run_scripts(
+                [*(run.artifacts or []), *uploaded], safe_name, None, hash_budget
+            )
+            hash_budget -= spent
+        script_sha256 = hashlib.sha256(content_bytes).hexdigest() if may_run_scripts else None
 
         object_storage.write(storage_path, content_bytes, extras or None)
         _tag_artifact_object(run, storage_path)
@@ -4197,6 +4247,7 @@ def upload_task_run_artifacts(
                 content_type=content_type or "",
                 storage_path=storage_path,
                 uploaded_at=django_timezone.now().isoformat(),
+                script_sha256=script_sha256,
                 metadata=artifact.get("metadata"),
             )
         )
@@ -4213,8 +4264,9 @@ def upload_task_run_artifacts(
     with transaction.atomic():
         run = TaskRun.objects.select_for_update().get(pk=run.pk)
         uploaded_ids = {entry["id"] for entry in uploaded}
-        manifest = [entry for entry in (run.artifacts or []) if entry.get("id") not in uploaded_ids]
-        manifest.extend(uploaded)
+        manifest = _append_versions(
+            [entry for entry in (run.artifacts or []) if entry.get("id") not in uploaded_ids], uploaded
+        )
         _save_artifact_manifest(run, manifest)
 
     if uploaded_by == "agent":
@@ -4392,6 +4444,7 @@ def finalize_task_run_artifact_uploads(
     artifacts: list[dict],
     uploaded_by: Literal["agent", "user"],
     uploaded_by_user_id: int | None,
+    written_with_open_network: bool = False,
 ) -> tuple[list[dict] | None, str | None]:
     """Verify directly-uploaded S3 objects and attach them to the run manifest.
 
@@ -4418,6 +4471,7 @@ def finalize_task_run_artifact_uploads(
     artifact_prefix = f"{run.get_artifact_s3_prefix()}/"
     finalized_entries: list[dict] = []
     new_entries: list[dict] = []
+    hash_budget = ARTIFACT_SCRIPT_HASH_BUDGET_BYTES
     new_storage_paths: list[str] = []
 
     for artifact in artifacts:
@@ -4446,6 +4500,27 @@ def finalize_task_run_artifact_uploads(
         if content_length > max_size_bytes:
             return None, build_task_run_artifact_size_error(safe_name, max_size_bytes)
 
+        script_sha256 = None
+        base_artifact_id = artifact.get("base_artifact_id")
+        base_entry = next((e for e in manifest if e.get("id") == base_artifact_id), None) if base_artifact_id else None
+        if (
+            written_with_open_network
+            and (base_artifact_id is None or base_entry is not None)
+            and is_html_artifact(safe_name, content_type)
+            and content_length <= hash_budget
+        ):
+            may_run_scripts, spent = _new_version_may_run_scripts(
+                manifest, safe_name, base_entry, hash_budget - content_length
+            )
+            hash_budget -= content_length + spent
+            if may_run_scripts:
+                try:
+                    uploaded_bytes = object_storage.read_bytes(storage_path, missing_ok=True)
+                except Exception:
+                    logger.warning("task_run.artifact_script_hash_failed", extra={"task_run_id": str(run.id)})
+                    uploaded_bytes = None
+                script_sha256 = hashlib.sha256(uploaded_bytes).hexdigest() if uploaded_bytes is not None else None
+
         entry = _build_artifact_manifest_entry(
             artifact_id=artifact_id,
             name=safe_name,
@@ -4455,6 +4530,7 @@ def finalize_task_run_artifact_uploads(
             content_type=content_type,
             storage_path=storage_path,
             uploaded_at=django_timezone.now().isoformat(),
+            script_sha256=script_sha256,
             metadata=artifact.get("metadata"),
         )
         entry["uploaded_by"] = uploaded_by
@@ -4472,8 +4548,9 @@ def finalize_task_run_artifact_uploads(
         with transaction.atomic():
             locked_run = TaskRun.objects.select_for_update().get(pk=run.pk)
             new_ids = {entry["id"] for entry in new_entries}
-            merged = [entry for entry in (locked_run.artifacts or []) if entry.get("id") not in new_ids]
-            merged.extend(new_entries)
+            merged = _append_versions(
+                [entry for entry in (locked_run.artifacts or []) if entry.get("id") not in new_ids], new_entries
+            )
             _save_artifact_manifest(locked_run, merged)
         # Count versions from the locked merge, or a concurrent same-named finalize is missed.
         manifest = merged
@@ -4531,19 +4608,20 @@ def get_task_run_living_artifact(
     return serialized
 
 
-def read_task_run_living_artifact_version(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID, version: int
-) -> tuple[contracts.LivingArtifactVersionContent | None, str | None]:
-    """Read the content of one living artifact version.
+_LivingVersionResult = TypeVar("_LivingVersionResult")
 
-    Returns ``(content, error)``: ``(None, None)`` if the run isn't found, ``(None, "not_found")`` if the
-    artifact or version isn't found or keeps no content, ``(None, "too_large")`` if a stored version is
-    over the preview limit, ``(None, "read_failed")`` if the storage read raised, else ``(content, None)``.
-    """
+
+def _task_run_living_artifact_version(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    artifact_id: str | UUID,
+    version: int,
+    load: Callable[[Any, int], _LivingVersionResult | None],
+) -> tuple[_LivingVersionResult | None, str | None]:
     from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
         LivingArtifactVersionTooLarge,
         get_task_artifact_for_run,
-        read_living_artifact_version,
     )
 
     run = _get_visible_run(run_id, task_id, team_id)
@@ -4557,15 +4635,46 @@ def read_task_run_living_artifact_version(
     if artifact is None:
         return None, "not_found"
     try:
-        content = read_living_artifact_version(artifact, version)
+        result = load(artifact, version)
     except LivingArtifactVersionTooLarge:
         return None, "too_large"
     except Exception:
         logger.exception("Failed to read living artifact %s version %s for team %s", artifact_id, version, team_id)
         return None, "read_failed"
-    if content is None:
+    if result is None:
         return None, "not_found"
-    return content, None
+    return result, None
+
+
+def read_task_run_living_artifact_version(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID, version: int
+) -> tuple[contracts.LivingArtifactVersionContent | None, str | None]:
+    """Read the content of one living artifact version.
+
+    Returns ``(content, error)``: ``(None, None)`` if the run isn't found, ``(None, "not_found")`` if the
+    artifact or version isn't found or keeps no content, ``(None, "too_large")`` if a stored version is
+    over the preview limit, ``(None, "read_failed")`` if the storage read raised, else ``(content, None)``.
+    """
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        read_living_artifact_version,
+    )
+
+    return _task_run_living_artifact_version(
+        run_id, task_id, team_id, artifact_id, version, read_living_artifact_version
+    )
+
+
+def describe_task_run_living_artifact_version(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID, version: int
+) -> tuple[contracts.LivingArtifactVersionPreview | None, str | None]:
+    """Describe one living artifact version for a preview, without reading its stored bytes. Errors as in the read."""
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        describe_living_artifact_version,
+    )
+
+    return _task_run_living_artifact_version(
+        run_id, task_id, team_id, artifact_id, version, describe_living_artifact_version
+    )
 
 
 def presign_task_run_living_artifact_version_download(
@@ -4618,6 +4727,7 @@ def create_task_run_living_artifact(
     *,
     artifact: dict,
     caller_is_agent: bool = False,
+    written_with_open_network: bool = False,
 ) -> tuple[dict | None, str | None]:
     from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
         create_living_artifact,
@@ -4628,7 +4738,7 @@ def create_task_run_living_artifact(
     if run is None:
         return None, None
     try:
-        created = create_living_artifact(run=run, **artifact)
+        created = create_living_artifact(run=run, written_with_open_network=written_with_open_network, **artifact)
     except Exception as exc:
         logger.warning("Failed to create living artifact for task run %s: %s", run.id, exc)
         return None, str(exc)
@@ -4644,6 +4754,7 @@ def edit_task_run_living_artifact(
     team_id: int,
     *,
     caller_is_agent: bool = False,
+    written_with_open_network: bool = False,
     artifact_id: str | UUID,
     content: str | None = None,
     content_bytes: bytes | None = None,
@@ -4676,6 +4787,7 @@ def edit_task_run_living_artifact(
             source_storage_path=source_storage_path,
             name=name,
             metadata=metadata,
+            written_with_open_network=written_with_open_network,
         )
     except Exception as exc:
         logger.warning("Failed to edit living artifact %s for task run %s: %s", artifact_id, run.id, exc)
@@ -4780,6 +4892,68 @@ def presign_task_run_artifact_download(
     if not url:
         return None, "unavailable"
     return url, None
+
+
+def _run_has_open_network(run: TaskRun) -> bool:
+    if not (run.state or {}).get("sandbox_environment_id"):
+        return True
+    environment = run.get_sandbox_environment()
+    return (
+        environment is not None
+        and environment.network_access_level == SandboxNetworkAccessLevel.FULL
+        and environment.updated_at <= run.created_at
+    )
+
+
+def sandbox_token_has_open_network(
+    team_id: int, token_id: UUID | int | str, *, task_id: UUID | str | None = None
+) -> bool:
+    runs = TaskRun.objects.filter(team_id=team_id, state__sandbox_oauth_token_ids__contains=[str(token_id)])
+    if task_id is not None:
+        runs = runs.filter(task_id=task_id)
+    checked = False
+    for run in runs.select_related("task"):
+        if not _run_has_open_network(run):
+            return False
+        checked = True
+    return checked
+
+
+def task_run_artifact_entry(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str
+) -> dict[str, Any] | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return next(
+        (
+            entry
+            for entry in run.artifacts or []
+            if entry.get("id") == artifact_id
+            and entry.get("storage_path")
+            and not entry.get("dismissed_at")
+            and (
+                (entry.get("type") == "output" and entry.get("uploaded_by") == "user")
+                or (entry.get("type") in ("output", "artifact") and entry.get("source") == "agent_output")
+            )
+        ),
+        None,
+    )
+
+
+def read_task_run_html_artifact(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str
+) -> bytes | None:
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    entry = task_run_artifact_entry(run_id, task_id, team_id, artifact_id=artifact_id)
+    if entry is None or not is_html_artifact(str(entry.get("name") or ""), str(entry.get("content_type") or "")):
+        return None
+    try:
+        return object_storage.read_bytes(str(entry["storage_path"]), missing_ok=True)
+    except Exception:
+        logger.exception("task_run.artifact_preview_read_failed", extra={"task_run_id": str(run_id)})
+        return None
 
 
 def read_task_run_artifact(
@@ -5859,6 +6033,7 @@ def relay_task_run_message(
             delete_progress=True,
             message_id=message_id,
             trace_id=trace_id,
+            offer_reply_suggestions=True,
         )
     except Exception:
         logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(run.id)})
@@ -5927,6 +6102,9 @@ def _resolve_cloud_pr_authorship_mode(
         resolve_user_github_integration_for_task,
         user_github_integration_is_usable,
     )
+
+    if task.origin_product == Task.OriginProduct.ACCOUNT_AUDIT:
+        return None, None
 
     if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
         return pr_authorship_mode, None
@@ -7627,6 +7805,12 @@ def create_task(
         if github_user_integration is not None:
             validated_data["github_user_integration"] = github_user_integration.integration
 
+    if validated_data["origin_product"] == Task.OriginProduct.ACCOUNT_AUDIT:
+        validated_data["repository"] = None
+        validated_data["repositories"] = []
+        validated_data.pop("github_integration", None)
+        validated_data.pop("github_user_integration", None)
+
     title = (validated_data.get("title") or "").strip()
     if not title and (naming_source or validated_data.get("description")):
         validated_data["title"] = generate_task_title(naming_source or validated_data["description"])
@@ -7737,7 +7921,11 @@ def update_task(
         # Repo and credential are immutable for code-access-exempt tasks: a mutable repo reopens the
         # gate (see task_exempt_from_code_access), and provisioning injects whatever integration is
         # attached, so an attachable one would credential a run the create path left credential-less.
-        if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+        if task.origin_product in (
+            Task.OriginProduct.SIGNALS_CHAT,
+            Task.OriginProduct.SIGNAL_REPORT,
+            Task.OriginProduct.ACCOUNT_AUDIT,
+        ):
             validated_data.pop("repository", None)
             validated_data.pop("repositories", None)
             validated_data.pop("github_integration", None)

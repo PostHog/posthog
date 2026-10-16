@@ -6,14 +6,20 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
+from django.core.cache import caches
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.integration import Integration
 from posthog.models.project import Project
-from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
+from posthog.models.remote_config import (
+    REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
+    RemoteConfig,
+    RemoteConfigTokenChangeSyncError,
+)
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -796,10 +802,6 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         assert RemoteConfig.get_hypercache().get_from_cache(self.team.api_token) is not None
 
     def test_hypercache_uses_dedicated_cache_when_alias_registered(self):
-        from django.core.cache import caches
-
-        from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
-
         # When cache_alias is set, HyperCache.__init__ calls get_cache_writer_url which
         # reads CACHES[alias]["LOCATION"]. Provide a stub URL to satisfy that lookup;
         # the in-memory backend ignores it.
@@ -852,6 +854,76 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                 },
                 timeout=10,
             )
+
+
+class TestRemoteConfigTokenChange(_RemoteConfigBase):
+    def setUp(self):
+        super().setUp()
+        self.hypercache = RemoteConfig.get_hypercache()
+        self.old_token = self.team.api_token
+        self.team.api_token = "phc_new_token"
+        self.team.save()
+        self.hypercache.clear_cache("phc_new_token")
+
+    def test_token_change_writes_the_new_token_to_every_tier(self):
+        with patch("posthog.storage.object_storage.write") as mock_s3_write:
+            self.remote_config.sync_after_token_change(self.old_token)
+
+        assert self.hypercache.get_from_cache_with_source("phc_new_token")[1] == "redis"
+        written_keys = [call.args[0] for call in mock_s3_write.call_args_list]
+        assert self.hypercache.get_cache_key("phc_new_token") in written_keys
+
+    def test_token_change_drops_the_old_token_entry(self):
+        self.hypercache.set_cache_value_redis_only(self.old_token, self.remote_config.config)
+
+        with patch("posthog.storage.object_storage.delete") as mock_s3_delete:
+            self.remote_config.sync_after_token_change(self.old_token)
+
+        assert self.hypercache.get_from_cache_with_source(self.old_token)[1] != "redis"
+        mock_s3_delete.assert_called_once_with(self.hypercache.get_cache_key(self.old_token))
+
+    @patch("posthog.models.remote_config.requests.post")
+    def test_token_change_purges_both_tokens_from_the_cdn(self, mock_post):
+        with self.settings(
+            REMOTE_CONFIG_CDN_PURGE_ENDPOINT="https://api.cloudflare.com/client/v4/zones/MY_ZONE_ID/purge_cache",
+            REMOTE_CONFIG_CDN_PURGE_TOKEN="MY_TOKEN",
+            REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.posthog.com"],
+        ):
+            self.remote_config.sync_after_token_change(self.old_token)
+
+        purged = [file["url"] for call in mock_post.call_args_list for file in call.kwargs["json"]["files"]]
+        assert f"https://cdn.posthog.com/array/{self.old_token}/config" in purged
+        assert "https://cdn.posthog.com/array/phc_new_token/config" in purged
+
+    @parameterized.expand(
+        [
+            ("old_token_eviction", "posthog.storage.object_storage.delete"),
+            ("new_token_durable_write", "posthog.storage.object_storage.write"),
+        ]
+    )
+    def test_token_change_raises_when_a_tier_fails(self, _name, failing_call):
+        with patch(failing_call, side_effect=Exception("object storage unavailable")):
+            with pytest.raises(RemoteConfigTokenChangeSyncError):
+                self.remote_config.sync_after_token_change(self.old_token)
+
+        assert self.hypercache.get_from_cache_with_source("phc_new_token")[1] == "redis"
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "token-change-shared-cache",
+            },
+            FLAGS_DEDICATED_CACHE_ALIAS: {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "token-change-flags-cache",
+            },
+        }
+    )
+    def test_token_change_raises_when_the_shared_redis_delete_fails(self):
+        with patch.object(caches["default"], "delete", side_effect=ConnectionError("shared redis down")):
+            with pytest.raises(RemoteConfigTokenChangeSyncError):
+                self.remote_config.sync_after_token_change(self.old_token)
 
 
 class TestRemoteConfigRaceCondition(_RemoteConfigBase):

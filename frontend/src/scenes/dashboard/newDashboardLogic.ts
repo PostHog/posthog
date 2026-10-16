@@ -26,10 +26,6 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import {
-    legacyEntityToNode,
-    sanitizeRetentionEntity,
-} from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
@@ -50,6 +46,7 @@ import {
 } from 'products/mcp_analytics/frontend/nudge/mcpAnalyticsNudgeLogic'
 
 import { UNFILED_DASHBOARDS_FOLDER } from './dashboardConstants'
+import { legacyEntityToNode, sanitizeRetentionEntity } from './dashboardTemplateEntities'
 
 export interface NewDashboardForm {
     name: string

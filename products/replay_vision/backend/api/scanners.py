@@ -1704,6 +1704,10 @@ class WatchFeedQuerySerializer(serializers.Serializer):
             "follow one area without naming every scanner in it."
         ),
     )
+    created_by = serializers.CharField(
+        required=False,
+        help_text="Comma-separated user IDs. Restrict the feed to observations from scanners those users created.",
+    )
     search = serializers.CharField(
         required=False,
         help_text=(
@@ -1735,6 +1739,14 @@ class WatchFeedQuerySerializer(serializers.Serializer):
             return [UUID(raw_id) for raw_id in raw_ids]
         except ValueError:
             raise serializers.ValidationError("Scanner ids must be UUIDs.")
+
+    def validate_created_by(self, value: str) -> list[int]:
+        raw_ids = split_csv(value)
+        if not raw_ids:
+            raise serializers.ValidationError("At least one user id is required when the filter is set.")
+        if any(not raw_id.isdecimal() for raw_id in raw_ids):
+            raise serializers.ValidationError("User ids must be integers.")
+        return [int(raw_id) for raw_id in raw_ids]
 
 
 class WatchFeedSignalSerializer(serializers.Serializer):
@@ -2545,6 +2557,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 .values_list("id", flat=True)
             )
             allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in tagged_ids]
+        if params.get("created_by"):
+            created_ids = set(
+                ReplayScanner.objects.filter(
+                    team_id=self.team_id, id__in=allowed_ids, created_by_id__in=params["created_by"]
+                ).values_list("id", flat=True)
+            )
+            allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in created_ids]
         candidates = ReplayObservation.objects.filter(
             team_id=self.team_id,
             scanner_id__in=allowed_ids,

@@ -125,9 +125,13 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub router_initial_connection_window_bytes: WindowSize,
 
-    /// Per-call timeout for leader-routed property writes (ms).
+    /// Per-attempt timeout for leader-routed property writes and strong reads (ms).
     #[envconfig(default = "5000")]
     pub leader_request_timeout_ms: u64,
+
+    /// Attempts per leader-routed write or strong read, each under `leader_request_timeout_ms`.
+    #[envconfig(default = "2")]
+    pub leader_request_attempts: u32,
 
     /// etcd endpoints, comma separated. The delete saga groups its fence
     /// calls by leader partition, and the partition count lives in etcd.
@@ -196,6 +200,11 @@ pub struct Config {
     /// Warn when an op's attempt counter reaches this value.
     #[envconfig(default = "5")]
     pub lifecycle_attempt_alert_threshold: i32,
+
+    /// Merge saga drives allowed to outlive a caller that hangs up; past this
+    /// many a drive runs inline and stops with its caller. 0 disables.
+    #[envconfig(default = "256")]
+    pub lifecycle_detached_drive_limit: usize,
 
     /// Run the sweeper + GC loop for abandoned lifecycle ops; the lease
     /// arbitrates, so any number of instances may run it.

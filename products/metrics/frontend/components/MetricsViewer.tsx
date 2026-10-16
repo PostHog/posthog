@@ -5,6 +5,7 @@ import { useEffect, useMemo } from 'react'
 import { LemonBanner, LemonButton, LemonSwitch, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
+import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -13,8 +14,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
-import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
 import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
 import { MetricsHistogramQueryNode } from '../nodes/MetricsHistogramQueryNode'
@@ -63,6 +62,7 @@ export const MetricsViewer = (): JSX.Element => {
         metricsDisplay,
         heatmapEligible,
         histogramQueryNode,
+        metricsQueryNode,
     } = useValues(logic)
     const {
         setLiveRefresh,
@@ -309,6 +309,7 @@ export const MetricsViewer = (): JSX.Element => {
                                 fallbackName={formula || metricName || (language === 'promql' ? queryText : 'metric')}
                                 display={metricsDisplay}
                                 exemplars={chartMarkers}
+                                query={metricsQueryNode ?? undefined}
                             />
                         ) : !queryLoading ? (
                             <div className="h-full flex items-center justify-center text-secondary text-sm">

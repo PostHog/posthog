@@ -69,6 +69,18 @@ The final summary renders after teardown, logging is flushed, and the transcript
 The reporter emits plain-text records with stable labels so terminals and agents can scan the same output.
 `START` marks work entering flight, `DONE` marks successful completion, and `TIMEOUT`, `ERROR`, or `CRASH` name exceptional outcomes.
 Only the final overall run status uses `PASS` or `FAIL`.
+`CASE START` and `CASE PHASE` identify each trial. `CASE READY` marks completed execution with scoring still pending.
+The reporter prints phase counts and the oldest active trial every 30 seconds while suites run.
+The `scoring` duration includes waiting for the experiment results. It does not measure scorer execution alone.
+Public runs update Braintrust trial metadata after scoring so it contains the final phase durations.
+Scorer exceptions produce case errors in the console and final summary.
+The reporter writes output in worker threads so slow output does not stop the event loop.
+Terminal writes do not hold the transcript file lock, so progress output cannot block logging through that lock.
+The runner starts workflow cleanup before progress reporting.
+Cancellation during progress reporting does not stop workflow cleanup.
+The sandbox window always reclaims notebook kernels after the agent run, without another progress report.
+The console defaults to concise output. `--verbose` shows detailed logging and tracebacks.
+Both modes retain detailed logs in the transcript, including routine service stderr without a warning label.
 
 Every invocation that attempts an eval writes the combined stdout/stderr stream to `logs/harness/<timestamp>_<id>.log`.
 An explanatory line identifies the full run transcript, followed by the log's unlabeled absolute path as the final line in both the transcript and terminal.
@@ -85,6 +97,8 @@ Two consequences worth internalizing:
 - The per-case timeout is an `asyncio.wait_for` **inside** the slot. Braintrust's own `timeout` would have wrapped the whole task invocation, including time queued on the semaphore, killing cases that never got a sandbox.
 - A second `team_setup_slots` semaphore covers the full demo-data clone plus optional case seeder. It has one permit on ordinary local machines and four when `CODER` or `CI` is set, so managed environments prepare cases faster without making setup concurrency follow Modal's unbounded sandbox capacity.
 - The agent timeout begins after team setup. Waiting for either semaphore never consumes it.
+- All turns share a monotonic poll deadline. The harness reserves up to 120 seconds, capped at one quarter of the case budget, for diagnostic recovery and cleanup before outer cancellation.
+- Poll timeouts retain their stage and log counts in case metadata and local artifacts. They follow the existing scored-timeout path.
 - One-shot suites never touch the sandbox semaphore; a separate global `one_shot_slots` semaphore bounds their concurrently running cases under the same acquire-once, budget-inside rules.
 
 There are two event loops. The main loop owns the Temporal dev server, the suites, and the reporter.

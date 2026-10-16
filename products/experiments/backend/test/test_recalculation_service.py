@@ -587,10 +587,10 @@ class TestTimeseriesColdStartPayload(BaseTest):
 
     @parameterized.expand(
         [
-            # An exclusion changes both keys, so neither the current nor the legacy key finds the point.
+            # An exclusion changes both keys, so neither the current nor the version 1 key finds the point.
             ("excluded_variants", {"excluded_variants": ["test"]}),
-            # The legacy key ignores the credible interval, but the point carries the current key of the old
-            # settings, so the legacy fallback does not find it either.
+            # The version 1 key ignores the credible interval, but the point carries the current key of the old
+            # settings, so the version 1 fallback does not find it either.
             ("credible_interval", {"stats_config": {"bayesian": {"ci_level": 0.9}}}),
         ]
     )

@@ -1913,6 +1913,17 @@ export const EvaluationTargetEnumApi = {
 } as const
 
 /**
+ * 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'.
+ */
+export type EvaluationApiTargetConfigStrategy =
+    (typeof EvaluationApiTargetConfigStrategy)[keyof typeof EvaluationApiTargetConfigStrategy]
+
+export const EvaluationApiTargetConfigStrategy = {
+    FixedWindow: 'fixed_window',
+    Inactivity: 'inactivity',
+} as const
+
+/**
  * * `openai` - Openai
  * * `anthropic` - Anthropic
  * * `gemini` - Gemini
@@ -1967,6 +1978,11 @@ export type EvaluationApiEvaluationConfig =
            * @minLength 1
            */
           prompt: string
+          /**
+           * Judge method. Omit to keep the saved method; null restores automatic routing.
+           * @nullable
+           */
+          judge_method?: 'llm' | 'decision' | null
       }
     | {
           /**
@@ -2050,35 +2066,30 @@ export type EvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
+ * Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`.
  */
-export type EvaluationApiTargetConfig =
-    | {
-          /** Wait a fixed window after the first matching generation, then evaluate. */
-          strategy: 'fixed_window'
-          /**
-           * Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
-           * @minimum 10
-           * @maximum 604800
-           */
-          window_seconds?: number
-      }
-    | {
-          /** Evaluate once the unit has had no new activity for the quiet period. */
-          strategy: 'inactivity'
-          /**
-           * Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
-           * @minimum 10
-           * @maximum 86400
-           */
-          quiet_period_seconds?: number
-          /**
-           * Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
-           * @minimum 60
-           * @maximum 604800
-           */
-          max_age_seconds?: number
-      }
+export type EvaluationApiTargetConfig = {
+    /** 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'. */
+    strategy?: EvaluationApiTargetConfigStrategy
+    /**
+     * fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+     * @minimum 10
+     * @maximum 604800
+     */
+    window_seconds?: number
+    /**
+     * inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
+     * @minimum 10
+     * @maximum 86400
+     */
+    quiet_period_seconds?: number
+    /**
+     * inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+     * @minimum 60
+     * @maximum 604800
+     */
+    max_age_seconds?: number
+}
 
 /**
  * An evaluation that scores LLM generations, traces, or sessions.
@@ -2131,7 +2142,7 @@ export interface EvaluationApi {
      * * `trace` - Trace
      * * `session` - Session */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
+    /** Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. */
     target_config?: EvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
@@ -2277,6 +2288,11 @@ export type PatchedEvaluationApiEvaluationConfig =
            * @minLength 1
            */
           prompt: string
+          /**
+           * Judge method. Omit to keep the saved method; null restores automatic routing.
+           * @nullable
+           */
+          judge_method?: 'llm' | 'decision' | null
       }
     | {
           /**
@@ -2371,35 +2387,41 @@ export type PatchedEvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
+ * 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'.
  */
-export type PatchedEvaluationApiTargetConfig =
-    | {
-          /** Wait a fixed window after the first matching generation, then evaluate. */
-          strategy: 'fixed_window'
-          /**
-           * Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
-           * @minimum 10
-           * @maximum 604800
-           */
-          window_seconds?: number
-      }
-    | {
-          /** Evaluate once the unit has had no new activity for the quiet period. */
-          strategy: 'inactivity'
-          /**
-           * Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
-           * @minimum 10
-           * @maximum 86400
-           */
-          quiet_period_seconds?: number
-          /**
-           * Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
-           * @minimum 60
-           * @maximum 604800
-           */
-          max_age_seconds?: number
-      }
+export type PatchedEvaluationApiTargetConfigStrategy =
+    (typeof PatchedEvaluationApiTargetConfigStrategy)[keyof typeof PatchedEvaluationApiTargetConfigStrategy]
+
+export const PatchedEvaluationApiTargetConfigStrategy = {
+    FixedWindow: 'fixed_window',
+    Inactivity: 'inactivity',
+} as const
+
+/**
+ * Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`.
+ */
+export type PatchedEvaluationApiTargetConfig = {
+    /** 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'. */
+    strategy?: PatchedEvaluationApiTargetConfigStrategy
+    /**
+     * fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+     * @minimum 10
+     * @maximum 604800
+     */
+    window_seconds?: number
+    /**
+     * inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
+     * @minimum 10
+     * @maximum 86400
+     */
+    quiet_period_seconds?: number
+    /**
+     * inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+     * @minimum 60
+     * @maximum 604800
+     */
+    max_age_seconds?: number
+}
 
 /**
  * An evaluation that scores LLM generations, traces, or sessions.
@@ -2452,7 +2474,7 @@ export interface PatchedEvaluationApi {
      * * `trace` - Trace
      * * `session` - Session */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
+    /** Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. */
     target_config?: PatchedEvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
