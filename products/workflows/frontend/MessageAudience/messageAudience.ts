@@ -11,6 +11,7 @@ import {
 } from '~/types'
 
 import { urlForNewBroadcastWithAudience } from '../Broadcasts/broadcastAudiencePrefill'
+import type { EmailDraftRequestApi } from '../generated/api.schemas'
 import { type WorkflowTriggerConfig, urlForNewWorkflowWithTrigger } from '../Workflows/workflowTriggerPrefill'
 import { MessageDraft } from './messageDrafts'
 
@@ -28,6 +29,7 @@ export interface MessageAudience {
     sourceRecord?: string
     /** What the record is called, for naming the cohort of people already emailed about it. */
     sourceRecordName?: string
+    draftSource?: EmailDraftRequestApi
 }
 
 export function cohortAudienceProperties(cohort: { id: number; name?: string | null }): AnyPropertyFilter[] {
@@ -50,12 +52,14 @@ export function messageAudienceUrl(audience: MessageAudience, destination: Messa
             source: audience.source,
             sourceRecord: audience.sourceRecord,
             email: audience.broadcastEmail,
+            draftSource: audience.draftSource,
         })
     }
     return urlForNewWorkflowWithTrigger(
         audience.workflowTrigger ?? { type: 'batch', filters: { properties: audience.properties } },
         audience.source,
-        audience.workflowEmail
+        audience.workflowEmail,
+        audience.draftSource
     )
 }
 

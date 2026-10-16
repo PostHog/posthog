@@ -7,14 +7,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.cdp.templates._siteapps.template_notification_bar import template as notification_bar
-from posthog.cdp.templates._siteapps.template_pineapple_mode import template as pineapple_mode
-from posthog.cdp.templates.helpers import mock_transpile
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
-
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from products.cdp.backend.plugin_migrations import coerce_input_value, migrate_legacy_plugins
+from products.cdp.backend.templates._siteapps.template_notification_bar import template as notification_bar
+from products.cdp.backend.templates._siteapps.template_pineapple_mode import template as pineapple_mode
+from products.cdp.backend.templates.helpers import mock_transpile
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 
 
 class TestCoerceInputValue(SimpleTestCase):

@@ -27,7 +27,7 @@ class TestOpenAIAdsSourceConfig:
         assert config.name == ExternalDataSourceType.OPENAIADS
         # A finished source must be visible: stage-labelled, never hidden via unreleasedSource.
         assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.BETA
+        assert config.releaseStatus == ReleaseStatus.GA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/openai-ads"
         fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert [f.name for f in fields] == ["api_key"]

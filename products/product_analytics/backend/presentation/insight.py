@@ -1520,7 +1520,7 @@ class MCPInsightSerializer(InsightSerializer):
 
     Accepts raw product analytics queries and normalizes them into the correct saved-insight
     wrapper before persisting: HogQLQuery → DataVisualizationNode, insight queries
-    (TrendsQuery, FunnelsQuery, PathsQuery) → InsightVizNode. MetricsQuery and
+    (TrendsQuery, FunnelsQuery, PathsQuery) → InsightVizNode, EventsQuery → DataTableNode. MetricsQuery and
     MetricsHistogramQuery stay bare.
     """
 
@@ -1540,10 +1540,26 @@ class MCPInsightSerializer(InsightSerializer):
         except PydanticValidationError:
             pass
 
+        try:
+            return schema.DataTableNode(source=schema.EventsQuery.model_validate(value)).model_dump(
+                exclude_none=True, mode="json"
+            )
+        except PydanticValidationError:
+            pass
+
         # Already-wrapped node → use as-is
-        for wrapped_cls in (schema.DataVisualizationNode, schema.BIVisualizationNode, schema.InsightVizNode):
+        for wrapped_cls in (
+            schema.DataVisualizationNode,
+            schema.BIVisualizationNode,
+            schema.InsightVizNode,
+            schema.DataTableNode,
+        ):
             try:
                 wrapped_node = wrapped_cls.model_validate(value)
+                if isinstance(wrapped_node, schema.DataTableNode) and not isinstance(
+                    wrapped_node.source, schema.EventsQuery
+                ):
+                    raise serializers.ValidationError("MCP data table insights must have an EventsQuery source.")
                 normalized_query = wrapped_node.model_dump(exclude_none=True, mode="json")
                 if isinstance(wrapped_node, (schema.DataVisualizationNode, schema.BIVisualizationNode)):
                     box_plot = wrapped_node.chartSettings.boxPlot if wrapped_node.chartSettings else None
@@ -1552,6 +1568,12 @@ class MCPInsightSerializer(InsightSerializer):
                         for field in ("xAxisColumn", "seriesColumn"):
                             if field in box_plot.model_fields_set and getattr(box_plot, field) is None:
                                 normalized_box_plot[field] = None
+                if isinstance(wrapped_node, schema.BIVisualizationNode):
+                    for entry in normalized_query["config"].get("memberAliases", []):
+                        for alias in entry["aliases"]:
+                            alias.setdefault("value", None)
+                    if "colorBy" in wrapped_node.config.model_fields_set and wrapped_node.config.colorBy is None:
+                        normalized_query["config"]["colorBy"] = None
                 return normalized_query
             except PydanticValidationError:
                 pass

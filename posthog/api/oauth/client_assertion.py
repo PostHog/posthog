@@ -73,18 +73,9 @@ class UnknownSigningKeyError(ClientAssertionError):
 
 
 def _request_field(request: Any, name: str) -> str:
-    """Read a field from the request body, falling back to the query string.
-
-    RFC 7523 section 2.2 sends these as form parameters, which a GET has nowhere to put. The
-    GitHub grant listing endpoint is a GET, so without the query-string fallback a
-    private_key_jwt client could not authenticate there at all, while a client_secret one
-    could (its credentials ride the Basic header). An assertion is single-use and capped at
-    MAX_ASSERTION_LIFETIME_SECONDS, so one appearing in an access log is already spent.
-    """
+    """Read a field from the request body, where RFC 7523 section 2.2 sends it as a form parameter."""
     from_body = request.data.get(name) if hasattr(request, "data") else None
-    if from_body:
-        return str(from_body)
-    return str(request.query_params.get(name) or "") if hasattr(request, "query_params") else ""
+    return str(from_body or "")
 
 
 def extract_client_assertion(request: Any) -> ResolvedClientAssertion | None:

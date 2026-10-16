@@ -29,7 +29,11 @@ export function cohortSavedToast(cohort: Pick<CohortType, 'id' | 'name'>, source
                   action: () => {
                       captureMessageAudienceClicked(source, 'broadcast')
                       void openMessageAudience(
-                          { properties: cohortAudienceProperties(savedCohort), source },
+                          {
+                              properties: cohortAudienceProperties(savedCohort),
+                              source,
+                              draftSource: { source: 'cohort', source_id: String(savedCohort.id) },
+                          },
                           'broadcast'
                       )
                   },

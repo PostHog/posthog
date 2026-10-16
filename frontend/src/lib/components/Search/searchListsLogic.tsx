@@ -1,13 +1,22 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBell, IconClock, IconDownload, IconLeave, IconNotification, IconTerminal } from '@posthog/icons'
+import {
+    IconBell,
+    IconClock,
+    IconDownload,
+    IconLeave,
+    IconNotification,
+    IconSupport,
+    IconTerminal,
+} from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -253,7 +262,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     if (!isDev && !user?.is_staff && product.category === 'Unreleased') {
                         return false
                     }
-                    if (!isEnabledByFlag(product.flag, featureFlags)) {
+                    if (!isFileSystemImportFlagEnabled(product, featureFlags)) {
                         return false
                     }
                     return true
@@ -310,7 +319,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
-                    if (!isEnabledByFlag(item.flag, featureFlags)) {
+                    if (!isFileSystemImportFlagEnabled(item, featureFlags)) {
                         return false
                     }
                     return true
@@ -359,7 +368,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
-                    if (!isEnabledByFlag(item.flag, featureFlags)) {
+                    if (!isFileSystemImportFlagEnabled(item, featureFlags)) {
                         return false
                     }
                     return true
@@ -528,6 +537,27 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     itemType: null,
                     lastViewedAt: sceneLogViewsByRef['Subscriptions'] ?? null,
                     record: { type: 'subscriptions' },
+                },
+                // The user's own tickets with PostHog. The Support product holds tickets from their customers.
+                {
+                    id: 'misc-my-tickets',
+                    name: 'Your tickets',
+                    displayName: 'Your tickets',
+                    category: 'misc',
+                    productCategory: 'PostHog support',
+                    href: urls.myTickets(),
+                    icon: <IconSupport />,
+                    itemType: 'my_tickets',
+                    searchKeywords: [
+                        'my tickets',
+                        'support tickets',
+                        'posthog support',
+                        'contact support',
+                        'support',
+                        'help',
+                    ],
+                    lastViewedAt: sceneLogViewsByRef['MyTickets'] ?? null,
+                    record: { type: 'my_tickets' },
                 },
                 {
                     id: 'misc-logout',

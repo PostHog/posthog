@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 12 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -333,6 +333,60 @@ export const ConversationsTicketsReplyCreateBody = () => zod
         rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
     })
     .describe('Payload for posting a reply or internal note to a ticket.')
+
+/**
+ * Create a new outbound ticket and send the first message to the customer.
+ *
+ * Idempotent within a short window: an identical compose retried while the first is still
+ * in flight returns 409, and one retried after it committed returns the same ticket with a
+ * 200. Only a genuinely new request creates a ticket and emails the customer.
+ */
+export const ConversationsTicketsComposeCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const conversationsTicketsComposeCreateBodyRecipientDistinctIdMax = 400
+
+export const conversationsTicketsComposeCreateBodyEmailSubjectMax = 500
+
+export const conversationsTicketsComposeCreateBodyMessageMax = 5000
+
+export const conversationsTicketsComposeCreateBodyTagsItemMax = 255
+
+export const conversationsTicketsComposeCreateBodyTagsMax = 100
+
+export const ConversationsTicketsComposeCreateBody = () => zod.object({
+    recipient_email: zod.email().describe('Recipient email address.'),
+    recipient_distinct_id: zod
+        .string()
+        .max(conversationsTicketsComposeCreateBodyRecipientDistinctIdMax)
+        .optional()
+        .describe('PostHog distinct_id to link the ticket to a person. Falls back to recipient_email.'),
+    email_subject: zod
+        .string()
+        .max(conversationsTicketsComposeCreateBodyEmailSubjectMax)
+        .optional()
+        .describe('Email subject line.'),
+    email_config_id: zod
+        .string()
+        .nullish()
+        .describe(
+            "ID of the support email channel to send from. Omit it to send from the team's default support channel."
+        ),
+    message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
+    rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
+    tags: zod
+        .array(zod.string().max(conversationsTicketsComposeCreateBodyTagsItemMax))
+        .max(conversationsTicketsComposeCreateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.'
+        ),
+})
 
 export const ConversationsViewsListParams = () => zod.object({
     project_id: zod

@@ -48,6 +48,7 @@ from products.signals.backend.report_checks import (
     soak_minutes_from_gap,
     validate_metric_check_for_write,
 )
+from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 
 logger = structlog.get_logger(__name__)
@@ -112,7 +113,7 @@ def create_check(
             soak_minutes = soak_minutes_from_gap(next_run_at, now)
         first_run_at = (
             next_run_at
-            if next_run_at is not None and locked_report.status == SignalReport.Status.RESOLVED
+            if next_run_at is not None and locked_report.effective_status == SignalReport.Status.RESOLVED
             else now + timedelta(minutes=soak_minutes)
         )
         metric_ready_at = None
@@ -129,7 +130,7 @@ def create_check(
         )
         if open_checks.count() >= MAX_ACTIVE_CHECKS_PER_REPORT:
             raise CheckCreationError(f"A report may carry at most {MAX_ACTIVE_CHECKS_PER_REPORT} active checks.")
-        if locked_report.status == SignalReport.Status.RESOLVED:
+        if locked_report.effective_status == SignalReport.Status.RESOLVED:
             status = SignalReportCheck.Status.ACTIVE
             next_run_at = first_run_at
             if metric_ready_at is not None:
@@ -469,18 +470,15 @@ def cancel_check(
     return bool(cancelled)
 
 
-def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime) -> int:
-    """Start the clock on a resolved report's pending checks. Returns how many were armed.
+def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime, armed_at: datetime) -> int:
+    """Arm rows individually because each check carries its own soak and schedule.
 
-    Called from the report's `post_save` receiver, so every resolve path reaches it: the pull
-    request merge webhook, a manual resolve in the inbox, and an MCP state write alike.
-
-    Each row is armed individually rather than in one UPDATE, because `next_run_at` and `expires_at`
-    are derived from the row's own soak and schedule.
+    The measurement origin can precede this write when implementation completes before the status update.
+    Expiry eligibility and the write timestamp use the arming time instead.
     """
     pending = list(
         SignalReportCheck.objects.for_team(team_id)
-        .filter(report_id=report_id, status=SignalReportCheck.Status.PENDING)
+        .filter(report_id=report_id, status=SignalReportCheck.Status.PENDING, expires_at__gt=armed_at)
         .select_related("report__team")
     )
     armed = 0
@@ -509,15 +507,35 @@ def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at
                 next_run_at=next_run_at,
                 measurement_start_at=resolved_at if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD else None,
                 expires_at=expires_at,
-                updated_at=resolved_at,
+                updated_at=armed_at,
             )
         )
     return armed
 
 
-def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime) -> int:
+def arm_pending_checks(
+    *,
+    team_id: int,
+    report_id: str | uuid.UUID,
+    resolved_at: datetime,
+    monitoring_enabled: bool | None = None,
+    expected_monitoring_started_at: datetime | None = None,
+) -> int:
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
-        if report is None or report.status != SignalReport.Status.RESOLVED:
+        if report is None:
             return 0
-        return _arm_pending_checks(team_id=team_id, report_id=report_id, resolved_at=resolved_at)
+        status = effective_report_status(report.status, team_id=team_id, monitoring_enabled=monitoring_enabled)
+        if expected_monitoring_started_at is not None:
+            if (
+                status != SignalReport.Status.MONITORING
+                or report.monitoring_started_at != expected_monitoring_started_at
+            ):
+                return 0
+            resolved_at = expected_monitoring_started_at
+            armed_at = timezone.now()
+        elif status == SignalReport.Status.RESOLVED:
+            armed_at = resolved_at
+        else:
+            return 0
+        return _arm_pending_checks(team_id=team_id, report_id=report_id, resolved_at=resolved_at, armed_at=armed_at)

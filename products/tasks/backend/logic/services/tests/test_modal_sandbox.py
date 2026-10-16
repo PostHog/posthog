@@ -617,6 +617,7 @@ class TestModalSandboxAgentServer:
         assert f"--taskId {shlex.quote('task-123')}" in command
         assert f"--runId {shlex.quote('run-456')}" in command
         assert f"POSTHOG_SANDBOX_ID={shlex.quote(mock_sandbox.id)}" in command
+        assert "POSTHOG_AGENT_STATE_DIR=/tmp/workspace/.posthog/agent-state" in command
         assert "--sandboxId" not in command
         assert f"--mode {shlex.quote('background')}" in command
         assert "--createPr true" in command
@@ -882,6 +883,8 @@ class TestModalSandboxAgentServer:
             ({"benjamin_enabled": True}, "POSTHOG_BENJAMIN=1"),
             ({"benjamin_enabled": False}, "POSTHOG_BENJAMIN=0"),
             ({}, "POSTHOG_BENJAMIN=0"),
+            ({"pi_acp_conversation": True}, "POSTHOG_PI_CONVERSATION_FORMAT=acp"),
+            ({}, "POSTHOG_PI_CONVERSATION_FORMAT=pi"),
         ],
     )
     def test_start_agent_server_toggle_env(self, mock_sandbox: Any, toggles, expected_env):

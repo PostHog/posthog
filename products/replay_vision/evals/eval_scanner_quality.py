@@ -21,6 +21,8 @@ from google.genai import (
     types as genai_types,
 )
 
+from posthog.temporal.session_replay.rasterize_recording.types import NavigationChange
+
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
@@ -159,6 +161,7 @@ async def _scan_task(
                 # A case collected before the map was captured scores as if nothing was cut.
                 video_clock=video_clock_from_export_context({"inactivity_periods": golden.inactivity_periods})
                 or VideoClock(spans=()),
+                navigation=[NavigationChange.model_validate(change) for change in golden.navigation],
             )
         except ScannerFailureError as exc:
             # A scan the model cannot complete is a prompt-quality signal (broken schema compliance),

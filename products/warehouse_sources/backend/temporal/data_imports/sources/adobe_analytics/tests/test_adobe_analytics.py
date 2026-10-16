@@ -292,6 +292,31 @@ class TestMetadataEndpoints:
         assert result.requests[1].query == {suite_param: ("rs1",)}
         assert result.final_state is None
 
+    def test_annotations_request_expanded_fields_across_all_owners_on_every_page(self) -> None:
+        result = _driver().run(
+            "annotations",
+            [
+                _token(),
+                ScriptedResponse(json={"content": [{"id": "a1", "name": "Launch"}], "lastPage": False}),
+                ScriptedResponse(json={"content": [{"id": "a2", "name": "Outage"}], "lastPage": True}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.items == [[{"id": "a1", "name": "Launch"}], [{"id": "a2", "name": "Outage"}]]
+        assert result.params("includeType") == [None, "all", "all"]
+        for expansion in result.params("expansion")[1:]:
+            assert expansion is not None
+            assert {"name", "dateRange", "modifiedDate", "rsid"} <= set(expansion.split(","))
+
+    def test_users_served_as_a_bare_array_are_yielded_once(self) -> None:
+        result = _driver().run("users", [_token(), ScriptedResponse(json=[{"loginId": 1, "login": "jane"}])])
+
+        assert result.raised is None
+        assert result.items == [[{"loginId": 1, "login": "jane"}]]
+        assert result.paths == ["/ims/token/v3", "/api/gcid/users"]
+        assert result.final_state is None
+
 
 class TestReportEndpoint:
     @mock.patch(f"{_MODULE}._today", return_value=date(2024, 1, 3))
