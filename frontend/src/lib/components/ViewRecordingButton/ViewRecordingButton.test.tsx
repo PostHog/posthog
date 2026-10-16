@@ -10,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { sessionRecordingInfoLogic } from './sessionRecordingInfoLogic'
+import { RecordingExistsState, sessionRecordingInfoLogic } from './sessionRecordingInfoLogic'
 import ViewRecordingButton, { recordingDisabledReason } from './ViewRecordingButton'
 
 describe('recordingDisabledReason', () => {
@@ -55,6 +55,7 @@ describe('ViewRecordingButton recording availability', () => {
         ['control', true, 'disabled', false, true],
         ['session_lookup', true, 'disabled', false, false],
         ['session_lookup', false, 'disabled', false, true],
+        ['session_lookup', true, 'disabled', true, false],
     ])(
         'uses the %s variant when the session lookup returns %s',
         async (variant, exists, status, hasRecording, isDisabled) => {
@@ -94,4 +95,80 @@ describe('ViewRecordingButton recording availability', () => {
             }
         }
     )
+
+    it.each([
+        ['active', true],
+        ['active', undefined],
+        [undefined, true],
+    ])('does not look up an already enabled recording with status %s and existence %s', (status, hasRecording) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.REPLAY_EVENT_RECORDING_AVAILABILITY]: 'session_lookup',
+        })
+
+        render(
+            <Provider>
+                <ViewRecordingButton sessionId="session_1" recordingStatus={status} hasRecording={hasRecording} />
+            </Provider>
+        )
+
+        expect(sessionRecordingInfoLogic.values.pendingFetches).toEqual({})
+    })
+
+    it.each([RecordingExistsState.NotExists, RecordingExistsState.Error])(
+        'retries a %s lookup after its result expires',
+        async (state) => {
+            const now = jest.spyOn(Date, 'now').mockReturnValue(1_000)
+            useMocks({
+                post: {
+                    '/api/projects/:team/session_recordings/batch_check_exists': { results: { session_1: true } },
+                },
+            })
+            sessionRecordingInfoLogic.actions.recordExistence({ session_1: state })
+
+            sessionRecordingInfoLogic.actions.checkRecordingInfo('session_1')
+            expect(sessionRecordingInfoLogic.values.pendingFetches).toEqual({})
+
+            now.mockReturnValue(31_001)
+            sessionRecordingInfoLogic.actions.checkRecordingInfo('session_1')
+            await waitFor(() => expect(sessionRecordingInfoLogic.values.getRecordingExists('session_1')).toBe(true))
+            now.mockRestore()
+        }
+    )
+
+    it('enables an earlier event when a recording appears after remount', async () => {
+        const now = jest.spyOn(Date, 'now').mockReturnValue(1_000)
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.REPLAY_EVENT_RECORDING_AVAILABILITY]: 'session_lookup',
+        })
+        useMocks({
+            post: {
+                '/api/projects/:team/session_recordings/batch_check_exists': { results: { session_1: false } },
+            },
+        })
+
+        render(
+            <Provider>
+                <ViewRecordingButton sessionId="session_1" recordingStatus="disabled" hasRecording={false} />
+            </Provider>
+        )
+        await waitFor(() => expect(sessionRecordingInfoLogic.values.getRecordingExists('session_1')).toBe(false))
+        cleanup()
+
+        now.mockReturnValue(31_001)
+        useMocks({
+            post: {
+                '/api/projects/:team/session_recordings/batch_check_exists': { results: { session_1: true } },
+            },
+        })
+        render(
+            <Provider>
+                <ViewRecordingButton sessionId="session_1" recordingStatus="disabled" hasRecording={false} />
+            </Provider>
+        )
+
+        await waitFor(() =>
+            expect(screen.getByRole('button', { name: 'View recording' })).toHaveAttribute('aria-disabled', 'false')
+        )
+        now.mockRestore()
+    })
 })

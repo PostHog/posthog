@@ -82,7 +82,9 @@ export default function ViewRecordingButton({
     const availabilityVariant = isExperimentEligible
         ? featureFlags[FEATURE_FLAGS.REPLAY_EVENT_RECORDING_AVAILABILITY]
         : null
-    const useSessionLookup = availabilityVariant === 'session_lookup'
+    const useSessionLookup =
+        availabilityVariant === 'session_lookup' &&
+        recordingDisabledReason(sessionId, recordingStatus, hasRecording) !== null
 
     const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
     const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
@@ -117,7 +119,7 @@ export default function ViewRecordingButton({
     const onClickWithTracking = (): void => {
         if (isExperimentEligible) {
             posthog.capture('view_recording_clicked', {
-                availability_variant: useSessionLookup ? 'session_lookup' : 'control',
+                availability_variant: availabilityVariant === 'session_lookup' ? 'session_lookup' : 'control',
             })
         }
         onClick()
