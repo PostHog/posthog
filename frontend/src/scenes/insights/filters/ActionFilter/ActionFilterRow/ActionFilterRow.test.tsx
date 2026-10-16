@@ -996,6 +996,7 @@ describe('ActionFilterRow', () => {
                         type: PropertyFilterType.Event,
                     },
                     { key: '$feature_flag_response', operator: PropertyOperator.IsSet, type: PropertyFilterType.Event },
+                    { key: '$feature_flag', operator: PropertyOperator.IsNotSet, type: PropertyFilterType.Event },
                     {
                         key: '$browser',
                         value: 'Chrome',
@@ -1038,8 +1039,13 @@ describe('ActionFilterRow', () => {
                             },
                             {
                                 key: 'response',
-                                value: ['', 'null'],
-                                operator: PropertyOperator.NotIn,
+                                operator: PropertyOperator.IsSet,
+                                type: PropertyFilterType.DataWarehouse,
+                            },
+                            {
+                                key: 'flag_key',
+                                value: [''],
+                                operator: PropertyOperator.In,
                                 type: PropertyFilterType.DataWarehouse,
                             },
                             { key: "properties.$lib = 'web'", type: PropertyFilterType.HogQL },

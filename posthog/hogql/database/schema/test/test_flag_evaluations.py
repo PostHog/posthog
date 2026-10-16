@@ -8,6 +8,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.schema import (
+    DataWarehousePropertyFilter,
     ElementPropertyFilter,
     EventPropertyFilter,
     GroupPropertyFilter,
@@ -100,6 +101,20 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         self.row_uuid = uuid.uuid4()
         self.person_id = uuid.uuid4()
         self.occurred_at = datetime.now(UTC) - timedelta(minutes=5)
+        self._insert_row(
+            self.row_uuid,
+            {
+                "$feature_flag": "probe-flag",
+                "$feature_flag_response": "variant-x",
+                "$session_id": SESSION_ID,
+                "$feature_flag_request_id": "req-456",
+                "$group_0": "acme",
+                "probe": EVENT_PROBE,
+                "count": NUMERIC_PROBE,
+            },
+        )
+
+    def _insert_row(self, row_uuid: uuid.UUID, properties: dict[str, str | int | None]) -> None:
         # The nine typed columns are DEFAULT-computed from `properties` on the sharded table, so a
         # producer cannot write them and this insert must not name them.
         sync_execute(
@@ -110,19 +125,9 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             """,
             [
                 (
-                    str(self.row_uuid),
+                    str(row_uuid),
                     "$feature_flag_called",
-                    json.dumps(
-                        {
-                            "$feature_flag": "probe-flag",
-                            "$feature_flag_response": "variant-x",
-                            "$session_id": SESSION_ID,
-                            "$feature_flag_request_id": "req-456",
-                            "$group_0": "acme",
-                            "probe": EVENT_PROBE,
-                            "count": NUMERIC_PROBE,
-                        }
-                    ),
+                    json.dumps(properties),
                     self.occurred_at,
                     self.team.pk,
                     "probe-distinct-id",
@@ -139,7 +144,11 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         where: str = "",
         modifiers: HogQLQueryModifiers | None = None,
         source: str = "posthog.flag_evaluations",
+        *,
+        row_uuids: tuple[uuid.UUID, ...] = (),
+        placeholders: dict[str, ast.Expr] | None = None,
     ):
+        uuids = ", ".join(f"'{row_uuid}'" for row_uuid in row_uuids or (self.row_uuid,))
         # settings.DEBUG is False under the test runner, so the org gate fail-closes and prunes the
         # table. test_database.py covers the gate itself; here it only has to be out of the way.
         context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
@@ -148,15 +157,23 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             return_value=True,
         ):
             return execute_hogql_query(
-                f"SELECT {columns} FROM {source} WHERE uuid = '{self.row_uuid}'{where}",
+                f"SELECT {columns} FROM {source} WHERE uuid IN ({uuids}){where}",
                 team=self.team,
+                placeholders=placeholders,
                 context=context,
                 modifiers=modifiers,
                 pretty=False,
             )
 
-    def _select(self, columns: str, where: str = ""):
-        return self._execute(columns, where).results
+    def _select(
+        self,
+        columns: str,
+        where: str = "",
+        *,
+        row_uuids: tuple[uuid.UUID, ...] = (),
+        placeholders: dict[str, ast.Expr] | None = None,
+    ):
+        return self._execute(columns, where, row_uuids=row_uuids, placeholders=placeholders).results
 
     def _override(self, person_id: uuid.UUID, version: int, is_deleted: bool = False) -> None:
         sync_execute(
@@ -244,6 +261,35 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert "properties_group_custom" not in (json_read.clickhouse or "")
         assert map_read.results == json_read.results == [(EVENT_PROBE,)]
 
+    @parameterized.expand(
+        [
+            ("json_null", {"$feature_flag_response": None}),
+            ("missing", {}),
+            ("empty_string", {"$feature_flag_response": ""}),
+            ("null_string", {"$feature_flag_response": "null"}),
+        ]
+    )
+    def test_null_or_missing_response_reads_and_filters_as_null(
+        self, _name: str, response_property: dict[str, str | None]
+    ):
+        row_uuid = uuid.uuid4()
+        self._insert_row(row_uuid, {"$feature_flag": "probe-flag", **response_property})
+        is_set, is_not_set = (
+            property_to_expr(DataWarehousePropertyFilter(key="response", operator=operator), self.team)
+            for operator in (PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET)
+        )
+
+        both_rows = (row_uuid, self.row_uuid)
+
+        assert self._select("response", row_uuids=(row_uuid,)) == [(None,)]
+        assert self._select("uuid", " AND {filter}", row_uuids=both_rows, placeholders={"filter": is_not_set}) == [
+            (row_uuid,)
+        ]
+        assert self._select("uuid", " AND {filter}", row_uuids=both_rows, placeholders={"filter": is_set}) == [
+            (self.row_uuid,)
+        ]
+        assert self._select("uuid", " AND response != 'variant-x'", row_uuids=(row_uuid,)) == [(row_uuid,)]
+
     def test_person_id_follows_a_later_merge(self):
         # Ingestion never rewrites the person on the row, so only the read can correct it. Drop the
         # override join and `uniq(person_id)` counts the pre-merge and the post-merge person as two
@@ -298,9 +344,25 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         columns = response.columns or []
 
         assert "flag_evaluation_person_id" not in columns
+        assert "flag_evaluation_response" not in columns
         assert response.results[0][columns.index("person_id")] == merged_person_id
         # The fields copied from events exist only so that filters resolve. They must not reach the expansion.
         assert not [column for column in columns if column.startswith(("$virt_", "elements_chain", "$session_id"))]
+
+    def test_catalog_lists_response_as_nullable(self):
+        # Schema discovery reads the declared nullability, not the expression's type.
+        with patch(
+            "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",
+            return_value=True,
+        ):
+            results = execute_hogql_query(
+                "SELECT column_name, is_nullable FROM system.information_schema.columns "
+                "WHERE table_name = 'posthog.flag_evaluations' AND column_name IN ('response', 'flag_key')",
+                team=self.team,
+                user=self.user,
+            ).results
+
+        assert {name: bool(nullable) for name, nullable in results or []} == {"response": True, "flag_key": False}
 
     @parameterized.expand(
         [
@@ -324,6 +386,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         [
             ("flag_key", "flag_key", "$feature_flag", "probe-flag"),
             ("response", "response", "$feature_flag_response", "variant-x"),
+            ("raw_response", "flag_evaluation_response", "$feature_flag_response", "variant-x"),
             ("session_id", "session_id", "$session_id", SESSION_ID),
             ("request_id", "request_id", "$feature_flag_request_id", "req-456"),
             ("group_key", "`$group_0`", "$group_0", "acme"),
