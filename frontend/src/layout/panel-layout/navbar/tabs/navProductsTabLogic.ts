@@ -229,7 +229,7 @@ export interface navProductsTabLogicMeta {
         pinnedItems: (
             allItems: FileSystemImport[],
             search: string,
-            currentTeam: any,
+            currentTeam: TeamPublicType | TeamType | null,
             featureFlags: FeatureFlagsSet
         ) => FileSystemImport[]
         groupedItems: (allItems: FileSystemImport[], search: string) => ProductsItemGroup[]
