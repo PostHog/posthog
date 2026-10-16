@@ -20,11 +20,14 @@ import {
 } from 'products/workflows/frontend/generated/api'
 import type { HogFlowScheduleApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { newBroadcastAgentLogic } from '../Broadcasts/newBroadcastAgentLogic'
 import { MessageCategory, optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
 import { SCHEDULED_TRIGGER_TYPES } from '../Workflows/hogflows/steps/types'
+import { newWorkflowLogic } from '../Workflows/newWorkflowLogic'
 import {
     CalendarRange,
     CalendarSend,
+    CalendarSendKind,
     CalendarTypeFilter,
     CalendarView,
     ScheduledEmailFlow,
@@ -76,6 +79,12 @@ export interface sendCalendarLogicActions {
     loadCohortsByIds: (args_0: { ids: number[] }) => {
         ids: number[]
     } // cohortsModel
+    startNewBroadcast: () => {
+        value: true
+    } // newBroadcastAgentLogic
+    startNewWorkflow: () => {
+        value: true
+    } // newWorkflowLogic
     applyMove: (
         send: CalendarSend,
         days: number,
@@ -142,6 +151,13 @@ export interface sendCalendarLogicActions {
     setView: (view: CalendarView) => {
         view: CalendarView
     }
+    startNewSend: (
+        kind: CalendarSendKind,
+        day: string
+    ) => {
+        day: string
+        kind: CalendarSendKind
+    }
     undoMove: (
         send: CalendarSend,
         previous: HogFlowScheduleApi
@@ -189,7 +205,14 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
             optOutCategoriesLogic,
             ['categories'],
         ],
-        actions: [cohortsModel, ['loadCohortsByIds']],
+        actions: [
+            cohortsModel,
+            ['loadCohortsByIds'],
+            newBroadcastAgentLogic,
+            ['startNewBroadcast'],
+            newWorkflowLogic,
+            ['startNewWorkflow'],
+        ],
     })),
     actions({
         setView: (view: CalendarView) => ({ view }),
@@ -199,6 +222,7 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
         goForward: true,
         goBackward: true,
         reportSendOpened: (send: CalendarSend) => ({ send }),
+        startNewSend: (kind: CalendarSendKind, day: string) => ({ kind, day }),
         moveSend: (send: CalendarSend, day: string) => ({ send, day }),
         applyMove: (send: CalendarSend, days: number, at: dayjs.Dayjs) => ({ send, days, at }),
         undoMove: (send: CalendarSend, previous: HogFlowScheduleApi) => ({ send, previous }),
@@ -418,6 +442,18 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
                 scheduled_flows: values.scheduledFlows?.length ?? 0,
                 sends_in_range: values.sends.length,
             })
+        },
+        startNewSend: ({ kind, day }) => {
+            // pinned: analytics event name
+            posthog.capture('send calendar new send started', {
+                kind,
+                days_from_today: dayjs.utc(day).diff(dayjs.utc(values.today), 'day'),
+            })
+            if (kind === 'broadcast') {
+                actions.startNewBroadcast()
+            } else {
+                actions.startNewWorkflow()
+            }
         },
         reportSendOpened: ({ send }) => {
             // pinned: analytics event name

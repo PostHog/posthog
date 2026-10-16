@@ -25,6 +25,7 @@ import { MessagingSetup } from './MessagingSetup'
 import { MessagingTabActions } from './MessagingTabActions'
 import { isMessagingSetupTab } from './messagingTabs'
 import { SendCalendar } from './SendCalendar/SendCalendar'
+import { SendCalendarTabLabel } from './SendCalendar/SendCalendarTabLabel'
 import { MessagingSetupTabLabel } from './setupGuide/MessagingSetupTabLabel'
 import { WorkflowsOnboardingWizard } from './setupGuide/wizard/WorkflowsOnboardingWizard'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
@@ -254,7 +255,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     workflowsTab,
                     showCalendar
                         ? {
-                              label: 'Calendar',
+                              label: <SendCalendarTabLabel />,
                               key: 'calendar',
                               link: urls.workflows('calendar'),
                               content: <SendCalendar />,
