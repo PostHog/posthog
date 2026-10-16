@@ -143,7 +143,8 @@ SELECT
     groupUniqArrayIf(tool_name, matches) AS tools_used,
     argMaxIf(event_distinct_id, timestamp, matches) AS distinct_id,
     argMaxIf(client_name, timestamp, matches) AS mcp_client_name,
-    countIf(matches AND is_error) AS error_calls
+    countIf(matches AND is_error) AS error_calls,
+    uniqIf(event_distinct_id, matches) AS distinct_id_count
 FROM (
     SELECT
         $session_id AS session_id,
@@ -396,6 +397,7 @@ def _row_to_session_dict(row: tuple[Any, ...]) -> dict[str, Any]:
         "distinct_id": row[6] or "",
         "mcp_client_name": row[7] or "",
         "error_calls": int(row[8] or 0),
+        "distinct_id_count": int(row[9] or 0),
     }
 
 
@@ -821,7 +823,7 @@ def _to_session_contract(
         error_calls=row["error_calls"],
         session_start=row["session_start"],
         session_end=row["session_end"],
-        distinct_id_count=0,
+        distinct_id_count=row["distinct_id_count"],
         tools_used=row["tools_used"],
         mcp_client_name=row["mcp_client_name"],
         distinct_id=row["distinct_id"],
