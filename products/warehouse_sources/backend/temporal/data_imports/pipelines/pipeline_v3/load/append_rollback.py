@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     APPEND_RUN_MARKER_KEY,
     ExternalDataSchema,
+    attempt_of,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
@@ -67,14 +68,6 @@ class AppendRunMarker:
         return {"job_id": self.job_id, "run_uuid": self.run_uuid, "table_id": self.table_id, "version": self.version}
 
 
-def _attempt_of(run_uuid: str) -> tuple[str, int] | None:
-    """Split `<workflow run id>-a<attempt>`, the run id format of the extract pipeline."""
-    workflow_run_id, separator, attempt = run_uuid.rpartition("-a")
-    if not separator or not workflow_run_id or not attempt.isdigit():
-        return None
-    return workflow_run_id, int(attempt)
-
-
 def clear_append_run_marker(schema_id: str, team_id: int, job_id: str, run_uuid: str) -> None:
     def clear_if_owned(config: dict[str, Any]) -> None:
         marker = AppendRunMarker.from_config(config)
@@ -106,7 +99,7 @@ class UnfinishedAppendRuns:
         marker = self._marker()
         if marker is None or marker.run_uuid == run_uuid:
             return False
-        current, candidate = _attempt_of(marker.run_uuid), _attempt_of(run_uuid)
+        current, candidate = attempt_of(marker.run_uuid), attempt_of(run_uuid)
         if current is None or candidate is None:
             return False
         return current[0] == candidate[0] and candidate[1] < current[1]

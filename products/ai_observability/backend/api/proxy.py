@@ -14,6 +14,7 @@ from time import perf_counter
 from typing import Any
 
 from django.core.cache import cache
+from django.db import models
 from django.http.response import HttpResponseBase
 from django.utils import timezone
 
@@ -41,13 +42,19 @@ from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
-from products.ai_observability.backend.api.metrics import LLMA_PROXY_BYOK_REQUESTS, llma_track_latency
+from products.ai_observability.backend.api.datasets import JSONObjectField
+from products.ai_observability.backend.api.metrics import (
+    LLMA_PROXY_BYOK_EMPTY_MODEL_LISTS,
+    LLMA_PROXY_BYOK_REQUESTS,
+    llma_track_latency,
+)
 from products.ai_observability.backend.llm import (
     PLAYGROUND_MODEL_IDS,
     SUPPORTED_MODELS_WITH_THINKING,
     Client,
     CompletionRequest,
     ModelInfo,
+    OutputSchema,
     get_playground_models,
 )
 from products.ai_observability.backend.llm.decisions import decision_evaluations_enabled
@@ -56,7 +63,12 @@ from products.ai_observability.backend.llm.errors import (
     ProviderHostUnresolvedError,
     UnsupportedProviderError,
 )
-from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_BASE_URL, decision_model_ids
+from products.ai_observability.backend.llm.providers.openai import OPENAI_DECISIONS_BASE_URL, OpenAIConfig
+from products.ai_observability.backend.llm.providers.openrouter import (
+    OPENROUTER_BASE_URL,
+    decision_model_ids,
+    non_chat_model_ids,
+)
 from products.ai_observability.backend.models.provider_keys import (
     LLMProvider,
     LLMProviderKey,
@@ -88,6 +100,27 @@ PROVIDER_DISPLAY_NAMES: dict[str, str] = {
 }
 
 
+class LLMProxyResponseFormatType(models.TextChoices):
+    JSON_SCHEMA = "json_schema", "JSON schema"
+
+
+class LLMProxyJSONSchemaSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        default="response", help_text="Schema name, sent to providers that require one (OpenAI)."
+    )
+    schema = JSONObjectField(help_text="JSON schema the reply must match. Sent to the provider unchanged.")
+    strict = serializers.BooleanField(
+        default=True, help_text="Enforce the schema exactly, where the provider has a strictness switch."
+    )
+
+
+class LLMProxyResponseFormatSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=LLMProxyResponseFormatType.choices, help_text="Only `json_schema` is supported."
+    )
+    json_schema = LLMProxyJSONSchemaSerializer(help_text="The schema and its options, in the OpenAI shape.")
+
+
 class LLMProxyCompletionSerializer(serializers.Serializer):
     system = serializers.CharField(allow_blank=True)
     messages = serializers.ListField(child=serializers.DictField())
@@ -102,6 +135,9 @@ class LLMProxyCompletionSerializer(serializers.Serializer):
     reasoning_level = serializers.ChoiceField(
         choices=["minimal", "low", "medium", "high"], required=False, allow_null=True
     )
+    response_format = LLMProxyResponseFormatSerializer(
+        required=False, allow_null=True, help_text="Ask the model for JSON that matches a schema."
+    )
     provider_key_id = serializers.UUIDField(required=False, allow_null=True)
 
 
@@ -112,7 +148,10 @@ class LLMProxyModelInfoSerializer(serializers.Serializer):
     description = serializers.CharField(allow_blank=True, help_text="Description of the model.")
     is_recommended = serializers.BooleanField(help_text="Whether the provider recommends this model.")
     supports_decisions = serializers.BooleanField(
-        default=False, help_text="Whether this model supports decision questions instead of chat completions."
+        default=False, help_text="Whether this model supports decision questions."
+    )
+    supports_chat = serializers.BooleanField(
+        default=True, help_text="Whether this model supports chat completions with written reasoning."
     )
 
 
@@ -346,6 +385,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 seed=data.get("seed"),
                 max_tokens=data.get("max_tokens"),
                 tools=data.get("tools"),
+                output_schema=self._build_output_schema(data.get("response_format")),
                 thinking=thinking,
                 reasoning_level=data.get("reasoning_level"),
             )
@@ -429,6 +469,13 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
             return Response({"error": "An internal error occurred"}, status=500)
 
+    @staticmethod
+    def _build_output_schema(response_format: dict[str, Any] | None) -> OutputSchema | None:
+        if not response_format:
+            return None
+        json_schema = response_format["json_schema"]
+        return OutputSchema(schema=json_schema["schema"], name=json_schema["name"], strict=json_schema["strict"])
+
     def _extract_request_properties(self, validated_data: dict, model: str | None = None) -> dict:
         """Extract common properties from request for event tracking"""
         model_name = model or validated_data.get("model")
@@ -441,6 +488,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             "has_seed": validated_data.get("seed") is not None,
             "has_max_tokens": validated_data.get("max_tokens") is not None,
             "has_reasoning_level": validated_data.get("reasoning_level") is not None,
+            "has_response_format": validated_data.get("response_format") is not None,
             "has_system_prompt": bool(validated_data.get("system")),
         }
 
@@ -497,13 +545,28 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     # [], so caching that would persist a failure for the full TTL.
                     if models:
                         cache.set(cache_key, models, timeout=MODELS_CACHE_TIMEOUT_SECONDS)
+                    else:
+                        LLMA_PROXY_BYOK_EMPTY_MODEL_LISTS.labels(provider=provider_key.provider).inc()
+                        logger.info(
+                            "llma_proxy_byok_empty_model_list",
+                            provider=provider_key.provider,
+                            team_id=provider_key.team_id,
+                            provider_key_id=str(provider_key.id),
+                        )
                 recommended = Client.recommended_models(provider_key.provider)
                 provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
                 decision_models: frozenset[str] = frozenset()
+                non_chat_models: frozenset[str] = frozenset()
                 if provider_key.provider == LLMProvider.OPENROUTER and decision_evaluations_enabled(
                     provider_key.team_id, base_url=OPENROUTER_BASE_URL
                 ):
                     decision_models = decision_model_ids() or frozenset()
+                    non_chat_models = non_chat_model_ids() or frozenset()
+                    models = list(dict.fromkeys([*models, *sorted(decision_models)]))
+                elif provider_key.provider == LLMProvider.OPENAI and decision_evaluations_enabled(
+                    provider_key.team_id, base_url=OPENAI_DECISIONS_BASE_URL
+                ):
+                    decision_models = OpenAIConfig.DECISION_MODELS
                     models = list(dict.fromkeys([*models, *sorted(decision_models)]))
                 return Response(
                     [
@@ -514,6 +577,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                             description="",
                             is_recommended=m in recommended,
                             supports_decisions=provider_key.provider == LLMProvider.SYSTEM_ONE or m in decision_models,
+                            supports_chat=provider_key.provider != LLMProvider.SYSTEM_ONE and m not in non_chat_models,
                         )
                         for m in models
                     ]

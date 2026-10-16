@@ -166,10 +166,14 @@ export function newScanner(templateKey?: string | null, teamName?: string | null
         credit_limit: null,
         // Materialized here so toggling the limit on and off compares equal to this baseline again.
         credit_limit_enabled: false,
+        free_only: false,
         // An unsaved scanner has no spend yet, so it can't have hit a limit it doesn't have.
         credits_used_against_limit: 0,
+        limit_from_free_credits: false,
         limit_reached: false,
         sweep_throttle_factor: 1,
+        dashboard_id: null,
+        dashboard_suggested: false,
     } as const
 
     const template = findScannerTemplate(templateKey ?? undefined)

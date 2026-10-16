@@ -169,6 +169,11 @@ def _fetch_integration_row(integration_id: int, team_id: int) -> Integration:
             _backoff_sleep(attempt)
 
 
+META_TOKEN_REFRESH_ERROR_MESSAGE = (
+    "Your Meta Ads connection has expired or been revoked. Reconnect your Meta Ads account to continue."
+)
+
+
 class MetaAdsTokenRefreshError(Exception):
     """Meta refused to refresh the integration's access token — only re-authorization fixes it."""
 
@@ -180,9 +185,7 @@ def get_integration_by_id(integration_id: int, team_id: int) -> Integration:
     meta_ads_integration.refresh_access_token()
 
     if meta_ads_integration.integration.errors == ERROR_TOKEN_REFRESH_FAILED:
-        raise MetaAdsTokenRefreshError(
-            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
-        )
+        raise MetaAdsTokenRefreshError(META_TOKEN_REFRESH_ERROR_MESSAGE)
 
     return meta_ads_integration.integration
 

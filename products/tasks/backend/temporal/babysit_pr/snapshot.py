@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -8,9 +9,22 @@ BODY_EXCERPT_MAX_CHARS = 1500
 
 CONFLICT_KEY = "merge-conflict"
 
+# `@posthog <command>` lines belong to the pull request comment dispatcher (products/commands),
+# which also marks its replies. Neither is feedback for this loop, and acting on a command such as
+# `@posthog stamp` here would run it a second time.
+_DISPATCHER_COMMAND_LINE_RE = re.compile(r"^ {0,3}@posthog(?![\w-])", re.IGNORECASE)
+_DISPATCHER_REPLY_MARKER = "<!-- posthog-github-command:"
+
 
 def _excerpt(body: str | None) -> str:
     return truncate_for_temporal_payload((body or "").strip(), BODY_EXCERPT_MAX_CHARS)
+
+
+def _without_dispatcher_text(body: str | None) -> str:
+    """The comment without dispatcher commands, or nothing for a dispatcher reply."""
+    if not body or _DISPATCHER_REPLY_MARKER in body:
+        return ""
+    return "\n".join(line for line in body.splitlines() if not _DISPATCHER_COMMAND_LINE_RE.match(line)).strip()
 
 
 @dataclass(frozen=True)
@@ -110,11 +124,11 @@ class PRSnapshot:
                     id=comment["id"],
                     author=comment.get("author"),
                     author_association=comment.get("author_association"),
-                    body_excerpt=_excerpt(comment.get("body")),
+                    body_excerpt=_excerpt(body),
                     url=comment.get("url"),
                 )
                 for comment in raw.get("comments") or []
-                if comment.get("id")
+                if comment.get("id") and (body := _without_dispatcher_text(comment.get("body")))
             ],
         )
 

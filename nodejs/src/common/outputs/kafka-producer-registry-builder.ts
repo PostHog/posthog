@@ -1,6 +1,7 @@
 import { ProducerGlobalConfig } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { BlackholeKafkaProducer } from '~/common/kafka/blackhole-producer'
+import { KafkaProducer, KafkaProducerWrapper } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
 
 import { AllowedConfigKey, parseProducerConfig } from './kafka-producer-config'
@@ -89,5 +90,14 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
         // generic union P. The builder guarantees this: every `register()` call adds an
         // entry to `this.registrations`, and `build()` creates a producer for each entry.
         return new KafkaProducerRegistry<P>(producers as Record<P, KafkaProducerWrapper>)
+    }
+
+    buildBlackhole(): KafkaProducerRegistry<P> {
+        const producers: Record<string, KafkaProducer> = {}
+        for (const name of this.registrations.keys()) {
+            logger.warn('⚠️', `Producer "${name}" is a blackhole and discards every message`)
+            producers[name] = new BlackholeKafkaProducer(name)
+        }
+        return new KafkaProducerRegistry<P>(producers as Record<P, KafkaProducer>)
     }
 }

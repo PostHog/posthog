@@ -9,7 +9,11 @@ jest.mock('lib/utils/copyToClipboard', () => ({
     copyToClipboard: jest.fn(),
 }))
 
-const span = { trace_id: 'trace-abc-123', name: 'GET /api/projects', timestamp: '2026-06-11T08:00:00.000Z' } as Span
+const span = {
+    trace_id: '4BF92F3577B34DA6A3CE929D0E0E4736',
+    name: 'GET /api/projects',
+    timestamp: '2026-06-11T08:00:00.000Z',
+} as Span
 
 describe('SpanRowActions', () => {
     beforeEach(() => {
@@ -33,14 +37,14 @@ describe('SpanRowActions', () => {
     it('copies the trace id', () => {
         const { container } = render(<SpanRowActions span={span} onViewTrace={jest.fn()} />)
         fireEvent.click(container.querySelector('[data-attr="tracing-copy-trace-id"]')!)
-        expect(copyToClipboard).toHaveBeenCalledWith('trace-abc-123', 'trace ID')
+        expect(copyToClipboard).toHaveBeenCalledWith('4BF92F3577B34DA6A3CE929D0E0E4736', 'trace ID')
     })
 
     it('copies a canonical trace link carrying the ts hint', () => {
         const { container } = render(<SpanRowActions span={span} onViewTrace={jest.fn()} />)
         fireEvent.click(container.querySelector('[data-attr="tracing-copy-link"]')!)
         expect(copyToClipboard).toHaveBeenCalledWith(
-            `${window.location.origin}/tracing?trace=trace-abc-123&ts=2026-06-11T08%3A00%3A00.000Z`,
+            `${window.location.origin}/tracing?trace=4BF92F3577B34DA6A3CE929D0E0E4736&ts=2026-06-11T08%3A00%3A00.000Z`,
             'trace link'
         )
     })

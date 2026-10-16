@@ -9,7 +9,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AnnotationCreateSchema = () => {
     const AnnotationsCreateBody = orvalSchemas.AnnotationsCreateBody()
-    return AnnotationsCreateBody.omit({ creation_type: true, dashboard_item: true, dashboard_id: true, deleted: true })
+    return AnnotationsCreateBody.omit({ creation_type: true, deleted: true })
 }
 
 const annotationCreate = (): ToolBase<ReturnType<typeof AnnotationCreateSchema>, Schemas.Annotation> => ({
@@ -23,6 +23,12 @@ const annotationCreate = (): ToolBase<ReturnType<typeof AnnotationCreateSchema>,
         }
         if (params.date_marker !== undefined) {
             body['date_marker'] = params.date_marker
+        }
+        if (params.dashboard_item !== undefined) {
+            body['dashboard_item'] = params.dashboard_item
+        }
+        if (params.dashboard_id !== undefined) {
+            body['dashboard_id'] = params.dashboard_id
         }
         if (params.scope !== undefined) {
             body['scope'] = params.scope
@@ -130,12 +136,7 @@ const AnnotationsPartialUpdateSchema = () => {
     const AnnotationsPartialUpdateBody = orvalSchemas.AnnotationsPartialUpdateBody()
     const AnnotationsPartialUpdateParams = orvalSchemas.AnnotationsPartialUpdateParams()
     return AnnotationsPartialUpdateParams.omit({ project_id: true }).extend(
-        AnnotationsPartialUpdateBody.omit({
-            creation_type: true,
-            dashboard_item: true,
-            dashboard_id: true,
-            deleted: true,
-        }).shape
+        AnnotationsPartialUpdateBody.omit({ creation_type: true, deleted: true }).shape
     )
 }
 
@@ -153,6 +154,12 @@ const annotationsPartialUpdate = (): ToolBase<
         }
         if (params.date_marker !== undefined) {
             body['date_marker'] = params.date_marker
+        }
+        if (params.dashboard_item !== undefined) {
+            body['dashboard_item'] = params.dashboard_item
+        }
+        if (params.dashboard_id !== undefined) {
+            body['dashboard_id'] = params.dashboard_id
         }
         if (params.scope !== undefined) {
             body['scope'] = params.scope
@@ -172,10 +179,34 @@ const annotationsPartialUpdate = (): ToolBase<
     },
 })
 
+const ChangeFeedListSchema = () => {
+    const ChangeFeedListQueryParams = orvalSchemas.ChangeFeedListQueryParams()
+    return ChangeFeedListQueryParams
+}
+
+const changeFeedList = (): ToolBase<ReturnType<typeof ChangeFeedListSchema>, Schemas.ChangeFeed> => ({
+    name: 'change-feed-list',
+    schema: ChangeFeedListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ChangeFeedListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ChangeFeed>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/change_feed/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'annotation-create': annotationCreate,
     'annotation-delete': annotationDelete,
     'annotation-retrieve': annotationRetrieve,
     'annotations-list': annotationsList,
     'annotations-partial-update': annotationsPartialUpdate,
+    'change-feed-list': changeFeedList,
 }

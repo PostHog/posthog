@@ -1,12 +1,15 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.membrain import (
     MembrainSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.membrain import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.membrain.source import MembrainSource
 
 
@@ -65,20 +68,19 @@ class TestMembrainSource:
     )
     def test_validate_credentials_rejects_invalid_subdomain_without_probe(self, _name: str, subdomain: str) -> None:
         config = MembrainSourceConfig(api_key="mb-key", subdomain=subdomain)
-        with mock.patch.object(source_module, "validate_credentials") as mock_validate:
+        with scripted_network([]) as network:
             valid, message = self.source.validate_credentials(config, self.team_id)
         assert valid is False
         assert message == "Membrain account subdomain is invalid"
-        mock_validate.assert_not_called()
+        assert network.requests_log == []
 
     def test_validate_credentials_delegates_to_probe(self) -> None:
-        # The status and body mapping is covered by the membrain.validate_credentials unit
-        # tests; here we only guard that the source extracts the credentials and returns the
-        # probe result unchanged.
-        with mock.patch.object(source_module, "validate_credentials", return_value=(True, None)) as mock_validate:
+        with scripted_network([ScriptedResponse(json=[])]) as network:
             result = self.source.validate_credentials(self.config, self.team_id)
         assert result == (True, None)
-        mock_validate.assert_called_once_with("mb-key", "acme")
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].url == "https://acme.membrain.com/API/v2/users/"
+        assert network.requests_log[0].headers["apikey"] == "mb-key"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.membrain.source.membrain_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
@@ -96,7 +98,7 @@ class TestMembrainSource:
         assert kwargs["resumable_source_manager"] is manager
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Membrain schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Unknown Membrain schema 'not_a_table'"

@@ -5884,6 +5884,135 @@
                     "description": "List wrapper for OpenAPI schema generation — the field stores an array of metrics.",
                     "items": {
                         "properties": {
+                            "breakdownAttributionType": {
+                                "anyOf": [
+                                    {
+                                        "enum": ["first_touch", "last_touch", "step"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                            },
+                            "breakdownAttributionValue": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                            },
+                            "breakdownFilter": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "breakdown_limit": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Maximum number of breakdown values to compute results for."
+                                            },
+                                            "breakdowns": {
+                                                "anyOf": [
+                                                    {
+                                                        "items": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "properties": {
+                                                                        "property": {
+                                                                            "description": "Property name to break down by.",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "enum": [
+                                                                                        "event",
+                                                                                        "person",
+                                                                                        "session"
+                                                                                    ],
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ],
+                                                                            "description": "Where the property lives. Defaults to 'event'."
+                                                                        }
+                                                                    },
+                                                                    "required": ["property"],
+                                                                    "type": "object"
+                                                                },
+                                                                {
+                                                                    "properties": {
+                                                                        "group_type_index": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "const": 0,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 1,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 2,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 3,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 4,
+                                                                                    "type": "number"
+                                                                                }
+                                                                            ],
+                                                                            "description": "Which group type the property belongs to."
+                                                                        },
+                                                                        "property": {
+                                                                            "description": "Property name to break down by.",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "const": "group",
+                                                                            "default": "group",
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
+                                                                    "required": ["group_type_index", "property"],
+                                                                    "type": "object"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "maxItems": 3,
+                                                        "type": "array"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Properties to break the metric results down by."
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Break the metric results down by up to 3 event, person, session or group properties."
+                            },
                             "completion_event": {
                                 "anyOf": [
                                     {
@@ -7582,6 +7711,135 @@
                     "description": "List wrapper for OpenAPI schema generation — the field stores an array of metrics.",
                     "items": {
                         "properties": {
+                            "breakdownAttributionType": {
+                                "anyOf": [
+                                    {
+                                        "enum": ["first_touch", "last_touch", "step"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                            },
+                            "breakdownAttributionValue": {
+                                "anyOf": [
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                            },
+                            "breakdownFilter": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "breakdown_limit": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Maximum number of breakdown values to compute results for."
+                                            },
+                                            "breakdowns": {
+                                                "anyOf": [
+                                                    {
+                                                        "items": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "properties": {
+                                                                        "property": {
+                                                                            "description": "Property name to break down by.",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "enum": [
+                                                                                        "event",
+                                                                                        "person",
+                                                                                        "session"
+                                                                                    ],
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ],
+                                                                            "description": "Where the property lives. Defaults to 'event'."
+                                                                        }
+                                                                    },
+                                                                    "required": ["property"],
+                                                                    "type": "object"
+                                                                },
+                                                                {
+                                                                    "properties": {
+                                                                        "group_type_index": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "const": 0,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 1,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 2,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 3,
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "const": 4,
+                                                                                    "type": "number"
+                                                                                }
+                                                                            ],
+                                                                            "description": "Which group type the property belongs to."
+                                                                        },
+                                                                        "property": {
+                                                                            "description": "Property name to break down by.",
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "const": "group",
+                                                                            "default": "group",
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
+                                                                    "required": ["group_type_index", "property"],
+                                                                    "type": "object"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "maxItems": 3,
+                                                        "type": "array"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Properties to break the metric results down by."
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Break the metric results down by up to 3 event, person, session or group properties."
+                            },
                             "completion_event": {
                                 "anyOf": [
                                     {

@@ -738,14 +738,19 @@ def _multi_search_not_found_for_values(expr: ast.Expr, value: list) -> ast.Expr:
     return ast.Not(expr=_multi_search_found_for_values(expr, value))
 
 
-def _validate_regex(value: ValueT) -> None:
+# log_errors=False keeps RE2 from writing rejected patterns to stderr.
+_RE2_QUIET = re2.Options()
+_RE2_QUIET.log_errors = False
+
+
+def validate_regex(value: ValueT) -> None:
     """Reject an invalid regular expression with a clear user-facing error rather
     than letting ClickHouse fail the whole query with CANNOT_COMPILE_REGEXP. The
     same RE2 engine ClickHouse uses validates the pattern here."""
     if not isinstance(value, str):
         return
     try:
-        re2.compile(value)
+        re2.compile(value, options=_RE2_QUIET)
     except re2.error as err:
         raise QueryError(f"Invalid regular expression: '{value}'") from err
 
@@ -822,7 +827,7 @@ def _expr_to_compare_op(
             values_list = cast(list, [value])
         return _multi_search_not_found_for_values(expr, values_list)
     elif operator == PropertyOperator.REGEX:
-        _validate_regex(value)
+        validate_regex(value)
         return ast.Call(
             name="ifNull",
             args=[
@@ -831,7 +836,7 @@ def _expr_to_compare_op(
             ],
         )
     elif operator == PropertyOperator.NOT_REGEX:
-        _validate_regex(value)
+        validate_regex(value)
         return ast.Call(
             name="ifNull",
             args=[
@@ -1223,6 +1228,7 @@ def property_to_expr(
         "event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics", "log_resource"
     ] = "event",
     strict: bool = False,
+    cohort_via_distinct_id: bool = False,
 ) -> ast.Expr:
     if isinstance(property, dict):
         is_behavioral = property.get("type") == "behavioral"
@@ -1238,7 +1244,10 @@ def property_to_expr(
                 raise QueryError(f"Invalid behavioral property filter: {e}")
             return ast.Constant(value=1)
     elif isinstance(property, list):
-        properties = [property_to_expr(p, team, scope, strict=strict) for p in property]
+        properties = [
+            property_to_expr(p, team, scope, strict=strict, cohort_via_distinct_id=cohort_via_distinct_id)
+            for p in property
+        ]
         if len(properties) == 0:
             return ast.Constant(value=1)
         if len(properties) == 1:
@@ -1269,12 +1278,24 @@ def property_to_expr(
         if len(property.values) == 0:
             return ast.Constant(value=1)
         if len(property.values) == 1:
-            return property_to_expr(property.values[0], team, scope, strict=strict)
+            return property_to_expr(
+                property.values[0], team, scope, strict=strict, cohort_via_distinct_id=cohort_via_distinct_id
+            )
 
         if property.type == PropertyOperatorType.AND or property.type == FilterLogicalOperator.AND_:
-            return ast.And(exprs=[property_to_expr(p, team, scope, strict=strict) for p in property.values])
+            return ast.And(
+                exprs=[
+                    property_to_expr(p, team, scope, strict=strict, cohort_via_distinct_id=cohort_via_distinct_id)
+                    for p in property.values
+                ]
+            )
         else:
-            return ast.Or(exprs=[property_to_expr(p, team, scope, strict=strict) for p in property.values])
+            return ast.Or(
+                exprs=[
+                    property_to_expr(p, team, scope, strict=strict, cohort_via_distinct_id=cohort_via_distinct_id)
+                    for p in property.values
+                ]
+            )
     elif isinstance(property, EmptyPropertyFilter):
         return ast.Constant(value=1)
     elif isinstance(property, FlagPropertyFilter):
@@ -1691,19 +1712,37 @@ def property_to_expr(
         if not isinstance(property.value, (str, int)):
             raise ValidationError("Cohort property value must be a cohort ID")
         try:
-            cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+            cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value, deleted=False)
         except Cohort.DoesNotExist:
             # The id comes from the request, so a deleted or foreign cohort must read as
-            # bad input rather than escaping as an unhandled DoesNotExist.
+            # bad input rather than escaping as an unhandled DoesNotExist. `cohort()` and the
+            # IN COHORT transform skip deleted cohorts too, so the filter must fail here, not
+            # at print time when the whole query has already been built.
             raise QueryError(f"Cohort {property.value} does not exist")
+        # Kludge: negation is outdated but still used in places
+        negated = property.negation or property.operator == PropertyOperator.NOT_IN.value
+
+        if cohort_via_distinct_id:
+            # `person_id` on a warehouse table can be an alias of the configured `distinct_id_field`,
+            # which holds arbitrary strings. Cohort membership is defined over person UUIDs, so
+            # comparing the two makes ClickHouse parse those strings as UUIDs and fail the query.
+            return ast.CompareOperation(
+                left=ast.Field(chain=["distinct_id"]),
+                op=(ast.CompareOperationOp.NotIn if negated else ast.CompareOperationOp.In),
+                right=ast.SelectQuery(
+                    select=[ast.Field(chain=["distinct_id"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["person_distinct_ids"])),
+                    where=ast.CompareOperation(
+                        left=ast.Field(chain=["person_id"]),
+                        op=ast.CompareOperationOp.InCohort,
+                        right=ast.Constant(value=cohort.pk),
+                    ),
+                ),
+            )
+
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
-            op=(
-                ast.CompareOperationOp.NotInCohort
-                # Kludge: negation is outdated but still used in places
-                if property.negation or property.operator == PropertyOperator.NOT_IN.value
-                else ast.CompareOperationOp.InCohort
-            ),
+            op=(ast.CompareOperationOp.NotInCohort if negated else ast.CompareOperationOp.InCohort),
             right=ast.Constant(value=cohort.pk),
         )
 
@@ -1803,6 +1842,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
                 exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
                 if step.href_matching == "regex":
+                    validate_regex(step.href)
                     exprs.append(
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.Regex,
@@ -1829,6 +1869,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
             if step.text is not None:
                 value = step.text
                 if step.text_matching == "regex":
+                    validate_regex(value)
                     exprs.append(
                         parse_expr(
                             "arrayExists(x -> x =~ {value}, elements_chain_texts)",
@@ -1864,6 +1905,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
                     right=ast.Constant(value=step.url),
                 )
             elif step.url_matching == "regex":
+                validate_regex(step.url)
                 expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Regex,
                     left=ast.Field(
@@ -1967,6 +2009,10 @@ def element_property_key_to_breakdown_expr(key: str) -> ast.Expr:
 
 def selector_to_expr(selector_string: str):
     selector = Selector(selector_string, escape_slashes=False)
+    if selector.is_unsatisfiable():
+        # The id-only shortcut below skips the regex, so [id="a"][id="b"] would match every
+        # element with id "b". A selector that no element can satisfy matches no event.
+        return ast.Constant(value=False)
     exprs = []
     regex = build_selector_regex(selector)
     exprs.append(parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=regex)}))

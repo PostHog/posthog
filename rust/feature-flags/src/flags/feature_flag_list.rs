@@ -1306,7 +1306,7 @@ mod tests {
     /// in a way that breaks deserialization.
     ///
     /// See the expand-and-contract process in the HYPERCACHE CONTRACT comments at:
-    ///   - posthog/api/feature_flag.py (MinimalFeatureFlagSerializer)
+    ///   - products/feature_flags/backend/api/feature_flag.py (MinimalFeatureFlagSerializer)
     ///   - rust/feature-flags/src/flags/flag_models.rs (FeatureFlag struct)
     #[test]
     fn test_hypercache_contract() {

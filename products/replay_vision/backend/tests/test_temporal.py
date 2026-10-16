@@ -42,8 +42,8 @@ from posthog.session_recordings.queries.session_replay_events import SessionEven
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.replay_vision.backend.api.observation_progress import stream_observation_progress
-from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.api.observation_progress import _ObservationState, stream_observation_progress
+from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import (
     _RELEASE_GRACE_SECONDS,
     pending_enqueue_claims_for_scanner,
@@ -502,7 +502,7 @@ class TestCreateObservationActivity:
     def test_skips_insert_when_monthly_quota_exhausted(self) -> None:
         scanner = _make_scanner()
         with patch(
-            "products.replay_vision.backend.temporal.activities.create_observation.quota_state"
+            "products.replay_vision.backend.temporal.activities.create_observation.quota_state_for_cap"
         ) as mock_snapshot:
             mock_snapshot.return_value = QuotaSnapshot(
                 credit_limit=5,
@@ -549,6 +549,28 @@ class TestCreateObservationActivity:
 
     @parameterized.expand(
         [
+            # Billing allows far more spend, so only the free credits stop the scanner.
+            ("free_credits_bind", 1_000_000, FREE_TIER_MONTHLY_CREDITS, "free_credits"),
+            # The org's own limit sits below the free credits, so it is the org that is out.
+            ("org_limit_binds", 1_000, 1_000, "quota"),
+        ]
+    )
+    def test_free_only_refusal_names_what_stopped_it(
+        self, _name: str, org_limit: int, spent: int, expected_reason: str
+    ) -> None:
+        scanner = _make_scanner(free_only=True)
+        seed_scanner_spend(_make_scanner(team=scanner.team, name="spender"), spent)
+        with (
+            patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit),
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.posthoganalytics.capture"
+            ) as capture,
+        ):
+            assert self._admit(scanner, "sess-free").was_created is False
+        assert [c.kwargs["properties"]["reason"] for c in capture.call_args_list] == [expected_reason]
+
+    @parameterized.expand(
+        [
             ("quota", 5, 5),
             ("consent", None, None),
         ]
@@ -568,7 +590,7 @@ class TestCreateObservationActivity:
         # consent is checked first.
         with (
             patch(
-                "products.replay_vision.backend.temporal.activities.create_observation.quota_state",
+                "products.replay_vision.backend.temporal.activities.create_observation.quota_state_for_cap",
                 return_value=QuotaSnapshot(
                     credit_limit=5,
                     credits_used=5,
@@ -884,8 +906,7 @@ class TestCreateObservationActivity:
         release.assert_called_once()
 
     def test_concurrent_admissions_for_two_capped_scanners_do_not_serialize_each_other(self) -> None:
-        # The admission lock is per scanner row: two different capped scanners on one team must both
-        # admit their own observation, with no cross-scanner budget bleed or lock coupling.
+        # Two capped scanners on one team must both admit their own observation, with no cross-scanner budget bleed.
         credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
         scanner_a = _make_scanner(credit_limit=credits)
         scanner_b = ReplayScanner.objects.create(
@@ -927,34 +948,70 @@ class TestCreateObservationActivity:
 
         assert created == {"sibling-a": True, "sibling-b": True}
 
-    def test_retry_near_the_cap_reclaims_its_own_pending_row(self) -> None:
+    @parameterized.expand([("uncapped", None, False), ("capped", 1_000, False), ("free_only", None, True)])
+    def test_concurrent_admissions_across_scanners_cannot_exceed_org_credit_limit(
+        self, _name: str, scanner_limit: int | None, free_only: bool
+    ) -> None:
+        # Without the org-level admission, both pass the unlocked quota read and bill past the limit.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
+        scanner_a = _make_scanner(credit_limit=scanner_limit, free_only=free_only)
+        scanner_b = _make_scanner(
+            team=scanner_a.team, name="org-sibling", credit_limit=scanner_limit, free_only=free_only
+        )
+        # Free-only scanners race for the last free credits while billing still allows far more spend.
+        org_limit = credits
+        if free_only:
+            seed_scanner_spend(_make_scanner(team=scanner_a.team, name="spender"), FREE_TIER_MONTHLY_CREDITS - credits)
+            org_limit = 1_000_000
+        barrier = threading.Barrier(2)
+        created: dict[str, bool] = {}
+
+        def admit(scanner: ReplayScanner, session_id: str) -> None:
+            barrier.wait()
+            try:
+                created[session_id] = self._admit(scanner, session_id).was_created
+            except ApplicationError as e:
+                if e.type != SCANNER_ADMISSION_BUSY_ERROR_TYPE:
+                    raise
+                created[session_id] = False
+            finally:
+                connections.close_all()
+
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit):
+            threads = [
+                threading.Thread(target=admit, args=(scanner_a, "org-race-a")),
+                threading.Thread(target=admit, args=(scanner_b, "org-race-b")),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=30)
+        assert not any(thread.is_alive() for thread in threads)
+
+        assert sorted(created.values()) == [False, True]
+        assert ReplayObservation.objects.filter(team=scanner_a.team, status=ObservationStatus.PENDING).count() == 1
+
+    @parameterized.expand([("scanner_cap", True), ("org_limit", False)])
+    def test_retry_near_the_cap_reclaims_its_own_pending_row(self, _name: str, scanner_capped: bool) -> None:
         # A Temporal retry whose first attempt committed the insert but lost the result must get its
         # row back: that row's own reservation fills the budget, so a plain refusal would strand it
         # PENDING forever while the workflow gives up.
         credits = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH.value)
-        scanner = _make_scanner(credit_limit=credits)
-        first_attempt = create_observation_activity(
-            CreateObservationInputs(
-                scanner_id=scanner.id,
-                team_id=scanner.team_id,
-                session_id="sess-retry",
-                triggered_by=ObservationTrigger.SCHEDULE,
-                triggered_by_user_id=None,
-                workflow_id="wf-retry",
-            )
+        scanner = _make_scanner(credit_limit=credits if scanner_capped else None)
+        inputs = CreateObservationInputs(
+            scanner_id=scanner.id,
+            team_id=scanner.team_id,
+            session_id="sess-retry",
+            triggered_by=ObservationTrigger.SCHEDULE,
+            triggered_by_user_id=None,
+            workflow_id="wf-retry",
         )
-        assert first_attempt.was_created is True
-
-        second_attempt = create_observation_activity(
-            CreateObservationInputs(
-                scanner_id=scanner.id,
-                team_id=scanner.team_id,
-                session_id="sess-retry",
-                triggered_by=ObservationTrigger.SCHEDULE,
-                triggered_by_user_id=None,
-                workflow_id="wf-retry",
-            )
-        )
+        with patch(
+            "products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000 if scanner_capped else credits
+        ):
+            first_attempt = create_observation_activity(inputs)
+            assert first_attempt.was_created is True
+            second_attempt = create_observation_activity(inputs)
 
         assert second_attempt.observation_id == first_attempt.observation_id
         assert second_attempt.was_created is True
@@ -2519,6 +2576,35 @@ class TestFetchSessionNetworkActivity:
         assert payload.partial is True
         assert [r.url for r in payload.requests] == ["https://app.test/boom"], "the finished block was lost"
 
+    @pytest.mark.asyncio
+    async def test_a_separator_inside_a_compressed_payload_does_not_split_its_line(self) -> None:
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        snapshot = {"type": 2, "timestamp": 900, "data": "gzip\x1ebytes\u2028here"}
+        failure = {
+            "type": 6,
+            "timestamp": 1000,
+            "data": {
+                "plugin": "rrweb/network@1",
+                "payload": {"requests": [{"name": "https://app.test/boom", "status": 500}]},
+            },
+        }
+        content = json.dumps({"window_id": "w1", "data": [snapshot, failure]}, ensure_ascii=False).encode()
+
+        class _Client:
+            async def fetch_block(self, *args: Any, **kwargs: Any) -> bytes:
+                return content
+
+        @contextlib.asynccontextmanager
+        async def _client(*args: Any, **kwargs: Any) -> Any:
+            yield _Client()
+
+        blocks = [RecordingBlock(key="k", start_byte=0, end_byte=16, start_timestamp="", end_timestamp="")]
+        with patch.object(mod, "recording_api_client", _client):
+            payload = await mod._collect(blocks, session_id="sess-1", team_id=1)
+
+        assert [r.url for r in payload.requests] == ["https://app.test/boom"]
+
     def test_a_batch_is_bounded_by_bytes_not_only_by_count(self) -> None:
         # Concurrency alone does not bound memory: blocks reach tens of MiB, and four decompressed at
         # once would threaten the worker's limit.
@@ -2729,7 +2815,7 @@ async def _run_workflow(
         patch("temporalio.workflow.execute_child_workflow", side_effect=mocks.execute_child_workflow),
         # `wf.logger` requires a real workflow event loop, which this direct-call harness skips.
         patch("temporalio.workflow.logger"),
-        patch("temporalio.workflow.deprecate_patch"),
+        patch("temporalio.workflow.now", return_value=dt.datetime(2026, 1, 1, tzinfo=dt.UTC)),
     ):
         await ApplyScannerWorkflow().run(inputs)
 
@@ -3112,6 +3198,9 @@ async def test_apply_scanner_workflow_exits_when_create_returns_was_created_fals
     assert mocks.child_calls == []
 
 
+_PROGRESS_MODULE = "products.replay_vision.backend.api.observation_progress"
+
+
 def test_workflow_get_progress_advances_through_phases() -> None:
     workflow = ApplyScannerWorkflow()
     assert workflow.get_progress() == {
@@ -3119,16 +3208,21 @@ def test_workflow_get_progress_advances_through_phases() -> None:
         "step": 0,
         "total_steps": 6,
         "rasterizer_workflow_id": None,
+        "phase_started_at": None,
     }
 
-    workflow._advance_phase("rendering", rasterizer_workflow_id="rast-1")
+    rendering_started = dt.datetime(2026, 1, 1, 12, 0, tzinfo=dt.UTC)
+    with patch("temporalio.workflow.now", return_value=rendering_started):
+        workflow._advance_phase("rendering", rasterizer_workflow_id="rast-1")
     progress = workflow.get_progress()
     assert progress["phase"] == "rendering"
     assert progress["step"] == 2
     assert progress["rasterizer_workflow_id"] == "rast-1"
+    assert progress["phase_started_at"] == rendering_started.timestamp()
 
     # A later phase without an id keeps the previously recorded rasterizer id.
-    workflow._advance_phase("analyzing")
+    with patch("temporalio.workflow.now", return_value=rendering_started):
+        workflow._advance_phase("analyzing")
     assert workflow.get_progress()["phase"] == "analyzing"
     assert workflow.get_progress()["rasterizer_workflow_id"] == "rast-1"
 
@@ -3140,6 +3234,29 @@ async def test_progress_stream_completes_immediately_for_terminal_observation() 
     assert len(events) == 1
     assert "event: observation-complete" in events[0]
     assert '"status": "succeeded"' in events[0]
+
+
+async def test_progress_stream_repeats_last_tick_when_query_fails() -> None:
+    observation = ReplayObservation(id=uuid.uuid4(), team_id=1, status=ObservationStatus.RUNNING)
+    analyzing = {"phase": "analyzing", "step": 4, "total_steps": 6, "rasterizer_workflow_id": None}
+    states = iter(
+        [
+            _ObservationState(status=ObservationStatus.RUNNING, workflow_id="wf-1"),
+            _ObservationState(status=ObservationStatus.RUNNING, workflow_id="wf-1"),
+            _ObservationState(status=ObservationStatus.SUCCEEDED, workflow_id="wf-1"),
+        ]
+    )
+    with (
+        patch(f"{_PROGRESS_MODULE}.async_connect", AsyncMock(return_value=MagicMock())),
+        patch(f"{_PROGRESS_MODULE}._read_observation_state", AsyncMock(side_effect=lambda *_: next(states))),
+        patch(f"{_PROGRESS_MODULE}._query_progress", AsyncMock(side_effect=[analyzing, None])),
+        patch(f"{_PROGRESS_MODULE}.asyncio.sleep", AsyncMock()),
+    ):
+        events = [event async for event in stream_observation_progress(observation)]
+
+    phases = [json.loads(e.split("data: ", 1)[1])["phase"] for e in events if "observation-progress" in e]
+    assert phases == ["analyzing", "analyzing"]
+    assert "observation-complete" in events[-1]
 
 
 @pytest.mark.asyncio

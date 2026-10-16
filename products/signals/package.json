@@ -24,6 +24,7 @@
         "msw": "^2.14.6"
     },
     "peerDependencies": {
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
         "@storybook/react": "catalog:",

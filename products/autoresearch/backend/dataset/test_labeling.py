@@ -1,14 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from posthog.test.base import (
-    APIBaseTest,
-    BaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-)
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -34,6 +27,7 @@ from products.autoresearch.backend.dataset.labeling import (
     build_eligible_count_sql,
     build_inference_anchors_sql,
     build_inference_features_sql,
+    build_prediction_coverage_sql,
     build_random_t0_labeler_sql,
     build_training_features_sql,
     rolling_rescore_runs,
@@ -44,7 +38,7 @@ from products.autoresearch.backend.dataset.labeling import (
 from products.autoresearch.backend.query import run_hogql_rows
 
 
-class TestStripSqlComments(BaseTest):
+class TestStripSqlComments(SimpleTestCase):
     @parameterized.expand(
         [
             ("line_comment", "SELECT a -- the count\nFROM t", "SELECT a \nFROM t"),
@@ -73,7 +67,7 @@ class TestStripSqlComments(BaseTest):
         self.assertEqual(strip_sql_comments(sql), sql)
 
 
-class TestSubstituteAnchors(BaseTest):
+class TestSubstituteAnchors(SimpleTestCase):
     def test_placeholder_in_line_comment_does_not_corrupt_substitution(self) -> None:
         # A multi-line anchors subquery substituted into a `--` comment would
         # escape the comment and break the parse — stripping comments first avoids it.
@@ -101,7 +95,7 @@ class TestSubstituteAnchors(BaseTest):
         self.assertEqual(result, "SELECT a.person_id AS distinct_id FROM (SELECT 1) a")
 
 
-class TestBuildInferenceFeaturesSql(BaseTest):
+class TestBuildInferenceFeaturesSql(SimpleTestCase):
     def test_comment_in_feature_sql_is_stripped_before_substitution(self) -> None:
         feature_sql = "SELECT a.person_id AS distinct_id -- {anchors}\nFROM {anchors} a"
         sql, _values = build_inference_features_sql(
@@ -816,6 +810,20 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             )
             return sorted(name_by_uuid[str(row[0])] for row in rows)
+
+        coverage_sql, coverage_values = build_prediction_coverage_sql(
+            lookback_days=30,
+            inference_population={},
+            cutoff_ts=int(first_cutoff.timestamp()),
+            pipeline_id=pipeline_id,
+            scored_lookback_days=30,
+        )
+        [[population, with_score, age_avg, age_p50, _age_p90, age_max]] = run_hogql_rows(
+            team=self.team,
+            query=HogQLQuery(query=coverage_sql, values=coverage_values, modifiers=LABELER_QUERY_MODIFIERS),
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        )
+        assert (population, with_score, age_avg, age_p50, age_max) == (5, 2, 6.0, 6.0, 10.0)
 
         selections: list[list[str]] = []
         for day in range(3):

@@ -1,15 +1,21 @@
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional
 
-import pytest
 import time_machine
-from unittest import mock
 
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.similarweb import (
+    SimilarwebSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.settings import (
     API_VERSION_LEGACY,
     API_VERSION_V5,
@@ -30,99 +36,47 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb
     is_valid_country,
     normalize_country,
     parse_domains,
-    similarweb_source,
     validate_credentials,
 )
-
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.similarweb"
-
-
-class FakeResumeManager(ResumableSourceManager[SimilarwebResumeConfig]):
-    def __init__(self, state: Optional[SimilarwebResumeConfig] = None) -> None:
-        self.state = state
-        self.saved: list[SimilarwebResumeConfig] = []
-        self.cleared = False
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> Optional[SimilarwebResumeConfig]:
-        return self.state
-
-    def save_state(self, data: SimilarwebResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self.cleared = True
+from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.source import SimilarwebSource
 
 
-def _response(status: int = 200, json_body: Any = None) -> mock.MagicMock:
-    response = mock.MagicMock(spec=requests.Response)
-    response.status_code = status
-    response.ok = 200 <= status < 300
-    response.text = ""
-    response.json.return_value = json_body if json_body is not None else {}
-    if not response.ok:
-        errored = requests.Response()
-        errored.status_code = status
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error: for url", response=errored)
-    return response
+def _response(status: int = 200, json_body: Any = None) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=json_body if json_body is not None else {})
 
 
 def _series_body(key: str, points: list[dict[str, Any]]) -> dict[str, Any]:
     return {"meta": {"status": "Success"}, key: points}
 
 
-def _session(*responses: mock.MagicMock) -> mock.MagicMock:
-    session = mock.MagicMock(spec=requests.Session)
-    session.get.side_effect = list(responses)
-    return session
-
-
 def _run(
     endpoint: str,
-    session: mock.MagicMock,
-    manager: Optional[FakeResumeManager] = None,
-    domains: Optional[str] = "a.com, b.com",
+    script: Any,
+    resume_state: Optional[SimilarwebResumeConfig] = None,
+    domains: str = "a.com, b.com",
     country: Optional[str] = None,
-    granularity: str = "monthly",
+    granularity: Literal["monthly", "weekly", "daily"] = "monthly",
     start_date: Optional[str] = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     api_version: str = API_VERSION_LEGACY,
-) -> list[list[dict[str, Any]]]:
-    with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-        response = similarweb_source(
-            api_key="key-123",
-            domains=domains,
-            country=country,
-            granularity=granularity,
-            start_date=start_date,
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=manager if manager is not None else FakeResumeManager(),
-            api_version=api_version,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        )
-        return list(cast(Iterable[Any], response.items()))
+) -> DriveResult:
+    config = SimilarwebSourceConfig(
+        api_key="key-123", domains=domains, country=country, granularity=granularity, start_date=start_date
+    )
+    return SourceDriver(SimilarwebSource(), config).run(
+        endpoint,
+        script,
+        resume_state=resume_state,
+        api_version=api_version,
+        should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+    )
 
 
 def _v5_series_body(metric: str, points: list[dict[str, Any]]) -> dict[str, Any]:
     # V5 wraps every metric's series under a standardized `data` key; each row carries the metric.
     return {"meta": {"status": "Success"}, "data": points}
-
-
-def _headers(session: mock.MagicMock, index: int = 0) -> Optional[dict[str, str]]:
-    return session.get.call_args_list[index].kwargs["headers"]
-
-
-def _params(session: mock.MagicMock, index: int = 0) -> dict[str, Any]:
-    return session.get.call_args_list[index].kwargs["params"]
-
-
-def _urls(session: mock.MagicMock) -> list[str]:
-    return [call.args[0] for call in session.get.call_args_list]
 
 
 class TestSimilarwebTransport:
@@ -164,25 +118,31 @@ class TestSimilarwebTransport:
         assert is_valid_country(value) is valid
 
     def test_no_domains_raises_named_error(self) -> None:
-        with pytest.raises(ValueError, match=NO_DOMAINS_ERROR):
-            _run(VISITS, _session(), domains="")
+        result = _run(VISITS, [], domains="")
+
+        assert isinstance(result.raised, ValueError)
+        assert NO_DOMAINS_ERROR in str(result.raised)
+        assert result.requests == []
 
     @parameterized.expand([("visits", VISITS, "visits"), ("page_views", PAGE_VIEWS, "page_views")])
     def test_v5_engagement_hits_the_multimetric_endpoint_with_header_auth(
         self, _name: str, endpoint: str, metric: str
     ) -> None:
-        session = _session(_response(json_body=_v5_series_body(metric, [{"date": "2024-01-01", metric: 9}])))
-
-        rows = _run(endpoint, session, domains="a.com", api_version=API_VERSION_V5)[0]
+        result = _run(
+            endpoint,
+            [_response(json_body=_v5_series_body(metric, [{"date": "2024-01-01", metric: 9}]))],
+            domains="a.com",
+            api_version=API_VERSION_V5,
+        )
 
         # One `/v5/website-analysis` endpoint serves every metric; the table selects its own via
         # `metrics`, the key moves to the `api-key` header, and rows come from the `data` envelope.
-        assert _urls(session) == [f"{BASE_URL}{V5_ENGAGEMENT_PATH}"]
-        assert _params(session)["metrics"] == metric
-        assert _params(session)["domain"] == "a.com"
-        assert "api_key" not in _params(session)
-        assert _headers(session) == {"api-key": "key-123"}
-        assert rows == [
+        assert [f"{request.origin}{request.path}" for request in result.requests] == [f"{BASE_URL}{V5_ENGAGEMENT_PATH}"]
+        assert result.params("metrics") == [metric]
+        assert result.params("domain") == ["a.com"]
+        assert result.params("api_key") == [None]
+        assert result.requests[0].headers["api-key"] == "key-123"
+        assert result.items[0] == [
             {
                 "domain": "a.com",
                 "country": "world",
@@ -203,23 +163,30 @@ class TestSimilarwebTransport:
     def test_worldwide_country_is_translated_only_for_v5(
         self, _name: str, api_version: str, country: Optional[str], expected_param: str
     ) -> None:
-        session = _session(_response(json_body={"visits": [], "data": []}))
+        result = _run(
+            VISITS,
+            [_response(json_body={"visits": [], "data": []})],
+            domains="a.com",
+            country=country,
+            api_version=api_version,
+        )
 
-        _run(VISITS, session, domains="a.com", country=country, api_version=api_version)
-
-        assert _params(session)["country"] == expected_param
+        assert result.params("country") == [expected_param]
 
     def test_global_rank_takes_no_filters_and_parses_month_dates(self) -> None:
-        session = _session(_response(json_body=_series_body("global_rank", [{"date": "2024-01", "global_rank": 86}])))
+        result = _run(
+            GLOBAL_RANK,
+            [_response(json_body=_series_body("global_rank", [{"date": "2024-01", "global_rank": 86}]))],
+            domains="a.com",
+            country="gb",
+        )
 
-        rows = _run(GLOBAL_RANK, session, domains="a.com", country="gb")[0]
-
-        assert rows == [{"domain": "a.com", "date": datetime(2024, 1, 1, tzinfo=UTC), "global_rank": 86}]
-        assert "country" not in _params(session)
-        assert "granularity" not in _params(session)
+        assert result.items[0] == [{"domain": "a.com", "date": datetime(2024, 1, 1, tzinfo=UTC), "global_rank": 86}]
+        assert result.params("country") == [None]
+        assert result.params("granularity") == [None]
 
     def test_traffic_sources_flattens_channels(self) -> None:
-        session = _session(
+        script = [
             _response(
                 json_body={
                     "meta": {"status": "Success"},
@@ -237,9 +204,9 @@ class TestSimilarwebTransport:
                     },
                 }
             )
-        )
+        ]
 
-        rows = _run(TRAFFIC_SOURCES, session, domains="a.com")[0]
+        rows = _run(TRAFFIC_SOURCES, script, domains="a.com").items[0]
 
         assert sorted(row["source_type"] for row in rows) == ["Direct", "Search"]
         assert rows[0] == {
@@ -254,43 +221,43 @@ class TestSimilarwebTransport:
 
     @parameterized.expand([("unauthorized", 401), ("not_found", 404)])
     def test_a_domain_without_data_does_not_abort_the_other_domains(self, _name: str, status: int) -> None:
-        session = _session(
-            _response(status=status),
-            _response(json_body=_series_body("visits", [{"date": "2024-01-01", "visits": 7}])),
+        result = _run(
+            VISITS,
+            [
+                _response(status=status),
+                _response(json_body=_series_body("visits", [{"date": "2024-01-01", "visits": 7}])),
+            ],
         )
 
-        rows = [row for batch in _run(VISITS, session) for row in batch]
-
-        assert [row["domain"] for row in rows] == ["b.com"]
+        assert result.raised is None
+        assert [row["domain"] for row in result.rows] == ["b.com"]
 
     def test_unexpected_status_fails_the_sync(self) -> None:
-        session = _session(_response(status=500))
+        result = _run(VISITS, always(_response(status=500)), domains="a.com")
 
-        with pytest.raises(requests.HTTPError):
-            _run(VISITS, session, domains="a.com")
+        assert isinstance(result.raised, requests.HTTPError)
 
     def test_connection_error_is_reraised_without_the_api_key(self) -> None:
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.side_effect = requests.ConnectionError(
+        error = requests.ConnectionError(
             "Max retries exceeded with url: /v1/website/a.com/...?api_key=key-123&format=json"
         )
 
-        with pytest.raises(requests.ConnectionError) as excinfo:
-            _run(VISITS, session, domains="a.com")
+        result = _run(VISITS, always(error), domains="a.com")
 
-        assert "key-123" not in str(excinfo.value)
-        assert "Similarweb request failed" in str(excinfo.value)
+        assert isinstance(result.raised, requests.ConnectionError)
+        assert "key-123" not in str(result.raised)
+        assert "Similarweb request failed" in str(result.raised)
 
     def test_rows_with_an_unparsable_period_are_dropped(self) -> None:
-        session = _session(
+        script = [
             _response(
                 json_body=_series_body(
                     "visits", [{"date": "not-a-date", "visits": 1}, {"date": "2024-01-01", "visits": 2}]
                 )
             )
-        )
+        ]
 
-        rows = _run(VISITS, session, domains="a.com")[0]
+        rows = _run(VISITS, script, domains="a.com").items[0]
 
         assert [row["visits"] for row in rows] == [2]
 
@@ -334,19 +301,17 @@ class TestSimilarwebTransport:
     def test_window_params(
         self,
         _name: str,
-        granularity: str,
+        granularity: Literal["monthly", "weekly", "daily"],
         start_date: Optional[str],
         should_use_incremental_field: bool,
         last_value: Any,
         expected_start: Optional[str],
         expected_end: Optional[str],
     ) -> None:
-        session = _session(_response(json_body=_series_body("visits", [])))
-
         with time_machine.travel("2024-06-15", tick=False):
-            _run(
+            result = _run(
                 VISITS,
-                session,
+                [_response(json_body=_series_body("visits", []))],
                 domains="a.com",
                 granularity=granularity,
                 start_date=start_date,
@@ -354,52 +319,36 @@ class TestSimilarwebTransport:
                 db_incremental_field_last_value=last_value,
             )
 
-        assert _params(session).get("start_date") == expected_start
-        assert _params(session).get("end_date") == expected_end
+        assert result.params("start_date") == [expected_start]
+        assert result.params("end_date") == [expected_end]
 
     def test_api_key_is_sent_as_a_query_param_and_registered_for_redaction(self) -> None:
-        session = _session(_response(json_body=_series_body("visits", [])))
+        result = _run(
+            VISITS, [_response(json_body=_series_body("visits", []))], domains="a.com", api_version=API_VERSION_LEGACY
+        )
 
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session) as make_session:
-            list(
-                cast(
-                    Iterable[Any],
-                    similarweb_source(
-                        api_key="key-123",
-                        domains="a.com",
-                        country=None,
-                        granularity="monthly",
-                        start_date=None,
-                        endpoint=VISITS,
-                        logger=mock.MagicMock(),
-                        resumable_source_manager=FakeResumeManager(),
-                        api_version=API_VERSION_LEGACY,
-                    ).items(),
-                )
-            )
-
-        assert make_session.call_args.kwargs["redact_values"] == ("key-123",)
-        assert _params(session)["api_key"] == "key-123"
+        assert result.session_options[0]["redact_values"] == ("key-123",)
+        assert result.params("api_key") == ["key-123"]
 
     def test_paginated_endpoint_walks_offsets_and_checkpoints_each_page(self) -> None:
         full_page = [{"country": index, "visits": 1} for index in range(PAGE_LIMIT)]
-        manager = FakeResumeManager()
-        session = _session(
+        script = [
             _response(json_body={"records": full_page}),
             _response(json_body={"records": [{"country": 999, "visits": 2}]}),
             _response(json_body={"records": []}),
-        )
+        ]
 
-        batches = _run(TRAFFIC_BY_COUNTRY, session, manager=manager)
+        result = _run(TRAFFIC_BY_COUNTRY, script)
 
-        assert [_params(session, index)["offset"] for index in range(3)] == [0, PAGE_LIMIT, 0]
-        assert batches[0][0] == {"domain": "a.com", "country": 0, "visits": 1}
-        assert [(state.next_domain_index, state.next_offset) for state in manager.saved] == [
+        assert result.raised is None
+        assert result.params("offset") == ["0", str(PAGE_LIMIT), "0"]
+        assert result.items[0][0] == {"domain": "a.com", "country": 0, "visits": 1}
+        assert [(state.next_domain_index, state.next_offset) for state in result.saved_states] == [
             (0, PAGE_LIMIT),
             (1, 0),
             (2, 0),
         ]
-        assert manager.cleared is True
+        assert result.final_state is None
 
     @parameterized.expand(
         [
@@ -412,9 +361,7 @@ class TestSimilarwebTransport:
         self, _name: str, status: int, expected_ok: bool, expected_message: Optional[str]
     ) -> None:
         # A failing status must be reported back to source creation, not raised.
-        session = _session(_response(status=status))
-
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(_response(status=status))):
             is_valid, message = validate_credentials("key-123")
 
         assert is_valid is expected_ok
@@ -424,10 +371,7 @@ class TestSimilarwebTransport:
             assert message is not None and expected_message in message
 
     def test_validate_credentials_reports_unreachable_api(self) -> None:
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.side_effect = requests.ConnectionError("boom")
-
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionError("boom"))):
             is_valid, message = validate_credentials("key-123")
 
         assert is_valid is False

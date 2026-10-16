@@ -70,6 +70,8 @@ def capture_suggested_reviewers_resolved(
     user_uuids: list[str] | None = None,
     correction_notes_written: int | None = None,
     correction_note_targets: int | None = None,
+    resolution_outcome: str | None = None,
+    after_inbox_notification: bool | None = None,
 ) -> None:
     """Emit `signals_suggested_reviewers_resolved` when a report's suggested reviewers are persisted.
 
@@ -112,6 +114,12 @@ def capture_suggested_reviewers_resolved(
                 "team_id": team_id,
                 "report_id": report_id,
                 "source": source,
+                **({"resolution_outcome": resolution_outcome} if resolution_outcome else {}),
+                **(
+                    {"after_inbox_notification": after_inbox_notification}
+                    if after_inbox_notification is not None
+                    else {}
+                ),
                 "suggested_count": linkability.linkable_count + linkability.unlinkable_count,
                 "linkable_count": linkability.linkable_count,
                 "unlinkable_count": linkability.unlinkable_count,
@@ -142,6 +150,7 @@ def capture_suggested_reviewers_unresolved(
     diagnostics: ReviewerResolutionDiagnostics,
     finding_count: int,
     has_new_finding: bool,
+    resolution_outcome: str | None = None,
 ) -> None:
     """Emit `signals_suggested_reviewers_unresolved` when a pipeline run yields no reviewers.
 
@@ -172,6 +181,7 @@ def capture_suggested_reviewers_unresolved(
                 "source": "pipeline",
                 "finding_count": finding_count,
                 "has_new_finding": has_new_finding,
+                **({"resolution_outcome": resolution_outcome} if resolution_outcome else {}),
                 **dataclasses.asdict(diagnostics),
             },
             groups=groups(team.organization, team),

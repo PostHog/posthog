@@ -50,7 +50,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     ENDPOINTS,
     SALES_REPORT_LOOKBACK_DAYS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.source import (
+    AppStoreConnectSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appstoreconnect import (
+    AppStoreConnectSourceConfig,
+)
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect"
 
@@ -65,6 +77,19 @@ def _make_pem() -> str:
 
 
 PRIVATE_KEY_PEM = _make_pem()
+
+
+def _driver(vendor_number: str | None = None, app_ids: str | None = None) -> SourceDriver:
+    return SourceDriver(
+        AppStoreConnectSource(),
+        AppStoreConnectSourceConfig(
+            issuer_id="issuer",
+            key_id="KEY123",
+            private_key=PRIVATE_KEY_PEM,
+            vendor_number=vendor_number,
+            app_ids=app_ids,
+        ),
+    )
 
 
 class _FakeManager(ResumableSourceManager[AppStoreConnectResumeConfig]):
@@ -1157,15 +1182,8 @@ class TestAnalyticsReportStreams:
         ]
 
     def test_analytics_source_response_checkpoints_ascending(self) -> None:
-        response = app_store_connect_source(
-            issuer_id="issuer",
-            key_id="KEY123",
-            private_key=PRIVATE_KEY_PEM,
-            vendor_number=None,
-            endpoint="analytics_app_sessions",
-            logger=MagicMock(),
-            resumable_source_manager=_FakeManager(),
-        )
+        response = _driver().run("analytics_app_sessions", []).response
+        assert response is not None
         assert response.primary_keys == ["app_id", "processing_date", "_line"]
         assert response.partition_keys == ["processing_date"]
         # The walk is date-major across apps, so ascending per-batch checkpoints are safe.
@@ -2013,32 +2031,30 @@ class TestSalesReports:
 class TestCheckCredentials:
     @parameterized.expand([("ok", 200), ("unauthorized", 401), ("forbidden", 403), ("server_error", 500)])
     def test_returns_the_probe_status(self, _name: str, status_code: int) -> None:
-        session = MagicMock()
-        session.get.return_value = _json_response({}, status_code=status_code)
-
-        with patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
             status, message = check_credentials("issuer", "KEY123", PRIVATE_KEY_PEM)
 
         assert status == status_code
         assert message is None
+        assert {request.path for request in network.requests_log} == {"/v1/apps"}
+        assert {request.param("limit") for request in network.requests_log} == {"1"}
 
     def test_unusable_key_reports_before_any_request(self) -> None:
-        with patch(f"{MODULE}.make_tracked_session") as mocked:
+        with scripted_network([]) as network:
             status, message = check_credentials("issuer", "KEY123", "not-a-key")
 
         assert status is None
         assert message is not None
-        mocked.assert_not_called()
+        assert network.requests_log == []
+        assert network.session_options == []
 
     def test_network_failure_reports_no_status(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = Exception("boom")
-
-        with patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionError("boom"))) as network:
             status, message = check_credentials("issuer", "KEY123", PRIVATE_KEY_PEM)
 
         assert status is None
         assert message is None
+        assert {request.path for request in network.requests_log} == {"/v1/apps"}
 
 
 class TestSourceResponse:
@@ -2046,16 +2062,9 @@ class TestSourceResponse:
     def test_response_matches_the_endpoint_catalog(self, endpoint: str) -> None:
         config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
 
-        response = app_store_connect_source(
-            issuer_id="issuer",
-            key_id="KEY123",
-            private_key=PRIVATE_KEY_PEM,
-            vendor_number="85234567",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=_FakeManager(),
-        )
+        response = _driver(vendor_number="85234567").run(endpoint, []).response
 
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == "asc"

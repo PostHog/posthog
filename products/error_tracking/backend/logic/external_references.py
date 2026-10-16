@@ -6,6 +6,7 @@ from django.db.models import QuerySet
 
 import requests
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
@@ -57,7 +58,9 @@ def _validate_github_assignee(integration: Integration, repository: str, login: 
     # Enterprise Managed User logins add an underscore and a shortcode, so allow "_" and a longer login.
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", login):
         raise ErrorTrackingExternalReferenceValidationError("GitHub assignee must be a GitHub login.")
-    result = GitHubIntegration(integration).is_assignable(repository.strip(), login)
+    result = GitHubIntegration(integration, source="error_tracking", priority=Priority.CRITICAL).is_assignable(
+        repository.strip(), login
+    )
     if not result.get("success"):
         raise ErrorTrackingExternalReferenceValidationError(
             f"Could not check whether {login} can be assigned issues in {repository.strip()}. "
@@ -267,7 +270,9 @@ def create_external_reference(
         provider_config["assignee"] = assignee
 
     if integration.kind == Integration.IntegrationKind.GITHUB:
-        created_context = GitHubIntegration(integration).create_issue(provider_config)
+        created_context = GitHubIntegration(
+            integration, source="error_tracking", priority=Priority.CRITICAL
+        ).create_issue(provider_config)
     elif integration.kind == Integration.IntegrationKind.GITLAB:
         created_context = GitLabIntegration(integration).create_issue(provider_config)
     elif integration.kind == Integration.IntegrationKind.LINEAR:
@@ -314,7 +319,9 @@ def search_external_issues(
                 raise ErrorTrackingExternalReferenceValidationError(
                     "Pass the repository name without an owner; only the integration's account can be searched."
                 )
-            return GitHubIntegration(integration).search_issues(repository, search)
+            return GitHubIntegration(integration, source="error_tracking", priority=Priority.CRITICAL).search_issues(
+                repository, search
+            )
         elif integration.kind == Integration.IntegrationKind.GITLAB:
             return GitLabIntegration(integration).search_issues(search)
         elif integration.kind == Integration.IntegrationKind.LINEAR:

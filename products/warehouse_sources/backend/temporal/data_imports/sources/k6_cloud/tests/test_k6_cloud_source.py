@@ -1,6 +1,9 @@
 import pytest
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.k6cloud import (
     K6CloudSourceConfig,
 )
@@ -29,19 +32,21 @@ class TestK6CloudSource:
             ((False, True), "test_runs", False, True),  # 403 for a specific schema -> rejected
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.source.validate_k6_cloud_credentials"
-    )
     def test_validate_credentials(
         self,
-        mock_validate: mock.MagicMock,
         mock_return: tuple[bool, bool],
         schema_name: str | None,
         expected_valid: bool,
         expected_has_message: bool,
     ) -> None:
-        mock_validate.return_value = mock_return
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+        status = 200 if mock_return[0] else 403 if mock_return[1] else 401
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+
         assert is_valid is expected_valid
         assert (message is not None) is expected_has_message
-        mock_validate.assert_called_once_with(self.config.api_token, self.config.stack_id, schema_name)
+        assert network.requests_log[0].path == (
+            "/cloud/v6/test_runs" if schema_name == "test_runs" else "/cloud/v6/auth"
+        )
+        assert network.requests_log[0].headers["authorization"] == "Bearer tok"
+        assert network.requests_log[0].headers["x-stack-id"] == "12345"

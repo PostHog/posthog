@@ -21,6 +21,7 @@ export interface ModelOption {
     providerKeyId?: string
     isRecommended?: boolean
     supportsDecisions?: boolean
+    supportsChat?: boolean
 }
 
 export interface ProviderModelGroup {
@@ -30,12 +31,15 @@ export interface ProviderModelGroup {
     models: ModelOption[]
     /** Set when the key cannot serve models. The picker lists the group but blocks selection. */
     disabledReason?: string
+    /** Set when the user can type a model id that the provider does not list, such as an Azure deployment name. */
+    allowsCustomModel?: boolean
 }
 
 export type ByokModelNotice =
     | { kind: 'no-keys' }
     | { kind: 'no-usable-keys' }
     | { kind: 'models-failed'; keys: LLMProviderKey[] }
+    | { kind: 'deployments-unlisted'; keys: LLMProviderKey[] }
 
 // Every empty state reuses this array, so a load with no failures keeps providerModelGroups memoized.
 const NO_FAILED_PROVIDER_KEYS: string[] = []
@@ -53,14 +57,29 @@ function getByokModelNotice(
     if (providerKeysLoading || byokModelsLoading) {
         return null
     }
-    const failedKeys = providerKeys.filter((key) => failedByokProviderKeyIds.includes(key.id))
+    const failedKeys = providerKeys.filter(
+        (key) => failedByokProviderKeyIds.includes(key.id) && !allowsCustomModel(key.provider)
+    )
     if (failedKeys.length > 0) {
         return { kind: 'models-failed', keys: failedKeys }
+    }
+    const unlistedKeyIds = new Set(
+        providerModelGroups
+            .filter((group) => group.allowsCustomModel && group.models.length === 0)
+            .map((group) => group.providerKeyId)
+    )
+    if (unlistedKeyIds.size > 0) {
+        return { kind: 'deployments-unlisted', keys: providerKeys.filter((key) => unlistedKeyIds.has(key.id)) }
     }
     if (providerModelGroups.some((group) => !group.disabledReason)) {
         return null
     }
     return providerKeys.length === 0 ? { kind: 'no-keys' } : { kind: 'no-usable-keys' }
+}
+
+// Azure chat completions need a deployment name, and Azure does not always list deployments.
+function allowsCustomModel(provider: LLMProvider): boolean {
+    return provider === 'azure_openai'
 }
 
 function providerKeyGroupLabel(key: LLMProviderKey, keysPerProvider: Record<string, number>, suffix = ''): string {
@@ -120,6 +139,7 @@ export interface modelPickerLogicValues {
     failedByokProviderKeyIds: string[]
     generativeByokModels: ModelOption[]
     hasByokKeys: boolean
+    playgroundByokProviderModelGroups: ProviderModelGroup[]
     playgroundModels: ModelOption[]
     playgroundModelsLoading: boolean
     playgroundProviderModelGroups: ProviderModelGroup[]
@@ -210,6 +230,7 @@ export interface modelPickerLogicMeta {
             failedByokProviderKeyIds: string[]
         ) => ProviderModelGroup[]
         providerModelGroups: (evaluationProviderModelGroups: ProviderModelGroup[]) => ProviderModelGroup[]
+        playgroundByokProviderModelGroups: (providerModelGroups: ProviderModelGroup[]) => ProviderModelGroup[]
         evaluationModelNotice: (
             providerKeys: LLMProviderKey[],
             providerKeysLoading: boolean,
@@ -267,6 +288,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                             )) as (Omit<ModelOption, 'providerKeyId' | 'isRecommended'> & {
                                 is_recommended?: boolean
                                 supports_decisions?: boolean
+                                supports_chat?: boolean
                             })[]
                             return rawModels.map((m) => ({
                                 id: m.id,
@@ -275,6 +297,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                                 description: m.description,
                                 isRecommended: m.is_recommended ?? false,
                                 supportsDecisions: m.supports_decisions ?? false,
+                                supportsChat: m.supports_chat ?? !m.supports_decisions,
                                 providerKeyId: key.id,
                             }))
                         } catch {
@@ -357,7 +380,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
             (models: ModelOption[], keys: LLMProviderKey[]): ModelOption[] =>
                 models.filter(
                     (model) =>
-                        !model.supportsDecisions &&
+                        (model.supportsChat ?? !model.supportsDecisions) &&
                         !keys.some((key) => key.id === model.providerKeyId && key.provider === 'system_one')
                 ),
         ],
@@ -391,12 +414,14 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                 const groups: ProviderModelGroup[] = []
                 for (const key of providerKeys) {
                     const models = byKeyId[key.id] ?? []
-                    if (models.length > 0) {
+                    const customModelKey = allowsCustomModel(key.provider) && key.state === 'ok'
+                    if (models.length > 0 || customModelKey) {
                         groups.push({
                             provider: key.provider,
                             providerKeyId: key.id,
                             label: providerKeyGroupLabel(key, keysPerProvider),
                             models,
+                            ...(customModelKey ? { allowsCustomModel: true } : {}),
                         })
                         continue
                     }
@@ -428,8 +453,19 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
             (groups: ProviderModelGroup[]): ProviderModelGroup[] =>
                 groups
                     .filter((group) => group.provider !== 'system_one')
-                    .map((group) => ({ ...group, models: group.models.filter((model) => !model.supportsDecisions) }))
-                    .filter((group) => group.models.length > 0 || group.disabledReason),
+                    .map((group) => ({
+                        ...group,
+                        models: group.models.filter((model) => model.supportsChat ?? !model.supportsDecisions),
+                    }))
+                    .filter((group) => group.models.length > 0 || group.disabledReason || group.allowsCustomModel),
+        ],
+        // The playground runs only listed models, so it does not offer typed deployment names.
+        playgroundByokProviderModelGroups: [
+            (s) => [s.providerModelGroups],
+            (groups: ProviderModelGroup[]): ProviderModelGroup[] =>
+                groups
+                    .filter((group) => group.models.length > 0 || group.disabledReason)
+                    .map((group) => (group.allowsCustomModel ? { ...group, allowsCustomModel: false } : group)),
         ],
         evaluationModelNotice: [
             (s) => [

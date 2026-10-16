@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -285,3 +287,17 @@ class TestRegisteredConfigsBuildValidHogQL:
             key: _unknown_function_names(_build_fetcher_query(config, last_synced_at)) for key, config in configs
         }
         assert {key: names for key, names in unknown.items() if names} == {}
+
+    # The warehouse import renames every column to snake_case, so a camelCase name fails every sync.
+    def test_every_source_selects_snake_case_columns(self):
+        configs = self._hogql_configs()
+        assert len(configs) > 1, "the registry sweep matched no warehouse-backed source"
+        not_snake_case = {
+            key: [
+                name
+                for name in (*config.fields, config.partition_field)
+                if re.fullmatch(r"\w+", name) and not re.fullmatch(r"[a-z0-9_]+", name)
+            ]
+            for key, config in configs
+        }
+        assert {key: names for key, names in not_snake_case.items() if names} == {}

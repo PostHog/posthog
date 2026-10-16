@@ -561,6 +561,38 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('page URL search in a picker that collapses URLs to a contains row', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:team/events/values': [200, [{ name: 'https://example.com/pricing' }]],
+                },
+            })
+        })
+
+        it.each([
+            { kind: 'a plain word', query: 'pricing', offeredInAllTab: false },
+            { kind: 'a path', query: '/pricing', offeredInAllTab: true },
+            { kind: 'a domain', query: 'example.com', offeredInAllTab: true },
+        ])(
+            'offers the URL contains row for $kind on the URL tab, and in the All tab only when it looks like a URL',
+            async ({ query, offeredInAllTab }) => {
+                const urlLogic = logicWith({
+                    listGroupType: TaxonomicFilterGroupType.PageviewUrls,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls],
+                    collapseUrlsToContainsRow: true,
+                })
+
+                await expectLogic(urlLogic, () => {
+                    urlLogic.actions.setSearchQuery(query)
+                }).toDispatchActions(['setSearchQuery', 'loadRemoteItemsSuccess'])
+
+                expect(urlLogic.values.items.results).toHaveLength(1)
+                expect(urlLogic.values.topMatchesForQuery).toHaveLength(offeredInAllTab ? 1 : 0)
+            }
+        )
+    })
+
     describe('unmounting clears the shared api cache', () => {
         it('does not keep serving a cached response after the list unmounts', async () => {
             let requestCount = 0
@@ -720,6 +752,7 @@ describe('infiniteListLogic', () => {
                     // hunting for a tracking bug instead of retrying.
                     showEmptyState: false,
                     showErrorState: true,
+                    remoteFetchForbidden: false,
                 })
 
             const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
@@ -727,6 +760,43 @@ describe('infiniteListLogic', () => {
             expect(failedCalls[0][1]).toMatchObject({
                 groupType: TaxonomicFilterGroupType.Events,
                 searchQuery: 'user_signed_up',
+                forbidden: false,
+            })
+        })
+
+        it.each([
+            { code: 'permission_denied', forbidden: true },
+            { code: 'feature_flag_required', forbidden: false },
+        ])('marks a 403 with code $code as forbidden: $forbidden', async ({ code, forbidden }) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/feature_flags': () => [403, { detail: 'denied', code }],
+                },
+            })
+            initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const forbiddenLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'forbiddenList',
+                listGroupType: TaxonomicFilterGroupType.FeatureFlags,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags],
+                showNumericalPropsOnly: false,
+            })
+            forbiddenLogic.mount()
+            await expectLogic(forbiddenLogic, () => {
+                forbiddenLogic.actions.setSearchQuery('my-flag')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    showErrorState: true,
+                    remoteFetchForbidden: forbidden,
+                })
+
+            const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
+            expect(failedCalls).toHaveLength(1)
+            expect(failedCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.FeatureFlags,
+                forbidden,
             })
         })
 

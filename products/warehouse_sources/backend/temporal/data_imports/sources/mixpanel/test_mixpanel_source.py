@@ -1,11 +1,16 @@
 from typing import Optional
 
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import structlog
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Transient_Error_Messages
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixpanel import (
     MixpanelSourceConfig,
@@ -91,16 +96,16 @@ class TestApiVersions:
 
 
 class TestSourceForPipeline:
+    @time_machine.travel("2023-11-14", tick=False)
     def test_incremental_value_passed_only_when_incremental(self) -> None:
-        with patch.object(source_module, "mixpanel_source") as mock_source:
-            MixpanelSource().source_for_pipeline(
-                _config(),
-                MagicMock(),
-                _inputs(
-                    schema_name="export", should_use_incremental_field=True, db_incremental_field_last_value=1700000000
-                ),
-            )
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] == 1700000000
+        result = SourceDriver(MixpanelSource(), _config()).run(
+            "export",
+            [ScriptedResponse(body=b"")],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=1700000000,
+        )
+        assert result.raised is None
+        assert result.params("from_date") == ["2023-11-14"]
 
 
 class TestNonRetryableErrors:

@@ -55,7 +55,8 @@ _SELECT = """
     WHERE service_name = {service_name} AND lower(attributes['repo']) = lower({repository})
         AND (
             (attributes['ci_engine'], attributes['run_id']) IN {run_keys}
-            OR (attributes['ci_engine'] = '' AND attributes['run_id'] IN {legacy_run_ids})
+            -- HogQL reads a missing map key as NULL, and legacy lines carry no ci_engine key at all.
+            OR (coalesce(attributes['ci_engine'], '') = '' AND attributes['run_id'] IN {legacy_run_ids})
         )
     ORDER BY toInt(attributes['run_id']) DESC, attributes['ci_engine'], toInt(attributes['job_id']), toInt(attributes['seq'])
     LIMIT {line_cap}

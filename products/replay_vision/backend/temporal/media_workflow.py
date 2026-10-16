@@ -39,7 +39,6 @@ class ObservationMediaWorkflow(PostHogWorkflow):
 
     @wf.run
     async def run(self, inputs: ObservationMediaInputs) -> None:
-        wf.deprecate_patch("replay-vision-media-batch-2026-10")
         prepared: PrepareObservationMediaOutput = await wf.execute_activity(
             prepare_observation_media_activity,
             inputs,

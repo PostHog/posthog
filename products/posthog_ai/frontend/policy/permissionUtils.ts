@@ -39,6 +39,7 @@ export interface ApprovalCardOption {
     requiresFeedback: boolean
     /** `reject_once` carrying `_meta.customInput` — a one-click decline that ALSO offers an optional feedback input. */
     supportsFeedback: boolean
+    hint?: string
 }
 
 /**
@@ -59,6 +60,7 @@ export function mapPermissionOption(option: PermissionOption): ApprovalCardOptio
             remembered,
             requiresFeedback: false,
             supportsFeedback: false,
+            ...(option.hint ? { hint: option.hint } : {}),
         }
     }
 
@@ -74,6 +76,7 @@ export function mapPermissionOption(option: PermissionOption): ApprovalCardOptio
         remembered: false,
         requiresFeedback,
         supportsFeedback: !requiresFeedback && option.customInput === true,
+        ...(option.hint ? { hint: option.hint } : {}),
     }
 }
 

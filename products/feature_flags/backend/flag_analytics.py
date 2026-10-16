@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Q
 
 from posthog.clickhouse.client import sync_execute
@@ -275,10 +276,13 @@ def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
         try:
             flag = FeatureFlag.objects.get(team__project_id=team.project_id, key=flag_key)
             if not flag.has_enriched_analytics:
-                flag.has_enriched_analytics = True
-                flag.save()
-                if flag.usage_dashboard and not flag.usage_dashboard_has_enriched_insights:
-                    add_enriched_insights_to_feature_flag_dashboard(flag, flag.usage_dashboard)
+                # A failed enrichment rolls back the flag update, so the next run retries this
+                # flag instead of skipping it as already enriched.
+                with transaction.atomic():
+                    flag.has_enriched_analytics = True
+                    flag.save()
+                    if flag.usage_dashboard and not flag.usage_dashboard_has_enriched_insights:
+                        add_enriched_insights_to_feature_flag_dashboard(flag, flag.usage_dashboard)
         except FeatureFlag.DoesNotExist:
             pass
         except Exception as e:

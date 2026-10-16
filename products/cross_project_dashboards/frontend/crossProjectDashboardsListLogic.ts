@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { crossProjectDashboardTracking } from './crossProjectDashboardTracking'
 import {
     crossProjectDashboardsCreate,
     crossProjectDashboardsDestroy,
@@ -108,6 +109,7 @@ export const crossProjectDashboardsListLogic = kea<crossProjectDashboardsListLog
                 const created = await crossProjectDashboardsCreate(organizationId, {
                     name: values.newName.trim(),
                 } as any)
+                crossProjectDashboardTracking.created(created.id)
                 actions.closeNewModal()
                 router.actions.push(`/cross-project-dashboards/${created.id}`)
             } catch (error: any) {
@@ -122,6 +124,7 @@ export const crossProjectDashboardsListLogic = kea<crossProjectDashboardsListLog
             }
             openDeleteCrossProjectDashboardDialog(dashboard.name, async () => {
                 await crossProjectDashboardsDestroy(organizationId, dashboard.id)
+                crossProjectDashboardTracking.deleted(dashboard.id, 'list')
                 actions.loadDashboards()
             })
         },

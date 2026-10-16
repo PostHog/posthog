@@ -56,6 +56,16 @@ class TaskDTO:
 
 
 @dataclass(frozen=True, kw_only=True)
+class TaskAccessScope:
+    """Task IDs a user can or cannot access through channel visibility rules."""
+
+    user_id: int
+    has_resource_access: bool
+    allowed_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+
+
+@dataclass(frozen=True, kw_only=True)
 class AgentTaskRunDTO:
     """Identity and workflow handle for a newly dispatched agent task."""
 
@@ -63,6 +73,18 @@ class AgentTaskRunDTO:
     run_id: UUID
     team_id: int
     workflow_id: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class SessionFile:
+    """A text file a custom-prompt session puts in the sandbox before its first turn.
+
+    The agent server writes it under the run's attachments directory and lists its path in the
+    first prompt, so the agent and any sub-agent it starts can read it from disk.
+    """
+
+    name: str
+    content: str
 
 
 @dataclass(frozen=True)
@@ -106,6 +128,14 @@ class WizardCloudRunDTO:
     run_id: UUID
     status: str
     started_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunTokenUsage:
+    """Settled token subtotal in micro-USD and whether every request is accounted for."""
+
+    cost_microusd: int | None
+    complete: bool
 
 
 @dataclass(frozen=True)
@@ -203,6 +233,21 @@ class TaskSlackUnfurlDTO:
 
 
 @dataclass(frozen=True)
+class TaskArtifactSlackUnfurlDTO:
+    """The task run artifact metadata needed to build a Slack unfurl."""
+
+    name: str
+    content_type: str
+    size: int | None
+    uploaded_at: datetime | None
+    task_id: UUID
+    task_title: str
+    run_id: UUID
+    artifact_id: str
+    download_path: str
+
+
+@dataclass(frozen=True)
 class TaskDetailDTO:
     """The HTTP detail representation of a task.
 
@@ -243,6 +288,7 @@ class TaskDetailDTO:
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
+    client_provenance: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1049,6 +1095,14 @@ class LivingArtifactVersionContent:
     name: str
     content_type: str
     content: bytes
+    script_sha256: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionPreview:
+    name: str
+    content_type: str
+    script_sha256: str | None
 
 
 @dataclass(frozen=True, kw_only=True)

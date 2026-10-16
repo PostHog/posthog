@@ -147,10 +147,12 @@ DISCOVERY_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 DISCOVERY_FAIL_CLOSED_PATCH_ID = "ai-observability-discovery-fail-closed-2026-09"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class TeamDiscoveryInput:
-    # Empty: discovery config is read from the flag payload inside the activity.
-    pass
+    # A coordinator that processes one window sets it, so a team with no AI events in that window does not cost
+    # a child workflow and its sampling query. Without a window, discovery uses the flag's lookback days.
+    window_start: str | None = None
+    window_end: str | None = None
 
 
 @retry(
@@ -163,7 +165,6 @@ async def _consented_team_ids_with_retry(team_ids: list[int]) -> set[int]:
     return await database_sync_to_async_pool(consented_team_ids)(team_ids)
 
 
-# TODO: drop `inputs`/TeamDiscoveryInput next release; kept so pre-rollout activity tasks still deserialize.
 @temporalio.activity.defn(name="get_team_ids_for_llm_analytics")
 async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = None) -> list[int]:
     """
@@ -187,8 +188,12 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
         lookback_days = config.discovery_lookback_days
 
         try:
-            end = datetime.now(UTC)
-            begin = end - timedelta(days=lookback_days)
+            if inputs is not None and inputs.window_start and inputs.window_end:
+                begin = datetime.fromisoformat(inputs.window_start)
+                end = datetime.fromisoformat(inputs.window_end)
+            else:
+                end = datetime.now(UTC)
+                begin = end - timedelta(days=lookback_days)
 
             from posthog.tasks.ai_observability_usage_report import (
                 LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS,
@@ -213,6 +218,8 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
             # order, so a run that stops early skips different teams each hour.
             discovered = sorted(guaranteed - skip) + sampled
             discovery_context = {
+                "discovery_begin": begin.isoformat(),
+                "discovery_end": end.isoformat(),
                 "ai_event_teams_count": len(ai_event_teams),
                 "remaining_count": len(remaining),
                 "sampled_count": len(sampled),

@@ -17,7 +17,6 @@ import type { LocationChangedPayload } from 'kea-router/lib/types'
 
 import {
     archiveSessions,
-    fileSessions,
     pinSessions,
     reportBulkResult,
     restoreSessions,
@@ -116,9 +115,6 @@ export interface spaceFeedSelectionLogicActions {
     closeBulkArchiveConfirm: () => {
         value: true
     }
-    fileSelectedTo: (spaceId: string) => {
-        spaceId: string
-    }
     openBulkArchiveConfirm: (
         count: number,
         running: number
@@ -195,7 +191,6 @@ export const spaceFeedSelectionLogic: LogicWrapper<spaceFeedSelectionLogicType> 
         toggleSelectAll: true,
         clearSelection: true,
         pinSelected: true,
-        fileSelectedTo: (spaceId: string) => ({ spaceId }),
         requestBulkArchive: true,
         openBulkArchiveConfirm: (count: number, running: number) => ({ count, running }),
         closeBulkArchiveConfirm: true,
@@ -224,7 +219,6 @@ export const spaceFeedSelectionLogic: LogicWrapper<spaceFeedSelectionLogicType> 
             null as TodayBulkAction | null,
             {
                 pinSelected: () => 'pin',
-                fileSelectedTo: () => 'file',
                 archiveSelected: () => 'archive',
                 bulkActionFinished: () => null,
             },
@@ -305,12 +299,6 @@ export const spaceFeedSelectionLogic: LogicWrapper<spaceFeedSelectionLogicType> 
                 const pinned = values.bulkPinDirection === 'pin'
                 const failed = await pinSessions(teamId(), ids, pinned)
                 reportBulkResult(pinned ? 'pin' : 'unpin', ids.length, failed.length)
-                finish(failed)
-            },
-            fileSelectedTo: async ({ spaceId }) => {
-                const ids = values.selectedSessionIds
-                const failed = await fileSessions(teamId(), ids, spaceId)
-                reportBulkResult('file', ids.length, failed.length)
                 finish(failed)
             },
             requestBulkArchive: () => {

@@ -17,6 +17,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clarifai import (
     ClarifaiSourceConfig,
 )
@@ -37,6 +43,10 @@ def manager() -> MagicMock:
 
 
 class TestClarifaiTransport:
+    @staticmethod
+    def _driver(config: ClarifaiSourceConfig) -> SourceDriver:
+        return SourceDriver(ClarifaiSource(), config)
+
     @pytest.mark.parametrize("endpoint", ["models", "workflows", "datasets", "concepts"])
     @pytest.mark.parametrize("resume_page", [None, 4])
     def test_pagination_and_resume(
@@ -90,78 +100,51 @@ class TestClarifaiTransport:
         ],
     )
     def test_permanent_errors(
-        self, config: ClarifaiSourceConfig, manager: MagicMock, http_status: int, api_status: int, message: str
+        self, config: ClarifaiSourceConfig, http_status: int, api_status: int, message: str
     ) -> None:
-        with requests_mock.Mocker() as http:
-            http.get(BASE_URL + "models", status_code=http_status, json={"status": {"code": api_status}})
-            with pytest.raises((HTTPError, ValueError), match=message) as error:
-                list(
-                    cast(
-                        Iterable[Any],
-                        ClarifaiClient(config, 42, "v2").source("models", "test-job", manager).items(),
-                    )
-                )
-            assert any(pattern in str(error.value) for pattern in ClarifaiSource().get_non_retryable_errors())
-            assert http.call_count == 1
-            manager.save_state.assert_not_called()
+        result = self._driver(config).run(
+            "models", [ScriptedResponse(status=http_status, json={"status": {"code": api_status}})]
+        )
+        assert isinstance(result.raised, (HTTPError, ValueError))
+        assert message in str(result.raised)
+        assert any(pattern in str(result.raised) for pattern in ClarifaiSource().get_non_retryable_errors())
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
     @pytest.mark.parametrize(
         ("http_status", "api_status"), [(200, 10030), (200, 11003), (200, 11005), (429, 11005), (503, 10020)]
     )
-    def test_transient_errors_retry(
-        self, config: ClarifaiSourceConfig, manager: MagicMock, http_status: int, api_status: int
-    ) -> None:
-        with (
-            requests_mock.Mocker() as http,
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.RESTClient._send_request.retry.sleep"
-            ),
-        ):
-            http.get(BASE_URL + "models", status_code=http_status, json={"status": {"code": api_status}})
-            with pytest.raises(RESTClientRetryableError):
-                list(
-                    cast(
-                        Iterable[Any],
-                        ClarifaiClient(config, 42, "v2").source("models", "test-job", manager).items(),
-                    )
-                )
-            assert http.call_count == 5
-            manager.save_state.assert_not_called()
+    def test_transient_errors_retry(self, config: ClarifaiSourceConfig, http_status: int, api_status: int) -> None:
+        result = self._driver(config).run(
+            "models", always(ScriptedResponse(status=http_status, json={"status": {"code": api_status}}))
+        )
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert len(result.requests) == 5
+        assert result.saved_states == []
 
     @pytest.mark.parametrize(
         "body", [{}, {"status": {"code": 10020}}, {"status": {"code": 10010}}, {"status": {"code": 99999}}]
     )
     def test_unsuccessful_response_is_not_empty_data(
-        self, config: ClarifaiSourceConfig, manager: MagicMock, body: dict[str, object]
+        self, config: ClarifaiSourceConfig, body: dict[str, object]
     ) -> None:
-        with requests_mock.Mocker() as http:
-            http.get(BASE_URL + "models", json=body)
-            with pytest.raises(ValueError, match="unsuccessful response"):
-                list(
-                    cast(
-                        Iterable[Any],
-                        ClarifaiClient(config, 42, "v2").source("models", "test-job", manager).items(),
-                    )
-                )
-            manager.save_state.assert_not_called()
+        result = self._driver(config).run("models", [ScriptedResponse(json=body)])
+        assert isinstance(result.raised, ValueError)
+        assert "unsuccessful response" in str(result.raised)
+        assert result.saved_states == []
 
-    def test_redirect_is_not_followed(self, config: ClarifaiSourceConfig, manager: MagicMock) -> None:
-        with requests_mock.Mocker() as http:
-            http.get(BASE_URL + "models", status_code=302, headers={"Location": "https://other.example.com/"})
-            with pytest.raises(ValueError, match="redirect"):
-                list(
-                    cast(
-                        Iterable[Any],
-                        ClarifaiClient(config, 42, "v2").source("models", "test-job", manager).items(),
-                    )
-                )
-            assert http.call_count == 1
+    def test_redirect_is_not_followed(self, config: ClarifaiSourceConfig) -> None:
+        result = self._driver(config).run(
+            "models", [ScriptedResponse(status=302, headers={"Location": "https://other.example.com/"})]
+        )
+        assert isinstance(result.raised, ValueError)
+        assert "redirect" in str(result.raised)
+        assert len(result.requests) == 1
 
-    def test_unknown_endpoint_does_not_request(self, config: ClarifaiSourceConfig, manager: MagicMock) -> None:
-        with requests_mock.Mocker() as http:
-            with pytest.raises(UnknownResourceError):
-                ClarifaiClient(config, 42, "v2").source("unknown", "test-job", manager)
-            assert http.call_count == 0
+    def test_unknown_endpoint_does_not_request(self, config: ClarifaiSourceConfig) -> None:
+        result = self._driver(config).run("unknown", [])
+        assert isinstance(result.raised, UnknownResourceError)
+        assert result.requests == []
 
 
 class TestClarifaiCredentials:
@@ -190,25 +173,21 @@ class TestClarifaiCredentials:
         message: str | None,
     ) -> None:
         endpoint = schema_name or "models"
-        with requests_mock.Mocker() as http:
-            http.get(BASE_URL + endpoint, status_code=http_status, json={"status": {"code": api_status}, endpoint: []})
+        with scripted_network(
+            [ScriptedResponse(status=http_status, json={"status": {"code": api_status}, endpoint: []})]
+        ) as network:
             result, error = ClarifaiSource().validate_credentials(config, 42, schema_name)
             assert result is valid
             assert error is None if message is None else message in (error or "")
-            assert http.call_count == 1
-            assert http.last_request is not None
-            assert http.last_request.qs == {"page": ["1"], "per_page": ["1"]}
-            assert http.last_request.headers["Authorization"] == "Key fake-clarifai-pat"
+            assert len(network.requests_log) == 1
+            assert network.requests_log[0].path == f"/v2/users/example-user/apps/example-app/{endpoint}"
+            assert network.requests_log[0].param("page") == "1"
+            assert network.requests_log[0].param("per_page") == "1"
+            assert network.requests_log[0].headers["authorization"] == "Key fake-clarifai-pat"
 
     @pytest.mark.parametrize("http_status", [400, 429, 500])
     def test_probe_does_not_disguise_other_errors(self, config: ClarifaiSourceConfig, http_status: int) -> None:
-        with (
-            requests_mock.Mocker() as http,
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.RESTClient._send_request.retry.sleep"
-            ),
-        ):
-            http.get(BASE_URL + "models", status_code=http_status, json={"status": {"code": 10020}})
+        with scripted_network(always(ScriptedResponse(status=http_status, json={"status": {"code": 10020}}))):
             with pytest.raises((HTTPError, RESTClientRetryableError)):
                 ClarifaiSource().validate_credentials(config, 42)
 
@@ -228,11 +207,11 @@ class TestClarifaiCredentials:
     )
     def test_rejects_invalid_host(self, config: ClarifaiSourceConfig, host: str) -> None:
         config.api_host = host
-        with requests_mock.Mocker() as http:
+        with scripted_network([]) as network:
             valid, error = ClarifaiSource().validate_credentials(config, 42)
             assert not valid
             assert error is not None and "public HTTPS API host" in error
-            assert http.call_count == 0
+            assert network.requests_log == []
 
     @pytest.mark.parametrize("address", ["127.0.0.1", "10.0.0.1", "169.254.169.254", "::1"])
     def test_rejects_internal_host(self, config: ClarifaiSourceConfig, address: str) -> None:
@@ -257,19 +236,19 @@ class TestClarifaiCredentials:
     @pytest.mark.parametrize("host", ["https://clarifai.example.com", "https://clarifai.example.com:8443/"])
     def test_custom_host(self, config: ClarifaiSourceConfig, host: str) -> None:
         config.api_host = host
-        with requests_mock.Mocker() as http:
-            http.get(
-                host.rstrip("/") + "/v2/users/example-user/apps/example-app/models", json={"status": {"code": 10000}}
-            )
+        with scripted_network([ScriptedResponse(json={"status": {"code": 10000}})]) as network:
             assert ClarifaiSource().validate_credentials(config, 42) == (True, None)
-            assert http.call_count == 1
+            assert len(network.requests_log) == 1
+            assert network.requests_log[0].url.startswith(
+                host.rstrip("/") + "/v2/users/example-user/apps/example-app/models"
+            )
 
     @pytest.mark.parametrize("field", ["user_id", "app_id"])
     @pytest.mark.parametrize("value", ["", "..", "../other", "user?query=yes"])
     def test_rejects_path_injection(self, config: ClarifaiSourceConfig, field: str, value: str) -> None:
         setattr(config, field, value)
-        with requests_mock.Mocker() as http:
+        with scripted_network([]) as network:
             valid, error = ClarifaiSource().validate_credentials(config, 42)
             assert not valid
             assert error is not None and "valid Clarifai user ID" in error
-            assert http.call_count == 0
+            assert network.requests_log == []

@@ -14,6 +14,7 @@ from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.replay_vision.backend.temporal.constants import (
+    COMPLETE_OBSERVATION_REQUESTS_TIMEOUT,
     LIST_ENABLED_SCANNERS_TIMEOUT,
     LIST_SCANNER_SCHEDULES_TIMEOUT,
     REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT,
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
 # `activities` pulls in Django, which the workflow sandbox can't safely re-import.
 with workflow.unsafe.imports_passed_through():
     from products.replay_vision.backend.temporal.activities import (
+        complete_observation_requests_activity,
         delete_scanner_schedule_activity,
         list_enabled_scanners_activity,
         list_scanner_schedules_activity,
@@ -62,7 +64,6 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ReconcileScannerSchedulesInputs) -> ReconcileScannerSchedulesResult:
-        workflow.deprecate_patch("sync-schedules-before-reapers-2026-08")
         # Schedule sync goes first because it is the only phase a user feels: an enabled scanner
         # that never gets a sweep schedule silently never scans. The reapers only settle rows that
         # are already wrong, so a skipped pass costs one tick. The reapers' combined start-to-close
@@ -85,13 +86,11 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         except Exception:
             workflow.logger.exception("replay_vision.reap_orphaned_observations_failed")
 
-        workflow.deprecate_patch("reap-childless-inline-scanners-2026-08")
         try:
             await self._run_reaper(reap_childless_inline_scanners_activity)
         except Exception:
             workflow.logger.exception("replay_vision.reap_childless_inline_scanners_failed")
 
-        workflow.deprecate_patch("reap-backfill-schedules-2026-08")
         try:
             # A full schedule listing outlives the short reaper attempt, so this one keeps a long
             # attempt and leans on heartbeats to detect a dead worker.
@@ -104,11 +103,17 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         except Exception:
             workflow.logger.exception("replay_vision.reap_backfill_schedules_failed")
 
-        workflow.deprecate_patch("start-launched-scanners-2026-10")
         try:
             await self._run_reaper(start_launched_scanners_activity)
         except Exception:
             workflow.logger.exception("replay_vision.start_launched_scanners_failed")
+
+        try:
+            await self._run_reaper(
+                complete_observation_requests_activity, start_to_close_timeout=COMPLETE_OBSERVATION_REQUESTS_TIMEOUT
+            )
+        except Exception:
+            workflow.logger.exception("replay_vision.complete_observation_requests_failed")
 
     async def _sync_schedules(self) -> tuple[ReconcileScannerSchedulesResult, ApplicationError | None]:
         """Converge per-scanner schedules with the table. Returns the result plus a systemic failure to
