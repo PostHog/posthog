@@ -710,7 +710,9 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
         )
         key = _InstanceKey(configuration_id=str(configuration.id), grouping_key="")
         alert = _alerts_for_write(handover.team_id, [configuration], [key])[key]
-        if alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None:
+        # A failing check status means the machine already ended the firing the row still holds.
+        live_firing = alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None
+        if live_firing and configuration.check_status == PlatformAlertConfiguration.CheckStatus.OK:
             return False
         # ERRORED and BROKEN are the configuration's check status, so the instance starts at rest.
         failing = handover.state in (PlatformAlertState.ERRORED, PlatformAlertState.BROKEN)
@@ -728,8 +730,9 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
         )
 
         alert.state = PlatformAlertState.NOT_FIRING if failing else handover.state
+        alert.firing_started_at = None
         alert.last_notified_at = handover.last_notified_at
-        alert.save(update_fields=["state", "last_notified_at"])
+        alert.save(update_fields=["state", "firing_started_at", "last_notified_at"])
     return True
 
 

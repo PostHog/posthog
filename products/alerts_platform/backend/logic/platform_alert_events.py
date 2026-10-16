@@ -7,8 +7,8 @@ keeping.
 ClickHouse has no unique constraint, so the insert carries a deduplication token instead. The
 token names the batch by its contents, and the replicated engine drops a second insert that
 arrives under a token it has already seen. A reader still deduplicates on
-`(alert_id, evaluation_key)`, because the token only covers a retry of the same batch and the
-engine only remembers a bounded window of them.
+`(configuration_id, alert_id, evaluation_key)`, because the token only covers a retry of the same
+batch and the engine only remembers a bounded window of them.
 """
 
 import json
