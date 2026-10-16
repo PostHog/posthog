@@ -1,6 +1,7 @@
 //! The consume loop.
 
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use common_kafka::config::KafkaConfig;
 use lifecycle::Handle;
@@ -9,7 +10,8 @@ use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::message::{Headers, Message as _};
 use rdkafka::ClientConfig;
 
-use crate::process::{read, sampled};
+use crate::process::{admit, read, sampled};
+use crate::teams::TeamCache;
 
 pub fn create_consumer(
     kafka: &KafkaConfig,
@@ -47,7 +49,7 @@ fn header<'m>(message: &'m impl rdkafka::Message, name: &str) -> Option<&'m str>
 }
 
 /// Reads sampled messages and counts what they hold. Offsets are stored once a message is handled.
-pub async fn run(consumer: StreamConsumer, percentage: f64, handle: Handle) {
+pub async fn run(consumer: StreamConsumer, percentage: f64, teams: Arc<TeamCache>, handle: Handle) {
     let shutdown = handle.shutdown_signal();
     tokio::pin!(shutdown);
     loop {
@@ -65,12 +67,20 @@ pub async fn run(consumer: StreamConsumer, percentage: f64, handle: Handle) {
                 continue;
             }
         };
-        let outcome = sampled(message.key(), percentage).and_then(|()| {
-            read(
-                message.payload().unwrap_or_default(),
-                header(&message, "content-encoding"),
-            )
-        });
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as i64);
+        let outcome = sampled(message.key(), percentage)
+            .and_then(|()| {
+                read(
+                    message.payload().unwrap_or_default(),
+                    header(&message, "content-encoding"),
+                )
+            })
+            .and_then(|read| {
+                let team = header(&message, "token").and_then(|token| teams.get(token));
+                admit(&read, team, now_ms).map(|_| read)
+            });
         match outcome {
             Ok(read) => {
                 counter!("replay_recorder_v4_messages_total", "outcome" => "read").increment(1);
