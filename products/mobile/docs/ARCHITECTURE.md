@@ -54,7 +54,7 @@ products/mobile/
         session/          useSession (create, follow, send, resume, stop, answer), sessionRun (request bodies
                           and the set_config_option plan), sessionReducer, sessionDisplay, SessionThread and its
                           rows, SessionDecisionPanel
-      chats/              ChatsScreen, ChatRow,
+      chats/              ChatsScreen, ChatRow, ChatRowMenu (long-press Archive),
                           chatGroups (day labels, grouping, search), sessionStatus, hooks
       notifications/      pushSupport, pushStore, pushRegistration, usePushRegistration,
                           notificationRouting, taskLookup, useNotificationRouting
@@ -140,6 +140,7 @@ Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT
 | `useSetPriorityAction(id)` | `features/priority/hooks.ts` | `AsyncAction<[ReportPriority]>` |
 | `useSession({ taskId?, runId? })` | `features/chat/session/useSession.ts` | `Session`: `taskId`, `runId`, `title`, `items`, `invocations`, `phase`, `history`, `decision`, `runConfig`, `notice`, `unsentText`, `isSending`, `isStopping`, `start(text, context, options?)`, `send(text, context, options?)`, `stop`, `answer`, `reset`, `reloadHistory` |
 | `useChatList()` | `features/chats/hooks.ts` | `QueryState<ChatListItem[]>` |
+| `useArchiveChat()` | `features/chats/hooks.ts` | `ChatArchiveActions` (`archive`, `restore`), both optimistic on the cached list |
 | `usePushRegistration()`, `useNotificationRouting()` | `features/notifications/` | registers the device, routes taps |
 | `useViewer()` | `auth/useViewer.ts` | `{ name, projectName }` |
 

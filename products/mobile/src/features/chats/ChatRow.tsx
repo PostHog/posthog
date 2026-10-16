@@ -1,6 +1,8 @@
 import { memo, type ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
+import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
+import { useMenuTrigger } from '@/features/views/list/useMenuTrigger'
 import { formatRelativeAgo } from '@/lib/dates'
 import type { ChatListItem, ChatOrigin } from '@/model/types'
 import { Dot } from '@/ui/Dot'
@@ -17,6 +19,7 @@ interface ChatRowProps {
     item: ChatListItem
     now: Date
     onOpen: (item: ChatListItem) => void
+    onLongPress: (item: ChatListItem, anchor: RowAnchor) => void
 }
 
 const ORIGIN_LABEL: Record<ChatOrigin, string> = {
@@ -25,14 +28,19 @@ const ORIGIN_LABEL: Record<ChatOrigin, string> = {
     session: 'Session',
 }
 
-export const ChatRow = memo(function ChatRow({ item, now, onOpen }: ChatRowProps): ReactElement {
+export const ChatRow = memo(function ChatRow({ item, now, onOpen, onLongPress }: ChatRowProps): ReactElement {
+    const menu = useMenuTrigger(item, onLongPress)
     const when = formatRelativeAgo(item.updatedAt, now)
     const status = sessionStatusDisplay(item.status)
     const origin = ORIGIN_LABEL[item.origin]
     const metaText = `${origin}, ${status.label}, ${when}`
     return (
         <Pressable44
+            ref={menu.ref}
             onPress={() => onOpen(item)}
+            onLongPress={menu.onLongPress}
+            accessibilityActions={menu.accessibilityActions}
+            onAccessibilityAction={menu.onAccessibilityAction}
             pressedBackground={colors.sunken}
             style={styles.row}
             accessibilityLabel={`${item.title}, ${metaText}${item.pullRequestUrl ? ', has a pull request' : ''}`}

@@ -35,6 +35,8 @@ export interface DemoMutableState {
     read: Record<string, boolean>
     reviewers: Record<string, string[]>
     priorities: Record<string, ReportPriority>
+    /** Demo session ids the person archived from the Chats list. */
+    archivedChats: Record<string, true>
     log: Record<string, DemoLogEntry[]>
     isRefreshing: boolean
 }
@@ -59,6 +61,8 @@ export interface DemoModeState extends DemoMutableState {
     setPriority: (reportId: string, priority: ReportPriority) => void
     markRead: (reportId: string) => void
     markUnread: (reportId: string) => void
+    archiveChat: (taskId: string) => void
+    unarchiveChat: (taskId: string) => void
 }
 
 function freshState(): DemoMutableState {
@@ -71,6 +75,7 @@ function freshState(): DemoMutableState {
         read: {},
         reviewers: {},
         priorities: {},
+        archivedChats: {},
         log: {},
         isRefreshing: false,
     }
@@ -187,6 +192,12 @@ export const useDemoMode = create<DemoModeState>()(
                 set((state) =>
                     state.read[reportId] === false ? state : { read: { ...state.read, [reportId]: false } }
                 ),
+            archiveChat: (taskId) => set((state) => ({ archivedChats: { ...state.archivedChats, [taskId]: true } })),
+            unarchiveChat: (taskId) =>
+                set((state) => {
+                    const { [taskId]: _removed, ...archivedChats } = state.archivedChats
+                    return { archivedChats }
+                }),
         }),
         {
             name: 'posthog-mobile-demo',
