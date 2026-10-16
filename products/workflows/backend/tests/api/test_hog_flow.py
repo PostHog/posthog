@@ -5702,6 +5702,22 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
 
+    def test_in_flight_allowed_with_hog_flow_read_key(self):
+        flow_id = self._create_flow()
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="hog_flow read", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read"]
+        )
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            return_value=MagicMock(status_code=200, json=lambda: {"count": 3, "by_action": {"action_1": 3}}),
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/in_flight",
+                headers={"authorization": f"Bearer {key}"},
+            )
+        assert response.status_code == 200, response.json()
+
     def test_bulk_delete_archived_workflows(self):
         ids = [self._create_flow(name=f"Flow {i}") for i in range(3)]
         for fid in ids:
