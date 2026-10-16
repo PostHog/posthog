@@ -42,7 +42,7 @@ Source: Veeqo — multichannel ecommerce inventory, order and shipping managemen
 | `delivery_methods`         | `/delivery_methods`                       | `id`                                                | `created_at`  | ➖ full     |                                                                                |
 | `returns`                  | `/orders`                                 | `order_id`, `id`                                    | `created_at`  | ➖ full     | Exploded from each order's embedded `returns`.                                 |
 | `stock_entries`            | `/products`                               | `sellable_id`, `warehouse_id`                       | —             | ➖ full     | Exploded from each product's `sellables[].stock_entries`.                      |
-| `shipment_tracking_events` | `/shipping/tracking_events/{shipment_id}` | `shipment_id`, `timestamp`, `status` | —             | ➖ full     | Fan-out: one request per `orders[].allocations[].shipment`; 404 skipped.       |
+| `shipment_tracking_events` | `/shipping/tracking_events/{shipment_id}` | `shipment_id`, `timestamp`, `status`                | —             | ➖ full     | Fan-out: one request per `orders[].allocations[].shipment`; 404 skipped.       |
 | `bundle_contents`          | `/kits/{kit_id}`                          | `kit_id`, `id`                                      | —             | ➖ full     | Fan-out: one request per product sellable of type `Kit`; rows from `contents`. |
 
 ## Possible future work
