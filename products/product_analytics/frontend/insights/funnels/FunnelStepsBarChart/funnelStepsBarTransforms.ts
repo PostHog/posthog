@@ -188,7 +188,6 @@ export function buildFunnelStepBarLabelFormatter(series: Pick<Series, 'data'>[])
         labels[seriesIndex]?.[dataIndex] ?? formatFunnelStepRate(value / RATE_TO_PERCENT)
 }
 
-/** Indexes of the steps that get a conversion chip in the gap before their bars. */
 export function getConversionChipStepIndexes(
     steps: FunnelStepWithConversionMetrics[],
     {
