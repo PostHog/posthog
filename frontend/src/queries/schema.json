@@ -16518,8 +16518,16 @@
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -16750,8 +16758,16 @@
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -16997,6 +17013,10 @@
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -17110,8 +17130,16 @@
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -19194,8 +19222,16 @@
                                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                                     "type": "string"
                                 },
+                                "preComputeStale": {
+                                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                                    "type": "boolean"
+                                },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                                },
+                                "preComputedAt": {
+                                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                                    "type": "string"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -19289,6 +19325,10 @@
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                                 },
+                                "preComputedAt": {
+                                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                                    "type": "string"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -19539,8 +19579,16 @@
                                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                                     "type": "string"
                                 },
+                                "preComputeStale": {
+                                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                                    "type": "boolean"
+                                },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                                },
+                                "preComputedAt": {
+                                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                                    "type": "string"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -19616,8 +19664,16 @@
                                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                                     "type": "string"
                                 },
+                                "preComputeStale": {
+                                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                                    "type": "boolean"
+                                },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                                },
+                                "preComputedAt": {
+                                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                                    "type": "string"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -43349,8 +43405,16 @@
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                             "type": "string"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -43444,6 +43508,10 @@
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -43774,8 +43842,16 @@
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                             "type": "string"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -43851,8 +43927,16 @@
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                             "type": "string"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -45043,8 +45127,16 @@
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                             "type": "string"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -45138,6 +45230,10 @@
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -45388,8 +45484,16 @@
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                             "type": "string"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -45465,8 +45569,16 @@
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                             "type": "string"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -57827,8 +57939,16 @@
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -58225,8 +58345,16 @@
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -58646,6 +58774,10 @@
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -58869,8 +59001,16 @@
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",

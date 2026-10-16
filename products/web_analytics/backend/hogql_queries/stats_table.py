@@ -28,7 +28,7 @@ from posthog.hogql.property import (
 )
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
+from posthog.clickhouse.query_tagging import clear_tag
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models.filters.mixins.utils import cached_property
 
@@ -551,12 +551,6 @@ WHERE and(
             query_type="stats_table_session_id_set_preflight",
         )
 
-    def _lazy_precompute_stale(self) -> Optional[bool]:
-        # The lazy modules mark serve-stale reads via tag_queries(precompute_stale=True)
-        # before executing the read; surfacing it on the response lets clients (and the
-        # frontend's 'query completed' telemetry) see it too. None when served fresh.
-        return True if get_query_tag_value("precompute_stale") else None
-
     def get_lazy_precomputed_result(self) -> Optional[LazyStatsResult]:
         if self.query.includeTrafficMetrics or not can_use_lazy_precompute(self):
             return None
@@ -590,7 +584,8 @@ WHERE and(
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
-            preComputeStale=self._lazy_precompute_stale(),
+            preComputeStale=self.lazy_precompute_stale(),
+            preComputedAt=self.lazy_precompute_computed_at_iso(),
             hasMore=result.has_more,
             limit=self.paginator.limit,
             offset=self.paginator.offset,
@@ -683,7 +678,8 @@ WHERE and(
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
-            preComputeStale=self._lazy_precompute_stale(),
+            preComputeStale=self.lazy_precompute_stale(),
+            preComputedAt=self.lazy_precompute_computed_at_iso(),
             hasMore=has_more,
             limit=limit,
             offset=offset,
@@ -746,7 +742,8 @@ WHERE and(
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
-            preComputeStale=self._lazy_precompute_stale(),
+            preComputeStale=self.lazy_precompute_stale(),
+            preComputedAt=self.lazy_precompute_computed_at_iso(),
             hasMore=has_more,
             limit=limit,
             offset=offset,
