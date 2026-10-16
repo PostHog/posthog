@@ -248,8 +248,9 @@ List the tables to sync, one per line, for example `AppRequests` or `MyEvents_CL
         )
 
     def table_names(self, config: AzureLogAnalyticsSourceConfig) -> list[str]:
+        # Discovery runs inside the source setup request, so it uses the short probe deadlines.
         return parse_table_names(config.tables) or discover_tables(
-            self.credentials(config).client(structlog.get_logger(__name__))
+            self.credentials(config).client(structlog.get_logger(__name__), probe=True)
         )
 
     def workspace_probe_query(self, config: AzureLogAnalyticsSourceConfig) -> str:

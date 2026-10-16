@@ -303,6 +303,25 @@ class TestQueryWalk:
         assert result.paths == [TOKEN_PATH, QUERY_PATH, TOKEN_PATH, QUERY_PATH]
         assert len(result.rows) == 1
 
+    def test_a_dropped_connection_is_retried_within_the_budget(self) -> None:
+        answers: Iterator[ScriptedResponse | BaseException] = iter(
+            [ConnectionResetError(), _page([_row("2026-10-02T10:00:00Z", "a")])]
+        )
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == TOKEN_PATH:
+                return _token()
+            answer = next(answers)
+            if isinstance(answer, BaseException):
+                raise answer
+            return answer
+
+        result = SourceDriver(AzureLogAnalyticsSource(), _config()).run("AppTraces", respond, **WATERMARK_TODAY)
+
+        assert result.raised is None
+        assert len(_queries(result.requests)) == 2
+        assert [row["_ItemId"] for row in result.rows] == ["a"]
+
     def test_retries_stop_before_a_full_attempt_would_overrun_five_minutes(self) -> None:
         def respond(request: RecordedRequest) -> ScriptedResponse:
             if request.path == TOKEN_PATH:
@@ -457,6 +476,19 @@ class TestValidateCredentials:
         assert ok is False
         assert message is not None and "Microsoft Entra ID" in message
         assert [request.path for request in network.requests_log] == [TOKEN_PATH]
+
+    def test_setup_probes_use_short_deadlines_and_no_retries(self) -> None:
+        unavailable = ScriptedResponse(
+            status=504, json={"error": {"code": "GatewayTimeout"}}, headers={"Retry-After": "1"}
+        )
+        with scripted_network(route({TOKEN_PATH: [_token()], QUERY_PATH: [unavailable]})) as network:
+            ok, message = AzureLogAnalyticsSource().validate_credentials(_config(), team_id=1)
+
+        assert ok is False
+        assert message is not None and "Could not query the Log Analytics workspace" in message
+        queries = [request for request in network.requests_log if request.path == QUERY_PATH]
+        assert len(queries) == 1
+        assert queries[0].read_timeout == 30
 
     @pytest.mark.parametrize(
         ("config", "schema_name"),

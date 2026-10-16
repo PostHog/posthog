@@ -147,8 +147,8 @@ def _error_description(response: requests.Response) -> str:
     return ""
 
 
-def _backoff_seconds(response: requests.Response, attempt: int) -> float:
-    raw = response.headers.get("Retry-After")
+def _backoff_seconds(response: requests.Response | None, attempt: int) -> float:
+    raw = response.headers.get("Retry-After") if response is not None else None
     if raw is not None:
         try:
             return min(max(float(raw), 0.0), MAX_BACKOFF_SECONDS)
@@ -220,30 +220,33 @@ class AzureLogAnalyticsClient:
 
         while True:
             token = self._token or self.mint_token()
-            response = self._api_session.post(
-                url,
-                json={"query": kql},
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=self._request_timeout,
-            )
+            response: requests.Response | None
+            try:
+                response = self._api_session.post(
+                    url,
+                    json={"query": kql},
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=self._request_timeout,
+                )
+                status = str(response.status_code)
+            except (requests.ConnectionError, requests.Timeout) as error:
+                # Queries only read, so a dropped connection or a timeout is safe to send again.
+                response = None
+                status = type(error).__name__
 
             # Tokens last about an hour; a long backfill can outlive one.
-            if response.status_code == 401 and not reminted:
+            if response is not None and response.status_code == 401 and not reminted:
                 reminted = True
                 self._token = None
                 continue
 
-            if response.status_code == 429 or response.status_code >= 500:
+            if response is None or response.status_code == 429 or response.status_code >= 500:
                 attempt += 1
                 delay = _backoff_seconds(response, attempt)
                 elapsed = time.monotonic() - started
                 if attempt >= self._max_attempts or elapsed + delay + sum(self._request_timeout) > RETRY_BUDGET_SECONDS:
-                    raise AzureLogAnalyticsRetryableError(
-                        f"Azure Log Analytics error (retryable): status={response.status_code}"
-                    )
-                self._logger.debug(
-                    f"Azure Log Analytics throttled: status={response.status_code}, sleeping {delay}s (attempt {attempt})"
-                )
+                    raise AzureLogAnalyticsRetryableError(f"Azure Log Analytics error (retryable): status={status}")
+                self._logger.debug(f"Azure Log Analytics retry: status={status}, sleeping {delay}s (attempt {attempt})")
                 interruptible_wait(delay, safe_point=self._safe_point)
                 continue
 
@@ -494,9 +497,12 @@ def _probe_failure_message(error: Exception, missing_table_message: str) -> str:
 def validate_workspace(
     credentials: WorkspaceCredentials, probe_query: str, missing_table_message: str
 ) -> tuple[bool, Optional[str]]:
-    """Mint a token, then run `probe_query`, which proves the app can query the workspace."""
+    """Mint a token, then run `probe_query`, which proves the app can query the workspace.
+
+    This runs inside the source setup request, so it uses the short probe deadlines.
+    """
     try:
-        client = credentials.client(structlog.get_logger(__name__))
+        client = credentials.client(structlog.get_logger(__name__), probe=True)
     except ValueError as error:
         return False, str(error)
 
