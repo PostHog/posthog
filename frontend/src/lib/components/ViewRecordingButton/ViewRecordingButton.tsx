@@ -1,12 +1,15 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { isValidElement, ReactNode, useEffect } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { UnwatchedIndicator } from 'scenes/session-recordings/playlist/UnwatchedIndicator'
@@ -74,6 +77,12 @@ export default function ViewRecordingButton({
     // object from a broken SDK). Only a real string addresses a recording, so the raw value goes to
     // the disabled-reason check while URL and key uses are gated on this validity flag.
     const isValidSessionId = typeof sessionId === 'string' && sessionId !== ''
+    const isExperimentEligible = isValidSessionId && (recordingStatus !== undefined || hasRecording !== undefined)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const availabilityVariant = isExperimentEligible
+        ? featureFlags[FEATURE_FLAGS.REPLAY_EVENT_RECORDING_AVAILABILITY]
+        : null
+    const useSessionLookup = availabilityVariant === 'session_lookup'
 
     const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
     const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
@@ -82,12 +91,16 @@ export default function ViewRecordingButton({
         if (!isValidSessionId) {
             return
         }
-        if (checkRecordingExists) {
+        if (checkRecordingExists || useSessionLookup) {
             checkRecordingInfo(sessionId)
         }
-    }, [checkRecordingExists, isValidSessionId, sessionId, checkRecordingInfo])
+    }, [checkRecordingExists, useSessionLookup, isValidSessionId, sessionId, checkRecordingInfo])
 
-    if (hasRecording === undefined && checkRecordingExists && isValidSessionId) {
+    const sessionHasRecording = isValidSessionId && useSessionLookup ? getRecordingExists(sessionId) : undefined
+    if (sessionHasRecording === true) {
+        hasRecording = true
+        recordingStatus = undefined
+    } else if (hasRecording === undefined && checkRecordingExists && isValidSessionId) {
         hasRecording = getRecordingExists(sessionId)
     }
 
@@ -101,6 +114,14 @@ export default function ViewRecordingButton({
         openPlayerIn,
         hasRecording,
     })
+    const onClickWithTracking = (): void => {
+        if (isExperimentEligible) {
+            posthog.capture('view_recording_clicked', {
+                availability_variant: useSessionLookup ? 'session_lookup' : 'control',
+            })
+        }
+        onClick()
+    }
 
     const { recordingViewed, recordingViewedLoading } = useValues(
         sessionRecordingViewedLogic({ sessionRecordingId: isValidSessionId ? sessionId : '' })
@@ -135,7 +156,7 @@ export default function ViewRecordingButton({
     if (variant === ViewRecordingButtonVariant.Link) {
         const linkContent = (
             <Link
-                onClick={disabledReason || props.loading ? undefined : onClick}
+                onClick={disabledReason || props.loading ? undefined : onClickWithTracking}
                 disabledReason={
                     typeof disabledReason === 'string'
                         ? disabledReason
@@ -169,7 +190,7 @@ export default function ViewRecordingButton({
             <LemonButton
                 disabledReason={disabledReason}
                 disabledReasonInteractive={isValidElement(disabledReason)}
-                onClick={onClick}
+                onClick={onClickWithTracking}
                 icon={sideIcon}
                 tooltip="View recording"
                 aria-label="View recording"
@@ -184,7 +205,7 @@ export default function ViewRecordingButton({
         <LemonButton
             disabledReason={disabledReason}
             disabledReasonInteractive={isValidElement(disabledReason)}
-            onClick={onClick}
+            onClick={onClickWithTracking}
             sideIcon={sideIcon}
             {...captureAttrs}
             {...props}
