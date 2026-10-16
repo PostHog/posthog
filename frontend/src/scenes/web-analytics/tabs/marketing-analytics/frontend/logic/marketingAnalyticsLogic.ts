@@ -421,6 +421,7 @@ export interface marketingAnalyticsLogicValues {
     sourceValidationError: string | null
     sourceValidationErrors: SourceValidationApi['errors_by_source']
     sourceValidationLoading: boolean
+    sourcesInitialLoading: boolean
     tileColumnSelection: validColumnsForTiles
     unconfiguredNativeSources: ExternalDataSource[]
     uniqueConversionGoalName: string
@@ -701,6 +702,10 @@ export interface marketingAnalyticsLogicMeta {
         ) => string
         nativeSourcesHierarchyStatus: (validNativeSources: NativeSource[]) => NativeSourceHierarchyStatus[]
         loading: (dataWarehouseSourcesLoading: boolean) => boolean
+        sourcesInitialLoading: (
+            dataWarehouseSourcesLoading: boolean,
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
+        ) => boolean
         allAvailableSources: (
             validExternalTables: ExternalTable[],
             validNativeSources: NativeSource[]
@@ -1352,6 +1357,16 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         loading: [
             (s) => [s.dataWarehouseSourcesLoading],
             (dataWarehouseSourcesLoading: boolean) => dataWarehouseSourcesLoading,
+        ],
+        // `loading` is also true while sources refresh in the background (window focus, sync
+        // polling). Views that would unmount their content on `loading` should gate on this
+        // instead, so only the first load shows a placeholder and refreshes keep the data in place.
+        sourcesInitialLoading: [
+            (s) => [s.dataWarehouseSourcesLoading, s.dataWarehouseSources],
+            (
+                dataWarehouseSourcesLoading: boolean,
+                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
+            ): boolean => dataWarehouseSourcesLoading && !dataWarehouseSources,
         ],
         allAvailableSources: [
             (s) => [s.validExternalTables, s.validNativeSources],

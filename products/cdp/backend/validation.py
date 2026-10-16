@@ -1202,6 +1202,13 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                     data["events"] = [event for event in events if event not in action_entries]
                     actions = data.get("actions")
                     data["actions"] = [*(actions if isinstance(actions, list) else []), *action_entries]
+            actions = data.get("actions")
+            for action in actions if isinstance(actions, list) else []:
+                if isinstance(action, dict) and action.get("type") == "actions":
+                    action_id = action.get("id")
+                    if isinstance(action_id, str | int | float):
+                        with contextlib.suppress(ValueError, OverflowError):
+                            action["id"] = str(int(action_id))
         return data
 
     def to_internal_value(self, data):

@@ -4,6 +4,7 @@ import json
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from parameterized import parameterized
+from pydantic import JsonValue
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 
@@ -538,14 +539,45 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             "Update your filters at: SETTINGS_URL#internal-user-filtering"
         )
 
-    def test_filters_allow_group_globals(self):
-        response = compile_filters_bytecode(
-            filters={
-                "properties": [{"type": "hogql", "key": "group_0.properties.name = 'a' and $group_1 is not null"}]
-            },
-            team=self.team,
-        )
-        assert "bytecode_error" not in response
+    @parameterized.expand(
+        [
+            (
+                "properties",
+                {"type": "hogql", "key": "group_0.properties.name = 'a' and $group_1 is not null"},
+                {"group_0": {"properties": {"name": "a"}}, "$group_1": "example"},
+                {"group_0": {"properties": {"name": "a"}}, "$group_1": None},
+            ),
+            (
+                "group_key",
+                {"type": "group", "group_type_index": 0, "key": "$group_key", "operator": "exact", "value": "example"},
+                {"group_0": {"properties": {}}, "$group_0": "example"},
+                {"group_0": {"properties": {}}, "$group_0": "other"},
+            ),
+            (
+                "hogql_group_key",
+                {"type": "hogql", "key": "group_4.key = 'example'"},
+                {"group_4": {"properties": {}}, "$group_4": "example"},
+                {"group_4": {"properties": {}}, "$group_4": "other"},
+            ),
+            (
+                "lambda_local",
+                {"type": "hogql", "key": "arrayExists(group_0 -> group_0.key = 'example', properties.records)"},
+                {"properties": {"records": [{"key": "example"}]}, "$group_0": "other"},
+                {"properties": {"records": [{"key": "other"}]}, "$group_0": "example"},
+            ),
+        ]
+    )
+    def test_filters_allow_group_globals(
+        self,
+        _name: str,
+        property_filter: dict[str, JsonValue],
+        matching_globals: dict[str, JsonValue],
+        nonmatching_globals: dict[str, JsonValue],
+    ) -> None:
+        response = compile_filters_bytecode(filters={"properties": [property_filter]}, team=self.team)
+        assert "bytecode_error" not in response, response.get("bytecode_error")
+        assert execute_bytecode(response["bytecode"], matching_globals).result is True
+        assert execute_bytecode(response["bytecode"], nonmatching_globals).result is False
 
     def test_filters_allow_a_lambda_parameter(self):
         # The parameter is a local, not a global. Reading the chain off the AST would reject this.
