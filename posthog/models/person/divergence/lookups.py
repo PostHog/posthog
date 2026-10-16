@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 from uuid import UUID
 
 from posthog.clickhouse.client import sync_execute
@@ -11,9 +11,6 @@ from posthog.clickhouse.workload import Workload
 from posthog.models.person.util import _batched_get_persons_by_uuids, get_person_tombstones
 from posthog.personhog_client.client import personhog_call
 from posthog.personhog_client.proto import ReadOptions
-
-if TYPE_CHECKING:
-    from personhog.types.v1 import person_pb2
 
 _T = TypeVar("_T")
 
@@ -26,17 +23,14 @@ def _ch(sql: str, args: dict[str, Any], settings: dict[str, int]) -> list[Any]:
     return sync_execute(sql, args, settings=settings, workload=Workload.OFFLINE, readonly=True)
 
 
-def _live_persons(team_id: int, person_uuids: list[str], operation: str) -> list[person_pb2.Person]:
-    return personhog_call(
+def _live_person_versions(team_id: int, person_uuids: list[str], operation: str) -> dict[str, int]:
+    persons = personhog_call(
         operation,
         lambda: _batched_get_persons_by_uuids(
             team_id, person_uuids, operation, read_options=_VERSION_ONLY_READ_OPTIONS
         ),
     )
-
-
-def _live_person_versions(team_id: int, person_uuids: list[str], operation: str) -> dict[str, int]:
-    return {str(UUID(p.uuid)): int(p.version) for p in _live_persons(team_id, person_uuids, operation)}
+    return {str(UUID(p.uuid)): int(p.version) for p in persons}
 
 
 def _tombstoned_uuids(team_id: int, person_uuids: list[str]) -> set[str]:
