@@ -15,7 +15,7 @@ import { formatPercentage } from './FractionalRolloutWarning'
 const RULE_TYPE_LABELS: Record<FeatureFlagRulesV2Rule['rule_type'], string> = {
     targeted_release: 'Targeted release',
     percentage_rollout: 'Percentage rollout',
-    experiment: 'Variant split',
+    experiment: 'Experiment',
 }
 
 function JsonValue({ value }: { value: unknown }): JSX.Element {

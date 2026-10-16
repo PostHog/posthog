@@ -79,8 +79,8 @@ describe('FeatureFlagRulesV2Readonly', () => {
         expect(container).not.toHaveTextContent('seed-must-not-render')
     })
 
-    it('labels every experiment rule a variant split and shows its variants, pause and holdout', () => {
-        const split = {
+    it('labels every experiment rule "Experiment" and shows its variants, pause and holdout', () => {
+        const experimentRule = {
             rule_type: 'experiment' as const,
             targeting: { properties: [] },
             paused: true,
@@ -102,11 +102,11 @@ describe('FeatureFlagRulesV2Readonly', () => {
                         default_value: null,
                         rules: [
                             {
-                                ...split,
+                                ...experimentRule,
                                 id: 'rule-paused',
                                 holdout: { seed: 'holdout-seed-must-not-render', exclusion_percentage: 5 },
                             },
-                            { ...split, id: 'rule-running', paused: false },
+                            { ...experimentRule, id: 'rule-running', paused: false },
                         ],
                     }}
                 />
@@ -114,16 +114,15 @@ describe('FeatureFlagRulesV2Readonly', () => {
         )
 
         const [pausedRow, runningRow] = Array.from(container.querySelectorAll('tbody tr'))
-        expect(pausedRow).toHaveTextContent('Variant split')
+        expect(pausedRow).toHaveTextContent('Experiment')
         expect(pausedRow).toHaveTextContent('Paused')
         expect(pausedRow).toHaveTextContent('control33.34%"standard"')
         expect(pausedRow).toHaveTextContent('compact66.66%"compact-layout"')
         expect(pausedRow).toHaveTextContent('50%Miss: next rule')
         expect(pausedRow).toHaveTextContent('Holdout excludes 5%')
-        expect(runningRow).toHaveTextContent('Variant split')
+        expect(runningRow).toHaveTextContent('Experiment')
         expect(runningRow).not.toHaveTextContent('Paused')
         expect(runningRow).not.toHaveTextContent('Holdout')
-        expect(container).not.toHaveTextContent('Experiment')
         expect(container).not.toHaveTextContent('must-not-render')
     })
 })

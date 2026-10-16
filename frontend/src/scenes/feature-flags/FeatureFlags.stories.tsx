@@ -15,7 +15,7 @@ const STALE_FLAG_ID = 1498
 const RULES_V2_FLAG_ID = 1802
 const DELETED_FLAG_ID = 1526
 
-const SPLIT_RULE_FIELDS = {
+const EXPERIMENT_RULE_FIELDS = {
     rule_type: 'experiment',
     targeting: { properties: [] },
     assignment_algorithm: 'sha1_60_v1',
@@ -23,7 +23,7 @@ const SPLIT_RULE_FIELDS = {
 }
 
 // Served on its own route only, so the list stories keep their rows.
-const RULES_V2_SPLIT_FLAG = {
+const RULES_V2_EXPERIMENT_FLAG = {
     ...featureFlags.results.find((flag) => flag.id === RULES_V2_FLAG_ID),
     id: 1803,
     key: 'checkout-layout-rules-v2',
@@ -43,7 +43,7 @@ const RULES_V2_SPLIT_FLAG = {
                 value: 'compact',
             },
             {
-                ...SPLIT_RULE_FIELDS,
+                ...EXPERIMENT_RULE_FIELDS,
                 id: '7c1f2e3d-4b5a-4c6d-8e9f-0a1b2c3d4e5f',
                 description: 'Layout test',
                 paused: false,
@@ -58,7 +58,7 @@ const RULES_V2_SPLIT_FLAG = {
                 holdout: { seed: '5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d', exclusion_percentage: 5 },
             },
             {
-                ...SPLIT_RULE_FIELDS,
+                ...EXPERIMENT_RULE_FIELDS,
                 id: '9d8c7b6a-5f4e-4d3c-9b2a-1f0e9d8c7b6a',
                 description: 'Mobile layout test, paused',
                 paused: true,
@@ -119,8 +119,8 @@ const meta: Meta = {
                     },
                 ],
                 '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
-                    if (Number(params['flagId']) === RULES_V2_SPLIT_FLAG.id) {
-                        return [200, RULES_V2_SPLIT_FLAG]
+                    if (Number(params['flagId']) === RULES_V2_EXPERIMENT_FLAG.id) {
+                        return [200, RULES_V2_EXPERIMENT_FLAG]
                     }
                     const flag = featureFlags.results.find((r) => r.id === Number(params['flagId']))
                     if (flag?.id === DELETED_FLAG_ID) {
@@ -295,15 +295,15 @@ export const EditRulesV2FeatureFlag: Story = {
     },
 }
 
-export const RulesV2FeatureFlagWithVariantSplit: Story = {
+export const RulesV2FeatureFlagWithExperimentRules: Story = {
     parameters: {
-        pageUrl: urls.featureFlag(RULES_V2_SPLIT_FLAG.id),
+        pageUrl: urls.featureFlag(RULES_V2_EXPERIMENT_FLAG.id),
     },
 }
 
-export const EditRulesV2FeatureFlagWithVariantSplit: Story = {
+export const EditRulesV2FeatureFlagWithExperimentRules: Story = {
     parameters: {
-        pageUrl: `${urls.featureFlag(RULES_V2_SPLIT_FLAG.id)}?edit=true`,
+        pageUrl: `${urls.featureFlag(RULES_V2_EXPERIMENT_FLAG.id)}?edit=true`,
         featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING, FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
     },
 }

@@ -40,8 +40,8 @@ jest.mock('~/layout/panel-layout/ProjectTree/projectTreeLogic', () => ({
     refreshTreeItem: jest.fn(),
 }))
 
-// A variant split with fields the editor does not render: they must survive a save unchanged.
-const SPLIT_RULE = {
+// An experiment rule with fields the editor does not render: they must survive a save unchanged.
+const EXPERIMENT_RULE = {
     id: 'rule-split',
     rule_type: 'experiment',
     description: 'Layout test',
@@ -64,7 +64,7 @@ const SPLIT_RULE = {
 
 const STRING_FLAG_RULES = [
     { id: 'rule-beta', rule_type: 'targeted_release', targeting: { properties: [] }, value: 'compact' },
-    SPLIT_RULE,
+    EXPERIMENT_RULE,
 ]
 
 const STRING_FLAG = {
@@ -149,13 +149,13 @@ describe('featureFlagRulesV2EditorLogic', () => {
             expect(body.filters).toMatchObject({ version: 2, return_type: 'boolean', default_value: false })
         })
 
-        it('sends a stored variant split back unchanged, seeds and unrendered fields included', () => {
+        it('sends a stored experiment rule back unchanged, seeds and unrendered fields included', () => {
             const draft = rulesV2DraftFromFlag(STRING_FLAG)
             expect(rulesV2WriteBody(draft).filters).toEqual(STRING_FLAG.filters)
         })
 
-        it('sends a new variant split and a new holdout with only the fields the server accepts', () => {
-            const split = withRuleType(
+        it('sends a new experiment rule and a new holdout with only the fields the server accepts', () => {
+            const experimentRule = withRuleType(
                 NEW_TARGETED_RELEASE_RULE,
                 'experiment',
                 'boolean'
@@ -163,7 +163,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
             const draft = rulesV2DraftFromFlag(V2_FLAG)
             const body = rulesV2WriteBody({
                 ...draft,
-                config: { ...draft.config, rules: [{ ...split, holdout: NEW_HOLDOUT }] },
+                config: { ...draft.config, rules: [{ ...experimentRule, holdout: NEW_HOLDOUT }] },
             })
 
             const [sent] = JSON.parse(JSON.stringify(body)).filters.rules
@@ -221,10 +221,14 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 rollout: { rollout_percentage: 30, on_rollout_miss: 'return_default' },
             },
         ] as { from: string; rule: FeatureFlagRulesV2DraftRule; rollout: Record<string, unknown> }[])(
-            'turns $from into a variant split with no client seed',
+            'turns $from into an experiment rule with no client seed',
             ({ rule, rollout }) => {
-                const split = withRuleType(rule, 'experiment', 'string') as FeatureFlagRulesV2DraftExperimentRule
-                expect(split).toMatchObject({
+                const experimentRule = withRuleType(
+                    rule,
+                    'experiment',
+                    'string'
+                ) as FeatureFlagRulesV2DraftExperimentRule
+                expect(experimentRule).toMatchObject({
                     id: rule.id,
                     rule_type: 'experiment',
                     paused: false,
@@ -235,15 +239,15 @@ describe('featureFlagRulesV2EditorLogic', () => {
                         { key: 'test', weight: 50, value: 'test' },
                     ],
                 })
-                expect(split).not.toHaveProperty('value')
-                expect(split.seed).toBeUndefined()
-                expect(split.holdout).toBeUndefined()
+                expect(experimentRule).not.toHaveProperty('value')
+                expect(experimentRule.seed).toBeUndefined()
+                expect(experimentRule.holdout).toBeUndefined()
             }
         )
 
-        it('turns a variant split into a percentage rollout that keeps its rollout but not its seed', () => {
+        it('turns an experiment rule into a percentage rollout that keeps its rollout but not its seed', () => {
             const rollout = withRuleType(
-                SPLIT_RULE as FeatureFlagRulesV2DraftExperimentRule,
+                EXPERIMENT_RULE as FeatureFlagRulesV2DraftExperimentRule,
                 'percentage_rollout',
                 'string'
             )
@@ -270,12 +274,15 @@ describe('featureFlagRulesV2EditorLogic', () => {
             ]
             const config = STRING_FLAG.filters as FeatureFlagRulesV2Config
             expect(
-                rulesV2DraftErrors({ ...config, rules: [{ ...SPLIT_RULE, variants } as FeatureFlagRulesV2DraftRule] })
+                rulesV2DraftErrors({
+                    ...config,
+                    rules: [{ ...EXPERIMENT_RULE, variants } as FeatureFlagRulesV2DraftRule],
+                })
             ).toEqual({})
         })
 
         it('adds, moves and removes variants, and distributes their weights to exactly 100', () => {
-            const variants = [...SPLIT_RULE.variants, newVariant('string', 3)]
+            const variants = [...EXPERIMENT_RULE.variants, newVariant('string', 3)]
             expect(variants[3]).toEqual({ key: '', weight: 0, value: '' })
             expect(moved(variants, 2, 0).map((variant) => variant.key)).toEqual(['spacious', 'control', 'compact', ''])
             expect(withEqualWeights(variants).map((variant) => variant.weight)).toEqual([25, 25, 25, 25])
@@ -444,7 +451,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
         expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '8')
     })
 
-    it('creates a string flag with a variant split and a holdout that carry no seed', async () => {
+    it('creates a string flag with an experiment rule and a holdout that carry no seed', async () => {
         const create = jest.spyOn(api, 'create').mockResolvedValue({ ...STRING_FLAG, id: 10 })
         const logic = featureFlagRulesV2EditorLogic({ id: 'new' })
         logic.mount()
@@ -727,15 +734,17 @@ describe('featureFlagRulesV2EditorLogic', () => {
             })
         })
     })
-    describe('editing a variant split', () => {
+    describe('editing an experiment rule', () => {
         let logic: ReturnType<typeof featureFlagRulesV2EditorLogic.build>
 
-        const split = (): FeatureFlagRulesV2DraftExperimentRule =>
+        const experimentRule = (): FeatureFlagRulesV2DraftExperimentRule =>
             logic.values.draft.config.rules[1] as FeatureFlagRulesV2DraftExperimentRule
-        const setSplit = (fields: Partial<FeatureFlagRulesV2DraftExperimentRule>): void =>
-            logic.actions.updateRule(1, { ...split(), ...fields })
+        const setExperimentRule = (fields: Partial<FeatureFlagRulesV2DraftExperimentRule>): void =>
+            logic.actions.updateRule(1, { ...experimentRule(), ...fields })
         const setVariant = (index: number, fields: Record<string, unknown>): void =>
-            setSplit({ variants: split().variants.map((v, i) => (i === index ? { ...v, ...fields } : v)) })
+            setExperimentRule({
+                variants: experimentRule().variants.map((v, i) => (i === index ? { ...v, ...fields } : v)),
+            })
 
         beforeEach(async () => {
             const pageLogic = featureFlagLogic({ id: 9 })
@@ -747,7 +756,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
             logic.mount()
         })
 
-        it('changes another rule and moves the split without touching any field of the split', async () => {
+        it('changes another rule and moves the experiment rule without touching any of its fields', async () => {
             const update = jest.spyOn(api, 'update').mockResolvedValue({ ...STRING_FLAG, version: 6 })
 
             logic.actions.updateRule(0, { ...STRING_FLAG_RULES[0], value: 'spacious' } as FeatureFlagRulesV2DraftRule)
@@ -759,7 +768,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
             const body = update.mock.calls[0][1] as Record<string, any>
             expect(body.version).toBe(5)
             expect(body.filters.rules).toEqual([
-                SPLIT_RULE,
+                EXPERIMENT_RULE,
                 { id: 'rule-beta', rule_type: 'targeted_release', targeting: { properties: [] }, value: 'spacious' },
             ])
         })
@@ -767,18 +776,18 @@ describe('featureFlagRulesV2EditorLogic', () => {
         it('edits variants and the holdout, echoing both seeds and keeping fields it does not show', async () => {
             const update = jest.spyOn(api, 'update').mockResolvedValue({ ...STRING_FLAG, version: 6 })
 
-            setSplit({ variants: moved(split().variants, 2, 0) })
-            setSplit({ variants: split().variants.filter((variant) => variant.key !== 'compact') })
+            setExperimentRule({ variants: moved(experimentRule().variants, 2, 0) })
+            setExperimentRule({ variants: experimentRule().variants.filter((variant) => variant.key !== 'compact') })
             setVariant(0, { weight: 50 })
             setVariant(1, { weight: 50 })
-            setSplit({ holdout: { ...split().holdout!, exclusion_percentage: 7.5 }, paused: true })
+            setExperimentRule({ holdout: { ...experimentRule().holdout!, exclusion_percentage: 7.5 }, paused: true })
             await expectLogic(logic, () => logic.actions.saveRulesV2Flag())
                 .toDispatchActions(['saveRulesV2FlagSuccess'])
                 .toFinishAllListeners()
 
             const sent = (update.mock.calls[0][1] as Record<string, any>).filters.rules[1]
             expect(sent).toEqual({
-                ...SPLIT_RULE,
+                ...EXPERIMENT_RULE,
                 paused: true,
                 variants: [
                     { key: 'spacious', weight: 50, value: 'spacious' },
@@ -789,16 +798,16 @@ describe('featureFlagRulesV2EditorLogic', () => {
         })
 
         it('removes the holdout with its seed, and adds one back without a seed', () => {
-            const { holdout: _holdout, ...withoutHoldout } = split()
+            const { holdout: _holdout, ...withoutHoldout } = experimentRule()
             logic.actions.updateRule(1, withoutHoldout)
-            expect(split()).not.toHaveProperty('holdout')
+            expect(experimentRule()).not.toHaveProperty('holdout')
 
-            setSplit({ holdout: NEW_HOLDOUT })
+            setExperimentRule({ holdout: NEW_HOLDOUT })
             expect(rulesV2WriteBody(logic.values.draft).filters.rules[1]).toMatchObject({
                 seed: 'split-seed',
                 holdout: { exclusion_percentage: 10 },
             })
-            expect(JSON.stringify(split().holdout)).not.toContain('seed')
+            expect(JSON.stringify(experimentRule().holdout)).not.toContain('seed')
         })
 
         it.each([
@@ -846,13 +855,13 @@ describe('featureFlagRulesV2EditorLogic', () => {
             },
             {
                 check: 'a single variant',
-                edit: () => setSplit({ variants: [{ key: 'control', weight: 100, value: 'standard' }] }),
+                edit: () => setExperimentRule({ variants: [{ key: 'control', weight: 100, value: 'standard' }] }),
                 field: 'filters.rules[1].variants',
                 error: 'Add at least 2 variants.',
             },
             {
                 check: 'a holdout above 100%',
-                edit: () => setSplit({ holdout: { exclusion_percentage: 101 } }),
+                edit: () => setExperimentRule({ holdout: { exclusion_percentage: 101 } }),
                 field: 'filters.rules[1].holdout.exclusion_percentage',
                 error: 'Must be between 0 and 100.',
             },

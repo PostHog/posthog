@@ -58,7 +58,7 @@ import {
 } from './featureFlagLogic'
 import {
     moved,
-    newVariantSplitFields,
+    newExperimentFields,
     rulesV2DraftErrors,
     rulesV2InitialValue,
     withReturnType,
@@ -114,7 +114,7 @@ export const NEW_ROLLOUT_FIELDS = {
     assign_by: 'person',
 } as const
 
-const NEW_SPLIT_ROLLOUT_FIELDS = { ...NEW_ROLLOUT_FIELDS, rollout_percentage: 100 } as const
+const NEW_EXPERIMENT_ROLLOUT_FIELDS = { ...NEW_ROLLOUT_FIELDS, rollout_percentage: 100 } as const
 
 // React keys for rule cards: new rules have no id, and index keys would follow a moved rule's position.
 let lastRuleKey = 0
@@ -154,8 +154,8 @@ export function withRuleType(
             return {
                 ...shared,
                 rule_type: ruleType,
-                ...(rollout ?? NEW_SPLIT_ROLLOUT_FIELDS),
-                ...newVariantSplitFields(returnType),
+                ...(rollout ?? NEW_EXPERIMENT_ROLLOUT_FIELDS),
+                ...newExperimentFields(returnType),
             }
     }
 }

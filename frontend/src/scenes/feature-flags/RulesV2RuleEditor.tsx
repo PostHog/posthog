@@ -14,8 +14,8 @@ import { FeatureFlagRulesV2DraftRule, FeatureFlagRulesV2ReturnType } from '~/typ
 import { FeatureFlagLogicProps } from './featureFlagLogic'
 import { featureFlagRulesV2EditorLogic, withRuleType } from './featureFlagRulesV2EditorLogic'
 import { PercentageInput } from './PercentageInput'
+import { RulesV2ExperimentGuards, RulesV2VariantsField } from './RulesV2ExperimentFields'
 import { RulesV2ValueInput } from './RulesV2ValueInput'
-import { RulesV2VariantSplitGuards, RulesV2VariantsField } from './RulesV2VariantSplitFields'
 
 export function RulesV2RuleEditor({
     id,
@@ -50,7 +50,7 @@ export function RulesV2RuleEditor({
                     options={[
                         { value: 'targeted_release', label: 'Targeted release' },
                         { value: 'percentage_rollout', label: 'Percentage rollout' },
-                        { value: 'experiment', label: 'Variant split' },
+                        { value: 'experiment', label: 'Experiment' },
                     ]}
                     data-attr="rules-v2-rule-type"
                 />
@@ -110,7 +110,7 @@ export function RulesV2RuleEditor({
                     addText="Add condition"
                 />
             </LemonField.Pure>
-            {rule.rule_type === 'experiment' && <RulesV2VariantSplitGuards id={id} index={index} rule={rule} />}
+            {rule.rule_type === 'experiment' && <RulesV2ExperimentGuards id={id} index={index} rule={rule} />}
             {rule.rule_type !== 'targeted_release' && (
                 <div className="flex flex-wrap gap-4">
                     <LemonField.Pure

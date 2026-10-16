@@ -4907,7 +4907,7 @@ describe('the editor a flag opens in', () => {
     })
 
     const V2_FLAG_URL = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`
-    const SPLIT_RULE = {
+    const EXPERIMENT_RULE = {
         id: 'rule-split',
         rule_type: 'experiment',
         targeting: { properties: [] },
@@ -4925,10 +4925,10 @@ describe('the editor a flag opens in', () => {
 
     it.each([
         ['a string return type', { return_type: 'string', default_value: 'control' }],
-        ['a variant split', { rules: [SPLIT_RULE] }],
+        ['an experiment rule', { rules: [EXPERIMENT_RULE] }],
         [
-            'a variant split with a holdout',
-            { rules: [{ ...SPLIT_RULE, holdout: { seed: 'holdout-seed', exclusion_percentage: 5 } }] },
+            'an experiment rule with a holdout',
+            { rules: [{ ...EXPERIMENT_RULE, holdout: { seed: 'holdout-seed', exclusion_percentage: 5 } }] },
         ],
     ])('a v2 flag with %s opens the rules v2 editor', async (_label, filters) => {
         useMocks({ get: { [V2_FLAG_URL]: () => [200, { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } }] } })

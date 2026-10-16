@@ -52,7 +52,7 @@ const V2_FLAG = {
     },
 }
 
-const STRING_SPLIT_FLAG = {
+const STRING_EXPERIMENT_FLAG = {
     ...NEW_FLAG,
     id: 9,
     key: 'checkout-layout',
@@ -99,7 +99,7 @@ describe('FeatureFlagRulesV2Editor', () => {
                 '/api/projects/:team/event_definitions': mockGetEventDefinitions,
                 '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
                 '/api/projects/:team/feature_flags/7/': V2_FLAG,
-                '/api/projects/:team/feature_flags/9/': STRING_SPLIT_FLAG,
+                '/api/projects/:team/feature_flags/9/': STRING_EXPERIMENT_FLAG,
                 '/api/projects/:team/feature_flags/:id/status': { status: 'active', reason: 'mock reason' },
             },
         })
@@ -139,8 +139,8 @@ describe('FeatureFlagRulesV2Editor', () => {
         })
     })
 
-    describe('a variant split', () => {
-        const split = (): FeatureFlagRulesV2DraftExperimentRule =>
+    describe('an experiment rule', () => {
+        const experimentRule = (): FeatureFlagRulesV2DraftExperimentRule =>
             featureFlagRulesV2EditorLogic({ id: 9 }).values.draft.config
                 .rules[0] as FeatureFlagRulesV2DraftExperimentRule
         const click = (dataAttr: string, index = 0): void => {
@@ -169,23 +169,23 @@ describe('FeatureFlagRulesV2Editor', () => {
             click('rules-v2-move-variant-up', 2)
             click('rules-v2-remove-variant', 0)
 
-            expect(split().variants).toEqual([
+            expect(experimentRule().variants).toEqual([
                 { key: 'spacious', weight: 33.33, value: 'spacious' },
                 { key: 'compact', weight: 33.33, value: 'compact' },
             ])
-            expect(split()).toMatchObject({ seed: 'split-seed', holdout: { seed: 'holdout-seed' } })
+            expect(experimentRule()).toMatchObject({ seed: 'split-seed', holdout: { seed: 'holdout-seed' } })
         })
 
-        it('pauses the split, removes its holdout and adds a new one', async () => {
-            click('rules-v2-split-paused')
-            click('rules-v2-split-holdout')
+        it('pauses the experiment rule, removes its holdout and adds a new one', async () => {
+            click('rules-v2-experiment-paused')
+            click('rules-v2-experiment-holdout')
 
-            expect(split()).toMatchObject({ paused: true })
-            expect(split()).not.toHaveProperty('holdout')
+            expect(experimentRule()).toMatchObject({ paused: true })
+            expect(experimentRule()).not.toHaveProperty('holdout')
             expect(screen.queryByLabelText('Holdout excludes')).not.toBeInTheDocument()
 
-            click('rules-v2-split-holdout')
-            expect(split().holdout).toEqual({ exclusion_percentage: 10 })
+            click('rules-v2-experiment-holdout')
+            expect(experimentRule().holdout).toEqual({ exclusion_percentage: 10 })
             await waitFor(() => expect(screen.getByLabelText('Holdout excludes')).toHaveValue('10'))
         })
     })

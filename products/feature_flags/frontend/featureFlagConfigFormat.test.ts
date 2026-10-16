@@ -9,7 +9,7 @@ import {
     rowVersionToken,
 } from './featureFlagConfigFormat'
 
-const SPLIT_RULE = {
+const EXPERIMENT_RULE = {
     id: 'rule-split',
     rule_type: 'experiment',
     targeting: { properties: [] },
@@ -29,7 +29,7 @@ const stringFlag = (rule: Record<string, unknown>, config: Record<string, unknow
         version: 2,
         return_type: 'string',
         default_value: null,
-        rules: [{ ...SPLIT_RULE, ...rule }],
+        rules: [{ ...EXPERIMENT_RULE, ...rule }],
         ...config,
     }) as FeatureFlagConfig
 
@@ -59,14 +59,14 @@ describe('featureFlagConfigFormat', () => {
     const EDITOR_ON = { [FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR]: true }
 
     it.each([
-        ['a variant split', stringFlag({}), true],
+        ['an experiment rule', stringFlag({}), true],
         [
-            'a variant split with a holdout',
+            'an experiment rule with a holdout',
             stringFlag({ holdout: { seed: 'holdout-seed', exclusion_percentage: 5 } }),
             true,
         ],
         [
-            'a boolean variant split',
+            'a boolean experiment rule',
             stringFlag(
                 { variants: [{ key: 'a', weight: 100, value: true }] },
                 { return_type: 'boolean', default_value: false }

@@ -23,13 +23,13 @@ import { featureFlagRulesV2EditorLogic } from './featureFlagRulesV2EditorLogic'
 import { PercentageInput } from './PercentageInput'
 import { RulesV2ValueInput } from './RulesV2ValueInput'
 
-interface VariantSplitFieldsProps extends FeatureFlagLogicProps {
+interface ExperimentFieldsProps extends FeatureFlagLogicProps {
     index: number
     rule: FeatureFlagRulesV2DraftExperimentRule
 }
 
-/** Pause and holdout, which a variant split checks before its rollout. Seeds are server-owned and never shown. */
-export function RulesV2VariantSplitGuards({ id, index, rule }: VariantSplitFieldsProps): JSX.Element {
+/** Pause and holdout, which an experiment rule checks before its rollout. Seeds are server-owned and never shown. */
+export function RulesV2ExperimentGuards({ id, index, rule }: ExperimentFieldsProps): JSX.Element {
     const { fieldError } = useValues(featureFlagRulesV2EditorLogic({ id }))
     const { updateRule } = useActions(featureFlagRulesV2EditorLogic({ id }))
     const path = `filters.rules[${index}]`
@@ -40,7 +40,7 @@ export function RulesV2VariantSplitGuards({ id, index, rule }: VariantSplitField
     return (
         <div className="flex flex-wrap gap-4">
             <LemonField.Pure
-                help="Matching persons get the default value while the split is paused."
+                help="Matching persons get the default value while the experiment is paused."
                 error={fieldError(`${path}.paused`)}
             >
                 <LemonSwitch
@@ -48,7 +48,7 @@ export function RulesV2VariantSplitGuards({ id, index, rule }: VariantSplitField
                     checked={rule.paused}
                     onChange={(paused) => updateRule(index, { ...rule, paused })}
                     bordered
-                    data-attr="rules-v2-split-paused"
+                    data-attr="rules-v2-experiment-paused"
                 />
             </LemonField.Pure>
             <div className="flex flex-col gap-2">
@@ -62,7 +62,7 @@ export function RulesV2VariantSplitGuards({ id, index, rule }: VariantSplitField
                         // Removing the holdout drops its stored seed; the server keeps it if the holdout is added back before saving.
                         onChange={(on) => updateRule(index, on ? { ...rule, holdout: NEW_HOLDOUT } : withoutHoldout)}
                         bordered
-                        data-attr="rules-v2-split-holdout"
+                        data-attr="rules-v2-experiment-holdout"
                     />
                 </LemonField.Pure>
                 {holdout && (
@@ -78,7 +78,7 @@ export function RulesV2VariantSplitGuards({ id, index, rule }: VariantSplitField
                             onChange={(exclusion_percentage) =>
                                 updateRule(index, { ...rule, holdout: { ...holdout, exclusion_percentage } })
                             }
-                            data-attr="rules-v2-split-holdout-percentage"
+                            data-attr="rules-v2-experiment-holdout-percentage"
                         />
                     </LemonField.Pure>
                 )}
@@ -92,7 +92,7 @@ export function RulesV2VariantsField({
     index,
     rule,
     returnType,
-}: VariantSplitFieldsProps & { returnType: FeatureFlagRulesV2ReturnType }): JSX.Element {
+}: ExperimentFieldsProps & { returnType: FeatureFlagRulesV2ReturnType }): JSX.Element {
     const { fieldError } = useValues(featureFlagRulesV2EditorLogic({ id }))
     const { updateRule } = useActions(featureFlagRulesV2EditorLogic({ id }))
     const path = `filters.rules[${index}]`
@@ -191,7 +191,7 @@ export function RulesV2VariantsField({
                                     tooltip="Remove variant"
                                     disabledReason={
                                         variants.length <= MIN_VARIANTS
-                                            ? `A split needs at least ${MIN_VARIANTS} variants.`
+                                            ? `An experiment needs at least ${MIN_VARIANTS} variants.`
                                             : undefined
                                     }
                                     onClick={() => setVariants(variants.filter((_, i) => i !== variantIndex))}
@@ -209,7 +209,7 @@ export function RulesV2VariantsField({
                         icon={<IconPlusSmall />}
                         disabledReason={
                             variants.length >= MAX_VARIANTS
-                                ? `A split has at most ${MAX_VARIANTS} variants.`
+                                ? `An experiment has at most ${MAX_VARIANTS} variants.`
                                 : undefined
                         }
                         onClick={() => setVariants([...variants, newVariant(returnType, variants.length)])}

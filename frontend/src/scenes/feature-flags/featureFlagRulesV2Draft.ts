@@ -30,12 +30,12 @@ export function rulesV2InitialDefault(returnType: FeatureFlagRulesV2ReturnType):
     return returnType === 'boolean' ? false : null
 }
 
-// A boolean split starts as control false and test true; a string variant serves its own key.
+// A boolean experiment rule starts as control false and test true; a string variant serves its own key.
 function initialVariantValue(returnType: FeatureFlagRulesV2ReturnType, key: string, index: number): JsonType {
     return returnType === 'boolean' ? index > 0 : key
 }
 
-export function newVariantSplitFields(
+export function newExperimentFields(
     returnType: FeatureFlagRulesV2ReturnType
 ): Pick<FeatureFlagRulesV2DraftExperimentRule, 'paused' | 'variants'> {
     return {
@@ -121,7 +121,7 @@ function variantKeyError(key: string, seen: Set<string>): string | null {
     return seen.has(key) ? 'Variant keys must be unique.' : null
 }
 
-function variantSplitErrors(
+function experimentErrors(
     rule: FeatureFlagRulesV2DraftExperimentRule,
     path: string,
     returnType: FeatureFlagRulesV2ReturnType,
@@ -177,7 +177,7 @@ export function rulesV2DraftErrors(config: FeatureFlagRulesV2DraftConfig): Recor
             addError(errors, `${path}.rollout_percentage`, percentageError(rule.rollout_percentage))
         }
         if (rule.rule_type === 'experiment') {
-            variantSplitErrors(rule, path, config.return_type, errors)
+            experimentErrors(rule, path, config.return_type, errors)
         }
     })
     return errors
