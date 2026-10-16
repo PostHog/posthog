@@ -596,13 +596,17 @@ def _prepare_monitoring_metrics(now: datetime, disabled_organizations: frozenset
             status=SignalReportCheck.Status.ACTIVE,
             expires_at__gt=now,
         )
-        .filter(Q(last_run_at__isnull=True) | Q(last_run_at__lt=F("report__monitoring_started_at")))
+        .filter(
+            Q(last_run_at__isnull=True)
+            | Q(last_run_at__lt=F("report__monitoring_started_at"))
+            | ~Q(measurement_start_at=F("report__monitoring_started_at"))
+        )
         .annotate(
             _first_observation_at=ExpressionWrapper(
                 F("report__monitoring_started_at") + cadence, output_field=DateTimeField()
             )
         )
-        .exclude(next_run_at=F("_first_observation_at"))
+        .exclude(measurement_start_at=F("report__monitoring_started_at"), next_run_at=F("_first_observation_at"))
         .select_related("report")
         .order_by("report__monitoring_started_at", "id")[:MAX_CHECK_PARKS_PER_TICK]
     )
