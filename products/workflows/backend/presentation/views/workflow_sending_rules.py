@@ -3,7 +3,7 @@ from typing import Any
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -15,6 +15,15 @@ from products.workflows.backend.facade.enums import EMAIL_TRACKING_CONSENT_MODE_
 
 
 class WorkflowSendingRulesSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(
+        source="team_id", read_only=True, help_text="The project these sending rules belong to."
+    )
+    expected_project_id = serializers.IntegerField(
+        write_only=True,
+        required=False,
+        help_text="Optional. The project_id from the rules being changed. The update is rejected when it does not "
+        "match the current project, so a change never lands in a project the user did not look at.",
+    )
     marketing_frequency_cap_max_messages = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -71,9 +80,15 @@ class WorkflowSendingRulesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise PermissionDenied("Only project admins can change sending rules.")
         payload = WorkflowSendingRulesSerializer(data=request.data, partial=True)
         payload.is_valid(raise_exception=True)
+        changes = dict(payload.validated_data)
+        expected_project_id = changes.pop("expected_project_id", None)
+        if expected_project_id is not None and expected_project_id != self.team.id:
+            raise ValidationError(
+                {"expected_project_id": "These sending rules belong to another project. Switch back to it first."}
+            )
         update_team_workflows_config(
             self.team,
-            dict(payload.validated_data),
+            changes,
             context={"request": request, "user_access_control": self.user_access_control},
         )
         return Response(self._rules())

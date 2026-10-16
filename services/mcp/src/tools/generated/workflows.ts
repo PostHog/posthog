@@ -652,6 +652,9 @@ const workflowsSendingRulesUpdate = (): ToolBase<
         handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSendingRulesUpdateSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
+            if (params.expected_project_id !== undefined) {
+                body['expected_project_id'] = params.expected_project_id
+            }
             if (params.marketing_frequency_cap_max_messages !== undefined) {
                 body['marketing_frequency_cap_max_messages'] = params.marketing_frequency_cap_max_messages
             }

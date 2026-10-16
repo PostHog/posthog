@@ -3,6 +3,7 @@ import { type ReactElement, type ReactNode } from 'react'
 import { Button, Card, CardContent, Switch } from '@posthog/quill'
 
 export interface WorkflowSendingRulesData {
+    project_id: number
     marketing_frequency_cap_max_messages: number | null
     marketing_frequency_cap_window_days: number | null
     email_tracking_consent_mode: 'off' | 'opt_out' | 'opt_in'

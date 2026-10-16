@@ -1376,6 +1376,12 @@ export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapMaxMessag
 export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapWindowDaysMax = 30
 
 export const WorkflowSendingRulesPartialUpdateBody = () => zod.object({
+    expected_project_id: zod
+        .number()
+        .optional()
+        .describe(
+            'Optional. The project_id from the rules being changed. The update is rejected when it does not match the current project, so a change never lands in a project the user did not look at.'
+        ),
     marketing_frequency_cap_max_messages: zod
         .number()
         .min(1)

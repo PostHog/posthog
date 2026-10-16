@@ -87250,6 +87250,10 @@ export namespace Schemas {
     }
 
     export interface PatchedWorkflowSendingRules {
+      /** The project these sending rules belong to. */
+      readonly project_id?: number;
+      /** Optional. The project_id from the rules being changed. The update is rejected when it does not match the current project, so a change never lands in a project the user did not look at. */
+      expected_project_id?: number;
       /**
          * The most marketing messages one person gets in the window, across all workflows and broadcasts. Set it together with marketing_frequency_cap_window_days, or set both to null to turn the cap off. Transactional messages are never capped. The recommended cap is 1 message every 2 days.
          * @minimum 1
@@ -115193,6 +115197,10 @@ export namespace Schemas {
     }
 
     export interface WorkflowSendingRules {
+      /** The project these sending rules belong to. */
+      readonly project_id: number;
+      /** Optional. The project_id from the rules being changed. The update is rejected when it does not match the current project, so a change never lands in a project the user did not look at. */
+      expected_project_id?: number;
       /**
          * The most marketing messages one person gets in the window, across all workflows and broadcasts. Set it together with marketing_frequency_cap_window_days, or set both to null to turn the cap off. Transactional messages are never capped. The recommended cap is 1 message every 2 days.
          * @minimum 1

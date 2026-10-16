@@ -32,6 +32,16 @@ class TestWorkflowSendingRulesAPI(APIBaseTest):
         [
             ("a member", OrganizationMembership.Level.MEMBER, {"capture_workflows_engagement_events": True}, 403),
             ("half a cap", OrganizationMembership.Level.ADMIN, {"marketing_frequency_cap_max_messages": 3}, 400),
+            (
+                "another project",
+                OrganizationMembership.Level.ADMIN,
+                {
+                    "expected_project_id": 999999,
+                    "marketing_frequency_cap_max_messages": 1,
+                    "marketing_frequency_cap_window_days": 2,
+                },
+                400,
+            ),
         ]
     )
     def test_an_update_is_rejected_for(self, _name, level, payload, expected_status) -> None:

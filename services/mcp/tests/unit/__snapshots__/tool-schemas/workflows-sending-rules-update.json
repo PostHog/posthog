@@ -10,6 +10,10 @@
             "enum": ["off", "opt_out", "opt_in"],
             "type": "string"
         },
+        "expected_project_id": {
+            "description": "Optional. The project_id from the rules being changed. The update is rejected when it does not match the current project, so a change never lands in a project the user did not look at.",
+            "type": "number"
+        },
         "marketing_frequency_cap_max_messages": {
             "anyOf": [
                 {

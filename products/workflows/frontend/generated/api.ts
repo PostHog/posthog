@@ -1463,7 +1463,7 @@ export const getWorkflowSendingRulesPartialUpdateUrl = (projectId: string) => {
  */
 export const workflowSendingRulesPartialUpdate = async (
     projectId: string,
-    patchedWorkflowSendingRulesApi?: PatchedWorkflowSendingRulesApi,
+    patchedWorkflowSendingRulesApi?: NonReadonly<PatchedWorkflowSendingRulesApi>,
     options?: RequestInit
 ): Promise<WorkflowSendingRulesApi> => {
     return apiMutator<WorkflowSendingRulesApi>(getWorkflowSendingRulesPartialUpdateUrl(projectId), {

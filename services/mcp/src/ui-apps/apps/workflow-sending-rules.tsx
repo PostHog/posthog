@@ -9,6 +9,7 @@ import { type WorkflowSendingRulesData, WorkflowSendingRulesView } from 'product
 import { AppWrapper } from '../components/AppWrapper'
 
 const SAVE_FAILED = "We couldn't save the sending rules. Only project admins can change them."
+const FALLBACK_FAILED = "We couldn't save the sending rules or ask in the chat. Try again from the chat."
 
 function WorkflowSendingRulesApp(): JSX.Element {
     return (
@@ -37,7 +38,11 @@ function WorkflowSendingRulesContent({
             setSaving(true)
             setError(null)
             try {
-                const result = await app.callServerTool({ name: 'workflows-sending-rules-update', arguments: changes })
+                const result = await app.callServerTool({
+                    name: 'workflows-sending-rules-update',
+                    // Pins the save to the project this card shows, in case the chat switched projects since.
+                    arguments: { ...changes, expected_project_id: data.project_id },
+                })
                 const saved = result.structuredContent as unknown as WorkflowSendingRulesData | undefined
                 if (result.isError || !saved) {
                     setError(SAVE_FAILED)
@@ -46,12 +51,16 @@ function WorkflowSendingRulesContent({
                 }
             } catch {
                 // The host cannot call tools from an app, so the agent makes the change from the chat instead.
-                app.sendMessage({ role: 'user', content: [{ type: 'text', text: chatRequest }] })
+                try {
+                    await app.sendMessage({ role: 'user', content: [{ type: 'text', text: chatRequest }] })
+                } catch {
+                    setError(FALLBACK_FAILED)
+                }
             } finally {
                 setSaving(false)
             }
         },
-        [app]
+        [app, data.project_id]
     )
 
     return (
