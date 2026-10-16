@@ -91,17 +91,19 @@ class TestStandardEndpointPagination:
         [
             # /analyze/profiles answers 422 to the `limit=500` the other list endpoints accept, so
             # it must go out with no `limit` and let Chameleon pick the page size.
-            ("profiles_sends_no_limit", "profiles", None),
-            ("other_endpoints_keep_the_page_size", "segments", "500"),
+            ("profiles_sends_no_limit", "profiles", "/v3/analyze/profiles", None),
+            ("other_endpoints_keep_the_page_size", "segments", "/v3/edit/segments", "500"),
+            ("deliveries_keep_the_page_size", "deliveries", "/v3/edit/deliveries", "500"),
         ]
     )
     def test_page_size_is_only_sent_where_the_endpoint_accepts_it(
-        self, _name: str, endpoint: str, expected_limit: str | None
+        self, _name: str, endpoint: str, expected_path: str, expected_limit: str | None
     ) -> None:
         result = _driver().run(endpoint, [_response(endpoint, [{"id": "X1"}])])
 
         assert result.raised is None
         assert [row["id"] for row in result.rows] == ["X1"]
+        assert result.paths == [expected_path]
         assert result.params("limit") == [expected_limit]
 
     def test_stops_when_cursor_missing(self) -> None:

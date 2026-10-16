@@ -13,6 +13,7 @@ use personhog_common::partitioning::partition_for_person;
 use tonic::{Request, Status};
 use uuid::Uuid;
 
+use personhog_identity::config::OutboxWrites;
 use personhog_identity::lifecycle::delete::{DeleteDriver, DeleteOutcome};
 use personhog_identity::lifecycle::engine::{Engine, OpRow, SagaError};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
@@ -31,6 +32,7 @@ impl TestContext {
             self.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
             common::NUM_PARTITIONS,
+            OutboxWrites::Disabled,
         )
     }
 
@@ -563,6 +565,7 @@ impl FencedHarness {
             ctx.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
             common::NUM_PARTITIONS,
+            OutboxWrites::Disabled,
         );
         Self {
             ctx,

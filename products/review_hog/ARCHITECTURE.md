@@ -594,6 +594,9 @@ The agent returns JSON at the end of each turn; the caller validates it and ends
    failure `start` ends its own session and raises, so the helper logs and returns **`None`**. There is no
    `output_path` / `_error.txt` and no manual JSON extraction — persistence is the caller's job. The runner
    persists the full agent log at `task_run.log_url` (S3 / Tasks UI), so the executor never copies it locally.
+   Each task also gets an `origin_key` of `{random}:{workflow_id_prefix}` (the prefix holds `owner/repo:pr_number`),
+   which lands on `$ai_generation` as `task_origin_key` so review cost can be summed per PR.
+   The key caps at 128 characters: only the step text is cut, and an owner/repo too long to fit becomes a stable digest, so the PR number always survives.
 
 The perspective review (the blind-spot sweep rides the same activity) runs on a different model family than the
 rest — **OpenAI Codex `gpt-6.1-sol`**, with `initial_permission_mode="full-access"`, at an effort set by the

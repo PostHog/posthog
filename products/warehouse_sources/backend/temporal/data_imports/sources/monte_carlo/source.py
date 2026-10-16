@@ -107,7 +107,7 @@ You can create an API key from **Settings → API → Keys** in your Monte Carlo
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
-            if endpoint == "alerts":
+            if endpoint in ("alerts", "dbt_test_results", "fh_events", "job_executions"):
                 return "Only syncs the last 365 days on initial sync"
             return None
 

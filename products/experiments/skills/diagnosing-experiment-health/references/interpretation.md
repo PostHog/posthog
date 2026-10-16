@@ -184,6 +184,7 @@ PostHog defaults to Bayesian, unless the project's default method says otherwise
 - **Legacy experiments.** An experiment with legacy metrics (`is_legacy` in `experiment-get`) uses an older engine with
   different multivariate semantics and different significance gates. See E13 in `mid-run-changes.md`, and PostHog's
   [legacy-methodology docs page](https://posthog.com/docs/experiments/legacy-methodology).
+  Legacy experiments no longer show results. Migrate them with `experiment-migrate`.
 
 <!-- Source for maintainers (may rot): is_decisive in products/experiments/stats/bayesian/tests.py;
 credible_interval in products/experiments/stats/bayesian/utils.py. -->
