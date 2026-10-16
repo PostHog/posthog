@@ -5,8 +5,6 @@ Loaded on first use through `load_logs_source_config`, never from `ready()`, bec
 on `posthog.schema`.
 """
 
-from typing import Literal, get_args
-
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import LogsAlertFilters
@@ -17,11 +15,9 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationEdit,
     SourceConfigSpec,
 )
-from products.logs.backend.alert_check_query import GROUPABLE_LOGS_COLUMNS
+from products.logs.backend.alert_group_columns import grouping_problem
 from products.logs.backend.models import LogsAlertConfiguration
-
-WindowMinutes = Literal[5, 10, 15, 30, 60]
-ALLOWED_WINDOW_MINUTES: frozenset[int] = frozenset(get_args(WindowMinutes))
+from products.logs.backend.platform_source_config import WindowMinutes, has_any_filter
 
 
 class LogsPlatformAlertCondition(BaseModel):
@@ -52,22 +48,15 @@ class LogsPlatformAlertSourceConfig(BaseModel):
 
 def validate_logs_edit(edit: PlatformAlertConfigurationEdit) -> None:
     filters = edit.source_config["filters"]
-    if edit.enabled and not any(filters.get(key) for key in ("severityLevels", "serviceNames", "filterGroup")):
+    # The logs API's rule: a draft may hold no filters, but any filters it holds must narrow something.
+    if (edit.enabled or filters) and not has_any_filter(filters):
         raise InvalidPlatformAlertEdit(
-            "source_config", "An enabled alert needs at least one of severityLevels, serviceNames or filterGroup."
+            "source_config", "At least one filter is required (severityLevels, serviceNames, or filterGroup)."
         )
     if edit.grouping.mode == GroupingMode.SINGLE:
         return
-    if unknown := set(edit.grouping.keys) - GROUPABLE_LOGS_COLUMNS:
-        raise InvalidPlatformAlertEdit(
-            "grouping",
-            f"A logs alert can only group by {', '.join(sorted(GROUPABLE_LOGS_COLUMNS))}, "
-            f"not {', '.join(sorted(unknown))}.",
-        )
-    # A group with no matching log returns no row, so a service gone silent, the case a `below`
-    # alert exists for, is never seen unless it was already open.
-    if edit.source_config["condition"]["threshold_operator"] != LogsAlertConfiguration.ThresholdOperator.ABOVE:
-        raise InvalidPlatformAlertEdit("grouping", "A grouped logs alert can only alert above a threshold.")
+    if problem := grouping_problem(edit.grouping.keys, edit.source_config["condition"]["threshold_operator"]):
+        raise InvalidPlatformAlertEdit("grouping", problem)
 
 
 LOGS_SOURCE_CONFIG = SourceConfigSpec(model=LogsPlatformAlertSourceConfig, validate=validate_logs_edit)
