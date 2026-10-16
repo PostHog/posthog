@@ -1,7 +1,9 @@
-from collections.abc import Iterable
-from datetime import UTC, date, datetime
+from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
+
+from requests import RequestException
 
 from posthog.dataclasses import frozen
 
@@ -84,8 +86,6 @@ def _to_iso(value: Any) -> str:
     if isinstance(value, datetime):
         moment = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
         return moment.isoformat().replace("+00:00", "Z")
-    if isinstance(value, date):
-        return f"{value.isoformat()}T00:00:00Z"
     return str(value)
 
 
@@ -116,7 +116,7 @@ def get_resource(
     job_id: str,
     incremental_field: str | None = None,
     db_incremental_field_last_value: Any = None,
-    resume_hook: Any = None,
+    resume_hook: Callable[[dict[str, Any] | None], None] | None = None,
     initial_paginator_state: dict[str, Any] | None = None,
 ) -> Iterable[Any]:
     slug = validate_slug(workspace_slug)
@@ -134,8 +134,8 @@ def get_resource(
             job_id=job_id,
             db_incremental_field_last_value=None,
             page_size_param="per_page",
-            parent_endpoint_extra={"data_selector": "data", "paginator": _paginator()},
-            child_endpoint_extra={"data_selector": "data", "paginator": _paginator()},
+            parent_endpoint_extra={"data_selector": "data", "data_selector_required": True, "paginator": _paginator()},
+            child_endpoint_extra={"data_selector": "data", "data_selector_required": True, "paginator": _paginator()},
             resume_hook=resume_hook,
             initial_paginator_state=initial_paginator_state,
         )
@@ -242,5 +242,5 @@ def probe_workspace(base_url: str | None, api_key: str, workspace_slug: str) -> 
             stream=True,
         ) as projects:
             return projects.status_code
-    except Exception:
+    except RequestException:
         return None

@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from unittest.mock import patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
@@ -130,11 +131,12 @@ def test_a_server_that_repeats_its_cursor_stops_the_walk() -> None:
     result = _driver().run("projects", always(cursor_page([{"id": "p1"}], "same")))
 
     assert result.raised is not None
-    assert len(result.requests) <= 3
+    assert len(result.requests) == 2
 
 
-def test_a_response_without_the_data_envelope_fails_instead_of_syncing_nothing() -> None:
-    result = _driver().run("members", [ScriptedResponse(json={"results": []})])
+@pytest.mark.parametrize("table", ["members", "cycles"])
+def test_a_response_without_the_data_envelope_fails_instead_of_syncing_nothing(table: str) -> None:
+    result = _driver().run(table, always(ScriptedResponse(json={"results": []})))
 
     assert result.raised is not None
 
@@ -162,6 +164,23 @@ def test_validate_credentials_checks_the_key_before_the_workspace(
 
     assert network.requests_log[0].url == "https://api.plane.so/api/v2/users/me/"
     assert len(network.requests_log) == (1 if projects is None else 2)
+
+
+MIXINS = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
+
+
+def test_an_internal_instance_url_is_refused_on_connect_and_on_sync_without_a_request() -> None:
+    config = PlaneSourceConfig(api_key="plane_api_test", workspace_slug="my-team", base_url="https://10.0.0.1")
+
+    with patch(f"{MIXINS}.is_cloud", return_value=True), patch(f"{MIXINS}.get_instance_region", return_value="US"):
+        with scripted_network(always(ScriptedResponse(json={}))) as network:
+            valid, message = PlaneSource().validate_credentials(config, team_id=1)
+        result = _driver(config).run("projects", always(ScriptedResponse(json={})))
+
+    assert valid is False and message
+    assert network.requests_log == []
+    assert isinstance(result.raised, ValueError)
+    assert result.requests == []
 
 
 def test_validate_credentials_refuses_a_slug_that_changes_the_path_without_a_request() -> None:
