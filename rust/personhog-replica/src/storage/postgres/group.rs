@@ -664,16 +664,15 @@ impl GroupStorage for PostgresStorage {
             return Ok(group);
         }
 
-        // The lookup is a second statement instead of a CTE on the INSERT, because a CTE reads the
-        // INSERT's snapshot, and that snapshot does not contain a row that another transaction
+        // The lookup runs as a second statement, not as a CTE on the INSERT. A CTE reads the
+        // INSERT's snapshot. That snapshot does not contain a row that another transaction
         // commits after the INSERT starts.
         fetch_group_by_key(&mut conn, team_id, group_type_index, group_key)
             .await?
             .ok_or_else(|| {
-                StorageError::NotFound(format!(
-                "group team_id={team_id} group_type_index={group_type_index} group_key={group_key} \
-                 conflicted on insert but no longer exists"
-            ))
+                StorageError::FailedPrecondition(format!(
+                    "group {team_id}/{group_type_index}/{group_key} deleted after insert conflict; retry"
+                ))
             })
     }
 
