@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -484,6 +485,9 @@ export const tasksLogic = kea<tasksLogicType>([
                 if (payload) {
                     taskHistoryLogic.findMounted()?.actions.taskArchived(payload.taskId)
                 }
+                // A chat and its task are deleted together on the server, so the merged list must drop
+                // the chat row too, or the chat resurfaces as a row of its own.
+                maxGlobalLogic.findMounted()?.actions.loadConversationHistory()
             },
             renameTaskFailure: ({ error, errorObject }) => {
                 lemonToast.error(`Couldn't rename the task: ${loadErrorMessage(error, errorObject)}`)

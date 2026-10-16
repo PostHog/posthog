@@ -400,11 +400,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 tasks.actions.loadTasks(tasks.values.taskListParams)
             }
         },
-        // A chat and its task are deleted together on the server, so removing a task from the merged
-        // list must drop the chat row too, or the chat resurfaces as a row of its own.
-        [tasksLogic.actionTypes.deleteTaskSuccess]: () => {
-            actions.loadConversationHistory()
-        },
         askSidePanelMax: ({ prompt }) => {
             newInternalTab(urls.ai(undefined, prompt))
         },
