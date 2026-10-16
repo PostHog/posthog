@@ -57,8 +57,9 @@ No consumer subscribes to its group.
 At startup each one is assigned the owned partitions, resuming at its group's committed offsets.
 So the pod owns partition N on every input topic at once, which is what [partition affinity](event-routing.md#partition-affinity) needs, and no rebalance moves a partition while the pod runs.
 The consumer groups have no members and only hold the committed offsets.
+A broker can expire the offsets of a group without members, so every consumer resets to `earliest`: a partition that lost its offset replays instead of skipping to the tail.
 A commit from a client outside the group is refused while the group has a live member, such as the static member an older build left behind until its session expires.
-The events consumer logs each refused commit and counts it in `cohort_stream_offset_commit_errors_total`, and the next commit retries it.
+librdkafka logs each refused commit as a `COMMITFAIL` warning, and the next commit retries it.
 `rebalances_total` counts rebalance callbacks on the events consumer, which fire only if the consumer subscribes.
 `owned_partitions` and `partition_ownership_info`, labelled by `pods` and `ordinal`, show the pod's share.
 
@@ -185,7 +186,10 @@ A store from before that record takes the configured split as its own the first 
 A store written under another split refuses to open, so the pod crash-loops instead of reading slices that another pod may have changed since.
 With durable restore enabled, boot deletes the slices of partitions the pod does not own, so a single pod deletes nothing.
 
-So changing `COHORT_POD_COUNT` requires wiping every pod's store.
+So changing `COHORT_POD_COUNT` requires wiping every store, including the volume of an ordinal that a scale-down removed.
+That volume keeps its old record, so when a later change brings that split back, it opens with slices another pod has moved past.
+With checkpoints enabled, also delete every pod's checkpoints, local and in S3.
+A checkpoint from the old split restores and then refuses to open, so every boot fails the same way.
 Each slice then begins again behind the coverage fence and holds no history until a backfill runs.
 Nothing moves a slice between pods yet, so one pod that owns every partition is the supported deployment.
 

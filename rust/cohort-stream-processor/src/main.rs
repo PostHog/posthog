@@ -739,7 +739,6 @@ fn log_startup(config: &Config) {
         output_topic = %config.cohort_membership_changed_topic,
         reconcile_markers_topic = %config.cohort_reconcile_markers_topic,
         consumer_group = %config.kafka_consumer_group,
-        offset_reset = %config.kafka_consumer_offset_reset,
         merge_topic = %config.person_merge_events_topic,
         transfer_topic = %config.cohort_merge_state_transfer_topic,
         merge_consumer_group = %config.kafka_merge_consumer_group,

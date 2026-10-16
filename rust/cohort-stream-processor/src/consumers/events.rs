@@ -583,9 +583,9 @@ impl EventDispatcher {
         &self.merge
     }
 
-    /// Route a sweep tick to each owned partition that has a live worker. Never spawns, so a revoked
-    /// partition is not resurrected; a worker-less owned partition has no in-memory state to evict, so
-    /// it is skipped rather than producing a `no_worker` drop.
+    /// Route a sweep tick to each owned partition that has a live worker. Never spawns: a worker-less
+    /// owned partition has no in-memory state to evict, so it is skipped rather than producing a
+    /// `no_worker` drop.
     ///
     /// Routes nothing before the first catalog load. Every team is absent from the unloaded catalog,
     /// and a sweep batch drops the keys it claims for an absent team without rescheduling them, so a
@@ -621,9 +621,9 @@ impl EventDispatcher {
     }
 
     /// Owned partitions that currently have a live worker channel — the only partitions a maintenance
-    /// tick can reach. An owned partition that never received an event has no worker, so a tick to it
-    /// is a guaranteed `no_worker` no-op (no in-memory state to evict, redrive, or GC); skipping it
-    /// keeps the idle fan-out silent instead of dropping one message per worker-less partition.
+    /// tick can reach. No owned partition has a worker before boot ends, so a tick to one then is a
+    /// guaranteed `no_worker` no-op (no in-memory state to evict, redrive, or GC); skipping it keeps
+    /// the fan-out silent instead of dropping one message per worker-less partition.
     fn tickable_partitions(&self) -> Vec<i32> {
         self.owned_partitions()
             .into_iter()
@@ -681,15 +681,13 @@ impl EventDispatcher {
         );
     }
 
-    /// Re-produce every staged `cf_pending_transfers` entry for the owned partitions at boot,
-    /// without spawning workers. An idle partition never spawns a worker — and the periodic redrive
-    /// routes through `route_to_owned`, which skips worker-less partitions, so it never fires for one
-    /// either; this paginates the whole outbox directly and re-produces every entry regardless of
-    /// backlog size.
+    /// Re-produce every staged `cf_pending_transfers` entry for the owned partitions at boot, before
+    /// any worker spawns. This paginates the whole outbox directly and re-produces every entry
+    /// regardless of backlog size.
     ///
     /// Produce + clear only — no `mark_processed`: a fresh tenure starts at `dispatched_offset == 0`
     /// so marking would clamp to 0 and trip `CappedAheadOfDispatch`. A per-entry produce failure
-    /// leaves that entry for the periodic redrive. Must run after the boot staleness reconcile.
+    /// leaves that entry for the periodic redrive. Must run after `reclaim_unowned_slices`.
     pub async fn eager_redrive_pending_transfers_on_boot(&self, assignment: &HashSet<i32>) {
         for &partition in assignment {
             let Some(store_partition) = partition_to_store_id(partition) else {
@@ -1199,8 +1197,8 @@ impl CohortStreamEventsConsumer {
 
         // Hand the pauser task the paused target (the still-held partitions); it re-asserts pause
         // idempotently, so no librdkafka call can delay the heartbeat below. Send every cycle the
-        // target is non-empty (re-asserting heals a swallowed pause error or a rebalance-reset toppar),
-        // plus the one cycle it clears (to resume); stay silent otherwise.
+        // target is non-empty (re-asserting heals a swallowed pause error), plus the one cycle it
+        // clears (to resume); stay silent otherwise.
         let target = backpressure.held_partitions();
         if !target.is_empty() || !prev_paused_target.is_empty() {
             if pause_tx.send(target.clone()).is_err() {
@@ -1358,8 +1356,8 @@ async fn run_commit_loop(
 
 /// Applies the paused-partition target off the consume loop, so blocking librdkafka `pause`/`resume`
 /// never delays the heartbeat. Re-asserts the full target every update — idempotent in librdkafka — so
-/// a swallowed pause error or a rebalance-reset toppar self-heals. `applied` tracks only which
-/// partitions to resume (those that left the target). Exits when the sender is dropped.
+/// a swallowed pause error self-heals. `applied` tracks only which partitions to resume (those that
+/// left the target). Exits when the sender is dropped.
 pub(crate) async fn run_pauser_loop(
     pauser: Arc<dyn PartitionPauser>,
     mut rx: tokio::sync::mpsc::UnboundedReceiver<HashSet<i32>>,
@@ -1520,7 +1518,7 @@ mod tests {
         let task = tokio::spawn(run_pauser_loop(pauser.clone(), rx));
 
         // Stable target over two cycles: re-paused each time. That idempotent re-assertion is what
-        // heals a swallowed pause error or a rebalance-reset toppar.
+        // heals a swallowed pause error.
         tx.send(HashSet::from([5])).unwrap();
         tx.send(HashSet::from([5])).unwrap();
         // Partition 5 drains and 7 becomes held: 5 leaves the target (resumed), 7 is paused.

@@ -199,7 +199,8 @@ pub enum StoreError {
     /// partitions may be missing or another pod's. `None` when the record is unreadable.
     #[error(
         "store ownership mismatch: the store was written as {}, but this is {expected}; refusing \
-         to open (wipe the store to start this pod's slices over)",
+         to open (wipe the store, and with checkpoints enabled delete this pod's local and S3 \
+         checkpoints too, to start its slices over)",
         .found.map_or_else(|| "an unreadable ownership record".to_owned(), |found| found.to_string())
     )]
     OwnershipMismatch {

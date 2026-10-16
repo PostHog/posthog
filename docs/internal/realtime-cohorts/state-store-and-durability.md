@@ -206,7 +206,7 @@ An input whose gate turned on after the capture has no position, so it resumes f
 An input that is no longer enabled is ignored.
 
 The check holds at boot, but the consumer still has to read past the oldest retained segment before retention deletes it.
-A consumer whose position falls below the low watermark resets to `latest` for the events topic and `earliest` for the followers, without a trace.
+A consumer whose position falls below the low watermark resets to `earliest` without a trace, so the events that retention deleted are lost.
 So keep `CHECKPOINT_IMPORT_WINDOW_HOURS` below the events topic's retention by more than a restore's catch-up time.
 A pod down longer than the window then lists no candidate and creates its store behind the coverage fence, which is the safe direction.
 The window bounds only the listing: a restore already published resumes at any age, and the checks before and after the download, and when the restore finishes, still catch a position that expired.
@@ -353,7 +353,8 @@ A lint rule denies direct calls to most store I/O methods, and the synchronous s
   With checkpoints enabled, the boot deletes it and restores.
 - A store directory that holds `restore.json` is a checkpoint restore in progress, not a live store.
   An image from before that marker ignores it and reopens the store at the broker's old offsets, so do not roll back while a restore is pending.
-- Changing `COHORT_POD_COUNT` makes every existing store refuse to open, because each records the split it was written under.
+- Changing `COHORT_POD_COUNT` makes every store written under another split refuse to open, because each records the split it was written under.
+  [Ownership](processor-runtime.md#ownership-and-the-single-pod-deployment) lists what to wipe.
   Wiping a store deletes every slice, including merge transfers not yet sent, whose merge offsets may already be committed.
 - Person records grow with every person seen on a team with person-property conditions, including those that match nothing, unless a time-to-live is configured.
 - The person record time-to-live is judged against event time, so importing old events can write records that are already eligible for expiry.

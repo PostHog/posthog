@@ -1,8 +1,8 @@
 //! End-to-end tests for the `cohort_stream_events` consumer against a **real** Kafka broker.
 //!
-//! `#[ignore]`d by default: the consumer joins a consumer group, commits a `TopicPartitionList`,
-//! and reads its own committed offsets back, none of which the in-process `MockCluster` exercises
-//! faithfully. Run against a local stack with:
+//! `#[ignore]`d by default: the consumer commits a `TopicPartitionList` to its group and reads its
+//! own committed offsets back, which the in-process `MockCluster` does not exercise faithfully. Run
+//! against a local stack with:
 //!
 //! ```sh
 //! cargo test -p cohort-stream-processor --test events_consumer -- --ignored

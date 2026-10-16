@@ -117,10 +117,6 @@ pub struct Config {
     #[envconfig(default = "cohort-stream-processor")]
     pub kafka_consumer_group: String,
 
-    /// Start at the tail, not the topic's retention.
-    #[envconfig(default = "latest")]
-    pub kafka_consumer_offset_reset: String,
-
     /// `queued.max.messages.kbytes` (KB). For the events consumer this is an *aggregate* cap
     /// across all its partitions — the ceiling on librdkafka's fetch buffer. 128 MB.
     #[envconfig(from = "COHORT_KAFKA_QUEUED_MAX_MESSAGES_KBYTES", default = "131072")]
@@ -580,7 +576,8 @@ pub struct Config {
     /// Hours prior to now the S3 importer searches for checkpoint attempts in a PVC-lost recovery.
     /// Keep it below the `cohort_stream_events` retention by more than a restore's catch-up time: a
     /// restore resumes about this far back, and a consumer that falls below the low watermark while
-    /// it catches up resets to `latest` without a trace.
+    /// it catches up resets to `earliest` without a trace, so the events that retention deleted are
+    /// lost.
     #[envconfig(default = "20")]
     pub checkpoint_import_window_hours: u32,
 
@@ -1144,9 +1141,12 @@ impl Config {
     ///
     /// Auto-commit and auto-offset-store are off: the consume loop marks offsets only after a
     /// sub-batch is routed and produced. The consumer assigns itself the partitions this pod owns
-    /// and never joins the group, so `group.id` only names where its commits land. It sets no
-    /// `group.instance.id`: librdkafka sends that id with every offset commit, and a broker can
-    /// refuse a commit that names a static member from a client outside the group.
+    /// and never joins the group, so `group.id` only names where its commits land.
+    /// `auto.offset.reset` is hard-coded to `earliest`, as for the followers: a group without
+    /// members is `Empty` to the broker, which can expire its committed offsets, and a tail reset
+    /// would then silently skip the events in between. It sets no `group.instance.id`: librdkafka
+    /// sends that id with every offset commit, and a broker can refuse a commit that names a static
+    /// member from a client outside the group.
     pub fn consumer_client_config(&self) -> ClientConfig {
         let mut config = ClientConfig::new();
         config
@@ -1154,7 +1154,7 @@ impl Config {
             .set("group.id", &self.kafka_consumer_group)
             .set("enable.auto.commit", "false")
             .set("enable.auto.offset.store", "false")
-            .set("auto.offset.reset", &self.kafka_consumer_offset_reset)
+            .set("auto.offset.reset", "earliest")
             .set("socket.timeout.ms", "10000");
 
         // Bound librdkafka's fetch buffer: an aggregate byte ceiling plus a per-partition prefetch floor.
@@ -1291,7 +1291,6 @@ mod tests {
             kafka_client_rack: String::new(),
             cohort_stream_events_topic: "cohort_stream_events".to_string(),
             kafka_consumer_group: "cohort-stream-processor".to_string(),
-            kafka_consumer_offset_reset: "latest".to_string(),
             kafka_queued_max_messages_kbytes: 131_072,
             kafka_queued_min_messages: 2000,
             person_merge_events_topic: "person_merge_events".to_string(),
@@ -1639,7 +1638,7 @@ mod tests {
         assert_eq!(client.get("enable.auto.commit"), Some("false"));
         assert_eq!(client.get("enable.auto.offset.store"), Some("false"));
         assert_eq!(client.get("group.id"), Some("cohort-stream-processor"));
-        assert_eq!(client.get("auto.offset.reset"), Some("latest"));
+        assert_eq!(client.get("auto.offset.reset"), Some("earliest"));
         assert_eq!(client.get("bootstrap.servers"), Some("localhost:9092"));
     }
 
@@ -2532,9 +2531,8 @@ mod tests {
     }
 
     #[test]
-    fn follower_config_hard_codes_earliest_regardless_of_the_events_reset() {
-        let mut config = test_config();
-        config.kafka_consumer_offset_reset = "latest".to_string();
+    fn follower_config_hard_codes_earliest() {
+        let config = test_config();
         let client = config.follower_client_config("cohort-stream-merges");
         assert_eq!(client.get("auto.offset.reset"), Some("earliest"));
         assert_eq!(client.get("group.id"), Some("cohort-stream-merges"));
