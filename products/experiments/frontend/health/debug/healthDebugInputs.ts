@@ -4,6 +4,7 @@ import { EXPERIMENT_VARIANT_MULTIPLE } from '../../constants'
 import { getExperimentStatus } from '../../experimentStatus'
 import type {
     ExperimentHealthInputsApi,
+    ExperimentHealthInputsExposuresApi,
     ExperimentHealthInputsSplitHistoryApi,
     ExperimentHealthInputsTrafficStatusEnumApi,
     ExperimentHealthInputsVariantApi,
@@ -294,16 +295,24 @@ const EXPOSURE_STATUS_LABELS: Record<HealthExposureInputsStatusEnumApi, string> 
     failed: 'The exposure query failed',
 }
 
+function exposureStatusLabel(exposures: ExperimentHealthInputsExposuresApi): string {
+    if (!exposures.error) {
+        return EXPOSURE_STATUS_LABELS[exposures.status]
+    }
+    // A stale answer with an error means the recalculation failed, and no new one runs yet.
+    const label =
+        exposures.status === 'stale'
+            ? 'Read from the cache, which is past its age. The last recalculation failed'
+            : EXPOSURE_STATUS_LABELS[exposures.status]
+    return `${label}: ${exposures.error}`
+}
+
 export function buildExposureFacts(state: HealthInputsState): SetupFact[] {
     const exposures = state.inputs?.exposures
     const facts: SetupFact[] = [
         {
             label: 'Status',
-            value: serverValue(state, (inputs) =>
-                inputs.exposures.error
-                    ? `${EXPOSURE_STATUS_LABELS[inputs.exposures.status]}: ${inputs.exposures.error}`
-                    : EXPOSURE_STATUS_LABELS[inputs.exposures.status]
-            ),
+            value: serverValue(state, (inputs) => exposureStatusLabel(inputs.exposures)),
             help: 'The server reads the cached answer and never waits for the query.',
         },
     ]
