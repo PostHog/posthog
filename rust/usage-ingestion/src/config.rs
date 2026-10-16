@@ -28,6 +28,8 @@ pub struct Config {
     pub kafka_hosts: String,
     #[envconfig(from = "KAFKA_TLS", default = "false")]
     pub kafka_tls: bool,
+    #[envconfig(from = "KAFKA_CLIENT_ID", default = "usage-ingestion")]
+    pub kafka_client_id: String,
     /// Only "none", "gzip", "snappy" and "lz4" work. "zstd" needs an rdkafka feature the
     /// workspace does not enable, so librdkafka refuses it when it builds the producer.
     #[envconfig(from = "KAFKA_COMPRESSION_CODEC", default = "lz4")]
@@ -101,7 +103,7 @@ impl Config {
         KafkaConfig {
             kafka_hosts: self.kafka_hosts.clone(),
             kafka_tls: self.kafka_tls,
-            kafka_client_id: "usage-ingestion".to_string(),
+            kafka_client_id: self.kafka_client_id.clone(),
             kafka_compression_codec: self.kafka_compression_codec.clone(),
             kafka_producer_linger_ms: self.kafka_producer_linger_ms,
             kafka_producer_batch_size: Some(BATCH_SIZE),
@@ -132,6 +134,7 @@ mod tests {
             database_url: "postgres://localhost/test".to_string(),
             kafka_hosts: "localhost:9092".to_string(),
             kafka_tls: false,
+            kafka_client_id: "usage-ingestion".to_string(),
             kafka_compression_codec: "lz4".to_string(),
             kafka_producer_linger_ms: 100,
             max_batch_size: 500,
