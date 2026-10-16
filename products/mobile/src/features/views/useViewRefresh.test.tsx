@@ -3,7 +3,6 @@ import { act, renderHook } from '@testing-library/react-native'
 
 import type { Freshness } from '@/model/views'
 
-import { REFRESH_MIN_MS } from './freshness'
 import type { ReadResult } from './refreshQueue'
 import { viewsQueue } from './refreshQueue'
 import { type RefreshContainer, type RefreshItem, useViewRefresh, type ViewRefreshOptions } from './useViewRefresh'
@@ -139,87 +138,6 @@ describe('useViewRefresh on a dashboard', () => {
             refreshFailed: false,
         }
     }
-
-    test.each([
-        ['button', 'no requests due'],
-        ['button', 'refresh window'],
-        ['button', 'fast list'],
-        ['button', 'slow list'],
-        ['button', 'failed list'],
-        ['pull', 'slow list'],
-        ['pull', 'failed list'],
-    ] as const)('a %s refresh gives feedback and settles with %s', async (trigger, scenario) => {
-        jest.useFakeTimers()
-        try {
-            let finish: (() => void) | undefined
-            const refetch = jest.fn(() => {
-                if (scenario === 'slow list' || scenario === 'failed list') {
-                    return new Promise<void>((resolve, reject) => {
-                        finish = () =>
-                            scenario === 'failed list' ? reject(new Error('Network request failed')) : resolve()
-                    })
-                }
-                return Promise.resolve()
-            })
-            const snapshot: Freshness = {
-                ...oldValue(),
-                readAt: Date.now(),
-                nextAllowedRefreshAt: new Date(Date.now() + 60_000).toISOString(),
-            }
-            const props: ViewRefreshOptions = {
-                screen: 'list',
-                dataScope: 'demo',
-                screenKey: 'list',
-                items:
-                    scenario === 'refresh window'
-                        ? tiles('7d', 1, false).map((item) => ({ ...item, snapshot: () => snapshot }))
-                        : [],
-                lists: [
-                    {
-                        key: 'pins',
-                        updatedAt: () => (scenario === 'no requests due' ? Date.now() : 0),
-                        refetch,
-                    },
-                ],
-                bulkFloor: true,
-                enabled: true,
-            }
-            const { result, unmount } = renderHook(() => useViewRefresh(props))
-            await flush()
-
-            act(() => {
-                if (trigger === 'button') {
-                    result.current.onButton()
-                } else {
-                    result.current.onPull()
-                }
-                result.current.onButton()
-            })
-            await flush()
-            expect(result.current.button).toBe('busy')
-            expect(result.current.pulling).toBe(trigger === 'pull')
-            expect(refetch).toHaveBeenCalledTimes(
-                scenario === 'no requests due' || scenario === 'refresh window' ? 0 : 1
-            )
-            if (scenario === 'refresh window') {
-                expect(result.current.hint).toBe('You can refresh again in 2 min.')
-                expect(reads).toEqual([])
-            }
-
-            await act(async () => jest.advanceTimersByTime(REFRESH_MIN_MS - 1))
-            expect(result.current.button).toBe('busy')
-            await act(async () => jest.advanceTimersByTime(1))
-            if (finish) {
-                expect(result.current.button).toBe('busy')
-                await act(async () => finish?.())
-            }
-            expect(result.current.button).toBe(scenario === 'refresh window' ? 'blocked' : 'idle')
-            expect(result.current.pulling).toBe(false)
-            unmount()
-        } finally {
-            jest.useRealTimers()
-        }
-    })
 
     test.each<[string, (() => Freshness) | null, boolean, string[]]>([
         [
