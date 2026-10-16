@@ -3,11 +3,16 @@
 Imported from `ready()` through the message wording, so it stays light: no models, no query layer.
 """
 
-from typing import Any, Final
+from typing import Any, Final, Literal, get_args
 
 from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, SourceConfigSpec
 
 FILTERS_KEY: Final = "filters"
+# The filter fields that narrow which logs an alert counts. An alert with none of them counts all logs.
+LOGS_FILTER_KEYS: Final = ("severityLevels", "serviceNames", "filterGroup")
+
+WindowMinutes = Literal[5, 10, 15, 30, 60]
+ALLOWED_WINDOW_MINUTES: Final[frozenset[int]] = frozenset(get_args(WindowMinutes))
 
 
 def logs_source_config(filters: object, condition: dict[str, Any]) -> dict[str, Any]:
@@ -34,3 +39,7 @@ def load_logs_source_config() -> SourceConfigSpec:
     )
 
     return LOGS_SOURCE_CONFIG
+
+
+def has_any_filter(filters: dict[str, Any]) -> bool:
+    return any(filters.get(key) for key in LOGS_FILTER_KEYS)

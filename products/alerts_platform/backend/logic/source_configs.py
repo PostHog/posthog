@@ -19,16 +19,18 @@ def register(source: SourceKind, loader: SourceConfigLoader) -> None:
     _loaders[source] = loader
 
 
-def editable_kinds() -> tuple[SourceKind, ...]:
-    """The kinds the API can write, in a stable order so the published schema does not reorder."""
-    return tuple(sorted(_loaders, key=lambda source: source.value))
+def _loaded(source: SourceKind, loader: SourceConfigLoader) -> SourceConfigSpec:
+    if source not in _specs:
+        _specs[source] = loader()
+    return _specs[source]
 
 
 def spec(source: SourceKind) -> SourceConfigSpec | None:
     """The source's schema and rules, or None when the source registered none."""
-    if source not in _specs:
-        loader = _loaders.get(source)
-        if loader is None:
-            return None
-        _specs[source] = loader()
-    return _specs[source]
+    loader = _loaders.get(source)
+    return None if loader is None else _loaded(source, loader)
+
+
+def specs() -> dict[SourceKind, SourceConfigSpec]:
+    """Every registered kind's schema, in a stable order so the published schema does not reorder."""
+    return {source: _loaded(source, _loaders[source]) for source in sorted(_loaders, key=lambda s: s.value)}

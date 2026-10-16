@@ -5,6 +5,7 @@ and the next check reads back. Writing the copy here would fork it, so those are
 """
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from uuid import UUID
 
 from django.db import transaction
@@ -12,6 +13,7 @@ from django.db import transaction
 from pydantic import ValidationError as PydanticValidationError
 
 from products.alerts_platform.backend.facade.contracts import (
+    MAX_EVALUATION_PERIODS,
     Grouping,
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
@@ -20,6 +22,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.logic import platform_reads, source_configs
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
 
@@ -41,24 +44,30 @@ def _validated(source_kind: SourceKind, edit: PlatformAlertConfigurationEdit) ->
     spec = source_configs.spec(source_kind)
     if spec is None:
         raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be edited through this API.")
+    for name, value in (
+        ("evaluation_periods", edit.evaluation_periods),
+        ("datapoints_to_alarm", edit.datapoints_to_alarm),
+    ):
+        if not 1 <= value <= MAX_EVALUATION_PERIODS:
+            raise InvalidPlatformAlertEdit(name, f"Must be between 1 and {MAX_EVALUATION_PERIODS}.")
     if edit.datapoints_to_alarm > edit.evaluation_periods:
         raise InvalidPlatformAlertEdit("datapoints_to_alarm", "Cannot exceed evaluation_periods.")
+    if edit.cooldown_minutes < 0:
+        raise InvalidPlatformAlertEdit("cooldown_minutes", "Cannot be negative.")
+    try:
+        schedule_restriction = validate_and_normalize_schedule_restriction(edit.schedule_restriction)
+    except ValueError as error:
+        raise InvalidPlatformAlertEdit("schedule_restriction", str(error)) from error
     try:
         parsed = spec.model.model_validate(edit.source_config)
     except PydanticValidationError as error:
         first = error.errors()[0]
         location = ".".join(str(part) for part in first["loc"])
         raise InvalidPlatformAlertEdit("source_config", f"Invalid at `{location}`: {first['msg']}") from error
-    # Stored with the schema's defaults filled in, so a read returns what the server chose.
-    validated = PlatformAlertConfigurationEdit(
-        name=edit.name,
-        enabled=edit.enabled,
-        source_config=parsed.model_dump(mode="json", exclude_none=True),
-        grouping=edit.grouping,
-        schedule_restriction=edit.schedule_restriction,
-        evaluation_periods=edit.evaluation_periods,
-        datapoints_to_alarm=edit.datapoints_to_alarm,
-        cooldown_minutes=edit.cooldown_minutes,
+    validated = replace(
+        edit,
+        source_config=parsed.model_dump(mode="json", exclude_unset=True),
+        schedule_restriction=schedule_restriction,
     )
     spec.validate(validated)
     return validated

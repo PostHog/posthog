@@ -10,9 +10,4 @@ def register_source_config(source: SourceKind, loader: SourceConfigLoader) -> No
 
 def editable_source_configs() -> dict[SourceKind, SourceConfigSpec]:
     """Every kind the API can write, with its schema. Loads each schema on first call."""
-    specs: dict[SourceKind, SourceConfigSpec] = {}
-    for source in source_configs.editable_kinds():
-        spec = source_configs.spec(source)
-        if spec is not None:
-            specs[source] = spec
-    return specs
+    return source_configs.specs()

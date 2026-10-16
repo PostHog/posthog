@@ -1,6 +1,6 @@
 from dataclasses import replace
 from functools import cache, cached_property
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
@@ -19,6 +19,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.contracts import (
     DEFAULT_MAX_INSTANCES,
+    MAX_EVALUATION_PERIODS,
     Grouping,
     GroupingMode,
     InvalidPlatformAlertEdit,
@@ -34,7 +35,6 @@ from products.alerts_platform.backend.facade.enums import (
     PlatformAlertOwner,
     PlatformAlertState,
 )
-from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.facade.source_configs import editable_source_configs
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 
@@ -96,12 +96,7 @@ class GroupingSerializer(serializers.Serializer):
         if "mode" not in attrs:
             raise ValidationError({"mode": "This field is required."})
         try:
-            return Grouping(
-                mode=GroupingMode(attrs["mode"]),
-                keys=tuple(attrs.get("keys", ())),
-                max_instances=attrs.get("max_instances", DEFAULT_MAX_INSTANCES),
-                on_overflow=OnOverflow(attrs.get("on_overflow", OnOverflow.DEGRADE_VISIBLE)),
-            )
+            return Grouping.from_stored(attrs)
         except ValueError as error:
             raise ValidationError(str(error)) from error
 
@@ -223,23 +218,19 @@ class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
         "Null means no quiet hours.",
     )
     evaluation_periods = serializers.IntegerField(
-        min_value=1, max_value=10, help_text="Number of recent checks considered when deciding to fire."
+        min_value=1,
+        max_value=MAX_EVALUATION_PERIODS,
+        help_text="Number of recent checks considered when deciding to fire.",
     )
     datapoints_to_alarm = serializers.IntegerField(
         min_value=1,
-        max_value=10,
+        max_value=MAX_EVALUATION_PERIODS,
         help_text="Number of breaching checks within evaluation_periods required to fire. "
         "Cannot exceed evaluation_periods.",
     )
     cooldown_minutes = serializers.IntegerField(
         min_value=0, help_text="Minimum minutes between notifications for the same alert."
     )
-
-    def validate_schedule_restriction(self, value: Any) -> dict[str, Any] | None:
-        try:
-            return validate_and_normalize_schedule_restriction(value)
-        except ValueError as error:
-            raise ValidationError(str(error)) from error
 
 
 def _typed_edit_serializer(
@@ -314,39 +305,26 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     def _canonical_team_id(self) -> int:
         return self.canonical_team.id
 
-    def _readable_source_kinds(self) -> list[str]:
+    def _source_kinds_with(
+        self, access_level: Literal["viewer", "editor"], scope_action: Literal["read", "write"]
+    ) -> list[str]:
         # Session auth carries no scopes, so only the access-control check applies to it.
         token_scopes = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
-        readable: list[str] = []
+        permitted: list[str] = []
         for source_kind, resource in SOURCE_KIND_RESOURCE.items():
-            if not self.user_access_control.check_access_level_for_resource(resource, "viewer"):
+            if not self.user_access_control.check_access_level_for_resource(resource, access_level):
                 continue
             if (
                 token_scopes is not None
                 and "*" not in token_scopes
-                and scopes_not_covered(token_scopes, [f"{resource}:read"])
+                and scopes_not_covered(token_scopes, [f"{resource}:{scope_action}"])
             ):
                 continue
-            readable.append(source_kind)
-        return readable
+            permitted.append(source_kind)
+        return permitted
 
-    def _writable_source_kinds(self) -> list[str]:
-        token_scopes = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
-        writable: list[str] = []
-        for source_kind in self._readable_source_kinds():
-            resource = SOURCE_KIND_RESOURCE[source_kind]
-            if source_kind not in edit_serializers():
-                continue
-            if not self.user_access_control.check_access_level_for_resource(resource, "editor"):
-                continue
-            if (
-                token_scopes is not None
-                and "*" not in token_scopes
-                and scopes_not_covered(token_scopes, [f"{resource}:write"])
-            ):
-                continue
-            writable.append(source_kind)
-        return writable
+    def _readable_source_kinds(self) -> list[str]:
+        return self._source_kinds_with("viewer", "read")
 
     def _edit(self, request: Request, pk: str, *, partial: bool) -> Response:
         configuration_id = serializers.UUIDField().run_validation(pk)
@@ -356,11 +334,14 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         )
         if current is None:
             raise NotFound()
-        writable = self._writable_source_kinds()
+        writable = self._source_kinds_with("editor", "write")
         if current.source_kind not in writable:
             raise PermissionDenied(f"You cannot edit {current.source_kind} alerts.")
+        edit_serializer = edit_serializers().get(current.source_kind)
+        if edit_serializer is None:
+            raise Conflict(f"{current.source_kind} alerts cannot be edited through this API.")
 
-        serializer = edit_serializers()[current.source_kind](data=request.data, partial=partial)
+        serializer = edit_serializer(data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         fields = dict(serializer.validated_data)
         if fields.pop("source_kind", current.source_kind) != current.source_kind:

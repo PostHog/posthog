@@ -91,7 +91,7 @@ from products.logs.backend.facade.api import (
     next_allowed_check_at,
 )
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
-from products.logs.backend.platform_source_config_schema import ALLOWED_WINDOW_MINUTES
+from products.logs.backend.platform_source_config import ALLOWED_WINDOW_MINUTES, has_any_filter
 
 MAX_ALERTS_PER_TEAM = 20
 # Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
@@ -865,10 +865,7 @@ def _validate_filters(filters: dict) -> None:
     """
     if not isinstance(filters, dict):
         raise ValidationError({"filters": "Must be a JSON object."})
-    has_severity = bool(filters.get("severityLevels"))
-    has_services = bool(filters.get("serviceNames"))
-    has_filter_group = bool(filters.get("filterGroup"))
-    if not (has_severity or has_services or has_filter_group):
+    if not has_any_filter(filters):
         raise ValidationError(
             {"filters": "At least one filter is required (severityLevels, serviceNames, or filterGroup)."}
         )
