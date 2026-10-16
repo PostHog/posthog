@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
+import { BroadcastNextSend } from './BroadcastNextSend'
 import { BroadcastsEmptyState } from './BroadcastsEmptyState'
 import {
     BROADCASTS_PAGE_SIZE,
@@ -78,6 +79,10 @@ export function BroadcastsTable(): JSX.Element {
             render: (_, item) => {
                 return <BroadcastStatusTag status={getBroadcastStatus(item, rowDetailsById[item.id])} />
             },
+        },
+        {
+            title: 'Next send',
+            render: (_, item) => <BroadcastNextSend broadcast={item} details={rowDetailsById[item.id]} />,
         },
         ...METRIC_COLUMNS.map(({ title, metricName }) => ({
             title,

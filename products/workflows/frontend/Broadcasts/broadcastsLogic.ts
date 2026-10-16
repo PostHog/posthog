@@ -28,6 +28,7 @@ import {
     confirmDeleteBroadcast,
     restoreBroadcast,
 } from './broadcastLifecycle'
+import { pickNextSchedule } from './broadcastNextSend'
 
 export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed' | 'archived' | 'unknown'
 
@@ -37,6 +38,8 @@ export interface BroadcastRowDetails {
     totals: Record<string, number> | null
     /** Whether an active schedule has sends still to come. Unset when the schedules couldn't load. */
     hasPendingSchedule?: boolean
+    /** The schedule behind the next send. Null when nothing is scheduled. Unset when the schedules couldn't load. */
+    nextSchedule?: HogFlowScheduleApi | null
     /** Every run's status, newest first. An older run can still be sending after a newer one finished. */
     batchJobStatuses?: (string | null | undefined)[]
 }
@@ -415,6 +418,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     let latestBatchJob: HogFlowBatchJobApi | null
                     let batchJobStatuses: (string | null | undefined)[]
                     let hasPendingSchedule: boolean | undefined
+                    let nextSchedule: HogFlowScheduleApi | null | undefined
                     try {
                         // The list rows carry no schedules, and a recurring broadcast between runs needs them
                         // to read as scheduled. A failed schedules request only loses that distinction.
@@ -428,6 +432,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                         latestBatchJob = batchJobs[0] ?? null
                         batchJobStatuses = batchJobs.map((job) => job.status)
                         hasPendingSchedule = schedules?.some((schedule) => schedule.status === 'active')
+                        nextSchedule = schedules ? pickNextSchedule(schedules) : undefined
                     } catch {
                         if (isCurrent()) {
                             actions.clearRowDetails(broadcast.id)
@@ -441,6 +446,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                         latestBatchJob,
                         totals: latestBatchJob ? null : {},
                         hasPendingSchedule,
+                        nextSchedule,
                         batchJobStatuses,
                     })
                     if (!latestBatchJob) {
@@ -453,6 +459,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                                 latestBatchJob,
                                 totals,
                                 hasPendingSchedule,
+                                nextSchedule,
                                 batchJobStatuses,
                             })
                         }
