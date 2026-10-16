@@ -48,13 +48,13 @@ function ModelRow({ option, selected, isDefault, onPress }: ModelRowProps): Reac
             accessibilityLabel={option.display_name}
             accessibilityState={{ checked: selected }}
             pressedBackground={colors.background}
-            style={styles.row}
+            style={[styles.row, selected && styles.rowSelected]}
             testID={`handoff-model-${option.model}`}
         >
-            <Text style={styles.rowLabel} numberOfLines={1}>
+            <Text style={[styles.rowLabel, selected && type.bodyStrong]} numberOfLines={1}>
                 {option.display_name}
             </Text>
-            {isDefault ? <Text style={styles.rowMeta}>Default</Text> : null}
+            {isDefault ? <Text style={[styles.rowMeta, selected && styles.rowMetaSelected]}>Default</Text> : null}
             {option.cost_multiplier ? <Text style={styles.cost}>{option.cost_multiplier}</Text> : null}
             <View style={styles.check}>{selected ? <CheckIcon size={iconSizes.control} /> : null}</View>
         </Pressable44>
@@ -100,7 +100,7 @@ export function ModelPage({
                             <Eyebrow>Reasoning</Eyebrow>
                             <View style={styles.efforts} accessibilityRole="radiogroup">
                                 {efforts.map((effort) => {
-                                    const selected = effort === selectedEffort && Boolean(pinned)
+                                    const selected = effort === selectedEffort
                                     return (
                                         <Pressable44
                                             key={effort}
@@ -108,11 +108,7 @@ export function ModelPage({
                                             accessibilityRole="radio"
                                             accessibilityState={{ checked: effort === selectedEffort }}
                                             pressedBackground={selected ? colors.inkHover : colors.background}
-                                            style={[
-                                                styles.effort,
-                                                effort === selectedEffort && styles.effortCurrent,
-                                                selected && styles.effortSelected,
-                                            ]}
+                                            style={[styles.effort, selected && styles.effortSelected]}
                                             testID={`handoff-effort-${effort}`}
                                         >
                                             <Text style={[styles.effortText, selected && styles.effortTextSelected]}>
@@ -140,7 +136,7 @@ export function ModelPage({
                                             <ModelRow
                                                 key={option.model}
                                                 option={option}
-                                                selected={pinned?.model === option.model}
+                                                selected={(pinned?.model ?? defaultEntry?.model) === option.model}
                                                 isDefault={
                                                     !pinned && Boolean(fallback) && option.model === defaultEntry?.model
                                                 }
@@ -205,11 +201,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    // The untouched picker's effort, shown without claiming the user picked it.
-    effortCurrent: {
-        borderColor: colors.ink,
-    },
     effortSelected: {
+        borderColor: colors.ink,
         backgroundColor: colors.ink,
     },
     effortText: {
@@ -237,6 +230,9 @@ const styles = StyleSheet.create({
         paddingHorizontal: 4,
         borderRadius: radii.card,
     },
+    rowSelected: {
+        backgroundColor: colors.background,
+    },
     rowLabel: {
         ...type.body,
         color: colors.ink,
@@ -246,6 +242,10 @@ const styles = StyleSheet.create({
     rowMeta: {
         ...type.meta,
         color: colors.tertiary,
+    },
+    rowMetaSelected: {
+        color: colors.ink,
+        fontWeight: '600',
     },
     cost: {
         ...type.meta,

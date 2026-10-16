@@ -135,6 +135,11 @@ They open `ChatOptionsSheet` with the hand-off's `ModelPage` and `ModePage`.
 `mobile_chat_options_opened` is captured with `page` (`model` or `mode`) when a chip opens the sheet.
 `mobile_chat_option_changed` is captured with `option` (`model`, `effort` or `mode`) only.
 
+The resolved default model is selected when no model is pinned: its row has a tinted background,
+bold model and Default labels, and a checkmark. A known default reasoning effort uses the same
+filled pill as an explicit choice. Picking another model or resetting to default moves these
+selection indicators to the active options.
+
 - **Seeding.** When a chat opens, or the run's config becomes known, the sheet seeds the options from `session.runConfig`:
   the run's model and effort as a pinned model, and its permission mode.
   A run with no known harness or model seeds "Default"; an unknown mode seeds Auto.
