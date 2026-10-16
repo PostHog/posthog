@@ -494,11 +494,11 @@ class TestReservedVariantKey(SimpleTestCase):
     @parameterized.expand(
         [
             *(
-                (f"{key}_{name}", key, enforced_rules, None)
-                for key in (*FEATURE_FLAG_VARIANT_SENTINELS, "null")
+                (f"{key or 'empty'}_{name}", key, enforced_rules, None)
+                for key in (*FEATURE_FLAG_VARIANT_SENTINELS, "null", "")
                 for name, enforced_rules in (("log_only", set()), ("full", {"*"}))
             ),
-            ("null_added_on_update", "null", set(), ["control"]),
+            *((f"{key or 'empty'}_added_on_update", key, set(), ["control"]) for key in ("null", "")),
             *(
                 (f"{sentinel}_kept_on_update", sentinel, set(), ["control", sentinel])
                 for sentinel in FEATURE_FLAG_VARIANT_SENTINELS
@@ -512,19 +512,21 @@ class TestReservedVariantKey(SimpleTestCase):
             serializer = _new_variant_serializer(key, stored_keys)
             assert not serializer.is_valid()
         assert serializer.errors["filters"][0].code == "reserved_variant_key"
-        assert key in str(serializer.errors["filters"][0])
+        assert (key or "empty") in str(serializer.errors["filters"][0])
 
     @parameterized.expand(
         [
-            ("uppercase_on_create", "NULL", None),
-            ("title_case_on_create", "Null", None),
-            ("null_kept_on_update", "null", ["control", "null"]),
+            ("uppercase_on_create", "NULL", {"*"}, None),
+            ("title_case_on_create", "Null", {"*"}, None),
+            ("null_kept_on_update", "null", {"*"}, ["control", "null"]),
+            # A structural rule rejects a blank key under full enforcement. This case therefore runs log-only.
+            ("empty_kept_on_update", "", set(), ["control", ""]),
         ]
     )
     def test_unreserved_key_is_accepted_as_a_variant_key(
-        self, _name: str, key: str, stored_keys: list[str] | None
+        self, _name: str, key: str, enforced_rules: set[str], stored_keys: list[str] | None
     ) -> None:
-        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"*"}):
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
             serializer = _new_variant_serializer(key, stored_keys)
             # is_valid() would go on to the object-level validate(), which reads the team from the database.
             validated = serializer.validate_filters(serializer.initial_data["filters"])

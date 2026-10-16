@@ -2,8 +2,10 @@
 
 The ingest cleaner stores a variant named "false" or "true" under a sentinel in the `$feature_flags` map, so every
 write refuses the sentinels. flag_evaluations stores `$feature_flag_response` with the JSON quotes trimmed, so a variant
-named "null" stores the same 'null' as a flag that returned null, and reads turn both into NULL. A flag that already
-serves a key in `RESERVED_NEW_VARIANT_KEYS` keeps it, because renaming a variant breaks experiment and chart continuity.
+named "null" stores the same 'null' as a flag that returned null, and reads turn both into NULL. A variant with an
+empty key stores an empty response, which HogQL also reads as NULL on flag_evaluations and on events. A flag that
+already serves a key in `RESERVED_NEW_VARIANT_KEYS` keeps it, because renaming a variant breaks experiment and chart
+continuity.
 """
 
 from collections.abc import Collection
@@ -11,8 +13,9 @@ from typing import Any
 
 from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
 
-# Mirrored by RESERVED_NEW_VARIANT_KEYS in featureFlagLogic.ts.
-RESERVED_NEW_VARIANT_KEYS: frozenset[str] = frozenset({"null"})
+# Mirrored by RESERVED_NEW_VARIANT_KEYS in featureFlagLogic.ts. That list leaves out "", because the editor rejects
+# every empty variant key before it checks the list.
+RESERVED_NEW_VARIANT_KEYS: frozenset[str] = frozenset({"null", ""})
 
 
 def is_reserved_variant_key(value: Any, *, held: Collection[Any]) -> bool:

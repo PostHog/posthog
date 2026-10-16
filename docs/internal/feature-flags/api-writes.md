@@ -15,9 +15,11 @@ Every incoming `filters.version`, including numeric 1, still fails with `reserve
 Supplied top-level v1 filter keys replace those keys in the stored state; `{}` retains targeting and `groups: []` clears it.
 The existing validation rollout controls normalization and unknown-key preservation.
 Every write rejects the variant keys `$false` and `$true` with `reserved_variant_key`, whatever the validation rollout enforces.
-It also rejects a `"null"` variant key unless the stored flag already has a variant with that key, because `flag_evaluations` stores a `"null"` response the same as a null one.
+It also rejects a `"null"` or empty `""` variant key unless the stored flag already has a variant with that key.
+`flag_evaluations` stores a `"null"` response the same as a null one, and HogQL reads an empty response as NULL on `flag_evaluations` and on events.
+The validation rollout's `structural.multivariate.variants[].key.blank` rule rejects every `""` key, including one the stored flag has, once that rule is enforced.
 Copies follow the target flag, not the source.
-Duplicating an experiment with a new flag key, copying a flag or experiment to a project without that flag, and copying onto a target flag without a `"null"` variant all fail when the source flag has one.
+Duplicating an experiment with a new flag key, copying a flag or experiment to a project without that flag, and copying onto a target flag that lacks the source flag's `"null"` or `""` variant all fail.
 
 Dependency targets must also use v1 configurations.
 The dependency validator resolves IDs within the existing project scope, rejects disabled targets, and checks `filters.version` before accepting an edge.
