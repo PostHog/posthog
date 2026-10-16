@@ -100,7 +100,10 @@ def _wire(client: ReplayGemini, respond: Callable[[httpx.Request], httpx.Respons
 class TestReplayGeminiClient:
     def test_flag_off_stays_direct(self, flag_on: MagicMock) -> None:
         flag_on.return_value = False
-        with override_settings(**_GATEWAY), patch("posthog.llm.gateway_client.build_gemini_client") as build:
+        with (
+            override_settings(**_GATEWAY),
+            patch("products.replay_vision.backend.gemini_client.build_gemini_client") as build,
+        ):
             client = asyncio.run(replay_gemini_client(42))
         build.assert_not_called()
         assert client.raw._api_client.api_key == "replay-vision-google-key"
@@ -352,6 +355,19 @@ class TestGatewayFilesAndCaches:
 
         with pytest.raises(AIGatewayHostError, match="generativelanguage.googleapis.com"):
             _write_and_upload(client.raw, b"mp4-bytes", "video/mp4", "wf-1")
+
+        assert [request.url.host for request in seen] == ["ai-gateway.example"]
+
+    def test_a_redirect_off_the_gateway_host_is_not_followed(self) -> None:
+        def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                302, headers={"location": "https://generativelanguage.googleapis.com/v1beta/files/abc"}
+            )
+
+        client, seen = _wired_gateway_client({}, respond)
+
+        with pytest.raises(AIGatewayHostError):
+            client.raw.files.get(name="files/abc")
 
         assert [request.url.host for request in seen] == ["ai-gateway.example"]
 
