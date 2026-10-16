@@ -1,3 +1,5 @@
+import os
+import signal
 import asyncio
 import threading
 from datetime import timedelta
@@ -6,8 +8,8 @@ from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.conf import settings
-from django.db import transaction
-from django.test import SimpleTestCase, TestCase
+from django.db import OperationalError, transaction
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from asgiref.sync import async_to_sync
@@ -1077,3 +1079,41 @@ class TestDispatcherCompletionCallback(SimpleTestCase):
         self.assertEqual(failed_total() - before, expected_delta)
         self.assertNotIn(task, in_flight)
         self.assertNotIn(dispatch.id, in_flight_ids)
+
+
+class TestDispatcherPollLoop(SimpleTestCase):
+    @override_settings(TASKS_DISPATCHER_POLL_INTERVAL_SECONDS=0)
+    def test_poll_recovers_after_connection_loss_in_poll_thread(self) -> None:
+        broken_threads: set[int] = set()
+        materialize_calls = 0
+
+        def materialize(batch_size: int) -> int:
+            nonlocal materialize_calls
+            materialize_calls += 1
+            if materialize_calls == 1:
+                broken_threads.add(threading.get_ident())
+            if threading.get_ident() in broken_threads:
+                raise OperationalError("the connection is lost")
+            return 0
+
+        def close_connections() -> None:
+            broken_threads.discard(threading.get_ident())
+
+        def claim(*args: object) -> list[TaskWorkflowDispatch]:
+            os.kill(os.getpid(), signal.SIGTERM)
+            return []
+
+        module = "products.tasks.backend.management.commands.run_task_workflow_dispatcher"
+        with (
+            patch(f"{module}.async_connect", new_callable=AsyncMock),
+            patch(f"{module}.Path"),
+            patch(f"{module}.close_old_connections", side_effect=close_connections),
+            patch(f"{module}.materialize_due_scheduled_task_runs", side_effect=materialize),
+            patch(f"{module}.sample_dispatch_metrics"),
+            patch(f"{module}.claim_dispatches", side_effect=claim) as claim_dispatches,
+            patch(f"{module}.release_claims"),
+        ):
+            asyncio.run(asyncio.wait_for(Command()._run(), timeout=10))
+
+        self.assertEqual(materialize_calls, 2)
+        claim_dispatches.assert_called_once()
