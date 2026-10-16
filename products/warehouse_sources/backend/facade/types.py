@@ -1025,6 +1025,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     BLACKBOARDLEARN = "BlackboardLearn", "BlackboardLearn"
     BLING = "Bling", "Bling"
     BLOOMERANG = "Bloomerang", "Bloomerang"
+    BLUESHIFT = "Blueshift", "Blueshift"
     BLUESKY = "Bluesky", "Bluesky"
     BOLRETAILER = "BolRetailer", "BolRetailer"
     BOULEVARD = "Boulevard", "Boulevard"
