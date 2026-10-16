@@ -1302,6 +1302,54 @@ class TestScoutSlackDelivery(BaseTest):
         ]
         assert [b["type"] for b in resent] == ["context", "header", "markdown", "actions", "context"]
 
+    @parameterized.expand([("shorter_summary_fits", 1, True), ("shorter_summary_still_too_long", 2, False)])
+    def test_report_too_long_for_slack_is_resent_with_a_shorter_summary(
+        self, _name: str, rejections: int, expect_delivered: bool
+    ) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout & payments failed. " * 500,
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        too_long = SlackApiError(message="too long", response=FakeSlackResponse({"error": "msg_blocks_too_long"}))
+        fake_client.chat_postMessage.side_effect = [too_long] * rejections + [
+            FakeSlackResponse({"ts": "1785418710.000700"})
+        ]
+
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch("products.signals.backend.tasks.capture_exception") as capture,
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.apply(
+                args=(
+                    self.team.id,
+                    "report",
+                    str(report.id),
+                    str(emission.scout_run_id),
+                    "01864f4c-6957-7d3f-8d85-1d775e527266",
+                    integration.id,
+                    "CSCOUTS|#scout-findings",
+                ),
+                throw=True,
+            )
+
+        posts = [call.kwargs["blocks"] for call in fake_client.chat_postMessage.call_args_list]
+        assert len(posts) == 2
+        first_markdown, resent_markdown = (
+            next(block["text"] for block in blocks if block["type"] == "markdown") for blocks in posts
+        )
+        assert len(resent_markdown) < len(first_markdown)
+        assert any(block["type"] == "actions" for block in posts[1])
+        if expect_delivered:
+            capture.assert_not_called()
+        else:
+            assert capture.call_args.args[1]["error_code"] == "msg_blocks_too_long"
+
     def test_task_retries_transient_delivery_failure(self) -> None:
         emission = self._make_emission()
         error = SlackApiError(
