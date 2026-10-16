@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Optional, cast
 
 from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
@@ -27,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trafficstars.settings import (
     ENDPOINTS,
+    HISTORY_DAYS,
     INCREMENTAL_FIELDS,
     LOOKBACK,
     MERGE_ONLY,
@@ -51,6 +53,21 @@ class TrafficStarsSource(ResumableSource[TrafficStarsSourceConfig, TrafficStarsR
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TRAFFICSTARS
+
+    def history_lookback_for_schema(
+        self, schema_name: str, config: TrafficStarsSourceConfig | None = None
+    ) -> timedelta | None:
+        # Only the daily statistics are bounded by date; the lists return every row.
+        return timedelta(days=HISTORY_DAYS) if schema_name == "campaign_statistics_daily" else None
+
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        # The campaign list is one request, so a retry has nothing to continue from.
+        return schema_name != "campaigns"
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
@@ -111,6 +128,7 @@ class TrafficStarsSource(ResumableSource[TrafficStarsSourceConfig, TrafficStarsR
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            history_start=inputs.history_start,
         )
 
     @property

@@ -7,7 +7,7 @@ TRAFFICSTARS_TOKEN_URL = "https://api.trafficstars.com/v1/auth/token"
 
 CREATIVES_PAGE_SIZE = 100
 
-# The statistics report accepts ranges of up to 180 days, so the first sync reads that far back.
+# How far back the first sync of the daily statistics reads.
 HISTORY_DAYS = 180
 
 # TrafficStars documents no attribution window. Re-reading the last week picks up late conversions.

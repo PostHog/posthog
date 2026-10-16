@@ -105,8 +105,8 @@ class TestDailyStatistics:
         ]
         assert api[0].json()["group_by"] == "campaign"
         assert [(row["date"], row["id"], row["impressions"]) for row in result.rows] == [
-            ("2026-10-13", 123, 6627),
-            ("2026-10-15", 123, 10),
+            (date(2026, 10, 13), 123, 6627),
+            (date(2026, 10, 15), 123, 10),
         ]
         assert result.saved_states == [
             TrafficStarsResumeConfig(next_day="2026-10-14"),
@@ -118,16 +118,25 @@ class TestDailyStatistics:
         ("inputs", "resume_state", "expected_first_day"),
         [
             ({}, None, "2026-04-18"),
-            ({"incremental_field": "date", "db_incremental_field_last_value": date(2025, 1, 1)}, None, "2026-04-18"),
+            ({"history_start": datetime(2026, 4, 1, tzinfo=UTC)}, None, "2026-04-01"),
+            (
+                {
+                    "incremental_field": "date",
+                    "db_incremental_field_last_value": date(2026, 4, 1),
+                    "history_start": datetime(2026, 5, 1, tzinfo=UTC),
+                },
+                None,
+                "2026-04-01",
+            ),
             ({}, TrafficStarsResumeConfig(next_day="2026-10-15"), "2026-10-15"),
         ],
     )
-    def test_starts_inside_the_reports_180_day_reach_or_at_the_saved_day(
+    def test_starts_at_the_saved_day_the_watermark_or_the_recorded_history_start(
         self, inputs: dict[str, Any], resume_state: TrafficStarsResumeConfig | None, expected_first_day: str
     ) -> None:
         config = TrafficStarsSourceConfig(api_key="ts_key")
         script = route(
-            {"/v1/auth/token": [TOKEN], "/v2/campaigns/statistics": [ScriptedResponse(json={"data": []})] * 200}
+            {"/v1/auth/token": [TOKEN], "/v2/campaigns/statistics": [ScriptedResponse(json={"data": []})] * 250}
         )
         result = SourceDriver(TrafficStarsSource(), config).run(
             "campaign_statistics_daily", script, resume_state=resume_state, **inputs
@@ -147,18 +156,23 @@ class TestErrors:
         assert OAUTH2_PERMANENT_ERROR_MARKER in str(result.raised)
 
     @pytest.mark.parametrize(
-        ("response", "expected_valid", "message_fragment"),
+        ("token_response", "creatives_response", "expected_valid", "message_fragment"),
         [
-            (TOKEN, True, None),
-            (INVALID_GRANT, False, "rejected the API key"),
-            (ScriptedResponse(status=500, json={}), False, "Could not connect"),
-            (ConnectionError("boom"), False, "Could not connect"),
+            (TOKEN, ScriptedResponse(json={"page": 1, "page_count": 1, "response": []}), True, None),
+            (TOKEN, ScriptedResponse(status=403, json={}), False, "advertiser account"),
+            (INVALID_GRANT, None, False, "rejected the API key"),
+            (ScriptedResponse(status=500, json={}), None, False, "Could not connect"),
+            (ConnectionError("boom"), None, False, "Could not connect"),
         ],
     )
-    def test_the_credential_probe_maps_the_token_exchange(
-        self, response: Any, expected_valid: bool, message_fragment: str | None
+    def test_the_credential_probe_maps_the_token_exchange_and_the_data_read(
+        self,
+        token_response: Any,
+        creatives_response: ScriptedResponse | None,
+        expected_valid: bool,
+        message_fragment: str | None,
     ) -> None:
-        with scripted_network(always(response)) as network:
+        with scripted_network([token_response, *([creatives_response] if creatives_response else [])]) as network:
             is_valid, message = validate_credentials("ts_key")
 
         assert is_valid is expected_valid
@@ -166,4 +180,5 @@ class TestErrors:
             assert message is None
         else:
             assert message is not None and message_fragment in message
-        assert {request.path for request in network.requests_log} == {"/v1/auth/token"}
+        if creatives_response is not None:
+            assert network.requests_log[-1].headers["authorization"] == "Bearer tok"

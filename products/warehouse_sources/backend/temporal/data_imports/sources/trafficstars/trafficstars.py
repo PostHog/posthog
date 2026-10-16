@@ -52,6 +52,7 @@ def to_date(value: Any) -> date:
 def _daily_statistics(
     client: RESTClient,
     path: str,
+    data_selector: str,
     start: date,
     today: date,
     manager: ResumableSourceManager[TrafficStarsResumeConfig],
@@ -70,9 +71,9 @@ def _daily_statistics(
                 "show_archived": True,
             },
             paginator=SinglePagePaginator(),
-            data_selector="data",
+            data_selector=data_selector,
         ):
-            rows.extend({**row, "date": day.isoformat()} for row in page)
+            rows.extend({**row, "date": day} for row in page)
         next_day = day + timedelta(days=1)
         if next_day <= today:
             manager.save_state(TrafficStarsResumeConfig(next_day=next_day.isoformat()))
@@ -91,6 +92,7 @@ def trafficstars_source(
     resumable_source_manager: ResumableSourceManager[TrafficStarsResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    history_start: Optional[datetime] = None,
 ) -> SourceResponse:
     config = TRAFFICSTARS_ENDPOINTS[endpoint]
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -106,16 +108,19 @@ def trafficstars_source(
 
     if endpoint == "campaign_statistics_daily":
         today = datetime.now(UTC).date()
-        floor = today - timedelta(days=HISTORY_DAYS)
         if resume is not None and resume.next_day:
             start = date.fromisoformat(resume.next_day)
         elif should_use_incremental_field and db_incremental_field_last_value is not None:
-            start = max(to_date(db_incremental_field_last_value), floor)
+            start = to_date(db_incremental_field_last_value)
+        elif history_start is not None:
+            start = history_start.date()
         else:
-            start = floor
+            start = today - timedelta(days=HISTORY_DAYS)
         client = RESTClient(base_url=TRAFFICSTARS_BASE_URL, auth=_auth(api_key), request_timeout=REQUEST_TIMEOUT)
         return SourceResponse(
-            items=lambda: _daily_statistics(client, config.path, start, today, resumable_source_manager),
+            items=lambda: _daily_statistics(
+                client, config.path, config.data_selector, start, today, resumable_source_manager
+            ),
             # Days are requested in order, so rows arrive in date order.
             sort_mode="asc",
             **response_kwargs,
@@ -166,17 +171,33 @@ def trafficstars_source(
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    """Exchange the API key for an access token, which proves the key without reading any data."""
+    """Exchange the API key for an access token, then read one creative to prove it reaches advertiser data."""
+    could_not_connect = "Could not connect to TrafficStars. Try again in a minute."
     try:
-        response = make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False).post(
+        token_response = make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False).post(
             TRAFFICSTARS_TOKEN_URL,
             data={"grant_type": "refresh_token", "refresh_token": api_key},
             timeout=TOKEN_TIMEOUT,
         )
+        if token_response.status_code in (400, 401):
+            return False, "TrafficStars rejected the API key. Copy it again from your TrafficStars profile."
+        if token_response.status_code != 200:
+            return False, could_not_connect
+        access_token = str(token_response.json()["access_token"])
+        # A publisher account's key passes the token exchange, and only the data endpoints refuse it.
+        response = make_tracked_session(redact_values=(api_key, access_token), allow_redirects=False).get(
+            f"{TRAFFICSTARS_BASE_URL}{TRAFFICSTARS_ENDPOINTS['creatives'].path}",
+            params={"page": 1, "size": 1},
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=REQUEST_TIMEOUT,
+        )
     except Exception:  # noqa: BLE001 — a credential probe must never raise; any failure means "not validated"
-        return False, "Could not connect to TrafficStars. Try again in a minute."
+        return False, could_not_connect
     if response.status_code == 200:
         return True, None
-    if response.status_code in (400, 401):
-        return False, "TrafficStars rejected the API key. Copy it again from your TrafficStars profile."
-    return False, "Could not connect to TrafficStars. Try again in a minute."
+    if response.status_code == 403:
+        return (
+            False,
+            "This TrafficStars account cannot read advertiser data. Use an API key from an advertiser account.",
+        )
+    return False, could_not_connect
