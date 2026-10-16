@@ -117,7 +117,7 @@ export interface scannerAlertNotificationLogicActions {
 export interface scannerAlertNotificationLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        autoSavesDestinations: (alertId: any) => boolean
+        autoSavesDestinations: (arg: string | undefined) => boolean
         firstSlackIntegration: (slackIntegrations: IntegrationType[] | undefined) => IntegrationType | undefined
         urlInput: (selectedType: VisionAlertNotificationType) => AlertNotificationUrlInput | undefined
         addDisabledReason: (
@@ -219,7 +219,10 @@ export const scannerAlertNotificationLogic = kea<scannerAlertNotificationLogicTy
     })),
 
     selectors({
-        autoSavesDestinations: [(_, p) => [p.alertId], (alertId: string | undefined): boolean => !!alertId],
+        autoSavesDestinations: [
+            () => [(_, props: ScannerAlertNotificationLogicProps) => props.alertId],
+            (alertId: string | undefined): boolean => !!alertId,
+        ],
         firstSlackIntegration: [
             (s) => [s.slackIntegrations],
             (slackIntegrations: IntegrationType[] | undefined): IntegrationType | undefined => slackIntegrations?.[0],
