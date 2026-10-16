@@ -1,15 +1,10 @@
 from dataclasses import dataclass
-from datetime import timedelta
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-# `/spend/logs/v2` caps `page_size` at 1000; the key and user lists cap their page size at 100.
-SPEND_LOGS_PAGE_SIZE = 1000
+# Every list endpoint, `/spend/logs/v2` included, caps its page size at 100 before LiteLLM 1.95.
+SPEND_LOGS_PAGE_SIZE = 100
 LIST_PAGE_SIZE = 100
-
-# Spend logs are read one day at a time, because LiteLLM pages with a SQL offset and a deep offset
-# over a busy proxy's whole history gets slow.
-SPEND_LOGS_WINDOW = timedelta(days=1)
 
 SPEND_LOGS_FIELD = "startTime"
 SPEND_LOGS_LOOKBACK_SECONDS = 3600
@@ -49,7 +44,9 @@ LITELLM_ENDPOINTS: dict[str, LiteLLMEndpointConfig] = {
         page_size_param="page_size",
         partition_key="created_at",
     ),
-    "teams": LiteLLMEndpointConfig(name="teams", path="/team/list", primary_key="team_id", data_selector="$"),
+    "teams": LiteLLMEndpointConfig(
+        name="teams", path="/v2/team/list", primary_key="team_id", data_selector="teams", page_size_param="page_size"
+    ),
     "models": LiteLLMEndpointConfig(name="models", path="/model/info", primary_key="model_id", data_selector="data"),
 }
 

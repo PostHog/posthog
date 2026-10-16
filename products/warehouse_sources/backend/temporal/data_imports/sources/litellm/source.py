@@ -45,7 +45,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LiteLLMSource(ResumableSource[LiteLLMSourceConfig, LiteLLMResumeConfig], ValidateDatabaseHostMixin):
-    codebase_detection = detect(env=("^LITELLM_",), pypi=("litellm",))
+    # Proxy-only signals: the `litellm` package alone means the SDK, which has no proxy to sync.
+    codebase_detection = detect(env=("^LITELLM_MASTER_KEY$", "^LITELLM_PROXY_API_(KEY|BASE)$"))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.litellm.ai/docs/proxy/cost_tracking"

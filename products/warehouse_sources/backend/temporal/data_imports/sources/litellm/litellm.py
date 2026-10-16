@@ -19,23 +19,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.litellm.settings import (
     LIST_PAGE_SIZE,
     LITELLM_ENDPOINTS,
     SPEND_LOGS_FIELD,
     SPEND_LOGS_PAGE_SIZE,
-    SPEND_LOGS_WINDOW,
     LiteLLMEndpointConfig,
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
-# The lower bound of the one query that finds the oldest spend log on a full refresh.
+# A full refresh reads from here, which is earlier than any log a LiteLLM proxy can hold.
 SPEND_LOGS_EARLIEST = datetime(2000, 1, 1, tzinfo=UTC)
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+_REDACTED = "[redacted by PostHog]"
 
 SPEND_LOGS_UNAVAILABLE_MESSAGE = (
-    "This LiteLLM proxy has no /spend/logs/v2 endpoint. Upgrade LiteLLM to a recent version, then sync again."
+    "This LiteLLM proxy's /spend/logs/v2 endpoint is missing or too old. "
+    "Upgrade LiteLLM to version 1.84 or later, then sync again."
 )
 
 
@@ -46,10 +48,11 @@ class LiteLLMSpendLogsUnavailableError(Exception):
 @dataclass(frozen=True)
 class LiteLLMResumeConfig:
     page: int | None = None
-    window_start: str | None = None
+    # Spend logs only: the second the next request starts at, the end of the run, and the logs at
+    # that second an earlier page already yielded.
+    cursor: str | None = None
     run_end: str | None = None
-    # Whether an earlier window already yielded the rows at exactly `window_start`.
-    window_start_seen: bool = False
+    seen_request_ids: tuple[str, ...] = ()
 
 
 def normalize_base_url(base_url: str) -> str:
@@ -107,7 +110,8 @@ def _fetch_spend_logs(
         "sort_order": "asc",
     }
     response = session.get(f"{base_url}/spend/logs/v2?{urlencode(params)}", timeout=REQUEST_TIMEOUT_SECONDS)
-    if response.status_code == 404:
+    # 404: no v2 endpoint. 422: a version that refuses this page size or sort.
+    if response.status_code in (404, 422):
         raise LiteLLMSpendLogsUnavailableError(SPEND_LOGS_UNAVAILABLE_MESSAGE)
     response.raise_for_status()
     return response.json()
@@ -126,55 +130,56 @@ def spend_log_pages(
     resumable_source_manager: ResumableSourceManager[LiteLLMResumeConfig],
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Yield spend logs oldest first, one page at a time, walking day-long windows up to the run start."""
+    """Yield spend logs oldest first, moving `start_date` up to the last log of each full page.
+
+    LiteLLM pages with a SQL offset, which gets slow deep into a busy proxy's history. Restarting
+    at page 1 from the last log keeps every offset at zero. The date bounds are inclusive, so the
+    logs at the cursor second come back and are dropped by `request_id`.
+    """
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    # Both date bounds are inclusive, so a window repeats rows at exactly its start that the window
-    # before it already yielded. Only the first window of a fresh run has no predecessor.
-    repeated_start: datetime | None = None
-    if resume is not None and resume.window_start is not None and resume.run_end is not None:
-        start = datetime.fromisoformat(resume.window_start)
+    if resume is not None and resume.cursor is not None and resume.run_end is not None:
+        cursor = datetime.fromisoformat(resume.cursor)
         run_end = datetime.fromisoformat(resume.run_end)
         page = resume.page or 1
-        repeated_start = start if resume.window_start_seen else None
+        seen = set(resume.seen_request_ids)
     else:
         run_end = datetime.now(UTC).replace(microsecond=0)
+        cursor = (_as_utc(db_incremental_field_last_value) or SPEND_LOGS_EARLIEST).replace(microsecond=0)
         page = 1
-        start_value = _as_utc(db_incremental_field_last_value)
-        if start_value is None:
-            oldest = _fetch_spend_logs(session, base_url, SPEND_LOGS_EARLIEST, run_end, page=1, page_size=1)
-            start_value = _as_utc(oldest["data"][0][SPEND_LOGS_FIELD]) if oldest.get("data") else None
-            if start_value is None:
-                return
-        start = start_value.replace(microsecond=0)
+        seen = set()
 
     while True:
-        end = min(start + SPEND_LOGS_WINDOW, run_end)
-        body = _fetch_spend_logs(session, base_url, start, end, page, SPEND_LOGS_PAGE_SIZE)
+        body = _fetch_spend_logs(session, base_url, cursor, run_end, page, SPEND_LOGS_PAGE_SIZE)
         page_rows: list[dict[str, Any]] = body.get("data") or []
-        total_pages = body.get("total_pages")
-        # LiteLLM stops counting at 10,000 matches and flags it, so a capped `total_pages` is a floor.
-        if body.get("total_is_capped") or not isinstance(total_pages, int):
-            has_next_page = len(page_rows) == SPEND_LOGS_PAGE_SIZE
-        else:
-            has_next_page = page < total_pages
-        last_window = end >= run_end
-        rows = [
-            row for row in page_rows if repeated_start is None or _as_utc(row.get(SPEND_LOGS_FIELD)) != repeated_start
-        ]
+        times = [_as_utc(row.get(SPEND_LOGS_FIELD)) for row in page_rows]
+        # Old proxies ignore `sort_order` and return newest first, which would break the cursor.
+        if any(earlier and later and later < earlier for earlier, later in zip(times, times[1:])):
+            raise LiteLLMSpendLogsUnavailableError(SPEND_LOGS_UNAVAILABLE_MESSAGE)
+        rows = [row for row in page_rows if row.get("request_id") not in seen]
 
-        if has_next_page:
-            next_state: LiteLLMResumeConfig | None = LiteLLMResumeConfig(
-                window_start=start.isoformat(),
-                run_end=run_end.isoformat(),
-                page=page + 1,
-                window_start_seen=repeated_start is not None,
-            )
-        elif not last_window:
-            next_state = LiteLLMResumeConfig(
-                window_start=end.isoformat(), run_end=run_end.isoformat(), page=1, window_start_seen=True
-            )
-        else:
-            next_state = None
+        next_state: LiteLLMResumeConfig | None = None
+        if len(page_rows) == SPEND_LOGS_PAGE_SIZE:
+            last_second = times[-1].replace(microsecond=0) if times[-1] else None
+            if last_second is None or last_second <= cursor:
+                # A full page inside one second cannot move the cursor, so step past it by page.
+                next_state = LiteLLMResumeConfig(
+                    cursor=cursor.isoformat(),
+                    run_end=run_end.isoformat(),
+                    page=page + 1,
+                    seen_request_ids=tuple(sorted(seen)),
+                )
+            else:
+                at_last_second = [
+                    str(row.get("request_id"))
+                    for row, time in zip(page_rows, times)
+                    if time is not None and time.replace(microsecond=0) == last_second
+                ]
+                next_state = LiteLLMResumeConfig(
+                    cursor=last_second.isoformat(),
+                    run_end=run_end.isoformat(),
+                    page=1,
+                    seen_request_ids=tuple(at_last_second),
+                )
 
         if next_state is not None:
             resumable_source_manager.save_state(next_state)
@@ -185,10 +190,9 @@ def spend_log_pages(
 
         if next_state is None:
             return
-        if next_state.page == 1:
-            repeated_start = end
-        start = datetime.fromisoformat(next_state.window_start or "")
+        cursor = datetime.fromisoformat(next_state.cursor or "")
         page = next_state.page or 1
+        seen = set(next_state.seen_request_ids)
 
 
 def _with_model_id(row: dict[str, Any]) -> dict[str, Any]:
@@ -197,19 +201,50 @@ def _with_model_id(row: dict[str, Any]) -> dict[str, Any]:
     return {**row, "model_id": model_info.get("id") if isinstance(model_info, dict) else None}
 
 
-def _without_key_config(row: dict[str, Any]) -> dict[str, Any]:
+def _redact_callback_vars(metadata: Any) -> Any:
+    """Mask logging credentials, such as `langfuse_secret_key`, that LiteLLM keeps in key and team metadata.
+
+    The keys stay, so the table still shows which logging integrations are configured. LiteLLM masks
+    the same two places before it writes its own audit log.
+    """
+    if not isinstance(metadata, dict):
+        return metadata
+    redacted = dict(metadata)
+    if isinstance(redacted.get("logging"), list):
+        redacted["logging"] = [
+            {**entry, "callback_vars": dict.fromkeys(entry["callback_vars"], _REDACTED)}
+            if isinstance(entry, dict) and isinstance(entry.get("callback_vars"), dict)
+            else entry
+            for entry in redacted["logging"]
+        ]
+    settings = redacted.get("callback_settings")
+    if isinstance(settings, dict) and isinstance(settings.get("callback_vars"), dict):
+        redacted["callback_settings"] = {
+            **settings,
+            "callback_vars": dict.fromkeys(settings["callback_vars"], _REDACTED),
+        }
+    return redacted
+
+
+def _shape_key(row: dict[str, Any]) -> dict[str, Any]:
     # A key's `config` can hold a model list with provider API keys.
-    return {name: value for name, value in row.items() if name != "config"}
+    shaped = {name: value for name, value in row.items() if name != "config"}
+    if "metadata" in shaped:
+        shaped["metadata"] = _redact_callback_vars(shaped["metadata"])
+    return shaped
 
 
-def _without_team_keys(row: dict[str, Any]) -> dict[str, Any]:
-    # Team rows embed full key objects, credentials included; the keys table has them without.
-    return {name: value for name, value in row.items() if name != "keys"}
+def _shape_team(row: dict[str, Any]) -> dict[str, Any]:
+    # Some versions embed full key objects in team rows; the keys table already has them, shaped.
+    shaped = {name: value for name, value in row.items() if name != "keys"}
+    if "metadata" in shaped:
+        shaped["metadata"] = _redact_callback_vars(shaped["metadata"])
+    return shaped
 
 
 _ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
-    "keys": _without_key_config,
-    "teams": _without_team_keys,
+    "keys": _shape_key,
+    "teams": _shape_team,
     "models": _with_model_id,
 }
 
@@ -259,7 +294,7 @@ def _list_resource(
     initial_paginator_state: dict[str, Any] | None = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None and resume.page is not None and resume.window_start is None:
+        if resume is not None and resume.page is not None and resume.cursor is None:
             initial_paginator_state = {"page": resume.page}
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
@@ -324,8 +359,10 @@ def probe_key(base_url: str, api_key: str) -> int | None:
 
     `/key/info` would 404 for a master key, because it looks the calling key up as a stored key.
     """
-    try:
-        response = _session(api_key).get(f"{normalize_base_url(base_url)}/key/list?page=1&size=1", timeout=15)
-    except requests.RequestException:
-        return None
-    return response.status_code
+    _, status = validate_via_probe(
+        lambda: _session(api_key),
+        f"{normalize_base_url(base_url)}/key/list?page=1&size=1",
+        timeout=15,
+        allow_redirects=False,
+    )
+    return status
