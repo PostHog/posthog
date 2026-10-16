@@ -173,9 +173,6 @@ rules:
       owners: ai-research
     - match: '/posthog/test/test_feature_flag_analytics.py'
       owners: team-feature-flags
-    - match: '/services/llm-gateway/'
-      owners: team-agent-infrastructure
-      sensitive: true
     - match:
           - '/packages/owners-yaml/'
           - '/tools/hogli-commands/'
