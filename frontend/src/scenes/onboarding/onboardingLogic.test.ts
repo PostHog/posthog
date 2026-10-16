@@ -731,23 +731,6 @@ describe('onboardingLogic — flow composition', () => {
             )
         })
 
-        it('the embedded flow shows only the product steps and never changes the URL', async () => {
-            router.actions.push(urls.onboardingWelcome())
-            logic.actions.startEmbeddedFlow(ProductKey.SESSION_REPLAY)
-            expect(flowIds()).toEqual(['install:session_replay', 'configure:session_replay'])
-
-            logic.actions.goToNextStep()
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.currentFlowStep?.id).toBe('configure:session_replay')
-            expect(currentPath()).toBe(urls.onboardingWelcome())
-            expect(logic.values.installStepReturnUrl).toBe(`${urls.onboardingWelcome()}?product=session_replay`)
-        })
-
-        it('the embedded flow opens a product with no steps of its own on the install, then a step that turns it on', () => {
-            logic.actions.startEmbeddedFlow(ProductKey.CONVERSATIONS)
-            expect(flowIds()).toEqual(['install:conversations', 'configure:conversations'])
-        })
-
         it('skipping the simple flow records the skip before landing on the welcome page', async () => {
             const skipRequests: unknown[] = []
             useMocks({

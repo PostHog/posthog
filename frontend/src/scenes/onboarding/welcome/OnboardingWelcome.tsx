@@ -1,16 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonCard, Spinner } from '@posthog/lemon-ui'
+import { IconSparkles } from '@posthog/icons'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { ProjectTokenSnippet } from '../shared/ProjectTokenSnippet'
-import { getProductIcon, toSentenceCase } from '../shared/utils'
 import { onboardingWelcomeLogic } from './onboardingWelcomeLogic'
-import { WelcomeProductSetup } from './WelcomeProductSetup'
+import { WelcomeAiPanel } from './WelcomeAiPanel'
+import { WelcomeProductNavItem } from './WelcomeProductNavItem'
+import { WelcomeProductPanel } from './WelcomeProductPanel'
 
 export const scene: SceneExport = {
     component: OnboardingWelcome,
@@ -18,50 +19,50 @@ export const scene: SceneExport = {
 }
 
 export function OnboardingWelcome(): JSX.Element {
-    const { products, selectedProductKey } = useValues(onboardingWelcomeLogic)
-    const { selectProduct } = useActions(onboardingWelcomeLogic)
+    const { products, selection } = useValues(onboardingWelcomeLogic)
+    const { selectAi, selectProduct } = useActions(onboardingWelcomeLogic)
 
     return (
         <SceneContent>
             <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
                 <div>
-                    <h1 className="text-2xl font-semibold m-0">Welcome to PostHog</h1>
-                    <p className="text-secondary m-0 mt-1">
-                        Install PostHog, then pick a product to see the rest of its setup.
+                    <h1 className="m-0 text-2xl font-semibold">Welcome to PostHog</h1>
+                    <p className="m-0 mt-1 text-secondary">
+                        Tell PostHog AI what you want to do, or set up a product yourself.
                     </p>
                 </div>
                 <ProjectTokenSnippet />
             </div>
             <div className="grid grid-cols-1 gap-4 @min-[56rem]/main-content:grid-cols-[18rem_minmax(0,1fr)]">
-                {/* A wrapping row when the columns stack, so the setup card stays near the top. */}
+                {/* A wrapping row when the columns stack, so the panel stays near the top. */}
                 <nav
-                    className="flex flex-wrap gap-1 min-w-0 @min-[56rem]/main-content:flex-col @min-[56rem]/main-content:flex-nowrap @min-[56rem]/main-content:gap-px"
-                    aria-label="Products"
+                    className="flex min-w-0 flex-wrap gap-1 @min-[56rem]/main-content:flex-col @min-[56rem]/main-content:flex-nowrap @min-[56rem]/main-content:gap-px"
+                    aria-label="Get started"
                 >
-                    {products.map(({ key, product, completed }) => (
-                        <LemonButton
+                    <LemonButton
+                        className="@min-[56rem]/main-content:w-full"
+                        active={selection === 'ai'}
+                        icon={<IconSparkles />}
+                        onClick={() => selectAi()}
+                        data-attr="onboarding-welcome-ai"
+                    >
+                        Ask PostHog AI
+                    </LemonButton>
+                    <div className="w-full px-2 pb-1 pt-3 text-xxs font-semibold uppercase tracking-wide text-tertiary">
+                        Or install a specific product
+                    </div>
+                    {products.map(({ key, product }) => (
+                        <WelcomeProductNavItem
                             key={key}
-                            className="@min-[56rem]/main-content:w-full"
-                            active={key === selectedProductKey}
-                            icon={getProductIcon(product.icon, { iconColor: product.iconColor })}
-                            sideIcon={completed ? <IconCheckCircle className="text-success" /> : undefined}
-                            tooltip={product.description}
-                            tooltipPlacement="right"
-                            onClick={() => selectProduct(key)}
-                            data-attr={`onboarding-welcome-product-${key}`}
-                        >
-                            {toSentenceCase(product.name)}
-                        </LemonButton>
+                            productKey={key}
+                            product={product}
+                            active={selection === key}
+                            onSelect={() => selectProduct(key)}
+                        />
                     ))}
                 </nav>
-                <LemonCard hoverEffect={false} className="p-4 min-w-0">
-                    {selectedProductKey ? (
-                        <WelcomeProductSetup />
-                    ) : (
-                        <div className="flex items-center justify-center min-h-60" role="status" aria-label="Loading">
-                            <Spinner className="text-2xl" />
-                        </div>
-                    )}
+                <LemonCard hoverEffect={false} className="min-w-0 p-4">
+                    {selection === 'ai' ? <WelcomeAiPanel /> : <WelcomeProductPanel />}
                 </LemonCard>
             </div>
         </SceneContent>
