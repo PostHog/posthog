@@ -11,6 +11,7 @@ from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
+from django.http.request import split_domain_port
 from django.shortcuts import render
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
@@ -57,6 +58,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
+from posthog.models.proxy_record import ProxyRecord
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
@@ -3899,6 +3901,36 @@ def _survey_error_response(
     return _isolate_public_survey_response(request, render(request, "surveys/error.html", context, status=status))
 
 
+def _survey_not_available_response(request: HttpRequest) -> HttpResponse:
+    # Use generic error message to prevent survey ID enumeration
+    return _survey_error_response(
+        request,
+        error_title="Survey not available",
+        error_message="The requested survey is not available.",
+        status=404,
+    )
+
+
+# A record reaches ISSUING only after its DNS check passes, so an organization cannot claim a domain it does not control.
+# ERRORING can also follow a failed DNS check. It stays in the list so a provisioned domain keeps its guard while it errors.
+_DNS_VERIFIED_PROXY_STATUSES = (
+    ProxyRecord.Status.ISSUING,
+    ProxyRecord.Status.VALID,
+    ProxyRecord.Status.WARNING,
+    ProxyRecord.Status.ERRORING,
+)
+
+
+def _is_another_organizations_proxy_domain(request: HttpRequest, survey: Survey) -> bool:
+    # get_host() prefers X-Forwarded-Host, which a client can set. The managed proxy keeps the visitor's Host header.
+    domain, _ = split_domain_port(request.META.get("HTTP_HOST", ""))
+    return (
+        ProxyRecord.objects.filter(domain__iexact=domain, status__in=_DNS_VERIFIED_PROXY_STATUSES)
+        .exclude(organization_id=survey.team.organization_id)
+        .exists()
+    )
+
+
 @csrf_exempt
 @axes_dispatch
 def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
@@ -3922,15 +3954,10 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
     try:
         # nosemgrep: idor-lookup-without-team (public survey page, intentionally unauthenticated)
         survey = Survey.objects.select_related("team").get(id=survey_id)
+        is_another_organizations_proxy_domain = _is_another_organizations_proxy_domain(request, survey)
     except Survey.DoesNotExist:
         logger.info("survey_page_not_found", survey_id=survey_id)
-        # Use generic error message to prevent survey ID enumeration
-        return _survey_error_response(
-            request,
-            error_title="Survey not available",
-            error_message="The requested survey is not available.",
-            status=404,
-        )
+        return _survey_not_available_response(request)
     except Exception as e:
         logger.exception("survey_page_db_error", error=str(e), survey_id=survey_id)
         capture_exception(e)
@@ -3940,6 +3967,10 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
             error_message="The service is temporarily unavailable. Please try again later.",
             status=503,
         )
+
+    if is_another_organizations_proxy_domain:
+        logger.info("survey_page_foreign_proxy_domain", survey_id=survey_id, host=request.META.get("HTTP_HOST"))
+        return _survey_not_available_response(request)
 
     survey_is_running = (
         survey.start_date is not None and survey.start_date <= datetime.now(UTC) and survey.end_date is None

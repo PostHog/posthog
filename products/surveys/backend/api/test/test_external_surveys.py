@@ -12,9 +12,13 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.models import Organization, ProxyRecord
+
 from products.surveys.backend.models import Survey
 
 EXTERNAL_SITE_URL = "https://app.posthog-test.example"
+OWN_PROXY_DOMAIN = "surveys.own-org.example.com"
+OTHER_PROXY_DOMAIN = "surveys.other-org.example.com"
 
 
 class TestExternalSurveys(APIBaseTest):
@@ -380,6 +384,71 @@ class TestExternalSurveys(APIBaseTest):
         error_content = error_response.content.decode()
         assert f'href="{EXTERNAL_SITE_URL}/static/icons/favicon-32x32.png' in error_content
         assert 'href="/static/' not in error_content
+
+    @parameterized.expand(
+        [
+            ("own_proxy_domain", OWN_PROXY_DOMAIN, {}, {}, 200, "Quarterly feedback"),
+            ("unregistered_host", "surveys.self-run-proxy.example.com", {}, {}, 200, "Quarterly feedback"),
+            ("other_org_proxy_domain", OTHER_PROXY_DOMAIN, {}, {}, 404, "Survey not available"),
+            (
+                "other_org_domain_stored_mixed_case",
+                OTHER_PROXY_DOMAIN,
+                {"domain": "Surveys.Other-Org.example.com"},
+                {},
+                404,
+                "Survey not available",
+            ),
+            (
+                "other_org_record_without_dns_verification",
+                OTHER_PROXY_DOMAIN,
+                {"status": ProxyRecord.Status.WAITING},
+                {},
+                200,
+                "Quarterly feedback",
+            ),
+            (
+                "other_org_proxy_domain_archived_survey",
+                OTHER_PROXY_DOMAIN,
+                {},
+                {"archived": True},
+                404,
+                "Survey not available",
+            ),
+        ]
+    )
+    @override_settings(USE_X_FORWARDED_HOST=True)
+    def test_managed_proxy_domain_serves_only_its_own_organization_surveys(
+        self,
+        _name: str,
+        host: str,
+        other_record_overrides: dict,
+        survey_overrides: dict,
+        expected_status: int,
+        expected_text: str,
+    ) -> None:
+        survey = self.create_external_survey(name="Quarterly feedback", **survey_overrides)
+        ProxyRecord.objects.create(
+            organization=self.organization,
+            domain=OWN_PROXY_DOMAIN,
+            target_cname="own.proxy.example.com",
+            status=ProxyRecord.Status.VALID,
+        )
+        ProxyRecord.objects.create(
+            **{
+                "organization": Organization.objects.create(name="Other organization"),
+                "domain": OTHER_PROXY_DOMAIN,
+                "target_cname": "other.proxy.example.com",
+                "status": ProxyRecord.Status.VALID,
+                **other_record_overrides,
+            }
+        )
+
+        response = self.client.get(
+            f"/external_surveys/{survey.id}/", HTTP_HOST=host, HTTP_X_FORWARDED_HOST="testserver"
+        )
+
+        assert response.status_code == expected_status
+        assert expected_text in response.content.decode()
 
     @override_settings(SITE_URL="http://localhost:8010")
     def test_localhost_site_url_falls_back_to_relative_asset_urls(self):
