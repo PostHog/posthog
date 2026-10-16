@@ -13,6 +13,76 @@ export namespace Schemas {
     /**
      *
      */
+    export interface AEOPrompt {
+      /** Prompt id. */
+      id: string;
+      /** The question asked to the answer engines, as a user would phrase it. */
+      prompt: string;
+      /** Theme the prompt belongs to. The runner alternates between topics on each run. */
+      topic: string;
+      /** Where the prompt came from: 'imported' or 'manual'. */
+      prompt_source: string;
+      /** Seeding score. Within a topic, higher runs first. */
+      rank: number;
+      /** Only active prompts are run against the answer engines. */
+      active: boolean;
+      /**
+         * When the runner last ran this prompt. Null when it never ran.
+         * @nullable
+         */
+      last_checked_at: string | null;
+      /**
+         * Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set came from. Kept to benchmark against our own citation rate. Null when the import carried none.
+         * @nullable
+         */
+      external_visibility: number | null;
+      /** When the prompt was added. */
+      created_at: string;
+      /**
+         * When the prompt last changed.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    export interface AEOPromptImport {
+      /**
+         * The question to ask the answer engines, as a user would phrase it. Matching ignores case and whitespace, so a re-import updates the existing prompt.
+         * @maxLength 10000
+         */
+      prompt: string;
+      /**
+         * Theme the prompt belongs to. The runner alternates between topics on each run.
+         * @maxLength 200
+         */
+      topic?: string;
+      /**
+         * Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set came from. Kept to benchmark against our own citation rate.
+         * @minimum 0
+         * @maximum 100
+         * @nullable
+         */
+      external_visibility?: number | null;
+    }
+
+    export interface AEOPromptBulkImportRequest {
+      /**
+         * Prompts to add or update, at most 2000 per request.
+         * @minItems 1
+         * @maxItems 2000
+         */
+      prompts: AEOPromptImport[];
+    }
+
+    export interface AEOPromptImportResult {
+      /** Prompts added to the set. */
+      created: number;
+      /** Existing prompts that were updated. They keep their active state. */
+      updated: number;
+      /** Prompts that were empty or too long for the answer engines. */
+      skipped: number;
+    }
+
     export interface AIContextAccountProperty {
       /** Customer analytics account property definition id. */
       id: string;
@@ -7626,18 +7696,16 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
-    /**
-     * Issue ranking column.
-     */
-    export type ErrorTrackingListWidgetConfigOrderBy = typeof ErrorTrackingListWidgetConfigOrderBy[keyof typeof ErrorTrackingListWidgetConfigOrderBy];
+    export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
 
 
-    export const ErrorTrackingListWidgetConfigOrderBy = {
+    export const ErrorTrackingOrderBy = {
       LastSeen: 'last_seen',
       FirstSeen: 'first_seen',
       Occurrences: 'occurrences',
       Users: 'users',
       Sessions: 'sessions',
+      Severity: 'severity',
     } as const;
 
     /**
@@ -7692,7 +7760,7 @@ export namespace Schemas {
          */
       limit?: number;
       /** Issue ranking column. */
-      orderBy?: ErrorTrackingListWidgetConfigOrderBy;
+      orderBy?: ErrorTrackingOrderBy;
       /** Sort direction for orderBy. */
       orderDirection?: ErrorTrackingListWidgetConfigOrderDirection;
       /** Issue status filter. */
@@ -9997,18 +10065,6 @@ export namespace Schemas {
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
-
-
-    export const ErrorTrackingOrderBy = {
-      LastSeen: 'last_seen',
-      FirstSeen: 'first_seen',
-      Occurrences: 'occurrences',
-      Users: 'users',
-      Sessions: 'sessions',
-      Severity: 'severity',
-    } as const;
 
     export type OrderDirection2 = typeof OrderDirection2[keyof typeof OrderDirection2];
 
@@ -13467,7 +13523,7 @@ export namespace Schemas {
     } as const;
 
     export interface FrictionGroupShare {
-      /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and kickouts), or rework (own failures and extra pushes).
+      /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and failed queue attempts), or rework (own failures and extra pushes).
        *
        * * `ci` - CI
        * * `review` - Review
@@ -23851,6 +23907,26 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface CohortUsedInWorkflow {
+      /** Workflow ID (UUID) */
+      id: string;
+      /** Workflow display name */
+      name: string;
+      /** Workflow status. Always 'active', because only active workflows rely on the cohort */
+      status: string;
+    }
+
+    export interface CohortUsedInWorkflowsBlock {
+      /** Active workflows relying on this cohort that the caller can view, capped at 100 results */
+      results: CohortUsedInWorkflow[];
+      /** Total number of active workflows relying on this cohort, including ones the caller cannot view */
+      total: number;
+      /** Number of relying workflows the caller cannot view. They count toward total but are never listed */
+      hidden: number;
+      /** True when some relying workflows are not listed in results */
+      has_more: boolean;
+    }
+
     export interface CohortUsedInResponse {
       /** Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata */
       feature_flags: CohortUsedInFlagsBlock;
@@ -23858,6 +23934,8 @@ export namespace Schemas {
       insights: CohortUsedInInsightsBlock;
       /** Other cohorts that include this cohort as a criterion, with truncation metadata */
       cohorts: CohortUsedInCohortsBlock;
+      /** Active workflows that trigger on this cohort or branch on its membership. While any exist, the cohort cannot be deleted or edited in a way that stops it updating in real time. */
+      workflows: CohortUsedInWorkflowsBlock;
     }
 
     /**
@@ -26243,6 +26321,27 @@ export namespace Schemas {
       Agent: 'agent',
     } as const;
 
+    export type ThresholdScalingEnum = typeof ThresholdScalingEnum[keyof typeof ThresholdScalingEnum];
+
+
+    export const ThresholdScalingEnum = {
+      Linear: 'linear',
+      Fixed: 'fixed',
+    } as const;
+
+    export interface MonitoringMetricConfig {
+      /**
+         * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
+         * @maximum 527040
+         * @exclusiveMinimum 0
+         */
+      reference_period_minutes: number;
+      /** How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution. */
+      threshold_scaling: ThresholdScalingEnum;
+      /** The actual period measured by baseline_value, in minutes. Required when a baseline is supplied. */
+      baseline_period_minutes?: number | null;
+    }
+
     /**
      * How to draw this measurement; copied from a referenced metric.
      */
@@ -26299,6 +26398,8 @@ export namespace Schemas {
       metric_id?: string | null;
       /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already. */
       query?: MetricThresholdConfigQuery;
+      /** Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks. */
+      monitoring?: MonitoringMetricConfig | null;
       /** What the measured value must satisfy to pass. */
       comparison: CheckComparison;
       /** The value observed when the check was written, recorded on each result for context. */
@@ -30876,6 +30977,7 @@ export namespace Schemas {
      * * `Gong` - Gong
      * * `Calendly` - Calendly
      * * `Typeform` - Typeform
+     * * `UnityAds` - UnityAds
      * * `Iterable` - Iterable
      * * `ZohoCRM` - ZohoCRM
      * * `Close` - Close
@@ -32264,6 +32366,7 @@ export namespace Schemas {
       Gong: 'Gong',
       Calendly: 'Calendly',
       Typeform: 'Typeform',
+      UnityAds: 'UnityAds',
       Iterable: 'Iterable',
       ZohoCRM: 'ZohoCRM',
       Close: 'Close',
@@ -33666,6 +33769,7 @@ export namespace Schemas {
        * * `Gong` - Gong
        * * `Calendly` - Calendly
        * * `Typeform` - Typeform
+       * * `UnityAds` - UnityAds
        * * `Iterable` - Iterable
        * * `ZohoCRM` - ZohoCRM
        * * `Close` - Close
@@ -36312,6 +36416,7 @@ export namespace Schemas {
        * * `Gong` - Gong
        * * `Calendly` - Calendly
        * * `Typeform` - Typeform
+       * * `UnityAds` - UnityAds
        * * `Iterable` - Iterable
        * * `ZohoCRM` - ZohoCRM
        * * `Close` - Close
@@ -41121,6 +41226,7 @@ export namespace Schemas {
      * * `occurrences` - occurrences
      * * `users` - users
      * * `sessions` - sessions
+     * * `severity` - severity
      */
     export type ErrorTrackingIssueOrderByEnum = typeof ErrorTrackingIssueOrderByEnum[keyof typeof ErrorTrackingIssueOrderByEnum];
 
@@ -41131,6 +41237,7 @@ export namespace Schemas {
       Occurrences: 'occurrences',
       Users: 'users',
       Sessions: 'sessions',
+      Severity: 'severity',
     } as const;
 
     export interface ErrorTrackingIssueQueryRequest {
@@ -41311,7 +41418,8 @@ export namespace Schemas {
        * * `first_seen` - first_seen
        * * `occurrences` - occurrences
        * * `users` - users
-       * * `sessions` - sessions */
+       * * `sessions` - sessions
+       * * `severity` - severity */
       orderBy?: ErrorTrackingIssueOrderByEnum;
       /** Sort direction. Defaults to DESC.
        *
@@ -42452,6 +42560,7 @@ export namespace Schemas {
      * * `running` - Running
      * * `completed` - Completed
      * * `cancelled` - Cancelled
+     * * `interrupted` - Interrupted
      */
     export type EvaluationBackfillStatusEnum = typeof EvaluationBackfillStatusEnum[keyof typeof EvaluationBackfillStatusEnum];
 
@@ -42460,6 +42569,7 @@ export namespace Schemas {
       Running: 'running',
       Completed: 'completed',
       Cancelled: 'cancelled',
+      Interrupted: 'interrupted',
     } as const;
 
     export type EvaluationBackfillConditionPropertiesItem = { [key: string]: unknown };
@@ -42477,12 +42587,15 @@ export namespace Schemas {
     export interface EvaluationBackfill {
       /** Backfill identifier. */
       readonly id: string;
-      /** running while the walk is dispatching, then completed or cancelled.
+      /** Running, completed, interrupted by an error, or cancelled by a user.
        *
        * * `running` - Running
        * * `completed` - Completed
-       * * `cancelled` - Cancelled */
+       * * `cancelled` - Cancelled
+       * * `interrupted` - Interrupted */
       readonly status: EvaluationBackfillStatusEnum;
+      /** Reason an interrupted backfill stopped; empty otherwise. */
+      readonly status_reason: string;
       /** What one unit is, frozen at creation: a generation, a trace, or a session.
        *
        * * `generation` - Generation
@@ -42501,12 +42614,19 @@ export namespace Schemas {
       readonly total_count: number;
       /** Units the backfill has started an evaluation for so far. */
       readonly dispatched_count: number;
+      /**
+         * Evaluations that finished with a verdict. Null for legacy runs.
+         * @nullable
+         */
+      readonly completed_count: number | null;
+      /** Evaluations that finished with a recorded skip instead of a verdict. */
+      readonly evaluation_skipped_count: number;
       /** Units the live path had already covered, so nothing was dispatched. */
       readonly skipped_count: number;
-      /** Units whose evaluation failed to start. They have no result and count toward remaining_count. */
+      /** Units whose evaluation failed to start or finish. Legacy runs only counted start failures. */
       readonly failed_count: number;
       /**
-         * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
+         * Units left to retry after completion. Legacy runs estimated this before evaluations finished.
          * @nullable
          */
       readonly remaining_count: number | null;
@@ -48103,6 +48223,7 @@ export namespace Schemas {
        * * `Gong` - Gong
        * * `Calendly` - Calendly
        * * `Typeform` - Typeform
+       * * `UnityAds` - UnityAds
        * * `Iterable` - Iterable
        * * `ZohoCRM` - ZohoCRM
        * * `Close` - Close
@@ -49525,6 +49646,7 @@ export namespace Schemas {
        * * `Gong` - Gong
        * * `Calendly` - Calendly
        * * `Typeform` - Typeform
+       * * `UnityAds` - UnityAds
        * * `Iterable` - Iterable
        * * `ZohoCRM` - ZohoCRM
        * * `Close` - Close
@@ -54913,6 +55035,7 @@ export namespace Schemas {
     /**
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
@@ -54920,6 +55043,7 @@ export namespace Schemas {
     export const HogFlowOriginProductEnum = {
       Loops: 'loops',
       Broadcasts: 'broadcasts',
+      TransactionalEmails: 'transactional_emails',
     } as const;
 
     export interface HogFlowMasking {
@@ -55237,7 +55361,8 @@ export namespace Schemas {
       /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts */
+       * * `broadcasts` - Broadcasts
+       * * `transactional_emails` - Transactional emails */
       origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -55814,7 +55939,8 @@ export namespace Schemas {
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts */
+       * * `broadcasts` - Broadcasts
+       * * `transactional_emails` - Transactional emails */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -65376,6 +65502,14 @@ export namespace Schemas {
       error_code?: string | null;
     }
 
+    export interface MakeTransactional {
+      /**
+         * ID of the verified email sender integration the email is sent from. Defaults to the project's default sender.
+         * @nullable
+         */
+      from_integration_id?: number | null;
+    }
+
     /**
      * * `not_configured` - not_configured
      * * `waiting` - waiting
@@ -66777,6 +66911,11 @@ export namespace Schemas {
       message_category?: string | null;
       /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
+      /**
+         * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
+         * @nullable
+         */
+      readonly transactional_hog_flow_id: string | null;
     }
 
     export interface MessagingError {
@@ -70160,6 +70299,15 @@ export namespace Schemas {
       seconds_per_merged_pr: number;
     }
 
+    export interface PaginatedAEOPromptList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AEOPrompt[];
+    }
+
     export interface PaginatedAccountChannelSummaryList {
       count: number;
       /** @nullable */
@@ -72100,6 +72248,11 @@ export namespace Schemas {
       readonly last_rolled_at: string | null;
       /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes: string[];
+      /**
+         * Value the AI gateway stamps as $ai_credential on generations made with this key, so gateway spend can be grouped by key. Derived from the key's hash, so it changes when the key is rolled.
+         * @nullable
+         */
+      readonly ai_credential: string | null;
     }
 
     export interface PaginatedProjectSecretAPIKeyList {
@@ -78146,6 +78299,11 @@ export namespace Schemas {
       success_rate: number | null;
     }
 
+    export interface PatchedAEOPromptUpdateRequest {
+      /** Turn the prompt on or off for future runs. */
+      active?: boolean;
+    }
+
     /**
      * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
@@ -81717,7 +81875,8 @@ export namespace Schemas {
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts */
+       * * `broadcasts` - Broadcasts
+       * * `transactional_emails` - Transactional emails */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -82697,6 +82856,11 @@ export namespace Schemas {
       message_category?: string | null;
       /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
+      /**
+         * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
+         * @nullable
+         */
+      readonly transactional_hog_flow_id?: string | null;
     }
 
     export interface PatchedMoveTileRequest {
@@ -84240,6 +84404,11 @@ export namespace Schemas {
       readonly last_rolled_at?: string | null;
       /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes?: string[];
+      /**
+         * Value the AI gateway stamps as $ai_credential on generations made with this key, so gateway spend can be grouped by key. Derived from the key's hash, so it changes when the key is rolled.
+         * @nullable
+         */
+      readonly ai_credential?: string | null;
     }
 
     export interface PatchedProxyRecordUpdate {
@@ -91451,7 +91620,7 @@ export namespace Schemas {
          */
       queue_seconds: number | null;
       /**
-         * Times the merge queue removed the pull request. Null without queue data.
+         * Merge queue attempts where at least one workflow run failed. A failed check the queue does not require leaves the pull request in the queue, so this is an upper bound on the times the queue removed it. Null when the pull request never entered the merge queue.
          * @nullable
          */
       kickout_count: number | null;
@@ -99084,6 +99253,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `run` - Run
+     * * `skip` - Skip
+     * * `error` - Error
+     */
+    export type SignalScoutConfigPrecheckOutcomeEnum = typeof SignalScoutConfigPrecheckOutcomeEnum[keyof typeof SignalScoutConfigPrecheckOutcomeEnum];
+
+
+    export const SignalScoutConfigPrecheckOutcomeEnum = {
+      Run: 'run',
+      Skip: 'skip',
+      Error: 'error',
+    } as const;
+
+    /**
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
      */
@@ -99208,6 +99391,22 @@ export namespace Schemas {
       readonly effective_precheck_query: string | null;
       /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). */
       readonly precheck_query_source: ScoutPrecheckQuerySourceEnum;
+      /**
+         * When a scheduled run last evaluated this scout's pre-check. A skipped run writes no run row, so this stays recent while `last_run_at` ages. Null if no pre-check has run.
+         * @nullable
+         */
+      readonly last_precheck_at: string | null;
+      /** The outcome of the latest scheduled pre-check: `run` (the query found something new), `skip` (nothing new, so the run did not start), or `error` (the query failed and the run started). Null if no pre-check has run.
+       *
+       * * `run` - Run
+       * * `skip` - Skip
+       * * `error` - Error */
+      readonly last_precheck_outcome: SignalScoutConfigPrecheckOutcomeEnum | null;
+      /**
+         * How many rows the latest scheduled pre-check returned, at most 50. Null if no pre-check has run.
+         * @nullable
+         */
+      readonly last_precheck_row_count: number | null;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -101231,6 +101430,34 @@ export namespace Schemas {
       channel_id: string;
     }
 
+    /**
+     * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+     */
+    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
+
+    export interface TransactionalEmailIdentifiers {
+      /**
+         * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+         * @maxLength 400
+         * @nullable
+         */
+      distinct_id?: string | null;
+    }
+
+    export interface SendTransactionalEmail {
+      /** Email address of the recipient. */
+      to: string;
+      /** Who the email is for, used to attribute engagement events. */
+      identifiers?: TransactionalEmailIdentifiers;
+      /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+      message_data?: SendTransactionalEmailMessageData;
+    }
+
+    export interface SendTransactionalEmailResponse {
+      /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
+      message_id: string;
+    }
+
     export interface ServiceAccountAccessUpdate {
       /** Gateway server to share or stop sharing. */
       gateway_server_id: string;
@@ -103194,6 +103421,7 @@ export namespace Schemas {
        * * `Gong` - Gong
        * * `Calendly` - Calendly
        * * `Typeform` - Typeform
+       * * `UnityAds` - UnityAds
        * * `Iterable` - Iterable
        * * `ZohoCRM` - ZohoCRM
        * * `Close` - Close
@@ -104647,6 +104875,7 @@ export namespace Schemas {
        * * `Gong` - Gong
        * * `Calendly` - Calendly
        * * `Typeform` - Typeform
+       * * `UnityAds` - UnityAds
        * * `Iterable` - Iterable
        * * `ZohoCRM` - ZohoCRM
        * * `Close` - Close
@@ -106067,6 +106296,7 @@ export namespace Schemas {
        * * `Gong` - Gong
        * * `Calendly` - Calendly
        * * `Typeform` - Typeform
+       * * `UnityAds` - UnityAds
        * * `Iterable` - Iterable
        * * `ZohoCRM` - ZohoCRM
        * * `Close` - Close
@@ -119797,6 +120027,17 @@ export namespace Schemas {
       Ocsf: 'ocsf',
     } as const;
 
+    export type AeoPromptsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
     /**
      * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
@@ -125472,6 +125713,7 @@ export namespace Schemas {
     export const HogFlowsListOriginProduct = {
       Broadcasts: 'broadcasts',
       Loops: 'loops',
+      TransactionalEmails: 'transactional_emails',
     } as const;
 
     export type HogFlowsListStatus = typeof HogFlowsListStatus[keyof typeof HogFlowsListStatus];
@@ -130018,6 +130260,12 @@ export namespace Schemas {
      * @maximum 100
      */
     per_scout_limit?: number;
+    /**
+     * Return only this scout's runs. Omit to cover every configured scout. A single-scout page passes it so it does not wait on the probes of the rest of the fleet.
+     * @minLength 1
+     * @maxLength 255
+     */
+    skill_name?: string;
     };
 
     export type SignalsScoutReportCheckListParams = {

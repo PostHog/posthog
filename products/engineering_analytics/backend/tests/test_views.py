@@ -554,6 +554,74 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 "WHERE native_attempt_id = '3v4pbsqvfc'"
             ) == [("depot_ci", "427q556wmn", "6n4tghls33", "3v4pbsqvfc")]
 
+    @parameterized.expand(
+        [
+            ("queue_bot_gate_pr", "trunk-io[bot]", 101991, 1),
+            ("spoofed_branch_shape", "mallory", 117864, 0),
+        ]
+    )
+    def test_depot_merge_queue_gate_run_resolves_to_the_landed_pr(
+        self, _name: str, gate_pr_author: str, expected_pr_number: int, expected_is_merge_queue: int
+    ) -> None:
+        runs_table = self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    901, "Backend CI", "abc123", "completed", "success", "2026-09-24 14:50:00", "2026-09-24 15:05:00"
+                )
+            ],
+        )
+        prs_table = self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(
+                    117864,
+                    gate_pr_author,
+                    "open",
+                    1,
+                    "2026-09-24T14:00:00Z",
+                    head_ref="trunk-merge/pr-101991/1b92e8cf-acbf-4658-8071-4cf622123da8",
+                )
+            ],
+        )
+        depot_table = self._create_table(
+            "depot_job_attempts",
+            DEPOT_JOB_ATTEMPTS_COLUMNS,
+            [
+                {
+                    "run_id": "427q556wmn",
+                    "run_workflow_count": 1,
+                    "repo": "PostHog/posthog",
+                    "ref": "refs/pull/117864/merge",
+                    "head_sha": "abc123",
+                    "sha": "",
+                    "workflow_id": "6n4tghls33",
+                    "workflow_name": "Backend CI on Depot",
+                    "workflow_status": "failed",
+                    "workflow_created_at": "2026-09-24T14:51:17.948Z",
+                    "workflow_started_at": "2026-09-24T14:51:18.000Z",
+                    "workflow_finished_at": "2026-09-24T15:01:18.000Z",
+                    "job_id": "p4kd9tq2xs",
+                    "job_key": "ci-backend.yml:django-tests",
+                    "job_display_name": "Django Tests Pass on Depot",
+                    "attempt_id": "zf6sbbn2wh",
+                    "attempt": 1,
+                    "attempt_status": "failed",
+                    "attempt_started_at": "2026-09-24T14:53:00.000Z",
+                    "attempt_finished_at": "2026-09-24T14:55:00.000Z",
+                    "sandbox_id": "sandbox",
+                }
+            ],
+        )
+        depot = depot_ci.DepotJobAttempts(table=depot_table, repository="PostHog/posthog")
+        runs = depot_ci.with_depot_runs(runs_table, depot, prs_table, None)
+
+        assert self._select(
+            f"SELECT pr_number, is_merge_queue FROM ({workflow_runs.build_query(runs)}) AS r WHERE ci_engine = 'depot_ci'"
+        ) == [(expected_pr_number, expected_is_merge_queue)]
+
     def test_pull_requests_view_handles_null_user(self) -> None:
         # The real source lands user as Nullable(String), NULL for a PR by a deleted GitHub account.
         # JSONExtractString over a NULL Nullable returns NULL, so the builder must ifNull-guard it to
