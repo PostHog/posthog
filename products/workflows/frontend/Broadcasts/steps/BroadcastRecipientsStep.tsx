@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonModal, LemonSelect, Link, Spinner } from
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { Scene } from 'scenes/sceneTypes'
@@ -143,6 +144,7 @@ function AudienceListModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
 }
 
 export function BroadcastRecipientsStep(): JSX.Element {
+    const cohortConditionsEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
     const { audienceProperties, linkAudienceRejected } = useValues(broadcastWizardLogic)
     const { setAudienceProperties, sendToEveryoneAfterRejectedLink } = useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
@@ -193,7 +195,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 sendAllKeyUpdates
                 allowRelativeDateOptions
                 {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
-                hideBehavioralCohorts
+                hideBehavioralCohorts={!cohortConditionsEnabled}
                 logicalRowDivider
                 onChange={(properties) => setAudienceProperties(properties)}
                 taxonomicGroupTypes={[

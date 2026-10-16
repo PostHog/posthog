@@ -4,8 +4,10 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.feature_flags.backend.user_blast_radius import PERSON_BATCH_SIZE, get_user_blast_radius_persons
 from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
+from products.workflows.backend.services.blast_radius import get_audience_size
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 
@@ -79,3 +81,39 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         # page length against the person setting would stop after the first page.
         assert audience_page_size(None) == 7
         assert audience_page_size(0) == PERSON_BATCH_SIZE
+
+    def test_realtime_cohort_audience_size_estimates_from_the_cohort_count(self):
+        # The send reads realtime membership from a Postgres database Django can't reach, so the
+        # preview estimates from the cohort's periodic count and reports no email dedupe.
+        self._create_audience(["a@x.com", "a@x.com", "b@x.com"])
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="c",
+            cohort_type=CohortType.REALTIME,
+            count=2,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        }
+                    ],
+                }
+            },
+        )
+
+        size = get_audience_size(
+            team_id=self.team.pk,
+            filters={"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]},
+            group_type_index=None,
+            dedupe_key="email",
+            sends_email=True,
+        )
+
+        assert (size.affected, size.total, size.dedupe_key) == (2, 3, None)

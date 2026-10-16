@@ -15,6 +15,7 @@ from products.workflows.backend.services.account_audience import (
 )
 from products.workflows.backend.services.audience_v2 import get_dedupe_audience_count_v2, get_person_audience_count_v2
 from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
+from products.workflows.backend.services.batch_audience_cohorts import realtime_audience_cohort
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 
 
@@ -32,6 +33,18 @@ def get_audience_size(
     # The applied key is echoed back so the frontend labels the count from the response
     # instead of guessing whether the dedup actually ran.
     applied_dedupe_key = None
+    realtime_cohort = realtime_audience_cohort(team.project_id, filters) if group_type_index is None else None
+    if realtime_cohort is not None:
+        # The send reads the realtime pipeline's Postgres table, which this process can't query. The
+        # cohort's count from its periodic calculation stands in as an estimate, and the send skips the
+        # email dedupe.
+        everyone = get_person_audience_count_v2(team, {"properties": []})
+        return AudienceSize(
+            affected=realtime_cohort.count or 0,
+            total=everyone.total,
+            limit=get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email),
+            dedupe_key=None,
+        )
     if group_type_index is not None:
         blast_radius = get_user_blast_radius(team, filters, group_type_index)
     elif dedupe_key is not None:
