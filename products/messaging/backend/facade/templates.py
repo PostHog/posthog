@@ -34,6 +34,7 @@ class MessageTemplateRow:
     type: str
     message_category_id: UUID | None
     deleted: bool
+    transactional_hog_flow_id: UUID | None
 
 
 def _to_contract(row: MessageTemplate) -> MessageTemplateRow:
@@ -48,6 +49,7 @@ def _to_contract(row: MessageTemplate) -> MessageTemplateRow:
         type=row.type,
         message_category_id=row.message_category_id,
         deleted=row.deleted,
+        transactional_hog_flow_id=row.transactional_hog_flow_id,
     )
 
 
