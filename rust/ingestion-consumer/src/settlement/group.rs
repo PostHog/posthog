@@ -50,11 +50,11 @@ impl Settlement for GroupSettlement {
     fn settle_poll(&self, _slices: &[ChargedSlice<'_>]) {}
 
     fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
-        self.pacer.take_due(now)
+        super::release_taken(&self.ledger, self.pacer.take_due(now))
     }
 
     fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
-        self.pacer.take_all()
+        super::release_taken(&self.ledger, self.pacer.take_all())
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
@@ -64,7 +64,9 @@ impl Settlement for GroupSettlement {
 
 #[cfg(test)]
 mod tests {
-    use super::super::charge_offsets;
+    use common_kafka_consumer::{Charge, Held};
+
+    use super::super::{charge_offsets, charge_offsets_with};
     use super::*;
 
     fn settlement() -> (Arc<TopicOffsetLedger>, GroupSettlement) {
@@ -166,6 +168,32 @@ mod tests {
         settlement.forget_partitions(&[p0]);
 
         assert!(settlement.take_all().is_none());
+    }
+
+    #[test]
+    fn an_offset_is_uncommitted_until_the_commit_covering_it_goes_out() {
+        let ledger = Arc::new(TopicOffsetLedger::new());
+        let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::from_secs(3600));
+        let p0 = TopicPartition::new("events", 0);
+        let each = Charge {
+            events: 1,
+            bytes: 100,
+        };
+        charge_offsets_with(&ledger, &p0, 0, &[10, 11], each);
+
+        settlement.settle_run(&p0, 0, &[Offset(10)]);
+        assert_eq!(
+            ledger.uncommitted(&p0).charge,
+            each + each,
+            "a taken frontier is still uncommitted while the pacer holds it"
+        );
+
+        settlement.take_due(Instant::now());
+        assert_eq!(ledger.uncommitted(&p0).charge, each);
+
+        settlement.settle_run(&p0, 0, &[Offset(11)]);
+        settlement.take_all();
+        assert_eq!(ledger.uncommitted(&p0), Held::default());
     }
 
     #[test]
