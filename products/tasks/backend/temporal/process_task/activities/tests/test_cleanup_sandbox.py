@@ -293,7 +293,7 @@ def test_cleanup_sandbox_completes_stream_when_requested(mocker, test_task_run, 
 
     sandbox.execute.assert_not_called()
     sandbox.destroy.assert_called_once_with()
-    publish_complete.assert_called_once_with(run_id, False)
+    publish_complete.assert_called_once_with(run_id, False, expected_generation="initial")
     test_task_run.refresh_from_db()
     assert test_task_run.state == (
         {"other": "preserved", **accounting_state}
@@ -352,7 +352,7 @@ def test_cleanup_sandbox_completes_stream_when_sandbox_is_already_gone(activity_
         ),
     )
 
-    publish_complete.assert_called_once_with(run_id, False)
+    publish_complete.assert_called_once_with(run_id, False, expected_generation="initial")
 
 
 @pytest.mark.skipif(

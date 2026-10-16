@@ -270,9 +270,6 @@ class Command(BaseCommand):
                         await sync_to_async(mark_dead)(dispatch.id, instance_id, usage_error, "usage_limit")
                         WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="dead").inc()
                         return
-                run_state = await sync_to_async(_capture_run_feature_flags_in_worker_thread, thread_sensitive=False)(
-                    str(run.id)
-                )
                 if is_restart:
                     from products.tasks.backend.facade.streams import reset_task_run_stream  # noqa: PLC0415
                     from products.tasks.backend.redis import run_uses_dedicated_stream  # noqa: PLC0415
@@ -282,6 +279,9 @@ class Command(BaseCommand):
                     )
                     if not reset:
                         raise RuntimeError("Failed to reset task run event stream")
+                run_state = await sync_to_async(_capture_run_feature_flags_in_worker_thread, thread_sensitive=False)(
+                    str(run.id)
+                )
                 workflow_input = ProcessTaskInput(
                     run_id=str(run.id),
                     create_pr=options.create_pr if options else True,

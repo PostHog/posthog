@@ -11,6 +11,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.models import Organization, Team
 from posthog.models.user import User
 
+from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_generation, reset_task_run_stream
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import (
     execute_task_processing_workflow,
@@ -338,8 +339,11 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
         self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
         self.assertEqual(run.state["agent_otel_telemetry_enabled"], True)
 
+    @override_settings(TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED=True)
     def test_captures_sandbox_event_ingest_flag_before_resuming_workflow(self) -> None:
         run = self._create_run()
+        reset_task_run_stream(str(run.id))
+        generation = get_task_run_stream_generation(str(run.id))
         client = Mock()
         client.start_workflow = AsyncMock()
 
@@ -351,6 +355,9 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
 
         run.refresh_from_db()
         self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
+
+        self.assertEqual(run.state["stream_generation"], generation)
+        self.assertEqual(client.start_workflow.call_args.args[1].stream_generation, generation)
 
     @parameterized.expand([("sync",), ("async",)])
     def test_captures_sandbox_event_ingest_flag_without_clobbering_concurrent_state(self, executor: str) -> None:
