@@ -329,16 +329,9 @@ def _person_processing_off(team_id: int) -> bool:
 def fold(rows: list[dict[str, Any]], context: VerbContext) -> None:
     """Fold a lost person A into the live person B that holds its distinct ids in Postgres.
 
-    Full fold, when A still has a distinct id Postgres has no row for and A or B is identified: restore A with
-    those ids, then send $merge_dangerously so ingestion merges A into B (B survives; it takes the earlier
-    created_at, and B's properties win over A's). Every merge marks B identified, so a pair where neither is
-    identified folds light instead.
-
-    Light fold: send A's ClickHouse-only properties to B as $set_once ($identify when only A is identified).
-    A later run that finds them on B points A's ids at B in both stores and tombstones A. B keeps its created_at.
-
-    Neither fold rewrites a diverged id before ingestion applied the merge or the properties. A full fold waits for
-    the merge and then points those ids at B; a rescan finds any group a run did not finish.
+    Full fold, when A has an id Postgres lacks and A or B is identified: restore A with those ids, merge it into B
+    through ingestion, then point A's diverged ids at B. Otherwise light fold, because every merge marks B
+    identified: send A's ClickHouse-only properties to B, and a later run moves A's ids to B and tombstones A.
     """
     for row in rows:
         if not (row.get("group") or "").startswith("fold:"):
@@ -525,9 +518,8 @@ def _light_fold(
         for row in [*person_rows, *moving]:
             context.action(row, "would_repair", mode="light", target_person=new)
         return
-    # B holds A's properties now. A's ids with no Postgres row move before A is buried, because a rescan accepts
-    # them as a deleted person's ids afterwards. The diverged ids move after, so a run stopped at any step leaves
-    # either a fold with nothing to carry or diverged ids for republish, never a live A with no ids.
+    # Move A's Postgres-less ids before burying A, because a rescan then treats them as a deleted person's ids.
+    # The diverged ids move last, so a run stopped at any step leaves only ids that republish fixes.
     absent = [r for r in moving if r["flavor"] == "ghost"]
     _write_mappings(context, absent, {r["key"]: new for r in absent}, "moved")
     orphans = find_orphaned_ch_persons(context.team_id, [old]) if payload is not None else []
