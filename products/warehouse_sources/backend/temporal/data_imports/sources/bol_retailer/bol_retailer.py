@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 from requests.auth import HTTPBasicAuth
+from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
 
@@ -108,13 +109,16 @@ def _paged_passes(
             page_state_hook=stage,
         ):
             mapped = [mapped_row for row in rows for mapped_row in row_map(row)] if row_map else rows
+            reached_watermark = (
+                stop_before is not None and bool(mapped) and all(_is_before(row, *stop_before) for row in mapped)
+            )
+            if reached_watermark and pass_index + 1 < len(passes):
+                manager.save_state(BolRetailerResumeConfig(pass_index=pass_index + 1, window_start=window_start))
             if mapped:
                 yield mapped
             else:
                 manager.safe_point()
-            if stop_before is not None and mapped and all(_is_before(row, *stop_before) for row in mapped):
-                if pass_index + 1 < len(passes):
-                    manager.save_state(BolRetailerResumeConfig(pass_index=pass_index + 1, window_start=window_start))
+            if reached_watermark:
                 break
 
 
@@ -304,7 +308,10 @@ def bol_retailer_source(
 def validate_credentials(client_id: str, client_secret: str) -> tuple[bool, str | None]:
     """Mint one access token. bol grants every Retailer API resource to the same client credentials."""
     try:
-        response = make_tracked_session(redact_values=(client_secret,), capture=False, allow_redirects=False).post(
+        # Setup waits on the probe, so it gets one attempt.
+        response = make_tracked_session(
+            redact_values=(client_secret,), capture=False, allow_redirects=False, retry=Retry(total=0)
+        ).post(
             BOL_TOKEN_URL,
             data={"grant_type": "client_credentials"},
             auth=HTTPBasicAuth(client_id, client_secret),

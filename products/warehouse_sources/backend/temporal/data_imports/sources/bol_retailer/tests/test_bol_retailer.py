@@ -155,6 +155,13 @@ class TestPagedLists:
             ("FBB", "1"),
         ]
         assert [row["shipmentId"] for row in result.rows] == ["4", "3", "2", "1", "5"]
+        # The stop stages the next pass, so a resume does not go back to the stopped pass's next page.
+        assert result.saved_states == [
+            BolRetailerResumeConfig(page=2),
+            BolRetailerResumeConfig(page=3),
+            BolRetailerResumeConfig(pass_index=1),
+            BolRetailerResumeConfig(pass_index=1, page=2),
+        ]
 
     def test_returns_resume_at_the_saved_pass_and_page(self) -> None:
         result = _run(
