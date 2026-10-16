@@ -105,6 +105,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.autoresearch.backend.presentation.views.views.AutoresearchTrainingRunViewSet",
     "products.batch_exports.backend.presentation.views.batch_export.runs.BatchExportRunViewSet",
     "products.batch_exports.backend.presentation.views.file_download.FileDownloadBatchExportOnDemandViewSet",
+    # Lists at most MAX_LIBRARIES_PER_TEAM (100) libraries, so it has no pages.
+    "products.business_knowledge.backend.api.libraries.KnowledgeLibraryViewSet",
     "products.business_knowledge.backend.api.playground.BusinessKnowledgePlaygroundChatViewSet",
     "products.business_knowledge.backend.api.views.KnowledgeGapSuggestionViewSet",
     "products.business_knowledge.backend.api.views.KnowledgeSourceViewSet",
@@ -217,6 +219,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.review_hog.backend.presentation.views.resolution.ReviewResolutionConfigViewSet",
     "products.review_hog.backend.presentation.views.reviews.ReviewRecentReviewsViewSet",
     "products.review_hog.backend.presentation.views.validators.ReviewValidatorConfigViewSet",
+    # Counts and hover details must use the same complete seven-day window.
+    "products.signals.backend.presentation.inbox_summary.InboxSummaryViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutConfigViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutMembersViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutNoteViewSet",

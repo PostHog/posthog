@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { getOtelRequestContextStep } from './_snippets/otel-request-context'
 
 const ADD_DESTINATION_SCREENSHOT = '/images/docs/ai-observability/claude-platform-add-destination.png'
 const MANAGED_AGENTS_TRACE_SCREENSHOT = '/images/docs/ai-observability/claude-platform-managed-agents-trace.png'
@@ -393,6 +394,24 @@ const getSendTracesStep = (ctx: OnboardingComponentsContext): StepDefinition => 
     }
 }
 
+const getRequestContextStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { Markdown } = ctx
+    const step = getOtelRequestContextStep(ctx, {
+        languages: ['Python', 'Node', 'Go'],
+        nodeTracerSetup: 'NodeTracerProvider',
+    })
+
+    return {
+        ...step,
+        content: (
+            <>
+                <Markdown>This step applies to SDK tracing in Python, Node, and Go.</Markdown>
+                {step.content}
+            </>
+        ),
+    }
+}
+
 const getSeeTraceStep = (ctx: OnboardingComponentsContext): StepDefinition => {
     const { Markdown, ProductScreenshot, dedent } = ctx
 
@@ -455,6 +474,7 @@ export const getClaudePlatformSteps = (ctx: OnboardingComponentsContext): StepDe
     getProjectTokenStep(ctx),
     getSendTracesStep(ctx),
     getSeeTraceStep(ctx),
+    getRequestContextStep(ctx),
     getTroubleshootingStep(ctx),
 ]
 

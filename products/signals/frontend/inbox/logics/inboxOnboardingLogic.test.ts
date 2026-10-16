@@ -193,7 +193,6 @@ describe('inboxOnboardingLogic', () => {
         const base: WizardStateInputs = {
             hasResolvedSessionState: false,
             watchedWorkflows: [SELF_DRIVING_WORKFLOW_ID],
-            receivedFeatureFlags: true,
             verdictWaitExpired: false,
         }
 
@@ -203,15 +202,10 @@ describe('inboxOnboardingLogic', () => {
             // Not watching the self-driving program: the detector's verdict could never flip
             // `isWizardRunning`, so waiting on it would cost every inbox user a hold for nothing.
             ['not watching the self-driving program', { watchedWorkflows: [] }, true],
-            // The shortcut above needs flags in hand — without them every user reads as the control
-            // arm, which would show the takeover to someone mid-run and then snatch it back.
-            ['not watching, but flags not in yet', { watchedWorkflows: [], receivedFeatureFlags: false }, false],
             // Watching and unsettled is the one case that genuinely has no answer yet.
             ['watching, detector still pending', {}, false],
-            // The backstop. Without it, a flag payload an ad blocker drops or a detector whose polls
-            // keep erroring hides the only prompt to set self-driving up, for the whole session.
+            // The backstop. Without it, a detector whose polls keep erroring hides the only prompt to set self-driving up, for the whole session.
             ['deadline elapsed with no verdict', { verdictWaitExpired: true }, true],
-            ['deadline elapsed with no flags either', { receivedFeatureFlags: false, verdictWaitExpired: true }, true],
         ])('%s', (_label, overrides, expected) => {
             expect(resolveWizardState({ ...base, ...overrides })).toBe(expected)
         })

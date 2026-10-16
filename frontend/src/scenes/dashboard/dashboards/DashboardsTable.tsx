@@ -1,14 +1,17 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -84,8 +87,9 @@ export function DashboardsTable({
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
-    const { tableSortingChanged, setFilters, moveDashboardsToFolder } = useActions(dashboardsLogic)
-    const { tableSorting, filters, filedDashboardIds } = useValues(dashboardsLogic)
+    const { tableSortingChanged, setFilters, moveDashboardsToFolder, bulkDeleteDashboards } =
+        useActions(dashboardsLogic)
+    const { tableSorting, filters, filedDashboardIds, bulkDeleteResponseLoading } = useValues(dashboardsLogic)
     // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
     // would push the exact match below partial matches. Suppress the persisted column sort
     // while the user has an active search term.
@@ -370,7 +374,7 @@ export function DashboardsTable({
                 emptyState="No dashboards matching your filters!"
                 nouns={['dashboard', 'dashboards']}
                 bulkSelection={{
-                    barClassName: 'mb-2',
+                    barClassName: 'mb-2 flex-wrap',
                     getKey: (dashboard: DashboardType): number => dashboard.id,
                     isRowSelectable: (dashboard: DashboardType) =>
                         accessLevelSatisfied(
@@ -397,6 +401,49 @@ export function DashboardsTable({
                                     dashboardsModel.actions.loadDashboards()
                                 }}
                             />
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                status="danger"
+                                icon={<IconTrash />}
+                                loading={bulkDeleteResponseLoading || dashboardsLoading}
+                                disabledReason={
+                                    ctx.selectedKeys.length > 100 ? 'Select at most 100 dashboards' : undefined
+                                }
+                                data-attr="dashboards-bulk-delete"
+                                onClick={() => {
+                                    const ids = [...ctx.selectedKeys]
+                                    const noun = ids.length === 1 ? 'dashboard' : 'dashboards'
+                                    LemonDialog.openForm({
+                                        title: `Delete ${ids.length} ${noun}?`,
+                                        initialValues: { deleteInsights: false },
+                                        content: (
+                                            <LemonField
+                                                name="deleteInsights"
+                                                help="This only deletes insights that are not on any remaining dashboard."
+                                            >
+                                                {({ value, onChange }) => (
+                                                    <LemonCheckbox
+                                                        checked={!!value}
+                                                        onChange={onChange}
+                                                        label="Delete the selected dashboards' insights"
+                                                        data-attr="bulk-delete-dashboard-insights-checkbox"
+                                                    />
+                                                )}
+                                            </LemonField>
+                                        ),
+                                        onSubmit: ({ deleteInsights }) =>
+                                            bulkDeleteDashboards({
+                                                ids,
+                                                deleteInsights,
+                                                onStillSelected: ctx.setSelectedKeys,
+                                            }),
+                                        primaryButtonProps: { children: 'Delete dashboards', status: 'danger' },
+                                    })
+                                }}
+                            >
+                                Delete selected
+                            </LemonButton>
                         </>
                     ),
                 }}

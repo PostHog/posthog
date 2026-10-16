@@ -7,12 +7,7 @@ import { useActions, useValues } from 'kea'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
-import {
-    ExperimentFunnelsQuery,
-    ExperimentMetric,
-    ExperimentTrendsQuery,
-    NewExperimentQueryResponse,
-} from '~/queries/schema/schema-general'
+import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { ExperimentStatsMethod, InsightType } from '~/types'
 
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
@@ -42,7 +37,7 @@ interface MetricsTableProps {
     results: (NewExperimentQueryResponse | undefined)[]
     errors: any[]
     isSecondary: boolean
-    getInsightType: (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
+    getInsightType: (metric: ExperimentMetric) => InsightType
     showDetailsModal?: boolean
     /** Drops the table's own border so it can sit inside a parent panel. */
     embedded?: boolean
