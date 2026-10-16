@@ -873,6 +873,46 @@ export const EmptyEventsWithStaleToggle: Story = {
     },
 }
 
+export const EmptyTabWithJumpsToOtherCategories: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        const { setSearchQuery, setActiveTab } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
+
+        useOnMountEffect(() => {
+            setSearchQuery('plan')
+            setActiveTab(TaxonomicFilterGroupType.Events)
+        })
+
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'empty-tab-jumps',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': [],
+            },
+        }),
+    ],
+    parameters: {
+        // Hidden tabs stay mounted and render the same jumps, so wait for the one on the open tab.
+        testOptions: { waitForSelector: '[data-attr="taxonomic-switch-to-all"] >> visible=true' },
+        docs: {
+            description: {
+                story: 'When the open tab has no results but another category does, the empty state names that category, with a jump to all categories as the fallback.',
+            },
+        },
+    },
+}
+
 function EventMatchStoryRender({
     resetMatches = false,
     ...args

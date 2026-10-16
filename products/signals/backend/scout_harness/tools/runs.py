@@ -117,6 +117,9 @@ DEFAULT_FINDINGS_WINDOW_HOURS = 72
 MAX_FINDINGS_WINDOW_HOURS = 168
 FLEET_FINDINGS_SUMMARY_RUN_CAP = 120
 FLEET_FINDINGS_SUMMARY_REPORT_CAP = 50
+# The completion-time sort has no index, so it only ranks this many of the newest output runs by
+# `created_at`. The slack over the run cap keeps a run that completes after newer runs in the set.
+FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS = 2 * FLEET_FINDINGS_SUMMARY_RUN_CAP
 
 # `failure_reason` is the concise, list-safe derived signal; `error` carries the full
 # `TaskRun.error_message`. Bound the derived reason so it stays cheap to scan in bulk.
@@ -356,6 +359,7 @@ def recent_runs_per_scout(
     per_scout_limit: int = DEFAULT_RUNS_PER_SCOUT,
     max_age_days: int = DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
     exclude_skill_name: str | None = None,
+    skill_name: str | None = None,
 ) -> list[RunSummary]:
     """Return each configured scout's most recent runs, newest first across the fleet.
 
@@ -366,6 +370,7 @@ def recent_runs_per_scout(
         per_scout_limit=per_scout_limit,
         max_age_days=max_age_days,
         exclude_skill_name=exclude_skill_name,
+        skill_name=skill_name,
     )
     return runs_by_id(team_id=team_id, run_ids=run_ids)
 
@@ -376,6 +381,7 @@ def recent_run_ids_per_scout(
     per_scout_limit: int = DEFAULT_RUNS_PER_SCOUT,
     max_age_days: int = DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
     exclude_skill_name: str | None = None,
+    skill_name: str | None = None,
 ) -> list[Any]:
     """Return the ids of each configured scout's most recent runs.
 
@@ -394,6 +400,7 @@ def recent_run_ids_per_scout(
     staleness cutoff is derived from.
 
     `max_age_days` is the floor of that cutoff, not a fixed window — see `_staleness_cutoff`.
+    `skill_name` narrows the probe to one scout.
     """
     per_scout_limit = max(1, min(per_scout_limit, MAX_RUNS_PER_SCOUT))
     floor_days = max(1, min(max_age_days, MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS))
@@ -401,9 +408,11 @@ def recent_run_ids_per_scout(
 
     # Enabled first so that if a fleet ever exceeds the bound, the scouts dropped are the ones
     # nobody is watching run. Ordered within each group for a deterministic cut.
+    config_rows = SignalScoutConfig.objects.filter(team_id=team_id)
+    if skill_name is not None:
+        config_rows = config_rows.filter(skill_name=skill_name)
     configs = list(
-        SignalScoutConfig.objects.filter(team_id=team_id)
-        .exclude(skill_name=exclude_skill_name or "")
+        config_rows.exclude(skill_name=exclude_skill_name or "")
         .order_by("-enabled", "skill_name")
         .only("skill_name", "run_interval_minutes", "run_cron_schedule", "enabled")
     )
@@ -527,12 +536,17 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     touched_a_report = (~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)) | (
         ~Q(edited_report_ids=[]) & ~Q(edited_report_ids__isnull=True)
     )
-    # Order by completion (fall back to creation) so the cap keeps the *most recently emitted* runs,
-    # matching the frontend's `completed_at ?? created_at` sort; `-id` tie-breaks on the time-ordered PK.
-    rows = (
+    candidate_ids = (
         SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start)
         .exclude(metadata__has_key="scout_trial")
         .filter(Q(emitted_count__gt=0) | touched_a_report)
+        .order_by("-created_at", "-id")
+        .values("id")[:FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS]
+    )
+    # Order by completion (fall back to creation) so the cap keeps the *most recently emitted* runs,
+    # matching the frontend's `completed_at ?? created_at` sort; `-id` tie-breaks on the time-ordered PK.
+    rows = (
+        SignalScoutRun.objects.filter(team_id=team_id, id__in=candidate_ids)
         .annotate(_emitted_at=Coalesce("task_run__completed_at", "created_at"))
         .order_by("-_emitted_at", "-id")
         .values_list("emitted_count", "skill_name", "_emitted_at", "emitted_report_ids", "edited_report_ids")[

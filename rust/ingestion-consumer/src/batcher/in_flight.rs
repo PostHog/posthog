@@ -12,6 +12,12 @@ use crate::worker_registry::WorkerId;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RequestId(u64);
 
+impl RequestId {
+    pub fn as_u64(self) -> u64 {
+        self.0
+    }
+}
+
 #[derive(Debug)]
 pub struct SentMessage {
     pub partition: i32,

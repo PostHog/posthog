@@ -315,6 +315,36 @@ describe('traceDialogLogic', () => {
             expect(pageListener).not.toHaveBeenCalled()
         })
 
+        it('opens a folded chain with the right arrow, and keeps the selection on screen when it folds again', async () => {
+            const child = (spanId: string, parentSpanId: string): Span => ({
+                ...span(spanId),
+                parent_span_id: parentSpanId,
+            })
+            getTraceSpy.mockResolvedValue({
+                results: [
+                    { ...span('ROOT'), is_root_span: true },
+                    child('A', 'ROOT'),
+                    child('B', 'A'),
+                    child('C', 'B'),
+                    child('LEAF', 'C'),
+                ],
+                hasMore: false,
+                nextOffset: null,
+            })
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'ROOT' }, { entryPoint: 'log_details' })
+            await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+            const visible = (): string[] => logic.values.flatSpans.map((node) => node.span.span_id)
+            expect(visible()).toEqual(['ROOT', 'A', 'LEAF'])
+
+            logic.actions.selectSpan('A')
+            press('ArrowRight')
+            expect(visible()).toEqual(['ROOT', 'A', 'B', 'C', 'LEAF'])
+
+            logic.actions.selectSpan('C')
+            logic.actions.toggleChain('A')
+            expect(logic.values.selectedSpanId).toBe('A')
+        })
+
         it('steps onto a missing parent row and on past it', async () => {
             const orphan = { ...span('b'), parent_span_id: 'GONE' }
             getTraceSpy.mockResolvedValue({ results: [span('a'), orphan], hasMore: false, nextOffset: null })

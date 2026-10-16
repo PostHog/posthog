@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, NotRequired, Protocol, TypedDict
 from uuid import UUID
@@ -114,6 +114,9 @@ class OnOverflow(StrEnum):
 
 
 DEFAULT_MAX_INSTANCES: Final = 100
+# One check's outcome carries a group per instance, and it crosses Temporal whole, so
+# `MAX_BATCH_PAYLOAD_BYTES` is sized to hold this many groups with their keys and labels at full length.
+MAX_INSTANCES_CEILING: Final = 100
 
 
 @frozen
@@ -139,6 +142,8 @@ class Grouping:
             raise ValueError("a grouping names each key once")
         if self.max_instances < 1:
             raise ValueError("max_instances must be at least 1")
+        if self.max_instances > MAX_INSTANCES_CEILING:
+            raise ValueError(f"max_instances must be at most {MAX_INSTANCES_CEILING}")
 
     @classmethod
     def from_stored(cls, stored: Mapping[str, Any]) -> Grouping:
@@ -160,10 +165,12 @@ class Grouping:
 
 @frozen
 class GroupAdmission:
-    """Which of a check's groups the configuration has room for, and how many it turned away."""
+    """Which of a check's groups the configuration has room for, which resting instances gave up
+    their slot to make that room, and how many groups it turned away."""
 
     admitted: frozenset[str]
     overflowed: int
+    evicted: frozenset[str] = frozenset()
 
 
 @frozen
@@ -175,6 +182,13 @@ class InstanceCheckState:
     last_notified_at: datetime | None = None
     snooze_until: datetime | None = None
     firing_started_at: datetime | None = None
+    last_seen_at: datetime | None = None
+
+    def at_rest(self, now: datetime) -> bool:
+        """Holds a slot and nothing else: not firing, failing or muted."""
+        return self.state == PlatformAlertState.NOT_FIRING.value and (
+            self.snooze_until is None or self.snooze_until <= now
+        )
 
     @classmethod
     def composed(
@@ -187,6 +201,7 @@ class InstanceCheckState:
         snooze_until: datetime | None = None,
         last_notified_at: datetime | None = None,
         firing_started_at: datetime | None = None,
+        last_seen_at: datetime | None = None,
     ) -> InstanceCheckState:
         """An instance as a check, history and the read API all see it.
 
@@ -202,7 +217,11 @@ class InstanceCheckState:
             last_notified_at=last_notified_at,
             snooze_until=max(snoozes, default=None),
             firing_started_at=firing_started_at,
+            last_seen_at=last_seen_at,
         )
+
+
+_NEVER_SEEN: Final = datetime.min.replace(tzinfo=UTC)
 
 
 @frozen
@@ -233,25 +252,51 @@ class PlatformAlertCheckInput:
     instances: tuple[InstanceCheckState, ...] = ()
     grouping: Grouping = field(default_factory=Grouping)
 
-    def admit(self, grouping_keys: Sequence[str]) -> GroupAdmission:
+    def admit(self, grouping_keys: Sequence[str], *, now: datetime) -> GroupAdmission:
         """The groups a check may report, from keys in the source's priority order.
 
         A group that already has an instance is always admitted, so an open group can still
-        resolve. New groups fill what `max_instances` leaves, front first.
+        resolve. New groups fill what `max_instances` leaves, front first. When that is not enough,
+        a new group takes the slot of the least recently seen instance at rest, so resolved groups
+        cannot lock a new breach out until they are reaped. An instance this check reports is
+        never evicted, and only a group past every resting instance overflows.
         """
+        keys = dict.fromkeys(grouping_keys)
         existing = {instance.grouping_key for instance in self.instances}
-        room = max(self.grouping.max_instances - len(existing), 0)
+        held = len(existing)
+        # An ungrouped configuration's one instance is its whole alert, so it never gives up its slot.
+        victims = (
+            []
+            if self.grouping.mode == GroupingMode.SINGLE
+            else sorted(
+                (
+                    instance
+                    for instance in self.instances
+                    if instance.grouping_key not in keys and instance.at_rest(now)
+                ),
+                key=lambda instance: (instance.last_seen_at or _NEVER_SEEN, instance.grouping_key),
+            )
+        )
         admitted: set[str] = set()
+        evicted: set[str] = set()
         overflowed = 0
-        for key in dict.fromkeys(grouping_keys):
+        for key in keys:
             if key in existing:
                 admitted.add(key)
-            elif room > 0:
-                admitted.add(key)
-                room -= 1
-            else:
+                continue
+            # The write creates a row only below the cap. After the cap is lowered, one new group can
+            # need several resting slots, and it takes none when there are not enough of them.
+            needed = held + 1 - self.grouping.max_instances
+            if needed > len(victims):
                 overflowed += 1
-        return GroupAdmission(admitted=frozenset(admitted), overflowed=overflowed)
+                continue
+            if needed > 0:
+                evicted.update(victim.grouping_key for victim in victims[:needed])
+                victims = victims[needed:]
+                held -= needed
+            admitted.add(key)
+            held += 1
+        return GroupAdmission(admitted=frozenset(admitted), overflowed=overflowed, evicted=frozenset(evicted))
 
     def instance(self, grouping_key: str = "") -> InstanceCheckState:
         """The instance for a group, or the state a group with no instance starts from."""
@@ -266,7 +311,7 @@ class PlatformAlertCheckInput:
         )
 
     def open_keys(self) -> list[str]:
-        """The groups whose instance is not at rest. A check judges each one, returned or not."""
+        """The groups whose instance state is not NOT_FIRING. A check judges each one, returned or not."""
         return [
             instance.grouping_key
             for instance in self.instances
@@ -316,6 +361,60 @@ class PlatformOwnershipHandover:
     # The platform checks no earlier than a minute after the handover, whatever this says.
     next_check_at: datetime
     at: datetime
+
+
+class HandbackRefusal(StrEnum):
+    """Why the platform keeps an alert its source asked for back."""
+
+    # Firing episodes are keyed per stack, so a firing alert stays until it resolves.
+    FIRING = "firing"
+    # A platform check may be running and could record or notify after the handback.
+    CHECK_DUE = "check_due"
+    # A handback carries one alert on an interval cadence. A calendar schedule or grouped alerts stay.
+    NOT_PORTABLE = "not_portable"
+
+
+@frozen
+class PlatformHandback:
+    """The runtime state the source carries on from when the platform hands an alert back."""
+
+    state: PlatformAlertState
+    last_notified_at: datetime | None
+    consecutive_failures: int
+    next_check_at: datetime | None
+
+
+@frozen
+class PlatformAlertRuntime:
+    """Where an alert the platform owns stands, for a source whose API still shows the alert."""
+
+    state: PlatformAlertState
+    last_notified_at: datetime | None
+    consecutive_failures: int
+    next_check_at: datetime | None
+
+
+@frozen
+class PlatformStateChange:
+    """One check that moved an alert the platform owns from one state to another."""
+
+    occurred_at: datetime
+    previous_state: PlatformAlertState
+    state: PlatformAlertState
+
+
+@frozen
+class PlatformAlertHistory:
+    """What the platform's check history says about an alert it owns, over one window.
+
+    An alert the platform did not check in the window has no history at all, so a source can
+    tell "not checked here" from "checked and succeeded".
+    """
+
+    state_changes: tuple[PlatformStateChange, ...]
+    last_checked_at: datetime
+    # None when the last check in the window succeeded.
+    last_error_message: str | None
 
 
 class SkipReason(StrEnum):
@@ -435,6 +534,8 @@ class PlatformAlertOutcome:
     skipped: bool = False
     # New groups `max_instances` had no room for, which the delivery names so a cap is never silent.
     overflowed: int = 0
+    # Resting instances whose slot a new group took. The write deletes them before it creates rows.
+    evicted: tuple[str, ...] = ()
     error_message: str | None = None
     query_duration_ms: int | None = None
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
@@ -510,6 +611,8 @@ class PlatformAlertOutcome:
         keys = [group.grouping_key for group in self.groups]
         if len(set(keys)) != len(keys):
             raise ValueError("an outcome names each group once")
+        if set(self.evicted) & set(keys):
+            raise ValueError("an outcome cannot evict a group it reports")
 
 
 @frozen
@@ -620,6 +723,10 @@ class AlertDeliveryRequest:
     source_alert_url: str | None = None
     owned_by_platform: bool = False
     overflowed: int = 0
+    # How many activities the delivery workflow splits an evaluation into, by `MAX_TRANSITIONS_PER_DELIVERY`,
+    # and which of them one activity sends. The workflow sets `part`.
+    parts: int = 1
+    part: int = 0
 
 
 @frozen
@@ -974,9 +1081,11 @@ class CheckRef:
     """Addresses one platform check.
 
     `evaluation_key` is minted by the source and names the evaluation the check answered, so the
-    pair survives a retry that recomputes the same check.
+    key survives a retry that recomputes the same check. The configuration tells apart failed
+    checks of different configurations, which all carry the nil `alert_id`.
     """
 
+    configuration_id: UUID
     alert_id: UUID
     evaluation_key: str
 
@@ -1011,7 +1120,9 @@ class PlatformCheck:
 
     @property
     def ref(self) -> CheckRef:
-        return CheckRef(alert_id=self.alert_id, evaluation_key=self.evaluation_key)
+        return CheckRef(
+            configuration_id=self.configuration_id, alert_id=self.alert_id, evaluation_key=self.evaluation_key
+        )
 
 
 class SourceCoverage(StrEnum):

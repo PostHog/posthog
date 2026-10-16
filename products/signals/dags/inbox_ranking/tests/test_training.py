@@ -102,12 +102,7 @@ from products.signals.dags.inbox_ranking.training.examples import (
     holdout_mask,
     reports_missing_birth_snapshot,
 )
-from products.signals.dags.inbox_ranking.training.heads import (
-    ACTION_LABEL_COLUMNS,
-    HEADS_BY_NAME,
-    Head,
-    dismissed_as_wrong,
-)
+from products.signals.dags.inbox_ranking.training.heads import ACTION_LABEL_COLUMNS, HEADS_BY_NAME, Head
 from products.signals.dags.inbox_ranking.training.promotion import (
     AUC_TOLERANCE,
     ECE_TOLERANCE,
@@ -287,13 +282,13 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
 
 
 def test_assemble_snapshot_makes_never_labeled_reports_negatives_and_drops_untrusted_status_rows():
-    head = HEADS_BY_NAME["pr_created"]
-    wrong_head = HEADS_BY_NAME["dismiss_wrong"]
-    assert wrong_head.horizon_days == 21
+    head = HEADS_BY_NAME["open"]
+    fixed_head = HEADS_BY_NAME["fixed"]
+    assert fixed_head.horizon_days == 30
     later = D0 + datetime.timedelta(days=head.horizon_days)
     ids = ["a", "b", "c", "gone"]
     # a: status telemetry names another tenant -> provenance fails; b: no label row at all;
-    # c: trusted, dismissed as wrong by the horizon; gone: hard-deleted before the horizon, so the
+    # c: trusted, fixed by the horizon; gone: hard-deleted before the horizon, so the
     # later snapshot has its label row but no state row.
     state = _state(
         ids,
@@ -301,38 +296,39 @@ def test_assemble_snapshot_makes_never_labeled_reports_negatives_and_drops_untru
         status=["ready"] * 4,
         pg_updated_at=[pd.Timestamp("2026-08-09T12:00:00Z")] * 4,
     )
-    labels_now = _labels(["a", "c"], latest_status_event=["suppressed", None], status_event_team_id=[99, None])
+    labels_now = _labels(
+        ["a", "c"], latest_status_event=["suppressed", None], status_event_team_id=[99, None], fixed_count=[0, 0]
+    )
     labels_later = _labels(
         ["a", "c", "gone"],
         latest_status_event=["suppressed", "suppressed", None],
         status_event_team_id=[99, 1, None],
-        wrong_dismissal_count=[1, 1, 0],
-        pr_created_count=[0, 1, 1],
+        fixed_count=[1, 1, 0],
+        open_count=[0, 1, 1],
     )
     state_later = state.drop("gone").assign(status=["ready", "ready", "suppressed"])
     snapshots = {
         D0: assemble_snapshot(D0, state, labels_now),
         later: assemble_snapshot(later, state_later, labels_later),
         # The two heads read different horizons off the same day.
-        D0 + datetime.timedelta(days=wrong_head.horizon_days): assemble_snapshot(
-            D0 + datetime.timedelta(days=wrong_head.horizon_days), state_later, labels_later
+        D0 + datetime.timedelta(days=fixed_head.horizon_days): assemble_snapshot(
+            D0 + datetime.timedelta(days=fixed_head.horizon_days), state_later, labels_later
         ),
     }
 
     assert snapshots[D0].labels.loc["b", "impression_unit_count"] == 0
     assert snapshots[D0].labels["label_provenance_ok"].to_dict() == {"a": False, "b": True, "c": True, "gone": True}
     assert snapshots[later].labels["label_provenance_ok"].to_dict() == {"a": False, "b": True, "c": True, "gone": False}
-    # pr_created reads the tasks webhook, so a's untrusted status telemetry does not exclude it there.
-    pr = build_examples(snapshots, head, STATE_FEATURE_SET).set_index("report_id")["label"].to_dict()
-    assert pr == {"a": 0, "b": 0, "c": 1, "gone": 1}
-    # dismiss_wrong reads the status stream: a is dropped, b was never impressed but is a negative,
-    # c is a positive.
-    wrong = build_examples(snapshots, wrong_head, STATE_FEATURE_SET).set_index("report_id")["label"].to_dict()
-    assert wrong == {"b": 0, "c": 1}
+    # open reads the open events, so a's untrusted status telemetry does not exclude it there.
+    opened = build_examples(snapshots, head, STATE_FEATURE_SET).set_index("report_id")["label"].to_dict()
+    assert opened == {"a": 0, "b": 0, "c": 1, "gone": 1}
+    # fixed reads the status stream: a is dropped, b has no label row but is a negative, c is a positive.
+    fixed = build_examples(snapshots, fixed_head, STATE_FEATURE_SET).set_index("report_id")["label"].to_dict()
+    assert fixed == {"b": 0, "c": 1}
 
 
 def test_build_examples_drops_state_rows_read_long_after_their_snapshot():
-    head = HEADS_BY_NAME["pr_created"]
+    head = HEADS_BY_NAME["open"]
     later = D0 + datetime.timedelta(days=head.horizon_days)
     forward_run = pd.Timestamp(D0 + datetime.timedelta(days=1), tz="UTC") + pd.Timedelta(hours=3)
     backfill = pd.Timestamp(D0 + datetime.timedelta(days=1), tz="UTC") + STATE_LAG_LIMIT + pd.Timedelta(hours=1)
@@ -345,32 +341,8 @@ def test_build_examples_drops_state_rows_read_long_after_their_snapshot():
 
 
 @pytest.mark.parametrize(
-    "frame,expected",
-    [
-        # The cumulative count wins: a wrong dismissal later overwritten by already_fixed stays positive.
-        (
-            pd.DataFrame({"wrong_dismissal_count": [1, 0], "dismissal_reason": ["already_fixed", "analysis_wrong"]}),
-            [True, False],
-        ),
-        # Partitions written before the count existed fall back to the latest-wins reason.
-        (pd.DataFrame({"dismissal_reason": ["already_fixed", "analysis_wrong"]}), [False, True]),
-    ],
-)
-def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
-    assert dismissed_as_wrong(frame).tolist() == expected
-
-
-@pytest.mark.parametrize(
     "head_name,frame,expected_cohort,expected_label",
     [
-        # pr_merged: cohort is everyone, label is the merge within the horizon, whether or not the
-        # report already had a PR at the scoring moment.
-        (
-            "pr_merged",
-            pd.DataFrame({"pr_created_count": [1, 1, 0], "pr_merged_count": [1, 0, 1]}),
-            [True, True, True],
-            [True, False, True],
-        ),
         # action: cohort is everyone, so a never-impressed report an agent claimed is a positive.
         # A server-side action and a UI action are the same label.
         (
@@ -393,56 +365,9 @@ def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
             [True, True, True],
             [True, False, False],
         ),
-        # discuss: cohort is everyone, so a never-impressed report counts; label is a discuss action.
-        (
-            "discuss",
-            pd.DataFrame({"impression_unit_count": [1, 1, 0], "discuss_count": [2, 0, 1]}),
-            [True, True, True],
-            [True, False, True],
-        ),
-        # refund: cohort is everyone, label is a refund event.
-        (
-            "refund",
-            pd.DataFrame({"refund_count": [1, 0, 0]}),
-            [True, True, True],
-            [True, False, False],
-        ),
-        # thumbs_up: cohort is everyone, so a never-opened report is a negative; label is a positive rating.
-        (
-            "thumbs_up",
-            pd.DataFrame({"open_count": [1, 1, 0], "feedback_positive_count": [1, 0, 0]}),
-            [True, True, True],
-            [True, False, False],
-        ),
-        # reviewer_fix: cohort is everyone, and an add or a remove is the same label.
-        (
-            "reviewer_fix",
-            pd.DataFrame(
-                {
-                    "impression_unit_count": [1, 1, 1, 0],
-                    "reviewer_add_count": [1, 0, 0, 1],
-                    "reviewer_remove_count": [0, 2, 0, 0],
-                }
-            ),
-            [True, True, True, True],
-            [True, True, False, True],
-        ),
-        # dismiss_lowvalue: cohort is everyone, label is a low-value dismissal, never a wrong one.
-        (
-            "dismiss_lowvalue",
-            pd.DataFrame(
-                {
-                    "impression_unit_count": [1, 0, 1],
-                    "lowvalue_dismissal_count": [1, 1, 0],
-                    "wrong_dismissal_count": [0, 0, 1],
-                }
-            ),
-            [True, True, True],
-            [True, True, False],
-        ),
     ],
 )
-def test_new_heads_read_the_right_cohort_and_label_columns(head_name, frame, expected_cohort, expected_label):
+def test_heads_read_the_right_cohort_and_label_columns(head_name, frame, expected_cohort, expected_label):
     head = HEADS_BY_NAME[head_name]
     assert head.cohort(frame).tolist() == expected_cohort
     assert head.label(frame).tolist() == expected_label
@@ -469,16 +394,11 @@ class _ParquetS3:
 @pytest.mark.parametrize(
     "head_name,positive_column",
     [
-        ("pr_merged", "pr_merged_count"),
         ("fixed", "fixed_count"),
-        ("refund", "refund_count"),
-        ("thumbs_up", "feedback_positive_count"),
-        ("reviewer_fix", "reviewer_add_count"),
-        ("dismiss_lowvalue", "lowvalue_dismissal_count"),
         *(("action", column) for column in ACTION_LABEL_COLUMNS),
     ],
 )
-def test_new_head_label_columns_survive_the_load_snapshots_projection(monkeypatch, head_name, positive_column):
+def test_head_label_columns_survive_the_load_snapshots_projection(monkeypatch, head_name, positive_column):
     # load_snapshots projects the labels parquet down to _LABEL_COLUMNS before any head sees it, so a
     # head whose label column is missing from that list trains on all-zero labels. The cohort/label
     # unit test hand-builds frames that already carry the columns, so it never crosses the projection.
@@ -490,18 +410,7 @@ def test_new_head_label_columns_survive_the_load_snapshots_projection(monkeypatc
     )
     head = HEADS_BY_NAME[head_name]
     later = D0 + datetime.timedelta(days=head.horizon_days)
-    zeros = {
-        column: [0]
-        for column in (
-            "pr_merged_count",
-            "fixed_count",
-            "refund_count",
-            "feedback_positive_count",
-            "reviewer_add_count",
-            "lowvalue_dismissal_count",
-            *ACTION_LABEL_COLUMNS,
-        )
-    }
+    zeros = {column: [0] for column in ("fixed_count", *ACTION_LABEL_COLUMNS)}
     labels_now = _labels(["a"], open_count=[1], **zeros)
     labels_later = _labels(["a"], open_count=[1], **{**zeros, positive_column: [1]})
     objects: dict[str, bytes] = {}
@@ -514,33 +423,33 @@ def test_new_head_label_columns_survive_the_load_snapshots_projection(monkeypatc
     assert examples.set_index("report_id")["label"].to_dict() == {"a": 1}
 
 
-def test_build_examples_skips_refund_pairs_when_the_scoring_snapshot_lacks_the_column():
-    # refund_count entered the labels schema after the epoch, so a partition written before it has no
-    # such column. Without the guard _count reads the gap as zero, so the "not refunded yet" filter
-    # passes for a report already refunded before D0, and its cumulative refund in the later snapshot
-    # mints a stale future positive. The whole pair must be skipped, not scored.
-    head = HEADS_BY_NAME["refund"]
+def test_build_examples_skips_pairs_when_the_scoring_snapshot_lacks_a_label_column():
+    # A partition written before a label column existed has no such column. Without the guard _count
+    # reads the gap as zero, so the "not fixed yet" filter passes for a report already fixed before
+    # D0, and its cumulative count in the later snapshot mints a stale future positive. The whole
+    # pair must be skipped, not scored.
+    head = HEADS_BY_NAME["fixed"]
     later = D0 + datetime.timedelta(days=head.horizon_days)
     snapshots = {
         D0: Snapshot(date=D0, state=_state(["a"]), labels=_labels(["a"])),
-        later: Snapshot(date=later, state=_state(["a"]), labels=_labels(["a"], refund_count=[1])),
+        later: Snapshot(date=later, state=_state(["a"]), labels=_labels(["a"], fixed_count=[1])),
     }
     assert build_examples(snapshots, head, STATE_FEATURE_SET).empty
 
 
 def test_build_examples_skips_label_only_rows():
-    head = HEADS_BY_NAME["pr_created"]
+    head = HEADS_BY_NAME["open"]
     later = D0 + datetime.timedelta(days=head.horizon_days)
     state = _state(["a", "eu"], signal_count=[3, None])
     snapshots = {
         D0: Snapshot(date=D0, state=state, labels=_labels(["a", "eu"])),
-        later: Snapshot(date=later, state=state, labels=_labels(["a", "eu"], pr_created_count=[1, 1])),
+        later: Snapshot(date=later, state=state, labels=_labels(["a", "eu"], open_count=[1, 1])),
     }
     assert build_examples(snapshots, head, STATE_FEATURE_SET)["report_id"].tolist() == ["a"]
 
 
 def test_build_examples_drops_reports_without_training_consent_at_training_time():
-    head = HEADS_BY_NAME["pr_created"]
+    head = HEADS_BY_NAME["open"]
     later = D0 + datetime.timedelta(days=head.horizon_days)
     # opted_out: its organization opted out after these snapshots were written; no_team: a state row
     # with no readable team; eu: a label-only row with no state.
@@ -548,7 +457,7 @@ def test_build_examples_drops_reports_without_training_consent_at_training_time(
     state = _state(ids, report_team_id=[1, 2, None, None], signal_count=[3, 3, 3, None])
     snapshots = {
         D0: Snapshot(date=D0, state=state, labels=_labels(ids)),
-        later: Snapshot(date=later, state=state, labels=_labels(ids, pr_created_count=[1, 1, 1, 1])),
+        later: Snapshot(date=later, state=state, labels=_labels(ids, open_count=[1, 1, 1, 1])),
     }
 
     kept, excluded = drop_without_training_consent(snapshots, frozenset({1}))
@@ -844,27 +753,6 @@ def test_birth_grain_keeps_one_row_per_report_on_the_day_it_was_created(feature_
     assert moments[moments["report_id"] == "newborn"]["label"].tolist() == [0, 1, 1]
 
 
-def test_pr_merged_is_a_merge_from_birth_rather_than_a_merge_given_a_pr():
-    head = HEADS_BY_NAME["pr_merged"]
-    assert head.horizon_days == 14
-    later = D0 + datetime.timedelta(days=14)
-    merged_day = D0 + datetime.timedelta(days=10)
-    ids = ["merged", "unmerged", "nothing"]
-    snapshots = {
-        D0: assemble_snapshot(D0, _state(ids), _labels(ids, pr_created_count=[0, 1, 0], pr_merged_count=[0, 0, 0])),
-        **{
-            date: assemble_snapshot(
-                date, _state(ids), _labels(ids, pr_created_count=[1, 1, 0], pr_merged_count=[1, 0, 0])
-            )
-            for date in (merged_day, later)
-        },
-    }
-
-    examples = build_examples(snapshots, head, STATE_FEATURE_SET)
-
-    assert examples.set_index("report_id")["label"].to_dict() == {"merged": 1, "unmerged": 0, "nothing": 0}
-
-
 def test_reports_missing_birth_snapshot_counts_only_the_ones_a_partition_gap_costs(monkeypatch):
     gap = D0 + datetime.timedelta(days=1)
     dates = [D0 + datetime.timedelta(days=offset) for offset in range(3 + HEADS_BY_NAME["open"].horizon_days)]
@@ -903,18 +791,18 @@ def test_reports_missing_birth_snapshot_counts_only_the_ones_a_partition_gap_cos
 
 
 def test_build_examples_keeps_an_outcome_that_landed_on_the_reports_birth_day():
-    # Most PRs land the day the report is born. Censoring on the labels of the birth day would
+    # Many outcomes land the day the report is born. Censoring on the labels of the birth day would
     # drop those positives from the head that predicts them.
-    head = HEADS_BY_NAME["pr_created"]
+    head = HEADS_BY_NAME["open"]
     later = D0 + datetime.timedelta(days=head.horizon_days)
     ids = ["newborn", "old"]
     created = [pd.Timestamp("2026-08-10T09:00:00Z"), pd.Timestamp("2026-07-01T00:00:00Z")]
     snapshots = {
-        date: assemble_snapshot(date, _state(ids, report_created_at=created), _labels(ids, pr_created_count=[1, 1]))
+        date: assemble_snapshot(date, _state(ids, report_created_at=created), _labels(ids, open_count=[1, 1]))
         for date in (D0, later)
     }
     examples = build_examples(snapshots, head, STATE_FEATURE_SET)
-    # The old report's PR predates D0, so it belongs to a moment before D0 and stays censored.
+    # The old report's open predates D0, so it belongs to a moment before D0 and stays censored.
     assert examples.set_index("report_id")["label"].to_dict() == {"newborn": 1}
     assert birth_day_positives(examples) == 1
 
@@ -953,11 +841,11 @@ def test_grading_an_older_pool_still_drops_an_outcome_that_predates_the_score():
 def test_grading_a_status_label_head_drops_a_newborn_outcome_from_the_scoring_day():
     # build_examples reads label_provenance_ok on the scoring snapshot too, and no scores column
     # carries that verdict, so grading the row would accept a label the builder can still refuse.
-    head = HEADS_BY_NAME["dismiss_wrong"]
+    head = HEADS_BY_NAME["fixed"]
     scores = _scores(["a", "b"], label_at_scoring=[False, True])
     labels = _labels(
         ["a", "b"],
-        wrong_dismissal_count=[1, 1],
+        fixed_count=[1, 1],
         impression_unit_count=[1, 1],
         label_provenance_ok=[True, True],
     )
@@ -1047,14 +935,14 @@ def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
 
 
 @pytest.mark.parametrize(
-    "observed_days,missing_merge_column",
-    [(0, False), (1, False), (2, False), (3, False), (7, False), (14, False), (15, False), (0, True), (14, True)],
+    "observed_days,missing_fixed_column",
+    [(0, False), (1, False), (2, False), (3, False), (7, False), (30, False), (31, False), (0, True), (30, True)],
 )
 def test_unseen_daily_evaluations_keep_baked_events_at_each_heads_horizon(
-    monkeypatch, observed_days, missing_merge_column
+    monkeypatch, observed_days, missing_fixed_column
 ):
     ids = ["fast", "slow", "pending"]
-    head_names = ["open", "pr_created", "pr_merged"]
+    head_names = ["open", "fixed"]
     families = [STATE_MODEL_NAME, EMBEDDINGS_MODEL_NAME]
     scores = pd.concat(
         [
@@ -1067,10 +955,10 @@ def test_unseen_daily_evaluations_keep_baked_events_at_each_heads_horizon(
     day = D0 + datetime.timedelta(days=observed_days)
     partition = day.isoformat()
     outcomes = [1, int(observed_days >= 2), 0]
-    labels = _labels(ids, open_count=outcomes, pr_created_count=outcomes, pr_merged_count=outcomes)
-    if missing_merge_column:
-        labels = labels.drop(columns=["pr_merged_count"])
-        head_names.remove("pr_merged")
+    labels = _labels(ids, open_count=outcomes, fixed_count=outcomes)
+    if missing_fixed_column:
+        labels = labels.drop(columns=["fixed_count"])
+        head_names.remove("fixed")
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     storage = _ParquetS3(
         {
@@ -1131,7 +1019,7 @@ def test_unseen_daily_evaluations_keep_baked_events_at_each_heads_horizon(
 
 @pytest.mark.parametrize("labeled", [0, 1])
 def test_daily_evaluation_keeps_empty_and_single_class_cohorts_explicit(labeled):
-    head = HEADS_BY_NAME["discuss"]
+    head = HEADS_BY_NAME["open"]
     # A report with no labels row is outside every cohort, so the unlabeled case is an empty cohort.
     graded = graded_rows(
         _scores(["pending"], head_readable=[False], classification_threshold=[0.2]),
@@ -1720,6 +1608,13 @@ def _metadata(version: str, **aucs: float | None) -> dict:
             False,
             "action readable on champion but not on candidate",
         ),
+        # A head retired from HEADS is never trained again, so it must not block the champion's successor.
+        (
+            _metadata("d2", open=0.65),
+            {**_metadata("d1", open=0.64, dismiss_wrong=0.7), "promoted_at": "2026-08-10T00:00:00+00:00"},
+            True,
+            "at or above",
+        ),
         # A backfilled older candidate, even a much better one, must not roll the champion backwards.
         (
             _metadata("2026-08-11", open=0.90),
@@ -1781,28 +1676,28 @@ def _head(name: str, auc: float, *, readable: bool) -> dict:
 
 
 @pytest.mark.parametrize(
-    "candidate_heads,discuss_grade,expected_promote,reason_fragment,expected_skipped",
+    "candidate_heads,fixed_grade,expected_promote,reason_fragment,expected_skipped",
     [
-        # The shared holdout is too thin to read discuss on either model: no evidence, not a regression.
+        # The shared holdout is too thin to read fixed on either model: no evidence, not a regression.
         (
-            [_head("open", 0.70, readable=True), _head("discuss", 0.77, readable=False)],
+            [_head("open", 0.70, readable=True), _head("fixed", 0.77, readable=False)],
             _grade(auc=0.70, positives=26),
             True,
-            "skipped: discuss",
-            ("discuss",),
+            "skipped: fixed",
+            ("fixed",),
         ),
         # A thin holdout must not hide a head the candidate lost.
-        ([_head("open", 0.70, readable=True)], _grade(auc=0.70, positives=0), False, "discuss not trained", ()),
+        ([_head("open", 0.70, readable=True)], _grade(auc=0.70, positives=0), False, "fixed not trained", ()),
         # Enough positives, the candidate sits inside its null and well under the champion: its numbers fail it.
         (
-            [_head("open", 0.70, readable=True), _head("discuss", 0.55, readable=False)],
+            [_head("open", 0.70, readable=True), _head("fixed", 0.55, readable=False)],
             _grade(auc=0.70, positives=40),
             False,
-            "discuss regressed",
+            "fixed regressed",
             (),
         ),
         (
-            [_head("open", 0.70, readable=True), _head("discuss", 0.71, readable=True)],
+            [_head("open", 0.70, readable=True), _head("fixed", 0.71, readable=True)],
             _grade(auc=0.70, positives=40),
             True,
             "every readable head",
@@ -1812,18 +1707,18 @@ def _head(name: str, auc: float, *, readable: bool) -> dict:
     ids=["thin_holdout_skipped", "head_not_trained", "unreadable_regressed", "both_readable"],
 )
 def test_decide_promotion_skips_heads_the_shared_holdout_cannot_read(
-    candidate_heads, discuss_grade, expected_promote, reason_fragment, expected_skipped
+    candidate_heads, fixed_grade, expected_promote, reason_fragment, expected_skipped
 ):
     candidate = {"model_version": "d2", "heads": candidate_heads}
-    champion = {**_metadata("d1", open=0.70, discuss=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"}
+    champion = {**_metadata("d1", open=0.70, fixed=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"}
 
     decision = decide_promotion(
         candidate,
         champion,
         now=NOW,
         min_days_between=3,
-        champion_grades={"open": _grade(auc=0.70, positives=60), "discuss": discuss_grade},
-        min_holdout_positives={"open": 50, "discuss": 30},
+        champion_grades={"open": _grade(auc=0.70, positives=60), "fixed": fixed_grade},
+        min_holdout_positives={"open": 50, "fixed": 30},
     )
 
     assert decision.promote is expected_promote
@@ -1877,12 +1772,12 @@ _RECENT_CHAMPION = {**_metadata("d1", open=0.70), "promoted_at": "2026-08-19T00:
                 "model_version": "d2",
                 "heads": [
                     _head("open", 0.70, readable=True),
-                    {**_head("discuss", 0.60, readable=False), "holdout_positives": 4},
+                    {**_head("fixed", 0.60, readable=False), "holdout_positives": 4},
                 ],
             },
-            {**_metadata("d1", open=0.70, discuss=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"},
+            {**_metadata("d1", open=0.70, fixed=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"},
             {},
-            "discuss readable on champion but not on candidate",
+            "fixed readable on champion but not on candidate",
         ),
     ],
 )
@@ -1891,7 +1786,7 @@ def test_a_skipped_gate_waives_only_that_check(gate, candidate, champion, grades
         "now": NOW,
         "min_days_between": 3,
         "champion_grades": grades,
-        "min_holdout_positives": {"open": 50, "discuss": 30},
+        "min_holdout_positives": {"open": 50, "fixed": 30},
     }
     refused = decide_promotion(candidate, champion, **kwargs)
     assert not refused.promote and expected_reason in refused.reason
@@ -2092,10 +1987,9 @@ def _booster_ubj(feature_names: tuple[str, ...]) -> bytes:
 
 
 def test_an_unreadable_scored_head_is_still_graded():
-    # A rare head never clears min_holdout_positives on one day's holdout, so the pooled newborn
-    # grade is the only read that can ever give it a number. The grade carries the flag instead, so
-    # the two populations stay apart.
-    head = HEADS_BY_NAME["thumbs_up"]
+    # A head can miss min_holdout_positives on one day's holdout, and the pooled newborn grade
+    # still gives it a number. The grade carries the flag instead, so the two populations stay apart.
+    head = HEADS_BY_NAME["fixed"]
     scores = _scores(
         ["a", "b"],
         head=[head.name] * 2,
@@ -2103,7 +1997,7 @@ def test_an_unreadable_scored_head_is_still_graded():
         head_readable=[False] * 2,
         classification_threshold=[0.0] * 2,
     )
-    labels = _labels(["a", "b"], open_count=[1, 1], feedback_positive_count=[1, 0])
+    labels = _labels(["a", "b"], open_count=[1, 1], fixed_count=[1, 0])
     graded = graded_rows(scores, labels, head, pool=POOL_NAME)
     (grade,) = head_grades(graded, head, pool=POOL_NAME, scoring_partition="2026-08-10")
     assert (grade.rows, grade.positives, grade.readable) == (2, 1, False)

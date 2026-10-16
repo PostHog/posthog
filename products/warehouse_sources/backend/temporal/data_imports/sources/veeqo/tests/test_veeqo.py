@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.veeqo import VeeqoSourceConfig
@@ -216,7 +217,7 @@ class TestVeeqoSourceResponse:
         config = VEEQO_ENDPOINTS[endpoint]
         assert response is not None
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == config.primary_keys
         # Veeqo documents no list ordering, so the watermark must only commit after
         # a successful sync (desc semantics) — asc would checkpoint ≈now mid-sync.
         assert response.sort_mode == "desc"
@@ -226,3 +227,244 @@ class TestVeeqoSourceResponse:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
+
+
+class TestNestedTables:
+    @parameterized.expand(
+        [
+            (
+                "returns_carry_their_order_id",
+                "returns",
+                [
+                    {"id": 1, "returns": [{"id": 10, "status": "returning"}, {"id": 11, "status": "received"}]},
+                    {"id": 2, "returns": []},
+                    {"id": 3, "returns": None},
+                    {"id": 4},
+                ],
+                [
+                    {"id": 10, "status": "returning", "order_id": 1},
+                    {"id": 11, "status": "received", "order_id": 1},
+                ],
+            ),
+            (
+                "stock_entries_flatten_every_sellable",
+                "stock_entries",
+                [
+                    {
+                        "id": 5,
+                        "sellables": [
+                            {
+                                "id": 50,
+                                "stock_entries": [
+                                    {"sellable_id": 50, "warehouse_id": 1, "physical_stock_level": 3},
+                                    {"sellable_id": 50, "warehouse_id": 2, "physical_stock_level": 0},
+                                ],
+                            },
+                            {"id": 51, "stock_entries": [{"sellable_id": 51, "warehouse_id": 1}]},
+                            {"id": 52, "stock_entries": None},
+                        ],
+                    },
+                    {"id": 6, "sellables": []},
+                    {"id": 7},
+                ],
+                [
+                    {"sellable_id": 50, "warehouse_id": 1, "physical_stock_level": 3, "product_id": 5},
+                    {"sellable_id": 50, "warehouse_id": 2, "physical_stock_level": 0, "product_id": 5},
+                    {"sellable_id": 51, "warehouse_id": 1, "product_id": 5},
+                ],
+            ),
+        ]
+    )
+    def test_rows_are_exploded_from_the_parent_list(
+        self, _name: str, endpoint: str, parent_page: list[dict[str, Any]], expected_rows: list[dict[str, Any]]
+    ) -> None:
+        result = _run([_page(parent_page)], endpoint=endpoint)
+
+        assert result.raised is None
+        assert result.paths == [VEEQO_ENDPOINTS[endpoint].path]
+        assert result.rows == expected_rows
+
+    def test_parent_page_with_no_nested_rows_still_advances(self) -> None:
+        result = _run(
+            [
+                _page([{"id": i, "returns": []} for i in range(100)], headers={"X-Total-Pages-Count": "2"}),
+                _page([{"id": 900, "returns": [{"id": 1}]}]),
+            ],
+            endpoint="returns",
+        )
+
+        assert result.params("page") == ["1", "2"]
+        assert result.rows == [{"id": 1, "order_id": 900}]
+
+
+class TestFanoutTables:
+    @parameterized.expand(
+        [
+            (
+                "tracking_events_per_shipment",
+                "shipment_tracking_events",
+                {
+                    "/orders": [
+                        _page(
+                            [
+                                {
+                                    "id": 1,
+                                    "allocations": [
+                                        {"id": 100, "shipment": {"id": 7001}},
+                                        {"id": 101, "shipment": None},
+                                        {"id": 103, "shipment": {"id": 7001}},
+                                    ],
+                                },
+                                {"id": 2, "allocations": [{"id": 102, "shipment": {"id": 7002}}]},
+                                {"id": 3, "allocations": []},
+                                {"id": 4},
+                            ]
+                        )
+                    ],
+                    "/shipping/tracking_events/7001": [
+                        _page(
+                            [
+                                {
+                                    "timestamp": "2026-01-01T10:00:00+00:00",
+                                    "status": "in_transit",
+                                    "description": "In transit",
+                                },
+                                {
+                                    "timestamp": "2026-01-02T10:00:00+00:00",
+                                    "status": "delivered",
+                                    "description": "Delivered",
+                                },
+                            ]
+                        )
+                    ],
+                    # A shipment deleted after the orders listing must not fail the sync.
+                    "/shipping/tracking_events/7002": [_page({"error": "not found"}, status=404)],
+                },
+                ["/orders", "/shipping/tracking_events/7001", "/shipping/tracking_events/7002"],
+                [
+                    {
+                        "timestamp": "2026-01-01T10:00:00+00:00",
+                        "status": "in_transit",
+                        "description": "In transit",
+                        "shipment_id": 7001,
+                        "order_id": 1,
+                    },
+                    {
+                        "timestamp": "2026-01-02T10:00:00+00:00",
+                        "status": "delivered",
+                        "description": "Delivered",
+                        "shipment_id": 7001,
+                        "order_id": 1,
+                    },
+                ],
+            ),
+            (
+                "bundle_contents_only_for_kits",
+                "bundle_contents",
+                {
+                    "/products": [
+                        _page(
+                            [
+                                {
+                                    "id": 5,
+                                    "sellables": [
+                                        {"id": 50, "type": "Kit"},
+                                        {"id": 51, "type": "ProductVariant"},
+                                    ],
+                                },
+                                {"id": 6, "sellables": [{"id": 60, "type": "ProductVariant"}]},
+                                {"id": 8, "sellables": [{"id": 80, "type": "Kit"}]},
+                            ]
+                        )
+                    ],
+                    "/kits/50": [
+                        _page(
+                            {
+                                "id": 50,
+                                "type": "Kit",
+                                "contents": [
+                                    {"id": 1, "kit_id": 50, "product_variant_id": 51, "quantity": 2},
+                                    {"id": 2, "kit_id": 50, "product_variant_id": 60, "quantity": 1},
+                                ],
+                            }
+                        )
+                    ],
+                    "/kits/80": [_page({"id": 80, "type": "Kit", "contents": []})],
+                },
+                ["/products", "/kits/50", "/kits/80"],
+                [
+                    {"id": 1, "kit_id": 50, "product_variant_id": 51, "quantity": 2, "product_id": 5},
+                    {"id": 2, "kit_id": 50, "product_variant_id": 60, "quantity": 1, "product_id": 5},
+                ],
+            ),
+        ]
+    )
+    def test_fans_out_to_one_request_per_parent_id(
+        self,
+        _name: str,
+        endpoint: str,
+        responses: dict[str, list[ScriptedResponse]],
+        expected_paths: list[str],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        result = _run(route(responses), endpoint=endpoint)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        # The parent list is paged; the single-object child endpoints take no page params.
+        assert result.queries[0]["page_size"] == ("100",)
+        assert all("page_size" not in query and "page" not in query for query in result.queries[1:])
+        assert result.rows == expected_rows
+
+    def test_parent_list_paginates_before_fanning_out(self) -> None:
+        full_orders_page = [{"id": i, "allocations": []} for i in range(99)] + [
+            {"id": 99, "allocations": [{"id": 1, "shipment": {"id": 7001}}]}
+        ]
+        result = _run(
+            route(
+                {
+                    "/orders": [
+                        _page(full_orders_page, headers={"X-Total-Pages-Count": "2"}),
+                        _page([{"id": 200, "allocations": [{"id": 2, "shipment": {"id": 7002}}]}]),
+                    ],
+                    "/shipping/tracking_events/7001": [_page([{"timestamp": "t1", "status": "delivered"}])],
+                    "/shipping/tracking_events/7002": [_page([{"timestamp": "t2", "status": "delivered"}])],
+                }
+            ),
+            endpoint="shipment_tracking_events",
+        )
+
+        assert result.raised is None
+        assert [row["shipment_id"] for row in result.rows] == [7001, 7002]
+        assert [query.get("page") for query in result.queries if "page_size" in query] == [("1",), ("2",)]
+
+    def test_resume_skips_shipments_already_synced(self) -> None:
+        orders = [
+            {"id": 1, "allocations": [{"id": 10, "shipment": {"id": 7001}}]},
+            {"id": 2, "allocations": [{"id": 20, "shipment": {"id": 7002}}]},
+        ]
+        result = _run(
+            route(
+                {
+                    "/orders": [_page(orders)],
+                    "/shipping/tracking_events/7002": [_page([{"timestamp": "t2", "status": "delivered"}])],
+                }
+            ),
+            endpoint="shipment_tracking_events",
+            resume_state=VeeqoResumeConfig(
+                endpoint="shipment_tracking_events",
+                fanout_state={"completed": ["/shipping/tracking_events/7001"], "current": None, "child_state": None},
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/orders", "/shipping/tracking_events/7002"]
+        assert result.rows == [{"timestamp": "t2", "status": "delivered", "shipment_id": 7002, "order_id": 2}]
+        assert result.saved_states[-1] == VeeqoResumeConfig(
+            endpoint="shipment_tracking_events",
+            fanout_state={
+                "completed": ["/shipping/tracking_events/7001", "/shipping/tracking_events/7002"],
+                "current": None,
+                "child_state": None,
+            },
+        )
