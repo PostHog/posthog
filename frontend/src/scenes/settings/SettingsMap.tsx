@@ -78,10 +78,10 @@ import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampl
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
+import { WorkflowsDailyLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsDailyLimitsSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsFrequencyCapSettings'
-import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import { SettingScopeTag } from './components/SettingScopeTag'
@@ -1889,9 +1889,35 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'AI task limits',
                 description:
                     'How many AI tasks your workflows can create in a rolling 24 hours. One limit applies to each workflow on its own, the other to every workflow in the project together. Leave a limit empty to use the default. Set it to zero to pause task creation. Contact support to raise a limit above 500 per workflow or 2,500 per project.',
-                component: <WorkflowsTaskLimitsSettings />,
+                component: (
+                    <WorkflowsDailyLimitsSettings
+                        perWorkflowField="workflow_task_rate_limit_per_day"
+                        perProjectField="workflow_task_team_rate_limit_per_day"
+                        defaultPerWorkflow={100}
+                        defaultPerProject={500}
+                        unit="tasks"
+                        attrPrefix="workflows-task"
+                    />
+                ),
                 flag: 'WORKFLOW_AI_TASK_ACTION',
                 keywords: ['workflows', 'ai', 'task', 'agent', 'limit', 'rate', 'cap', 'daily', 'spend', 'pause'],
+            },
+            {
+                id: 'workflows-replay-vision-limits',
+                title: 'Replay Vision scan limits',
+                description:
+                    'How many Replay Vision scans your workflows can request in a rolling 24 hours. One limit applies to each workflow on its own, the other to every workflow in the project together. Leave a limit empty to use the default. Set it to zero to pause scans. Contact support to raise a limit above 500 per workflow or 2,500 per project.',
+                component: (
+                    <WorkflowsDailyLimitsSettings
+                        perWorkflowField="replay_vision_scan_rate_limit_per_day"
+                        perProjectField="replay_vision_scan_team_rate_limit_per_day"
+                        defaultPerWorkflow={100}
+                        defaultPerProject={500}
+                        unit="scans"
+                        attrPrefix="workflows-replay-vision"
+                    />
+                ),
+                keywords: ['workflows', 'replay', 'vision', 'scan', 'limit', 'rate', 'cap', 'daily', 'spend', 'pause'],
             },
         ],
     },
