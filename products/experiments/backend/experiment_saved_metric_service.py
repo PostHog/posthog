@@ -46,7 +46,7 @@ class ExperimentSavedMetricService:
         normalized_query = self.normalize_query_for_write(query)
         validate_metric_action_ids([normalized_query], self.team, user=self.user)
         enforce_warehouse_metric_access([normalized_query], team=self.team, user=self.user)
-        enforce_warehouse_metric_timestamp_types([normalized_query], team=self.team)
+        enforce_warehouse_metric_timestamp_types([normalized_query], team=self.team, user=self.user)
 
         return ExperimentSavedMetric.objects.create(
             team=self.team,
@@ -71,7 +71,7 @@ class ExperimentSavedMetricService:
                 [update_data["query"]], self.team, user=self.user, known_action_ids=stored_action_ids
             )
             enforce_warehouse_metric_access([update_data["query"]], team=self.team, user=self.user)
-            enforce_warehouse_metric_timestamp_types([update_data["query"]], team=self.team)
+            enforce_warehouse_metric_timestamp_types([update_data["query"]], team=self.team, user=self.user)
 
         for attr, value in update_data.items():
             setattr(saved_metric, attr, value)

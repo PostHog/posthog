@@ -298,6 +298,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             breakdowns=self._get_breakdowns_for_builder(),
             only_count_matured_users=self.experiment.only_count_matured_users,
             cuped_config=self.cuped_config,
+            user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
             activation_config=exposure_params.activation_config,
         )
 

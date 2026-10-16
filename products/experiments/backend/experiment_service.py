@@ -1187,6 +1187,7 @@ class ExperimentService:
         enforce_warehouse_metric_timestamp_types(
             [*(metrics or []), *(metrics_secondary or []), *self._collect_saved_metric_queries(saved_metrics_ids)],
             team=self.team,
+            user=self.user,
         )
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
@@ -3466,6 +3467,7 @@ class ExperimentService:
                 *self._collect_saved_metric_queries(update_data.get("saved_metrics_ids")),
             ],
             team=self.team,
+            user=self.user,
         )
 
         context = serializer_context or self._build_serializer_context()
