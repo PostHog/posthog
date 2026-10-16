@@ -11,8 +11,6 @@ use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{Offset, TakenFrontier, TopicPartition};
 
-use crate::config::CompletionGranularity;
-
 pub struct CommitPacer {
     interval: Duration,
     pending: Mutex<Pending>,
@@ -33,13 +31,6 @@ impl CommitPacer {
         Self {
             interval,
             pending: Mutex::new(Pending::default()),
-        }
-    }
-
-    pub fn for_granularity(granularity: CompletionGranularity, interval: Duration) -> Self {
-        match granularity {
-            CompletionGranularity::Poll => Self::immediate(),
-            CompletionGranularity::Group => Self::every(interval),
         }
     }
 

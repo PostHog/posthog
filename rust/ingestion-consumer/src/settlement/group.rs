@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use common_kafka_consumer::{Offset, TopicOffsetLedger, TopicPartition};
 
@@ -13,8 +14,11 @@ pub(crate) struct GroupSettlement {
 }
 
 impl GroupSettlement {
-    pub(crate) fn new(ledger: Arc<TopicOffsetLedger>, pacer: Arc<CommitPacer>) -> Self {
-        Self { ledger, pacer }
+    pub(crate) fn new(ledger: Arc<TopicOffsetLedger>, commit_interval: Duration) -> Self {
+        Self {
+            ledger,
+            pacer: Arc::new(CommitPacer::every(commit_interval)),
+        }
     }
 }
 
@@ -41,6 +45,10 @@ impl Settlement for GroupSettlement {
     }
 
     fn settle_poll(&self, _slices: &[ChargedSlice<'_>]) {}
+
+    fn pacer(&self) -> &Arc<CommitPacer> {
+        &self.pacer
+    }
 }
 
 #[cfg(test)]
@@ -53,8 +61,8 @@ mod tests {
 
     fn settlement() -> (Arc<TopicOffsetLedger>, Arc<CommitPacer>, GroupSettlement) {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let pacer = Arc::new(CommitPacer::immediate());
-        let settlement = GroupSettlement::new(Arc::clone(&ledger), Arc::clone(&pacer));
+        let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::ZERO);
+        let pacer = Arc::clone(settlement.pacer());
         (ledger, pacer, settlement)
     }
 
