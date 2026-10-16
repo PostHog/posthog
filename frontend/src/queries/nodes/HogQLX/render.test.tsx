@@ -92,7 +92,7 @@ describe('HogQLX', () => {
             '//example.com/logo.png',
             '/\\example.com/logo.png',
             'data:text/html,<svg onload="alert(1)"/>',
-            'data:image/svg+xml,' + 'a'.repeat(1024 * 1024),
+            'data:image/svg+xml,' + 'a'.repeat(64 * 1024),
         ])('does not load an invalid image source (%#)', (src) => {
             const { container } = render(renderHogQLX({ __hx_tag: 'img', src, alt: 'Customer logo' }))
             expect(container.querySelector('img')).toBeNull()
@@ -100,13 +100,15 @@ describe('HogQLX', () => {
         })
 
         it.each([
-            [undefined, 32],
+            [undefined, 24],
             ['24', 24],
-            [10000, 256],
-            [-1, 32],
-            [0, 32],
-            ['100%', 32],
-            [{ toString: 'bad' }, 32],
+            [128, 24],
+            [16, 16],
+            [10000, 24],
+            [-1, 24],
+            [0, 24],
+            ['100%', 24],
+            [{ toString: 'bad' }, 24],
         ])('bounds image dimensions (%#)', (size, expected) => {
             const { container } = render(renderHogQLX({ __hx_tag: 'img', src: '/logo.svg', width: size, height: size }))
             expect(container.querySelector('img')).toHaveStyle({ width: `${expected}px`, height: `${expected}px` })
@@ -128,7 +130,7 @@ describe('HogQLX', () => {
             expect(image).toHaveAttribute('alt', '')
             expect(image).not.toHaveAttribute('onload')
             expect(image).not.toHaveAttribute('srcset')
-            expect(image).toHaveStyle({ width: '32px' })
+            expect(image).toHaveStyle({ width: '24px' })
             expect(container.querySelector('svg')).toBeNull()
         })
 

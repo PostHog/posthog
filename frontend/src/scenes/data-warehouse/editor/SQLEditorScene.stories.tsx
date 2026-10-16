@@ -230,7 +230,13 @@ export const CustomerImages: Story = {
         const runButton = canvasElement.querySelector('[data-attr="sql-editor-run-button"]')
         expect(runButton).not.toBeNull()
         await userEvent.click(runButton!)
-        await waitFor(() => expect(canvasElement.querySelector('img[alt="Custom SVG"]')).not.toBeNull())
+        await waitFor(() => {
+            const image = canvasElement.querySelector('img[alt="Custom SVG"]')
+            expect(image).not.toBeNull()
+            expect(image!.getBoundingClientRect().height).toBeLessThanOrEqual(24)
+            const labels = canvasElement.querySelectorAll('[data-attr="hogqlx-brand-mark-label"]')
+            expect(Array.from(labels, (label) => label.textContent)).toEqual(['true', 'false'])
+        })
         const dataLogic = dataNodeLogic.findMounted({ key: editor.values.dataLogicKey })!
         dataLogic.actions.setElapsedTime(180)
     },

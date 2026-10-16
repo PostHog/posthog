@@ -7,24 +7,37 @@ const pngSource =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAJUlEQVR4nGNgGAWDDig0LPhPCR61YNSCUQtGLRi1YHhYMAroDgC3sz8f5SN7GwAAAABJRU5ErkJggg=='
 
 export const IMAGE_QUERY = `SELECT
-    <img src='${svgSource}' alt='Custom SVG' width={24} height={24} /> AS image,
+    <img src='${svgSource}' alt='Custom SVG' width={128} height={128} /> AS image,
     'SVG logo' AS name,
-    12 AS calls
+    12 AS calls,
+    withIcon(toBool(1), 'Claude') AS status
 UNION ALL SELECT
     <img src='${pngSource}' alt='Custom PNG' width={24} height={24} />,
     'PNG logo',
-    7`
+    7,
+    withIcon(toBool(0), 'Claude')`
 
 export const IMAGE_RESULTS: HogQLQueryResponse = {
-    columns: ['image', 'name', 'calls'],
+    columns: ['image', 'name', 'calls', 'status'],
     types: [
         ['image', 'Tuple(String, String, String, String, String, String, String, UInt8, String, UInt8)'],
         ['name', 'String'],
         ['calls', 'UInt8'],
+        ['status', 'Tuple(String, String, String, Nullable(Bool), String, String)'],
     ],
     results: [
-        [['__hx_tag', 'img', 'src', svgSource, 'alt', 'Custom SVG', 'width', 24, 'height', 24], 'SVG logo', 12],
-        [['__hx_tag', 'img', 'src', pngSource, 'alt', 'Custom PNG', 'width', 24, 'height', 24], 'PNG logo', 7],
+        [
+            ['__hx_tag', 'img', 'src', svgSource, 'alt', 'Custom SVG', 'width', 128, 'height', 128],
+            'SVG logo',
+            12,
+            ['__hx_tag', 'BrandMarkLabel', 'label', true, 'mark', 'Claude'],
+        ],
+        [
+            ['__hx_tag', 'img', 'src', pngSource, 'alt', 'Custom PNG', 'width', 24, 'height', 24],
+            'PNG logo',
+            7,
+            ['__hx_tag', 'BrandMarkLabel', 'label', false, 'mark', 'Claude'],
+        ],
     ],
     hasMore: false,
 }
