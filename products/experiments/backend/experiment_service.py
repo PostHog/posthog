@@ -87,6 +87,7 @@ from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
+    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentHoldout,
     ExperimentSavedMetric,
@@ -1033,6 +1034,14 @@ class ExperimentService:
         if saved_metrics.count() != len(saved_metrics_ids):
             raise ValidationError("Saved metric does not exist or does not belong to this project")
 
+        # A linked legacy shared metric turns the whole experiment legacy, which hides all of its results.
+        legacy_names = sorted(saved_metrics.filter(query__kind__in=LEGACY_METRIC_KINDS).values_list("name", flat=True))
+        if legacy_names:
+            raise ValidationError(
+                f"Legacy shared metrics can't be added to an experiment: {', '.join(legacy_names)}. "
+                "Use a shared metric of kind 'ExperimentMetric' instead."
+            )
+
     @staticmethod
     def saved_metric_calculation_keys(experiment: Experiment) -> dict[int, str]:
         """The calculation key of each saved metric linked to the experiment, by link id.
@@ -1157,8 +1166,11 @@ class ExperimentService:
         running_time_calculation = running_time_calculation or {}
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
-        validate_metric_action_ids(metrics, self.team.id)
-        validate_metric_action_ids(metrics_secondary, self.team.id)
+        validate_metric_action_ids(metrics, self.team, user=self.user)
+        validate_metric_action_ids(metrics_secondary, self.team, user=self.user)
+        validate_metric_action_ids(
+            self._collect_saved_metric_queries(saved_metrics_ids), self.team, user=self.user, require_existing=False
+        )
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
@@ -3399,7 +3411,9 @@ class ExperimentService:
         if "metrics" in update_data:
             update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
             self.validate_experiment_metrics(update_data["metrics"])
-            validate_metric_action_ids(update_data["metrics"], self.team.id, known_action_ids=persisted_action_ids)
+            validate_metric_action_ids(
+                update_data["metrics"], self.team, user=self.user, known_action_ids=persisted_action_ids
+            )
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics"], known_event_names=persisted_event_names)
         if "metrics_secondary" in update_data:
@@ -3408,12 +3422,28 @@ class ExperimentService:
             )
             self.validate_experiment_metrics(update_data["metrics_secondary"])
             validate_metric_action_ids(
-                update_data["metrics_secondary"], self.team.id, known_action_ids=persisted_action_ids
+                update_data["metrics_secondary"], self.team, user=self.user, known_action_ids=persisted_action_ids
             )
             if not allow_unknown_events:
                 self.validate_metric_event_names(
                     update_data["metrics_secondary"], known_event_names=persisted_event_names
                 )
+
+        if "saved_metrics_ids" in update_data:
+            _, linked_action_ids = extract_entity_nodes(
+                [
+                    link.saved_metric.query
+                    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric")
+                    if link.saved_metric.query
+                ]
+            )
+            validate_metric_action_ids(
+                self._collect_saved_metric_queries(update_data["saved_metrics_ids"]),
+                self.team,
+                user=self.user,
+                known_action_ids=persisted_action_ids | linked_action_ids,
+                require_existing=False,
+            )
 
         enforce_warehouse_metric_access(
             [
@@ -3881,7 +3911,7 @@ class ExperimentService:
                     f"Cannot update: {', '.join(sorted(disallowed_fields))}. "
                     f"To change these, migrate the experiment to the new experiments engine first: "
                     f"POST /api/projects/{experiment.team_id}/experiments/{experiment.id}/migrate "
-                    f"(the experiment-migrate tool). It keeps this experiment and its results, and returns a new one."
+                    f"(the experiment-migrate tool). It keeps this experiment and returns a new one."
                 )
 
             # Validate end_date if present
