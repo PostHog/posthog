@@ -114,7 +114,7 @@ class OfflineEvalDelivery:
         for job in pending.values():
             await self._report_failed(job, "upload interrupted")
 
-    async def drain(self, timeout: float = 30.0) -> None:
+    async def drain(self, timeout: float | None = None) -> None:
         self._closed = True
         for job in self._paused_jobs.values():
             self._start(job)
@@ -123,7 +123,7 @@ class OfflineEvalDelivery:
         if not tasks:
             return
         try:
-            _, pending = await asyncio.wait(tasks, timeout=timeout)
+            _, pending = await asyncio.wait(tasks, timeout=self._upload_timeout if timeout is None else timeout)
             await self._cancel(pending, "shutdown deadline exceeded")
         except asyncio.CancelledError:
             await self.cancel()

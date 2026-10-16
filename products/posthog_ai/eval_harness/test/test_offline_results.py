@@ -397,7 +397,7 @@ def test_publish_does_not_complete_without_confirmed_persistence(
 
     def respond(request: httpx.Request) -> httpx.Response:
         attempts.append(request)
-        if len(attempts) == 1:
+        if len(attempts) == 1 or request.url.path.endswith("/fail/"):
             return server.respond(request)
         return httpx.Response(
             failure_status,
@@ -416,8 +416,9 @@ def test_publish_does_not_complete_without_confirmed_persistence(
         pytest.raises(OfflineUploadError) as raised,
     ):
         asyncio.run(publisher.publish(upload))
-    assert len(attempts) == (5 if failure_status == 503 else 2)
-    assert all(request.url.path.endswith("/upload/") for request in attempts[1:])
+    assert len(attempts) == (5 if failure_status == 503 else 3)
+    assert all(request.url.path.endswith("/upload/") for request in attempts[1:-1])
+    assert server.status == "failed"
     error = raised.value
     assert error.status == (None if failure_status == 200 else failure_status)
     assert error.code == (code if safe_diagnostics else None)
@@ -434,7 +435,46 @@ def test_publish_does_not_complete_without_confirmed_persistence(
         assert "retry after 45s" in str(error)
 
 
-def test_publish_retries_partial_success_without_duplicate_results_or_integer_loss() -> None:
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure_path", "cleanup_error"), [("complete", None), ("upload", "api"), ("upload", "timeout")]
+)
+async def test_publish_preserves_original_error_when_closing_a_failed_experiment(
+    monkeypatch: pytest.MonkeyPatch, failure_path: str, cleanup_error: str | None
+) -> None:
+    publisher = _publisher()
+    server = OfflineServer()
+    paths: list[str] = []
+    loop = asyncio.get_running_loop()
+    original_time = loop.time
+    clock_offset = 0.0
+    monkeypatch.setattr(loop, "time", lambda: original_time() + clock_offset)
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal clock_offset
+        paths.append(request.url.path)
+        if request.url.path.endswith("/fail/"):
+            if cleanup_error == "api":
+                return httpx.Response(403, json={"code": "permission_denied"})
+            if cleanup_error == "timeout":
+                clock_offset += 10
+                await asyncio.Event().wait()
+        if request.url.path.endswith(f"/{failure_path}/"):
+            return httpx.Response(400, json={"code": "invalid_input"})
+        return server.respond(request)
+
+    monkeypatch.setattr(httpx, "AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
+    with pytest.raises(OfflineUploadError) as raised:
+        await publisher.publish(_prepare(publisher, [_case()]))
+
+    assert raised.value.status == 400
+    assert raised.value.code == "invalid_input"
+    assert paths[-1].endswith("/fail/")
+    assert server.status == ("failed" if cleanup_error is None else "uploading")
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_publish_preserves_partial_success_after_failure_or_interruption(interrupted: bool) -> None:
     publisher = _publisher()
     cases = [_case(f"query-{index}") for index in range(501)]
     cases[0].output = {"large_integer": 2**80}
@@ -446,29 +486,37 @@ def test_publish_retries_partial_success_without_duplicate_results_or_integer_lo
     def respond(request: httpx.Request) -> httpx.Response:
         attempts.append(request)
         if reject and request.url.path.endswith("/upload/") and server.results:
+            if interrupted:
+                raise asyncio.CancelledError
             return httpx.Response(400)
         return server.respond(request)
 
     with patch("httpx.AsyncClient", new=partial(httpx.AsyncClient, transport=httpx.MockTransport(respond))):
-        with pytest.raises(OfflineUploadError) as raised:
+        with pytest.raises(asyncio.CancelledError if interrupted else OfflineUploadError) as raised:
             asyncio.run(publisher.publish(upload))
         assert len(server.results) == 1000
-        error = raised.value
-        assert error.acknowledged_item_count == 500
-        assert error.acknowledged_result_count == 1000
-        assert error.completed_chunk_count == 1
-        assert error.pending_result_count == 2
-        assert error.failed_index == 1000
-        assert "acknowledged 500 items and 1000 results" in str(error)
-        assert "2 results await acknowledgment" in str(error)
-        reject = False
-        asyncio.run(publisher.publish(upload))
-    assert len(server.results) == 1002
-    assert len(server.items) == 501
+        if interrupted:
+            assert server.status == "uploading"
+            reject = False
+            asyncio.run(publisher.publish(upload))
+            assert len(server.results) == 1002
+            assert len(server.items) == 501
+            assert attempts[0].content == attempts[3].content
+            assert attempts[1].content == attempts[4].content
+        else:
+            error = raised.value
+            assert isinstance(error, OfflineUploadError)
+            assert error.acknowledged_item_count == 500
+            assert error.acknowledged_result_count == 1000
+            assert error.completed_chunk_count == 1
+            assert error.pending_result_count == 2
+            assert error.failed_index == 1000
+            assert "acknowledged 500 items and 1000 results" in str(error)
+            assert "2 results await acknowledgment" in str(error)
+            assert server.status == "failed"
+            assert len(server.items) == 500
     first_item = json.loads(attempts[1].content)["items"][0]
     assert first_item["payload"]["output"]["large_integer"] == 2**80
-    assert attempts[0].content == attempts[3].content
-    assert attempts[1].content == attempts[4].content
 
 
 @parameterized.expand([("project", "https://us.posthog.com", 456), ("host", "https://eu.posthog.com", 123)])
@@ -557,6 +605,9 @@ def test_settings_reject_invalid_suite_configuration(_name: str, suite: OfflineE
 @parameterized.expand(
     [
         ("blank_key", {"POSTHOG_OFFLINE_EVAL_API_KEY": " "}),
+        ("key_newline", {"POSTHOG_OFFLINE_EVAL_API_KEY": "test-only-token\n"}),
+        ("key_internal_space", {"POSTHOG_OFFLINE_EVAL_API_KEY": "test-only token"}),
+        ("key_leading_tab", {"POSTHOG_OFFLINE_EVAL_API_KEY": "\ttest-only-token"}),
         ("insecure_host", {"POSTHOG_OFFLINE_EVAL_HOST": "http://posthog.example.com"}),
         ("malformed_host", {"POSTHOG_OFFLINE_EVAL_HOST": "https://["}),
         ("invalid_port", {"POSTHOG_OFFLINE_EVAL_HOST": "https://posthog.example.com:invalid"}),

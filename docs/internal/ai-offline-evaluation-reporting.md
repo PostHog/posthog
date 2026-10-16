@@ -72,6 +72,7 @@ hogli evals sql/eval_sql::eval_sql
 ```
 
 Without an API key, the SQL run reports that offline uploads are disabled.
+Keys containing whitespace are rejected before evaluation starts; remove any spaces, tabs, or pasted trailing newlines.
 Invalid configuration produces a warning and skips this destination; Braintrust and local reporting continue.
 An upload failure also warns without changing the evaluation's score gate.
 The final summary shows a PostHog results link only after a successful offline upload; otherwise it shows the upload status.
@@ -104,12 +105,15 @@ Item payloads prioritize input, output, expected output, then metadata. Output f
 Invalid optional case keys, dataset references, or trace identifiers are omitted individually, preserving the other cases and scores in the prepared upload.
 
 The publisher retains the prepared experiment, items, scorer versions, and result payloads in memory until delivery finishes.
-The SDK owns request validation, batching, acknowledgements, and retries. Transient failures receive up to three retries with the same experiment and item identities.
+The SDK owns request validation, batching, acknowledgements, and retries. Requests use a 5-second timeout and up to two retries with the same experiment and item identities, subject to the overall upload deadline.
+This leaves time for create, one upload batch, and completion to each retry timed-out requests within the 60-second upload budget. Larger uploads and server-requested retry delays still share that budget; retries are not guaranteed to finish before it expires.
 Failure reports retain sanitized error codes and field paths, persistence state, retry guidance, and acknowledged batch/item/result counts without including raw responses or result payloads.
 Local case exports finish before delivery is queued. Up to two uploads run concurrently, with at most 32 queued or active uploads and a 60-second deadline per active upload.
 After suites finish, the harness pauses unfinished uploads before synchronous infrastructure teardown, then retries the same prepared objects with fresh request and upload deadlines.
 These retries retain the experiment, item, and scorer version identities, including after partial acceptance or a lost completion response.
-The harness waits up to 30 seconds for remaining uploads after teardown.
+The harness waits up to the full upload deadline (60 seconds by default) for remaining uploads after teardown, including time waiting for a delivery slot.
+After an API error following successful experiment creation, the publisher makes a best-effort attempt to mark the experiment failed, limited to 5 seconds, and retains the original upload error. Accepted results remain available on failed experiments.
+Pausing or cancelling delivery does not mark the experiment failed, so teardown pauses can resume the same experiment. Timeouts, interruptions, and failed cleanup can leave an experiment in the uploading state.
 Timeout, cancellation, a full queue, or a rejected request produces a warning without changing the score gate.
 Failed or interrupted uploads are not saved for later retry. To try publishing again, correct the configuration or connectivity problem and rerun the suite.
 Existing local logs, enabled case exports, and Braintrust results remain available.

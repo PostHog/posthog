@@ -12,6 +12,7 @@ class OfflineServer:
         self.items: dict[str, object] = {}
         self.results: dict[tuple[str, str], object] = {}
         self.experiment: dict[str, object] = {}
+        self.status = "uploading"
 
     def respond(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -36,8 +37,10 @@ class OfflineServer:
                 )
                 assert self.results.setdefault(identity, result) == result
             return httpx.Response(200, json={"items": item_receipts, "results": result_receipts})
-        completed = request.url.path.endswith("/complete/")
-        if not completed:
+        closing = request.url.path.endswith(("/complete/", "/fail/"))
+        if closing:
+            self.status = "completed" if request.url.path.endswith("/complete/") else "failed"
+        else:
             if self.experiment:
                 assert body == self.experiment
             self.experiment = body
@@ -45,11 +48,11 @@ class OfflineServer:
             200,
             json={
                 "id": self.experiment["id"],
-                "status": "completed" if completed else "uploading",
-                "created": not completed,
+                "status": self.status,
+                "created": not closing,
                 "started_at": now,
                 "created_at": now,
-                "finished_at": now if completed else None,
+                "finished_at": now if closing else None,
                 "expected_item_count": self.experiment.get("expected_item_count"),
                 "expected_result_count": self.experiment.get("expected_result_count"),
                 "accepted_item_count": len(self.items),

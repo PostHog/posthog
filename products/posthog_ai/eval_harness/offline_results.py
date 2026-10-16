@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 import re
 import json
+import asyncio
 from collections import Counter
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import field
 from datetime import datetime
 from typing import cast
@@ -91,8 +93,16 @@ class OfflineEvalSettings(BaseModel):
     project_id: int = Field(gt=0)
     api_key: SecretStr
     scorer_versions: dict[str, UUID]
-    request_timeout: float = Field(default=15, gt=0, allow_inf_nan=False)
-    max_retries: int = Field(default=3, ge=0)
+    request_timeout: float = Field(default=5, gt=0, allow_inf_nan=False)
+    max_retries: int = Field(default=2, ge=0)
+
+    @field_validator("api_key")
+    @classmethod
+    def validate_api_key(cls, api_key: SecretStr) -> SecretStr:
+        value = api_key.get_secret_value()
+        if not value or any(character.isspace() for character in value):
+            raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_API_KEY must be nonempty and contain no whitespace")
+        return api_key
 
     @field_validator("host")
     @classmethod
@@ -138,8 +148,6 @@ class OfflineEvalSettings(BaseModel):
             raise OfflineUploadError(
                 "Offline evaluation suite has an invalid project ID or scorer version mapping"
             ) from None
-        if not settings.api_key.get_secret_value().strip():
-            raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_API_KEY must not be empty")
         if not set(suite.scorer_kinds) <= set(settings.scorer_versions):
             raise OfflineUploadError("Offline evaluation suite must map every enrolled metric to a scorer version UUID")
         enrolled_versions = [settings.scorer_versions[metric] for metric in suite.scorer_kinds]
@@ -383,8 +391,13 @@ class OfflineEvalPublisher:
                 max_retries=self.settings.max_retries,
             ) as client:
                 experiment = await client.create_experiment(name=upload.experiment_name, **upload.experiment)
-                await experiment.upload_results(upload.results)
-                await experiment.complete()
+                try:
+                    await experiment.upload_results(upload.results)
+                    await experiment.complete()
+                except EvaluationAPIError:
+                    with suppress(Exception):
+                        await asyncio.wait_for(experiment.fail(), timeout=5)
+                    raise
         except EvaluationAPIError as error:
             raise OfflineUploadError(str(error), api_error=error) from None
         return (

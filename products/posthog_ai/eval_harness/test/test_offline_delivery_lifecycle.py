@@ -58,8 +58,14 @@ def test_harness_tears_down_infrastructure_before_draining_uploads(
     )
 
     async def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal clock_offset
         started.set()
         await torn_down.wait()
+        if not server.requests:
+            clock_offset += 45
+            resumed = asyncio.Event()
+            asyncio.get_running_loop().call_later(0, resumed.set)
+            await resumed.wait()
         return server.respond(request)
 
     monkeypatch.setattr(httpx, "AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))

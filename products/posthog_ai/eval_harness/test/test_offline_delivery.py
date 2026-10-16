@@ -4,6 +4,7 @@ import json
 import asyncio
 import threading
 from collections.abc import Callable, Coroutine
+from dataclasses import replace
 from functools import partial
 from typing import Literal
 from uuid import UUID
@@ -11,6 +12,7 @@ from uuid import UUID
 import pytest
 
 import httpx
+from posthoganalytics.ai.evaluations import EvaluationItem, EvaluationResult
 from pydantic import SecretStr
 
 from products.posthog_ai.eval_harness.engines.types import EvalSummary
@@ -66,8 +68,8 @@ def _upload(index: int) -> OfflineEvalUpload:
 
 
 def _receipt(request: httpx.Request, servers: dict[str, OfflineServer]) -> httpx.Response:
-    complete = request.url.path.endswith("/complete/")
-    experiment_id = request.url.path.split("/")[-3] if complete else json.loads(request.content)["id"]
+    action = request.url.path.endswith(("/upload/", "/complete/", "/fail/"))
+    experiment_id = request.url.path.split("/")[-3] if action else json.loads(request.content)["id"]
     return servers.setdefault(experiment_id, OfflineServer()).respond(request)
 
 
@@ -247,6 +249,57 @@ async def test_shutdown_cancels_active_and_waiting_uploads_and_reports_unsaved_r
 
 
 @pytest.mark.asyncio
+async def test_default_delivery_budget_allows_request_timeout_retries_through_completion(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    clock_offset = 0.0
+    loop = asyncio.get_running_loop()
+    original_time = loop.time
+    monkeypatch.setattr(loop, "time", lambda: original_time() + clock_offset)
+    monkeypatch.setattr("posthoganalytics.ai.evaluations._transport.random.uniform", lambda *_: 1.2)
+    attempts: dict[str, int] = {}
+    server = OfflineServer()
+
+    async def advance(seconds: float) -> None:
+        nonlocal clock_offset
+        clock_offset += seconds
+        resumed = asyncio.Event()
+        loop.call_later(0, resumed.set)
+        await resumed.wait()
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        attempts[path] = attempts.get(path, 0) + 1
+        await advance(settings.request_timeout)
+        if attempts[path] <= settings.max_retries:
+            raise httpx.ReadTimeout("Synthetic timeout", request=request)
+        return server.respond(request)
+
+    monkeypatch.setattr("posthoganalytics.ai.evaluations._transport.asyncio.sleep", advance)
+    monkeypatch.setattr(httpx, "AsyncClient", partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)))
+    settings = OfflineEvalSettings(
+        host="https://posthog.example.com", project_id=123, api_key=SecretStr("test"), scorer_versions={}
+    )
+    publisher = OfflineEvalPublisher(
+        settings, OfflineEvalSuite(key="test/suite", project_id=123, scorer_kinds={}, scorer_versions={})
+    )
+    upload = replace(
+        _upload(1),
+        experiment={"id": str(UUID(int=1)), "started_at": STARTED_AT},
+        results=(EvaluationResult(item=EvaluationItem(id=UUID(int=2)), scorer_version_id=UUID(int=3), value=1),),
+    )
+    delivery = OfflineEvalDelivery(ProgressReporter(total_suites=1))
+    assert delivery.submit(publisher, upload)
+    await delivery.drain()
+
+    assert server.status == "completed"
+    assert len(server.results) == 1
+    assert len(attempts) == 3
+    assert all(count == settings.max_retries + 1 for count in attempts.values())
+    assert "upload failed:" not in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
 async def test_upload_deadline_reports_unsaved_results_before_network(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -260,7 +313,7 @@ async def test_upload_deadline_reports_unsaved_results_before_network(
     publisher = _publisher(monkeypatch, respond)
     delivery = OfflineEvalDelivery(ProgressReporter(total_suites=1), upload_timeout=0)
     assert delivery.submit(publisher, _upload(1))
-    await delivery.drain()
+    await delivery.drain(timeout=5)
 
     assert requests == []
     output = capsys.readouterr().out
