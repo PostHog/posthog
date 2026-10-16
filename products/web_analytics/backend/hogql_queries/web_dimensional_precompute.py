@@ -49,9 +49,12 @@ WEB_BOUNCES_DIMENSIONAL_READ_TABLE = "web_bounces_dimensional_preaggregated"
 # TTL tuned for "keep ~90 days warm, don't recompute every time": today's window
 # refreshes hourly, the last two days daily, everything older is computed once and
 # held for 90 days. The scheduled job re-runs over the rolling window and the
-# framework only recomputes windows whose jobs have expired.
+# framework only recomputes windows whose jobs have expired. Today's TTL is shorter
+# than the hourly schedule so that every run finds today's job expired and rebuilds
+# it. A TTL equal to the schedule period lets a run find the job fresh by seconds,
+# skip it, and leave it expired until the next run.
 DIMENSIONAL_TTL_SECONDS: dict[str, int] = {
-    "0d": 60 * 60,
+    "0d": 45 * 60,
     "2d": 24 * 60 * 60,
     "default": 90 * 24 * 60 * 60,
 }
