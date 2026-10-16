@@ -23,6 +23,7 @@ import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { MessagingSetup } from './MessagingSetup'
 import { MessagingTabActions } from './MessagingTabActions'
 import { isMessagingSetupTab } from './messagingTabs'
+import { SendingLimitsBanner } from './SendingLimitsBanner'
 import { MessagingSetupTabLabel } from './setupGuide/MessagingSetupTabLabel'
 import { WorkflowsOnboardingWizard } from './setupGuide/wizard/WorkflowsOnboardingWizard'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
@@ -239,6 +240,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
+            <SendingLimitsBanner />
             <LemonTabs<WorkflowsTopTab>
                 activeKey={topTabFor(currentTab)}
                 tabs={[

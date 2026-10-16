@@ -76,6 +76,7 @@ import type {
     WorkflowProposalCreateApi,
     WorkflowProposalOutcomeApi,
     WorkflowProposalRejectRequestApi,
+    WorkflowSendingLimitsApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
 
@@ -1315,6 +1316,26 @@ export const hogFlowsReputationRetrieve = async (
     options?: RequestInit
 ): Promise<TeamEmailReputationResponseApi> => {
     return apiMutator<TeamEmailReputationResponseApi>(getHogFlowsReputationRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsSendingLimitsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/sending_limits/`
+}
+
+/**
+ * Which project-wide billing quotas currently stop sends, for the scene-wide notice.
+ *
+ * Everyone who can read workflows sees the quotas, like the suspension read: a quota stops
+ * everyone's sends, so hiding it would leave silent send failures unexplained.
+ */
+export const hogFlowsSendingLimitsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowSendingLimitsApi> => {
+    return apiMutator<WorkflowSendingLimitsApi>(getHogFlowsSendingLimitsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

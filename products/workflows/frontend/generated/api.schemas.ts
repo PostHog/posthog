@@ -2055,6 +2055,16 @@ export interface TeamEmailReputationResponseApi {
 }
 
 /**
+ * Project-wide billing quotas that stop workflow sends, for the scene-wide notice.
+ */
+export interface WorkflowSendingLimitsApi {
+    /** True while the organization is over its workflow email quota, so workflows that send email do not run. */
+    readonly email_quota_limited: boolean
+    /** True while the organization is over its workflow destination quota, so workflows with a destination or push step do not run. */
+    readonly destination_quota_limited: boolean
+}
+
+/**
  * Property filters to apply
  */
 export type BlastRadiusRequestApiFilters = { [key: string]: unknown }

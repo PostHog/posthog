@@ -264,6 +264,14 @@ class EmailSendingAllowance:
     enforced: bool
 
 
+@frozen
+class SendingLimits:
+    """Which project-wide billing quotas currently stop workflow sends."""
+
+    email_quota_limited: bool
+    destination_quota_limited: bool
+
+
 class StaffPausedError(Exception):
     """A customer tried to resume a pause only staff may clear."""
 

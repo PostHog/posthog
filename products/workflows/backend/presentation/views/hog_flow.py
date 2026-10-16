@@ -252,6 +252,7 @@ from products.workflows.backend.facade.secrets import (
     secret_keys_for_action,
     strip_content_secrets,
 )
+from products.workflows.backend.facade.sending_limits import get_team_sending_limits
 from products.workflows.backend.facade.suggestions_scout import (
     PROPOSAL_WRITE_SCOPE,
     suggestions_scout_refusal,
@@ -2623,6 +2624,22 @@ class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
     )
 
 
+class WorkflowSendingLimitsSerializer(serializers.Serializer):
+    """Project-wide billing quotas that stop workflow sends, for the scene-wide notice."""
+
+    email_quota_limited = serializers.BooleanField(
+        read_only=True,
+        help_text="True while the organization is over its workflow email quota, so workflows that send email do not run.",
+    )
+    destination_quota_limited = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True while the organization is over its workflow destination quota, so workflows with a "
+            "destination or push step do not run."
+        ),
+    )
+
+
 class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
     """Whether PostHog paused this one workflow's email sending, and why."""
 
@@ -4419,6 +4436,7 @@ class HogFlowViewSet(
         "metrics_global",
         "team_reputation",
         "email_sending_suspension",
+        "sending_limits",
         "user_blast_radius",
         "assets",
         "asset_content",
@@ -6417,6 +6435,21 @@ class HogFlowViewSet(
                 }
             ).data
         )
+
+    @extend_schema(
+        operation_id="hog_flows_sending_limits_retrieve",
+        responses={200: WorkflowSendingLimitsSerializer},
+    )
+    @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[], url_path="sending_limits")
+    def sending_limits(self, request: Request, **kwargs) -> Response:
+        """
+        Which project-wide billing quotas currently stop sends, for the scene-wide notice.
+
+        Everyone who can read workflows sees the quotas, like the suspension read: a quota stops
+        everyone's sends, so hiding it would leave silent send failures unexplained.
+        """
+        limits = get_team_sending_limits(self.team)
+        return Response(WorkflowSendingLimitsSerializer(limits).data)
 
     @extend_schema(
         operation_id="hog_flows_resume_email_sending",
