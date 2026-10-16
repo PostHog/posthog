@@ -20,6 +20,7 @@ import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'pro
 import {
     type ClaudeTaskRunCreateSchemaApi,
     type CodexTaskRunCreateSchemaApi,
+    type FxTaskRunCreateSchemaApi,
     InitialPermissionModeEnumApi,
     type LegacyDesktopAccessResponseApi,
     type TasksTaskDefaultsApi,
@@ -914,7 +915,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // failed) and clamps the stated permission mode to the resolved runtime. The warm run
                 // was provisioned the same way, so provisioning and matching resolve alike. An explicit
                 // pick sends the full displayed selection, runtime derived from the model.
-                let pinnedRequest: ClaudeTaskRunCreateSchemaApi | CodexTaskRunCreateSchemaApi | null = null
+                let pinnedRequest:
+                    | ClaudeTaskRunCreateSchemaApi
+                    | CodexTaskRunCreateSchemaApi
+                    | FxTaskRunCreateSchemaApi
+                    | null = null
                 // A run on the ChatGPT plan pins the displayed Codex model, so the server can't resolve a default
                 // on another harness that the plan can't pay for.
                 if (!values.isDefaultSelection || onChatGptPlan) {

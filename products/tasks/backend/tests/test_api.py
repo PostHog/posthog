@@ -5988,6 +5988,31 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("switch_to_codex", {"runtime_adapter": "codex", "model": "gpt-5.4"}, status.HTTP_400_BAD_REQUEST),
+            ("stay_on_fx", {"runtime_adapter": "fx", "model": "gpt-6-sol"}, status.HTTP_200_OK),
+            ("inherit_fx", {}, status.HTTP_200_OK),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_resume_of_an_fx_run_stays_on_fx(self, _name, request_fields, expected_status, mock_workflow):
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"runtime_adapter": "fx", "model": "gpt-6-sol"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "interactive", "resume_from_run_id": str(previous_run.id), **request_fields},
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_resume_rejects_inherited_invalid_reasoning_effort(self, mock_workflow):
         task = self.create_task()

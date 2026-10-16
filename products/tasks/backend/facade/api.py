@@ -9405,6 +9405,15 @@ def run_task(
     if resume_from_run_id:
         assert previous_run is not None and previous_state is not None
         prev_state = previous_state
+        if prev_state.runtime_adapter == "fx" and runtime_state_fields["runtime_adapter"] not in (None, "fx"):
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(
+                    kind="validation_error",
+                    code="invalid_input",
+                    detail="This run uses the fx runtime, so a follow-up has to stay on fx.",
+                    attr="runtime_adapter",
+                )
+            )
         extra_state = extra_state or {}
         if not extra_state.get("client_platform") and (previous_run.state or {}).get("client_platform") == "mobile":
             extra_state["client_platform"] = "mobile"
