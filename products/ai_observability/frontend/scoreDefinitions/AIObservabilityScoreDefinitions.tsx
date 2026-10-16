@@ -23,6 +23,8 @@ import { urls } from 'scenes/urls'
 import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ResourceTagFilter } from '../components/ResourceTagFilter'
+import { ResourceTags } from '../components/ResourceTags'
 import type {
     ScoreDefinitionKindEnumApi as ScoreDefinitionKind,
     ScoreDefinitionApi as ScoreDefinition,
@@ -69,7 +71,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            width: '25%',
+            width: '35%',
             render: function renderName(_, scoreDefinition) {
                 return (
                     <div className="space-y-1">
@@ -83,6 +85,13 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                         ) : (
                             <div className="text-muted">No description</div>
                         )}
+                        <ResourceTags
+                            entity="scorers"
+                            resourceId={scoreDefinition.id}
+                            tags={scoreDefinition.tags}
+                            onSaved={() => loadScoreDefinitions(false)}
+                            onTagClick={(tag) => setFilters({ tags: [tag] }, true, false)}
+                        />
                     </div>
                 )
             },
@@ -159,6 +168,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                         className="min-w-64"
                         data-attr="llma-scorers-search-input"
                     />
+                    <ResourceTagFilter filters={filters} onChange={(tags) => setFilters(tags, true, false)} />
                     <LemonSelect<ScoreDefinitionKind | ''>
                         value={filters.kind}
                         onChange={(value) => setFilters({ kind: value || '' })}
@@ -201,6 +211,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             )}
             {!scoreDefinitionsError && (
                 <LemonTable
+                    className="@max-[50rem]/scorers:[&_colgroup]:hidden"
                     loading={scoreDefinitionsLoading}
                     columns={columns}
                     dataSource={scoreDefinitions.results}

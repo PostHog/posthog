@@ -31,6 +31,7 @@ const mockAIObservabilityScoreDefinitionsPartialUpdate =
     >
 
 const mockScoreDefinition: ScoreDefinition = {
+    tags: [],
     id: 'score_def_1',
     name: 'Quality',
     description: 'Reusable quality scorer',
@@ -60,6 +61,7 @@ const mockScoreDefinition: ScoreDefinition = {
 describe('aiObservabilityScoreDefinitionsLogic', () => {
     beforeEach(() => {
         initKeaTests()
+        localStorage.clear()
         jest.resetAllMocks()
         mockAIObservabilityScoreDefinitionsList.mockResolvedValue({
             results: [mockScoreDefinition],
@@ -96,6 +98,8 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
         }).toFinishAllListeners()
 
         expect(logic.values.filters).toEqual({
+            tags: [],
+            tag_match: 'any',
             page: 1,
             search: 'quality',
             kind: 'categorical',
@@ -110,6 +114,28 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
             offset: 0,
             limit: SCORE_DEFINITIONS_PER_PAGE,
         })
+    })
+
+    it('restores tag filters on return and lets shared URLs override them', async () => {
+        router.actions.push(urls.aiObservabilityScorers())
+        const logic = aiObservabilityScoreDefinitionsLogic()
+        logic.mount()
+        await expectLogic(logic, () =>
+            logic.actions.setFilters({ tags: ['quality', 'production'], tag_match: 'all' }, true, false)
+        ).toFinishAllListeners()
+        expect(router.values.searchParams).toMatchObject({ tags: ['quality', 'production'], tag_match: 'all' })
+        expect(mockAIObservabilityScoreDefinitionsList).toHaveBeenLastCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ tags: '["quality","production"]', tag_match: 'all' })
+        )
+        router.actions.push(urls.aiObservabilityDatasets())
+        router.actions.push(urls.aiObservabilityScorers())
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters.tags).toEqual(['quality', 'production'])
+        expect(router.values.searchParams.tags).toEqual(['quality', 'production'])
+        router.actions.push(urls.aiObservabilityScorers(), { tags: ['other'], tag_match: 'any' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters.tags).toEqual(['other'])
     })
 
     it('does not show the empty count label while loading', async () => {

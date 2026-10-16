@@ -49,6 +49,11 @@ class TaggableModel:
 
 
 TAGGABLE_MODELS: tuple[TaggableModel, ...] = (
+    TaggableModel(model_label="ai_observability.Dataset", legacy_field="ai_dataset", object_field=OBJECT_UUID),
+    TaggableModel(model_label="ai_observability.ScoreDefinition", legacy_field="ai_scorer", object_field=OBJECT_UUID),
+    TaggableModel(
+        model_label="ai_observability.OfflineExperiment", legacy_field="offline_experiment", object_field=OBJECT_UUID
+    ),
     TaggableModel(model_label="dashboards.Dashboard", legacy_field="dashboard", object_field=OBJECT_ID),
     TaggableModel(model_label="product_analytics.Insight", legacy_field="insight", object_field=OBJECT_ID),
     TaggableModel(

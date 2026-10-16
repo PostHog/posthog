@@ -173,6 +173,31 @@ class TestOfflineExperimentReads(APIBaseTest):
                 response = self.client.get(path)
                 self.assertEqual(response.status_code, expected_status, response.data)
 
+    @parameterized.expand(
+        [
+            ("editor_session", "session", [], "editor", status.HTTP_200_OK),
+            ("viewer_session", "session", [], "viewer", status.HTTP_403_FORBIDDEN),
+            ("editor_key", "personal_key", ["evaluation:write"], "editor", status.HTTP_200_OK),
+            ("reader_key", "personal_key", ["evaluation:read"], "editor", status.HTTP_403_FORBIDDEN),
+            (
+                "ingestion_key",
+                "personal_key",
+                ["offline_evaluation_ingestion:write"],
+                "editor",
+                status.HTTP_403_FORBIDDEN,
+            ),
+            ("project_key", "project_key", ["evaluation:write"], "editor", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_tag_updates_require_evaluation_editor_access(
+        self, _name: str, auth_kind: str, scopes: list[str], access: str, expected_status: int
+    ) -> None:
+        membership = self._member(evaluation_access=access)
+        self._authenticate(auth_kind, scopes, user=membership.user)
+        response = self.client.patch(self._endpoint(f"{self.experiment.id}/"), {"tags": ["quality"]}, format="json")
+        assert response.status_code == expected_status, response.data
+        assert self.experiment.tagged_items.count() == (1 if expected_status == 200 else 0)
+
     def test_evaluation_only_key_reads_items_but_cannot_select_or_filter_scorers(self) -> None:
         self._authenticate("personal_key", ["evaluation:read"])
         for path in self._metadata_paths():

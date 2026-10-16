@@ -4,6 +4,7 @@ from typing import Any
 
 from django.db import models, transaction
 
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -17,7 +18,7 @@ class StaleScoreDefinitionVersion(Exception):
         self.current_version = current_version
 
 
-class ScoreDefinition(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     class Kind(models.TextChoices):
         CATEGORICAL = "categorical", "categorical"
         NUMERIC = "numeric", "numeric"

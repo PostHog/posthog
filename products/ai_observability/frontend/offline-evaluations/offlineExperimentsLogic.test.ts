@@ -53,6 +53,26 @@ describe('offlineExperimentsLogic', () => {
 
     afterEach(() => jest.useRealTimers())
 
+    it('remembers experiment tag filters and shares the restored selection in the URL', async () => {
+        const logic = offlineExperimentsLogic(props)
+        logic.mount()
+        logic.actions.setFilters({ tags: ['quality', 'production'], tag_match: 'all' })
+        await jest.advanceTimersByTimeAsync(400)
+        expect(router.values.searchParams).toMatchObject({ tags: ['quality', 'production'], tag_match: 'all' })
+        expect(list).toHaveBeenLastCalledWith(
+            String(props.teamId),
+            expect.objectContaining({ tags: '["quality","production"]', tag_match: 'all' })
+        )
+        router.actions.push(urls.aiObservabilityScorers())
+        router.actions.push(urls.aiObservabilityOfflineEvaluations())
+        await jest.advanceTimersByTimeAsync(400)
+        expect(logic.values.filters.tags).toEqual(['quality', 'production'])
+        expect(router.values.searchParams.tags).toEqual(['quality', 'production'])
+        router.actions.push(urls.aiObservabilityOfflineEvaluations(), { tags: [] })
+        await jest.advanceTimersByTimeAsync(400)
+        expect(logic.values.filters.tags).toEqual([])
+    })
+
     it('keeps the active chart hover when another chart leaves and clears it when filters change', () => {
         const logic = offlineExperimentsLogic(props)
         logic.mount()

@@ -17,6 +17,9 @@ import { TZLabel } from 'lib/components/TZLabel'
 import type { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
+import { ResourceTagFilter } from '../components/ResourceTagFilter'
+import { cleanTagFilters } from '../components/resourceTagFilters'
+import { ResourceTags } from '../components/ResourceTags'
 import type { OfflineExperimentReadApi } from '../generated/api.schemas'
 import { OfflineExperimentsEmptyState } from './OfflineExperimentsEmptyState'
 import { offlineExperimentsLogic, type OfflineExperimentsLogicProps } from './offlineExperimentsLogic'
@@ -47,22 +50,33 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
         {
             title: 'Experiment',
             key: 'name',
+            className: '@max-[50rem]:w-1/2',
             width: '26%',
             render: (_, experiment) => (
-                <Tooltip title={`${experiment.name} · ${experiment.id}`}>
-                    <Link
-                        to={urls.aiObservabilityOfflineEvaluationExperiment(experiment.id)}
-                        className="block font-semibold truncate"
-                        data-attr="offline-experiment-open"
-                    >
-                        {experiment.name}
-                    </Link>
-                </Tooltip>
+                <div className="space-y-1 min-w-0">
+                    <Tooltip title={`${experiment.name} · ${experiment.id}`}>
+                        <Link
+                            to={urls.aiObservabilityOfflineEvaluationExperiment(experiment.id)}
+                            className="block font-semibold truncate"
+                            data-attr="offline-experiment-open"
+                        >
+                            {experiment.name}
+                        </Link>
+                    </Tooltip>
+                    <ResourceTags
+                        entity="experiments"
+                        resourceId={experiment.id}
+                        tags={experiment.tags}
+                        onSaved={refresh}
+                        onTagClick={(tag) => setFilters({ tags: [tag] })}
+                    />
+                </div>
             ),
         },
         {
             title: 'Execution',
             key: 'execution',
+            className: '@max-[50rem]:hidden',
             width: '18%',
             render: (_, experiment) => (
                 <div className="truncate">
@@ -73,6 +87,7 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
         {
             title: 'Source',
             key: 'source',
+            className: '@max-[50rem]:hidden',
             width: '12%',
             render: (_, experiment) => (
                 <Tooltip title={offlineRunSourceLabel(experiment.run_source)}>
@@ -218,6 +233,7 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
             <section aria-label="Recent experiments" className="space-y-3">
                 <div className="flex flex-wrap justify-between items-center gap-2">
                     <h2 className="mb-0">Recent experiments</h2>
+                    <ResourceTagFilter filters={cleanTagFilters(filters)} onChange={setFilters} />
                     <LemonInput
                         type="search"
                         prefix={<IconSearch />}
@@ -232,6 +248,7 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                     </LemonBanner>
                 ) : (
                     <LemonTable
+                        className="@max-[50rem]:[&_colgroup]:hidden @max-[50rem]:[&_table]:table-auto"
                         dataSource={experiments?.results || []}
                         columns={columns}
                         rowKey="id"

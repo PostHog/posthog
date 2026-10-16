@@ -1,6 +1,7 @@
 from typing import NoReturn, cast
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import F, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.http import Http404
@@ -49,6 +50,11 @@ from products.ai_observability.backend.api.dataset_exports import (
 )
 from products.ai_observability.backend.api.dataset_serializers import StrictDatasetSerializer
 from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.ai_observability.backend.api.resource_tags import (
+    ResourceTagFilterSerializer,
+    ResourceTagsReadSerializer,
+    ResourceTagsWriteSerializer,
+)
 from products.ai_observability.backend.dataset_queries import (
     consistent_dataset_item_versions,
     dataset_item_versions_at_revision,
@@ -69,6 +75,7 @@ from products.ai_observability.backend.dataset_service import (
     update_dataset_item,
 )
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
+from products.ai_observability.backend.resource_tags import ResourceTags
 from products.exports.backend.facade.api import get_export_asset_content_response
 
 
@@ -186,7 +193,7 @@ def _resolved_dataset_revision_id(dataset: Dataset) -> UUID | None:
     return dataset.current_revision_id
 
 
-class DatasetReadSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+class DatasetReadSerializer(ResourceTagsReadSerializer, UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
     metadata = JSONObjectField(read_only=True, help_text="JSON object with descriptive dataset metadata.")
     current_revision = serializers.SerializerMethodField(
@@ -204,6 +211,7 @@ class DatasetReadSerializer(UserAccessControlSerializerMixin, serializers.ModelS
             "name",
             "description",
             "metadata",
+            "tags",
             "archived",
             "current_revision",
             "current_revision_id",
@@ -224,7 +232,7 @@ class DatasetReadSerializer(UserAccessControlSerializerMixin, serializers.ModelS
         return _resolved_dataset_revision_id(instance)
 
 
-class DatasetCreateSerializer(DatasetMutationSerializer):
+class DatasetCreateSerializer(ResourceTagsWriteSerializer, DatasetMutationSerializer):
     name = serializers.CharField(
         max_length=400,
         trim_whitespace=True,
@@ -244,7 +252,7 @@ class DatasetCreateSerializer(DatasetMutationSerializer):
     )
 
 
-class DatasetUpdateSerializer(DatasetMutationSerializer):
+class DatasetUpdateSerializer(ResourceTagsWriteSerializer, DatasetMutationSerializer):
     name = serializers.CharField(
         required=False,
         max_length=400,
@@ -263,7 +271,7 @@ class DatasetUpdateSerializer(DatasetMutationSerializer):
     )
 
 
-class DatasetListQuerySerializer(serializers.Serializer):
+class DatasetListQuerySerializer(ResourceTagFilterSerializer):
     id__in = RepeatedOrCommaSeparatedListField(
         child=serializers.UUIDField(),
         required=False,
@@ -597,6 +605,7 @@ def _dataset_queryset() -> QuerySet[Dataset, Dataset]:
     return (
         Dataset.objects.unscoped()
         .select_related("created_by", "current_revision")
+        .prefetch_related(ResourceTags.prefetch())
         .annotate(
             resolved_current_revision=Coalesce(
                 F("current_revision__revision"),
@@ -694,6 +703,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
             queryset = queryset.filter(
                 Q(name__icontains=search) | Q(description__icontains=search) | Q(metadata__icontains=search)
             )
+        queryset = ResourceTags.filter(queryset, self.team_id, query.get("tags", []), query["tag_match"])
         queryset = queryset.order_by(query["order_by"], "id")
 
         page = self.paginate_queryset(queryset)
@@ -729,13 +739,16 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         try:
-            dataset = create_dataset(
-                team=self.team,
-                created_by=cast(User, request.user),
-                name=data["name"],
-                description=data["description"],
-                metadata=data["metadata"],
-            )
+            with transaction.atomic():
+                dataset = create_dataset(
+                    team=self.team,
+                    created_by=cast(User, request.user),
+                    name=data["name"],
+                    description=data["description"],
+                    metadata=data["metadata"],
+                )
+                if "tags" in data:
+                    ResourceTags.set(dataset, data["tags"])
         except DatasetValidationError as error:
             _validation_error_response(error)
         except (DatasetMutationConflict, DatasetLimitExceeded) as error:
@@ -774,13 +787,16 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         try:
-            dataset = update_dataset(
-                team_id=self.team.id,
-                dataset_id=current.id,
-                name=data.get("name", UNSET),
-                description=data.get("description", UNSET),
-                metadata=data.get("metadata", UNSET),
-            )
+            with transaction.atomic():
+                dataset = update_dataset(
+                    team_id=self.team.id,
+                    dataset_id=current.id,
+                    name=data.get("name", UNSET),
+                    description=data.get("description", UNSET),
+                    metadata=data.get("metadata", UNSET),
+                )
+                if "tags" in data:
+                    ResourceTags.set(dataset, data["tags"])
         except DatasetValidationError as error:
             _validation_error_response(error)
         except DatasetMutationConflict as error:

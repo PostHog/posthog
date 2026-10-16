@@ -12,6 +12,7 @@ from products.ai_observability.backend.api.offline_experiment_serializers import
     ResultValueField,
 )
 from products.ai_observability.backend.api.query import validate_query_parameters
+from products.ai_observability.backend.api.resource_tags import ResourceTagFilterField
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineExperiment,
@@ -25,6 +26,7 @@ from products.ai_observability.backend.offline_evaluation_read_types import (
     OfflineResultCellQuery,
 )
 from products.ai_observability.backend.offline_evaluation_service import OfflineEvaluationValidationError
+from products.ai_observability.backend.resource_tags import TagMatch
 from products.ai_observability.backend.score_definition_configs import ScoreDefinitionConfigField
 
 if TYPE_CHECKING:
@@ -178,15 +180,29 @@ class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
 
 
 class OfflineExperimentQuerySerializer(OfflineHistoryQuerySerializer):
+    tags = ResourceTagFilterField()
+    tag_match = serializers.ChoiceField(
+        choices=TagMatch.choices,
+        required=False,
+        default=TagMatch.ANY,
+        help_text="Match any selected tag (OR) or all selected tags (AND).",
+    )
+
+    def validate_tags(self, value: list[str]) -> tuple[str, ...]:
+        return tuple(value)
+
     scorer_definition_id = serializers.UUIDField(
         required=False, help_text="Restrict results to this scorer definition."
     )
 
     class Meta(OfflineHistoryQuerySerializer.Meta):
-        fields = [*OfflineHistoryQuerySerializer.Meta.fields, "scorer_definition_id"]
+        fields = [*OfflineHistoryQuerySerializer.Meta.fields, "scorer_definition_id", "tags", "tag_match"]
 
 
 class OfflineExperimentReadSerializer(serializers.Serializer):
+    tags = serializers.ListField(
+        child=serializers.CharField(), help_text="Project tag names assigned to this experiment."
+    )
     id = serializers.UUIDField(help_text="Stable experiment UUID.")
     name = serializers.CharField(help_text="Experiment name.")
     run_source = serializers.ChoiceField(

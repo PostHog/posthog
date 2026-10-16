@@ -5,6 +5,7 @@ from django.db.models.lookups import Exact
 from django.utils import timezone
 
 from posthog.models.scoping.manager import EnvironmentScopedManager
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDModel
 
 
@@ -14,7 +15,7 @@ class PayloadState(models.TextChoices):
     EXPIRED = "expired", "Expired"
 
 
-class OfflineExperiment(models.Model):
+class OfflineExperiment(Taggable):
     class Status(models.TextChoices):
         UPLOADING = "uploading", "Uploading"
         COMPLETED = "completed", "Completed"

@@ -35124,6 +35124,12 @@ export namespace Schemas {
 
     export interface DatasetCreate {
       /**
+         * Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
+      /**
          * Dataset name. Names are unique within a project.
          * @maxLength 400
          */
@@ -35322,6 +35328,8 @@ export namespace Schemas {
       readonly description: string;
       /** JSON object with descriptive dataset metadata. */
       readonly metadata: DatasetReadMetadata;
+      /** Project tag names assigned to this resource. */
+      readonly tags: readonly string[];
       readonly archived: boolean;
       /**
          * Latest dataset revision, or null before the first item is added.
@@ -68595,6 +68603,8 @@ export namespace Schemas {
     }
 
     export interface OfflineExperimentRead {
+      /** Project tag names assigned to this experiment. */
+      tags: string[];
       /** Stable experiment UUID. */
       id: string;
       /** Experiment name. */
@@ -73244,6 +73254,8 @@ export namespace Schemas {
       readonly id: string;
       readonly name: string;
       readonly description: string;
+      /** Project tag names assigned to this resource. */
+      readonly tags: readonly string[];
       readonly kind: ScoreDefinitionKindEnum;
       readonly archived: boolean;
       /** Current immutable configuration version number. */
@@ -79968,6 +79980,12 @@ export namespace Schemas {
 
     export interface PatchedDatasetUpdate {
       /**
+         * Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
+      /**
          * New dataset name. Names are unique within a project.
          * @maxLength 400
          */
@@ -82933,6 +82951,15 @@ export namespace Schemas {
       event_definition_id?: string | null;
     }
 
+    export interface PatchedOfflineExperimentMetadata {
+      /**
+         * Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
+    }
+
     export type PatchedOrganizationProjectsItem = { [key: string]: unknown };
 
     export type PatchedOrganizationMetadata = {[key: string]: string};
@@ -85060,6 +85087,12 @@ export namespace Schemas {
     }
 
     export interface PatchedScoreDefinitionMetadata {
+      /**
+         * Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /**
          * Updated scorer name.
          * @maxLength 255
@@ -99438,6 +99471,12 @@ export namespace Schemas {
     }
 
     export interface ScoreDefinitionCreate {
+      /**
+         * Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /**
          * Human-readable scorer name.
          * @maxLength 255
@@ -120004,7 +120043,27 @@ export namespace Schemas {
      * @maxLength 255
      */
     suite_key?: string;
+    /**
+     * Match any selected tag (OR) or all selected tags (AND).
+     *
+     * * `any` - Any
+     * * `all` - All
+     * @minLength 1
+     */
+    tag_match?: AiObservabilityOfflineExperimentsListTagMatch;
+    /**
+     * JSON array of tag names, for example ["quality","production"]. Up to 20 tags. An empty array disables tag filtering.
+     */
+    tags?: string;
     };
+
+    export type AiObservabilityOfflineExperimentsListTagMatch = typeof AiObservabilityOfflineExperimentsListTagMatch[keyof typeof AiObservabilityOfflineExperimentsListTagMatch];
+
+
+    export const AiObservabilityOfflineExperimentsListTagMatch = {
+      Any: 'any',
+      All: 'all',
+    } as const;
 
     export type AiObservabilityOfflineExperimentsItemsListParams = {
     /**
@@ -122689,7 +122748,27 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * Match any selected tag (OR) or all selected tags (AND). Additional tags are allowed.
+     *
+     * * `any` - Any
+     * * `all` - All
+     * @minLength 1
+     */
+    tag_match?: DatasetsListTagMatch;
+    /**
+     * JSON array of tag names, for example ["quality","production"]. Up to 20 tags. An empty array disables tag filtering.
+     */
+    tags?: string;
     };
+
+    export type DatasetsListTagMatch = typeof DatasetsListTagMatch[keyof typeof DatasetsListTagMatch];
+
+
+    export const DatasetsListTagMatch = {
+      Any: 'any',
+      All: 'all',
+    } as const;
 
     export type DatasetsRevisionsListParams = {
     /**
@@ -127236,7 +127315,27 @@ export namespace Schemas {
      * Search scorers by name or description.
      */
     search?: string;
+    /**
+     * Match any selected tag (OR) or all selected tags (AND). Additional tags are allowed.
+     *
+     * * `any` - Any
+     * * `all` - All
+     * @minLength 1
+     */
+    tag_match?: LlmAnalyticsScoreDefinitionsListTagMatch;
+    /**
+     * JSON array of tag names, for example ["quality","production"]. Up to 20 tags. An empty array disables tag filtering.
+     */
+    tags?: string;
     };
+
+    export type LlmAnalyticsScoreDefinitionsListTagMatch = typeof LlmAnalyticsScoreDefinitionsListTagMatch[keyof typeof LlmAnalyticsScoreDefinitionsListTagMatch];
+
+
+    export const LlmAnalyticsScoreDefinitionsListTagMatch = {
+      Any: 'any',
+      All: 'all',
+    } as const;
 
     export type LlmAnalyticsScoreDefinitionsVersionsListParams = {
     /**
