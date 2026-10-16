@@ -1,6 +1,8 @@
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
+from urllib3.util.retry import Retry
+
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -26,6 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.daisycon.s
 )
 
 REQUEST_TIMEOUT = (10, 120)
+# Setup waits on the probe, so it gets one short attempt.
+PROBE_TIMEOUT = (10, 30)
 
 
 class DaisyconPublisherError(Exception):
@@ -192,10 +196,10 @@ def daisycon_source(
 
 def probe_token(access_token: str) -> int:
     """Return the HTTP status of one cheap authorized read."""
-    response = make_tracked_session(redact_values=(access_token,), allow_redirects=False).get(
+    response = make_tracked_session(redact_values=(access_token,), allow_redirects=False, retry=Retry(total=0)).get(
         f"{DAISYCON_BASE_URL}/publishers",
         params={"per_page": 1},
         headers={"Authorization": f"Bearer {access_token}"},
-        timeout=REQUEST_TIMEOUT,
+        timeout=PROBE_TIMEOUT,
     )
     return response.status_code

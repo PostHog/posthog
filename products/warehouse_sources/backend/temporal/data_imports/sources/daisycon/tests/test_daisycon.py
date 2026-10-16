@@ -215,7 +215,8 @@ class TestValidateCredentials:
             assert message is None
         else:
             assert message is not None and message_fragment in message
-        assert {request.path for request in network.requests_log} == {"/publishers"}
+        # Setup waits on the probe, so a 5xx gets no retry.
+        assert [request.path for request in network.requests_log] == ["/publishers"]
 
     @pytest.mark.parametrize(
         ("publisher_id", "currency_code", "message_fragment"),
