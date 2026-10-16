@@ -199,7 +199,7 @@ The eager and demand jobs can still overlap if either pass runs long.
 ## In-app digest query recovery
 
 The in-app digest notification batch retries a team's read-only digest build up to three times for
-`CH_TRANSIENT_ERRORS`, with 30- and 60-second backoff. Additional retries stop five minutes after the batch
+`CH_TRANSIENT_ERRORS` and `ConcurrencyLimitExceeded`, with 30- and 60-second backoff. Additional retries stop five minutes after the batch
 starts; later teams still receive their initial attempt. Each team's reporting bounds are fixed before
 its first attempt, so a retry crossing midnight cannot change the reporting period. Invalid filters and
 other permanent query errors are not retried.

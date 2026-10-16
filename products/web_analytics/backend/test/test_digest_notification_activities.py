@@ -21,6 +21,7 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.organization import Organization
@@ -393,6 +394,7 @@ class TestRunWaDigestNotificationBatch(_DigestNotificationTestBase):
     @parameterized.expand(
         [
             ("recovers", ClickHouseAtCapacity, 1, False, False, 2, 2),
+            ("concurrency_limited", ConcurrencyLimitExceeded, 1, False, False, 2, 2),
             ("exhausted", ClickHouseAtCapacity, 3, False, False, 3, 1),
             ("permanent", ValueError, 3, False, False, 1, 1),
             ("budget_spent", ClickHouseAtCapacity, 3, True, False, 1, 1),
@@ -419,8 +421,10 @@ class TestRunWaDigestNotificationBatch(_DigestNotificationTestBase):
         periods: list[DateRange] = []
         clock = [0.0]
         waits: list[float] = []
+        bypass_flags: list[bool] = []
 
-        def overview_runner(*, team: Team, query: WebOverviewQuery) -> MagicMock:
+        def overview_runner(*, team: Team, query: WebOverviewQuery, bypass_warehouse_access_control: bool) -> MagicMock:
+            bypass_flags.append(bypass_warehouse_access_control)
             response = WebOverviewQueryResponse(
                 results=[
                     WebOverviewItem(key="visitors", kind=WebAnalyticsItemKind.UNIT, value=10),
@@ -429,7 +433,8 @@ class TestRunWaDigestNotificationBatch(_DigestNotificationTestBase):
             )
             return MagicMock(run=MagicMock(return_value=response))
 
-        def stats_runner(*, team: Team, query: WebStatsTableQuery) -> MagicMock:
+        def stats_runner(*, team: Team, query: WebStatsTableQuery, bypass_warehouse_access_control: bool) -> MagicMock:
+            bypass_flags.append(bypass_warehouse_access_control)
             if team.id == other_team.id:
                 assert query.dateRange is not None
                 periods.append(query.dateRange)
@@ -477,6 +482,7 @@ class TestRunWaDigestNotificationBatch(_DigestNotificationTestBase):
         assert periods and all(period == periods[0] for period in periods)
         assert periods[0].date_from == "2025-12-25T00:00:00+00:00"
         assert periods[0].date_to == "2026-01-01T23:59:59.999999+00:00"
+        assert bypass_flags and all(bypass_flags)
 
     def test_passes_flag_key_and_dry_run_through(self):
         captured: list[tuple[str, str, bool]] = []

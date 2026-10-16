@@ -11,6 +11,7 @@ from temporalio import activity
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
@@ -371,7 +372,7 @@ def _run_wa_digest_notification_batch(input: DigestBatchInput) -> DigestBatchRes
 
     retry_deadline = time.monotonic() + 5 * 60
     build_retry = Retrying(
-        retry=retry_if_exception_type(CH_TRANSIENT_ERRORS),
+        retry=retry_if_exception_type((*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded)),
         wait=wait_exponential(multiplier=30, max=60),
         stop=lambda state: stop_after_attempt(3)(state) or time.monotonic() + state.upcoming_sleep >= retry_deadline,
         reraise=True,
