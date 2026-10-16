@@ -45,7 +45,7 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
-from products.web_analytics.backend.models import WebAnalyticsAchievementProgress
+from products.web_analytics.backend.facade.achievements import clear_achievement_filter_retry
 
 from . import (
     conversations_settings,
@@ -640,7 +640,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             # auto_now fields only refresh when included in update_fields
             instance.save(update_fields=[*other_team_fields, "updated_at"])
         if "test_account_filters" in other_team_fields:
-            WebAnalyticsAchievementProgress.clear_filter_retry(instance.parent_team_id or instance.id)
+            clear_achievement_filter_retry(instance.parent_team_id or instance.id)
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         after_update = instance.__dict__.copy()

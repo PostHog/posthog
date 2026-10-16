@@ -128,7 +128,10 @@ class InvalidTestAccountFiltersError(Exception):
 
 def _test_account_filter_expr(team: Team) -> ast.Expr:
     filters = team.test_account_filters if isinstance(team.test_account_filters, list) else []
-    cohort_ids = {int(prop["value"]) for prop in filters if prop.get("type") == "cohort"}
+    try:
+        cohort_ids = {int(prop["value"]) for prop in filters if prop.get("type") == "cohort"}
+    except (KeyError, TypeError, ValueError) as error:
+        raise InvalidTestAccountFiltersError(team.id, filters) from error
     if cohort_ids and cohort_ids != set(
         Cohort.objects.filter(id__in=cohort_ids, team__project_id=team.project_id, deleted=False).values_list(
             "id", flat=True
