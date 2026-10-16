@@ -46,6 +46,7 @@ QUOTED = Variable(values=("api'worker\nnext",), is_all=False, all_value=None, op
         ),
         ("reference_in_a_comment_stays", "up # $env\n", ONE, "up # $env\n"),
         ("csv_format", 'up{env=~"${env:csv}"}', MANY, 'up{env=~"a.b,c"}'),
+        ("csv_format_is_escaped", 'up{env=~"${env:csv}"}', ONE, 'up{env=~"pro\\"d"}'),
         ("all_matches_everything", 'up{env=~"$env"}', ALL, 'up{env=~".*"}'),
         ("all_value", 'up{env=~"[[env]]"}', ALL_WITH_VALUE, 'up{env=~"api-.*"}'),
         (
@@ -99,7 +100,7 @@ def test_sql_references_become_placeholders(_name: str, sql: str, variable: Vari
 @parameterized.expand(
     [
         ("field_names", "SELECT properties.$env, $environment FROM t"),
-        ("comments", "SELECT 1 -- $env\n/* $env */"),
+        ("comments", "SELECT 1 -- $env\n/* $env */ // $env\n# $env"),
         ("other_strings", "SELECT '$1', \"$env\""),
         ("nested_arrays", "SELECT [[env]]"),
     ]
@@ -110,7 +111,10 @@ def test_sql_text_that_is_not_a_reference_stays(_name: str, sql: str) -> None:
 
 
 def test_sql_references_in_comments_are_not_dependencies() -> None:
-    assert sql_referenced_names("SELECT 1 -- $job\nWHERE env IN $env /* $zone */") == ["env"]
+    assert sql_referenced_names("SELECT 1 -- $job\nWHERE env IN $env /* $zone */ AND x = 'a-$region'") == [
+        "env",
+        "region",
+    ]
 
 
 def test_sql_time_aliases_become_the_date_placeholders() -> None:

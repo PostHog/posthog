@@ -62,6 +62,8 @@ class SqlSubstitution:
     sql: str
     placeholders: dict[str, ast.Expr]
     unresolved: tuple[str, ...]
+    # References inside longer strings. They are an error when the variable has a value.
+    in_strings: tuple[str, ...] = ()
 
 
 @frozen
@@ -93,7 +95,8 @@ def referenced_names(text: str | None) -> list[str]:
 
 def sql_referenced_names(sql: str | None) -> list[str]:
     """The variables a SQL query refers to, outside comments. `[[x]]` is a nested array, not a reference."""
-    return list(substitute_sql(sql or "", {}).unresolved)
+    substitution = substitute_sql(sql or "", {})
+    return list(dict.fromkeys([*substitution.unresolved, *substitution.in_strings]))
 
 
 def _is_sql_reference(name: str) -> bool:
@@ -213,9 +216,9 @@ def format_promql(variable: Variable, value_format: str | None, *, context: Prom
     else:
         values = variable.values
     if value_format in ("raw", "text", "csv"):
-        return ",".join(values)
+        return promql_string_escape(",".join(values), context.quote)
     if value_format == "pipe":
-        return "|".join(values)
+        return promql_string_escape("|".join(values), context.quote)
     if value_format == "regex" or context.in_regex or len(values) > 1:
         escaped = [promql_string_escape(regex_escape(value), context.quote) for value in values]
         return f"({'|'.join(escaped)})" if len(escaped) > 1 else escaped[0]
@@ -263,7 +266,8 @@ def _quoted_end(sql: str, start: int) -> int:
 
 
 def _comment_end(sql: str, start: int) -> int | None:
-    if sql.startswith("--", start):
+    # HogQL reads `#` followed by a digit as a token, not as a comment.
+    if sql.startswith(("--", "//"), start) or (sql.startswith("#", start) and not sql[start + 1 : start + 2].isdigit()):
         end = sql.find("\n", start)
         return len(sql) if end < 0 else end
     if sql.startswith("/*", start):
@@ -290,6 +294,7 @@ def substitute_sql(sql: str, variables: Mapping[str, Variable]) -> SqlSubstituti
     parts: list[str] = []
     placeholders: dict[str, ast.Expr] = {}
     unresolved: list[str] = []
+    in_strings: list[str] = []
 
     def placeholder(name: str) -> str:
         if name in _SQL_TIME_PLACEHOLDERS:
@@ -314,6 +319,8 @@ def substitute_sql(sql: str, variables: Mapping[str, Variable]) -> SqlSubstituti
             literal = sql[index:end]
             if char == "'":
                 whole = _SQL_REFERENCE.fullmatch(literal[1:-1])
+                if whole is None:
+                    in_strings.extend(name for name in referenced_names(literal) if name not in _SQL_TIME_PLACEHOLDERS)
                 names = [name for name in referenced_names(literal) if name in variables]
                 # A string that holds only a reference is a variable, so a missing selection is reported.
                 if whole is not None and _is_sql_reference(whole.group("braced") or whole.group("plain")):
@@ -340,7 +347,12 @@ def substitute_sql(sql: str, variables: Mapping[str, Variable]) -> SqlSubstituti
         parts.append(char)
         index += 1
 
-    return SqlSubstitution(sql="".join(parts), placeholders=placeholders, unresolved=tuple(dict.fromkeys(unresolved)))
+    return SqlSubstitution(
+        sql="".join(parts),
+        placeholders=placeholders,
+        unresolved=tuple(dict.fromkeys(unresolved)),
+        in_strings=tuple(dict.fromkeys(in_strings)),
+    )
 
 
 def _anchored_alternation(values: Iterable[str]) -> str:
