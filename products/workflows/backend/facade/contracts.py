@@ -717,6 +717,26 @@ class DataSuggestionNotFound(Exception):
     """The suggestion id is unknown, usually because the cached suggestions expired."""
 
 
+@frozen
+class PreviousRecipients:
+    """The people a record's earlier workflows already emailed, saved as a static cohort to leave out."""
+
+    cohort_id: int | None
+    people: int
+
+
+class TooManyPreviousRecipients(Exception):
+    """More people were emailed from this record than one request can save as a cohort."""
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(limit)
+        self.limit = limit
+
+
+class PreviousRecipientsTimedOut(Exception):
+    """Saving the people already emailed took longer than one request may wait."""
+
+
 class EmailDraftSourceNotFound(Exception):
     """The project has no entity with that ID for the requested source."""
 

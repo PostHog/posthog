@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -17,6 +18,7 @@ import {
     UNVERIFIED_SENDER_MESSAGE,
 } from '../Channels/emailSendingMessages'
 import { MessageAudience, MessageAudienceDestination, messageAudienceUrl } from './messageAudience'
+import { checkPreviousRecipients, openBroadcastAfterCheck } from './previousRecipients'
 
 export function emailSenderWarning(integrations: Pick<IntegrationConfigApi, 'kind' | 'config'>[]): string | null {
     const senders = integrations.filter((integration) => integration.kind === 'email')
@@ -69,6 +71,18 @@ export async function loadMessageAudienceWarnings(
 
 let opening = false
 
+function WarningList({ warnings, onClose }: { warnings: string[]; onClose: () => void }): JSX.Element {
+    // The dialog unmounts its content however it closes, which LemonDialog.open has no callback for.
+    useEffect(() => onClose, [onClose])
+    return (
+        <ul className="list-disc pl-4 m-0 flex flex-col gap-1" data-attr="message-audience-warnings">
+            {warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+            ))}
+        </ul>
+    )
+}
+
 /**
  * Opens the broadcast or workflow, asking first when something would stop the email from going out. A second click
  * while the checks run does nothing.
@@ -82,10 +96,20 @@ export async function openMessageAudience(
     }
     opening = true
     try {
+        const startedOn = router.values.location.pathname
+        let dialogClosed = false
         const navigate = async (): Promise<void> => {
+            if (destination === 'broadcast' && audience.sourceRecord) {
+                const projectId = String(ApiConfig.getCurrentProjectId())
+                const check = await checkPreviousRecipients(projectId, audience)
+                // The person may have left the page or closed the dialog while the check ran.
+                if (router.values.location.pathname === startedOn && !dialogClosed) {
+                    await openBroadcastAfterCheck(audience, check)
+                }
+                return
+            }
             router.actions.push(messageAudienceUrl(audience, destination))
         }
-        const startedOn = router.values.location.pathname
         const warnings = await loadMessageAudienceWarnings(audience, destination)
         if (router.values.location.pathname !== startedOn) {
             // The person left the page while the checks ran.
@@ -98,13 +122,7 @@ export async function openMessageAudience(
         // The modal covers the entry point, and Continue shows its own loading state while it opens the email.
         LemonDialog.open({
             title: 'Before you send',
-            content: (
-                <ul className="list-disc pl-4 m-0 flex flex-col gap-1" data-attr="message-audience-warnings">
-                    {warnings.map((warning) => (
-                        <li key={warning}>{warning}</li>
-                    ))}
-                </ul>
-            ),
+            content: <WarningList warnings={warnings} onClose={() => (dialogClosed = true)} />,
             shouldAwaitSubmit: true,
             primaryButton: {
                 children: 'Continue',

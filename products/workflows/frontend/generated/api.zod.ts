@@ -508,6 +508,9 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
 export const hogFlowsCreateBodyNameMax = 400
 
 export const hogFlowsCreateBodyDescriptionDefault = ``
+export const hogFlowsCreateBodySourceRecordMax = 255
+
+export const hogFlowsCreateBodySourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -545,6 +548,14 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+            ),
+        source_record: zod
+            .string()
+            .max(hogFlowsCreateBodySourceRecordMax)
+            .regex(hogFlowsCreateBodySourceRecordRegExp)
+            .nullish()
+            .describe(
+                "The record another product's entry point started this workflow from, as '<kind>:<id>'. A later send from the same record can skip the people this one emailed. Set only when creating a workflow."
             ),
         trigger_masking: zod
             .union([
@@ -1892,6 +1903,9 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const hogFlowsInvocationsCreateBodyConfigurationOneNameMax = 400
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneDescriptionDefault = ``
+export const hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordMax = 255
+
+export const hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
 export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneDistinctIdMax = 200
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneCreatedByOneFirstNameMax = 150
@@ -1953,6 +1967,14 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                ),
+            source_record: zod
+                .string()
+                .max(hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordMax)
+                .regex(hogFlowsInvocationsCreateBodyConfigurationOneSourceRecordRegExp)
+                .nullish()
+                .describe(
+                    "The record another product's entry point started this workflow from, as '<kind>:<id>'. A later send from the same record can skip the people this one emailed. Set only when creating a workflow."
                 ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
@@ -2793,6 +2815,9 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const hogFlowsBulkDeleteCreateBodyNameMax = 400
 
 export const hogFlowsBulkDeleteCreateBodyDescriptionDefault = ``
+export const hogFlowsBulkDeleteCreateBodySourceRecordMax = 255
+
+export const hogFlowsBulkDeleteCreateBodySourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -2835,6 +2860,14 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+            ),
+        source_record: zod
+            .string()
+            .max(hogFlowsBulkDeleteCreateBodySourceRecordMax)
+            .regex(hogFlowsBulkDeleteCreateBodySourceRecordRegExp)
+            .nullish()
+            .describe(
+                "The record another product's entry point started this workflow from, as '<kind>:<id>'. A later send from the same record can skip the people this one emailed. Set only when creating a workflow."
             ),
         trigger_masking: zod
             .union([
@@ -3294,4 +3327,27 @@ export const WorkflowPeopleImportsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'One object per person. Each needs \"email\". An optional \"distinct_id\" picks the person to update or create, and an \"id\" column counts as the distinct_id when there is no \"distinct_id\" column. Without either, the row updates the person with that email, or creates one keyed by the email. Every other key is set as a person property.'
         ),
+})
+
+/**
+ * Find everyone that earlier workflows started from the same record already emailed, and save them as a static cohort, so a new broadcast about that record can leave them out. Reads the sent-email log, which keeps 30 days. Returns a null cohort when nobody was emailed yet.
+ * @summary Save the people already emailed about a record as a cohort
+ */
+export const workflowPreviousRecipientsCreateBodySourceRecordMax = 255
+
+export const workflowPreviousRecipientsCreateBodySourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
+export const workflowPreviousRecipientsCreateBodyCohortNameMax = 400
+
+export const WorkflowPreviousRecipientsCreateBody = /* @__PURE__ */ zod.object({
+    source_record: zod
+        .string()
+        .max(workflowPreviousRecipientsCreateBodySourceRecordMax)
+        .regex(workflowPreviousRecipientsCreateBodySourceRecordRegExp)
+        .describe(
+            "The record the new email is about, as '<kind>:<id>', for example 'early_access:<uuid>' or 'cohort:42'."
+        ),
+    cohort_name: zod
+        .string()
+        .max(workflowPreviousRecipientsCreateBodyCohortNameMax)
+        .describe("Name for the cohort of people already emailed, shown in the broadcast's recipients."),
 })

@@ -87,7 +87,9 @@ import {
     type BroadcastPrefill,
     NAME_PREFILL_PARAM,
     parseBroadcastAudiencePrefill,
+    parseSourceRecordPrefill,
     SOURCE_PREFILL_PARAM,
+    SOURCE_RECORD_PREFILL_PARAM,
 } from './broadcastAudiencePrefill'
 import {
     confirmArchiveBroadcast,
@@ -299,6 +301,7 @@ export interface broadcastWizardLogicValues {
     scheduleTimezone: string | null
     selectedSender: IntegrationType | null
     sendAt: string | null
+    sourceRecord: string | null
     stepValidationErrors: Record<BroadcastWizardStep, string[]>
     summaryStatus: BroadcastStatus
     summaryTab: BroadcastSummaryTab
@@ -863,6 +866,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             null as string | null,
             {
                 prefillFromLink: (_, { prefill }) => prefill.source ?? null,
+            },
+        ],
+        sourceRecord: [
+            null as string | null,
+            {
+                prefillFromLink: (_, { prefill }) => prefill.sourceRecord ?? null,
             },
         ],
         audienceCohortLaunchErrors: [
@@ -2125,6 +2134,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             [AUDIENCE_PREFILL_PARAM]: audience,
             [NAME_PREFILL_PARAM]: name,
             [SOURCE_PREFILL_PARAM]: source,
+            [SOURCE_RECORD_PREFILL_PARAM]: sourceRecordParam,
             [EMAIL_PREFILL_PARAM]: emailParam,
             [DRAFT_SOURCE_PARAM]: draftSourceParam,
         } = router.values.searchParams
@@ -2134,6 +2144,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             audience !== undefined ||
             name !== undefined ||
             source !== undefined ||
+            sourceRecordParam !== undefined ||
             emailParam !== undefined ||
             draftSourceParam !== undefined
         if (fromLink) {
@@ -2141,6 +2152,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 properties: properties ?? [],
                 name: typeof name === 'string' ? name : undefined,
                 source: typeof source === 'string' ? source : undefined,
+                sourceRecord: parseSourceRecordPrefill(sourceRecordParam),
                 email: email ?? undefined,
             }
             // Not setAudienceProperties: opening /broadcasts/new must not create a draft.
@@ -2214,7 +2226,10 @@ async function saveDraftSchedule(
 }
 
 async function createDraft(projectId: string, values: broadcastWizardLogicType['values']): Promise<HogFlowApi> {
-    const created = await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
+    const created = await hogFlowsCreate(projectId, {
+        ...buildBroadcastPayload(values),
+        ...(values.sourceRecord ? { source_record: values.sourceRecord } : {}),
+    } as any)
     // pinned: analytics event name
     posthog.capture('broadcast draft created', { broadcast_id: created.id, entry_source: values.entrySource })
     return created

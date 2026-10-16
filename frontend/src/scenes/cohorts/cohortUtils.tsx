@@ -731,6 +731,8 @@ export function cohortBroadcastAudience(cohort: Pick<CohortType, 'id' | 'name'>)
     return {
         properties: cohortAudienceProperties({ id: cohort.id, name: cohort.name }),
         source: 'cohort',
+        sourceRecord: `cohort:${cohort.id}`,
+        sourceRecordName: cohort.name ?? undefined,
         draftSource: { source: 'cohort', source_id: String(cohort.id) },
     }
 }

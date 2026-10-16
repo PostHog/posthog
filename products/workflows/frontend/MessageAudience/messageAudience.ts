@@ -25,6 +25,10 @@ export interface MessageAudience {
     workflowTrigger?: WorkflowTriggerConfig
     broadcastEmail?: MessageDraft
     workflowEmail?: MessageDraft
+    /** The record the email is about, as "<kind>:<id>". A broadcast skips the people already emailed about it. */
+    sourceRecord?: string
+    /** What the record is called, for naming the cohort of people already emailed about it. */
+    sourceRecordName?: string
     draftSource?: EmailDraftRequestApi
 }
 
@@ -46,6 +50,7 @@ export function messageAudienceUrl(audience: MessageAudience, destination: Messa
             properties: audience.properties,
             name: audience.broadcastName,
             source: audience.source,
+            sourceRecord: audience.sourceRecord,
             email: audience.broadcastEmail,
             draftSource: audience.draftSource,
         })

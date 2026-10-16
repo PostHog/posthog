@@ -68,6 +68,8 @@ import type {
     PatchedHogFlowUpdateApi,
     PeopleImportApi,
     PeopleImportCreateApi,
+    PreviousRecipientsApi,
+    PreviousRecipientsRequestApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
     WorkflowProposalApi,
@@ -1416,6 +1418,27 @@ export const workflowPeopleImportsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(peopleImportCreateApi),
+    })
+}
+
+export const getWorkflowPreviousRecipientsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_previous_recipients/`
+}
+
+/**
+ * Find everyone that earlier workflows started from the same record already emailed, and save them as a static cohort, so a new broadcast about that record can leave them out. Reads the sent-email log, which keeps 30 days. Returns a null cohort when nobody was emailed yet.
+ * @summary Save the people already emailed about a record as a cohort
+ */
+export const workflowPreviousRecipientsCreate = async (
+    projectId: string,
+    previousRecipientsRequestApi: PreviousRecipientsRequestApi,
+    options?: RequestInit
+): Promise<PreviousRecipientsApi> => {
+    return apiMutator<PreviousRecipientsApi>(getWorkflowPreviousRecipientsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(previousRecipientsRequestApi),
     })
 }
 
