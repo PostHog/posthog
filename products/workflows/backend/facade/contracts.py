@@ -680,6 +680,8 @@ class DataSuggestion:
     weekly_count: int
     stage: LifecycleStage
     step_outline: tuple[OutlineKind, ...]
+    # Set once a draft was made from the suggestion and is still a draft.
+    draft_workflow_id: str | None = None
 
 
 @frozen

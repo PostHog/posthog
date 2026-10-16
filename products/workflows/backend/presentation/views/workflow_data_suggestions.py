@@ -84,6 +84,10 @@ class DataSuggestionSerializer(serializers.Serializer):
         child=serializers.ChoiceField(choices=DataSuggestionStepKind.choices),
         help_text="The main planned step kinds after the trigger, in order.",
     )
+    draft_workflow_id = serializers.CharField(
+        allow_null=True,
+        help_text="The draft made from this suggestion while it is still a draft, or null when none was made.",
+    )
 
 
 class DataSuggestionsResponseSerializer(serializers.Serializer):

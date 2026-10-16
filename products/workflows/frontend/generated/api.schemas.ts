@@ -2222,6 +2222,11 @@ export interface DataSuggestionApi {
     stage: DataSuggestionStageEnumApi
     /** The main planned step kinds after the trigger, in order. */
     step_outline: DataSuggestionStepKindEnumApi[]
+    /**
+     * The draft made from this suggestion while it is still a draft, or null when none was made.
+     * @nullable
+     */
+    draft_workflow_id: string | null
 }
 
 export interface DataSuggestionsResponseApi {

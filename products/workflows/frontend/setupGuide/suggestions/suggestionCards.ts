@@ -16,6 +16,8 @@ export interface SuggestionCard {
     weeklyCount: number
     steps: SuggestionStepKind[]
     suggestionId: string
+    // The draft made from this suggestion, while it is still a draft.
+    draftWorkflowId: string | null
 }
 
 export function cardFromSuggestion(suggestion: DataSuggestionApi): SuggestionCard {
@@ -28,5 +30,6 @@ export function cardFromSuggestion(suggestion: DataSuggestionApi): SuggestionCar
         weeklyCount: suggestion.weekly_count,
         steps: suggestion.step_outline,
         suggestionId: suggestion.id,
+        draftWorkflowId: suggestion.draft_workflow_id ?? null,
     }
 }

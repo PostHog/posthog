@@ -61,7 +61,12 @@ from products.workflows.backend.services.data_suggestions.stages import (
     classify_event_stages,
 )
 from products.workflows.backend.services.hog_flow_templates import get_function_template_schema, list_step_templates
-from products.workflows.backend.services.workflow_ideas import create_ideas, get_open_idea, list_open_ideas
+from products.workflows.backend.services.workflow_ideas import (
+    create_ideas,
+    get_open_idea,
+    list_ideas_in_draft,
+    list_open_ideas,
+)
 
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
@@ -515,7 +520,7 @@ def _idea_key(suggestion: DataSuggestion) -> str:
     return f"{suggestion.stage}:sha256:{hashlib.sha256(suggestion.trigger_event.encode()).hexdigest()}"
 
 
-def _to_suggestion(idea: WorkflowIdeaRecord) -> DataSuggestion:
+def _to_suggestion(idea: WorkflowIdeaRecord, draft_workflow_id: str | None = None) -> DataSuggestion:
     return DataSuggestion(
         id=str(idea.id),
         name=idea.title,
@@ -525,6 +530,7 @@ def _to_suggestion(idea: WorkflowIdeaRecord) -> DataSuggestion:
         weekly_count=int(idea.evidence.get("weekly_count") or 0),
         stage=idea.evidence.get("stage", "other"),
         step_outline=tuple(idea.evidence.get("step_outline") or ()),
+        draft_workflow_id=draft_workflow_id,
     )
 
 
@@ -540,11 +546,19 @@ def _open_suggestions(team: Team) -> tuple[DataSuggestion, ...]:
     return tuple(pick_one_per_stage(ranked, stage_of=lambda item: item.stage, limit=MAX_SUGGESTIONS))
 
 
+def _ideas_in_draft(team: Team) -> tuple[DataSuggestion, ...]:
+    """Used ideas whose draft is still a draft, so the card can point at it until it is turned on."""
+    return tuple(
+        _to_suggestion(idea, draft_workflow_id=str(idea.hog_flow_id))
+        for idea in list_ideas_in_draft(team_id=team.id, source=WorkflowIdeaSource.DATA_SUGGESTIONS)
+    )
+
+
 def _with_open_ideas(team: Team, cached: DataSuggestionsResult) -> DataSuggestionsResult:
     # The cache still says whether a run finished and which events a build can use; the cards come from the ideas.
     if cached.status != "ready":
         return cached
-    return dataclasses.replace(cached, suggestions=_open_suggestions(team))
+    return dataclasses.replace(cached, suggestions=_ideas_in_draft(team) + _open_suggestions(team))
 
 
 @contextmanager

@@ -37,6 +37,7 @@ const card: SuggestionCard = {
     weeklyCount: 42,
     steps: ['email'],
     suggestionId: 'suggestion-1',
+    draftWorkflowId: null,
 }
 
 describe('workflowDataSuggestionsLogic', () => {
@@ -70,6 +71,7 @@ describe('workflowDataSuggestionsLogic', () => {
                         weekly_count: 42,
                         stage: 'signup',
                         step_outline: ['email'],
+                        draft_workflow_id: null,
                     },
                 ],
             })
@@ -200,6 +202,7 @@ describe('workflowDataSuggestionsLogic', () => {
                     weekly_count: 42,
                     stage: 'signup',
                     step_outline: ['email'],
+                    draft_workflow_id: null,
                 },
             ],
             email_sender_ready: true,
