@@ -42,6 +42,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.se
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+# Shown in the schema picker against a table the source's API version does not serve.
+KLAVIYO_NEWER_VERSION_REQUIRED = (
+    "Needs a newer Klaviyo API version than your source uses. Contact PostHog support to upgrade the source."
+)
+
 
 @SourceRegistry.register
 class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
@@ -208,25 +213,25 @@ The campaign and flow performance tables (campaign_values_reports, flow_values_r
             if endpoint_config.incremental_lookback or endpoint_config.values_report is not None
         }
 
+        resolved_version = self.resolve_api_version(api_version)
+
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = KLAVIYO_ENDPOINTS[endpoint]
             has_incremental = INCREMENTAL_FIELDS.get(endpoint, None) is not None
+            # A table the source's revision does not serve stays listed, because a schema-level version
+            # override can still sync it, and discovery disables any enabled table it stops listing.
+            # Default-off keeps auto-sync from enabling it into a sync that can only fail.
+            served = endpoint_config.is_served_at(resolved_version)
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=has_incremental and endpoint not in append_only_endpoints,
                 supports_append=has_incremental and endpoint not in merge_only_endpoints,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=endpoint_config.should_sync_default,
-                description=endpoint_config.description,
+                should_sync_default=endpoint_config.should_sync_default and served,
+                description=endpoint_config.description if served else KLAVIYO_NEWER_VERSION_REQUIRED,
             )
 
-        resolved_version = self.resolve_api_version(api_version)
-        schemas = [
-            _build_schema(endpoint)
-            for endpoint in ENDPOINTS
-            if KLAVIYO_ENDPOINTS[endpoint].api_versions is None
-            or resolved_version in KLAVIYO_ENDPOINTS[endpoint].api_versions
-        ]
+        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]

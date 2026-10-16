@@ -87,7 +87,7 @@ class KlaviyoValuesReportConfig:
             raise ValueError(f"{self.report_type}: {self.timeframe_key} is not a Klaviyo timeframe key")
 
 
-@dataclass
+@dataclass(frozen=False)
 class KlaviyoEndpointConfig:
     name: str
     path: str
@@ -121,6 +121,9 @@ class KlaviyoEndpointConfig:
     # Revisions that serve this endpoint. None means every supported revision does. Klaviyo answers
     # 404 for an endpoint added after the revision a source is pinned to.
     api_versions: Optional[tuple[str, ...]] = None
+
+    def is_served_at(self, api_version: str) -> bool:
+        return self.api_versions is None or api_version in self.api_versions
 
 
 # Every statistic Klaviyo's campaign and flow values reports accept. Both endpoints document the

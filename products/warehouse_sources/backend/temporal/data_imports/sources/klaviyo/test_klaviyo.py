@@ -44,7 +44,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.se
     KlaviyoEndpointConfig,
     KlaviyoValuesReportConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source import KlaviyoSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source import (
+    KLAVIYO_NEWER_VERSION_REQUIRED,
+    KlaviyoSource,
+)
 
 
 def _driver(conversion_metric_id: str | None = None) -> SourceDriver:
@@ -990,13 +993,14 @@ class TestEndpointsNewerThanThePinnedRevision:
             (None, True),
         ]
     )
-    def test_schema_list_offers_only_tables_the_pinned_revision_serves(self, pin: str | None, offered: bool) -> None:
-        names = {s.name for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1, api_version=pin)}
-        assert "events" in names
-        assert all(
-            (name in names) is offered
-            for name in ("data_sources", "custom_metrics", "object_types", "custom_object_records", "web_feeds")
-        )
+    def test_tables_the_pinned_revision_does_not_serve_stay_listed_but_default_off(
+        self, pin: str | None, served: bool
+    ) -> None:
+        schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1, api_version=pin)}
+        assert schemas["events"].should_sync_default is True
+        for name in ("data_sources", "custom_metrics", "object_types", "custom_object_records", "web_feeds"):
+            assert schemas[name].should_sync_default is served
+            assert (schemas[name].description == KLAVIYO_NEWER_VERSION_REQUIRED) is not served
 
     def test_enabled_table_on_an_older_pin_fails_without_calling_klaviyo(self) -> None:
         result = _driver().run("data_sources", [], api_version=KLAVIYO_API_VERSION_2024_10_15)
