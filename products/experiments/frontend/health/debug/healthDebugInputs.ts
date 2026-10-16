@@ -306,9 +306,7 @@ export function buildExposureFacts(state: HealthInputsState): SetupFact[] {
     if (!exposures || !totals) {
         return facts
     }
-    const total = Object.entries(totals.total_exposures)
-        .filter(([variant]) => variant !== EXPERIMENT_VARIANT_MULTIPLE)
-        .reduce((sum, [, count]) => sum + count, 0)
+    const total = Object.values(totals.total_exposures).reduce((sum, count) => sum + count, 0)
     const byVariant = Object.entries(totals.total_exposures)
         .map(([variant, count]) => `${variant} ${formatCount(count)}`)
         .join(', ')
@@ -321,7 +319,11 @@ export function buildExposureFacts(state: HealthInputsState): SetupFact[] {
             value: totals.hours_since_launch === null ? 'Not launched' : String(Math.floor(totals.hours_since_launch)),
             help: 'The zero-exposures check waits for a few hours after launch.',
         },
-        { label: 'Exposed users', value: formatCount(total) },
+        {
+            label: 'Exposed users',
+            value: formatCount(total),
+            help: `Includes the users in several variants, as the zero-exposures and bias checks count them.`,
+        },
         { label: 'By variant', value: byVariant || 'None' },
         {
             label: 'Users in several variants',

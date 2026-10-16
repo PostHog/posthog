@@ -114,7 +114,6 @@ export interface experimentHealthDebugLogicMeta {
         ) => HealthInputsState
         healthDebugChecks: (
             experimentHealth: ExperimentHealthApi | null,
-            healthFindings: HealthPanelFinding[] | null,
             browserExperimentWarning: ExperimentWarning | null,
             browserNoMetricsWarning: boolean,
             isExperimentDraft: boolean,
@@ -238,7 +237,6 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
         healthDebugChecks: [
             (s) => [
                 s.experimentHealth,
-                s.healthFindings,
                 s.browserExperimentWarning,
                 s.browserNoMetricsWarning,
                 s.isExperimentDraft,
@@ -249,7 +247,6 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
             ],
             (
                 experimentHealth: ExperimentHealthApi | null,
-                healthFindings: HealthPanelFinding[] | null,
                 browserWarning: ExperimentWarning | null,
                 browserNoMetricsWarning: boolean,
                 isExperimentDraft: boolean,
@@ -260,7 +257,6 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
             ): HealthDebugCheck[] =>
                 buildHealthDebugChecks({
                     health: experimentHealth,
-                    panelFindings: healthFindings,
                     browserWarning,
                     browserNoMetricsWarning,
                     isExperimentDraft,

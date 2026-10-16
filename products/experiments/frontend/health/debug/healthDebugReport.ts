@@ -47,7 +47,6 @@ export interface HealthDebugCheck {
 
 export interface HealthDebugInput {
     health: ExperimentHealthApi | null
-    panelFindings: HealthPanelFinding[] | null
     browserWarning: ExperimentWarning | null
     browserNoMetricsWarning: boolean
     isExperimentDraft: boolean
@@ -262,11 +261,8 @@ function pageExposureResult(input: HealthDebugInput, code: HealthPanelFinding['c
     if (input.isExperimentDraft || !input.exposures) {
         return null
     }
-    // The panel takes a code from the server's health findings first, so the page's own answer does not show.
-    if (input.health?.findings.some((finding) => finding.code === code)) {
-        return null
-    }
-    const finding = input.panelFindings?.find((candidate) => candidate.code === code)
+    // Read from the page's own answer, which holds its findings even when the health panel is unavailable.
+    const finding = input.exposures.health_findings?.find((candidate) => candidate.code === code)
     return finding ? describeFinding(code, finding) : NO_FINDING
 }
 

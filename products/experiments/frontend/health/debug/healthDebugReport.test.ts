@@ -16,7 +16,6 @@ const PAUSED: ExperimentHealthFindingApi = {
 
 const input = (overrides: Partial<HealthDebugInput>): HealthDebugInput => ({
     health: { findings: [] },
-    panelFindings: [],
     browserWarning: null,
     browserNoMetricsWarning: false,
     isExperimentDraft: false,
@@ -80,6 +79,28 @@ describe('buildHealthDebugChecks', () => {
                 },
             },
             expected: ['srm:drift'],
+        },
+        {
+            name: 'the same SRM finding in both answers while the health request failed',
+            health: null,
+            browserWarning: null,
+            browserNoMetricsWarning: false,
+            extra: {
+                exposures: {
+                    total_exposures: {},
+                    timeseries: [],
+                    date_range: { date_from: null },
+                    health_findings: [{ ...PAUSED, code: 'srm', subcode: null, severity: 'warning' }],
+                } as any,
+                serverExposures: {
+                    status: 'ready',
+                    computed_at: null,
+                    totals: null,
+                    findings: [{ ...PAUSED, code: 'srm', subcode: null, severity: 'warning' }],
+                    error: null,
+                },
+            },
+            expected: [],
         },
         {
             name: 'nothing to compare without server health',
