@@ -145,8 +145,8 @@ def _retry_after_seconds(response: requests.Response) -> Optional[float]:
     return None
 
 
-def _backoff_seconds(response: requests.Response, attempt: int) -> float:
-    retry_after = _retry_after_seconds(response)
+def _backoff_seconds(response: requests.Response | None, attempt: int) -> float:
+    retry_after = _retry_after_seconds(response) if response is not None else None
     if retry_after is not None:
         return retry_after
     return min(2.0**attempt, MAX_BACKOFF_SECONDS)
@@ -199,13 +199,20 @@ class CosmosDBClient:
                 "Accept": "application/json",
                 **(headers or {}),
             }
-            response = self._session.request(
-                method, url, data=body, headers=request_headers, timeout=REQUEST_TIMEOUT_SECONDS
-            )
+            response: requests.Response | None
+            try:
+                response = self._session.request(
+                    method, url, data=body, headers=request_headers, timeout=REQUEST_TIMEOUT_SECONDS
+                )
+                status = str(response.status_code)
+            except (requests.ConnectionError, requests.Timeout) as error:
+                # Every call reads, so a dropped connection or a timeout is safe to send again.
+                response = None
+                status = type(error).__name__
 
-            if response.status_code in (408, 429) or response.status_code >= 500:
+            if response is None or response.status_code in (408, 429) or response.status_code >= 500:
                 attempt += 1
-                if response.status_code != 429:
+                if response is None or response.status_code != 429:
                     server_errors += 1
                 delay = _backoff_seconds(response, attempt)
                 elapsed = time.monotonic() - started
@@ -213,12 +220,8 @@ class CosmosDBClient:
                     server_errors >= MAX_SERVER_ERROR_ATTEMPTS
                     or elapsed + delay + MAX_REQUEST_SECONDS > RETRY_BUDGET_SECONDS
                 ):
-                    raise CosmosDBRetryableError(
-                        f"Azure Cosmos DB error (retryable): status={response.status_code}, path={path}"
-                    )
-                self._logger.debug(
-                    f"Azure Cosmos DB throttled: status={response.status_code}, sleeping {delay}s (attempt {attempt})"
-                )
+                    raise CosmosDBRetryableError(f"Azure Cosmos DB error (retryable): status={status}, path={path}")
+                self._logger.debug(f"Azure Cosmos DB retry: status={status}, sleeping {delay}s (attempt {attempt})")
                 interruptible_wait(delay, safe_point=self._safe_point)
                 continue
 

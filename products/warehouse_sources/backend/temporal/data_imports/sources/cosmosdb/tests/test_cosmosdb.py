@@ -272,6 +272,16 @@ class TestQueryDocuments:
         assert len(result.requests) == 9
         assert [row["id"] for row in result.rows] == ["1"]
 
+    def test_a_dropped_connection_is_retried_within_the_budget(self) -> None:
+        result = _driver().run(
+            "orders",
+            [_collection(), ConnectionResetError(), _page([{"id": "1", "tenantId": "a", "_ts": 1}])],
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 3
+        assert [row["id"] for row in result.rows] == ["1"]
+
     def test_a_throttle_wait_longer_than_the_budget_fails_without_retrying(self) -> None:
         def respond(request: RecordedRequest) -> ScriptedResponse:
             if request.path == "/dbs/shop/colls/orders":
