@@ -4168,3 +4168,24 @@ async def test_workflow_sleeps_its_start_delay_and_skips_a_config_disabled_meanw
         assert result == output
     else:
         assert result.skip_reason == "config_disabled"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "activity_function,expected",
+    [
+        (check_signals_scout_config_runnable_activity, False),
+        (evaluate_signals_scout_precheck_activity, EvaluateScoutPrecheckOutput(should_run=False)),
+    ],
+)
+async def test_a_deleted_team_does_not_run(activity_function, expected):
+    missing_team_id = await database_sync_to_async(
+        lambda: (Team.objects.order_by("-id").values_list("id", flat=True).first() or 0) + 1000
+    )()
+
+    result = await ActivityEnvironment().run(
+        activity_function, RunSignalsScoutInput(team_id=missing_team_id, skill_name="s")
+    )
+
+    assert result == expected
