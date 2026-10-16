@@ -69,6 +69,7 @@ A template renders the raw value into the instruction part of the prompt, before
 Include the other inputs only when the loop needs them:
 
 - `repository`: the `owner/name` the user gives you, when the task works in code. Never one from memory. Check it is reachable first: `integrations-list` for GitHub, then `integrations-github-repos-retrieve` for that exact name.
+  To take the repository from the trigger, set the value to `{ "template": "{event.properties.repository}", "allowed": ["<owner/name>", ...] }`. The trigger sender chooses the rendered value, so list only the repositories the user names. Saving rejects an empty `allowed` list and any entry no GitHub installation reaches. The step fails at run time when the template renders a repository outside the list, or none.
 - `connectors`: ids from `mcp-connections-list`. Only connections shared with everyone in the project are accepted.
 - `skills`: exact names from `skill-list`, at most 10.
 - `posthog_mcp_scopes`: `read_only` by default. Use `full` only when the user asks for the task to change things in PostHog.

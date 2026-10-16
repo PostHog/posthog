@@ -1,3 +1,4 @@
+import re
 import json
 from typing import Any
 
@@ -10,6 +11,9 @@ from products.workflows.backend.facade.workflows import SUPPORTED_ACTION_TYPES, 
 # so the two share one number instead of drifting. The runtime also checks dynamically set
 # variables against this same limit; each cap here front-runs that check with a clearer error.
 HOG_FLOW_VARIABLES_MAX_BYTES = 5120
+
+REPOSITORY_NAME = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+REPOSITORY_NAME_ERROR = "Repository must be an organization/repo name like your-org/your-repo."
 
 
 class HogFlowVariableSerializer(serializers.ListSerializer):

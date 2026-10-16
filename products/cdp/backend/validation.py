@@ -603,6 +603,15 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler, is_dwh_sourc
         return json.dumps(obj)
 
 
+def _is_templated_repository(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and isinstance(value.get("template"), str)
+        and isinstance(value.get("allowed"), list)
+        and all(isinstance(name, str) for name in value["allowed"])
+    )
+
+
 def _contains_liquid_style_syntax(value: Any) -> bool:
     if isinstance(value, str):
         return "{{" in value
@@ -810,8 +819,17 @@ class InputsItemSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
             _validate_not_posthog_connection(value, self.context)
         elif item_type == "task_repository":
-            if not isinstance(value, str):
-                raise serializers.ValidationError({"input": "Value must be a repository name like your-org/your-repo."})
+            if not isinstance(value, str) and not _is_templated_repository(value):
+                raise serializers.ValidationError(
+                    {
+                        "input": "Value must be a repository name like your-org/your-repo, or a template with the "
+                        'repositories it may name, like {"template": "{event.properties.repository}", '
+                        '"allowed": ["your-org/your-repo"]}.'
+                    }
+                )
+            if isinstance(value, dict):
+                # Hog's trim strips only spaces, so a newline kept here would render into every repository name.
+                value = attrs["value"] = {**value, "template": value["template"].strip()}
         elif item_type == "task_model":
             # A non-empty value means a model was chosen (an empty value returned above as "use the
             # default model"), so it must name a usable model. Otherwise the run-time consumer drops
@@ -926,6 +944,7 @@ class InputsItemSerializer(serializers.Serializer):
                             "posthog_ticket_tags",
                             "customer_analytics_account_properties",
                             "customer_analytics_account_relationships",
+                            "task_repository",
                         ]
                         or (item_type == "boolean" and isinstance(value, str))
                         or (item_type == "choice" and _is_templated_choice(schema, value))

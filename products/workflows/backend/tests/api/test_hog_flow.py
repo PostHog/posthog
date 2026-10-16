@@ -21,7 +21,7 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.integration import Integration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.fixtures import create_app_metric2
@@ -46,6 +46,8 @@ from products.workflows.backend.presentation.views.hog_flow import (
     _should_validate_strictly,
     mint_audience_confirm_token,
 )
+
+from common.hogvm.python.execute import execute_bytecode
 
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
 _WIDER_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "@", "operator": "icontains"}
@@ -7270,6 +7272,71 @@ class TestCreateTaskActionValidation(APIBaseTest):
         response = self._post_flow({"repository": {"value": "my-org/my-repo"}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand(
+        [
+            ("single_line", "{event.properties.repository}"),
+            ("with_the_newline_a_multi_line_editor_keeps", "{event.properties.repository}\n"),
+        ]
+    )
+    def test_accepts_a_templated_repository_with_an_allowlist_and_renders_it(self, _name, repository_template):
+        self._connect_github(["my-org/api", "my-org/web"])
+        template = {"template": repository_template, "allowed": ["my-org/api", "My-Org/Web"]}
+
+        response = self._post_flow({"repository": {"value": template}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        saved = response.json()["actions"][1]["config"]["inputs"]["repository"]
+        run_globals = {"event": {"properties": {"repository": "my-org/web"}}}
+        assert self._render(saved["bytecode"], run_globals) == {
+            "template": "my-org/web",
+            "allowed": ["my-org/api", "My-Org/Web"],
+        }
+
+    @parameterized.expand(
+        [
+            ("template_without_allowlist", "{event.properties.repository}"),
+            ("empty_allowlist", {"template": "{event.properties.repository}", "allowed": []}),
+            ("allowlist_entry_not_org_slash_repo", {"template": "{event.properties.repository}", "allowed": ["api"]}),
+            ("blank_template", {"template": " ", "allowed": ["my-org/api"]}),
+            (
+                "allowlist_entry_no_installation_reaches",
+                {"template": "{event.properties.repository}", "allowed": ["my-org/api", "other-org/secret"]},
+            ),
+            (
+                "allowlist_entry_only_a_broken_installation_reaches",
+                {"template": "{event.properties.repository}", "allowed": ["my-org/api", "broken-org/api"]},
+            ),
+        ]
+    )
+    def test_rejects_a_templated_repository_the_step_cannot_restrict(self, _name, repository):
+        self._connect_github(["my-org/api"])
+        self._connect_github(["broken-org/api"], errors=ERROR_TOKEN_REFRESH_FAILED)
+
+        response = self._post_flow({"repository": {"value": repository}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions__1__inputs__repository"
+
+    def _render(self, compiled: Any, run_globals: dict) -> Any:
+        if isinstance(compiled, dict):
+            return {key: self._render(value, run_globals) for key, value in compiled.items()}
+        if compiled and compiled[0] == "_H":
+            return execute_bytecode(compiled, run_globals).result
+        return [self._render(item, run_globals) for item in compiled]
+
+    def _connect_github(self, repositories: list[str], errors: str = "") -> None:
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={},
+            errors=errors,
+            repository_cache=[
+                {"id": index, "name": full_name.split("/")[1], "full_name": full_name}
+                for index, full_name in enumerate(repositories)
+            ],
+            repository_cache_updated_at=timezone.now(),
+        )
 
     def test_rejects_a_model_outside_the_task_model_catalogue(self):
         with patch(

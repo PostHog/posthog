@@ -33,7 +33,17 @@ if (not empty(inputs.model) and not empty(inputs.model.model)) {
   }
 }
 
-if (not empty(inputs.repository)) {
+if (typeof(inputs.repository) == 'object') {
+  let rendered := trim(inputs.repository.template ?? '')
+  if (empty(rendered)) {
+    throw Error('The repository template rendered no repository')
+  }
+  let allowed := arrayMap(name -> lower(name), inputs.repository.allowed ?? [])
+  if (not has(allowed, lower(rendered))) {
+    throw Error(f'"{rendered}" is not an allowed repository. Allowed: {arrayStringConcat(inputs.repository.allowed ?? [], ', ')}')
+  }
+  payload.repository := rendered
+} else if (not empty(inputs.repository)) {
   payload.repository := inputs.repository
 }
 
@@ -114,7 +124,7 @@ return task
             secret: false,
             required: false,
             description:
-                'GitHub repository the agent works in, e.g. your-org/your-repo. Leave empty for no repository.',
+                'GitHub repository the agent works in, like your-org/your-repo. Switch to Template to set it from the trigger or an earlier step, like `{event.properties.repository}`, and list the repositories it may name. The step fails when the template renders anything else, or nothing. Leave empty for no repository.',
         },
         {
             key: 'connectors',

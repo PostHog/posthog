@@ -128,6 +128,7 @@ from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODU
 from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskSkillsInvalid,
+    repositories_no_team_installation_reaches,
     resolve_connectors,
     validate_skill_names,
 )
@@ -300,6 +301,8 @@ from products.workflows.backend.presentation.views.hog_flow_batch_job import (
 )
 from products.workflows.backend.presentation.views.hog_flow_fields import (
     HOG_FLOW_VARIABLES_MAX_BYTES,
+    REPOSITORY_NAME,
+    REPOSITORY_NAME_ERROR,
     HogFlowActionTypeField,
     HogFlowMaskingSerializer,
     HogFlowVariableSerializer,
@@ -565,8 +568,6 @@ _RUN_SCOUT_TEMPLATE_ID = "template-posthog-run-scout"
 # The "Classify with AI" step. The classification endpoint refuses categories outside its limits with a
 # 400, which fails the step on every run, so a strict save applies the same limits.
 _CLASSIFY_TEMPLATE_ID = "template-posthog-classify"
-
-_REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 1
 MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 100
@@ -1364,6 +1365,35 @@ class HogFlowActionSerializer(serializers.Serializer):
                 }
             )
 
+    def _validate_templated_repository(self, repository: dict) -> None:
+        """The trigger event renders the template, so the allowlist is what keeps the event from
+        choosing any repository the project's GitHub installations reach."""
+        allowed = repository.get("allowed") or []
+        if not str(repository.get("template") or "").strip():
+            raise serializers.ValidationError({"inputs": {"repository": "Enter a repository template."}})
+        if not allowed:
+            raise serializers.ValidationError({"inputs": {"repository": "Add at least one allowed repository."}})
+        malformed = [name for name in allowed if not REPOSITORY_NAME.fullmatch(name)]
+        if malformed:
+            raise serializers.ValidationError(
+                {"inputs": {"repository": f"{REPOSITORY_NAME_ERROR} Not valid: {', '.join(malformed)}."}}
+            )
+        get_team = self.context.get("get_team")
+        unreached = repositories_no_team_installation_reaches(get_team().id, allowed) if get_team else []
+        if unreached:
+            raise serializers.ValidationError(
+                {
+                    "inputs": {
+                        "repository": (
+                            "No GitHub installation in this project reaches these repositories: "
+                            f"{', '.join(unreached)}. Give the PostHog GitHub app access to them, or reconnect "
+                            "GitHub. Then open the repository picker to reload the list, and save again. The picker "
+                            "reloads it at most once an hour."
+                        )
+                    }
+                }
+            )
+
     def _validate_create_task_action(self, inputs: dict) -> None:
         """Save-time checks for the "Create AI task" step beyond input shape: whether the
         chosen connectors, model and repository are actually usable, and the parallel-run
@@ -1398,10 +1428,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError({"inputs": {"skills": str(e)}})
 
         repository = (inputs.get("repository") or {}).get("value")
-        if repository and not _REPOSITORY_SHAPE.fullmatch(repository):
-            raise serializers.ValidationError(
-                {"inputs": {"repository": "Repository must be an organization/repo name like your-org/your-repo."}}
-            )
+        if isinstance(repository, dict):
+            self._validate_templated_repository(repository)
+        elif repository and not REPOSITORY_NAME.fullmatch(repository):
+            raise serializers.ValidationError({"inputs": {"repository": REPOSITORY_NAME_ERROR}})
 
         model_value = (inputs.get("model") or {}).get("value") or {}
         model = model_value.get("model")

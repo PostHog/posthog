@@ -111,6 +111,44 @@ describe('posthog create task template', () => {
         })
     })
 
+    describe('templated repository', () => {
+        const templatedRepository = {
+            template: '{event.properties.repository}',
+            allowed: ['example-org/api', 'Example-Org/Web'],
+        }
+        const invokeWithRenderedRepository = (repository: string | null): ReturnType<TemplateTester['invoke']> =>
+            tester.invoke(
+                { prompt: 'Fix the reported bug', repository: templatedRepository },
+                { event: { properties: { repository } } },
+                workflowOptions
+            )
+
+        it.each([
+            ['an exact match', 'example-org/api'],
+            ['a match that differs in case', 'example-org/web'],
+        ])('sends the rendered repository on %s with the allowlist', async (_case, rendered) => {
+            const response = await invokeWithRenderedRepository(rendered)
+
+            expect(response.error).toBeUndefined()
+            const params = response.invocation.queueParameters as CyclotronInvocationQueueParametersFetchType
+            expect(parseJSON(params.body!).repository).toBe(rendered)
+        })
+
+        it.each([
+            [
+                'a repository outside the allowlist',
+                'other-org/secret',
+                /"other-org\/secret" is not an allowed repository/,
+            ],
+            ['an empty render', null, /rendered no repository/],
+        ])('fails the step on %s', async (_case, rendered, error) => {
+            const response = await invokeWithRenderedRepository(rendered)
+
+            expect(response.error).toMatch(error)
+            expect(response.invocation.queueParameters).toBeFalsy()
+        })
+    })
+
     it('asks the agent for the fields the output variables read from the output', async () => {
         const hogFlow = {
             ...workflowOptions.hogFlow,

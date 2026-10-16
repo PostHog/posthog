@@ -30,8 +30,7 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
+from posthog.models.integration import Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
@@ -51,6 +50,10 @@ from products.tasks.backend.feature_flags import (
     is_task_run_stream_presence_gated,
     is_task_run_stream_thin_tail,
     run_stream_presence_gated,
+)
+from products.tasks.backend.github_repository_access import (
+    first_integration_reaching_repositories,
+    usable_team_github_integrations,
 )
 from products.tasks.backend.logic.model_access import resolve_model_access
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
@@ -1194,12 +1197,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         )
         github_integration = None
         if github_resolution_allowed:
-            github_integration = (
-                Integration.objects.filter(team=team, kind="github")
-                .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
-                .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
-                .first()
+            usable_integrations = usable_team_github_integrations(team.id)
+            # With several installations (e.g. one per GitHub account), the oldest may not reach
+            # the repository, so prefer one that does and keep the oldest as the fallback.
+            reaching_integration = (
+                first_integration_reaching_repositories(usable_integrations, resolved_repositories)
+                if len(usable_integrations) > 1 and resolved_repositories
+                else None
             )
+            github_integration = reaching_integration or next(iter(usable_integrations), None)
         github_user_integration = None
         task_stub = Task(
             team=team,

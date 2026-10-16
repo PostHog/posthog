@@ -33,6 +33,16 @@ The agent prompt names the fields and their budget: each text field is capped at
 When the agent finishes without output that matches the fields, or a field was cut to fit the step result, the step still completes.
 The resume result carries `warnings`, the engine writes each one to the run log at `warn` level and counts the resume in `cdp_hogflow_awaited_step_resumed_with_warnings`, and the unmatched variables stay null.
 
+### Repository and GitHub installation
+
+The step's repository is either one repository picked from GitHub, or a Hog template with an allowlist, such as `{ "template": "{event.properties.repository}", "allowed": ["your-org/api", "your-org/web"] }`.
+The trigger sender chooses what the template renders, so the allowlist limits the repositories a run can work in.
+Workflow save compiles the template, rejects an empty allowlist, and rejects an entry that no GitHub installation in the project reaches.
+At run time the step fails when the template renders a repository outside the allowlist, or none. The match ignores case.
+When a project has more than one usable GitHub installation, the task gets the first one whose stored repository list holds the repository.
+Without a match it gets the oldest installation.
+The choice reads only the stored list and never calls GitHub, so a repository added after the last list refresh gets the oldest installation.
+
 A template asks for the wait by returning an `await` object next to its result, for example `{ 'id': ..., 'run_id': ..., 'await': { 'max_wait': '190m', 'label': 'task' } }`.
 `max_wait` is set by the template's author, never by the workflow author, and the engine caps it at 24 hours.
 The task template uses 190 minutes and the scout template 35 minutes: each product's own runtime cap plus slack, so the product's own timeout wake lands before the step's deadline.

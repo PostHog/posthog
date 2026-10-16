@@ -1,70 +1,75 @@
-import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconGithub } from '@posthog/icons'
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { IconBrackets, IconGithub } from '@posthog/icons'
+import { LemonSelect } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import type { CustomInputRendererProps } from 'lib/components/CyclotronJob/customInputRenderers'
-import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
-export default function CyclotronJobInputTaskRepository({ value, onChange }: CustomInputRendererProps): JSX.Element {
-    const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
-    const githubIntegrations = getIntegrationsByKind(['github'])
+import { TaskRepositoryCombobox } from './TaskRepositoryCombobox'
+import { TaskRepositoryTemplateEditor, TemplatedRepository } from './TaskRepositoryTemplateEditor'
 
-    // Which GitHub org to browse is view state only: the saved value is the `owner/repo` string,
-    // which already names the org, so the choice never needs to persist.
-    const [browsedIntegrationId, setBrowsedIntegrationId] = useState<number | null>(null)
-    const integrationId = browsedIntegrationId ?? githubIntegrations[0]?.id
+type RepositoryInputMode = 'pick' | 'template'
 
-    if (integrationsLoading) {
-        return (
-            <LemonButton size="small" type="secondary" icon={<IconGithub />} disabled>
-                GitHub
-            </LemonButton>
-        )
-    }
+const EMPTY_TEMPLATED_REPOSITORY: TemplatedRepository = { template: '', allowed: [] }
 
-    if (githubIntegrations.length === 0) {
-        return (
-            <LemonButton
-                size="small"
-                type="secondary"
-                icon={<IconGithub />}
-                // Return to the current workflow editor after authorizing, not the workflows list,
-                // so the user keeps their place instead of having to find and reopen the step.
-                to={api.integrations.authorizeUrl({
-                    kind: 'github',
-                    next: window.location.pathname + window.location.search + window.location.hash,
-                })}
-                disableClientSideRouting
-            >
-                Connect GitHub
-            </LemonButton>
-        )
+const isTemplatedRepository = (value: unknown): value is TemplatedRepository =>
+    typeof value === 'object' && value !== null && 'template' in value
+
+export default function CyclotronJobInputTaskRepository({
+    value,
+    onChange,
+    sampleGlobalsWithInputs,
+}: CustomInputRendererProps): JSX.Element {
+    const mode: RepositoryInputMode = isTemplatedRepository(value) ? 'template' : 'pick'
+    // Each mode keeps its last value, so looking at the other mode never loses the author's choice.
+    const [lastTemplate, setLastTemplate] = useState<TemplatedRepository>(
+        isTemplatedRepository(value) ? value : EMPTY_TEMPLATED_REPOSITORY
+    )
+    const [lastPick, setLastPick] = useState<string | null>(typeof value === 'string' ? value : null)
+
+    const onModeChange = (nextMode: RepositoryInputMode): void => {
+        if (nextMode === mode) {
+            return
+        }
+        if (nextMode === 'pick') {
+            if (isTemplatedRepository(value)) {
+                setLastTemplate(value)
+            }
+            onChange(lastPick)
+        } else {
+            setLastPick(typeof value === 'string' ? value : null)
+            onChange(lastTemplate)
+        }
     }
 
     return (
-        <div className="flex items-center gap-2 flex-wrap">
-            {githubIntegrations.length > 1 && (
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
                 <LemonSelect
                     size="small"
-                    value={integrationId}
-                    options={githubIntegrations.map((integration) => ({
-                        value: integration.id,
-                        label: integration.display_name,
-                    }))}
-                    onChange={(id) => setBrowsedIntegrationId(id)}
-                    data-attr="task-repository-picker-integration"
+                    value={mode}
+                    options={[
+                        { value: 'pick', label: 'Pick', icon: <IconGithub /> },
+                        { value: 'template', label: 'Template', icon: <IconBrackets /> },
+                    ]}
+                    onChange={onModeChange}
+                    data-attr="task-repository-input-mode"
+                />
+                {mode === 'pick' && (
+                    <TaskRepositoryCombobox
+                        value={typeof value === 'string' ? value : ''}
+                        onChange={(repository) => onChange(repository)}
+                        showNoneOption
+                    />
+                )}
+            </div>
+            {isTemplatedRepository(value) && (
+                <TaskRepositoryTemplateEditor
+                    value={value}
+                    onChange={onChange}
+                    globals={sampleGlobalsWithInputs ?? undefined}
                 />
             )}
-            <GitHubRepositoryCombobox
-                integrationId={integrationId}
-                value={typeof value === 'string' ? value : ''}
-                onChange={(repository) => onChange(repository ?? null)}
-                showNoneOption
-            />
         </div>
     )
 }
