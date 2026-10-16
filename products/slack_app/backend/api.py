@@ -138,10 +138,7 @@ from products.slack_app.backend.temporal import (
     SlackAppMentionWorkflowInputs,
     derive_mention_workflow_id,
 )
-from products.slack_app.backend.temporal.posthog_code_slack_mention import (
-    LegacyPostHogCodeSlackMentionWorkflow,
-    SlackAppMentionProcessingWorkflow,
-)
+from products.slack_app.backend.temporal.posthog_code_slack_mention import SlackAppMentionProcessingWorkflow
 from products.slack_app.backend.temporal.posthog_code_slack_mention_command import (
     PostHogCodeSlackMentionCommandWorkflow,
 )
@@ -4360,7 +4357,7 @@ def _start_mention_workflow(
     # Use derive_mention_workflow_id as the single source of truth: the workflow persists the same
     # value as slack_mention_workflow_id, so dispatch and the debug-tool Temporal link stay consistent
     _start_posthog_code_workflow(
-        LegacyPostHogCodeSlackMentionWorkflow,
+        SlackAppMentionProcessingWorkflow,
         workflow_inputs,
         id_prefix="posthog-code-mention",
         slack_team_id=slack_team_id,
