@@ -1,40 +1,36 @@
-import { IconCheck, IconMCP, IconPullRequest } from '@posthog/icons'
+import { IconCheck, IconMCP } from '@posthog/icons'
 import { Text } from '@posthog/quill'
 
-import { WaysToUseReveal } from '../WaysToUseReveal'
+import { WaysToUsePreviewCallout } from './WaysToUsePreviewCallout'
+import { WaysToUsePreviewWindow } from './WaysToUsePreviewWindow'
 
 export function McpIllustration(): JSX.Element {
     return (
-        <div className="flex h-full flex-col overflow-hidden rounded-tl-md border-t border-l border-border bg-background">
-            <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
-                <span className="size-1.5 rounded-full bg-border" />
-                <span className="size-1.5 rounded-full bg-border" />
-                <span className="size-1.5 rounded-full bg-border" />
-                <Text size="xxs" variant="muted" className="ml-1 font-mono">
-                    agent
-                </Text>
-            </div>
-            <div className="flex min-w-0 flex-col gap-1.5 p-2">
-                <div className="self-end rounded-md bg-fill-selected px-1.5 py-1">
-                    <Text size="xxs">Which flags can I remove?</Text>
+        <>
+            <WaysToUsePreviewWindow>
+                <div className="flex items-center gap-1 border-b border-border px-3 py-2">
+                    <span className="size-1.5 rounded-full bg-border" />
+                    <span className="size-1.5 rounded-full bg-border" />
+                    <span className="size-1.5 rounded-full bg-border" />
                 </div>
-                <div className="flex items-center gap-1 text-muted-foreground">
-                    <IconMCP className="size-3 shrink-0" />
-                    <Text size="xxs" variant="muted">
-                        Used PostHog
-                    </Text>
-                    <IconCheck className="size-3 shrink-0" />
-                </div>
-                <Text size="xxs">3 flags are fully rolled out.</Text>
-                <WaysToUseReveal>
-                    <div className="flex items-center gap-1 text-muted-foreground">
-                        <IconPullRequest className="size-3 shrink-0" />
-                        <Text size="xxs" variant="muted">
-                            Opened a cleanup PR
-                        </Text>
+                <div className="flex flex-col p-3">
+                    <div className="self-end rounded-lg bg-fill-selected px-2 py-1">
+                        <Text size="xs">Which flags are stale?</Text>
                     </div>
-                </WaysToUseReveal>
-            </div>
-        </div>
+                </div>
+            </WaysToUsePreviewWindow>
+            <WaysToUsePreviewCallout>
+                <div className="flex items-center gap-1.5">
+                    <IconMCP className="size-3.5 shrink-0" />
+                    <Text size="xs" weight="semibold">
+                        PostHog MCP
+                    </Text>
+                    <IconCheck className="size-3.5 shrink-0 text-success-foreground" />
+                </div>
+                <Text size="xs" variant="muted" className="font-mono">
+                    feature-flag-get-all
+                </Text>
+            </WaysToUsePreviewCallout>
+        </>
     )
 }

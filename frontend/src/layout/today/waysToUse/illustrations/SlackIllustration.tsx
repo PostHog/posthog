@@ -1,58 +1,39 @@
-import { ReactNode } from 'react'
-
-import { IconLogomark, IconThumbsUp } from '@posthog/icons'
+import { IconLogomark } from '@posthog/icons'
 import { Badge, Text } from '@posthog/quill'
 
-import { WaysToUseReveal } from '../WaysToUseReveal'
-
-function SlackMessage({
-    avatar,
-    name,
-    tag,
-    children,
-}: {
-    avatar: ReactNode
-    name: string
-    tag?: ReactNode
-    children: ReactNode
-}): JSX.Element {
-    return (
-        <div className="flex gap-1.5">
-            <span className="flex size-5 shrink-0 items-center justify-center rounded-sm bg-fill-selected text-xxs font-semibold">
-                {avatar}
-            </span>
-            <div className="flex min-w-0 flex-col gap-0.5">
-                <div className="flex items-center gap-1">
-                    <Text size="xxs" weight="semibold">
-                        {name}
-                    </Text>
-                    {tag}
-                </div>
-                {children}
-            </div>
-        </div>
-    )
-}
+import { WaysToUsePreviewCallout } from './WaysToUsePreviewCallout'
+import { WaysToUsePreviewWindow } from './WaysToUsePreviewWindow'
 
 export function SlackIllustration(): JSX.Element {
     return (
-        <div className="flex h-full flex-col gap-2 overflow-hidden rounded-tl-md border-t border-l border-border bg-background p-2">
-            <Text size="xxs" weight="medium" variant="muted">
-                # product
-            </Text>
-            <SlackMessage avatar="S" name="Sam">
-                <Text size="xxs">
-                    <span className="font-semibold">@PostHog</span> why did signups drop?
-                </Text>
-            </SlackMessage>
-            <SlackMessage avatar={<IconLogomark className="size-3.5" />} name="PostHog" tag={<Badge>App</Badge>}>
-                <Text size="xxs">The new pricing page.</Text>
-                <WaysToUseReveal>
-                    <span className="inline-flex items-center gap-0.5 rounded-full border border-border bg-fill-selected px-1.5 text-xxs">
-                        <IconThumbsUp className="size-2.5" />2
-                    </span>
-                </WaysToUseReveal>
-            </SlackMessage>
-        </div>
+        <>
+            <WaysToUsePreviewWindow>
+                <div className="flex flex-col gap-2.5 p-3">
+                    <div className="flex gap-2">
+                        <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-fill-selected text-xs font-semibold">
+                            S
+                        </span>
+                        <div className="flex min-w-0 flex-col">
+                            <Text size="xs" weight="semibold">
+                                Sam
+                            </Text>
+                            <Text size="xs">
+                                <span className="font-medium text-info-foreground">@PostHog</span> why did signups drop?
+                            </Text>
+                        </div>
+                    </div>
+                </div>
+            </WaysToUsePreviewWindow>
+            <WaysToUsePreviewCallout>
+                <div className="flex items-center gap-1.5">
+                    <IconLogomark className="size-3.5 shrink-0" />
+                    <Text size="xs" weight="semibold">
+                        PostHog
+                    </Text>
+                    <Badge>App</Badge>
+                </div>
+                <Text size="xs">The new pricing page.</Text>
+            </WaysToUsePreviewCallout>
+        </>
     )
 }

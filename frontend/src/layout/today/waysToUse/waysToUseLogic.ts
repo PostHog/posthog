@@ -83,7 +83,7 @@ export interface waysToUseLogicMeta {
             welcomeDialogDue: boolean,
             welcomeDialogSeenThisSession: boolean
         ) => boolean
-        isOpen: (settled: any, closed: boolean, forced: boolean, eligible: boolean) => boolean
+        isOpen: (settled: boolean, closed: boolean, forced: boolean, eligible: boolean) => boolean
     }
 }
 

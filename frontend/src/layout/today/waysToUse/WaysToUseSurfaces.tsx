@@ -19,7 +19,7 @@ export interface WaysToUseSurfacesProps {
 export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps): JSX.Element {
     return (
         <div className="@container">
-            <div className="grid grid-cols-1 gap-x-4 gap-y-8 @2xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-x-4 gap-y-8 @3xl:grid-cols-3">
                 <WaysToUseSurfaceCard
                     order={0}
                     logo={<Logomark size="xs" />}
