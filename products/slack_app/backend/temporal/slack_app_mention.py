@@ -15,7 +15,7 @@ from products.slack_app.backend.temporal import (
     mark_slack_app_message_queued_activity,
     post_posthog_code_internal_error_activity,
 )
-from products.slack_app.backend.temporal.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
+from products.slack_app.backend.temporal.posthog_code_slack_mention import LegacyPostHogCodeSlackMentionWorkflow
 from products.slack_app.backend.temporal.types import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppMentionWorkflowInputs,
@@ -55,11 +55,11 @@ def derive_slack_app_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflow
 class SlackAppMentionWorkflow(PostHogWorkflow):
     """Per-conversation queue over the per-message mention workflow.
 
-    Standalone ``PostHogCodeSlackMentionWorkflow`` executions race when
+    Standalone ``SlackAppMentionProcessingWorkflow`` executions race when
     several messages land in one thread. This workflow serializes them: the
     webhook signal-with-starts one instance per conversation, messages queue
     up as ``new_message`` signals, and the loop runs each one as a child
-    ``PostHogCodeSlackMentionWorkflow`` — under the same per-message workflow
+    ``SlackAppMentionProcessingWorkflow`` — under the same per-message workflow
     ID the flag-off dispatch would use — awaiting its completion before
     starting the next. Interactive signals (the repo picker) never touch this
     workflow: the child bakes its own ID into
@@ -183,7 +183,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
             # return, continue_as_new) never have a child in flight — the
             # serial await completes it first.
             await workflow.execute_child_workflow(
-                PostHogCodeSlackMentionWorkflow.run,
+                LegacyPostHogCodeSlackMentionWorkflow.run,
                 message,
                 id=derive_mention_workflow_id(message),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

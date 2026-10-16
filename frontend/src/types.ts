@@ -5269,19 +5269,6 @@ export interface ExperimentVelocityStats {
     completed_last_30d: number
 }
 
-export interface FunnelExperimentVariant {
-    key: string
-    success_count: number
-    failure_count: number
-}
-
-export interface TrendExperimentVariant {
-    key: string
-    count: number
-    exposure: number
-    absolute_exposure: number
-}
-
 export interface SecondaryExperimentMetric {
     name: string
     filters: Partial<FilterType>
@@ -5402,14 +5389,6 @@ export interface PathEdgeParameters {
     edgeLimit?: number | undefined
     minEdgeWeight?: number | undefined
     maxEdgeWeight?: number | undefined
-}
-
-export enum SignificanceCode {
-    Significant = 'significant',
-    NotEnoughExposure = 'not_enough_exposure',
-    LowWinProbability = 'low_win_probability',
-    HighLoss = 'high_loss',
-    HighPValue = 'high_p_value',
 }
 
 export enum HelpType {
