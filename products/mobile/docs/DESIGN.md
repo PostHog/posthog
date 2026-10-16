@@ -117,8 +117,9 @@ Sizing a glyph does not change its button's tap target, which stays at least 44p
   dimmed in demo mode or when the session has no project. A long press on a row (or the screen
   reader's "Show report actions") opens a menu with Hand off to the saved agent (PostHog,
   Claude Code or Codex), Reassign, Resolve, Dismiss, Chat and Mark as read (for an unread report) or Mark as unread.
-  A full swipe on a row changes its read state: swipe right past 30% of the row marks the report read (blue),
-  swipe left marks it unread (ink). Both directions always play, and a swipe toward the state the row already has
+  A swipe past 30% of a row changes its read state on release: swipe right marks the report read (blue),
+  swipe left marks it unread (ink). After the threshold haptic, releasing springs the row directly back into place.
+  Both directions always play, and a swipe toward the state the row already has
   only plays the animation. Screen readers get the same change as a "Mark as read" or "Mark as unread" row action.
   Unread reports have a bold title and an 8pt blue dot at the right. Read reports use a regular-weight title
   without the dot. Resolved, dismissed, and snoozed reports keep their muted styling.

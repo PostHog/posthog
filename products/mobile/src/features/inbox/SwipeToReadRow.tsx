@@ -2,14 +2,12 @@ import { type ComponentType, type ReactElement, type ReactNode, useCallback, use
 import { type LayoutChangeEvent, Platform, StyleSheet, Text, View, type ViewStyle } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
-    Easing,
     Extrapolation,
     interpolate,
     useAnimatedStyle,
     useReducedMotion,
     useSharedValue,
     withSpring,
-    withTiming,
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 
@@ -17,7 +15,7 @@ import { haptic } from '@/lib/haptics'
 import { MailOpenIcon } from '@/ui/icons/MailOpenIcon'
 import { MailUnreadIcon } from '@/ui/icons/MailUnreadIcon'
 import type { IconProps } from '@/ui/icons/types'
-import { colors, iconSizes, layout, motion, swipeColors, type } from '@/ui/tokens'
+import { colors, iconSizes, layout, swipeColors, type } from '@/ui/tokens'
 
 import { commitDistance, rowOffset, type SwipeDirection } from './swipeToRead'
 
@@ -33,7 +31,6 @@ const IDLE_OPACITY = 0.6
 // Both springs settle with a small overshoot at most, so the pop reads as a snap and not a bounce.
 const ARM_SPRING = { damping: 24, stiffness: 320 }
 const RETURN_SPRING = { damping: 32, stiffness: 320 }
-const COMMIT_SLIDE_MS = 180
 // react-native-web does not cancel a press when the pan activates, so the mouseup that ends a drag also presses the
 // row. That mouseup can arrive before or after the pan ends, so the block lasts a little past the end.
 const BLOCK_PRESS_AFTER_SWIPE = Platform.OS === 'web'
@@ -103,7 +100,6 @@ export function SwipeToReadRow({ onMarkRead, onMarkUnread, children }: SwipeToRe
 
     const pan = useMemo(() => {
         const threshold = commitDistance(width)
-        const [x1, y1, x2, y2] = motion.emphasizedBezier
         const setArmed = (next: boolean): void => {
             'worklet'
             isArmed.value = next
@@ -172,18 +168,12 @@ export function SwipeToReadRow({ onMarkRead, onMarkUnread, children }: SwipeToRe
                     return
                 }
                 settling.value = true
-                offset.value = withTiming(
-                    direction * width,
-                    { duration: COMMIT_SLIDE_MS, easing: Easing.bezier(x1, y1, x2, y2) },
-                    () => {
-                        scheduleOnRN(commit, direction === 1)
-                        offset.value = withSpring(0, { ...RETURN_SPRING, overshootClamping: true }, () => {
-                            isArmed.value = false
-                            armed.value = 0
-                            settling.value = false
-                        })
-                    }
-                )
+                offset.value = withSpring(0, { ...RETURN_SPRING, overshootClamping: true }, () => {
+                    isArmed.value = false
+                    armed.value = 0
+                    settling.value = false
+                })
+                scheduleOnRN(commit, direction === 1)
             })
             .onFinalize(() => {
                 'worklet'
