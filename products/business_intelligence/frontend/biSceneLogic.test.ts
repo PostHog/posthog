@@ -124,6 +124,42 @@ describe('biSceneLogic', () => {
     })
     afterEach(() => logic.unmount())
 
+    it('opens catalog definitions as fixed snapshots and waits for Run', async () => {
+        const runQuery = jest.fn(() => [200, { columns: ['revenue'], results: [[42]] }])
+        useMocks({
+            get: {
+                '/api/projects/:team_id/data_catalog/metrics/revenue/': {
+                    name: 'revenue',
+                    display_name: 'Revenue',
+                    definition: { kind: NodeKind.HogQLQuery, query: 'SELECT 42 AS revenue' },
+                },
+            },
+            post: { '/api/environments/:team_id/query/HogQLQuery/': runQuery },
+        })
+        await expectLogic(logic, () =>
+            router.actions.push(urls.businessIntelligenceNew(), { metric: 'revenue' })
+        ).toFinishAllListeners()
+        expect(logic.values.name).toBe('Revenue')
+        expect(logic.values.worksheet.config.querySnapshot?.query).toBe('SELECT 42 AS revenue')
+        expect(logic.values.lastRunQuery).toBeNull()
+        expect(logic.values.worksheet.config.source).toBeNull()
+        const dataLogic = dataNodeLogic({
+            key: logic.values.dataNodeKey,
+            query: logic.values.worksheet.source,
+            autoLoad: false,
+        })
+        const unmount = dataLogic.mount()
+        try {
+            expect(runQuery).not.toHaveBeenCalled()
+            await expectLogic(logic, () => logic.actions.runQuery()).toFinishAllListeners()
+            expect(logic.values.lastRunQuery?.source.query).toBe('SELECT 42 AS revenue')
+            expect(runQuery).toHaveBeenCalledTimes(1)
+            expect(dataLogic.values.response).toMatchObject({ results: [[42]] })
+        } finally {
+            unmount()
+        }
+    })
+
     it.each([false, true])('protects unsaved worksheet edits when navigating away (saved: %s)', async (saved) => {
         const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false)
         try {

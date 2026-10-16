@@ -23,6 +23,7 @@ import { BIEditor } from './BIEditor'
 import { biEditorLogic } from './biEditorLogic'
 import { BIEditorView } from './biEditorTypes'
 import { getBIHierarchyParent } from './biHierarchies'
+import { BIMetricProposalButton } from './BIMetricProposalButton'
 import { BIResultSummary } from './BIResultSummary'
 import { keepBIScatterRows } from './biScatter'
 import { biSceneLogic } from './biSceneLogic'
@@ -178,6 +179,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                             data-attr="bi-worksheet-actions"
                         />
                     </LemonMenu>
+                    <BIMetricProposalButton tabId={tabId} />
                     <LemonButton
                         type="primary"
                         size="small"
@@ -241,7 +243,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                 context={{
                                     insightProps: { dashboardItemId: `new-bi-${tabId}` },
                                     showOpenEditorButton: false,
-                                    chartTypeSelectorClassName: 'hidden',
+                                    chartTypeSelectorClassName: worksheet.config.querySnapshot ? undefined : 'hidden',
                                     onEditBIAxis: setEditingAxis,
                                     onDrillBIHierarchy: (next) => navigateHierarchy(next),
                                     biHierarchyDrillDisabledReason: displayedQueryIsCurrent
@@ -266,13 +268,15 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                         ) : (
                             <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-secondary">
                                 <span>
-                                    {worksheet.config.source
-                                        ? worksheet.config.rows.length ||
-                                          worksheet.config.columns.length ||
-                                          worksheet.config.values.length
-                                            ? 'Press Run to see the results of this worksheet.'
-                                            : 'Drag or double-click a field to start. Dimensions define groups; measures calculate a value for each group.'
-                                        : 'Select a table and add fields to build your worksheet.'}
+                                    {worksheet.config.querySnapshot
+                                        ? 'Press Run to see the results of this query snapshot.'
+                                        : worksheet.config.source
+                                          ? worksheet.config.rows.length ||
+                                            worksheet.config.columns.length ||
+                                            worksheet.config.values.length
+                                              ? 'Press Run to see the results of this worksheet.'
+                                              : 'Drag or double-click a field to start. Dimensions define groups; measures calculate a value for each group.'
+                                          : 'Select a table and add fields to build your worksheet.'}
                                 </span>
                                 {worksheet.config.source &&
                                     !worksheet.config.rows.length &&
@@ -293,7 +297,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                     )}
                             </div>
                         )}
-                        <BIResultSummary tabId={tabId} />
+                        {!worksheet.config.querySnapshot && <BIResultSummary tabId={tabId} />}
                     </BIEditor>
                 )}
                 {editingAxis && (
