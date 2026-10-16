@@ -16,7 +16,7 @@ Supplied top-level v1 filter keys replace those keys in the stored state; `{}` r
 The existing validation rollout controls normalization and unknown-key preservation.
 Every write rejects the variant keys `$false` and `$true` with `reserved_variant_key`, whatever the validation rollout enforces.
 It also rejects a `"null"` or empty `""` variant key unless the stored flag already has a variant with that key.
-`flag_evaluations` stores a `"null"` response the same as a null one, and HogQL reads an empty response as NULL on `flag_evaluations` and on events.
+`flag_evaluations` stores a `"null"` response the same as a null one, and a `""` response the same as a missing one.
 The validation rollout's `structural.multivariate.variants[].key.blank` rule rejects every `""` key, including one the stored flag has, once that rule is enforced.
 Copies follow the target flag, not the source.
 Duplicating an experiment with a new flag key, copying a flag or experiment to a project without that flag, and copying onto a target flag that lacks the source flag's `"null"` or `""` variant all fail.

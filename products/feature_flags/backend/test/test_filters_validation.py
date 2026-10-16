@@ -512,7 +512,7 @@ class TestReservedVariantKey(SimpleTestCase):
             serializer = _new_variant_serializer(key, stored_keys)
             assert not serializer.is_valid()
         assert serializer.errors["filters"][0].code == "reserved_variant_key"
-        assert (key or "empty") in str(serializer.errors["filters"][0])
+        assert (key or "can't be empty") in str(serializer.errors["filters"][0])
 
     @parameterized.expand(
         [

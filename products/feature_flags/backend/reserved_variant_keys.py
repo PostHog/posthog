@@ -3,9 +3,9 @@
 The ingest cleaner stores a variant named "false" or "true" under a sentinel in the `$feature_flags` map, so every
 write refuses the sentinels. flag_evaluations stores `$feature_flag_response` with the JSON quotes trimmed, so a variant
 named "null" stores the same 'null' as a flag that returned null, and reads turn both into NULL. A variant with an
-empty key stores an empty response, which HogQL also reads as NULL on flag_evaluations and on events. A flag that
-already serves a key in `RESERVED_NEW_VARIANT_KEYS` keeps it, because renaming a variant breaks experiment and chart
-continuity.
+empty key stores ''. That is the value flag_evaluations stores for a missing response. HogQL reads '' as NULL on a
+materialized events column. A flag that already serves a key in `RESERVED_NEW_VARIANT_KEYS` keeps it, because renaming
+a variant breaks experiment and chart continuity.
 """
 
 from collections.abc import Collection
