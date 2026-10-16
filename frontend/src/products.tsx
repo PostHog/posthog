@@ -381,6 +381,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/broadcasts/opt-outs': ['Broadcasts', 'broadcasts'],
     '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
     '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/settings': ['Broadcasts', 'broadcasts'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
     '/broadcasts/:id': ['Broadcast', 'broadcast'],
 }
@@ -3352,6 +3353,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Opt-outs', href: urls.workflows('opt-outs') },
             { name: 'Suppression list', href: urls.workflows('suppression') },
             { name: 'Reputation', href: urls.workflows('reputation') },
+            { name: 'Settings', href: urls.workflows('settings') },
         ],
         type: 'workflows',
         category: ProductItemCategory.MESSAGING,

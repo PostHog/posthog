@@ -8859,11 +8859,22 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flush_persons_and_events()
         cohort = self._create_static_cohort()
 
-        mock_batch_evaluate.side_effect = [
-            self._page([str(persons[0].uuid)], next_cursor=100),
-            self._page([str(persons[1].uuid)], next_cursor=200),
-            self._page([str(persons[2].uuid)], next_cursor=None),
-        ]
+        pages = iter(
+            [
+                self._page([str(persons[0].uuid)], next_cursor=100),
+                self._page([str(persons[1].uuid)], next_cursor=200),
+                self._page([str(persons[2].uuid)], next_cursor=None),
+            ]
+        )
+        open_history_rows_during_run = []
+
+        def evaluate_page(*args, **kwargs):
+            open_history_rows_during_run.append(
+                CohortCalculationHistory.objects.filter(cohort=cohort, finished_at__isnull=True).count()
+            )
+            return next(pages)
+
+        mock_batch_evaluate.side_effect = evaluate_page
 
         get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk, batchsize=2)
 
@@ -8886,6 +8897,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIsNone(history.error)
         self.assertEqual(history.count, 3)
         self.assertIsNotNone(history.finished_at)
+        # The stuck-cohort sweep measures a live run from this open row.
+        self.assertEqual(open_history_rows_during_run, [1, 1, 1])
 
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_history_write_failure_does_not_fail_a_populated_cohort(self, mock_batch_evaluate):
@@ -8896,7 +8909,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         mock_batch_evaluate.return_value = self._page([str(person.uuid)])
 
-        with patch.object(CohortCalculationHistory.objects, "create", side_effect=IntegrityError("no row for you")):
+        with patch.object(CohortCalculationHistory, "save", side_effect=IntegrityError("no row for you")):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
 
         cohort.refresh_from_db()
