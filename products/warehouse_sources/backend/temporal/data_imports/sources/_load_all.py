@@ -822,6 +822,7 @@ from .nager_date.source import NagerDateSource
 from .nasa.source import NasaSource
 from .nationbuilder.source import NationBuilderSource
 from .navan.source import NavanSource
+from .naver_ads.source import NaverAdsSource
 from .nebius_ai.source import NebiusAISource
 from .neo4j.source import Neo4jSource
 from .neon.source import NeonSource
