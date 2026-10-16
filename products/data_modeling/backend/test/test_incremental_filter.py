@@ -11,6 +11,8 @@ from posthog.hogql.visitor import clear_locations
 from products.data_modeling.backend.logic.incremental_filter import (
     GUARD_ALIAS,
     IncrementalFilterError,
+    bind_window_start,
+    bind_window_start_sql,
     inject_incremental_filter,
 )
 
@@ -121,6 +123,37 @@ class TestInjectIncrementalFilter(SimpleTestCase):
             left=ast.Field(chain=[GUARD_ALIAS, "day"]),
             right=ast.Constant(value=SINCE),
             op=ast.CompareOperationOp.GtEq,
+        )
+
+    @parameterized.expand([("incremental_run", SINCE), ("outside_a_run", None)])
+    def test_binds_the_window_start_placeholder(self, _name: str, since: datetime | None) -> None:
+        node = bind_window_start(
+            parse_select("SELECT day FROM t WHERE day >= ifNull({incremental_window_start}, '')"), since
+        )
+
+        assert isinstance(node, ast.SelectQuery)
+        assert node.where is not None
+        assert clear_locations(node.where) == ast.CompareOperation(
+            left=ast.Field(chain=["day"]),
+            right=ast.Call(name="ifNull", args=[ast.Constant(value=since), ast.Constant(value="")]),
+            op=ast.CompareOperationOp.GtEq,
+        )
+
+    def test_binds_the_placeholder_tokens_in_the_sql_text_and_nothing_else(self) -> None:
+        sql = "SELECT day FROM t WHERE day >= ifNull({ incremental_window_start }, '') AND tag = '{incremental_window_start}'"
+
+        assert bind_window_start_sql(sql) == (
+            "SELECT day FROM t WHERE day >= ifNull(NULL, '') AND tag = '{incremental_window_start}'"
+        )
+
+    def test_leaves_every_other_placeholder_as_it_is(self) -> None:
+        node = bind_window_start(parse_select("SELECT day FROM t WHERE x = {other} AND y = {sql(1 + 1)}"), SINCE)
+
+        assert isinstance(node, ast.SelectQuery)
+        assert isinstance(node.where, ast.And)
+        assert all(
+            isinstance(term, ast.CompareOperation) and isinstance(term.right, ast.Placeholder)
+            for term in node.where.exprs
         )
 
     def test_rejects_a_key_the_query_does_not_produce(self) -> None:
