@@ -1654,6 +1654,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                         parse_account_audience_filters(filters)
                     else:
                         self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
+            elif data.get("config", {}).get("type") == "api":
+                # A transactional email's trigger: the authenticated send endpoint runs the workflow once
+                # per call, so the trigger has nothing to configure.
+                pass
             elif data.get("config", {}).get("type") == "schedule":
                 # The schedule definition lives on a separate HogFlowSchedule row, but a schedule trigger
                 # resolves the same offline audience as batch — guard its cohort refs the same way.
