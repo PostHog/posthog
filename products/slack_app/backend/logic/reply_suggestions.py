@@ -198,9 +198,12 @@ def request_reply_suggestions(
         properties["task_id"] = attribution.task_id
     if attribution.run_id:
         properties["run_id"] = attribution.run_id
+    # Tagged as the Slack app beside the agent's own calls, so its cost shows under the app;
+    # `slack_app_classifier` tells them apart. The route stays `slack_app_routing`, because the Python
+    # fallback's `slack_app` route needs a server credential this caller does not hold.
     client = build_openai_client(
         product="slack_app_routing",
-        ai_product="slack_app_routing",
+        ai_product="slack_app",
         trace_id=attribution.trace_id,
         session_id=attribution.session_id,
         distinct_id=attribution.distinct_id,
