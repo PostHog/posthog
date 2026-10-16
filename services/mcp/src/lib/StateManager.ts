@@ -24,6 +24,12 @@ const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 // shows up within a minute. `ingested_event` never returns to false and warehouse sources are
 // rarely removed, so a positive answer keeps the default TTL.
 export const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
+// Cached for the short TTL like an empty answer, so an unreadable list is not requested on every call.
+const UNKNOWN_WAREHOUSE_COUNT = -1
+
+function warehouseCountToAnswer(count: number): boolean | undefined {
+    return count === UNKNOWN_WAREHOUSE_COUNT ? undefined : count > 0
+}
 
 // Entitlement-related fields shared by both org shapes we read from — the
 // standalone org endpoint and the org embedded in `/api/users/@me/`.
@@ -543,51 +549,44 @@ export class StateManager {
     /**
      * `undefined` means unknown. Reads two lists because each misses a kind of table:
      * `warehouse_tables` omits direct-access sources, and `external_data_sources` omits
-     * self-managed tables linked from a bucket.
+     * self-managed tables linked from a bucket. Zero is an answer only when both lists were
+     * read, so a missing scope or a failed read gives unknown, never a stale zero.
      */
     async getOrFetchHasWarehouseData(projectId: string): Promise<boolean | undefined> {
-        const { scopes } = await this.getApiKey()
-        const checks = [
-            hasScope(scopes, 'warehouse_table:read')
-                ? `/api/projects/${encodeURIComponent(projectId)}/warehouse_tables/`
-                : undefined,
-            hasScope(scopes, 'external_data_source:read')
-                ? `/api/projects/${encodeURIComponent(projectId)}/external_data_sources/`
-                : undefined,
-        ].filter((path): path is string => path !== undefined)
-        if (checks.length === 0) {
-            return undefined
+        const cacheKey = `warehouseObjectCount:${projectId}` as const
+        const fetchedAtKey = `warehouseObjectCountFetchedAt:${projectId}` as const
+        const [cached, fetchedAt] = await Promise.all([this._cache.get(cacheKey), this._cache.get(fetchedAtKey)])
+        const ttlMs = cached !== undefined && cached > 0 ? CACHE_TTL_MS : NO_DATA_CACHE_TTL_MS
+        if (cached !== undefined && !this.isCacheStale(fetchedAt, ttlMs)) {
+            return warehouseCountToAnswer(cached)
         }
-        const count = await this.getOrFetchCached({
-            name: 'warehouse_object_count',
-            cacheKey: `warehouseObjectCount:${projectId}` as const,
-            fetchedAtKey: `warehouseObjectCountFetchedAt:${projectId}` as const,
-            fetcher: async () => {
-                const results = await Promise.allSettled(
-                    checks.map((path) =>
-                        this._api.request<{ count?: number; results?: unknown[] }>({
-                            method: 'GET',
-                            path,
-                            query: { limit: 1, include_columns: 'false' },
-                        })
-                    )
-                )
-                let total = 0
-                for (const result of results) {
-                    if (result.status === 'fulfilled') {
-                        total += result.value.count ?? result.value.results?.length ?? 0
-                    }
-                }
-                const failure = results.find((result) => result.status === 'rejected')
-                // A failed list could hold the only table, so zero is a real answer only when both lists were read.
-                if (failure && total === 0) {
-                    throw failure.reason
-                }
-                return total
-            },
-            ttlMs: (cached) => (cached !== undefined && cached > 0 ? CACHE_TTL_MS : NO_DATA_CACHE_TTL_MS),
-        })
-        return count === undefined ? undefined : count > 0
+
+        const { scopes } = await this.getApiKey()
+        const lists = [
+            { scope: 'warehouse_table:read', path: 'warehouse_tables' },
+            { scope: 'external_data_source:read', path: 'external_data_sources' },
+        ]
+        const results = await Promise.allSettled(
+            lists.map(({ scope, path }) =>
+                hasScope(scopes, scope)
+                    ? this._api.request<{ count?: number; results?: unknown[] }>({
+                          method: 'GET',
+                          path: `/api/projects/${encodeURIComponent(projectId)}/${path}/`,
+                          query: { limit: 1, include_columns: 'false' },
+                      })
+                    : Promise.reject(new Error(`missing ${scope}`))
+            )
+        )
+        let total = 0
+        for (const result of results) {
+            if (result.status === 'fulfilled') {
+                total += result.value.count ?? result.value.results?.length ?? 0
+            }
+        }
+        const complete = results.every((result) => result.status === 'fulfilled')
+        const count = total > 0 || complete ? total : UNKNOWN_WAREHOUSE_COUNT
+        await Promise.all([this._cache.set(cacheKey, count), this._cache.set(fetchedAtKey, Date.now())]).catch(() => {})
+        return warehouseCountToAnswer(count)
     }
 
     async getOrFetchGroupTypes(projectId: string): Promise<GroupType[] | undefined> {

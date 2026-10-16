@@ -1055,16 +1055,22 @@ describe('StateManager', () => {
         const warehouseScopes = ['warehouse_table:read', 'external_data_source:read']
         const rejected = new Error('Synthetic list failure')
 
-        it.each<[string, string[], unknown[], boolean | undefined]>([
+        it.each<[string, string[], unknown[], boolean | undefined, number?]>([
             ['unknown without a warehouse read scope', ['query:read'], [], undefined],
+            ['unknown when the only readable list is empty', ['warehouse_table:read'], [{ count: 0 }], undefined],
+            ['true when the only readable list has a table', ['warehouse_table:read'], [{ count: 1 }], true],
+            ['unknown when the refresh of an empty answer fails', warehouseScopes, [rejected, rejected], undefined, 0],
             ['true when a table exists', warehouseScopes, [{ count: 1 }, { count: 0 }], true],
             ['true when only a source exists', warehouseScopes, [{ count: 0 }, { count: 2 }], true],
             ['false when both lists are empty', warehouseScopes, [{ count: 0 }, { count: 0 }], false],
             ['unknown when a list fails and the other is empty', warehouseScopes, [{ count: 0 }, rejected], undefined],
             ['true when a list fails and the other has a table', warehouseScopes, [{ count: 1 }, rejected], true],
-        ])('is %s', async (_name, scopes, responses, expected) => {
-            const capture = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
+        ])('is %s', async (_name, scopes, responses, expected, staleCount) => {
             await cache.set('apiKey', { scopes, scoped_organizations: [], scoped_teams: [] })
+            if (staleCount !== undefined) {
+                await cache.set(`warehouseObjectCount:${projectId}`, staleCount)
+                await cache.set(`warehouseObjectCountFetchedAt:${projectId}`, Date.now() - 2 * 60 * 1000)
+            }
             const request = vi.fn()
             for (const response of responses) {
                 if (response instanceof Error) {
@@ -1077,7 +1083,6 @@ describe('StateManager', () => {
 
             expect(await stateManager.getOrFetchHasWarehouseData(projectId)).toBe(expected)
             expect(request).toHaveBeenCalledTimes(responses.length)
-            capture.mockRestore()
         })
     })
 
