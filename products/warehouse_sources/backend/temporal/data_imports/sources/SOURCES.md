@@ -655,6 +655,7 @@ the row lists both.
 | pipedrive                        | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | pipeliner                        | HTTP                        | requests                                                        | ✅                          |
 | plain                            | HTTP                        | requests                                                        | ✅                          |
+| plane                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | planetscale_mysql                | DB protocol                 | pymysql (delegates to MySQLSource)                              | ➖                          |
 | planetscale_postgres             | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | planhat                          | HTTP                        | requests                                                        | ✅                          |
