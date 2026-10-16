@@ -75,6 +75,11 @@ const capturesFromTheRequest = (run: PipelineRun): string[] => {
     ]
 }
 
+const refusesTheRequest = (run: PipelineRun): string[] => [
+    ...(run.httpResponse && run.httpResponse.status >= 400 ? [] : ['the request was not refused']),
+    ...(run.result?.capturedPostHogEvents.length ? ['the request captured an event'] : []),
+]
+
 const wireText = (request: OutgoingRequest): string => {
     const basicAuthCredentials = Object.values(request.headers)
         .filter((value) => typeof value === 'string' && value.startsWith('Basic '))
@@ -351,13 +356,12 @@ describe('template contracts', () => {
         })
 
         if (checksSecrets(templateCase)) {
-            it('keeps sensitive values out of its output, also when the request carries forged credentials', async () => {
-                const runs = [
-                    await pipeline.run(templateCase, OK, { debug: true }),
-                    await pipeline.run(templateCase, OK, { debug: true, forgedCredentials: true }),
-                ]
+            it('keeps sensitive values out of its output, also when it refuses forged credentials', async () => {
+                const accepted = await pipeline.run(templateCase, OK, { debug: true })
+                const forged = await pipeline.run(templateCase, OK, { debug: true, forgedCredentials: true })
 
-                expectInvariant(templateCase, SECRETS_EXEMPTIONS, runs.flatMap(secretsStayOutOfOutput))
+                expect(refusesTheRequest(forged)).toEqual([])
+                expectInvariant(templateCase, SECRETS_EXEMPTIONS, [accepted, forged].flatMap(secretsStayOutOfOutput))
             })
         }
     })

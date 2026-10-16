@@ -9,7 +9,7 @@ import * as requestModule from '~/common/utils/request'
 import { FetchOptions, FetchResponse } from '~/common/utils/request'
 import { encodeLogAttributeValue } from '~/logs/attribute-value'
 import type { LogRecord } from '~/logs/log-record-avro'
-import { LogsTransformerService } from '~/logs/transformations/logs-transformer.service'
+import { ATTR_TRANSFORMATIONS_FAILED, LogsTransformerService } from '~/logs/transformations/logs-transformer.service'
 import { PluginEvent } from '~/plugin-scaffold'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
@@ -80,7 +80,6 @@ export type PipelineRun = {
     thrown?: string
     requests: OutgoingRequest[]
     printedOutput: string[]
-    /** What a source webhook answers its caller. */
     httpResponse?: HogFunctionWebhookResult | null
     /** What a source webhook or log transformation hands on: captured events, its response, or the transformed record. */
     deliveredOutput: string[]
@@ -129,7 +128,8 @@ export class TemplatePipeline {
         private executor: HogExecutorAsyncService,
         private hogInputsService: HogInputsService,
         private transformer: HogTransformerService,
-        private sourceWebhooks: CdpSourceWebhooksConsumer
+        private sourceWebhooks: CdpSourceWebhooksConsumer,
+        private hogFunctionManager: HogFunctionManagerService
     ) {}
 
     static async start(): Promise<TemplatePipeline> {
@@ -192,7 +192,16 @@ export class TemplatePipeline {
             createCdpConsumerDeps(hub),
             { hogQueue: createMockJobQueue(), hogflowQueue: createMockJobQueue() }
         )
-        const pipeline = new TemplatePipeline(hub, team, executor, hogInputsService, transformer, sourceWebhooks)
+        const hogFunctionManager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
+        const pipeline = new TemplatePipeline(
+            hub,
+            team,
+            executor,
+            hogInputsService,
+            transformer,
+            sourceWebhooks,
+            hogFunctionManager
+        )
         pipeline.interceptNetwork()
         return pipeline
     }
@@ -289,23 +298,19 @@ export class TemplatePipeline {
         const monitoring = new HogFunctionMonitoringService(
             createTestMonitoringOutputs(undefined as unknown as KafkaProducerWrapper)
         )
-        const transformer = new LogsTransformerService(
-            new HogFunctionManagerService(this.hub.postgres, this.hub.pubSub, this.hub.encryptedFields),
-            monitoring,
-            {
-                siteUrl: this.hub.SITE_URL,
-                hogTimeoutMs: EXECUTION_BUDGET_MS,
-                messageBudgetMs: EXECUTION_BUDGET_MS,
-                batchBudgetMs: EXECUTION_BUDGET_MS,
-                maxErrorLogsPerFunctionPerMessage: 1,
-            }
-        )
+        const transformer = new LogsTransformerService(this.hogFunctionManager, monitoring, {
+            siteUrl: this.hub.SITE_URL,
+            hogTimeoutMs: EXECUTION_BUDGET_MS,
+            messageBudgetMs: EXECUTION_BUDGET_MS,
+            batchBudgetMs: EXECUTION_BUDGET_MS,
+            maxErrorLogsPerFunctionPerMessage: 1,
+        })
         const records = [representativeLogRecord()]
 
         await transformer.transformRecordsWith(this.team.id, [hogFunction], records)
 
         const logs = monitoring.queuedLogMessages
-        const failed = records.some((record) => record.attributes?.[TRANSFORMATIONS_FAILED_ATTRIBUTE])
+        const failed = records.some((record) => record.attributes?.[ATTR_TRANSFORMATIONS_FAILED])
         return {
             invocationErrors: [
                 ...logs.filter((log) => log.level === 'error').map((log) => log.message),
@@ -516,8 +521,6 @@ const pluginEventFrom = (globals: HogFunctionInvocationGlobals): PluginEvent => 
     team_id: globals.project.id,
     now: globals.event.timestamp,
 })
-
-const TRANSFORMATIONS_FAILED_ATTRIBUTE = '$transformations_failed'
 
 const representativeLogRecord = (): LogRecord => ({
     uuid: '01920000-0000-7000-8000-000000000005',

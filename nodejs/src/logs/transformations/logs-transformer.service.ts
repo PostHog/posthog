@@ -113,7 +113,7 @@ interface FunctionAggregates {
 
 export type TransformRecordsResult = { recordsDropped: number; recordsDroppedByFunctionId: Map<string, number> }
 
-const ATTR_TRANSFORMATIONS_FAILED = '$transformations_failed'
+export const ATTR_TRANSFORMATIONS_FAILED = '$transformations_failed'
 const ATTR_TRANSFORMATIONS_SKIPPED = '$transformations_skipped'
 
 /**
