@@ -698,38 +698,88 @@ def test_fan_out_resumes_inside_nested_parent_without_rereading_done_children(
     assert result.final_state == SystemsManagerResumeConfig(completed=True)
 
 
+_PLACEHOLDER_UUID = "00000000-0000-0000-0000-000000000000"
+
+
 @pytest.mark.parametrize(
-    "schema,script,expected_operations,expected",
+    "schema,script,expected_requests,expected",
     [
         (
             "association_execution_targets",
+            [
+                ScriptedResponse(json={"Associations": [{"AssociationId": "a-1"}]}),
+                ScriptedResponse(json={"AssociationExecutions": [{"AssociationId": "a-1", "ExecutionId": "e-1"}]}),
+                ScriptedResponse(json={}),
+            ],
+            [
+                ("ListAssociations", {"MaxResults": 1}),
+                ("DescribeAssociationExecutions", {"MaxResults": 1, "AssociationId": "a-1"}),
+                (
+                    "DescribeAssociationExecutionTargets",
+                    {"MaxResults": 1, "AssociationId": "a-1", "ExecutionId": "e-1"},
+                ),
+            ],
+            (True, None),
+        ),
+        (
+            "association_execution_targets",
             [ScriptedResponse(json={}), _error("AssociationDoesNotExist"), _error("AssociationDoesNotExist")],
-            ["ListAssociations", "DescribeAssociationExecutions", "DescribeAssociationExecutionTargets"],
+            [
+                ("ListAssociations", {"MaxResults": 1}),
+                ("DescribeAssociationExecutions", {"MaxResults": 1, "AssociationId": _PLACEHOLDER_UUID}),
+                (
+                    "DescribeAssociationExecutionTargets",
+                    {"MaxResults": 1, "AssociationId": _PLACEHOLDER_UUID, "ExecutionId": _PLACEHOLDER_UUID},
+                ),
+            ],
             (True, None),
         ),
         (
             "inventory_entries",
             [ScriptedResponse(json={}), _error("AccessDeniedException")],
-            ["GetInventory", "GetInventorySchema"],
+            [
+                ("GetInventory", {"MaxResults": 1, "ResultAttributes": [{"TypeName": "AWS:InstanceInformation"}]}),
+                ("GetInventorySchema", {"MaxResults": 50}),
+            ],
             (False, "Grant ssm:GetInventorySchema to read this table."),
         ),
         (
             "compliance_items",
-            [ScriptedResponse(json={}), _error("AccessDeniedException")],
-            ["ListResourceComplianceSummaries", "ListComplianceItems"],
+            [
+                ScriptedResponse(
+                    json={
+                        "ResourceComplianceSummaryItems": [
+                            {"ResourceId": "i-a", "ResourceType": "ManagedInstance", "ComplianceType": "Association"}
+                        ]
+                    }
+                ),
+                _error("AccessDeniedException"),
+            ],
+            [
+                ("ListResourceComplianceSummaries", {"MaxResults": 1}),
+                (
+                    "ListComplianceItems",
+                    {
+                        "MaxResults": 1,
+                        "ResourceIds": ["i-a"],
+                        "ResourceTypes": ["ManagedInstance"],
+                        "Filters": [{"Key": "ComplianceType", "Values": ["Association"], "Type": "EQUAL"}],
+                    },
+                ),
+            ],
             (False, "Grant ssm:ListComplianceItems to read this table."),
         ),
     ],
 )
-def test_fan_out_validation_probes_every_operation_with_placeholder_parents(
+def test_fan_out_validation_probes_real_parents_before_placeholders(
     config: AwsSystemsManagerSourceConfig,
     schema: str,
     script: list[ScriptedResponse],
-    expected_operations: list[str],
+    expected_requests: list[tuple[str, dict[str, Any]]],
     expected: tuple[bool, str | None],
 ) -> None:
     with scripted_network(script) as network:
         assert validate_credentials(config, API_VERSION, schema) == expected
     assert [
-        request.headers["x-amz-target"].removeprefix("AmazonSSM.") for request in network.requests_log
-    ] == expected_operations
+        (request.headers["x-amz-target"].removeprefix("AmazonSSM."), request.json()) for request in network.requests_log
+    ] == expected_requests

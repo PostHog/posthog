@@ -388,15 +388,15 @@ def get_rows(
         client.close()
 
 
-def probe_requests(endpoint: SystemsManagerEndpoint) -> list[tuple[str, dict[str, Any]]]:
-    chain = endpoint_chain(endpoint)
-    probes = [(chain[0].operation, request_payload(chain[0], probe=True))]
-    if endpoint.operation == "ListInventoryEntries":
-        probes.append(("GetInventorySchema", {"MaxResults": 50}))
-    for child in chain[1:]:
-        payload = child_payloads(child, PLACEHOLDER_PARENTS[child.parent or ""], ("AWS:Application",))[0]
-        probes.append((child.operation, {**payload, "MaxResults": child.probe_size}))
-    return probes
+def probe_payload(child: SystemsManagerEndpoint, parent_body: dict[str, Any]) -> dict[str, Any]:
+    # IAM can scope the child operations to specific resources, so probe a real parent row when one exists.
+    parent_endpoint = ENDPOINTS[child.parent or ""]
+    for item in (parent_body.get(parent_endpoint.result_key) or [])[:1]:
+        payloads = child_payloads(child, item, ("AWS:Application",))
+        if payloads:
+            return {**payloads[0], "MaxResults": child.probe_size}
+    payload = child_payloads(child, PLACEHOLDER_PARENTS[child.parent or ""], ("AWS:Application",))[0]
+    return {**payload, "MaxResults": child.probe_size}
 
 
 def validate_credentials(
@@ -411,14 +411,21 @@ def validate_credentials(
         client = SystemsManagerClient(config, api_version)
     except ValueError as error:
         return False, str(error)
-    operation = endpoint.operation
+    chain = endpoint_chain(endpoint)
+    operation = chain[0].operation
     try:
-        for index, (operation, payload) in enumerate(probe_requests(endpoint)):
+        body = client.request(operation, request_payload(chain[0], probe=True))
+        if endpoint.operation == "ListInventoryEntries":
+            operation = "GetInventorySchema"
+            client.request(operation, {"MaxResults": 50})
+        for child in chain[1:]:
+            operation = child.operation
             try:
-                client.request(operation, payload)
+                body = client.request(operation, probe_payload(child, body))
             except SystemsManagerError as error:
-                if index == 0 or error.code not in MISSING_PARENT_ERRORS:
+                if error.code not in MISSING_PARENT_ERRORS:
                     raise
+                body = {}
     except SystemsManagerError as error:
         if error.code in {"AccessDenied", "AccessDeniedException"}:
             if schema_name is None:
