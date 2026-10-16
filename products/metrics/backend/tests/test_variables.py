@@ -50,6 +50,12 @@ QUOTED = Variable(values=("api'worker\nnext",), is_all=False, all_value=None, op
         ("all_matches_everything", 'up{env=~"$env"}', ALL, 'up{env=~".*"}'),
         ("all_value", 'up{env=~"[[env]]"}', ALL_WITH_VALUE, 'up{env=~"api-.*"}'),
         (
+            "all_value_is_escaped",
+            'up{env=~"$env"}',
+            Variable(values=(), is_all=True, all_value='api\\."x', options=()),
+            'up{env=~"api\\\\.\\"x"}',
+        ),
+        (
             "range_variables_and_regex_groups_stay",
             'label_replace(rate(x{env="$env"}[$__rate_interval]), "a", "$1", "b", "(.*)")',
             ONE,

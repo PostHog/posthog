@@ -208,7 +208,7 @@ def with_values(variable: Variable, values: Iterable[str]) -> Variable:
 def format_promql(variable: Variable, value_format: str | None, *, context: PromQLStringContext) -> str:
     if variable.is_all:
         if variable.all_value is not None:
-            return variable.all_value
+            return promql_string_escape(variable.all_value, context.quote)
         if not variable.options:
             return MATCH_ALL
         values = variable.options
