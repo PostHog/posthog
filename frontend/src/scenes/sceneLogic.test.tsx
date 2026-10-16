@@ -30,6 +30,7 @@ import {
     AccessControlResourceType,
     ActivityTab,
     type AppContext,
+    type InsightShortId,
     type OrganizationType,
     type TeamType,
 } from '~/types'
@@ -557,6 +558,47 @@ describe('sceneLogic', () => {
 
             expect(router.values.location.pathname).toEqual(refusedLink)
             expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
+
+    it.each([
+        ['sends the homepage to the welcome page', urls.projectHomepage(), urls.onboardingWelcome()],
+        [
+            'keeps a deep link open',
+            urls.insightView('abc123' as InsightShortId),
+            urls.insightView('abc123' as InsightShortId),
+        ],
+    ])('connector signup with no data: %s', async (_name, target, expectedRoute) => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            logic.unmount()
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                current_user: {
+                    ...MOCK_DEFAULT_USER,
+                    organization: MOCK_DEFAULT_ORGANIZATION,
+                    onboarding_skipped_at: '2026-01-01T00:00:00Z',
+                    onboarding_skipped_reason: 'connector',
+                    onboarding_skipped_organization_id: MOCK_DEFAULT_ORGANIZATION.id,
+                },
+            } as AppContext
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                ingested_event: false,
+                completed_snippet_onboarding: false,
+                has_completed_onboarding_for: {},
+            })
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(target)
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
         } finally {
             window.POSTHOG_APP_CONTEXT = priorAppContext
         }

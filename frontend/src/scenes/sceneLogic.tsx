@@ -1000,28 +1000,41 @@ export const sceneLogic = kea<sceneLogicType>([
                         !teamLogic.values.currentTeam.is_demo &&
                         !teamLogic.values.hasOnboardedAnyProduct &&
                         !teamLogic.values.currentTeam?.ingested_event &&
-                        // Suppress the redirect when the user has explicitly exited onboarding
-                        // (skipped for later, or delegated to a teammate with a pending invite).
-                        // If the delegation invite is cancelled or expires, the backend clears
-                        // onboarding_delegated_to_invite and the redirect re-fires.
-                        !isOnboardingRedirectSuppressed(user) &&
-                        !isOnboardingNotRequiredForPath(location.pathname) &&
                         // The access denied page must show, else the link silently opens the onboarding of the user's own project.
                         !isRefusedProjectPath(router.values.location.pathname)
                     ) {
-                        const nextUrl =
-                            getRelativeNextPath(params.searchParams.next, location) ??
-                            removeProjectIdIfPresent(location.pathname)
+                        if (
+                            // Suppress the redirect when the user has explicitly exited onboarding
+                            // (skipped for later, or delegated to a teammate with a pending invite).
+                            // If the delegation invite is cancelled or expires, the backend clears
+                            // onboarding_delegated_to_invite and the redirect re-fires.
+                            !isOnboardingRedirectSuppressed(user) &&
+                            !isOnboardingNotRequiredForPath(location.pathname)
+                        ) {
+                            const nextUrl =
+                                getRelativeNextPath(params.searchParams.next, location) ??
+                                removeProjectIdIfPresent(location.pathname)
 
-                        // Check if user is coming from a coupon campaign link
-                        const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
-                        if (campaign) {
-                            router.actions.replace(urls.onboarding({ campaign }), { next: nextUrl })
+                            // Check if user is coming from a coupon campaign link
+                            const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
+                            if (campaign) {
+                                router.actions.replace(urls.onboarding({ campaign }), { next: nextUrl })
+                                return
+                            }
+
+                            router.actions.replace(urls.onboarding(), nextUrl ? { next: nextUrl } : undefined)
                             return
                         }
 
-                        router.actions.replace(urls.onboarding(), nextUrl ? { next: nextUrl } : undefined)
-                        return
+                        // Only the homepage redirects, so a deep link the connecting assistant hands out still opens.
+                        if (
+                            user.onboarding_skipped_reason === 'connector' &&
+                            user.onboarding_skipped_organization_id === user.organization?.id &&
+                            removeProjectIdIfPresent(router.values.location.pathname) === urls.projectHomepage()
+                        ) {
+                            router.actions.replace(urls.onboardingWelcome())
+                            return
+                        }
                     }
                 }
             }
