@@ -55,10 +55,10 @@ class TestWorkflowScoutRunDispatch(APIBaseTest):
         flag.start()
         self.addCleanup(flag.stop)
 
-    def _run(self, workflow_origin_key: str | None = None) -> Any:
+    def _run(self, workflow_origin_key: str | None = None, run_note: str | None = None) -> Any:
         with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1") as dispatch:
             started = start_workflow_scout_run(
-                team_id=self.team.id, skill_name=SKILL, workflow_origin_key=workflow_origin_key
+                team_id=self.team.id, skill_name=SKILL, workflow_origin_key=workflow_origin_key, run_note=run_note
             )
         self.last_dispatch = dispatch
         return started
@@ -86,13 +86,14 @@ class TestWorkflowScoutRunDispatch(APIBaseTest):
         assert caught.exception.rejection.kind is kind
 
     def test_dispatches_the_run_as_workflow_triggered(self) -> None:
-        started = self._run(workflow_origin_key="job:step:1")
+        started = self._run(workflow_origin_key="job:step:1", run_note="PR #4821")
 
         assert started.skill_name == SKILL
         assert started.workflow_id == self.workflow_id
         self.last_dispatch.assert_called_once()
         assert self.last_dispatch.call_args.kwargs["skill_name"] == SKILL
         assert self.last_dispatch.call_args.kwargs["workflow_origin_key"] == "job:step:1"
+        assert self.last_dispatch.call_args.kwargs["run_note"] == "PR #4821"
 
     def test_never_stamps_last_run_at(self) -> None:
         self._run()
