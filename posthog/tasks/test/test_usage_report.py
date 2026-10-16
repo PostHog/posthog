@@ -3,8 +3,8 @@ import json
 import base64
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from typing import Any
-from uuid import uuid4
+from typing import Any, cast
+from uuid import UUID, uuid4
 
 import pytest
 import time_machine
@@ -64,20 +64,24 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     _get_teams_with_ai_credits_for_products,
+    apply_usage_counter_metadata,
     capture_event,
     capture_report,
     get_all_event_metrics_in_period,
     get_instance_metadata,
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_billable_event_count_in_period,
+    get_teams_with_event_count_with_groups_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
     get_teams_with_sdk_logs_records_in_period,
     has_non_zero_usage,
     send_all_org_usage_reports,
 )
+from posthog.temporal.usage_report.queries import QUERY_INDEX
 from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from posthog.usage_counters import UsageCounter, UsageCounterQuery, UsageCounterService
 from posthog.utils import get_previous_day
 
 from products.batch_exports.backend.facade import testing as batch_exports_testing
@@ -504,6 +508,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 "posthog-aspnetcore",
                 "posthog-elixir",
                 "posthog-unity",
+                "posthog-roblox",
             ]
 
             for sdk in sdks:
@@ -691,8 +696,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_in_period": 49,
-                    "enhanced_persons_event_count_in_period": 48,
+                    "event_count_in_period": 50,
+                    "enhanced_persons_event_count_in_period": 49,
                     "event_count_with_groups_in_period": 2,
                     "event_count_from_keywords_ai_in_period": 1,
                     "event_count_from_traceloop_in_period": 1,
@@ -732,6 +737,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "dotnet_events_count_in_period": 2,
                     "elixir_events_count_in_period": 1,
                     "unity_events_count_in_period": 1,
+                    "roblox_events_count_in_period": 1,
                     "rust_events_count_in_period": 0,
                     "recording_bytes_in_period": 50,
                     "recording_count_in_period": 5,
@@ -785,8 +791,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_in_period": 38,
-                            "enhanced_persons_event_count_in_period": 37,
+                            "event_count_in_period": 39,
+                            "enhanced_persons_event_count_in_period": 38,
                             "event_count_with_groups_in_period": 2,
                             "event_count_from_keywords_ai_in_period": 1,
                             "event_count_from_traceloop_in_period": 1,
@@ -826,6 +832,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "dotnet_events_count_in_period": 2,
                             "elixir_events_count_in_period": 1,
                             "unity_events_count_in_period": 1,
+                            "roblox_events_count_in_period": 1,
                             "rust_events_count_in_period": 0,
                             "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
@@ -914,6 +921,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "dotnet_events_count_in_period": 0,
                             "elixir_events_count_in_period": 0,
                             "unity_events_count_in_period": 0,
+                            "roblox_events_count_in_period": 0,
                             "rust_events_count_in_period": 0,
                             "recording_bytes_in_period": 50,
                             "recording_count_in_period": 5,
@@ -1025,6 +1033,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "dotnet_events_count_in_period": 0,
                     "elixir_events_count_in_period": 0,
                     "unity_events_count_in_period": 0,
+                    "roblox_events_count_in_period": 0,
                     "rust_events_count_in_period": 0,
                     "recording_bytes_in_period": 0,
                     "recording_count_in_period": 0,
@@ -1119,6 +1128,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "dotnet_events_count_in_period": 0,
                             "elixir_events_count_in_period": 0,
                             "unity_events_count_in_period": 0,
+                            "roblox_events_count_in_period": 0,
                             "rust_events_count_in_period": 0,
                             "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
@@ -2070,6 +2080,14 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_2_report["teams"]["5"]["local_evaluation_requests_count_in_period"] == 0
         assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_period"] == 0
 
+        with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="correct"):
+            for counter, expected in (
+                (UsageCounter.FEATURE_FLAG_REQUESTS, {}),
+                (UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS, {3: 10, 4: 1}),
+            ):
+                query = cast(UsageCounterQuery, QUERY_INDEX[counter].fn)
+                assert {int(team_id): count for team_id, count in query(period.start, period.end)} == expected
+
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_active_hog_destinations_and_transformations_per_team(
@@ -2326,7 +2344,7 @@ class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, C
         )
 
 
-class TestTrimOversizeUsageReportPayload(TestCase):
+class TestTrimOversizeUsageReportPayload(SimpleTestCase):
     @parameterized.expand(
         [
             ("under_limit", 2, False),
@@ -3369,6 +3387,59 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["4"]["hog_function_fetch_calls_in_period"] == 2
         assert org_1_report["teams"]["4"]["cdp_billable_invocations_in_period"] == 3
 
+        query = cast(UsageCounterQuery, QUERY_INDEX[UsageCounter.CDP_INVOCATIONS].fn)
+        assert dict(query(period.start, period.end)) == {3: 5, 4: 3}
+
+        base_record = {
+            "schema_version": 1,
+            "record_id": "invocation-a",
+            "producer_id": "producer-a",
+            "team_id": 3,
+            "organization_id": self.org_1.id,
+            "usage_key": "cdp_billable_invocations",
+            "unit": "invocations",
+            "quantity": 2,
+            "timestamp": period.start + timedelta(hours=1),
+            "inserted_at": period.start + timedelta(hours=1),
+        }
+        corrected = {**base_record, "quantity": 5, "inserted_at": period.start + timedelta(hours=2)}
+        records = [
+            base_record,
+            corrected,
+            corrected,
+            {**base_record, "producer_id": "producer-b"},
+            {**base_record, "team_id": 4, "record_id": "invocation-b", "quantity": 3},
+            {**base_record, "usage_key": "workflow_emails_sent", "quantity": 90},
+            {**base_record, "timestamp": period.start - timedelta(days=1), "quantity": 100},
+            {**base_record, "record_id": "at-end", "timestamp": period.end, "quantity": 500},
+        ]
+        sync_execute(
+            """
+            INSERT INTO sharded_billing_usage_records
+            (schema_version, record_id, producer_id, team_id, organization_id, usage_key, unit, quantity, timestamp, inserted_at)
+            VALUES
+            """,
+            records,
+        )
+        with self.settings(USAGE_COUNTER_REALTIME_MODES="cdp-invocations:both"):
+            plan = UsageCounterService().resolve_plan(period, caller="daily_report", complete=True)
+        counter_report = UsageCounterService().fetch_report(period, plan=plan)
+        assert counter_report.counter_comparisons is not None
+        assert counter_report.counter_comparisons["cdp_billable_invocations_in_period"].realtime_by_team == {
+            3: {str(self.org_1.id): 7},
+            4: {str(self.org_1.id): 3},
+        }
+        apply_usage_counter_metadata(
+            all_reports, counter_report, caller="daily_report", date=period.start.date().isoformat()
+        )
+        with_shadow = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+        assert with_shadow["cdp_billable_invocations_in_period"] == 8
+        assert with_shadow["counter_comparisons"] == {
+            "cdp_billable_invocations_in_period": {"legacy": 8, "realtime": 10}
+        }
+
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_workflow_usage_metrics(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
@@ -3462,6 +3533,15 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["4"]["workflow_push_sent_in_period"] == 7
         assert org_1_report["teams"]["4"]["workflow_sms_sent_in_period"] == 2
         assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 19  # fetch 12, push 7
+
+        for counter, expected in (
+            (UsageCounter.WORKFLOW_EMAILS, {3: 10, 4: 15}),
+            (UsageCounter.WORKFLOW_PUSH, {3: 5, 4: 7}),
+            (UsageCounter.WORKFLOW_SMS, {3: 3, 4: 2}),
+            (UsageCounter.WORKFLOW_INVOCATIONS, {3: 13, 4: 19}),
+        ):
+            query = cast(UsageCounterQuery, QUERY_INDEX[counter].fn)
+            assert dict(query(period.start, period.end)) == expected
 
     @parameterized.expand(
         [
@@ -5116,6 +5196,22 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             },
         )
 
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_account_audit",
+            timestamp=period.start + relativedelta(hours=4),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_account_audit",
+                "$ai_total_cost_usd": 5.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_code",
+                "task_origin_product": "account_audit",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
         flush_persons_and_events()
 
         posthog_code_result = get_teams_with_posthog_code_credits_used_in_period(period.start, period.end)
@@ -5575,20 +5671,56 @@ class TestSendUsageNoLicense(APIBaseTest):
 
         mock_post.assert_not_called()
 
-    def test_get_teams_for_usage_reports_only_fields(self) -> None:
-        teams = _get_teams_for_usage_reports()
-        team: Team = teams[0]
 
-        # these fields are included in the query, so shouldn't require additional queries
+class TestBillableTeams(TestCase):
+    @parameterized.expand([(1, None), (2, None), (10, []), (2, [str(UUID(int=3))])])
+    def test_get_teams_for_usage_reports(self, batch_size: int, organization_ids: list[str] | None) -> None:
+        org_last = Organization.objects.create(id=UUID(int=3), name="Last")
+        org_first = Organization.objects.create(id=UUID(int=1), name="First")
+        org_demo = Organization.objects.create(id=UUID(int=2), name="Demo only")
+        org_internal = Organization.objects.create(id=UUID(int=4), name="Internal", for_internal_metrics=True)
+        first_team = Team.objects.create(organization=org_first, name="First project")
+        last_team = Team.objects.create(organization=org_last, name="Last project")
+        second_team = Team.objects.create(organization=org_first, name="Second project")
+        Team.objects.create(organization=org_demo, is_demo=True)
+        Team.objects.create(organization=org_first, is_demo=True)
+        Team.objects.create(organization=org_internal)
+
+        org_count = 1 if organization_ids else 3
+        expected_queries = 2 * ((org_count + batch_size - 1) // batch_size) + int(org_count % batch_size == 0)
+        with (
+            patch("posthog.tasks.usage_report.BILLING_ORGANIZATION_BATCH_SIZE", batch_size),
+            self.assertNumQueries(expected_queries),
+        ):
+            teams = list(_get_teams_for_usage_reports(organization_ids=organization_ids))
+
+        expected_teams = [last_team] if organization_ids else [first_team, second_team, last_team]
+        assert [team.id for team in teams] == [team.id for team in expected_teams]
         with self.assertNumQueries(0):
-            _ = team.id
-            _ = team.organization.id
-            _ = team.organization.name
-            _ = team.organization.created_at
+            for team, expected in zip(teams, expected_teams):
+                assert team.name == expected.name
+                assert team.organization.id == expected.organization.id
+                assert team.organization.name == expected.organization.name
+                assert team.organization.created_at == expected.organization.created_at
+            if not organization_ids:
+                assert teams[0].organization is teams[1].organization
 
-        # This field is not included in the original team query, so should require an additional query
         with self.assertNumQueries(1):
-            _ = team.organization.for_internal_metrics
+            assert teams[0].organization.for_internal_metrics is False
+
+    def test_team_moved_to_a_later_organization_during_the_scan_is_reported_once(self) -> None:
+        org_first = Organization.objects.create(id=UUID(int=1), name="First")
+        org_last = Organization.objects.create(id=UUID(int=2), name="Last")
+        moved_team = Team.objects.create(organization=org_first, name="Moved project")
+
+        with patch("posthog.tasks.usage_report.BILLING_ORGANIZATION_BATCH_SIZE", 1):
+            teams = _get_teams_for_usage_reports()
+            first = next(teams)
+            Team.objects.filter(id=moved_team.id).update(organization=org_last)
+            rest = list(teams)
+
+        assert [team.id for team in [first, *rest]] == [moved_team.id]
+        assert first.organization.id == org_first.id
 
 
 @time_machine.travel("2021-10-10T23:01:00Z", tick=False)
@@ -6111,6 +6243,37 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], self.team.id)
         self.assertEqual(result[0][1], 5)
+
+    def test_get_teams_with_event_count_with_groups_in_period_excludes_non_billable_events(self) -> None:
+        # make sure we don't collapse duplicate rows
+        sync_execute("SYSTEM STOP MERGES")
+        self.addCleanup(sync_execute, "SYSTEM START MERGES")
+
+        grouped_event_uuid = create_event(
+            event_uuid=uuid4(),
+            event="grouped_event",
+            team=self.team,
+            distinct_id="grouped_user",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={"$group_0": "org:1"},
+        )
+        for event in ["grouped_event", "$feature_flag_called", "$exception", "$ai_generation"]:
+            _create_event(
+                event_uuid=grouped_event_uuid if event == "grouped_event" else None,
+                event=event,
+                team=self.team,
+                distinct_id="grouped_user",
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={"$group_0": "org:1"},
+                person_mode="full",
+            )
+        flush_persons_and_events()
+
+        self.assertEqual(get_teams_with_event_count_with_groups_in_period(self.begin, self.end), [(self.team.id, 2)])
+        self.assertEqual(
+            get_teams_with_event_count_with_groups_in_period(self.begin, self.end, count_distinct=True),
+            [(self.team.id, 1)],
+        )
 
     def test_get_all_event_metrics_counts_ai_sub_sdks(self) -> None:
         _create_event(

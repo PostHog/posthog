@@ -1,6 +1,11 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.waydev import WaydevSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.waydev.source import WaydevSource
 
@@ -17,31 +22,24 @@ class TestWaydevSource:
         assert self.source.api_docs_url is not None and self.source.api_docs_url.startswith("https://")
 
     @pytest.mark.parametrize(
-        ("mock_return", "expected_valid", "expected_message"),
+        ("status", "expected_valid", "expected_message"),
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "Invalid Waydev API token"),
-            ((False, 403), False, "Could not connect to Waydev with the provided API token"),
-            ((False, None), False, "Could not connect to Waydev with the provided API token"),
+            (200, True, None),
+            (401, False, "Invalid Waydev API token"),
+            (403, False, "Could not connect to Waydev with the provided API token"),
+            (None, False, "Could not connect to Waydev with the provided API token"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.waydev.source.validate_waydev_credentials"
-    )
-    def test_validate_credentials(
-        self,
-        mock_validate: mock.MagicMock,
-        mock_return: tuple[bool, int | None],
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        mock_validate.return_value = mock_return
+    def test_validate_credentials(self, status: int | None, expected_valid: bool, expected_message: str | None) -> None:
+        script = always(ConnectionError("down") if status is None else ScriptedResponse(status=status, json=[]))
 
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+        with scripted_network(script) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("key")
+        assert {request.path for request in network.requests_log} == {"/v2/metrics"}
+        assert {request.headers["authorization"] for request in network.requests_log} == {"key"}
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.waydev.source.waydev_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_waydev_source: mock.MagicMock) -> None:

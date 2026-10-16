@@ -45,12 +45,12 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
 )
-from products.experiments.backend.hogql_queries.experiment_query_runner import (
-    ExperimentResultsCacheMixin,
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentResultsCacheMixin
+from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
+from products.experiments.backend.hogql_queries.precompute_policy import (
     ensure_exposures_precomputed,
     team_precompute_skip_reason,
 )
-from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -282,10 +282,6 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             total_exposures=total_exposures,
         )
 
-    def _hours_since_launch(self) -> float | None:
-        start_date = self.experiment.start_date
-        return (datetime.now(UTC) - start_date).total_seconds() / 3600 if start_date else None
-
     def _evaluate_health(self, exposures: ExposureTotals) -> list[ExperimentExposureHealthFinding]:
         findings = evaluate_health(load_health_context(self.experiment, exposures), EXPOSURE_HEALTH_CHECKS)
         return [
@@ -376,7 +372,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 total_exposures=total_exposures,
                 multiple_variant_handling=multiple_variant_handling,
                 sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
-                hours_since_launch=self._hours_since_launch(),
+                hours_since_launch=self.experiment.hours_since_launch,
             )
         )
 

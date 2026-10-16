@@ -13,6 +13,7 @@ from structlog.types import FilteringBoundLogger
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.settings import (
     AMAZON_ADS_ENDPOINTS,
@@ -43,6 +44,19 @@ REPORT_ROWS_PER_BATCH = 2000
 # The generated file sits on presigned Amazon storage rather than the API host. Pinning the host
 # keeps a tampered `url` from pointing the download somewhere else.
 REPORT_URL_HOST_SUFFIXES = (".amazonaws.com", ".amazon.com")
+
+INVALID_REGION_MESSAGE = (
+    "Your Amazon Ads region isn't supported. Pick North America, Europe or Far East, then reconnect."
+)
+LWA_REJECTED_MESSAGE = (
+    "Login with Amazon rejected your client ID, client secret or refresh token. "
+    "Check that all three come from the same LWA app, then reconnect."
+)
+PROFILES_DENIED_MESSAGE = (
+    "Your credentials can't read Amazon Ads profiles. "
+    "Check that your LWA app has Advertising API access and the region matches your account, then reconnect."
+)
+UNAVAILABLE_MESSAGE = "PostHog couldn't check your Amazon Ads credentials. Try again in a few minutes."
 
 
 class AmazonAdsRetryableError(Exception):
@@ -114,20 +128,39 @@ def _mint_token(session: requests.Session, client_id: str, client_secret: str, r
     return response.json()["access_token"]
 
 
-def validate_credentials(region: str, client_id: str, client_secret: str, refresh_token: str) -> bool:
+def validate_credentials(
+    region: str, client_id: str, client_secret: str, refresh_token: str
+) -> tuple[bool, str | None]:
     """Confirm the LWA credentials are valid by minting a token and listing profiles."""
     try:
-        _base_url(region)
-        session = _get_session(client_secret, refresh_token, client_id)
+        base_url = _base_url(region)
+    except ValueError:
+        return False, INVALID_REGION_MESSAGE
+
+    session = _get_session(client_secret, refresh_token, client_id)
+    try:
         token = _mint_token(session, client_id, client_secret, refresh_token)
         response = session.get(
-            f"{_base_url(region)}/v2/profiles",
+            f"{base_url}/v2/profiles",
             headers={"Authorization": f"Bearer {token}"},
             timeout=15,
         )
-        return response.status_code == 200
-    except Exception:
-        return False
+    except requests.HTTPError as e:
+        # Only the token exchange raises an HTTPError here; a 4xx means LWA refused the credentials.
+        if e.response is not None and 400 <= e.response.status_code < 500:
+            return False, LWA_REJECTED_MESSAGE
+        return False, UNAVAILABLE_MESSAGE
+    except requests.RequestException:
+        return False, UNAVAILABLE_MESSAGE
+    except Exception as e:
+        capture_exception(e)
+        return False, UNAVAILABLE_MESSAGE
+
+    if response.status_code == 200:
+        return True, None
+    if response.status_code in (401, 403):
+        return False, PROFILES_DENIED_MESSAGE
+    return False, UNAVAILABLE_MESSAGE
 
 
 def as_report_date(value: Any) -> Optional[dt.date]:

@@ -1,8 +1,19 @@
-from typing import Any
+import datetime as dt
+import functools
+from urllib.parse import parse_qsl
 
 import pytest
 from unittest import mock
 
+import jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleplayconsole import (
     GooglePlayConsoleKeyFileConfig,
     GooglePlayConsoleSourceConfig,
@@ -22,14 +33,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
-SOURCE_MODULE = GooglePlayConsoleSource.__module__
+
+@functools.cache
+def _private_key() -> str:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
 
 
 def _config(app_package_names: str | None = None) -> GooglePlayConsoleSourceConfig:
     return GooglePlayConsoleSourceConfig(
         key_file=GooglePlayConsoleKeyFileConfig(
             client_email="reporting@example.iam.gserviceaccount.com",
-            private_key="private-key",
+            private_key=_private_key(),
             private_key_id="private-key-id",
             token_uri="https://oauth2.googleapis.com/token",
         ),
@@ -171,43 +190,75 @@ def test_list_endpoint_descriptions_document_their_primary_key_columns(name: str
     assert set(PRIMARY_KEYS[name]).issubset(columns)
 
 
-def _inputs(**overrides: Any) -> mock.MagicMock:
-    inputs = mock.MagicMock()
-    inputs.schema_name = "crash_rate"
-    inputs.api_version = None
-    inputs.should_use_incremental_field = True
-    inputs.db_incremental_field_last_value = "2024-03-01"
-    for key, value in overrides.items():
-        setattr(inputs, key, value)
-    return inputs
-
-
 def test_source_for_pipeline_plumbs_config_and_inputs() -> None:
-    manager = mock.MagicMock()
-    inputs = _inputs()
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/token":
+            return ScriptedResponse(json={"access_token": "token", "expires_in": 3600})
+        if request.path.endswith(":query"):
+            return ScriptedResponse(json={"rows": []})
+        return ScriptedResponse(
+            json={
+                "freshnessInfo": {
+                    "freshnesses": [
+                        {"aggregationPeriod": "DAILY", "latestEndTime": {"year": 2024, "month": 3, "day": 10}}
+                    ]
+                }
+            }
+        )
 
-    with mock.patch(f"{SOURCE_MODULE}.google_play_console_source") as build_source:
-        GooglePlayConsoleSource().source_for_pipeline(_config("com.b, com.a"), manager, inputs)
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.google_play_console._today",
+        return_value=dt.date(2024, 3, 31),
+    ):
+        result = SourceDriver(GooglePlayConsoleSource(), _config("com.b, com.a")).run(
+            "crash_rate",
+            answer,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2024, 3, 1),
+        )
 
-    kwargs = build_source.call_args.kwargs
-    assert kwargs["package_names"] == ("com.a", "com.b")
-    assert kwargs["resource_name"] == "crash_rate"
-    assert kwargs["api_version"] == "v1beta1"
-    assert kwargs["resumable_source_manager"] is manager
-    assert kwargs["should_use_incremental_field"] is True
-    assert kwargs["db_incremental_field_last_value"] == "2024-03-01"
-    assert kwargs["key"].client_email == "reporting@example.iam.gserviceaccount.com"
+    assert result.raised is None
+    assert [path for path in result.paths if path.endswith(":query")] == [
+        "/v1beta1/apps/com.a/crashRateMetricSet:query",
+        "/v1beta1/apps/com.b/crashRateMetricSet:query",
+    ]
+    assert result.requests[2].json()["timelineSpec"]["startTime"] == {"year": 2024, "month": 3, "day": 1}
+    assertion = dict(parse_qsl((result.requests[0].body or b"").decode()))["assertion"]
+    public_key = serialization.load_pem_private_key(_private_key().encode(), password=None).public_key()
+    assert isinstance(public_key, rsa.RSAPublicKey)
+    claims = jwt.decode(assertion, public_key, algorithms=["RS256"], audience="https://oauth2.googleapis.com/token")
+    assert claims["iss"] == "reporting@example.iam.gserviceaccount.com"
+    assert jwt.get_unverified_header(assertion)["kid"] == "private-key-id"
 
 
 def test_source_for_pipeline_honors_a_pinned_api_version() -> None:
-    with mock.patch(f"{SOURCE_MODULE}.google_play_console_source") as build_source:
-        GooglePlayConsoleSource().source_for_pipeline(_config(), mock.MagicMock(), _inputs(api_version="v1alpha1"))
+    result = SourceDriver(GooglePlayConsoleSource(), _config()).run(
+        "apps",
+        [
+            ScriptedResponse(json={"access_token": "token", "expires_in": 3600}),
+            ScriptedResponse(json={"apps": []}),
+        ],
+        api_version="v1alpha1",
+    )
 
-    assert build_source.call_args.kwargs["api_version"] == "v1alpha1"
+    assert result.raised is None
+    assert result.paths[1] == "/v1alpha1/apps:search"
 
 
 def test_source_for_pipeline_syncs_every_visible_app_when_no_packages_are_configured() -> None:
-    with mock.patch(f"{SOURCE_MODULE}.google_play_console_source") as build_source:
-        GooglePlayConsoleSource().source_for_pipeline(_config(), mock.MagicMock(), _inputs())
+    result = SourceDriver(GooglePlayConsoleSource(), _config()).run(
+        "anomalies",
+        [
+            ScriptedResponse(json={"access_token": "token", "expires_in": 3600}),
+            ScriptedResponse(json={"apps": [{"packageName": "com.b"}, {"packageName": "com.a"}]}),
+            ScriptedResponse(json={"anomalies": []}),
+            ScriptedResponse(json={"anomalies": []}),
+        ],
+    )
 
-    assert build_source.call_args.kwargs["package_names"] == ()
+    assert result.raised is None
+    assert result.paths[1:] == [
+        "/v1beta1/apps:search",
+        "/v1beta1/apps/com.a/anomalies",
+        "/v1beta1/apps/com.b/anomalies",
+    ]

@@ -46,11 +46,13 @@ from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
+    SCHEMA_RESOURCE_ID_METADATA_KEY,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSchemaDestination,
     ExternalDataSource,
     UnsupportedSyncTypeError,
+    discovered_schema_finder,
     mark_schema_running_unless_halted,
     resolve_destinations,
     resolve_sync_type,
@@ -2350,10 +2352,27 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": credentials_error or "Invalid credentials"},
             )
 
+        stored_resource_id = (
+            (instance.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY)
+            if new_source.uses_stable_schema_resource_ids
+            else None
+        )
         try:
             schemas = new_source.get_schemas(
                 config, self.team_id, names=[instance.name], api_version=effective_api_version
             )
+            # A stored resource id can outlive the stored name after an upstream rename. Discover every
+            # schema only when the name lookup misses that id, so an unrenamed schema keeps the cheap
+            # filtered discovery.
+            if stored_resource_id is not None:
+                found = discovered_schema_finder(schemas)(instance.name, instance.schema_metadata)
+                found_resource_id = (
+                    (found.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY) if found else None
+                )
+                if str(found_resource_id) != str(stored_resource_id):
+                    schemas = new_source.get_schemas(
+                        config, self.team_id, names=None, api_version=effective_api_version
+                    )
         except Exception as e:
             # `validate_credentials` above just probed the same connection successfully, so a
             # failure here that the source itself classifies is an expected customer or upstream
@@ -2384,7 +2403,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so
         # `schemas` may contain unrelated tables in any order. Pick the one that matches this schema
         # instead of trusting `schemas[0]`, whose metadata could belong to a different table.
-        schema = next((s for s in schemas if s.name == instance.name), None)
+        schema = discovered_schema_finder(schemas)(instance.name, instance.schema_metadata)
         if schema is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}

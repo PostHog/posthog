@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from confluent_kafka import KafkaError, KafkaException
 
-from posthog.cdp.internal_events import InternalEventEvent
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 
+from products.cdp.backend.internal_events import InternalEventEvent
 from products.error_tracking.backend.logic.assignees import ResolvedAssignee
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     IssueCreatedSnapshot,

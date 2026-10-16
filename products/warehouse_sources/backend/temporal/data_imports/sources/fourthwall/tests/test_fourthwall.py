@@ -8,6 +8,13 @@ from unittest import mock
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall.fourthwall import (
     FourthwallResumeConfig,
     _format_datetime,
@@ -25,6 +32,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall
     ENDPOINTS,
     FOURTHWALL_ENDPOINTS,
     PAGE_SIZE,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall.source import FourthwallSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fourthwall import (
+    FourthwallSourceConfig,
 )
 
 SESSION_PATCH = (
@@ -122,23 +133,25 @@ class TestGetResource:
         assert FOURTHWALL_ENDPOINTS["orders"].incremental_param == "updatedAt[gt]"
 
 
-def _templates_page(results: list[dict[str, Any]]) -> Response:
-    response = Response()
-    response.status_code = 200
-    response._content = json.dumps({"results": results, "total": 3}).encode()
-    return response
-
-
 class TestProductTemplatePagination:
-    @mock.patch(SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_templates_page([{"productId": "pt_9"}]), _templates_page([])])
+    def test_resumes_from_saved_page(self) -> None:
+        result = SourceDriver(
+            FourthwallSource(), FourthwallSourceConfig(username="api-user", password="api-secret")
+        ).run(
+            "product_templates",
+            [
+                ScriptedResponse(json={"results": [{"productId": "pt_9"}], "total": 3}),
+                ScriptedResponse(json={"results": [], "total": 3}),
+            ],
+            resume_state=FourthwallResumeConfig(paginator_state={"page": 4}),
+        )
 
-        rows = _rows(_source("product_templates", _make_manager(FourthwallResumeConfig(paginator_state={"page": 4}))))
-
-        assert [row["productId"] for row in rows] == ["pt_9"]
-        assert requests_seen[0]["url"] == f"{API_ROOT}/product-templates/page/4"
+        assert result.raised is None
+        assert [row["productId"] for row in result.rows] == ["pt_9"]
+        assert result.paths == [
+            "/open-api/v1.0/product-templates/page/4",
+            "/open-api/v1.0/product-templates/page/5",
+        ]
 
 
 class TestIncrementalRequests:
@@ -169,14 +182,13 @@ class TestValidateCredentials:
         "status_code, expected_valid",
         [(200, True), (401, False), (403, False), (404, False), (429, False), (500, False)],
     )
-    @mock.patch(SESSION_PATCH)
-    def test_status_mapping(self, MockSession, status_code, expected_valid):
-        MockSession.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-
-        is_valid, error = validate_credentials("api-user", "api-secret", "v1.0")
+    def test_status_mapping(self, status_code: int, expected_valid: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            is_valid, error = validate_credentials("api-user", "api-secret", "v1.0")
 
         assert is_valid is expected_valid
         assert (error is None) is expected_valid
+        assert {request.path for request in network.requests_log} == {"/open-api/v1.0/shops/current"}
 
 
 class TestWebhookTableTransformer:
@@ -224,137 +236,136 @@ class TestWebhookTableTransformer:
 
 
 class TestWebhookManagement:
-    def _session(self, MockSession) -> mock.MagicMock:
-        return MockSession.return_value
+    @staticmethod
+    def _webhook_page(results: list[dict[str, Any]], total_pages: int = 1) -> ScriptedResponse:
+        return ScriptedResponse(json={"results": results, "totalPages": total_pages})
 
-    def _webhook_page(self, results: list[dict[str, Any]], total_pages: int = 1) -> mock.MagicMock:
-        response = mock.MagicMock(status_code=200)
-        response.json.return_value = {"results": results, "totalPages": total_pages}
-        return response
-
-    @mock.patch(SESSION_PATCH)
-    def test_create_webhook_stores_the_returned_secret(self, MockSession):
-        session = self._session(MockSession)
-        session.post.return_value = mock.MagicMock(status_code=200)
-        session.post.return_value.json.return_value = {"id": "wcon_1", "secret": "shhh"}
-
-        result = create_webhook("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1")
+    def test_create_webhook_stores_the_returned_secret(self) -> None:
+        with scripted_network([ScriptedResponse(json={"id": "wcon_1", "secret": "shhh"})]) as network:
+            result = create_webhook("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1")
 
         assert result.success is True
         assert result.extra_inputs == {"signing_secret": "shhh"}
-        assert session.post.call_args.args[0] == f"{API_ROOT}/webhooks"
-        assert session.post.call_args.kwargs["json"] == {
+        assert network.requests_log[0].url == f"{API_ROOT}/webhooks"
+        assert network.requests_log[0].method == "POST"
+        assert network.requests_log[0].json() == {
             "url": "https://us.posthog.com/w/1",
             "allowedTypes": ALL_WEBHOOK_EVENTS,
         }
 
-    @mock.patch(SESSION_PATCH)
-    def test_create_webhook_asks_for_the_secret_when_the_response_omits_it(self, MockSession):
+    def test_create_webhook_asks_for_the_secret_when_the_response_omits_it(self) -> None:
         # The published webhook schema does not list `secret`, so the user has to paste it;
         # silently succeeding without it would leave every delivery failing the signature check.
-        session = self._session(MockSession)
-        session.post.return_value = mock.MagicMock(status_code=200)
-        session.post.return_value.json.return_value = {"id": "wcon_1"}
-
-        result = create_webhook("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1")
+        with scripted_network([ScriptedResponse(json={"id": "wcon_1"})]):
+            result = create_webhook("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1")
 
         assert result.success is True
         assert result.pending_inputs == ["signing_secret"]
         assert result.extra_inputs == {}
 
     @pytest.mark.parametrize("status_code", [400, 401, 429])
-    @mock.patch(SESSION_PATCH)
-    def test_create_webhook_reports_a_rejected_registration(self, MockSession, status_code):
-        session = self._session(MockSession)
-        session.post.return_value = mock.MagicMock(status_code=status_code)
-
-        result = create_webhook("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1")
+    def test_create_webhook_reports_a_rejected_registration(self, status_code: int) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))):
+            result = create_webhook("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1")
 
         assert result.success is False
         assert result.error is not None
 
-    @mock.patch(SESSION_PATCH)
-    def test_sync_webhook_events_merges_instead_of_replacing(self, MockSession):
+    def test_sync_webhook_events_merges_instead_of_replacing(self) -> None:
         # Replacing would wipe events a user added by hand in the Fourthwall dashboard.
-        session = self._session(MockSession)
-        session.get.return_value = self._webhook_page(
-            [{"id": "wcon_1", "url": "https://us.posthog.com/w/1", "allowedTypes": ["THANK_YOU_SENT"]}]
-        )
-
-        result = sync_webhook_events("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1", ["ORDER_PLACED"])
+        with scripted_network(
+            [
+                self._webhook_page(
+                    [{"id": "wcon_1", "url": "https://us.posthog.com/w/1", "allowedTypes": ["THANK_YOU_SENT"]}]
+                ),
+                ScriptedResponse(),
+            ]
+        ) as network:
+            result = sync_webhook_events(
+                "api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1", ["ORDER_PLACED"]
+            )
 
         assert result.success is True
-        assert session.put.call_args.kwargs["json"] == {
+        assert network.requests_log[1].method == "PUT"
+        assert network.requests_log[1].json() == {
             "url": "https://us.posthog.com/w/1",
             "allowedTypes": ["ORDER_PLACED", "THANK_YOU_SENT"],
         }
 
-    @mock.patch(SESSION_PATCH)
-    def test_sync_webhook_events_skips_an_already_correct_webhook(self, MockSession):
-        session = self._session(MockSession)
-        session.get.return_value = self._webhook_page(
-            [{"id": "wcon_1", "url": "https://us.posthog.com/w/1", "allowedTypes": ["ORDER_PLACED"]}]
-        )
+    def test_sync_webhook_events_skips_an_already_correct_webhook(self) -> None:
+        with scripted_network(
+            [
+                self._webhook_page(
+                    [{"id": "wcon_1", "url": "https://us.posthog.com/w/1", "allowedTypes": ["ORDER_PLACED"]}]
+                )
+            ]
+        ) as network:
+            sync_webhook_events("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1", ["ORDER_PLACED"])
 
-        sync_webhook_events("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1", ["ORDER_PLACED"])
+        assert [request.method for request in network.requests_log] == ["GET"]
 
-        session.put.assert_not_called()
-
-    @mock.patch(SESSION_PATCH)
-    def test_webhook_lookup_walks_every_page(self, MockSession):
+    def test_webhook_lookup_walks_every_page(self) -> None:
         # Stopping after page one would silently skip a shop's webhook and leave a stale
         # registration behind on delete.
-        session = self._session(MockSession)
-        session.get.side_effect = [
-            self._webhook_page([{"id": "wcon_1", "url": "https://other", "allowedTypes": []}], total_pages=2),
-            self._webhook_page(
-                [{"id": "wcon_2", "url": "https://us.posthog.com/w/1", "allowedTypes": []}], total_pages=2
-            ),
-        ]
-        session.delete.return_value = mock.MagicMock(status_code=200)
-
-        result = delete_webhook("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1")
+        with scripted_network(
+            [
+                self._webhook_page([{"id": "wcon_1", "url": "https://other", "allowedTypes": []}], total_pages=2),
+                self._webhook_page(
+                    [{"id": "wcon_2", "url": "https://us.posthog.com/w/1", "allowedTypes": []}], total_pages=2
+                ),
+                ScriptedResponse(),
+            ]
+        ) as network:
+            result = delete_webhook("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1")
 
         assert result.success is True
-        assert session.delete.call_args.args[0] == f"{API_ROOT}/webhooks/wcon_2"
+        assert [request.param("page") for request in network.requests_log[:2]] == ["0", "1"]
+        assert network.requests_log[2].method == "DELETE"
+        assert network.requests_log[2].url == f"{API_ROOT}/webhooks/wcon_2"
 
-    @mock.patch(SESSION_PATCH)
-    def test_delete_webhook_reports_a_failed_deletion(self, MockSession):
-        session = self._session(MockSession)
-        session.get.return_value = self._webhook_page(
-            [{"id": "wcon_1", "url": "https://us.posthog.com/w/1", "allowedTypes": []}]
-        )
-        session.delete.return_value = mock.MagicMock(status_code=500)
+    def test_delete_webhook_reports_a_failed_deletion(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.method == "GET":
+                return self._webhook_page([{"id": "wcon_1", "url": "https://us.posthog.com/w/1", "allowedTypes": []}])
+            return ScriptedResponse(status=500)
 
-        result = delete_webhook("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1")
+        with scripted_network(respond) as network:
+            result = delete_webhook("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1")
 
         assert result.success is False
+        assert {request.path for request in network.requests_log} == {
+            "/open-api/v1.0/webhooks",
+            "/open-api/v1.0/webhooks/wcon_1",
+        }
 
-    @mock.patch(SESSION_PATCH)
-    def test_external_webhook_info_matches_on_url(self, MockSession):
-        session = self._session(MockSession)
-        session.get.return_value = self._webhook_page(
+    def test_external_webhook_info_matches_on_url(self) -> None:
+        with scripted_network(
             [
-                {"id": "wcon_1", "url": "https://elsewhere", "allowedTypes": ["DONATION"]},
-                {"id": "wcon_2", "url": "https://us.posthog.com/w/1", "allowedTypes": ["ORDER_PLACED"]},
+                self._webhook_page(
+                    [
+                        {"id": "wcon_1", "url": "https://elsewhere", "allowedTypes": ["DONATION"]},
+                        {"id": "wcon_2", "url": "https://us.posthog.com/w/1", "allowedTypes": ["ORDER_PLACED"]},
+                    ]
+                )
             ]
-        )
-
-        info = get_external_webhook_info("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1")
+        ):
+            info = get_external_webhook_info("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1")
 
         assert info.exists is True
         assert info.enabled_events == ["ORDER_PLACED"]
 
-    @mock.patch(SESSION_PATCH)
-    def test_external_webhook_info_when_absent(self, MockSession):
-        self._session(MockSession).get.return_value = self._webhook_page([])
+    def test_external_webhook_info_when_absent(self) -> None:
+        with scripted_network([self._webhook_page([])]):
+            assert (
+                get_external_webhook_info("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1").exists
+                is False
+            )
 
-        assert get_external_webhook_info("api-user", "api-secret", "v1.0", "https://us.posthog.com/w/1").exists is False
-
-    @mock.patch(SESSION_PATCH)
-    def test_webhook_helpers_surface_transport_failures(self, MockSession):
-        self._session(MockSession).get.side_effect = Exception("boom")
-
-        assert get_external_webhook_info("api-user", "api-secret", "v1.0", "https://u/1").error == "boom"
-        assert sync_webhook_events("api-user", "api-secret", "v1.0", "https://u/1", []).success is False
-        assert delete_webhook("api-user", "api-secret", "v1.0", "https://u/1").success is False
+    def test_webhook_helpers_surface_transport_failures(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            error = get_external_webhook_info("api-user", "api-secret", "v1.0", "https://u/1").error
+            assert error is not None and "boom" in error
+        with scripted_network(always(ConnectionError("boom"))):
+            assert sync_webhook_events("api-user", "api-secret", "v1.0", "https://u/1", []).success is False
+        with scripted_network(always(ConnectionError("boom"))):
+            assert delete_webhook("api-user", "api-secret", "v1.0", "https://u/1").success is False

@@ -21,7 +21,6 @@ from posthog.schema import (
     Compare,
     CompareFilter,
     CompareItem,
-    DashboardFilter,
     DataWarehouseEventsModifier,
     DataWarehouseNode,
     DayItem,
@@ -1318,17 +1317,16 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         return TrendsDisplay(display)
 
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
-        super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
-
-        if (
-            self.query.compareFilter is not None
-            and self.query.compareFilter.compare
-            and dashboard_filter.date_from == "all"
-        ):
-            # TODO: Move this "All time" range handling out of `apply_dashboard_filters` – if the date range is "all",
-            # we should disable `compare` _no matter how_ we arrived at the final executed query
-            self.query.compareFilter.compare = False
+    def _accepts_dashboard_compare_filter(self) -> bool:
+        # These displays have no compare toggle in the insight editor (see `supportsCompare` in insightVizDataLogic)
+        # and do not draw a previous-period series. The world map keeps one series per country, so a comparison
+        # makes it show the previous period's counts.
+        display = self.query.trendsFilter.display if self.query.trendsFilter else None
+        return display not in (
+            ChartDisplayType.WORLD_MAP,
+            ChartDisplayType.CALENDAR_HEATMAP,
+            ChartDisplayType.ACTIONS_PROPORTION_BAR,
+        )
 
     def _format_breakdown_label(self, breakdown_value: Any):
         if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdowns is not None:

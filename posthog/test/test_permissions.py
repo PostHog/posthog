@@ -15,6 +15,7 @@ from rest_framework.exceptions import ErrorDetail, PermissionDenied
 from rest_framework.test import APIRequestFactory
 
 from posthog.auth import (
+    DelegatedPersonalAPIKeyAuthentication,
     ExportRendererAuthentication,
     IDJagAccessTokenAuthentication,
     JwtAuthentication,
@@ -42,6 +43,7 @@ from posthog.permissions import (
     extract_organization,
     get_authenticator_client,
 )
+from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -812,6 +814,7 @@ class TestDelegatedJwtPermissions(BaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    @covers_authentication(DelegatedPersonalAPIKeyAuthentication)
     def test_delegated_personal_api_key_filters_organization_list(self) -> None:
         other_organization, _, _ = Organization.objects.bootstrap(self.user)
         worker_token, _credential = self._create_delegated_token(

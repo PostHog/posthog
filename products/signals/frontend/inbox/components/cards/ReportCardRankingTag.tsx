@@ -2,7 +2,7 @@ import clsx from 'clsx'
 
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { RANKING_HEAD_LABELS, RANKING_SORT_HEADS } from '../../filterOptions'
+import { INBOX_RANKING_SCORES, InboxRankingScore, rankingScoreForField } from '../../filterOptions'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { SignalReport } from '../../types'
 import { formatRankingLift, formatRankingProbability } from './rankingFormat'
@@ -15,22 +15,24 @@ function rankingLift(ranking: NonNullable<SignalReport['ranking']>, head: string
 
 function RankingTooltip({
     ranking,
-    head,
+    active,
 }: {
     ranking: NonNullable<SignalReport['ranking']>
-    head: string
+    active: InboxRankingScore
 }): JSX.Element {
-    const heads = [head, ...ranking.readable_heads.filter((name) => name !== head)].filter(
-        (name) => typeof ranking.scores[name] === 'number'
+    const scores = [active, ...INBOX_RANKING_SCORES.filter((score) => score !== active)].filter(
+        (score) =>
+            typeof ranking.scores[score.head] === 'number' &&
+            (score === active || ranking.readable_heads.includes(score.head))
     )
     return (
         <div className="flex min-w-72 flex-col gap-1 text-xs">
-            {heads.map((name) => {
-                const probability = ranking.scores[name]
-                const lift = rankingLift(ranking, name)
+            {scores.map((score) => {
+                const probability = ranking.scores[score.head]
+                const lift = rankingLift(ranking, score.head)
                 return (
-                    <div key={name} className={clsx('flex items-center gap-2', name === head && 'font-bold')}>
-                        <span className="w-28 shrink-0">{RANKING_HEAD_LABELS[name] ?? name}</span>
+                    <div key={score.head} className={clsx('flex items-center gap-2', score === active && 'font-bold')}>
+                        <span className="w-28 shrink-0">{score.name}</span>
                         <span className="flex-1">
                             <RankingLiftBar lift={lift} />
                         </span>
@@ -59,7 +61,8 @@ export function ReportCardRankingTag({
     report: SignalReport
     sortField: InboxRankingSortField
 }): JSX.Element {
-    const { head, tagLabel } = RANKING_SORT_HEADS[sortField]
+    const score = rankingScoreForField(sortField)
+    const { head, tagLabel } = score
     const probability = report.ranking?.scores[head]
     const lift = report.ranking ? rankingLift(report.ranking, head) : null
     if (!report.ranking || typeof probability !== 'number') {
@@ -79,7 +82,7 @@ export function ReportCardRankingTag({
         )
     }
     return (
-        <Tooltip title={<RankingTooltip ranking={report.ranking} head={head} />}>
+        <Tooltip title={<RankingTooltip ranking={report.ranking} active={score} />}>
             <LemonTag size="small" className="cursor-help tabular-nums" data-attr="inbox-ranking-tag">
                 {lift !== null ? formatRankingLift(lift) : formatRankingProbability(probability)} {tagLabel}
             </LemonTag>

@@ -65,7 +65,7 @@ mod tests {
     use crate::filters::TeamId;
     use crate::seed::{
         BehavioralShapeHash, ClaimEpoch, ConditionHash, PersonSeed, PersonShapeHash,
-        ReconcileScope, ReconcileTile, RunId, SChunkMs, ScannedAtMs,
+        ReconcileScope, ReconcileTile, RunBoundaryMs, RunId, SChunkMs, ScannedAtMs,
     };
 
     use super::*;
@@ -95,6 +95,7 @@ mod tests {
                 .unwrap(),
             ),
             RunId(Uuid::nil()),
+            RunBoundaryMs(1_783_470_000_000),
         ))
         .unwrap()
     }
@@ -140,6 +141,7 @@ mod tests {
                 .unwrap(),
             ),
             RunId(Uuid::nil()),
+            RunBoundaryMs(1_783_470_000_000),
         ))
         .unwrap();
         assert_eq!(

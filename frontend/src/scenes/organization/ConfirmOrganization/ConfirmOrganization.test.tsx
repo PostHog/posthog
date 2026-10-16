@@ -46,7 +46,13 @@ describe('ConfirmOrganization', () => {
         expect(screen.getByText('Select your role')).toBeInTheDocument()
     })
 
-    it('marks the role as optional, because this form submits without one', () => {
-        expect(screen.getByText('What is your role?').closest('label')).toHaveTextContent('(optional)')
+    it('points a submit with no role at the role dropdown', async () => {
+        await userEvent.type(screen.getByLabelText('Organization name'), 'Spikes Inc')
+        await userEvent.click(screen.getByText('Create organization'))
+
+        const roleSelect = screen.getByText('Select your role').closest('button')
+        expect(roleSelect).toHaveFocus()
+        expect(roleSelect).toHaveClass('LemonButton--status-danger')
+        expect(screen.getByText('Please select your role to continue')).toBeInTheDocument()
     })
 })

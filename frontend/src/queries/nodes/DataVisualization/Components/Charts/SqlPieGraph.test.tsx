@@ -5,9 +5,13 @@ import userEvent from '@testing-library/user-event'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { ChartSettings } from '~/queries/schema/schema-general'
+import { BIField } from '~/queries/schema/schema-business-intelligence'
+import { ChartSettings, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { renderDataVisualization } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
+
+import { buildBIQuery, DEFAULT_BI_CONFIG } from 'products/business_intelligence/frontend/biEditorTypes'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
@@ -75,6 +79,71 @@ async function waitForSlices(): Promise<void> {
 }
 
 describe('SqlPieGraph', () => {
+    it('keeps aliased slices distinct and reuses their data when settings open', async () => {
+        let aliasReads = 0
+        const field = (name: string): BIField => ({
+            id: name,
+            name,
+            expression: name,
+            type: 'string',
+            source: { table: 'events' },
+        })
+        const region = field('region')
+        const config = {
+            ...DEFAULT_BI_CONFIG,
+            source: region.source,
+            chartType: ChartDisplayType.ActionsPie,
+            rows: [field('segment')],
+            columns: [region],
+            memberAliases: [
+                {
+                    field: region,
+                    aliases: [
+                        {
+                            value: null,
+                            get label(): string {
+                                aliasReads++
+                                return 'Missing'
+                            },
+                        },
+                        { value: '', label: 'Blank' },
+                    ],
+                },
+            ],
+        }
+        renderDataVisualization({
+            readOnly: false,
+            query: {
+                ...buildBIQuery(config)!.node,
+                kind: NodeKind.BIVisualizationNode,
+                config,
+                chartSettings: {
+                    xAxis: { column: 'segment' },
+                    yAxis: [{ column: 'count' }],
+                    seriesBreakdownColumn: 'region',
+                    pie: { sliceContent: 'labels' },
+                },
+            },
+            response: {
+                columns: ['segment', 'region', 'count'],
+                types: [
+                    ['segment', 'String'],
+                    ['region', 'Nullable(String)'],
+                    ['count', 'Int64'],
+                ],
+                results: [
+                    ['first', null, 2],
+                    ['first', '', 3],
+                ],
+            },
+        })
+        await waitForSlices()
+        expect(sliceLabelLines()).toEqual([['Missing'], ['Blank']])
+        const readsBeforeSettings = aliasReads
+        await userEvent.click(screen.getByLabelText('Visualization settings'))
+        expect(aliasReads).toBe(readsBeforeSettings)
+        expect(sliceLabelLines()).toEqual([['Missing'], ['Blank']])
+    })
     it('defaults to values and the total when slice content is unset (existing chart)', async () => {
         render(<SqlPieGraph {...baseProps({}, [40, 30, 20, 10])} />)
 

@@ -26,7 +26,7 @@ from products.tasks.backend.logic.services.agentsh import (
 )
 
 
-class TestGenerateConfigYaml(TestCase):
+class TestGenerateConfigYaml(SimpleTestCase):
     def test_has_ptrace_enabled_with_full_trace(self):
         config = yaml.safe_load(generate_config_yaml())
         self.assertTrue(config["sandbox"]["ptrace"]["enabled"])
@@ -525,7 +525,7 @@ class TestBashEnvScript(SimpleTestCase):
             self.assertNotEqual(result.returncode, 0)
 
 
-class TestBuildAuditQueryCommand(TestCase):
+class TestBuildAuditQueryCommand(SimpleTestCase):
     def test_references_audit_db(self):
         cmd = build_audit_query_command()
         self.assertIn(AGENTSH_AUDIT_DB, cmd)
@@ -545,7 +545,7 @@ class TestBuildAuditQueryCommand(TestCase):
         self.assertTrue(any(part.startswith("SELECT ts_unix_ns") for part in parts))
 
 
-class TestBuildExecPrefix(TestCase):
+class TestBuildExecPrefix(SimpleTestCase):
     def test_returns_correct_format(self):
         self.assertEqual(
             build_exec_prefix(),

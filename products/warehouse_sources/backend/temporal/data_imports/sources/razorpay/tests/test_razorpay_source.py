@@ -4,12 +4,19 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.razorpay import (
     RazorpaySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.razorpay import (
+    INCREMENTAL_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.source import RazorpaySource
@@ -57,6 +64,45 @@ class TestRazorpaySource:
         assert (message is None) is expected_ok
 
     @pytest.mark.parametrize(
+        ("should_use_incremental_field", "last_value", "expected_from"),
+        [
+            (True, 1_750_000_000, str(1_750_000_000 - INCREMENTAL_LOOKBACK_SECONDS)),
+            (False, 1_750_000_000, None),
+        ],
+    )
+    def test_source_for_pipeline_plumbing(
+        self,
+        should_use_incremental_field: bool,
+        last_value: Optional[int],
+        expected_from: Optional[str],
+    ) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "Payments",
+            [ScriptedResponse(json={"entity": "collection", "count": 0, "items": []})],
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field="created_at" if should_use_incremental_field else None,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.params("from") == [expected_from]
+        response = result.response
+        assert response is not None
+        assert response.name == "Payments"
+        assert response.primary_keys == ["id"]
+        assert response.sort_mode == "desc"
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_at"]
+
+    def test_canonical_descriptions_cover_only_known_endpoints(self) -> None:
+        assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS)
+
+
+class TestRazorpaySourceForwarding:
+    def setup_method(self) -> None:
+        self.source = RazorpaySource()
+        self.config = RazorpaySourceConfig(key_id="rzp_test_key", key_secret="secret")
+
+    @pytest.mark.parametrize(
         ("should_use_incremental_field", "last_value", "expected_last_value"),
         [
             (True, 1_750_000_000, 1_750_000_000),
@@ -99,6 +145,3 @@ class TestRazorpaySource:
         assert response.sort_mode == "desc"
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
-
-    def test_canonical_descriptions_cover_only_known_endpoints(self) -> None:
-        assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS)

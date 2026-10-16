@@ -57,7 +57,12 @@ def _dispatch_count(outcome: str) -> float:
 
 
 def _payload(
-    *, action: str = "opened", draft: bool = False, repository: str = "PostHog/posthog", login: str = "OctoCat"
+    *,
+    action: str = "opened",
+    draft: bool = False,
+    repository: str = "PostHog/posthog",
+    login: str = "OctoCat",
+    labels: tuple[str, ...] = (),
 ) -> dict[str, object]:
     return {
         "action": action,
@@ -67,6 +72,7 @@ def _payload(
             "number": 42,
             "state": "open",
             "draft": draft,
+            "labels": [{"name": label} for label in labels],
             "merged": False,
             "user": {"login": login},
             "head": {"sha": _HEAD_SHA, "ref": "feature", "repo": {"full_name": repository.lower()}},
@@ -76,7 +82,7 @@ def _payload(
 
 
 def _label_payload(
-    *, label: str = "reviewhog", sender: str = "OctoCat", sender_type: str = "User", login: str = "OctoCat"
+    *, label: str = "posthog-review", sender: str = "OctoCat", sender_type: str = "User", login: str = "OctoCat"
 ) -> dict[str, object]:
     return {
         **_payload(action="labeled", login=login),
@@ -129,6 +135,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
             ("opened", True, "PostHog/posthog"),
             ("synchronize", False, "PostHog/posthog"),
             ("synchronize", True, "PostHog/posthog"),
+            ("ready_for_review", False, "PostHog/posthog"),
         ]
     )
     @patch(_QUEUE)
@@ -147,6 +154,8 @@ class TestAuthoredPRWebhook(SimpleTestCase):
             pr_number=42,
             head_sha=_HEAD_SHA,
             github_repo_id=_REPO_ID,
+            draft=draft,
+            skip_agent_review=False,
         )
 
     @parameterized.expand(
@@ -211,16 +220,17 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("person_adds_the_label", "reviewhog", "OctoCat", "User", True),
-            ("label_name_ignores_case", "ReviewHog", "OctoCat", "User", True),
+            ("person_adds_the_label", "posthog-review", "OctoCat", "User", True),
+            ("person_adds_the_legacy_label", "reviewhog", "OctoCat", "User", True),
+            ("label_name_ignores_case", "PostHog-Review", "OctoCat", "User", True),
             # The task explains the refusal on the pull request and removes the label.
-            ("bot_adds_the_label", "reviewhog", "renovate[bot]", "Bot", True),
+            ("bot_adds_the_label", "posthog-review", "renovate[bot]", "Bot", True),
             ("another_label", "bug", "OctoCat", "User", False),
         ]
     )
     @patch(_QUEUE)
     @patch(_LABEL_QUEUE)
-    def test_the_reviewhog_label_queues_a_label_review(
+    def test_a_review_label_queues_a_label_review(
         self,
         _name: str,
         label: str,
@@ -256,7 +266,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("ready_for_review", ("action",), "ready_for_review"),
+            ("edited", ("action",), "edited"),
             ("closed", ("pull_request", "state"), "closed"),
             ("merged", ("pull_request", "merged"), True),
             ("fork", ("pull_request", "head", "repo", "full_name"), "octocat/posthog"),
@@ -308,9 +318,11 @@ class TestAuthoredPRReviewTask(BaseTest):
             team_id=self.team.id, user_id=self.user.id, preferences={"default_review_mode": "flash"}
         )
 
-    def _queued_event(self, login: str = "OctoCat") -> Mapping[str, object]:
+    def _queued_event(
+        self, login: str = "OctoCat", *, draft: bool = False, labels: tuple[str, ...] = ()
+    ) -> Mapping[str, object]:
         with patch(_QUEUE) as enqueue:
-            accept_pull_request_event(_payload(login=login))
+            accept_pull_request_event(_payload(login=login, draft=draft, labels=labels))
         enqueue.assert_called_once()
         return enqueue.call_args.kwargs
 
@@ -329,10 +341,12 @@ class TestAuthoredPRReviewTask(BaseTest):
             "github_repo_id": _REPO_ID,
         }
 
-    @parameterized.expand([("own_flash_default",), ("listed_by_the_project",), ("repository_exception",)])
+    @parameterized.expand(
+        [("own_flash_default",), ("listed_by_the_project",), ("repository_exception",), ("draft_by_default",)]
+    )
     @patch(_START)
     def test_eligible_author_schedules_flash_in_the_owning_project(self, setup: str, start: MagicMock) -> None:
-        if setup != "own_flash_default":
+        if setup not in ("own_flash_default", "draft_by_default"):
             self.preferences.preferences = {}
             self.preferences.save(update_fields=["preferences"])
         if setup == "listed_by_the_project":
@@ -345,7 +359,7 @@ class TestAuthoredPRReviewTask(BaseTest):
             self.repository.save()
         started_before = _dispatch_count("started")
 
-        process_authored_pr_event.run(**self._queued_event())
+        process_authored_pr_event.run(**self._queued_event(draft=setup == "draft_by_default"))
 
         start.assert_called_once_with(**self._expected_start(team_id=self.team.id, user_id=self.user.id))
         assert _dispatch_count("started") - started_before == 1.0
@@ -362,14 +376,22 @@ class TestAuthoredPRReviewTask(BaseTest):
             ("unmapped", "bot_skipped"),
             ("missing_installation", "installation_mismatch"),
             ("full_review_published", "full_review_published"),
+            ("draft_with_drafts_off", "draft_skipped"),
+            ("skip_agent_review_label", "label_skipped"),
         ]
     )
     @patch(_START)
     def test_queued_events_recheck_ownership_consent_and_membership(
         self, change: str, expected_outcome: str, start: MagicMock
     ) -> None:
-        queued = self._queued_event()
-        if change == "opted_out":
+        queued = self._queued_event(
+            draft=change == "draft_with_drafts_off",
+            labels=("skip-agent-review",) if change == "skip_agent_review_label" else (),
+        )
+        if change == "draft_with_drafts_off":
+            self.preferences.preferences = {"default_review_mode": "flash", "review_drafts": False}
+            self.preferences.save(update_fields=["preferences"])
+        elif change == "opted_out":
             self.preferences.preferences = {"default_review_mode": "off"}
             self.preferences.save(update_fields=["preferences"])
         elif change == "repository_removed":
@@ -390,7 +412,7 @@ class TestAuthoredPRReviewTask(BaseTest):
                 base_branch="master",
                 published_heads_by_mode={"full": _HEAD_SHA},
             )
-        else:
+        elif change == "unmapped":
             self.github_identity.delete()
         outcome_before = _dispatch_count(expected_outcome)
 
@@ -486,11 +508,33 @@ class TestLabelReviewTask(BaseTest):
             user_id=self.user.id if run_as == "author" else self.connector.id,
             publish=True,
             trigger_source="label",
+            review_mode="flash",
         )
 
-    @parameterized.expand([("another_bot", "renovate[bot]", False), ("stamphog_hands_off", "stamphog[bot]", True)])
-    def test_only_stamphog_may_label_as_a_bot(self, _name: str, sender: str, starts: bool) -> None:
-        self._run(_label_payload(sender=sender, sender_type="Bot"))
+    def test_a_label_after_a_published_deep_review_runs_deep(self) -> None:
+        # A Standard request after a published Deep review is dropped, so the label would do nothing.
+        ReviewReport.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="posthog/posthog",
+            pr_number=42,
+            head_branch="feature",
+            base_branch="master",
+            published_heads_by_mode={"full": _HEAD_SHA},
+        )
+
+        self._run(_label_payload())
+
+        assert self.start.call_args.kwargs["review_mode"] == "full"
+
+    @parameterized.expand(
+        [
+            ("another_bot", "posthog-review", "renovate[bot]", False),
+            ("another_bot_legacy_label", "reviewhog", "renovate[bot]", False),
+            ("stamphog_hands_off", "posthog-review", "stamphog[bot]", True),
+        ]
+    )
+    def test_only_stamphog_may_label_as_a_bot(self, _name: str, label: str, sender: str, starts: bool) -> None:
+        self._run(_label_payload(label=label, sender=sender, sender_type="Bot"))
 
         assert self.start.called == starts
         calls = [(call.args[0], call.args[1]) for call in self.github.call_args_list]
@@ -498,6 +542,7 @@ class TestLabelReviewTask(BaseTest):
             assert calls == []
         else:
             assert calls == [
+                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/posthog-review"),
                 ("DELETE", "/repos/PostHog/posthog/issues/42/labels/reviewhog"),
                 ("POST", "/repos/PostHog/posthog/issues/42/comments"),
             ]
@@ -506,7 +551,14 @@ class TestLabelReviewTask(BaseTest):
         queued = self._queued_event(_label_payload(sender="renovate[bot]", sender_type="Bot"))
         gone = GitHubAPIError("gone", status=404)
         # The second POST fails after GitHub stored the comment, so the third run finds it and skips.
-        self.github.side_effect = [GitHubAPIError("boom", status=502), gone, GitHubAPIError("boom", status=502), gone]
+        self.github.side_effect = [
+            GitHubAPIError("boom", status=502),
+            gone,
+            gone,
+            GitHubAPIError("boom", status=502),
+            gone,
+            gone,
+        ]
         posted = {"body": BOT_LABEL_COMMENT, "user": {"login": "posthog[bot]", "type": "Bot"}}
         self.github_comments.side_effect = [[], [posted]]
 
@@ -516,7 +568,7 @@ class TestLabelReviewTask(BaseTest):
         process_label_event.run(**queued)
 
         calls = [call.args[0] for call in self.github.call_args_list]
-        assert calls == ["DELETE", "DELETE", "POST", "DELETE"]
+        assert calls == ["DELETE", "DELETE", "DELETE", "POST", "DELETE", "DELETE"]
         self.start.assert_not_called()
 
     @parameterized.expand(

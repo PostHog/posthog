@@ -1,73 +1,48 @@
-import json
-from collections.abc import Iterable, Iterator
-from http import HTTPStatus
-from typing import Any, cast
-
 import pytest
-from unittest.mock import MagicMock, patch
 
-from requests import Request, Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.acast.acast import (
-    acast_source,
-    validate_credentials,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.acast.acast import validate_credentials
 from products.warehouse_sources.backend.temporal.data_imports.sources.acast.source import AcastSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.acast import AcastSourceConfig
 
 
-def items(response: SourceResponse) -> Iterable[Any]:
-    return cast(Iterable[Any], response.items())
+def acast_driver() -> SourceDriver:
+    return SourceDriver(AcastSource(), AcastSourceConfig(api_key="fake-acast-key"))
 
 
-def response(body: object, status: int = 200) -> Response:
-    result = Response()
-    result.status_code = status
-    result.reason = HTTPStatus(status).phrase
-    result.url = "https://open.acast.com/rest/shows"
-    result.headers["Content-Type"] = "application/json"
-    result._content = json.dumps(body).encode()
-    return result
+def test_episode_fanout_keeps_parent_keys_and_continues_after_empty_show() -> None:
+    result = acast_driver().run(
+        "episodes",
+        [
+            ScriptedResponse(json=[{"_id": "show-1"}, {"_id": "show-2"}, {"_id": "show-3"}]),
+            ScriptedResponse(json=[{"_id": "episode-1", "title": "First episode", "Markers": []}]),
+            ScriptedResponse(json=[]),
+            ScriptedResponse(json=[{"_id": "episode-1", "title": "Another episode", "Markers": []}]),
+        ],
+    )
 
-
-@pytest.fixture
-def http_session() -> Iterator[MagicMock]:
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-    ) as factory:
-        session = factory.return_value
-        session.headers = {}
-        session.prepare_request.side_effect = Request.prepare
-        yield session
-
-
-def test_episode_fanout_keeps_parent_keys_and_continues_after_empty_show(http_session: MagicMock) -> None:
-    http_session.send.side_effect = [
-        response([{"_id": "show-1"}, {"_id": "show-2"}, {"_id": "show-3"}]),
-        response([{"_id": "episode-1", "title": "First episode", "Markers": []}]),
-        response([]),
-        response([{"_id": "episode-1", "title": "Another episode", "Markers": []}]),
-    ]
-
-    result = acast_source("fake-acast-key", "episodes", 1, "job-1")
-    rows = [row for batch in items(result) for row in batch]
-
-    assert rows == [
+    assert result.raised is None
+    assert result.rows == [
         {"_id": "episode-1", "title": "First episode", "Markers": [], "show_id": "show-1"},
         {"_id": "episode-1", "title": "Another episode", "Markers": [], "show_id": "show-3"},
     ]
-    assert result.primary_keys is not None
-    assert len({tuple(row[key] for key in result.primary_keys) for row in rows}) == 2
-    requests = [call.args[0] for call in http_session.send.call_args_list]
-    assert [request.url for request in requests] == [
+    assert result.response is not None
+    assert result.response.primary_keys is not None
+    assert len({tuple(row[key] for key in result.response.primary_keys) for row in result.rows}) == 2
+    assert result.urls == [
         "https://open.acast.com/rest/shows",
         "https://open.acast.com/rest/shows/show-1/episodes",
         "https://open.acast.com/rest/shows/show-2/episodes",
         "https://open.acast.com/rest/shows/show-3/episodes",
     ]
-    assert all(request.headers["X-API-Key"] == "fake-acast-key" for request in requests)
+    assert all(request.headers["x-api-key"] == "fake-acast-key" for request in result.requests)
 
 
 @pytest.mark.parametrize(
@@ -86,51 +61,50 @@ def test_episode_fanout_keeps_parent_keys_and_continues_after_empty_show(http_se
         ),
     ],
 )
-def test_credential_validation_maps_auth_errors(
-    http_session: MagicMock, status: int, message: str, expected: tuple[bool, str | None]
-) -> None:
-    http_session.send.side_effect = [
-        response([] if status == 200 else {"statusCode": status, "message": message}, status)
-    ]
+def test_credential_validation_maps_auth_errors(status: int, message: str, expected: tuple[bool, str | None]) -> None:
+    with scripted_network(
+        [ScriptedResponse(status=status, json=[] if status == 200 else {"statusCode": status, "message": message})]
+    ) as network:
+        assert validate_credentials("fake-acast-key", 1) == expected
 
-    assert validate_credentials("fake-acast-key", 1) == expected
-    http_session.send.assert_called_once()
-    request = http_session.send.call_args.args[0]
+    assert len(network.requests_log) == 1
+    request = network.requests_log[0]
     assert request.url == "https://open.acast.com/rest/shows"
-    assert request.headers["X-API-Key"] == "fake-acast-key"
+    assert request.headers["x-api-key"] == "fake-acast-key"
 
 
 @pytest.mark.parametrize("status", [401, 403, 404])
-def test_sync_errors_are_not_retried_and_auth_errors_match_user_messages(http_session: MagicMock, status: int) -> None:
-    http_session.send.side_effect = [response({"statusCode": status}, status)]
+def test_sync_errors_are_not_retried_and_auth_errors_match_user_messages(status: int) -> None:
+    result = acast_driver().run("shows", [ScriptedResponse(status=status, json={"statusCode": status})])
 
-    with pytest.raises(HTTPError) as error:
-        list(items(acast_source("fake-acast-key", "shows", 1, "job-1")))
-
-    http_session.send.assert_called_once()
+    assert isinstance(result.raised, HTTPError)
+    assert len(result.requests) == 1
     matches = [
-        message for pattern, message in AcastSource().get_non_retryable_errors().items() if pattern in str(error.value)
+        message
+        for pattern, message in AcastSource().get_non_retryable_errors().items()
+        if pattern in str(result.raised)
     ]
     assert len(matches) == (0 if status == 404 else 1)
-    assert "fake-acast-key" not in str(error.value)
+    assert "fake-acast-key" not in str(result.raised)
 
 
-def test_credential_validation_propagates_other_errors(http_session: MagicMock) -> None:
-    http_session.send.side_effect = [response({"statusCode": 404}, 404)]
+def test_credential_validation_propagates_other_errors() -> None:
+    with scripted_network([ScriptedResponse(status=404, json={"statusCode": 404})]) as network:
+        with pytest.raises(HTTPError):
+            validate_credentials("fake-acast-key", 1)
 
-    with pytest.raises(HTTPError):
-        validate_credentials("fake-acast-key", 1)
-
-
-def test_unexpected_response_shape_fails_instead_of_importing_an_error(http_session: MagicMock) -> None:
-    http_session.send.side_effect = [response({"error": "Unexpected response"})]
-
-    with pytest.raises(ValueError, match="Required a list response body"):
-        list(items(acast_source("fake-acast-key", "shows", 1, "job-1")))
+    assert len(network.requests_log) == 1
 
 
-def test_unknown_table_fails_before_making_requests(http_session: MagicMock) -> None:
-    with pytest.raises(UnknownResourceError):
-        acast_source("fake-acast-key", "unknown", 1, "job-1")
+def test_unexpected_response_shape_fails_instead_of_importing_an_error() -> None:
+    result = acast_driver().run("shows", [ScriptedResponse(json={"error": "Unexpected response"})])
 
-    http_session.send.assert_not_called()
+    assert isinstance(result.raised, ValueError)
+    assert "Required a list response body" in str(result.raised)
+
+
+def test_unknown_table_fails_before_making_requests() -> None:
+    result = acast_driver().run("unknown", [])
+
+    assert isinstance(result.raised, UnknownResourceError)
+    assert result.requests == []

@@ -83,6 +83,12 @@ database "posthog" {
       type    = "String"
       comment = "column_materializer::properties::$feature_flag_request_id"
     }
+    column "properties_group_custom" {
+      type = "Map(String, String)"
+    }
+    column "person_properties_map_custom" {
+      type = "Map(String, String)"
+    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -105,7 +111,7 @@ database "posthog" {
   }
 
   table "sharded_flag_evaluations" {
-    order_by     = ["team_id", "flag_key", "toDate(timestamp)", "cityHash64(distinct_id)"]
+    order_by     = ["team_id", "flag_key", "toDate(timestamp)", "cityHash64(distinct_id)", "cityHash64(uuid)"]
     partition_by = "toYYYYMM(timestamp)"
     ttl          = "toDate(timestamp) + toIntervalDay(90)"
     settings = {
@@ -140,6 +146,12 @@ database "posthog" {
     patch_column "request_id" {
       default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^\"|\"$', '')"
     }
+    patch_column "properties_group_custom" {
+      materialized = "mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
+    }
+    patch_column "person_properties_map_custom" {
+      materialized = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))"
+    }
     index "distinct_id_idx" {
       expr        = "distinct_id"
       type        = "bloom_filter(0.01)"
@@ -165,9 +177,30 @@ database "posthog" {
       type        = "minmax"
       granularity = 1
     }
-    engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.flag_evaluations"
-      replica_name = "{replica}"
+    index "properties_group_custom_keys_bf" {
+      expr        = "mapKeys(properties_group_custom)"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "properties_group_custom_values_bf" {
+      expr        = "mapValues(properties_group_custom)"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "person_properties_map_custom_keys_bf" {
+      expr        = "mapKeys(person_properties_map_custom)"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "person_properties_map_custom_values_bf" {
+      expr        = "mapValues(person_properties_map_custom)"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.flag_evaluations"
+      replica_name   = "{replica}"
+      version_column = "_timestamp"
     }
   }
 }

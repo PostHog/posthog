@@ -39,6 +39,9 @@ describe("PostHogAPIClient", () => {
       const [url, request] = fetch.mock.calls[0];
       expect((url as URL).pathname).toBe("/api/projects/42/tasks/");
       expect(request.method).toBe("POST");
+      expect(
+        (request.headers as Headers).get("X-PostHog-Client-Provenance"),
+      ).toBe("posthog_desktop");
       expect(JSON.parse(request.body)).toEqual({
         description: "Read the report evidence",
         title: "Review report",
@@ -49,6 +52,45 @@ describe("PostHogAPIClient", () => {
           ? { signal_report_discussion_question: "What caused this?" }
           : {}),
       });
+    },
+  );
+
+  it.each([
+    { provenance: "posthog_mobile", action: "creates" },
+    { provenance: "posthog_web", action: "creates" },
+    { provenance: "posthog_mobile", action: "warms" },
+    { provenance: "posthog_web", action: "warms" },
+  ] as const)(
+    "sends $provenance provenance when it $action a task",
+    async ({ provenance, action }) => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: "task-1",
+            task_id: "task-1",
+            run_id: "run-1",
+          }),
+          { status: 201 },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch, taskClientProvenance: provenance },
+      );
+
+      if (action === "creates") {
+        await client.createTask({ description: "Create a task" });
+      } else {
+        await client.warmTask({ repository: null, github_integration: null });
+      }
+
+      const request = fetch.mock.calls[0]?.[1];
+      expect(
+        (request?.headers as Headers).get("X-PostHog-Client-Provenance"),
+      ).toBe(provenance);
     },
   );
 
@@ -379,6 +421,39 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  describe("getInsightSummary", () => {
+    it("reads the insight from cache and falls back to its derived name", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 1,
+            short_id: "sdyR2Pn8",
+            name: "",
+            derived_name: "Pageview count",
+            description: "",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getInsightSummary("sdyR2Pn8")).resolves.toEqual({
+        name: "Pageview count",
+        description: null,
+      });
+      const url = fetch.mock.calls[0][0] as URL;
+      expect(url.pathname).toBe("/api/projects/42/insights/sdyR2Pn8/");
+      expect(url.searchParams.get("basic")).toBe("true");
+      expect(url.searchParams.get("refresh")).toBe("force_cache");
+    });
+  });
+
   describe("getEvidencePreview", () => {
     it("retrieves an Inbox report from the signals endpoint", async () => {
       const fetch = vi.fn().mockResolvedValue(
@@ -641,6 +716,34 @@ describe("PostHogAPIClient", () => {
       expect(listUrl.pathname).toBe("/api/projects/42/persons/");
       expect(listUrl.searchParams.get("search")).toBe(distinctId);
     });
+  });
+
+  it.each([
+    {
+      sources: ["posthog_desktop", "slack"],
+      sent: ["posthog_desktop", "slack"],
+    },
+    { sources: [], sent: [] },
+  ])("sends task list sources $sources as $sent", async ({ sources, sent }) => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ results: [], count: 0 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await client.getTasksPage({ sources });
+
+    const url = fetch.mock.calls[0][0] as URL;
+    expect(url.pathname).toBe("/api/projects/42/tasks/");
+    expect(url.searchParams.getAll("sources")).toEqual(sent);
   });
 
   it("fetches later task pages before reporting complete results", async () => {

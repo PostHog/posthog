@@ -1,18 +1,24 @@
-import copy
-import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from unittest import mock
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plausible import (
+    PlausibleSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible import plausible as plausible_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.plausible import (
     PlausibleResumeConfig,
     normalize_host,
-    plausible_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
@@ -21,64 +27,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.
     SESSION_SCOPED_DIMENSIONS,
     PlausibleEndpointConfig,
 )
-
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.plausible.plausible"
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.source import PlausibleSource
 
 
 def _result(dimensions: list[Any], metrics: list[Any]) -> dict[str, Any]:
     return {"dimensions": dimensions, "metrics": metrics}
 
 
-def _response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    return resp
+def _page(results: list[dict[str, Any]], total_rows: int | None = None) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"results": results, "meta": {"total_rows": len(results) if total_rows is None else total_rows}}
+    )
 
 
-def _make_manager(resume_state: PlausibleResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and snapshot each request's JSON body AT SEND TIME.
-
-    The paginator mutates ``request.json`` in place across pages, so inspecting it after the run shows
-    only the final state — snapshot a deep copy when each request is prepared instead.
-    """
-    session.headers = {}
-    body_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        body_snapshots.append(copy.deepcopy(request.json) or {})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return body_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(**overrides: Any):
-    kwargs: dict[str, Any] = {
-        "host": "https://plausible.io",
-        "site_id": "example.com",
-        "api_key": "key",
-        "endpoint": "timeseries",
-        "team_id": 1,
-        "job_id": "j",
-        "resumable_source_manager": _make_manager(),
-    }
-    kwargs.update(overrides)
-    return plausible_source(**kwargs)
+def _run(script: Script, *, endpoint: str = "timeseries", **inputs: Any) -> DriveResult:
+    driver = SourceDriver(
+        PlausibleSource(), PlausibleSourceConfig(api_key="key", site_id="example.com", host="https://plausible.io")
+    )
+    return driver.run(endpoint, script, **inputs)
 
 
 class TestNormalizeHost:
@@ -101,18 +67,17 @@ class TestNormalizeHost:
 
 
 class TestValidateCredentials:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_valid_credentials(self, mock_session):
-        mock_session.return_value.post.return_value = mock.MagicMock(status_code=200)
+    def test_valid_credentials(self):
+        with scripted_network([ScriptedResponse(status=200, json={})]) as network:
+            ok, error = validate_credentials("https://plausible.io", "example.com", "key")
 
-        ok, error = validate_credentials("https://plausible.io", "example.com", "key")
         assert ok is True
         assert error is None
-        body = mock_session.return_value.post.call_args.kwargs["json"]
+        request = network.requests_log[0]
+        body = request.json()
         assert body["site_id"] == "example.com"
         assert body["metrics"] == ["visitors"]
-        headers = mock_session.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "Bearer key"
+        assert request.headers["authorization"] == "Bearer key"
 
     @pytest.mark.parametrize(
         "status_code, fragment",
@@ -123,84 +88,66 @@ class TestValidateCredentials:
             (400, "status 400"),
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_failure_status_codes(self, mock_session, status_code, fragment):
-        resp = mock.MagicMock(status_code=status_code)
-        resp.json.return_value = {}
-        mock_session.return_value.post.return_value = resp
+    def test_failure_status_codes(self, status_code, fragment):
+        with scripted_network([ScriptedResponse(status=status_code, json={})]):
+            ok, error = validate_credentials("https://plausible.io", "example.com", "bad")
 
-        ok, error = validate_credentials("https://plausible.io", "example.com", "bad")
         assert ok is False
         assert error is not None and fragment in error
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_unreachable_host(self, mock_session):
-        mock_session.return_value.post.side_effect = Exception("dns failure")
+    def test_unreachable_host(self):
+        with scripted_network(always(ConnectionError("dns failure"))):
+            ok, error = validate_credentials("https://bad.example", "example.com", "key")
 
-        ok, error = validate_credentials("https://bad.example", "example.com", "key")
         assert ok is False
         assert error is not None and "reach" in error
 
 
 class TestGetRows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_short_page_and_saves_state(self, MockSession):
-        session = MockSession.return_value
+    def test_paginates_until_short_page_and_saves_state(self):
         # Shrink the page size so two small pages exercise the offset pagination loop.
         with mock.patch.object(plausible_module, "DEFAULT_PAGE_LIMIT", 2):
-            page1 = {
-                "results": [_result(["2024-01-01"], [1, 1, 1, 0, 0, 1]), _result(["2024-01-02"], [2, 2, 2, 0, 0, 2])],
-                "meta": {"total_rows": 3},
-            }
-            page2 = {"results": [_result(["2024-01-03"], [3, 3, 3, 0, 0, 3])], "meta": {"total_rows": 3}}
-            bodies = _wire(session, [_response(page1), _response(page2)])
-
-            manager = _make_manager()
-            batches = list(_source(endpoint="timeseries", resumable_source_manager=manager).items())
-
-        assert [len(batch) for batch in batches] == [2, 1]
-        # The second request advances the offset past the first page.
-        assert bodies[1]["pagination"]["offset"] == 2
-        # State is saved once, after the first page, pointing at the next offset.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].offset == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_watermark_slides_window_back_by_lookback(self, MockSession):
-        session = MockSession.return_value
-        bodies = _wire(session, [_response({"results": [], "meta": {"total_rows": 0}})])
-
-        _rows(
-            _source(
-                endpoint="timeseries",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2024-06-01",
+            result = _run(
+                [
+                    _page(
+                        [_result(["2024-01-01"], [1, 1, 1, 0, 0, 1]), _result(["2024-01-02"], [2, 2, 2, 0, 0, 2])],
+                        total_rows=3,
+                    ),
+                    _page([_result(["2024-01-03"], [3, 3, 3, 0, 0, 3])], total_rows=3),
+                ]
             )
+
+        assert [len(item) for item in result.items] == [2, 1]
+        # The second request advances the offset past the first page.
+        assert result.requests[1].json()["pagination"]["offset"] == 2
+        # State is saved once, after the first page, pointing at the next offset.
+        assert [state.offset for state in result.saved_states] == [2]
+
+    def test_incremental_watermark_slides_window_back_by_lookback(self):
+        result = _run(
+            [_page([], total_rows=0)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-06-01",
         )
 
         expected_start = (datetime(2024, 6, 1, tzinfo=UTC).date() - timedelta(days=REPORT_LOOKBACK_DAYS)).isoformat()
-        assert bodies[0]["date_range"][0] == expected_start
+        assert result.requests[0].json()["date_range"][0] == expected_start
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_state_pins_offset_and_window(self, MockSession):
-        session = MockSession.return_value
-        bodies = _wire(session, [_response({"results": [], "meta": {"total_rows": 0}})])
-
-        manager = _make_manager(
-            PlausibleResumeConfig(offset=4, date_range_start="2024-01-01", date_range_end="2024-01-31")
+    def test_resume_state_pins_offset_and_window(self):
+        result = _run(
+            [_page([], total_rows=0)],
+            resume_state=PlausibleResumeConfig(offset=4, date_range_start="2024-01-01", date_range_end="2024-01-31"),
         )
-        _rows(_source(endpoint="timeseries", resumable_source_manager=manager))
 
-        assert bodies[0]["pagination"]["offset"] == 4
-        assert bodies[0]["date_range"] == ["2024-01-01", "2024-01-31"]
+        body = result.requests[0].json()
+        assert body["pagination"]["offset"] == 4
+        assert body["date_range"] == ["2024-01-01", "2024-01-31"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_http_error_raises(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "bad query"}, status_code=400)])
+    def test_http_error_raises(self):
+        result = _run([ScriptedResponse(status=400, json={"error": "bad query"})])
 
-        with pytest.raises(Exception, match="400"):
-            _rows(_source(endpoint="timeseries"))
+        assert result.raised is not None
+        assert "400" in str(result.raised)
 
 
 # Pinned rather than derived from the scope constants, so tampering with those fails here.

@@ -42,8 +42,9 @@ tools:
             label and the source of the derived output property name). An action target needs the action:read scope.
             horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from
             target_event, or from the action name when target_event is omitted, if you do not set it. It must be unique
-            among the project's non-archived pipelines. After creating, call autoresearch-train-create to start an
-            asynchronous agent training run.
+            among the project's non-archived pipelines. Scores are written to that person property only when
+            write_person_property is true (default false); prediction events, validation and segments work without it.
+            After creating, call autoresearch-train-create to start an asynchronous agent training run.
         exclude_params:
             - id
             - created_by
@@ -168,6 +169,36 @@ tools:
             keeps its rows, while the new champion has none until its first horizon elapses. A wide AUC interval means
             the date had few positives. Rows exist only after a prediction horizon has elapsed and online validation has
             run. Use limit to bound the number of dates (default 60).
+        feature_flag: autoresearch
+    autoresearch-partial-update:
+        operation: autoresearch_partial_update
+        enabled: true
+        scopes:
+            - autoresearch:write
+            - person:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update a pipeline
+        description: >
+            Change fields of an existing pipeline. Send only the fields to change. Use write_person_property to turn
+            person profile writes on or off. When it is on, each live scoring run writes the champion's score to
+            output_person_property on the people it scores, so feature flags, cohorts, workflows and insights can target
+            people by score. Scores fill in over the next few scoring runs, not all at once. Turning it off starts a
+            cleanup run that removes the property from the people this pipeline scored (see autoresearch-runs-list).
+            Changing write_person_property needs the person:write scope. Prediction events, online validation and
+            segments work with it off. target_event, target_definition, horizon_days, training_lookback_days and the two
+            populations cannot change once a model has been trained.
+        exclude_params:
+            - id
+            - created_by
+            - created_at
+            - updated_at
+            - last_scored_at
+            - status
+            - iteration_budget_remaining
         feature_flag: autoresearch
     autoresearch-pause-create:
         operation: autoresearch_pause_create
@@ -526,7 +557,10 @@ tools:
             model card. Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a
             future run should try next) — these are stored in the run summary and read back by the next run during
             orientation; the backend derives the rest of the summary (kept ladder, dead-ends) from your recorded
-            iterations. If you built a report notebook for this run, pass its short_id as report_notebook_short_id.
+            iterations. Pass headline (a run title of at most 60 characters), reader_summary (one or two plain
+            sentences) and next_steps (at most 5 short items) for people who read the run; keep column names, SQL and
+            AUC numbers out of them. If you built a report notebook for this run, pass its short_id as
+            report_notebook_short_id.
         feature_flag: autoresearch
         response:
             include:
@@ -599,7 +633,9 @@ tools:
             current champion scores), 'discarded' otherwise, 'crashed' on failure. Iterations are picked up at
             completion time to choose the champion. If this iteration was spawned from a pending steering suggestion,
             pass parent_suggestion = the suggestion's ID — that links the iteration to the suggestion for attribution
-            and marks the suggestion 'acted_on'.
+            and marks the suggestion 'acted_on'. Pass summary, one plain sentence for people on what the experiment
+            tried and what happened, and headline, a title of at most 60 characters in the same plain words;
+            agent_description stays your own notes.
         feature_flag: autoresearch
         response:
             include:

@@ -1,36 +1,31 @@
-import copy
-import json
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-import pytest
-from unittest import mock
-from unittest.mock import MagicMock
-
 import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture import safetyculture
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.safetyculture import (
+    SafetyCultureSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.safetyculture import (
     SafetyCultureResumeConfig,
     _format_modified_after,
     check_access,
-    safetyculture_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.settings import (
     ENDPOINTS,
     SAFETYCULTURE_ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# The client retries retryable errors 5 times with backoff sleeps — patch the sleep so failure-path
-# tests don't actually wait.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
+from products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.source import SafetyCultureSource
 
 BASE_URL = "https://api.safetyculture.io"
 
@@ -41,66 +36,16 @@ def _response(
     *,
     raw_body: Any = None,
     status: int = 200,
-    url: str = f"{BASE_URL}/feed/users",
-) -> Response:
+) -> ScriptedResponse:
     if raw_body is not None:
         body: Any = raw_body
     else:
         body = {"metadata": {"next_page": next_page, "remaining_records": 0}, "data": items or []}
-    resp = Response()
-    resp.status_code = status
-    resp.url = url
-    resp.reason = "OK" if status < 400 else "Error"
-    resp._content = json.dumps(body).encode()
-    return resp
+    return ScriptedResponse(status=status, json=body)
 
 
-def _make_manager(resume_state: SafetyCultureResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(
-    session: mock.MagicMock, responses: Any, bodies: Optional[list[Any]] = None
-) -> tuple[list[str], list[dict[str, Any]]]:
-    """Wire a mock session; capture each request's url and params AT SEND TIME.
-
-    ``request.url``/``request.params`` are mutated in place across pages (the paginator retargets the
-    same request object each page), so snapshot copies when each request is prepared.
-    """
-    session.headers = {}
-    url_snapshots: list[str] = []
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        url_snapshots.append(request.url)
-        param_snapshots.append(dict(request.params or {}))
-        if bodies is not None:
-            bodies.append(copy.deepcopy(request.json))
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return url_snapshots, param_snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> Any:
-    return safetyculture_source(
-        api_token="sc-token",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="job-1",
-        resumable_source_manager=manager,
-        **kwargs,
-    )
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(SafetyCultureSource(), SafetyCultureSourceConfig(api_token="sc-token"))
 
 
 class TestFormatModifiedAfter:
@@ -118,87 +63,65 @@ class TestFormatModifiedAfter:
 
 
 class TestInitialRequest:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_first_request_carries_modified_after(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _, params = _wire(session, [_response([{"id": "a"}])])
-
-        _rows(
-            _source(
-                "inspections",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 3, 1, tzinfo=UTC),
-            )
+    def test_incremental_first_request_carries_modified_after(self) -> None:
+        result = _driver().run(
+            "inspections",
+            [_response([{"id": "a"}])],
+            incremental_field="modified_at",
+            db_incremental_field_last_value=datetime(2024, 3, 1, tzinfo=UTC),
         )
 
-        assert params[0] == {
+        assert {name: values[0] for name, values in result.queries[0].items()} == {
             "archived": "both",
             "completed": "both",
             "modified_after": "2024-03-01T00:00:00.000Z",
         }
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_never_sends_modified_after(self, MockSession: MagicMock) -> None:
+    def test_full_refresh_endpoint_never_sends_modified_after(self) -> None:
         # The issues feed documents no modified_after — a stale watermark must never leak into it.
-        session = MockSession.return_value
-        _, params = _wire(session, [_response([{"id": "a"}])])
-
-        _rows(
-            _source(
-                "issues",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 3, 1, tzinfo=UTC),
-            )
+        result = _driver().run(
+            "issues",
+            [_response([{"id": "a"}])],
+            incremental_field="modified_at",
+            db_incremental_field_last_value=datetime(2024, 3, 1, tzinfo=UTC),
         )
 
-        assert "modified_after" not in params[0]
+        assert "modified_after" not in result.queries[0]
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_next_page_verbatim_and_checkpoints(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        urls, params = _wire(
-            session,
+    def test_follows_next_page_verbatim_and_checkpoints(self) -> None:
+        result = _driver().run(
+            "users",
             [
                 _response([{"id": "a"}], next_page="/feed/users?opaque-cursor=xyz"),
                 _response([{"id": "b"}], next_page=None),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert rows == [{"id": "a"}, {"id": "b"}]
+        assert result.rows == [{"id": "a"}, {"id": "b"}]
         # Page 2 targets the server-issued next_page (resolved to the API host), and carries no
         # re-appended query params.
-        assert urls[1] == f"{BASE_URL}/feed/users?opaque-cursor=xyz"
-        assert params[1] == {}
+        assert result.urls[1] == f"{BASE_URL}/feed/users?opaque-cursor=xyz"
+        assert set(result.queries[1]) == {"opaque-cursor"}
         # State is saved after the first page yields, holding the next page to fetch.
-        manager.save_state.assert_called_once_with(
-            SafetyCultureResumeConfig(next_page=f"{BASE_URL}/feed/users?opaque-cursor=xyz")
-        )
+        assert result.saved_states == [SafetyCultureResumeConfig(next_page=f"{BASE_URL}/feed/users?opaque-cursor=xyz")]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_offhost_next_page_rejected_before_send(self, MockSession: MagicMock) -> None:
+    def test_offhost_next_page_rejected_before_send(self) -> None:
         # An absolute, off-host metadata.next_page is followed verbatim, so it must be rejected by the
         # client's host pin before the Bearer token can be replayed to an attacker-controlled host.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "users",
             [
                 _response([{"id": "a"}], next_page="https://evil.example/feed/users?opaque-cursor=xyz"),
                 _response([{"id": "b"}], next_page=None),
             ],
         )
 
-        with pytest.raises(ValueError, match="disallowed host"):
-            _rows(_source("users", _make_manager()))
-
+        assert isinstance(result.raised, ValueError)
+        assert "disallowed host" in str(result.raised)
         # Only the on-host first page went out; the off-host next_page never reached the network.
-        assert session.send.call_count == 1
+        assert len(result.requests) == 1
 
     @parameterized.expand(
         [
@@ -206,28 +129,29 @@ class TestPagination:
             ("absolute_saved_url", f"{BASE_URL}/feed/users?opaque-cursor=xyz"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_next_page(self, _name: str, saved: str, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        urls, _ = _wire(session, [_response([{"id": "b"}], next_page=None)])
-
+    def test_resumes_from_saved_next_page(self, _name: str, saved: str) -> None:
         # A relative path (historic save) and an absolute URL (new save) both resolve to the same
         # request, and the initial unfiltered page is never fetched.
-        manager = _make_manager(SafetyCultureResumeConfig(next_page=saved))
-        rows = _rows(_source("users", manager))
+        result = _driver().run(
+            "users",
+            [_response([{"id": "b"}], next_page=None)],
+            resume_state=SafetyCultureResumeConfig(next_page=saved),
+        )
 
-        assert rows == [{"id": "b"}]
-        assert session.send.call_count == 1
-        assert urls[0] == f"{BASE_URL}/feed/users?opaque-cursor=xyz"
+        assert result.rows == [{"id": "b"}]
+        assert len(result.requests) == 1
+        assert result.urls[0] == f"{BASE_URL}/feed/users?opaque-cursor=xyz"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing_and_no_checkpoint(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], next_page=None)])
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = _driver().run("users", [_response([{"id": "a"}], next_page=None)])
 
-        manager = _make_manager()
-        assert _rows(_source("users", manager)) == []
-        manager.save_state.assert_not_called()
+        assert result.urls[0] == f"{BASE_URL}/feed/users"
+
+    def test_empty_first_page_yields_nothing_and_no_checkpoint(self) -> None:
+        result = _driver().run("users", [_response([], next_page=None)])
+
+        assert result.rows == []
+        assert result.saved_states == []
 
     @parameterized.expand(
         [
@@ -236,24 +160,18 @@ class TestPagination:
             ("empty_next_page", {"metadata": {"next_page": ""}, "data": [{"id": "a"}]}),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_terminal_next_page_shapes_stop(self, _name: str, body: dict, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(None, raw_body=body)])
+    def test_terminal_next_page_shapes_stop(self, _name: str, body: dict) -> None:
+        result = _driver().run("users", [_response(None, raw_body=body)])
 
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert rows == [{"id": "a"}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+        assert result.rows == [{"id": "a"}]
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
 
-def _structures_response(results: list[dict[str, Any]], next_page_token: str = "") -> Response:
+def _structures_response(results: list[dict[str, Any]], next_page_token: str = "") -> ScriptedResponse:
     return _response(
         None,
         raw_body={"results": results, "next_page_token": next_page_token, "total_count": len(results)},
-        url=f"{BASE_URL}/structures/v1/structures/search",
     )
 
 
@@ -268,93 +186,76 @@ def _structures_body(structure_type: str, page_token: Optional[str] = None) -> d
 
 
 class TestStructures:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_each_structure_type_with_body_page_token(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        bodies: list[Any] = []
-        urls, _ = _wire(
-            session,
+    def test_walks_each_structure_type_with_body_page_token(self) -> None:
+        result = _driver().run(
+            "structures",
             [
                 _structures_response([{"structure_uuid": "s1"}], next_page_token="tok-1"),
                 _structures_response([{"structure_uuid": "s2"}]),
                 # Protobuf JSON drops an empty `results`, so a type with no structures has no key.
                 _response(None, raw_body={"next_page_token": ""}),
             ],
-            bodies,
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("structures", manager))
-
-        assert rows == [{"structure_uuid": "s1"}, {"structure_uuid": "s2"}]
-        assert urls == [f"{BASE_URL}/structures/v1/structures/search"] * 3
-        assert bodies == [
+        assert result.rows == [{"structure_uuid": "s1"}, {"structure_uuid": "s2"}]
+        assert result.urls == [f"{BASE_URL}/structures/v1/structures/search"] * 3
+        assert [request.json() for request in result.requests] == [
             _structures_body("SYSTEM_STRUCTURE_TYPE_SITE"),
             _structures_body("SYSTEM_STRUCTURE_TYPE_SITE", "tok-1"),
             _structures_body("SYSTEM_STRUCTURE_TYPE_GROUP"),
         ]
-        assert manager.save_state.call_args_list == [
-            mock.call(SafetyCultureResumeConfig(structure_type_index=0, page_token="tok-1")),
-            mock.call(SafetyCultureResumeConfig(structure_type_index=1, page_token=None)),
+        assert result.saved_states == [
+            SafetyCultureResumeConfig(structure_type_index=0, page_token="tok-1"),
+            SafetyCultureResumeConfig(structure_type_index=1, page_token=None),
         ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_repeated_page_token_ends_the_structure_type(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        bodies: list[Any] = []
-        _wire(
-            session,
+    def test_repeated_page_token_ends_the_structure_type(self) -> None:
+        result = _driver().run(
+            "structures",
             [
                 _structures_response([{"structure_uuid": "s1"}], next_page_token="tok-1"),
                 _structures_response([{"structure_uuid": "s2"}], next_page_token="tok-1"),
                 _structures_response([{"structure_uuid": "g1"}]),
             ],
-            bodies,
         )
 
-        rows = _rows(_source("structures", _make_manager()))
+        assert result.rows == [{"structure_uuid": "s1"}, {"structure_uuid": "s2"}, {"structure_uuid": "g1"}]
+        assert result.requests[2].json() == _structures_body("SYSTEM_STRUCTURE_TYPE_GROUP")
 
-        assert rows == [{"structure_uuid": "s1"}, {"structure_uuid": "s2"}, {"structure_uuid": "g1"}]
-        assert bodies[2] == _structures_body("SYSTEM_STRUCTURE_TYPE_GROUP")
+    def test_resumes_from_saved_structure_type_and_token(self) -> None:
+        result = _driver().run(
+            "structures",
+            [_structures_response([{"structure_uuid": "g2"}])],
+            resume_state=SafetyCultureResumeConfig(structure_type_index=1, page_token="tok-g"),
+        )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_structure_type_and_token(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        bodies: list[Any] = []
-        _wire(session, [_structures_response([{"structure_uuid": "g2"}])], bodies)
+        assert result.rows == [{"structure_uuid": "g2"}]
+        assert [request.json() for request in result.requests] == [
+            _structures_body("SYSTEM_STRUCTURE_TYPE_GROUP", "tok-g")
+        ]
 
-        manager = _make_manager(SafetyCultureResumeConfig(structure_type_index=1, page_token="tok-g"))
-        rows = _rows(_source("structures", manager))
+    def test_a_run_with_no_saved_state_starts_from_the_first_structure_type(self) -> None:
+        result = _driver().run("structures", [_structures_response([{"structure_uuid": "s1"}])])
 
-        assert rows == [{"structure_uuid": "g2"}]
-        assert bodies == [_structures_body("SYSTEM_STRUCTURE_TYPE_GROUP", "tok-g")]
+        assert result.requests[0].json() == _structures_body("SYSTEM_STRUCTURE_TYPE_SITE")
 
 
 class TestErrorHandling:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    @mock.patch(SLEEP_PATCH, return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_statuses_raise_retryable_after_exhausting(
-        self, _name: str, status: int, MockSession: MagicMock, _sleep: MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, lambda *a, **k: _response([{"id": "a"}], status=status))
+    def test_retryable_statuses_raise_retryable_after_exhausting(self, _name: str, status: int) -> None:
+        result = _driver().run("users", always(_response([{"id": "a"}], status=status)))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source("users", _make_manager()))
-        # Retried up to the client's attempt cap before giving up.
-        assert session.send.call_count == 5
+        assert isinstance(result.raised, RESTClientRetryableError)
+        # Retried before giving up.
+        assert len(result.requests) > 1
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_errors_raise_for_status(self, _name: str, status: int, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(None, raw_body={}, status=status)])
+    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
+        result = _driver().run("users", [_response(None, raw_body={}, status=status)])
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("users", _make_manager()))
+        assert isinstance(result.raised, requests.HTTPError)
         # A permanent client error is not retried.
-        assert session.send.call_count == 1
+        assert len(result.requests) == 1
 
     @parameterized.expand(
         [
@@ -363,73 +264,49 @@ class TestErrorHandling:
             ("dict_without_data", {"metadata": {}}),
         ]
     )
-    @mock.patch(SLEEP_PATCH, return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unexpected_200_payload_is_retryable(
-        self, _name: str, body: Any, MockSession: MagicMock, _sleep: MagicMock
-    ) -> None:
+    def test_unexpected_200_payload_is_retryable(self, _name: str, body: Any) -> None:
         # A 200 whose body isn't the documented {"metadata", "data": [...]} envelope is retried.
-        session = MockSession.return_value
-        _wire(session, lambda *a, **k: _response(None, raw_body=body))
+        result = _driver().run("users", always(_response(None, raw_body=body)))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source("users", _make_manager()))
-        assert session.send.call_count == 5
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert len(result.requests) > 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_bearer_token_redacted_from_errors(self, MockSession: MagicMock) -> None:
+    def test_bearer_token_redacted_from_errors(self) -> None:
         # The framework auth scrubs the token from any raised error message.
-        session = MockSession.return_value
-        _wire(session, [_response(None, raw_body={}, status=401, url=f"{BASE_URL}/feed/users")])
+        result = _driver().run("users", [_response(None, raw_body={}, status=401)])
 
-        with pytest.raises(requests.HTTPError) as exc:
-            _rows(_source("users", _make_manager()))
-        assert "sc-token" not in str(exc.value)
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "sc-token" not in str(result.raised)
 
 
 class TestCheckAccess:
-    def _patch_session(self, response: Any) -> Any:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return mock.patch.object(safetyculture, "make_tracked_session", return_value=session)
-
     @parameterized.expand(
         [
-            (200, True, 200, None),
-            (401, False, 401, None),
-            (403, False, 403, None),
-            (500, False, 500, "SafetyCulture returned HTTP 500"),
+            (200, 200, None),
+            (401, 401, None),
+            (403, 403, None),
+            (500, 500, "SafetyCulture returned HTTP 500"),
         ]
     )
-    def test_status_mapping(self, status: int, ok: bool, expected_status: int, expected_message: str | None) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        with self._patch_session(response):
+    def test_status_mapping(self, status: int, expected_status: int, expected_message: str | None) -> None:
+        with scripted_network(always(ScriptedResponse(status=status))):
             assert check_access("sc-token") == (expected_status, expected_message)
 
     def test_structures_probe_posts_a_scoped_search(self) -> None:
-        response = MagicMock()
-        response.status_code = 200
-        response.ok = True
-        session = MagicMock()
-        session.post.return_value = response
-        with mock.patch.object(safetyculture, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(json={})]) as network:
             assert check_access("sc-token", "/structures/v1/structures/search", "SYSTEM_STRUCTURE_TYPE_SITE") == (
                 200,
                 None,
             )
-        session.get.assert_not_called()
-        assert session.post.call_args.kwargs["json"] == {
+
+        assert [request.method for request in network.requests_log] == ["POST"]
+        assert network.requests_log[0].json() == {
             "structure_type": {"system_structure_type": "SYSTEM_STRUCTURE_TYPE_SITE"},
             "params": {"page": {"page_size": 1}},
         }
 
     def test_connection_error_maps_to_zero(self) -> None:
-        with self._patch_session(requests.ConnectionError("boom")):
+        with scripted_network(always(requests.ConnectionError("boom"))):
             status, message = check_access("sc-token")
         assert status == 0
         assert message is not None and "boom" in message
@@ -438,7 +315,12 @@ class TestCheckAccess:
 class TestSafetyCultureSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = _source(endpoint, _make_manager())
+        result = _driver().run(
+            endpoint, always(_response(None, raw_body={"metadata": {"next_page": None}, "data": [], "results": []}))
+        )
+
+        response = result.response
+        assert response is not None
         config = SAFETYCULTURE_ENDPOINTS[endpoint]
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys

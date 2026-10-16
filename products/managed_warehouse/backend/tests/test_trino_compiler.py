@@ -10,6 +10,7 @@ from structlog.testing import capture_logs
 
 from posthog.schema import HogQLQuery
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.transforms.trino.manifest import (
     TrinoCatalogManifest,
     TrinoManifestColumn,
@@ -48,6 +49,7 @@ def _membership(*, team_id: int, organization_id: str) -> ManagedWarehouseTeamMe
         table_names=ManagedWarehouseTableNames(
             events_table="events_production",
             persons_table="persons_production",
+            groups_table="groups_production",
             data_imports_schema="posthog_data_imports_production",
         ),
         earliest_event_date=None,
@@ -262,8 +264,9 @@ class TestCompileHogQLToTrinoSQL:
             (" LIMIT 75000 OFFSET 3", " OFFSET 3 ROWS LIMIT 75000"),
         ],
     )
+    @pytest.mark.parametrize("interactive", [False, True])
     def test_populates_core_table_locators_from_control_plane_state(
-        self, include_hogql: bool, limit_clause: str, trino_limit_clause: str
+        self, include_hogql: bool, limit_clause: str, trino_limit_clause: str, interactive: bool
     ) -> None:
         organization = Organization.objects.create(name="trino-core-locators")
         team = Team.objects.create(organization=organization)
@@ -286,13 +289,22 @@ class TestCompileHogQLToTrinoSQL:
                 team=team,
                 include_hogql=include_hogql,
                 expansion_mode=TrinoExpansionMode.DJANGO,
+                limit_top_select=interactive,
+                limit_context=LimitContext.QUERY,
             )
+
+        if interactive:
+            if not limit_clause:
+                trino_limit_clause = " LIMIT 50000"
+            trino_limit_clause = trino_limit_clause.replace("75000", "50000")
 
         assert compiled.sql == (
             'SELECT "org_catalog"."posthog"."events_production"."event" '
             'FROM "org_catalog"."posthog"."events_production"' + trino_limit_clause
         )
         assert compiled.values == {}
+        if interactive:
+            limit_clause = (limit_clause or " LIMIT 50000").replace("75000", "50000")
         assert compiled.hogql == ("SELECT event FROM events" + limit_clause if include_hogql else None)
 
     @pytest.mark.django_db
@@ -414,6 +426,8 @@ class TestPreparedTrinoCompiler:
             compiler = prepare_hogql_to_trino_compiler(team.pk, team=team)
             first = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "first"}))
             second = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "second"}))
+            groups = compiler.compile(HogQLQuery(query="SELECT index, key, properties.name FROM groups"))
+            raw_groups = compiler.compile(HogQLQuery(query="SELECT key, updated_at FROM raw_groups"))
 
         get_catalog.assert_called_once_with(str(team.organization_id))
         get_membership.assert_called_once_with(str(team.organization_id), team.pk)
@@ -423,6 +437,11 @@ class TestPreparedTrinoCompiler:
         assert compiler.catalog_name == "org_catalog"
         assert first.values == {"hogql_val_0": "first"}
         assert second.values == {"hogql_val_0": "second"}
+        for result in (groups, raw_groups):
+            assert '"org_catalog"."posthog"."groups_production"' in result.sql
+            assert "group_key" in result.sql
+        assert "group_properties" in groups.sql
+        assert "_timestamp" in raw_groups.sql
 
     def test_rejects_a_team_object_for_another_project(self) -> None:
         team = _team()
@@ -534,6 +553,7 @@ def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_
     table_names = ManagedWarehouseTableNames(
         events_table="events_production",
         persons_table="persons_production",
+        groups_table="groups_production",
         data_imports_schema="imports_production",
     )
     database = mock.Mock()
@@ -553,6 +573,8 @@ def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_
     assert locators == {
         "events": ("org_catalog", "posthog", "events_production"),
         "persons": ("org_catalog", "posthog", "persons_production"),
+        "groups": ("org_catalog", "posthog", "groups_production"),
+        "raw_groups": ("org_catalog", "posthog", "groups_production"),
         "orders_model": (
             "org_catalog",
             f"posthog_data_modeling_team_{team.pk}",

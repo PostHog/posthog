@@ -7,7 +7,7 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { watchPicksLogic } from './watchPicksLogic'
+import { PICKS_SHOWN_COUNT_STORAGE_KEY, watchPicksLogic } from './watchPicksLogic'
 import { watchPicksVariantFromFlag } from './watchPicksVariant'
 
 describe('watchPicksLogic', () => {
@@ -89,7 +89,24 @@ describe('watchPicksLogic', () => {
 
         it('opens on the picks and reports the impression with its count', () => {
             expect(logic.values.effectiveListMode).toBe('picks')
-            expect(shownEvents()).toEqual([{ view: 'list', count: 3, unwatched_count: 3 }])
+            expect(shownEvents()).toEqual([{ view: 'list', count: 3, unwatched_count: 3, shown_count: 1 }])
+        })
+
+        it.each([
+            [1, []],
+            [2, [{ view: 'list' }]],
+            [3, []],
+        ])('reports the third impression as its own event (stored count %i)', async (stored, thirdTimeEvents) => {
+            logic.unmount()
+            playlistLogic.unmount()
+            localStorage.setItem(PICKS_SHOWN_COUNT_STORAGE_KEY, String(stored))
+            await mountList()
+            expect(
+                captureSpy.mock.calls
+                    .filter(([name]) => name === 'replay_vision_watch_picks_shown_third_time')
+                    .map((call) => call[1])
+            ).toEqual(thirdTimeEvents)
+            expect(localStorage.getItem(PICKS_SHOWN_COUNT_STORAGE_KEY)).toBe(String(stored + 1))
         })
 
         it.each([

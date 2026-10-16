@@ -1,6 +1,7 @@
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
@@ -12,7 +13,7 @@ import { ActivityScope } from '~/types'
 import type { TestHogResponseApi } from '../generated/api.schemas'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
-import { numericScorePasses } from './constants'
+import { EVALUATION_RUNS_QUERY_LIMIT, numericScorePasses } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
@@ -819,6 +820,18 @@ return result`,
                 await expectLogic(logic).toMatchValues({ modelSelectionRequired: false, formValid: true })
             })
 
+            it.each(['llm', 'decision'] as const)(
+                'requires a model when a legacy evaluation selects %s',
+                async (method) => {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    logic.actions.loadEvaluationSuccess({ ...mockEvaluation, model_configuration: null })
+
+                    logic.actions.setJudgeMethod(method)
+
+                    await expectLogic(logic).toMatchValues({ modelSelectionRequired: true, formValid: false })
+                }
+            )
+
             it('requires an existing configured evaluation to keep a selected model', async () => {
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
@@ -1039,6 +1052,15 @@ return result`,
                 expect(logic.values.isReportableEvaluation).toBe(false)
             })
 
+            it.each([
+                { trueCount: 999, expected: 99.9 },
+                { trueCount: 1000, expected: 100 },
+            ])('rounds the pass rate down to $expected% for $trueCount of 1000 passing', ({ trueCount, expected }) => {
+                logic.actions.loadEvaluationSuccess(mockEvaluation)
+                logic.actions.loadRunsStatsSuccess({ total: 1000, applicable: 1000, trueCount })
+                expect(logic.values.runsSummary?.successRate).toBe(expected)
+            })
+
             it.each(['boolean', 'numeric'] as const)('has no success rate for ungraded %s runs', (output_type) => {
                 logic.actions.loadEvaluationSuccess({
                     ...mockEvaluation,
@@ -1068,7 +1090,6 @@ return result`,
                         scoreMean: null,
                         successful: 1,
                         failed: 1,
-                        errors: 0,
                         successRate: 50,
                         applicabilityRate: 67,
                     },
@@ -1258,6 +1279,75 @@ return result`,
                     evaluation: expect.objectContaining({ name: 'Test Evaluation' }),
                     hasUnsavedChanges: false,
                 })
+            })
+        })
+
+        describe('loadOlderEvaluationRuns', () => {
+            const runRow = (id: string, timestamp: string): unknown[] => {
+                const row: unknown[] = new Array(22).fill(null)
+                row[0] = id
+                row[1] = timestamp
+                row[2] = 'eval-123'
+                return row
+            }
+
+            it('pages past the first runs with a timestamp cursor and appends the older runs', async () => {
+                const newest = Array.from({ length: EVALUATION_RUNS_QUERY_LIMIT }, (_, i) =>
+                    runRow(
+                        `new-${i}`,
+                        i < EVALUATION_RUNS_QUERY_LIMIT - 2 ? '2024-01-02T00:00:00Z' : '2024-01-01T00:00:00Z'
+                    )
+                )
+                const queryHogQL = jest.spyOn(api, 'queryHogQL').mockImplementation(async (query) => {
+                    if (query.includes('count() as total')) {
+                        return { results: [[EVALUATION_RUNS_QUERY_LIMIT + 1]] } as any
+                    }
+                    return {
+                        results: query.includes('uuid NOT IN') ? [runRow('old-1', '2023-12-31T00:00:00Z')] : newest,
+                    } as any
+                })
+
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationRunsSuccess']).toMatchValues({
+                    evaluationRunsHasMore: true,
+                })
+
+                logic.actions.loadOlderEvaluationRuns()
+                await expectLogic(logic).toDispatchActions(['loadOlderEvaluationRunsSuccess']).toMatchValues({
+                    evaluationRunsHasMore: false,
+                })
+
+                expect(logic.values.evaluationRuns.map((run) => run.id).slice(-3)).toEqual([
+                    `new-${EVALUATION_RUNS_QUERY_LIMIT - 2}`,
+                    `new-${EVALUATION_RUNS_QUERY_LIMIT - 1}`,
+                    'old-1',
+                ])
+                const olderQuery = queryHogQL.mock.calls.find(([query]) => String(query).includes('uuid NOT IN'))
+                expect(olderQuery?.[0]).toContain(
+                    `AND timestamp <= toDateTime('2024-01-01T00:00:00Z') AND uuid NOT IN ['new-${EVALUATION_RUNS_QUERY_LIMIT - 2}', 'new-${EVALUATION_RUNS_QUERY_LIMIT - 1}']`
+                )
+                queryHogQL.mockRestore()
+            })
+
+            it('reloads runs with the filter in the query, so failures past the newest page are reachable', async () => {
+                const queryHogQL = jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_config: { allows_na: false, true_is_failure: true },
+                })
+                queryHogQL.mockClear()
+
+                logic.actions.setEvaluationRunsFilter('fail', 'all')
+                await expectLogic(logic).toDispatchActions(['loadEvaluationRunsSuccess'])
+
+                const runsQuery = queryHogQL.mock.calls.find(([query]) =>
+                    String(query).includes('ORDER BY timestamp DESC')
+                )
+                expect(runsQuery?.[0]).toContain(`NOT (properties.$ai_evaluation_result = 'false')`)
+                queryHogQL.mockRestore()
             })
         })
     })
@@ -1628,6 +1718,128 @@ return result`,
     })
 
     describe('selectModelFromPicker', () => {
+        it.each([
+            [false, 'decision'],
+            [true, 'llm'],
+        ] as const)(
+            'keeps legacy routing when the decision model supportsChat=%s',
+            async (supportsChat, expectedMethod) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                modelPickerLogic.actions.loadByokModelsSuccess([
+                    {
+                        id: 'example/decision-model',
+                        name: 'example/decision-model',
+                        description: '',
+                        provider: 'OpenRouter',
+                        providerKeyId: 'key-3',
+                        supportsDecisions: true,
+                        supportsChat,
+                    },
+                ])
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    model_configuration: {
+                        provider: 'openrouter',
+                        model: 'example/decision-model',
+                        provider_key_id: 'key-3',
+                    },
+                })
+                expect(logic.values.judgeMethod).toBe(expectedMethod)
+                logic.actions.setEvaluationName('Renamed evaluation')
+                expect(logic.values.evaluation?.evaluation_config).toEqual({ prompt: 'Is this response helpful?' })
+                expect(logic.values.selectedModel).toBe('example/decision-model')
+            }
+        )
+
+        it.each(['llm', 'decision'] as const)(
+            'keeps compatible models and custom deployments when selecting %s',
+            async (method) => {
+                useMocks({
+                    get: {
+                        '/api/environments/:teamId/llm_analytics/provider_keys/': {
+                            results: [
+                                ...mockProviderKeys,
+                                {
+                                    ...mockProviderKeys[0],
+                                    id: 'key-azure',
+                                    provider: 'azure_openai',
+                                    name: 'Azure Key',
+                                },
+                            ],
+                        },
+                        '/api/llm_proxy/models/': ({ request }) => [
+                            200,
+                            new URL(request.url).searchParams.get('provider_key_id') === 'key-3'
+                                ? [
+                                      {
+                                          id: 'example/dual-model',
+                                          name: 'example/dual-model',
+                                          provider: 'OpenRouter',
+                                          supports_decisions: true,
+                                          supports_chat: true,
+                                      },
+                                      {
+                                          id: 'example/chat-model',
+                                          name: 'example/chat-model',
+                                          provider: 'OpenRouter',
+                                          supports_decisions: false,
+                                          supports_chat: true,
+                                      },
+                                      {
+                                          id: 'example/decision-model',
+                                          name: 'example/decision-model',
+                                          provider: 'OpenRouter',
+                                          supports_decisions: true,
+                                          supports_chat: false,
+                                      },
+                                  ]
+                                : [],
+                        ],
+                    },
+                })
+                await expectLogic(keysLogic, () => keysLogic.actions.loadProviderKeys()).toFinishAllListeners()
+                await expectLogic(modelPickerLogic).toFinishAllListeners()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.selectModelFromPicker('example/dual-model', 'key-3')
+                logic.actions.setJudgeMethod(method === 'llm' ? 'decision' : 'llm')
+                logic.actions.saveEvaluationSuccess(logic.values.evaluation!)
+                expect(logic.values.hasUnsavedChanges).toBe(false)
+                logic.actions.setJudgeMethod(method)
+                expect(logic.values.judgeMethod).toBe(method)
+                expect(logic.values.hasUnsavedChanges).toBe(true)
+                expect(logic.values.evaluation?.model_configuration).toEqual({
+                    provider: 'openrouter',
+                    model: 'example/dual-model',
+                    provider_key_id: 'key-3',
+                })
+                expect(logic.values.evaluation?.evaluation_config).toEqual({ prompt: '', judge_method: method })
+                expect(logic.values.judgeModelGroups.flatMap((group) => group.models.map((model) => model.id))).toEqual(
+                    ['example/dual-model', method === 'llm' ? 'example/chat-model' : 'example/decision-model']
+                )
+                expect(logic.values.judgeModelGroups.find((group) => group.providerKeyId === 'key-azure')).toEqual(
+                    method === 'llm' ? expect.objectContaining({ allowsCustomModel: true }) : undefined
+                )
+            }
+        )
+
+        it('clears an incompatible model without losing the prompt or output configuration', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+            await expectLogic(keysLogic).toDispatchActions(['loadProviderKeysSuccess'])
+            logic.actions.setEvaluationPrompt('Check the response.')
+            logic.actions.setAllowsNA(true)
+            await expectLogic(logic, () => logic.actions.selectModelFromPicker('gpt-5', 'key-1')).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.setJudgeMethod('decision')).toFinishAllListeners()
+            expect(logic.values.selectedModel).toBe('')
+            expect(logic.values.selectedPickerProviderKeyId).toBeNull()
+            expect(logic.values.evaluation).toEqual(
+                expect.objectContaining({
+                    evaluation_config: { prompt: 'Check the response.', judge_method: 'decision' },
+                    output_config: { allows_na: true },
+                    model_configuration: null,
+                })
+            )
+        })
+
         beforeEach(() => {
             logic = llmEvaluationLogic({ evaluationId: 'new' })
             logic.mount()
