@@ -12,8 +12,16 @@ from uuid import UUID
 
 from django.utils import timezone
 
-from products.alerts_platform.backend.facade.api import delete_owned_copy, update_owned_copy
-from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, PlatformAlertConfigurationEdit
+from posthog.utils import absolute_uri
+
+from products.alerts.backend.facade.destinations import configured_destination_template_ids
+from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_owned_copy, update_owned_copy
+from products.alerts_platform.backend.facade.contracts import (
+    SOURCE_CONDITION_KEY,
+    IncidentCloseAddress,
+    PlatformAlertConfigurationEdit,
+)
+from products.logs.backend.alert_source_cycle import EVENT_IDS_BY_INCIDENT_ACTION
 from products.logs.backend.alert_state_machine import apply_enabled
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import CONDITION_FIELDS, SETTINGS_FIELDS, platform_upsert_of
@@ -83,3 +91,22 @@ def _write_logs_row(alert: LogsAlertConfiguration, edit: PlatformAlertConfigurat
             "updated_at",
         ]
     )
+
+
+def incident_close_address(*, team_id: int, legacy_configuration_id: UUID) -> IncidentCloseAddress | None:
+    """Where this alert's incident destinations listen for a close, or None when it has none."""
+    alert_id = str(legacy_configuration_id)
+    if not configured_destination_template_ids(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=tuple(EVENT_IDS_BY_INCIDENT_ACTION.values())
+    ):
+        return None
+    return IncidentCloseAddress(
+        destination_alert_id=alert_id,
+        event_ids_by_incident_action=EVENT_IDS_BY_INCIDENT_ACTION,
+        source_alert_url=absolute_uri(f"/project/{team_id}/logs/alerts/{alert_id}"),
+    )
+
+
+def before_deleted(*, team_id: int, alert_id: UUID) -> None:
+    """Closes the incidents of a firing alert the platform owns while its destinations still exist."""
+    close_owned_firings_now(team_id=team_id, legacy_configuration_id=alert_id)

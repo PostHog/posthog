@@ -9,7 +9,7 @@ from uuid import UUID
 from products.logs.backend import platform_ownership
 from products.logs.backend.models import LogsAlertConfiguration
 
-__all__ = ["on_created", "on_deleted", "on_updated"]
+__all__ = ["before_deleted", "on_created", "on_deleted", "on_updated"]
 
 
 def _alert(team_id: int, alert_id: UUID) -> LogsAlertConfiguration | None:
@@ -35,3 +35,7 @@ def on_updated(*, team_id: int, alert_id: UUID, snooze_changed: bool) -> None:
 
 def on_deleted(*, team_id: int, alert_id: UUID) -> None:
     platform_ownership.on_deleted(team_id=team_id, alert_id=alert_id)
+
+
+def before_deleted(*, team_id: int, alert_id: UUID) -> None:
+    platform_ownership.before_deleted(team_id=team_id, alert_id=alert_id)

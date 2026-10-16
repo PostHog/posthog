@@ -318,7 +318,7 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
     return (next_check_at or cutoff).replace(second=0, microsecond=0).isoformat()
 
 
-def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, object]:
+def condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, object]:
     """What the check was evaluated against, as a message and a comparison need to read it.
 
     Taken from the configuration when the outcome is recorded rather than shipped with it, because
@@ -373,7 +373,7 @@ def _event_row(
         episode_started_at=verdict.firing_episode.started_at if verdict.firing_episode else None,
         value=group.value if group else None,
         labels=group.labels if group else {},
-        condition_snapshot=_condition_snapshot(configuration),
+        condition_snapshot=condition_snapshot(configuration),
         source_config_snapshot=configuration.source_config,
         query_duration_ms=outcome.query_duration_ms,
         error_message=outcome.error_message,

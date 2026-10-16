@@ -93,7 +93,7 @@ from products.logs.backend.facade.api import (
     logs_state_of_platform,
     next_allowed_check_at,
 )
-from products.logs.backend.facade.platform_ownership import on_created, on_deleted, on_updated
+from products.logs.backend.facade.platform_ownership import before_deleted, on_created, on_deleted, on_updated
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 MAX_ALERTS_PER_TEAM = 20
@@ -1633,6 +1633,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
         close_incident_before_delete(team_id=instance.team_id, alert_id=str(instance.id), state=instance.state)
+        if instance.platform_owned:
+            before_deleted(team_id=instance.team_id, alert_id=instance.id)
         with transaction.atomic():
             locked_instance = (
                 LogsAlertConfiguration.objects.select_for_update()
