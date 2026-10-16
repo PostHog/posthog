@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch
 
-from products.slack_app.backend.temporal import posthog_code_slack_mention
+from products.slack_app.backend.temporal import slack_app_mention_processing
 from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWorkflowInputs
 
 
@@ -16,7 +16,7 @@ from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWor
     ],
 )
 async def test_untagged_followup_with_files_classifier_gating(text: str, expect_classifier: bool) -> None:
-    workflow = posthog_code_slack_mention.SlackAppMentionProcessingWorkflow()
+    workflow = slack_app_mention_processing.SlackAppMentionProcessingWorkflow()
     calls: list[str] = []
     inputs = PostHogCodeSlackMentionWorkflowInputs(
         event={
@@ -34,20 +34,22 @@ async def test_untagged_followup_with_files_classifier_gating(text: str, expect_
 
     async def fake_execute_activity(activity_fn, *args):
         calls.append(activity_fn.__name__)
-        if activity_fn is posthog_code_slack_mention.enforce_posthog_code_billing_quota_activity:
+        if activity_fn is slack_app_mention_processing.enforce_posthog_code_billing_quota_activity:
             return False
-        if activity_fn is posthog_code_slack_mention.classify_untagged_followup_activity:
+        if activity_fn is slack_app_mention_processing.classify_untagged_followup_activity:
             return True
-        if activity_fn is posthog_code_slack_mention.request_untagged_followup_confirmation_activity:
+        if activity_fn is slack_app_mention_processing.request_untagged_followup_confirmation_activity:
             return False
-        if activity_fn is posthog_code_slack_mention.classify_slack_app_model_override_activity:
+        if activity_fn is slack_app_mention_processing.classify_slack_app_model_override_activity:
             return None
-        if activity_fn is posthog_code_slack_mention.forward_posthog_code_followup_activity:
+        if activity_fn is slack_app_mention_processing.forward_posthog_code_followup_activity:
             return True
 
         raise AssertionError(f"unexpected activity: {activity_fn.__name__}")
 
-    with patch.object(posthog_code_slack_mention, "_execute_posthog_code_activity", side_effect=fake_execute_activity):
+    with patch.object(
+        slack_app_mention_processing, "_execute_posthog_code_activity", side_effect=fake_execute_activity
+    ):
         await workflow.run(inputs)
 
     expected = ["enforce_posthog_code_billing_quota_activity"]
@@ -67,7 +69,7 @@ async def test_untagged_followup_with_files_classifier_gating(text: str, expect_
 async def test_confirmed_untagged_followup_skips_the_classifier_and_the_prompt() -> None:
     """The click that re-dispatches carries the answer, so asking again would
     loop: prompt, confirm, classify, prompt."""
-    workflow = posthog_code_slack_mention.SlackAppMentionProcessingWorkflow()
+    workflow = slack_app_mention_processing.SlackAppMentionProcessingWorkflow()
     calls: list[str] = []
     inputs = PostHogCodeSlackMentionWorkflowInputs(
         event={"channel": "C123", "ts": "1234.5679", "user": "U_BOB", "text": "and the export filter too"},
@@ -80,15 +82,17 @@ async def test_confirmed_untagged_followup_skips_the_classifier_and_the_prompt()
 
     async def fake_execute_activity(activity_fn, *args):
         calls.append(activity_fn.__name__)
-        if activity_fn is posthog_code_slack_mention.enforce_posthog_code_billing_quota_activity:
+        if activity_fn is slack_app_mention_processing.enforce_posthog_code_billing_quota_activity:
             return False
-        if activity_fn is posthog_code_slack_mention.classify_slack_app_model_override_activity:
+        if activity_fn is slack_app_mention_processing.classify_slack_app_model_override_activity:
             return None
-        if activity_fn is posthog_code_slack_mention.forward_posthog_code_followup_activity:
+        if activity_fn is slack_app_mention_processing.forward_posthog_code_followup_activity:
             return True
         raise AssertionError(f"unexpected activity: {activity_fn.__name__}")
 
-    with patch.object(posthog_code_slack_mention, "_execute_posthog_code_activity", side_effect=fake_execute_activity):
+    with patch.object(
+        slack_app_mention_processing, "_execute_posthog_code_activity", side_effect=fake_execute_activity
+    ):
         await workflow.run(inputs)
 
     assert calls == [
