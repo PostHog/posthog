@@ -26,6 +26,7 @@ from posthog.models import Team
 
 from products.signals.dags.inbox_ranking.common import (
     FIXED_DISMISSAL_REASONS,
+    HUMAN_ACTOR_KINDS,
     LABELS_EPOCH,
     LOW_VALUE_DISMISSAL_REASONS,
     NOT_FIXED_RESOLUTION_REASONS,
@@ -378,16 +379,57 @@ GROUP BY report_id
 _WRONG_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in WRONG_DISMISSAL_REASONS)
 _NOT_FIXED_RESOLUTION_REASONS_SQL = ", ".join(f"'{reason}'" for reason in NOT_FIXED_RESOLUTION_REASONS)
 _FIXED_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in FIXED_DISMISSAL_REASONS)
-# A transition that says the problem was real and is fixed, by anyone: a resolve without a not-fixed
-# reason (a reason-less resolve is the PR-merge webhook), or a dismissal with a fixed reason.
+_HUMAN_ACTOR_KINDS_SQL = ", ".join(f"'{kind}'" for kind in HUMAN_ACTOR_KINDS)
+# A reason-less resolve that a person or an external agent asked for, such as the one-click Today
+# resolve. The reason is optional there and arrives later as a `reason_added` row. A reason-less
+# resolve with any other actor, or with no actor, is the automatic resolve after a tracked PR merges.
+_HUMAN_REASONLESS_RESOLVE_SQL = (
+    "toString(properties.status) = 'resolved' AND coalesce(toString(properties.dismissal_reason), '') = ''"
+    " AND coalesce(toString(properties.actor_kind), '') IN (" + _HUMAN_ACTOR_KINDS_SQL + ")"
+)
+# A transition someone asked for: it carries a reason, or a person or an external agent made it.
+_RESOLVE_INTENT_SQL = (
+    "coalesce(toString(properties.dismissal_reason), '') != ''"
+    " OR coalesce(toString(properties.actor_kind), '') IN (" + _HUMAN_ACTOR_KINDS_SQL + ")"
+)
+# The time a person has to add a not-fixed reason to a reason-less resolve before it counts as fixed.
+# Today offers the reason right after the resolve, and the added reasons on the status stream arrive
+# well inside this window.
+HUMAN_RESOLVE_GRACE_HOURS = 24
+# A `reason_added` row with no reason is a note-only update. It names no actor, so without this
+# guard it reads as a PR-merge resolve and skips the grace window of the resolve it follows.
+_NOTE_ONLY_UPDATE_SQL = (
+    "coalesce(toString(properties.reason_added), '') = 'true'"
+    " AND coalesce(toString(properties.dismissal_reason), '') = ''"
+)
+# A transition that says the problem was real and is fixed: a resolve without a not-fixed reason by
+# the PR-merge webhook or with a reason, or a dismissal with a fixed reason. A human reason-less
+# resolve waits for its grace window instead (`_HUMAN_RESOLVE_FIXED_TIMES_SQL`).
 _FIXED_TRANSITION_SQL = (
     "(toString(properties.status) = 'resolved' AND coalesce(toString(properties.dismissal_reason), '') NOT IN ("
     + _NOT_FIXED_RESOLUTION_REASONS_SQL
+    + ") AND NOT ("
+    + _HUMAN_REASONLESS_RESOLVE_SQL
+    + ") AND NOT ("
+    + _NOTE_ONLY_UPDATE_SQL
     + ")) OR (toString(properties.status) = 'suppressed' AND toString(properties.dismissal_reason) IN ("
     + _FIXED_DISMISSAL_REASONS_SQL
     + "))"
 )
 _LOW_VALUE_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in LOW_VALUE_DISMISSAL_REASONS)
+# The bucket's human reason-less resolves that are fixed: the grace window closed before the snapshot
+# with no not-fixed reason added inside it. Each resolve is checked on its own, because a bucket can
+# hold a resolve, a reopen and a second resolve. Every reason inside a closed window is already in the
+# snapshot, so a later reason cannot take the label back and the label stays monotonic.
+_HUMAN_RESOLVE_FIXED_TIMES_SQL = f"""arrayFilter(
+            resolved_at -> resolved_at + INTERVAL {HUMAN_RESOLVE_GRACE_HOURS} HOUR <= toDateTime({{snapshot_end}})
+                AND NOT arrayExists(
+                    reason_at -> reason_at >= resolved_at
+                        AND reason_at < resolved_at + INTERVAL {HUMAN_RESOLVE_GRACE_HOURS} HOUR,
+                    not_fixed_reason_times
+                ),
+            bucket_human_resolve_times
+        )"""
 
 # The outcome a transition reaches, shared by the report-grain and user-grain status streams.
 _STATUS_OUTCOME_SQL = """multiIf(
@@ -486,21 +528,41 @@ SELECT
         bucket_first_wrong_dismissed_at,
         outcome = 'dismissed' AND event_team_id = latest_event_team_id
     ) AS first_wrong_dismissed_at,
-    -- A resolve that carries a reason is a person or an agent marking the report done, from any
-    -- surface. A reason-less resolve is the automatic resolve after a tracked PR merges, so it is
-    -- not counted. Counted per bucket and dated by the bucket's first reasoned event, under the
-    -- same tenant restriction as the wrong-dismissal pair above. The action head reads this pair.
+    -- A resolve that carries a reason, or that a person or an external agent asked for, is someone
+    -- marking the report done, from any surface. The one-click Today resolve carries no reason but
+    -- names its actor. A reason-less resolve with no human actor is the automatic resolve after a
+    -- tracked PR merges, so it is not counted. Counted per bucket and dated by the bucket's first
+    -- counted event, under the same tenant restriction as the wrong-dismissal pair above. The
+    -- action head reads this pair.
     countIf(
-        outcome = 'resolved' AND bucket_reasoned = 1 AND event_team_id = latest_event_team_id
+        outcome = 'resolved' AND bucket_resolve_intent = 1 AND event_team_id = latest_event_team_id
     ) AS reasoned_resolution_count,
     minIf(
-        bucket_first_reasoned_at,
+        bucket_first_resolve_intent_at,
         outcome = 'resolved' AND event_team_id = latest_event_team_id
     ) AS first_reasoned_resolved_at,
     -- Cumulative and tenant-scoped like wrong_dismissal_count, so a reopen or a later re-dismissal
-    -- with another reason cannot take the label back. The fixed head reads this column.
-    countIf(bucket_fixed = 1 AND event_team_id = latest_event_team_id) AS fixed_count,
-    minIf(bucket_first_fixed_at, event_team_id = latest_event_team_id) AS first_fixed_at,
+    -- with another reason cannot take the label back. A human reason-less resolve is dated from the
+    -- resolve, not from the end of its grace window. The fixed head reads this column.
+    countIf(
+        (bucket_fixed = 1 OR notEmpty("""
+    + _HUMAN_RESOLVE_FIXED_TIMES_SQL
+    + """)) AND event_team_id = latest_event_team_id
+    ) AS fixed_count,
+    minIf(
+        if(
+            notEmpty("""
+    + _HUMAN_RESOLVE_FIXED_TIMES_SQL
+    + """) AND (bucket_first_fixed_at IS NULL OR arrayMin("""
+    + _HUMAN_RESOLVE_FIXED_TIMES_SQL
+    + """) < bucket_first_fixed_at),
+            arrayMin("""
+    + _HUMAN_RESOLVE_FIXED_TIMES_SQL
+    + """),
+            bucket_first_fixed_at
+        ),
+        event_team_id = latest_event_team_id
+    ) AS first_fixed_at,
     -- The same cumulative count, timestamp and tenant restriction for the low-value reasons. The
     -- dismiss_lowvalue head reads this column.
     countIf(
@@ -532,7 +594,13 @@ FROM (
         -- tenant is the tie-breaker so the selection is deterministic.
         argMax(
             coalesce(event_team_id, ''), tuple(last_timestamp, coalesce(event_team_id, ''))
-        ) OVER (PARTITION BY report_id) AS latest_event_team_id
+        ) OVER (PARTITION BY report_id) AS latest_event_team_id,
+        -- The not-fixed reasons added to this report, on every bucket row, so a human reason-less
+        -- resolve can check its grace window. Partitioned by tenant, so a reason that names another
+        -- team never takes a fixed label away.
+        arrayFlatten(
+            groupArray(bucket_not_fixed_reason_times) OVER (PARTITION BY report_id, event_team_id)
+        ) AS not_fixed_reason_times
     FROM (
     SELECT
         min(events.timestamp) AS first_timestamp,
@@ -564,10 +632,24 @@ FROM (
     + """)), fromUnixTimestamp(0)) AS bucket_first_wrong_dismissed_at,
         -- coalesce is load-bearing: HogQL evaluates NULL != '' to true, so a reason-less event
         -- would otherwise count as reasoned.
-        max(coalesce(toString(properties.dismissal_reason), '') != '') AS bucket_reasoned,
-        nullIf(
-            minIf(events.timestamp, coalesce(toString(properties.dismissal_reason), '') != ''), fromUnixTimestamp(0)
-        ) AS bucket_first_reasoned_at,
+        max("""
+    + _RESOLVE_INTENT_SQL
+    + """) AS bucket_resolve_intent,
+        nullIf(minIf(events.timestamp, """
+    + _RESOLVE_INTENT_SQL
+    + """), fromUnixTimestamp(0)) AS bucket_first_resolve_intent_at,
+        groupArrayIf(events.timestamp, """
+    + _HUMAN_REASONLESS_RESOLVE_SQL
+    + """) AS bucket_human_resolve_times,
+        -- Only reasons added to a resolve: a reason added to a later dismissal says nothing about it.
+        groupArrayIf(
+            events.timestamp,
+            coalesce(toString(properties.reason_added), '') = 'true'
+            AND toString(properties.status) = 'resolved'
+            AND toString(properties.dismissal_reason) IN ("""
+    + _NOT_FIXED_RESOLUTION_REASONS_SQL
+    + """)
+        ) AS bucket_not_fixed_reason_times,
         max("""
     + _FIXED_TRANSITION_SQL
     + """) AS bucket_fixed,
@@ -942,6 +1024,7 @@ WHERE event = 'signals_pr_refund_created'
 GROUP BY report_id, user_distinct_id
 """
 
+USER_STATUS_STREAM = "user_status_changes"
 USER_STATUS_COLUMNS = (
     "status_resolved_count",
     "first_status_resolved_at",
@@ -959,7 +1042,9 @@ USER_STATUS_COLUMNS = (
 # The tenant rule is STATUS_SQL's: every aggregate reads only the tenant of the report's latest
 # transition. The window runs over every transition of the report, before the actor filter, so the
 # tenant is the one the report-grain stream and its provenance check use. Buckets also split by
-# actor, so one person's transition never dedupes into another's.
+# actor, so one person's transition never dedupes into another's. A trailing `status_event_team_id`
+# column carries that tenant, and `scoped_user_status_rows` strips it after it checks it against the
+# report's team.
 USER_STATUS_SQL = (
     """
 SELECT
@@ -977,7 +1062,8 @@ SELECT
     ) AS first_status_dismissal_reason,
     nullIf(
         argMinIf(actor_kind, first_timestamp, outcome = 'dismissed' AND event_team_id = latest_event_team_id), ''
-    ) AS first_dismissal_actor_kind
+    ) AS first_dismissal_actor_kind,
+    toInt(any(latest_event_team_id)) AS status_event_team_id
 FROM (
     SELECT
         *,
@@ -1067,7 +1153,7 @@ USER_LABEL_STREAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("user_actions", USER_ACTIONS_SQL, ACTIONS_COLUMNS),
     ("user_feedback", USER_FEEDBACK_SQL, USER_FEEDBACK_COLUMNS),
     ("user_refunds", USER_REFUNDS_SQL, USER_REFUNDS_COLUMNS),
-    ("user_status_changes", USER_STATUS_SQL, USER_STATUS_COLUMNS),
+    (USER_STATUS_STREAM, USER_STATUS_SQL, USER_STATUS_COLUMNS),
     ("user_pr_events", USER_PR_SQL, USER_PR_COLUMNS),
 )
 

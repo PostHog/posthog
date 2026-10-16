@@ -1287,7 +1287,7 @@ class TestScoutTrialLaunch(APIBaseTest):
             _make_run(self.team, metadata={"scout_trial": {"version": 1, "launch_id": launch_ids[0]}})
             plan_key = f"signals/scout-trials/{self.team.id}/comparisons/{comparison_id}/plan.json"
             self.documents[plan_key] = json.dumps(
-                {**json.loads(self.documents[plan_key]), "judge_prompt_version": "sandbox-3"}
+                {**json.loads(self.documents[plan_key]), "judge_prompt_version": "sandbox-4"}
             )
 
             resumed = self.client.post(

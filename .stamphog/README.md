@@ -10,23 +10,17 @@ What each file contains and how per-folder overrides resolve: [the engine's "Pol
 `policy.yml` keeps the shipped defaults for `size_gate`, `tiers`, `overrides`, `familiarity` and `ownership`.
 It overrides `deny` and `allow`, and the differences are:
 
-- `auth` and `billing` exempt `products/warehouse_sources/backend/temporal/data_imports/sources/`, because connector code does OAuth and talks to the Stripe API without touching PostHog's auth system or its billing.
+- `deny_exceptions` lifts `auth` and `billing` for `products/warehouse_sources/backend/temporal/data_imports/sources/`, because connector code does OAuth and talks to the Stripe API without touching PostHog's auth system or its billing. It lifts `workflows_delivery` for the CDP and Messaging API test directories.
 - `infra_cicd` also matches `.github/pr-deploy`. Of the workflows, it keeps only the ones that CODEOWNERS assigns to `team-security`, so those stay denied for every author.
 - `ci_workflows` is an extra, owner-only category. It matches every file under `.github/workflows/` and `.depot/workflows/`, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-devex`.
-- `stamphog_policy` also matches `products/stamphog/backend/logic/policy_defaults/`, `packages/owners-yaml/`, `owners.yaml` and `product.yaml`, because those are gate inputs here.
+- `stamphog_policy` also matches `packages/owners-yaml/`, `owners.yaml` and `product.yaml`, because those are gate inputs here.
 - `devex_guardrails` is an extra category. It matches the semgrep rules, ratchet baselines, invariant tests and lint code that guard the house patterns, so an edit to a guard always gets a human review.
+- `agent_steering` is an extra, owner-only category. It matches the root `AGENTS.md`, the PR template, the `writing-pr-descriptions` skill, `.claude/settings.json`, `.claude/hooks/` and `.mcp.json`, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-devex`.
 - `workflows_delivery` is an extra, owner-only category. It matches the CDP, Workflows and Messaging API, models and plugin-server worker code, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-workflows`.
 - `allow` also lists `.github/CODEOWNERS`.
 - Every `rationale` records the false positives that shaped the rule in this repository.
 
-`review-guidance.md` replaces the default norms.
-It differs from the default in six lines:
-
-- Ownership is read from `owners.yaml` and `product.yaml` rather than CODEOWNERS, in two places.
-- Risky territory names event ingestion paths, where the default names data ingestion or write paths.
-- The opt-in signal is described as the stamphog label, where the default describes the repository's review settings and the label in label mode.
-- The incidental-keyword example is a warehouse connector fix.
-- The philosophy line says "We move fast" rather than "Move fast".
+The repository uses the shipped default `review-guidance.md`.
 
 `steering.md` tells the reviewer to refuse a diff that adds a suppression or an exemption for one of those guards.
 A path rule cannot see these, because the marker sits in product code or in a busy file.

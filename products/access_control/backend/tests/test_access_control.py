@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from django.apps import apps
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework import status
@@ -27,6 +28,7 @@ from products.access_control.backend.facade.user_access_control import AccessSou
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.access_control.backend.models.team_access_control_config import TeamAccessControlConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models import Ticket
@@ -1331,7 +1333,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{i}")
 
-        baseline = 16  # This is a lot! There is currently an n+1 issue with the legacy access control system
+        baseline = 14  # This is a lot! There is currently an n+1 issue with the legacy access control system
 
         # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag
         # IDs, the project's replay gates
@@ -1493,8 +1495,7 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         self._put_project_access_control_as_admin(self.team.id, {"access_level": "none"})
         app_context = self._get_posthog_app_context()
         assert len(app_context["current_user"]["organization"]["teams"]) == 2
-        assert app_context["current_team"]["id"] == self.team.id
-        assert app_context["current_team"]["user_access_level"] == "none"
+        assert app_context["current_team"] is None
 
 
 # TODO: Add tests to check that a dashboard can't be edited if the user doesn't have access
@@ -3007,3 +3008,241 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
         res = self._put("default", {**base, "access_level": "read"})
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
         assert not PropertyAccessControl.objects.filter(team=self.team).exists()
+
+
+class TestAccessControlManagedByTerraform(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        self.terraform_user = User.objects.create_and_join(
+            self.organization, "terraform@example.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        self.terraform_membership = OrganizationMembership.objects.get(
+            user=self.terraform_user, organization=self.organization
+        )
+        TeamAccessControlConfig.objects.create(
+            team=self.team,
+            terraform_managed_by=self.terraform_membership,
+            is_managed_by_terraform=True,
+            terraform_last_applied_at=now(),
+        )
+
+    def _put_default_rule(self):
+        return self.client.put(
+            "/api/projects/@current/access_control_default_rules",
+            {"resource": "dashboard", "access_level": "viewer"},
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            ("org_admin", OrganizationMembership.Level.ADMIN),
+            ("member", OrganizationMembership.Level.MEMBER),
+        ]
+    )
+    def test_everyone_but_the_managing_account_is_refused(self, _name, level):
+        self._org_membership(level)
+        for response in (
+            self._put_global_access_control({"resource": "feature_flag"}),
+            self._put_project_access_control(),
+            self._put_default_rule(),
+        ):
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        # A member is refused by the existing admin check first, so only the admin sees the managed message
+        if level == OrganizationMembership.Level.ADMIN:
+            assert "managed with Terraform" in self._put_default_rule().json()["detail"]
+        assert AccessControl.objects.filter(team=self.team).count() == 0
+
+    def test_the_managing_account_writes_rules_without_a_terraform_user_agent(self):
+        self.client.force_login(self.terraform_user)
+        assert self._put_global_access_control({"resource": "feature_flag"}).status_code == status.HTTP_200_OK
+        assert self._put_default_rule().status_code == status.HTTP_200_OK
+        assert AccessControl.objects.filter(team=self.team).count() == 2
+
+    def test_object_rules_are_refused_too(self):
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        response = self.client.put(
+            f"/api/projects/@current/dashboards/{dashboard.id}/access_controls", {"access_level": "viewer"}
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_a_lock_with_no_account_refuses_everyone(self):
+        TeamAccessControlConfig.objects.filter(team=self.team).update(terraform_managed_by=None)
+        assert self._put_global_access_control({"resource": "feature_flag"}).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_removing_the_terraform_account_disables_the_lock(self):
+        self.terraform_membership.delete()
+        config = TeamAccessControlConfig.objects.get(team=self.team)
+        assert config.terraform_managed_by is None and config.is_managed_by_terraform is False
+        assert self._put_global_access_control({"resource": "feature_flag"}).status_code == status.HTTP_200_OK
+
+    def test_turning_the_lock_off_hands_the_rules_back(self):
+        assert self.client.get("/api/projects/@current/access_control_defaults").json()["is_managed_by_terraform"]
+        TeamAccessControlConfig.objects.filter(team=self.team).update(is_managed_by_terraform=False)
+        assert self._put_global_access_control({"resource": "feature_flag"}).status_code == status.HTTP_200_OK
+        assert not self.client.get("/api/projects/@current/access_control_defaults").json()["is_managed_by_terraform"]
+
+    @parameterized.expand(
+        [
+            ("access_control_defaults",),
+            ("access_control_roles",),
+            ("access_control_members",),
+        ]
+    )
+    def test_payloads_turn_off_editing_for_everyone_but_the_terraform_account(self, action):
+        response = self.client.get(f"/api/projects/@current/{action}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["can_edit"] is False
+
+        self.client.force_login(self.terraform_user)
+        body = self.client.get(f"/api/projects/@current/{action}").json()
+        assert body["can_edit"] is True
+
+    def test_object_panel_turns_off_editing(self):
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        body = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/access_controls").json()
+        assert body["user_can_edit_access_levels"] is False
+
+    def test_deleting_a_role_with_rules_in_a_managed_project_is_refused(self):
+        role = Role.objects.create(name="Flag editors", organization=self.organization)
+        AccessControl.objects.create(team=self.team, resource="feature_flag", access_level="editor", role=role)
+        response = self.client.delete(f"/api/organizations/@current/roles/{role.id}")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert Role.objects.filter(id=role.id).exists()
+
+        self.client.force_login(self.terraform_user)
+        assert (
+            self.client.delete(f"/api/organizations/@current/roles/{role.id}").status_code == status.HTTP_204_NO_CONTENT
+        )
+
+    def test_deleting_a_role_without_rules_there_is_allowed(self):
+        role = Role.objects.create(name="Unused", organization=self.organization)
+        assert (
+            self.client.delete(f"/api/organizations/@current/roles/{role.id}").status_code == status.HTTP_204_NO_CONTENT
+        )
+
+
+TERRAFORM_USER_AGENT = "posthog/terraform-provider; version: 1.0.24"
+
+
+class TestAccessControlTerraformLockAPI(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        self.url = f"/api/projects/{self.team.id}/access_control_management"
+        self.terraform_user = User.objects.create_and_join(
+            self.organization, "terraform@example.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        self.terraform_key = self._api_key(self.terraform_user)
+
+    def _api_key(self, user: User) -> str:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=user, label="terraform", secure_value=hash_key_value(key_value), scopes=["*"]
+        )
+        return key_value
+
+    def _write_rule(self, headers: dict[str, str], resource: str = "feature_flag"):
+        return self.client.put(
+            f"/api/projects/{self.team.id}/resource_access_controls",
+            {"resource": resource, "access_level": "editor"},
+            format="json",
+            headers=headers,
+        )
+
+    def _terraform_write(self, key: str, resource: str = "feature_flag"):
+        return self._write_rule({"authorization": f"Bearer {key}", "user-agent": TERRAFORM_USER_AGENT}, resource)
+
+    def _managed_by_user(self) -> User | None:
+        config = (
+            TeamAccessControlConfig.objects.filter(team=self.team).select_related("terraform_managed_by__user").first()
+        )
+        return config.terraform_managed_by.user if config and config.terraform_managed_by else None
+
+    def test_a_terraform_write_marks_the_project_with_the_key_owner(self):
+        assert self.client.get(self.url).json() == {
+            "managed": False,
+            "terraform_last_applied_at": None,
+            "has_terraform_account": False,
+        }
+
+        self.client.logout()
+        assert self._terraform_write(self.terraform_key).status_code == status.HTTP_200_OK
+        assert self._managed_by_user() == self.terraform_user
+
+        self.client.force_login(self.user)
+        body = self.client.get(self.url).json()
+        assert body["managed"] is True and body["terraform_last_applied_at"] is not None
+        assert self._put_global_access_control({"resource": "dashboard"}).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_an_api_key_without_the_terraform_user_agent_does_not_mark_it(self):
+        self.client.logout()
+        response = self._write_rule({"authorization": f"Bearer {self.terraform_key}"})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._managed_by_user() is None
+
+    def test_a_session_with_the_terraform_user_agent_does_not_mark_it(self):
+        response = self._write_rule({"user-agent": TERRAFORM_USER_AGENT})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._managed_by_user() is None
+
+    def test_another_terraform_account_takes_over(self):
+        self.client.logout()
+        self._terraform_write(self.terraform_key)
+        rotated_user = User.objects.create_and_join(
+            self.organization, "terraform-rotated@example.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        response = self._terraform_write(self._api_key(rotated_user), resource="dashboard")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._managed_by_user() == rotated_user
+
+    def test_turning_it_off_hands_the_rules_back(self):
+        self.client.logout()
+        self._terraform_write(self.terraform_key)
+        self.client.force_login(self.user)
+
+        response = self.client.put(self.url, {"managed": False}, format="json")
+        assert response.json()["managed"] is False
+        assert response.json()["terraform_last_applied_at"] is not None
+        assert self._put_global_access_control({"resource": "dashboard"}).status_code == status.HTTP_200_OK
+        assert self._managed_by_user() == self.terraform_user
+
+    def test_turning_it_back_on_locks_to_the_terraform_account(self):
+        self.client.logout()
+        self._terraform_write(self.terraform_key)
+        self.client.force_login(self.user)
+        self.client.put(self.url, {"managed": False}, format="json")
+
+        response = self.client.put(self.url, {"managed": True}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["managed"] is True
+        assert self._managed_by_user() == self.terraform_user
+        assert self._put_global_access_control({"resource": "dashboard"}).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_enabling_before_the_first_terraform_write_locks_everyone_out_until_it(self):
+        response = self.client.put(self.url, {"managed": True}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["managed"] is True
+        assert response.json()["has_terraform_account"] is False
+        assert self._put_global_access_control({"resource": "dashboard"}).status_code == status.HTTP_403_FORBIDDEN
+
+        self.client.logout()
+        assert self._terraform_write(self.terraform_key).status_code == status.HTTP_200_OK
+        assert self._managed_by_user() == self.terraform_user
+
+    def test_a_terraform_write_turns_it_back_on(self):
+        self.client.logout()
+        self._terraform_write(self.terraform_key)
+        self.client.force_login(self.user)
+        self.client.put(self.url, {"managed": False}, format="json")
+
+        self.client.logout()
+        self._terraform_write(self.terraform_key, resource="dashboard")
+        self.client.force_login(self.user)
+        assert self.client.get(self.url).json()["managed"] is True
+
+    def test_a_member_can_read_but_not_turn_it_off(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        assert self.client.get(self.url).status_code == status.HTTP_200_OK
+        assert self.client.put(self.url, {"managed": False}, format="json").status_code == status.HTTP_403_FORBIDDEN

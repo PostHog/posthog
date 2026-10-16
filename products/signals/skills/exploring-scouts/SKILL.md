@@ -109,6 +109,13 @@ Read the result against three cases:
   Cross-check them: if `last_run_at` is fresh (minutes ago) but no run row has appeared for that scout in well over its `run_interval_minutes`, the fleet is **dispatching but not running** — workers backed up / down, or runs stranded — a real reliability problem, not a live scout.
   Don't report "it's running" off `last_run_at` alone.
 
+  **A pre-check skip also leaves a fresh `last_run_at` with no run row.** When a scout has a pre-check and the query finds nothing new, the scheduled run skips before it creates a run row, a sandbox, or a model call.
+  So before you call missing runs a failure, read `effective_precheck_query` and `precheck_query_source` on the config row. When the source is `off`, the pre-check does not explain the gap.
+  Otherwise run `scout-config-precheck-test` with only the config `id`: `would_run: false` means the next scheduled run skips too, so the gap is expected.
+  The dry run runs as you, but the scheduled check runs as the scout's acting user, so their results can differ when the query reads access-scoped tables.
+  A skip shows only that the query found nothing new. It does not show that the scout is healthy.
+  The pre-check recipe and its rules are in `authoring-scouts` (its scheduled pre-check reference).
+
 A scout that is `enabled: true` but `emit: false` is the most common source of "my scout isn't doing anything" confusion: it _is_ running and reasoning every tick, it just isn't allowed to post reports yet.
 Always surface the `emit` posture when reporting on a scout.
 

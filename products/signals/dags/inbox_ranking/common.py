@@ -113,7 +113,7 @@ def skip_unconfigured(context: dagster.AssetExecutionContext) -> bool:
 # boto3.client("s3") is left untyped on purpose: mypy and pyright resolve it to different stub
 # packages (mypy_boto3_s3 vs types_boto3_s3), so a concrete S3Client annotation can't satisfy both.
 def s3_client():  # noqa: ANN201
-    # The dedicated bucket is reached via ambient AWS config (the node role on prod). Without it,
+    # The dedicated bucket is reached via ambient AWS config (the `dagster` IRSA role on prod). Without it,
     # every other environment (local dev, self-hosted, CI) uses the deployment's object-storage
     # service, which needs its explicit endpoint and credentials regardless of DEBUG.
     if settings.INBOX_RANKING_DATASET_S3_BUCKET:

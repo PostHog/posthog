@@ -19,7 +19,7 @@ from posthog.redis import get_client
 from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
-from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.scout_harness.slack_charts import (
     ChartRenderBudget,
@@ -36,7 +36,11 @@ from products.signals.backend.slack_formatting import (
     split_markdown_by_headings,
     strip_chart_references,
 )
-from products.signals.backend.slack_report_threads import record_report_slack_thread
+from products.signals.backend.slack_report_threads import (
+    record_report_slack_thread,
+    record_scout_report_slack_replies,
+    scout_report_slack_message,
+)
 from products.slack_app.backend.facade.api import slack_followup_invite
 
 logger = structlog.get_logger(__name__)
@@ -64,6 +68,11 @@ _PERMANENT_SLACK_ERROR_CODES = frozenset(
 # with one of these when it cannot reach one. Neither code is permanent, so a chart Slack cannot
 # fetch would otherwise retry and then drop a report that used to post as text.
 _BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_format"})
+# chat.update answers with one of these when the earlier message is gone or can no longer change.
+# The delivery then posts a new message, as it did before the first post.
+_STALE_MESSAGE_ERROR_CODES = frozenset(
+    {"message_not_found", "cant_update_message", "edit_window_closed", "channel_not_found"}
+)
 _SCOUT_SLACK_REPLY_PACE_SECONDS = 1
 
 ScoutSlackOutputType = Literal["finding", "report"]
@@ -178,6 +187,7 @@ def _prettify_scout_name(skill_name: str) -> str:
 
 
 def _slack_integration_for_project(*, integration_id: int, project_id: int) -> Integration:
+    # nosemgrep: environment-model-scoped-by-project -- scout configs are project-level, so a Slack integration from any environment of the project is valid
     integration = Integration.objects.filter(
         id=integration_id,
         team__project_id=project_id,
@@ -528,16 +538,35 @@ def _post_scout_report_thread_replies(
     fallback: str,
     schedule_retry: ScoutSlackReplyRetryScheduler,
     chunk_offset: int = 0,
+    conversation: str | None = None,
+    reply_ts: list[str] | None = None,
+    record_reply_ts: Callable[[list[str]], None] | None = None,
 ) -> None:
     """Post the remaining summary chunks as threaded replies under an already-delivered lead.
+
+    A chunk whose reply is already in the thread (`reply_ts`) updates that reply in place, and
+    replies past the last chunk are deleted, so a re-delivered report does not repeat its thread.
+    `conversation` is the channel Slack posted into, which chat.update needs for a direct message.
 
     Best-effort per reply: the lead already carries the report link, so a failed chunk logs and the
     delivery still succeeds rather than re-posting the lead on retry."""
     if not isinstance(thread_ts, str) or not thread_ts:
         return
+    known_ts = list(reply_ts or [])
+    update_channel = conversation or channel_id
 
-    def _post_reply(index: int, blocks: list[dict]) -> None:
-        client.chat_postMessage(  # type: ignore[attr-defined]
+    def _post_reply(index: int, blocks: list[dict]) -> str:
+        existing_ts = known_ts[index] if index < len(known_ts) else ""
+        if existing_ts:
+            try:
+                client.chat_update(  # type: ignore[attr-defined]
+                    channel=update_channel, ts=existing_ts, blocks=blocks, text=fallback
+                )
+                return existing_ts
+            except SlackApiError as exc:
+                if slack_api_error_code(exc) not in _STALE_MESSAGE_ERROR_CODES:
+                    raise
+        response = client.chat_postMessage(  # type: ignore[attr-defined]
             channel=channel_id,
             thread_ts=thread_ts,
             blocks=blocks,
@@ -550,6 +579,17 @@ def _post_scout_report_thread_replies(
             unfurl_links=False,
             unfurl_media=False,
         )
+        posted_ts = response.get("ts") if hasattr(response, "get") else None
+        return posted_ts if isinstance(posted_ts, str) else ""
+
+    def _remember(index: int, ts: str) -> None:
+        if index >= len(known_ts):
+            known_ts.extend([""] * (index + 1 - len(known_ts)))
+        known_ts[index] = ts
+
+    def _record() -> None:
+        if record_reply_ts is not None:
+            record_reply_ts(known_ts)
 
     for index, blocks in enumerate(reply_blocks):
         chunk_index = chunk_offset + index
@@ -558,7 +598,7 @@ def _post_scout_report_thread_replies(
             # in this worker, but do not send it as one burst that consumes a retry per section.
             time.sleep(_SCOUT_SLACK_REPLY_PACE_SECONDS)
         try:
-            _post_reply(chunk_index, blocks)
+            _remember(chunk_index, _post_reply(chunk_index, blocks))
         except Exception as exc:
             error_code = slack_api_error_code(exc) if isinstance(exc, SlackApiError) else None
             logger.warning(
@@ -571,6 +611,7 @@ def _post_scout_report_thread_replies(
             )
             if error_code in _PERMANENT_SLACK_ERROR_CODES:
                 continue
+            _record()
             schedule_retry(
                 _slack_retry_after_seconds(exc) or 60,
                 reply_blocks[index:],
@@ -580,6 +621,22 @@ def _post_scout_report_thread_replies(
             )
             return
 
+    end = chunk_offset + len(reply_blocks)
+    _delete_scout_report_replies(client, conversation=update_channel, reply_ts=known_ts[end:])
+    del known_ts[end:]
+    _record()
+
+
+def _delete_scout_report_replies(client: object, *, conversation: str, reply_ts: list[str]) -> None:
+    """Delete threaded replies that the current report no longer has. Best-effort per reply."""
+    for ts in reply_ts:
+        if not ts:
+            continue
+        try:
+            client.chat_delete(channel=conversation, ts=ts)  # type: ignore[attr-defined]
+        except Exception:
+            logger.warning("scout_slack_report_thread_reply_delete_failed", channel=conversation, exc_info=True)
+
 
 def _post_scout_report_lead_message(
     client: WebClient,
@@ -588,14 +645,19 @@ def _post_scout_report_lead_message(
     delivery_id: str,
     blocks: list[dict],
     fallback: str,
+    update_ts: str | None = None,
 ) -> SlackResponse:
     """Post the report's channel message, and post it again without the charts if Slack refuses them.
+
+    With `update_ts`, update that message in `channel_id` instead of posting a new one.
 
     A chart Slack cannot fetch takes the whole message down, so on any deployment Slack cannot reach
     a chart-bearing report would never arrive. The prose and the report link are the message; the
     charts are the extra, and the report still draws every one of them in the inbox."""
 
     def _post(message_blocks: list[dict]) -> SlackResponse:
+        if update_ts is not None:
+            return client.chat_update(channel=channel_id, ts=update_ts, blocks=message_blocks, text=fallback)
         return client.chat_postMessage(
             channel=channel_id,
             blocks=message_blocks,
@@ -721,15 +783,48 @@ def post_scout_report_to_slack(
         *messages.lead_blocks,
         *_scout_invite_footer(integration, scout_team_id=run.team_id, channel_id=channel_id),
     ]
+    # A full delivery of a report already in this destination updates that message in place, so an
+    # edit does not post the whole report again. A note-only edit is new content and always posts.
+    existing = (
+        scout_report_slack_message(
+            team_id=report.team_id,
+            report_id=str(report.id),
+            slack_workspace_id=integration.integration_id,
+            target=channel_id,
+        )
+        if edit_note is None
+        else None
+    )
     try:
         _ensure_dm_recipient_eligible(slack, channel_id)
-        response = _post_scout_report_lead_message(
-            client,
-            channel_id=channel_id,
-            delivery_id=delivery_id,
-            blocks=lead_blocks,
-            fallback=messages.fallback,
-        )
+        response = None
+        if existing is not None:
+            try:
+                response = _post_scout_report_lead_message(
+                    client,
+                    channel_id=existing.channel,
+                    delivery_id=delivery_id,
+                    blocks=lead_blocks,
+                    fallback=messages.fallback,
+                    update_ts=existing.thread_ts,
+                )
+            except SlackApiError as exc:
+                if slack_api_error_code(exc) not in _STALE_MESSAGE_ERROR_CODES:
+                    raise
+                logger.info(
+                    "signals_scout.slack_report_update_target_gone",
+                    report_id=str(report.id),
+                    error_code=slack_api_error_code(exc),
+                )
+                existing = None
+        if response is None:
+            response = _post_scout_report_lead_message(
+                client,
+                channel_id=channel_id,
+                delivery_id=delivery_id,
+                blocks=lead_blocks,
+                fallback=messages.fallback,
+            )
     except SlackApiError as exc:
         error_code = slack_api_error_code(exc)
         if error_code in _PERMANENT_SLACK_ERROR_CODES:
@@ -739,18 +834,48 @@ def post_scout_report_to_slack(
             ) from exc
         raise
 
-    thread_ts = response.get("ts")
-    if thread_ts:
-        record_report_slack_thread(
-            slack_workspace_id=integration.integration_id,
+    logger.info(
+        "signals_scout.slack_report_delivered",
+        report_id=str(report.id),
+        delivery_id=delivery_id,
+        updated_in_place=existing is not None,
+    )
+
+    if existing is not None:
+        thread_ts: object = existing.thread_ts
+        # The conversation Slack posted into, which for a member target is the direct message it
+        # opened rather than the id we sent. An inbound mention names the conversation.
+        conversation = existing.channel
+        reply_ts = existing.reply_ts
+    else:
+        thread_ts = response.get("ts")
+        conversation = str(response.get("channel") or channel_id)
+        reply_ts = []
+        if thread_ts:
+            record_report_slack_thread(
+                slack_workspace_id=integration.integration_id,
+                team_id=report.team_id,
+                report_id=str(report.id),
+                integration_id=integration.id,
+                channel=conversation,
+                thread_ts=str(thread_ts),
+                kind=(
+                    SignalReportSlackThread.Kind.SCOUT_REPORT
+                    if edit_note is None
+                    else SignalReportSlackThread.Kind.SCOUT_REPORT_NOTE
+                ),
+                target=channel_id if edit_note is None else None,
+            )
+
+    def _record_reply_ts(posted: list[str]) -> None:
+        record_scout_report_slack_replies(
             team_id=report.team_id,
-            report_id=str(report.id),
-            integration_id=integration.id,
-            # The conversation Slack posted into, which for a member target is the direct message
-            # it opened rather than the id we sent. An inbound mention names the conversation.
-            channel=str(response.get("channel") or channel_id),
+            slack_workspace_id=integration.integration_id,
+            channel=conversation,
             thread_ts=str(thread_ts),
+            reply_ts=posted,
         )
+
     if threaded:
         _post_scout_report_thread_replies(
             client,
@@ -760,4 +885,11 @@ def post_scout_report_to_slack(
             reply_blocks=messages.reply_blocks,
             fallback=messages.fallback,
             schedule_retry=schedule_thread_reply_retry,
+            conversation=conversation,
+            reply_ts=reply_ts,
+            record_reply_ts=_record_reply_ts,
         )
+    elif reply_ts:
+        # The report was threaded before and is not now, so its lead carries the whole summary.
+        _delete_scout_report_replies(client, conversation=conversation, reply_ts=reply_ts)
+        _record_reply_ts([])

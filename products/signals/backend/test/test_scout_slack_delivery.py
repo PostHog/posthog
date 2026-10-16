@@ -17,7 +17,7 @@ from posthog.models.integration import Integration
 from posthog.redis import get_client
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
-from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_charts import CHART_BLOCK_ID_PREFIX as PREFIX
 from products.signals.backend.scout_harness.slack_delivery import (
     MAX_SCOUT_SLACK_DM_TARGETS,
@@ -229,6 +229,79 @@ class TestScoutSlackDelivery(BaseTest):
             channel=posted_channel,
             thread_ts="1785418710.000200",
         ) == str(report.id)
+
+    @parameterized.expand(
+        [
+            ("channel", "CSCOUTS|#scout-findings", "CSCOUTS", False, None, True),
+            # A member target posts into the direct message Slack opens, so the update must name it.
+            ("direct_message", "U123ABC45|@andy", "D123ABC45", False, None, True),
+            # An inbox notification in the same channel is not this scout's message.
+            ("inbox_row_in_channel", "CSCOUTS|#scout-findings", "CSCOUTS", True, None, False),
+            # The first message was deleted in Slack, so the report posts again.
+            ("message_deleted", "CSCOUTS|#scout-findings", "CSCOUTS", False, "message_not_found", False),
+        ]
+    )
+    def test_redelivered_report_updates_its_message_in_place(
+        self, _name, channel_config, posted_channel, inbox_row_only, update_error, updated_in_place
+    ) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="Checkout failures", summary="First draft."
+        )
+        integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SLACK, integration_id="T_SCOUTS"
+        )
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.side_effect = [
+            {"ts": "1785418710.000100", "channel": posted_channel},
+            {"ts": "1785418710.000200", "channel": posted_channel},
+        ]
+        if update_error:
+            fake_client.chat_update.side_effect = SlackApiError(
+                message=update_error, response=FakeSlackResponse({"error": update_error})
+            )
+
+        def deliver(delivery_id: str) -> None:
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                delivery_id,
+                integration.id,
+                channel_config,
+                thread_reports=False,
+            )
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            if inbox_row_only:
+                SignalReportSlackThread.objects.for_team(self.team.id).create(
+                    team=self.team,
+                    report=report,
+                    integration=integration,
+                    slack_workspace_id="T_SCOUTS",
+                    channel=posted_channel,
+                    thread_ts="1785418700.000100",
+                    kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
+                )
+            else:
+                deliver("01864f4c-6957-7d3f-8d85-1d775e527265")
+            report.summary = "Edited draft with a new date."
+            report.save()
+            deliver("01864f4c-6957-7d3f-8d85-1d775e527266")
+
+        posts = fake_client.chat_postMessage.call_args_list
+        if not updated_in_place:
+            assert "Edited draft with a new date." in posts[-1].kwargs["blocks"][2]["text"]
+            if inbox_row_only:
+                fake_client.chat_update.assert_not_called()
+            return
+        assert len(posts) == 1
+        update = fake_client.chat_update.call_args.kwargs
+        assert update["channel"] == posted_channel
+        assert update["ts"] == "1785418710.000100"
+        assert "Edited draft with a new date." in update["blocks"][2]["text"]
 
     def test_note_only_edit_delivers_the_note_instead_of_the_report(self) -> None:
         # Without the edit_note branch a note-only edit re-posts the full report message, which is
@@ -499,6 +572,63 @@ class TestScoutSlackDelivery(BaseTest):
         assert len(markdown_texts) == 1
         assert "second one" in markdown_texts[0]
         assert calls[0].kwargs["blocks"][-1]["type"] == "context"
+
+    @parameterized.expand(
+        [
+            ("same_sections", "Lead line.\n\n## First\nNew first.\n\n## Second\nNew second.", 2, 0),
+            ("sections_removed", "Only a lead line now.", 0, 2),
+        ]
+    )
+    def test_redelivered_threaded_report_updates_its_replies_in_place(
+        self, _name, edited_summary, expected_updated_replies, expected_deleted_replies
+    ) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Lead line.\n\n## First\nOld first.\n\n## Second\nOld second.",
+        )
+        integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SLACK, integration_id="T_SCOUTS"
+        )
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.side_effect = [
+            {"ts": "1785418710.000100", "channel": "CSCOUTS"},
+            {"ts": "1785418710.000101", "channel": "CSCOUTS"},
+            {"ts": "1785418710.000102", "channel": "CSCOUTS"},
+        ]
+
+        def deliver(delivery_id: str) -> None:
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                delivery_id,
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch("products.signals.backend.scout_harness.slack_delivery.time.sleep"),
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver("01864f4c-6957-7d3f-8d85-1d775e527265")
+            report.summary = edited_summary
+            report.save()
+            deliver("01864f4c-6957-7d3f-8d85-1d775e527266")
+
+        assert fake_client.chat_postMessage.call_count == 3
+        updated_ts = [call.kwargs["ts"] for call in fake_client.chat_update.call_args_list]
+        assert (
+            updated_ts
+            == ["1785418710.000100", "1785418710.000101", "1785418710.000102"][: 1 + expected_updated_replies]
+        )
+        deleted_ts = [call.kwargs["ts"] for call in fake_client.chat_delete.call_args_list]
+        assert deleted_ts == ["1785418710.000101", "1785418710.000102"][:expected_deleted_replies]
 
     def test_threaded_report_schedules_a_rate_limited_reply(self) -> None:
         emission = self._make_emission()

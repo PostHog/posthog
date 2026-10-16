@@ -597,14 +597,16 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
         "error": "execution stopped",
         "team": "array",
     }
-    metric_meter.assert_called_once_with(
+    clone_samples = [args.args[0] for args in metric_meter.call_args_list if args.args[0]["step"] == "repository_clone"]
+    assert clone_samples == [
         {
             "step": "repository_clone",
             "used_snapshot": "false",
             "status": "FAILED",
             "runtime": "gvisor",
+            "sandbox_backend": "modal",
         }
-    )
+    ]
     assert str(capture_exception.call_args.args[0]) == "clone output"
 
 

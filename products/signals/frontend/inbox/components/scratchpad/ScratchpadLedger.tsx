@@ -12,7 +12,7 @@ import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api
 
 import { SCRATCHPAD_PAGE_SIZE, scratchpadLogic } from '../../logics/scratchpadLogic'
 import { PIPELINE_WRITER_PREFIX, isPipelineWriter, stripScoutPrefix } from '../../utils/scoutRunsWindow'
-import { KIND_TAG_TYPE, isReportUuid, scratchpadKindOf, scratchpadTopicOf } from '../../utils/scratchpadKeys'
+import { KIND_TAG_TYPE, scratchpadKindOf, scratchpadReportIdOf } from '../../utils/scratchpadKeys'
 
 // Below 52rem the six columns stop fitting, so every row collapses into one stacked cell. Broken
 // on the container, not the viewport: the panel gets about 520 px once the nav and a side panel
@@ -140,14 +140,14 @@ function KeyCell({
     entry: ScratchpadEntryApi
     reportTitles: Record<string, string | null>
 }): JSX.Element {
-    const topic = scratchpadTopicOf(entry.key)
-    if (topic && isReportUuid(topic)) {
-        const title = reportTitles[topic]
+    const reportId = scratchpadReportIdOf(entry.key)
+    if (reportId) {
+        const title = reportTitles[reportId]
         return (
             <Tooltip title={entry.key}>
-                <Link to={urls.inboxReport('reports', topic)} subtle className="truncate text-xs">
+                <Link to={urls.inboxReport('reports', reportId)} subtle className="truncate text-xs">
                     {/* Enough of the UUID to tell two apart while the title is loading, or gone. */}
-                    Report: {title || topic.slice(0, 8)}
+                    Report: {title || reportId.slice(0, 8)}
                 </Link>
             </Tooltip>
         )

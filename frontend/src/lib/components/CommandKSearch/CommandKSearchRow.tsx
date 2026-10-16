@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 import { memo } from 'react'
 
 import { IconFilter, IconFolder, IconPerson, IconSparkles } from '@posthog/icons'
-import { Button, cn } from '@posthog/quill'
+import { Button, Skeleton, cn } from '@posthog/quill'
 
 import { getIconForItem, getItemTypeDisplayName } from 'lib/components/Search/searchItemDisplay'
 import { formatRelativeTimeShort } from 'lib/components/Search/utils'
@@ -125,6 +125,8 @@ const rowContent = (row: CommandKRow): unknown => {
             return row.question
         case 'message':
             return row.text
+        case 'skeleton':
+            return null
     }
 }
 
@@ -138,6 +140,14 @@ export const CommandKSearchRow = memo(
 
 function CommandKSearchRowInner({ row, highlighted }: CommandKSearchRowProps): JSX.Element {
     const { activateRow, setHighlightedKey } = useActions(commandKSearchLogic)
+
+    if (row.kind === 'skeleton') {
+        return (
+            <div className="flex h-8 items-center px-1" role="presentation">
+                <Skeleton className="h-5 w-full" />
+            </div>
+        )
+    }
 
     if (row.kind === 'message') {
         return (

@@ -282,10 +282,6 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             total_exposures=total_exposures,
         )
 
-    def _hours_since_launch(self) -> float | None:
-        start_date = self.experiment.start_date
-        return (datetime.now(UTC) - start_date).total_seconds() / 3600 if start_date else None
-
     def _evaluate_health(self, exposures: ExposureTotals) -> list[ExperimentExposureHealthFinding]:
         findings = evaluate_health(load_health_context(self.experiment, exposures), EXPOSURE_HEALTH_CHECKS)
         return [
@@ -376,7 +372,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 total_exposures=total_exposures,
                 multiple_variant_handling=multiple_variant_handling,
                 sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
-                hours_since_launch=self._hours_since_launch(),
+                hours_since_launch=self.experiment.hours_since_launch,
             )
         )
 

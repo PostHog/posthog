@@ -3,8 +3,7 @@ import json
 import hashlib
 from typing import Any
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.webhook_template import template
 
 

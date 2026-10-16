@@ -4,6 +4,10 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import ANTHROPIC_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.anthropic import (
+    AnthropicSourceConfig,
+)
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source"
 _CHECK_ANALYTICS_ACCESS = f"{_SOURCE_MODULE}.check_analytics_access"
@@ -67,15 +71,6 @@ class TestAnthropicSchemas:
 
 
 class TestAnthropicSourceForPipeline:
-    def _response(self, endpoint: str) -> object:
-        inputs = MagicMock()
-        inputs.schema_name = endpoint
-        inputs.logger = MagicMock()
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = None
-        config = MagicMock(api_key="sk-ant-admin-test")
-        return AnthropicSource().source_for_pipeline(config, MagicMock(), inputs)
-
     @parameterized.expand(
         [
             ("usage_report", ["id"], "datetime"),
@@ -100,13 +95,15 @@ class TestAnthropicSourceForPipeline:
     def test_primary_keys_and_partitioning(
         self, endpoint: str, primary_keys: list[str], partition_mode: str | None
     ) -> None:
-        response = self._response(endpoint)
-        assert response.name == endpoint  # type: ignore[attr-defined]
-        assert response.primary_keys == primary_keys  # type: ignore[attr-defined]
-        assert response.sort_mode == "asc"  # type: ignore[attr-defined]
+        result = SourceDriver(AnthropicSource(), AnthropicSourceConfig(api_key="sk-ant-admin-test")).run(endpoint, [])
+        response = result.response
+        assert response is not None
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.sort_mode == "asc"
         # workspace_members and rbac_role_permissions carry no stable timestamp field, so they are
         # not partitioned.
-        assert response.partition_mode == partition_mode  # type: ignore[attr-defined]
+        assert response.partition_mode == partition_mode
 
 
 class TestAnalyticsEndpointPermissions:

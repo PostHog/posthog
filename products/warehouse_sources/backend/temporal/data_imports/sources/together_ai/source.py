@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TogetherAISource(SimpleSource[TogetherAISourceConfig]):
+    codebase_detection = detect(
+        env=("^TOGETHER_",),
+        npm=("together-ai",),
+        pypi=("together",),
+        go=("github.com/togethercomputer/together-go", "github.com/togethercomputer/together-kubelogin"),
+    )
+
     api_docs_url = "https://docs.together.ai/reference"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

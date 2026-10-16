@@ -157,6 +157,13 @@ from products.replay_vision.backend.scanner_config import (
     analytics_source_kwargs,
     scanner_config_error,
 )
+from products.replay_vision.backend.scanner_dashboard import (
+    DASHBOARD_SUGGESTION_MIN_OBSERVATIONS,
+    DashboardNotViewable,
+    create_scanner_dashboard,
+    live_dashboard_ids,
+    scanners_ready_for_dashboard,
+)
 from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal, draft_scanner_from_goal_v2
 from products.replay_vision.backend.scanning import (
     MAX_SESSIONS_PER_SCAN,
@@ -183,7 +190,7 @@ _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
 # The goal-based creation flow's flag. Multivariate so it can graduate to an experiment without a
 # rename; server-side so a client/rollout skew cannot half-apply the new flow.
-GOAL_FLOW_FLAG = "vision-goal-flow-v2"
+GOAL_FLOW_FLAG = "vision-goal-flow-v3"
 
 
 class ScannerCreationMethod(models.TextChoices):
@@ -337,6 +344,9 @@ def scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         # True when the prompt is a stock template's word for word, so a creation-flow experiment can
         # tell a scanner tailored to the team from a template saved with its defaults.
         "uses_template_prompt": template_question(scanner.scanner_config) is not None,
+        # Spend choices, so the goal-flow experiment can count free-only scanners and capped ones.
+        "free_only": scanner.free_only,
+        "has_credit_limit": scanner.credit_limit is not None,
         "estimated_monthly_observations": estimate,
         "estimated_monthly_credits": (
             estimate * observation_credits_for_model(scanner.model) if estimate is not None else None
@@ -590,14 +600,23 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "Credits counted against `credit_limit` for the current billing period: settled receipts plus "
             "in-flight observations, priced from their frozen snapshot model. This "
             "is what the limit gate measures, so it includes work still in progress. It is not the same as "
-            "`credits_this_month`, which counts only succeeded observations."
+            "`credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the "
+            "organization's free credits, this is the organization's usage, not the scanner's own."
+        ),
+    )
+    limit_from_free_credits = serializers.SerializerMethodField(
+        help_text=(
+            "True when the organization's free credits bind this `free_only` scanner rather than its own "
+            "`credit_limit`. `credits_used_against_limit` is then the organization's usage, measured against "
+            "its free credits."
         ),
     )
     limit_reached = serializers.SerializerMethodField(
         help_text=(
-            "Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is "
-            "set and the budget left cannot cover one more observation, which is the same test the scanner's "
-            "enforcement gates apply. Always false when no limit is set."
+            "Whether this scanner has stopped because of its own credit limit, or, for a `free_only` scanner, "
+            "because the organization has used its free credits. True when the budget left cannot cover one "
+            "more observation, which is the same test the scanner's enforcement gates apply. Always false when "
+            "no limit is set and `free_only` is false."
         ),
     )
     sweep_throttle_factor = serializers.SerializerMethodField(
@@ -605,6 +624,19 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read "
             "budget. 1 means it checks for new recordings on the normal schedule; N means it checks once "
             "every N schedule intervals. Expensive filters raise it."
+        ),
+    )
+    dashboard_id = serializers.SerializerMethodField(
+        help_text=(
+            "Dashboard created for this scanner with the create_dashboard action. Null when none was created "
+            "or the user deleted it."
+        ),
+    )
+    dashboard_suggested = serializers.SerializerMethodField(
+        help_text=(
+            f"Whether to offer the user a dashboard for this scanner: true when the scanner has no dashboard and at "
+            f"least {DASHBOARD_SUGGESTION_MIN_OBSERVATIONS} succeeded observations to chart. Offer it once and do not "
+            "repeat the offer if the user declines."
         ),
     )
     last_swept_at = serializers.DateTimeField(
@@ -633,6 +665,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "sampling_rate",
             "sampling_mode",
             "credit_limit",
+            "free_only",
             "provider",
             "model",
             "enabled",
@@ -646,8 +679,11 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "credits_this_month",
             "observations_this_month",
             "credits_used_against_limit",
+            "limit_from_free_credits",
             "limit_reached",
             "sweep_throttle_factor",
+            "dashboard_id",
+            "dashboard_suggested",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -665,8 +701,11 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "credits_this_month",
             "observations_this_month",
             "credits_used_against_limit",
+            "limit_from_free_credits",
             "limit_reached",
             "sweep_throttle_factor",
+            "dashboard_id",
+            "dashboard_suggested",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -733,6 +772,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     def get_credits_used_against_limit(self, scanner: ReplayScanner) -> int:
         return self._scanner_budget(scanner).credits_used
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_limit_from_free_credits(self, scanner: ReplayScanner) -> bool:
+        return self._scanner_budget(scanner).free_credits_bound
+
     @extend_schema_field(serializers.IntegerField())
     def get_sweep_throttle_factor(self, scanner: ReplayScanner) -> int:
         return current_sweep_throttle_factor(
@@ -741,6 +784,28 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             scanner.sweep_throttle_factor_override,
             datetime.now(UTC),
         )
+
+    def _page_dashboard_state(self, scanner: ReplayScanner) -> tuple[dict[UUID, int], set[UUID]]:
+        # Shared across the list's children, so a page costs two queries rather than two per scanner.
+        state = self.context.get("_scanner_dashboard_state")
+        if state is None:
+            root = self.root
+            page = root.instance if isinstance(root, serializers.ListSerializer) else None
+            scanners = list(page) if page is not None else [scanner]
+            live = live_dashboard_ids(scanner.team_id, scanners)
+            ready = scanners_ready_for_dashboard(scanner.team_id, [s.id for s in scanners if s.id not in live])
+            state = (live, ready)
+            self.context["_scanner_dashboard_state"] = state
+        return state
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_dashboard_id(self, scanner: ReplayScanner) -> int | None:
+        return self._page_dashboard_state(scanner)[0].get(scanner.id)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_dashboard_suggested(self, scanner: ReplayScanner) -> bool:
+        # Readiness is only computed for scanners without a live dashboard.
+        return scanner.id in self._page_dashboard_state(scanner)[1]
 
     @extend_schema_field(serializers.BooleanField())
     def get_limit_reached(self, scanner: ReplayScanner) -> bool:
@@ -1051,7 +1116,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # The UI PATCHes the whole form on save, so edits are detected by comparing values, not keys.
         before = {field: getattr(instance, field) for field in validated_data}
         was_enabled = instance.enabled
-        limit_changed = "credit_limit" in validated_data and validated_data["credit_limit"] != instance.credit_limit
+        limit_changed = any(
+            field in validated_data and validated_data[field] != getattr(instance, field)
+            for field in ("credit_limit", "free_only")
+        )
         # After `before`, so the question is not reported as an edit. A model call, so before the transaction.
         if "scanner_config" in validated_data:
             validated_data.update(
@@ -1316,6 +1384,16 @@ class BulkObserveRequestSerializer(serializers.Serializer):
     )
 
 
+class ScanOutcome(models.TextChoices):
+    STARTED = "started", "Started"
+    ALREADY_RUNNING = "already_running", "Already running"
+    ALREADY_SCANNED = "already_scanned", "Already scanned"
+    SKIPPED_LIMIT = "skipped_limit", "Skipped, in-flight limit reached"
+    SKIPPED_QUOTA = "skipped_quota", "Skipped, the org's credit quota for this period was reached"
+    SKIPPED_SCANNER_LIMIT = "skipped_scanner_limit", "Skipped, scanner's own credit limit reached"
+    FAILED = "failed", "Failed to start"
+
+
 class BulkObserveResultSerializer(serializers.Serializer):
     """Per-session outcome of a bulk scan trigger."""
 
@@ -1323,15 +1401,7 @@ class BulkObserveResultSerializer(serializers.Serializer):
     # Named scan_outcome (not outcome) so its generated enum doesn't collide with other products'
     # `outcome` enums — a bare `outcome` ChoiceField forces the shared OutcomeEnum to be renamed.
     scan_outcome = serializers.ChoiceField(
-        choices=[
-            ("started", "Started"),
-            ("already_running", "Already running"),
-            ("already_scanned", "Already scanned"),
-            ("skipped_limit", "Skipped, in-flight limit reached"),
-            ("skipped_quota", "Skipped, the org's credit quota for this period was reached"),
-            ("skipped_scanner_limit", "Skipped, scanner's own credit limit reached"),
-            ("failed", "Failed to start"),
-        ],
+        choices=ScanOutcome.choices,
         help_text=(
             "'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is "
             "already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a "
@@ -1634,6 +1704,10 @@ class WatchFeedQuerySerializer(serializers.Serializer):
             "follow one area without naming every scanner in it."
         ),
     )
+    created_by = serializers.CharField(
+        required=False,
+        help_text="Comma-separated user IDs. Restrict the feed to observations from scanners those users created.",
+    )
     search = serializers.CharField(
         required=False,
         help_text=(
@@ -1665,6 +1739,14 @@ class WatchFeedQuerySerializer(serializers.Serializer):
             return [UUID(raw_id) for raw_id in raw_ids]
         except ValueError:
             raise serializers.ValidationError("Scanner ids must be UUIDs.")
+
+    def validate_created_by(self, value: str) -> list[int]:
+        raw_ids = split_csv(value)
+        if not raw_ids:
+            raise serializers.ValidationError("At least one user id is required when the filter is set.")
+        if any(not raw_id.isdecimal() for raw_id in raw_ids):
+            raise serializers.ValidationError("User ids must be integers.")
+        return [int(raw_id) for raw_id in raw_ids]
 
 
 class WatchFeedSignalSerializer(serializers.Serializer):
@@ -1854,6 +1936,13 @@ class EstimateResponseSerializer(serializers.Serializer):
             "Committed-but-unspent credits of the org's active backfills, the same figure the quota snapshot's "
             "projection carries. A one-off charge rather than a monthly rate, so the forecast shows it as its own "
             "segment instead of adding it to a per-month total."
+        ),
+    )
+    free_only_monthly_credits_left = serializers.IntegerField(
+        help_text=(
+            "The monthly credit rate the organization's free credits still cover for one more free-only scanner, "
+            "after the other free-only scanners and backfills. The forecast caps a free-only scanner at this rate, "
+            "because free-only scanners share one pool."
         ),
     )
     sampling_rate = serializers.FloatField(
@@ -2134,6 +2223,14 @@ class SelfDrivingPullRequestSerializer(serializers.Serializer):
     merged = serializers.BooleanField(help_text="Whether the pull request has merged.")
 
 
+class ScannerDashboardResponseSerializer(serializers.Serializer):
+    dashboard_id = serializers.IntegerField(help_text="Id of the scanner's dashboard.")
+    name = serializers.CharField(help_text="Name of the dashboard.")
+    created = serializers.BooleanField(
+        help_text="True when this call created the dashboard. False when the scanner already had one, which is returned instead."
+    )
+
+
 class ScannerSelfDrivingStatsSerializer(serializers.Serializer):
     """Response of GET /vision/scanners/:id/self_driving_stats/."""
 
@@ -2352,6 +2449,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     sampling_rate=source.sampling_rate,
                     sampling_mode=source.sampling_mode,
                     credit_limit=source.credit_limit,
+                    free_only=source.free_only,
                     provider=source.provider,
                     model=source.model,
                     emits_signals=source.emits_signals,
@@ -2459,6 +2557,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 .values_list("id", flat=True)
             )
             allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in tagged_ids]
+        if params.get("created_by"):
+            created_ids = set(
+                ReplayScanner.objects.filter(
+                    team_id=self.team_id, id__in=allowed_ids, created_by_id__in=params["created_by"]
+                ).values_list("id", flat=True)
+            )
+            allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in created_ids]
         candidates = ReplayObservation.objects.filter(
             team_id=self.team_id,
             scanner_id__in=allowed_ids,
@@ -2595,13 +2700,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
 
         try:
-            check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
+            org_state = check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
         except QuotaLimitExceeded:
             self._report_quota_exhausted(scanner, "on_demand")
             raise
         # Deliberately outside the analytics wrapper above: that event means "the org ran out of
         # credits", and firing it for a self-imposed per-scanner cap would corrupt that metric.
-        check_scanner_quota(scanner)
+        check_scanner_quota(scanner, org_state)
         check_team_in_flight_capacity(self.team.id)
 
         body = ObserveRequestSerializer(data=request.data)
@@ -2970,6 +3075,59 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         )
 
     @extend_schema(
+        request=None,
+        responses={
+            201: ScannerDashboardResponseSerializer,
+            200: OpenApiResponse(
+                response=ScannerDashboardResponseSerializer, description="The scanner already had a dashboard."
+            ),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="create_dashboard",
+        required_scopes=["replay_scanner:read", "session_recording:read", "dashboard:write", "insight:write"],
+    )
+    def create_dashboard(self, request: Request, **kwargs: Any) -> Response:
+        """Create a dashboard that charts this scanner's observations, and link it to the scanner.
+
+        The tiles depend on the scanner type: who the scanner matched, which accounts they belong to,
+        type-specific breakdowns, and the latest matching recordings. Calling it again returns the
+        existing dashboard rather than a second one."""
+        # The tiles show scanner reasoning and link recordings, which is the same exposure as the observations endpoint.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Creating a scanner dashboard requires session_recording read access.")
+        # `dashboard:write` in required_scopes only constrains API keys; session RBAC evaluates against this
+        # viewset's replay_scanner scope object, so the caller's dashboard access must be checked explicitly.
+        if not self.user_access_control.check_access_level_for_resource("dashboard", required_level="editor"):
+            raise PermissionDenied("Creating a scanner dashboard requires dashboard edit access.")
+        scanner = self.get_object()
+        user = cast(User, request.user)
+        try:
+            dashboard, created = create_scanner_dashboard(scanner, user)
+        except DashboardNotViewable:
+            raise PermissionDenied("This scanner already has a dashboard that you don't have access to.")
+        if created:
+            report_user_action(
+                user,
+                "replay_vision_scanner_dashboard_created",
+                {
+                    "scanner_id": str(scanner.id),
+                    "scanner_type": scanner.scanner_type,
+                    "dashboard_id": dashboard.id,
+                },
+                team=self.team,
+                request=request,
+            )
+        return Response(
+            ScannerDashboardResponseSerializer(
+                {"dashboard_id": dashboard.id, "name": dashboard.name, "created": created}
+            ).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @extend_schema(
         request=EstimateRequestSerializer,
         responses={200: EstimateResponseSerializer},
     )
@@ -3029,7 +3187,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
         # One projection read, excluding the scanner being edited, so the editor adds this estimate on top of a
         # consistent snapshot instead of subtracting a possibly-stale per-scanner field.
-        projection = spend_projection(self.team.organization_id, exclude_scanner_id=scanner_id)
+        projection = spend_projection(
+            self.team.organization_id, exclude_scanner_id=scanner_id, include_free_headroom=True
+        )
 
         return Response(
             EstimateResponseSerializer(
@@ -3041,6 +3201,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "estimated_credits_per_month": observations_per_month * credits_per_observation,
                     "other_enabled_scanners_monthly_credits": projection.scanners_monthly_credits,
                     "active_backfill_credits": projection.backfills_committed_credits,
+                    "free_only_monthly_credits_left": projection.free_only_monthly_credits_left or 0,
                     "sampling_rate": sampling_rate,
                 }
             ).data

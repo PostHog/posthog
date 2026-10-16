@@ -55,7 +55,6 @@ async def _run_activity(
     data_interval_end,
     table_name: str,
     batch_export_model: BatchExportModel | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
     exclude_events=None,
     sort_key: str = "event",
     expected_fields=None,
@@ -75,7 +74,6 @@ async def _run_activity(
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         batch_export_id=batch_export_id or str(uuid.uuid4()),
         **snowflake_activity_inputs,
@@ -95,7 +93,6 @@ async def _run_activity(
             run_id=None,
             backfill_details=None,
             batch_export_model=insert_inputs.batch_export_model,
-            batch_export_schema=insert_inputs.batch_export_schema,
             destination_default_fields=snowflake_default_fields(),
         ),
     )
@@ -112,7 +109,7 @@ async def _run_activity(
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             exclude_events=exclude_events,
-            batch_export_model=batch_export_model or batch_export_schema,
+            batch_export_model=batch_export_model,
             sort_key=sort_key,
             expected_fields=expected_fields,
             expect_duplicates=expect_duplicates,
@@ -156,12 +153,11 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
     if isinstance(model, BatchExportModel) and model.name != "events" and exclude_events is not None:
         pytest.skip("Unnecessary test case as batch export model is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     table_name = f"test_insert_activity_table_{ateam.pk}"
 
@@ -184,7 +180,6 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
         data_interval_end=data_interval_end,
         table_name=table_name,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
         exclude_events=exclude_events,
         sort_key=sort_key,
         min_ingested_timestamp=min_ingested_timestamp,
@@ -496,7 +491,6 @@ async def test_insert_into_snowflake_activity_heartbeats(
                 run_id=None,
                 backfill_details=None,
                 batch_export_model=insert_inputs.batch_export_model,
-                batch_export_schema=insert_inputs.batch_export_schema,
                 destination_default_fields=snowflake_default_fields(),
             ),
         )

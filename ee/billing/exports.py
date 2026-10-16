@@ -54,9 +54,16 @@ _EXPORT_STREAMS = RateLimit(
 )
 
 
+def _export_stream_owner(user: Any) -> str | int:
+    """Whose slots an export takes. A project secret key authenticates as a synthetic user that
+    every key shares, so its exports count against the key, not that user."""
+    key = getattr(user, "project_secret_api_key", None)
+    return f"project_secret_api_key_{key.id}" if key is not None else user.pk
+
+
 def _take_export_stream_slot(user: Any) -> Optional[ConcurrencySlot]:
     try:
-        return _EXPORT_STREAMS.use(user.pk)
+        return _EXPORT_STREAMS.use(_export_stream_owner(user))
     except ConcurrencyLimitExceeded:
         raise Throttled(
             detail=(

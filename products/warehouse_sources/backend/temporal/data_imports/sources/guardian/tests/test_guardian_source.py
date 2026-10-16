@@ -1,5 +1,9 @@
-from unittest.mock import patch
+import pytest
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.guardian import (
     GuardianSourceConfig,
 )
@@ -7,22 +11,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.s
 
 
 class TestGuardianSource:
-    def setup_method(self):
-        self.source = GuardianSource()
-        self.config = GuardianSourceConfig(api_key="test-key")
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [(200, (True, None)), (401, (False, "Invalid Guardian API key"))],
+    )
+    def test_validate_credentials(self, status: int, expected: tuple[bool, str | None]) -> None:
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            result = GuardianSource().validate_credentials(GuardianSourceConfig(api_key="test-key"), team_id=1)
 
-    def test_validate_credentials_success(self):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.guardian.source.validate_guardian_credentials",
-            return_value=True,
-        ):
-            assert self.source.validate_credentials(self.config, team_id=1) == (True, None)
-
-    def test_validate_credentials_failure(self):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.guardian.source.validate_guardian_credentials",
-            return_value=False,
-        ):
-            ok, error = self.source.validate_credentials(self.config, team_id=1)
-            assert ok is False
-            assert error == "Invalid Guardian API key"
+        assert result == expected
+        assert [request.path for request in network.requests_log] == ["/sections"]

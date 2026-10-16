@@ -1,11 +1,13 @@
-import json
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.digitalocean import (
     digitalocean_source,
     get_resource,
@@ -14,14 +16,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.digitaloce
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.settings import (
     DIGITALOCEAN_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source import DigitalOceanSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.digitalocean import (
+    DigitalOceanSourceConfig,
+)
 
 
-def _make_response(json_body: dict[str, Any] | None = None, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp.headers["Content-Type"] = "application/json"
-    resp._content = json.dumps(json_body or {}).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(DigitalOceanSource(), DigitalOceanSourceConfig(api_key="dop_v1_token"))
 
 
 def _endpoint(resource: Any) -> dict[str, Any]:
@@ -86,22 +88,23 @@ class TestDigitalOceanSensitiveFields:
             pytest.param("droplets", False, id="nothing_to_withhold"),
         ],
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.digitalocean.make_tracked_session"
-    )
     def test_capture_is_disabled_only_where_the_response_must_not_be_sampled(
-        self, mock_session: MagicMock, endpoint: str, capture_disabled: bool
+        self, endpoint: str, capture_disabled: bool
     ) -> None:
         # Sample capture records the raw response before resource maps run, so stripping a field
         # from storage does not keep it out of a sample. An endpoint holding secrets or billing
-        # identity must build its own capture-off session; every other endpoint must not, leaving
-        # the tracked client's default (capture on) in place.
-        digitalocean_source("dop_v1_token", endpoint, team_id=1, job_id="job-1")
+        # identity must build its own capture-off session; every other endpoint uses the
+        # tracked client's default (capture on).
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json={"databases": [], "droplets": [], "invoices": []})],
+        )
 
+        assert result.raised is None
         if capture_disabled:
-            mock_session.assert_called_once_with(redact_values=("dop_v1_token",), capture=False)
+            assert result.session_options == [{"redact_values": ("dop_v1_token",), "capture": False}]
         else:
-            mock_session.assert_not_called()
+            assert result.session_options == [{"redact_values": ("dop_v1_token",)}]
 
 
 class TestDigitalOceanValidateCredentials:
@@ -114,20 +117,20 @@ class TestDigitalOceanValidateCredentials:
             pytest.param(500, False, id="server_error"),
         ],
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.digitalocean.make_tracked_session"
-    )
-    def test_maps_status_to_validity(self, mock_session: MagicMock, status_code: int, expected: bool) -> None:
+    def test_maps_status_to_validity(self, status_code: int, expected: bool) -> None:
         # The status code is returned alongside validity so the caller can tell an auth rejection
         # (401/403) apart from a transient failure (429/5xx) it must not report as an invalid token.
-        mock_session.return_value.get.return_value = _make_response(status_code=status_code)
-        assert validate_credentials("dop_v1_token") == (expected, status_code)
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            assert validate_credentials("dop_v1_token") == (expected, status_code)
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.digitalocean.make_tracked_session"
-    )
-    def test_transport_error_reports_no_status(self, mock_session: MagicMock) -> None:
+        assert {request.path for request in network.requests_log} == {"/v2/account"}
+        assert network.requests_log[0].headers["authorization"] == "Bearer dop_v1_token"
+        assert network.session_options == [{"redact_values": ("dop_v1_token",)}]
+
+    def test_transport_error_reports_no_status(self) -> None:
         # A network failure must not surface as "token invalid"; it yields (False, None) so the
         # caller can distinguish it from a real auth rejection.
-        mock_session.return_value.get.side_effect = ConnectionError("boom")
-        assert validate_credentials("dop_v1_token") == (False, None)
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            assert validate_credentials("dop_v1_token") == (False, None)
+
+        assert {request.path for request in network.requests_log} == {"/v2/account"}

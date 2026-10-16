@@ -16,13 +16,13 @@ from django.utils import timezone as django_timezone
 
 import structlog
 
-from posthog.cdp.workflow_step_resume import RESULT_STRING_CAP
 from posthog.dataclasses import frozen
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.mcp_store.backend.facade.api import resolve_agent_gateway_server_ids
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates, slack_channel_is_approved
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -53,7 +53,7 @@ ACTIVE_RUN_STATUSES = [TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRu
 EVENT_PROMPT_MAX_CHARS = 16_000
 
 # Matches the in-progress marker the task's own Slack updates use, so the later swap to
-# `hedgehog` (or `x`) replaces this rather than stacking a second reaction beside it.
+# `x` replaces this rather than stacking a second reaction beside it.
 TRIGGER_ACK_EMOJI = "eyes"
 
 # Daily ceilings on created tasks (trailing 24h) on top of the in-flight cap: a workflow

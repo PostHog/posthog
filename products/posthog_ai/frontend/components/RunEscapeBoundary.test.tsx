@@ -131,11 +131,17 @@ describe('RunEscapeBoundary', () => {
         }
     )
 
-    it.each(['chat', 'composer'] as const)(
-        'scopes plan Escape and lets feedback editing finish first in %s',
-        (scope) => {
+    it.each([
+        ['chat', 'body'],
+        ['chat', 'hidden composer'],
+        ['composer', 'body'],
+        ['composer', 'hidden composer'],
+    ] as const)(
+        'hands plan Escape to the %s boundary from %s focus and lets feedback editing finish first',
+        (scope, focus) => {
             const onEscape = jest.fn()
             const legacyCancel = jest.fn()
+            const textAreaRef = createRef<HTMLTextAreaElement>()
             const options = mapPermissionOptions(
                 [
                     { optionId: 'auto', name: 'Allow', kind: 'allow_once' },
@@ -143,30 +149,41 @@ describe('RunEscapeBoundary', () => {
                 ],
                 true
             )
-            render(
-                <RunEscapeBoundary scope={scope} onEscape={onEscape}>
-                    <div data-attr="run-approval">
-                        <PlanApprovalSelector
-                            approveOptions={[options[0]]}
-                            rejectOption={options[1]}
-                            responding={false}
-                            onApprove={jest.fn()}
-                            onReject={jest.fn()}
-                            onCancel={legacyCancel}
-                        />
-                    </div>
+            const surface = (showApproval: boolean): JSX.Element => (
+                <RunEscapeBoundary scope={scope} textAreaRef={textAreaRef} onEscape={onEscape}>
+                    {showApproval && (
+                        <div data-attr="run-approval">
+                            <PlanApprovalSelector
+                                approveOptions={[options[0]]}
+                                rejectOption={options[1]}
+                                responding={false}
+                                onApprove={jest.fn()}
+                                onReject={jest.fn()}
+                                onCancel={legacyCancel}
+                            />
+                        </div>
+                    )}
+                    <form hidden={showApproval}>
+                        <textarea ref={textAreaRef} data-attr="composer" />
+                    </form>
                 </RunEscapeBoundary>
             )
-            fireEvent.keyDown(document.body, { key: 'Escape' })
-            expect(onEscape).toHaveBeenCalledTimes(scope === 'chat' ? 1 : 0)
-            fireEvent.keyDown(document.body, { key: '2' })
+            const { rerender } = render(surface(false))
+            if (focus === 'hidden composer') {
+                screen.getByTestId('composer').focus()
+            }
+            rerender(surface(true))
+            const approval = screen.getByTestId('run-approval')
+            expect(approval).toContainElement(document.activeElement as HTMLElement)
+            fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+            expect(onEscape).toHaveBeenCalledTimes(1)
+            fireEvent.keyDown(document.activeElement!, { key: '2' })
             const input = screen.getByPlaceholderText(/tell the agent what to do differently/i)
             fireEvent.keyDown(input, { key: 'Escape' })
-            expect(onEscape).toHaveBeenCalledTimes(scope === 'chat' ? 1 : 0)
-            expect(legacyCancel).not.toHaveBeenCalled()
-            expect(screen.getByTestId('run-approval')).toContainElement(document.activeElement as HTMLElement)
+            expect(onEscape).toHaveBeenCalledTimes(1)
+            expect(approval).toContainElement(document.activeElement as HTMLElement)
             fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
-            expect(onEscape).toHaveBeenCalledTimes(scope === 'chat' ? 2 : 1)
+            expect(onEscape).toHaveBeenCalledTimes(2)
             expect(legacyCancel).not.toHaveBeenCalled()
         }
     )

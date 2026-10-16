@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -23,8 +24,11 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_request import ReplayObservationRequest
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.observation_requests import (
+    _SWEEP_CURSOR_KEY,
     MAX_SESSION_END_WAIT,
+    _complete_page,
     complete_settled_requests,
+    recording_viewer_access,
     request_progress,
     start_waiting_requests,
 )
@@ -189,7 +193,10 @@ class TestObservationRequestAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 202, response.json())
-        self.assertEqual((response.json()["status"], response.json()["sessions"][0]["state"]), ("running", "pending"))
+        session = response.json()["sessions"][0]
+        self.assertEqual(
+            (response.json()["status"], session["state"], session["scan_outcome"]), ("running", "pending", None)
+        )
         self.start_workflow.assert_not_called()
 
     def test_inline_question_mints_a_hidden_scanner_and_reports_its_id(self) -> None:
@@ -316,15 +323,60 @@ class TestCompleteSettledRequests(APIBaseTest):
             model=ScannerModel.GEMINI_3_8_FLASH,
         )
 
-    def _request(self, outcomes: dict[str, str]) -> ReplayObservationRequest:
+    def _request(self, outcomes: dict[str, str], **fields: Any) -> ReplayObservationRequest:
         return ReplayObservationRequest.objects.for_team(self.team.id).create(
             team=self.team,
             scanner=self.scanner,
             session_ids=list(outcomes),
             start_outcomes=[{"session_id": sid, "scan_outcome": outcome} for sid, outcome in outcomes.items()],
-            reference="job-7",
-            source="project_secret_api_key",
+            **{"reference": "job-7", "source": "project_secret_api_key", **fields},
         )
+
+    @patch("products.replay_vision.backend.observation_requests.emit_workflow_step_resume")
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_one_owners_access_is_loaded_once_per_page(self, _produce: MagicMock, resume: MagicMock) -> None:
+        for key in ("run:step:1", "run:step:2", "run:step:3"):
+            self._request({"s1": "skipped_quota"}, source="workflow", idempotency_key=key, created_by=self.user)
+
+        with patch(
+            "products.replay_vision.backend.observation_requests.recording_viewer_access",
+            wraps=recording_viewer_access,
+        ) as load_access:
+            complete_settled_requests()
+
+        assert (resume.call_count, load_access.call_count) == (3, 1)
+
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_the_sweep_still_completes_requests_when_the_cache_is_down(self, _produce: MagicMock) -> None:
+        request = self._request({"s1": "skipped_quota"})
+
+        with (
+            patch("products.replay_vision.backend.observation_requests.cache.get", side_effect=ConnectionError),
+            patch("products.replay_vision.backend.observation_requests.cache.delete", side_effect=ConnectionError),
+            patch("products.replay_vision.backend.observation_requests.cache.set", side_effect=ConnectionError),
+        ):
+            complete_settled_requests()
+
+        request.refresh_from_db()
+        assert request.completed_at is not None
+
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_a_tick_resumes_where_the_last_one_ran_out_of_time_and_wraps_around(self, _produce: MagicMock) -> None:
+        first = self._request({"s1": "skipped_quota"})
+        second = self._request({"s2": "skipped_quota"})
+        cache.set(_SWEEP_CURSOR_KEY, (first.created_at.isoformat(), str(first.id)))
+
+        with patch(
+            "products.replay_vision.backend.observation_requests._complete_page", wraps=_complete_page
+        ) as complete_page:
+            complete_settled_requests()
+
+        assert [page[0].id for page, *_ in (call.args for call in complete_page.call_args_list)] == [
+            second.id,
+            first.id,
+        ]
+        assert ReplayObservationRequest.objects.for_team(self.team.id).filter(completed_at__isnull=True).count() == 0
+        assert cache.get(_SWEEP_CURSOR_KEY) is None
 
     @parameterized.expand(
         [
@@ -376,6 +428,55 @@ class TestCompleteSettledRequests(APIBaseTest):
         first.refresh_from_db()
         second.refresh_from_db()
         self.assertEqual((first.completed_at is None, second.completed_at is not None), (True, True))
+
+    @parameterized.expand(
+        [
+            ("workflow_woken", "workflow", None, True, 1, True, "skipped"),
+            ("workflow_owner_lost_access", "workflow", None, False, 1, True, "failed"),
+            ("workflow_owner_lost_scanner_access", "workflow", None, True, 1, True, "failed"),
+            ("workflow_wake_failed", "workflow", RuntimeError("engine down"), True, 1, False, None),
+            ("api", "project_secret_api_key", None, True, 0, True, None),
+        ]
+    )
+    @patch("products.replay_vision.backend.observation_requests.emit_workflow_step_resume")
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_wakes_only_the_workflow_step_that_started_it(
+        self,
+        _name: str,
+        source: str,
+        wake_error: Exception | None,
+        owner_active: bool,
+        wakes: int,
+        completes: bool,
+        state: str | None,
+        produce: MagicMock,
+        resume: MagicMock,
+    ) -> None:
+        resume.side_effect = wake_error
+        self.user.is_active = owner_active
+        self.user.save()
+        if _name == "workflow_owner_lost_scanner_access":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            AccessControl.objects.create(
+                team=self.team, resource="replay_scanner", resource_id=str(self.scanner.id), access_level="none"
+            )
+        request = self._request(
+            {"s1": "skipped_quota"}, source=source, idempotency_key="run:step:1", created_by=self.user
+        )
+
+        complete_settled_requests()
+
+        request.refresh_from_db()
+        self.assertEqual((resume.call_count, request.completed_at is not None), (wakes, completes))
+        self.assertEqual(produce.call_count, 0 if wake_error else 1)
+        if state is not None:
+            kwargs = resume.call_args.kwargs
+            self.assertEqual((kwargs["origin_key"], kwargs["status"]), ("run:step:1", "completed"))
+            self.assertEqual(kwargs["result"]["state"], state)
+            self.assertIsNone(kwargs["result"]["output"])
 
 
 class TestStartWaitingRequests(APIBaseTest):
