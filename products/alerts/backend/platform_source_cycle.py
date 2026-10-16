@@ -55,6 +55,7 @@ from products.alerts_platform.backend.facade.grouping import (
     GroupObservation,
     bounded_grouping_key,
     decide_groups,
+    delivery_parts,
     is_hashed_grouping_key,
 )
 from products.alerts_platform.backend.facade.lifecycle import (
@@ -221,6 +222,7 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         destination_alert_id=legacy_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
         overflowed=outcome.overflowed,
+        parts=delivery_parts(outcome),
     )
 
 
