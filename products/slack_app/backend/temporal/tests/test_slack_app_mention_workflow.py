@@ -13,7 +13,10 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.temporal import derive_mention_workflow_id, slack_app_mention
-from products.slack_app.backend.temporal.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
+from products.slack_app.backend.temporal.posthog_code_slack_mention import (
+    LegacyPostHogCodeSlackMentionWorkflow,
+    SlackAppMentionProcessingWorkflow,
+)
 from products.slack_app.backend.temporal.slack_app_mention import SlackAppMentionWorkflow
 from products.slack_app.backend.temporal.types import (
     PostHogCodeRepoCascadeOutcome,
@@ -326,7 +329,11 @@ class _Harness:
         self._worker_cm = Worker(
             self.env.client,
             task_queue=self.task_queue,
-            workflows=[SlackAppMentionWorkflow, PostHogCodeSlackMentionWorkflow],
+            workflows=[
+                SlackAppMentionWorkflow,
+                SlackAppMentionProcessingWorkflow,
+                LegacyPostHogCodeSlackMentionWorkflow,
+            ],
             activities=_fake_activities(self.rec),
             workflow_runner=UnsandboxedWorkflowRunner(),
         )
