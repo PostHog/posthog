@@ -2624,11 +2624,10 @@ fn accepted_partition(harness: &Harness, idx: usize) -> i32 {
         .expect("the released worker accepted neither key")
 }
 
-/// One message per request, because the packer would otherwise pack both
-/// keys into one request on one worker.
 #[tokio::test]
 async fn group_granularity_commits_a_partition_while_another_stalls() {
     let topic = format!("e2e-group-stall-{}", Uuid::new_v4());
+    // One message per request, or the packer puts both keys on one worker.
     let harness =
         Harness::start_group_granularity(common::ONE_MESSAGE_PER_REQUEST, &topic, 2, 2, 2).await;
     let mut guards = stall_two_partitions_on_two_workers(&harness, &topic).await;
