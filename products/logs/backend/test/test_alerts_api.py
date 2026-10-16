@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import OperationalError, connection, transaction
 from django.test.utils import CaptureQueriesContext
@@ -60,6 +60,10 @@ def _make_log_row(*, team_id: int, service: str, uuid: str, ts: datetime, body: 
         "resource_attributes": {},
         "attributes_map_str": {},
     }
+
+
+# Where a request-side delivery meets Temporal and the transports, which the tests stand in for.
+_WEB_START = "products.alerts_platform.backend.temporal.web_start"
 
 
 class TestLogsAlertAPI(APIBaseTest):
@@ -2386,6 +2390,7 @@ class TestLogsAlertAPI(APIBaseTest):
         self, _name: str, route: str, make_payload: Any
     ) -> None:
         created, copy = self._firing_on_the_platform_with_pagerduty()
+        temporal = MagicMock(start_workflow=AsyncMock())
         url = (
             f"{self.base_url}{created['id']}/"
             if route == "logs"
@@ -2394,13 +2399,13 @@ class TestLogsAlertAPI(APIBaseTest):
 
         with (
             patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
-            patch("products.alerts_platform.backend.temporal.web_start.start_delivery") as start_delivery,
+            patch(f"{_WEB_START}.async_connect", AsyncMock(return_value=temporal)),
             self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.patch(url, make_payload(), format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        (delivery,) = [call.args[0] for call in start_delivery.call_args_list]
+        (delivery,) = [call.args[1] for call in temporal.start_workflow.call_args_list]
         assert (delivery.incident_actions, delivery.sends_messages, delivery.destination_alert_id) == (
             {"": IncidentAction.RESOLVE},
             False,
@@ -2414,11 +2419,8 @@ class TestLogsAlertAPI(APIBaseTest):
         created, _copy = self._firing_on_the_platform_with_pagerduty()
 
         with (
-            patch(
-                "products.alerts_platform.backend.temporal.web_start.start_delivery",
-                side_effect=RuntimeError("temporal unreachable"),
-            ),
-            patch("products.alerts_platform.backend.delivery.evaluation.deliver_evaluation") as deliver_evaluation,
+            patch(f"{_WEB_START}.async_connect", AsyncMock(side_effect=RuntimeError("temporal unreachable"))),
+            patch(f"{_WEB_START}.deliver_evaluation") as deliver_evaluation,
             self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": False}, format="json")
@@ -2434,9 +2436,7 @@ class TestLogsAlertAPI(APIBaseTest):
         def deliver(request: Any) -> None:
             destinations_when_sent.append(HogFunction.objects.filter(team=self.team, deleted=False).count())
 
-        with patch(
-            "products.alerts_platform.backend.delivery.evaluation.deliver_evaluation", side_effect=deliver
-        ) as deliver_evaluation:
+        with patch(f"{_WEB_START}.deliver_evaluation", side_effect=deliver) as deliver_evaluation:
             response = self.client.delete(f"{self.base_url}{created['id']}/")
 
         assert response.status_code == status.HTTP_204_NO_CONTENT

@@ -114,7 +114,7 @@ def update_configuration(
         configuration = readable.select_for_update().first()
         if configuration is None:
             return None
-        edit, pending = _apply(configuration, change)
+        edit, pending = _apply(configuration, change, now=django_timezone.now())
         if write_source is not None:
             write_source(edit)
         control_plane.announce_after_commit(pending)
@@ -139,11 +139,11 @@ def update_owned_copy(
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
             return
-        _, pending = _apply(configuration, change)
+        now = django_timezone.now()
+        # A snooze ends the firing, as on the logs stack. A firing after it opens a new incident.
+        snoozing = snooze_changed and snooze_until is not None and snooze_until > now
+        _, pending = _apply(configuration, change, now=now, snoozing=snoozing)
         if snooze_changed:
-            if pending is None and snooze_until is not None and snooze_until > django_timezone.now():
-                # A snooze ends the firing, as on the logs stack. A firing after it opens a new incident.
-                pending = control_plane.end_firings(configuration, reason="snoozed", now=django_timezone.now())
             configuration.snooze_until = snooze_until
             configuration.save(update_fields=["snooze_until", "updated_at"])
         control_plane.announce_after_commit(pending)
@@ -156,12 +156,7 @@ def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> N
     outside the delete's transaction, so the history it reads and the state it moved have committed.
     """
     with transaction.atomic():
-        configuration = (
-            PlatformAlertConfiguration.objects.for_team(team_id)
-            .select_for_update()
-            .filter(legacy_configuration_id=legacy_configuration_id, owner=PlatformAlertOwner.PLATFORM)
-            .first()
-        )
+        configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         pending = (
             None
             if configuration is None
@@ -202,6 +197,9 @@ def _locked_owned_copy(team_id: int, legacy_configuration_id: UUID) -> PlatformA
 def _apply(
     configuration: PlatformAlertConfiguration,
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+    *,
+    now: datetime,
+    snoozing: bool = False,
 ) -> tuple[PlatformAlertConfigurationEdit, control_plane.PendingClose | None]:
     """Validates and writes an edit onto a configuration locked by the caller, and ends the firings it
     makes meaningless."""
@@ -212,24 +210,10 @@ def _apply(
     current = edit_of(configuration)
     edit = _validated(SourceKind(configuration.source_kind), current, change(current))
 
-    ending = _firing_ending_change(current, edit)
+    regrouped = not edit.grouping.splits_like(current.grouping)
+    ending = control_plane.ending_reason(current, edit, regrouped=regrouped, snoozing=snoozing)
     # Before the instances change, so the history rows name the firings as they ran.
-    pending = control_plane.end_firings(configuration, reason=ending, now=django_timezone.now()) if ending else None
+    pending = control_plane.end_firings(configuration, reason=ending, now=now) if ending else None
 
-    platform_lifecycle.write_edit(
-        configuration, edit, regrouped=not edit.grouping.splits_like(current.grouping), now=django_timezone.now()
-    )
+    platform_lifecycle.write_edit(configuration, edit, regrouped=regrouped, now=now)
     return edit, pending
-
-
-def _firing_ending_change(current: PlatformAlertConfigurationEdit, edit: PlatformAlertConfigurationEdit) -> str | None:
-    """Why an edit ends the alert's firings, or None. The same edits that close an incident on the
-    logs stack: a disable, and a change to what the alert checks or how it decides."""
-    if current.enabled and not edit.enabled:
-        return "disabled"
-    if not edit.grouping.splits_like(current.grouping):
-        return "regrouped"
-    decides = ("source_config", "evaluation_periods", "datapoints_to_alarm")
-    if any(getattr(current, field) != getattr(edit, field) for field in decides):
-        return "config_changed"
-    return None

@@ -17,9 +17,10 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceConfigSpec,
 )
 from products.logs.backend.alert_group_columns import grouping_problem
+from products.logs.backend.alert_source_cycle import EVENT_IDS_BY_INCIDENT_ACTION
 from products.logs.backend.models import LogsAlertConfiguration
-from products.logs.backend.platform_ownership import incident_close_address, mirror_platform_edit
-from products.logs.backend.platform_source_config import WindowMinutes, has_any_filter
+from products.logs.backend.platform_ownership import mirror_platform_edit
+from products.logs.backend.platform_source_config import WindowMinutes, has_any_filter, logs_alert_url
 
 
 class LogsPlatformAlertCondition(BaseModel):
@@ -67,5 +68,6 @@ LOGS_SOURCE_CONFIG = SourceConfigSpec(
     model=LogsPlatformAlertSourceConfig,
     validate=validate_logs_edit,
     mirror=mirror_platform_edit,
-    incident_address=incident_close_address,
+    incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,
+    alert_url=logs_alert_url,
 )

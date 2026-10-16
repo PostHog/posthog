@@ -318,7 +318,7 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
     return (next_check_at or cutoff).replace(second=0, microsecond=0).isoformat()
 
 
-def condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, object]:
+def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, object]:
     """What the check was evaluated against, as a message and a comparison need to read it.
 
     Taken from the configuration when the outcome is recorded rather than shipped with it, because
@@ -357,15 +357,11 @@ def _event_row(
     now: datetime,
 ) -> PlatformAlertEventRow:
     group = verdict if isinstance(verdict, GroupOutcome) else None
-    return PlatformAlertEventRow(
-        team_id=configuration.team_id,
-        source_kind=configuration.source_kind,
-        configuration_id=configuration.id,
-        alert_id=alert.id if alert else CONFIGURATION_ROW_ALERT_ID,
-        grouping_key=alert.grouping_key if alert else "",
+    return event_row(
+        configuration,
+        alert=alert,
         evaluation_key=outcome.evaluation_key,
         kind=verdict.kind.value,
-        alert_name=configuration.name,
         previous_state=previous_state,
         state=verdict.new_state,
         # The whole episode, ended or not. A resolve names the firing it closed, which is what a
@@ -373,17 +369,57 @@ def _event_row(
         episode_started_at=verdict.firing_episode.started_at if verdict.firing_episode else None,
         value=group.value if group else None,
         labels=group.labels if group else {},
-        condition_snapshot=condition_snapshot(configuration),
-        source_config_snapshot=configuration.source_config,
         query_duration_ms=outcome.query_duration_ms,
         error_message=outcome.error_message,
         consecutive_failures=outcome.consecutive_failures,
         muted_notification=verdict.muted_notification,
+        now=now,
+    )
+
+
+def event_row(
+    configuration: PlatformAlertConfiguration,
+    *,
+    alert: PlatformAlert | None,
+    evaluation_key: str,
+    kind: str,
+    previous_state: str,
+    state: str,
+    episode_started_at: datetime | None,
+    consecutive_failures: int,
+    now: datetime,
+    value: float | None = None,
+    labels: dict[str, str] | None = None,
+    query_duration_ms: int | None = None,
+    error_message: str | None = None,
+    muted_notification: str = "",
+) -> PlatformAlertEventRow:
+    """One history row for a configuration, with the snapshots every row carries."""
+    return PlatformAlertEventRow(
+        team_id=configuration.team_id,
+        source_kind=configuration.source_kind,
+        configuration_id=configuration.id,
+        alert_id=alert.id if alert else CONFIGURATION_ROW_ALERT_ID,
+        grouping_key=alert.grouping_key if alert else "",
+        evaluation_key=evaluation_key,
+        kind=kind,
+        alert_name=configuration.name,
+        previous_state=previous_state,
+        state=state,
+        episode_started_at=episode_started_at,
+        value=value,
+        labels=labels or {},
+        condition_snapshot=_condition_snapshot(configuration),
+        source_config_snapshot=configuration.source_config,
+        query_duration_ms=query_duration_ms,
+        error_message=error_message,
+        consecutive_failures=consecutive_failures,
+        muted_notification=muted_notification,
         occurred_at=now,
     )
 
 
-def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
+def record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
     recorded = insert_events(team_id, rows)
     if recorded < len(rows):
         # One batch holds one source's checks.
@@ -563,7 +599,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         )
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
-        transaction.on_commit(lambda: _record_history(team_id, rows))
+        transaction.on_commit(lambda: record_history(team_id, rows))
     return len(configurations)
 
 
