@@ -42,7 +42,7 @@ def _trend(series: dict[str, str]) -> dict[str, Any]:
             "kind": "TrendsQuery",
             "series": [series],
             "interval": "day",
-            "dateRange": {"date_from": "2026-09-15", "date_to": "2026-10-12", "explicitDate": True},
+            "dateRange": {"date_from": "2026-09-15", "date_to": "2026-10-12"},
             "filterTestAccounts": True,
         },
     }

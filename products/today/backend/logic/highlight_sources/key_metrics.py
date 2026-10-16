@@ -50,7 +50,7 @@ def _url(metric: KeyMetric) -> str | None:
             "kind": "TrendsQuery",
             "series": [{**metric.node, "math": "dau" if metric.people else "total"}],
             "interval": "day",
-            "dateRange": {"date_from": days[0].isoformat(), "date_to": days[-1].isoformat(), "explicitDate": True},
+            "dateRange": {"date_from": days[0].isoformat(), "date_to": days[-1].isoformat()},
             "filterTestAccounts": True,
         },
     }
