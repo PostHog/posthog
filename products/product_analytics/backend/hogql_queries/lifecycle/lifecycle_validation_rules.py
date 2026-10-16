@@ -3,6 +3,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import LifecycleQuery
 
 from posthog.hogql_queries.utils.entities import has_data_warehouse_node
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 
@@ -20,5 +21,23 @@ class RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget:
 
         raise ValidationError(
             "Custom entity aggregation target is not supported for lifecycle insights without a data warehouse series.",
+            code=self.code,
+        )
+
+
+class RequireLifecycleDateFromBeforeDateTo:
+    """The lifecycle periods query counts intervals from date_from to date_to, so an inverted range breaks the query."""
+
+    code = "lifecycle_date_from_after_date_to"
+
+    def __init__(self, query_date_range: QueryDateRange) -> None:
+        self.query_date_range = query_date_range
+
+    def validate(self, context: QueryValidationContext[LifecycleQuery]) -> None:
+        if self.query_date_range.date_from() <= self.query_date_range.date_to():
+            return
+
+        raise ValidationError(
+            "The start date of a lifecycle insight must be before the end date. Change the date range and try again.",
             code=self.code,
         )

@@ -38,6 +38,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from products.actions.backend.models.action import Action
 from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_validation_rules import (
     RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget,
+    RequireLifecycleDateFromBeforeDateTo,
 )
 
 
@@ -50,6 +51,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             RequireAtLeastOneSeries(),
             RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget(),
             DisallowUnsupportedDataWarehouseSettings(),
+            RequireLifecycleDateFromBeforeDateTo(self.query_date_range),
         )
 
     def get_cache_payload(self) -> dict:
