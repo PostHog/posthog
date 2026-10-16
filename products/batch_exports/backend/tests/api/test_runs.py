@@ -262,7 +262,9 @@ def test_get_batch_export_runs_date_filter_depends_on_ordering(client: HttpClien
     assert [run["id"] for run in data["results"]] == [str(run_recent_interval.id), str(run_mid_interval.id)]
 
 
-def test_cannot_cancel_completed_batch_export_run(client: HttpClient, team, user):
+# A run older than the list's default window must still resolve, because the UI retries and cancels older runs.
+@pytest.mark.parametrize("created_days_ago", [0, 30])
+def test_cannot_cancel_completed_batch_export_run(client: HttpClient, team, user, created_days_ago):
     destination = create_destination()
     batch_export = create_batch_export(team, destination)
     run = create_run(
@@ -270,6 +272,9 @@ def test_cannot_cancel_completed_batch_export_run(client: HttpClient, team, user
         status=BatchExportRun.Status.COMPLETED,
         data_interval_start=dt.datetime(2023, 10, 23, tzinfo=dt.UTC),
         data_interval_end=dt.datetime(2023, 10, 24, tzinfo=dt.UTC),
+    )
+    BatchExportRun.objects.filter(id=run.id).update(
+        created_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=created_days_ago)
     )
     client.force_login(user)
 
