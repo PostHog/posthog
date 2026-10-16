@@ -10975,6 +10975,7 @@ export namespace Schemas {
      * * `Gong` - Gong
      * * `Calendly` - Calendly
      * * `Typeform` - Typeform
+     * * `UnityAds` - UnityAds
      * * `Iterable` - Iterable
      * * `ZohoCRM` - ZohoCRM
      * * `Close` - Close
@@ -12359,6 +12360,7 @@ export namespace Schemas {
         | "Gong"
         | "Calendly"
         | "Typeform"
+        | "UnityAds"
         | "Iterable"
         | "ZohoCRM"
         | "Close"
@@ -13751,6 +13753,7 @@ export namespace Schemas {
          * * `Gong` - Gong
          * * `Calendly` - Calendly
          * * `Typeform` - Typeform
+         * * `UnityAds` - UnityAds
          * * `Iterable` - Iterable
          * * `ZohoCRM` - ZohoCRM
          * * `Close` - Close
