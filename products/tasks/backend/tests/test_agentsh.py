@@ -639,13 +639,15 @@ class TestModalSandboxAgentShWrapping(TestCase):
             if "--taskId" in command:
                 launched.append(command)
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
+            if AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX in command:
+                return ExecutionResult(stdout=markers, stderr="", exit_code=0)
+            if ENV_DISABLE_BUNDLED_SKILLS in command:
+                return ExecutionResult(stdout="", stderr="", exit_code=0)
             if "chmod" in command:  # gh shim install
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
             if command.startswith("bash /tmp/posthog-launch-preparation-"):
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
-            self.assertIn(ENV_DISABLE_BUNDLED_SKILLS, command)
-            self.assertIn("grep -q autoPublish", command)
-            return ExecutionResult(stdout=markers, stderr="", exit_code=0)
+            raise AssertionError(f"Unexpected sandbox command: {command}")
 
         sandbox: ModalSandbox | DockerSandbox
         if provider == "modal":
