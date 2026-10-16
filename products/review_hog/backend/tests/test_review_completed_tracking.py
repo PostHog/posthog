@@ -244,6 +244,9 @@ class TestTrackReviewCompleted(BaseTest):
             kept=4,
             dedup_fell_back=True,
             budget_left=3,
+            changed_lines=40,
+            must_fix_on_change=1,
+            must_fix_off_change=2,
         )
         sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5)
 
@@ -264,6 +267,9 @@ class TestTrackReviewCompleted(BaseTest):
             "flash_kept": 4,
             "flash_dedup_fallback": True,
             "flash_budget_left": 3,
+            "flash_changed_lines": 40,
+            "flash_must_fix_on_change": 1,
+            "flash_must_fix_off_change": 2,
             "flash_lens_failures": 1,
             "flash_lens_timeouts": 1,
             "flash_slowest_session_seconds": 412.5,
