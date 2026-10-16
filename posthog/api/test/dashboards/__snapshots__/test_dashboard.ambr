@@ -4473,22 +4473,6 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.100
   '''
-  SELECT "posthog_teammarketinganalyticsconfig"."team_id",
-         "posthog_teammarketinganalyticsconfig"."attribution_window_days",
-         "posthog_teammarketinganalyticsconfig"."attribution_mode",
-         "posthog_teammarketinganalyticsconfig"."filter_test_accounts",
-         "posthog_teammarketinganalyticsconfig"."sources_map",
-         "posthog_teammarketinganalyticsconfig"."conversion_goals",
-         "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
-         "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
-  FROM "posthog_teammarketinganalyticsconfig"
-  WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.101
-  '''
   SELECT "customer_analytics_teamcustomeranalyticsconfig"."team_id",
          "customer_analytics_teamcustomeranalyticsconfig"."activity_event",
          "customer_analytics_teamcustomeranalyticsconfig"."signup_pageview_event",
@@ -4504,7 +4488,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.102
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.101
   '''
   SELECT "posthog_dashboardtile"."dashboard_id" AS "dashboard_id"
   FROM "posthog_dashboardtile"
@@ -4515,7 +4499,7 @@
          AND "posthog_dashboardtile"."insight_id" = 99999)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.103
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.102
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -4548,7 +4532,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.104
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.103
   '''
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
@@ -4557,7 +4541,7 @@
          AND "posthog_taggeditem"."object_id" = 99999)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.105
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.104
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -4603,7 +4587,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.106
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.105
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -4649,7 +4633,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.107
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.106
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -4788,7 +4772,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.108
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.107
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -4843,7 +4827,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.109
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.108
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -4866,19 +4850,7 @@
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.11
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."dashboard_id" = 99999
-         AND NOT ("posthog_dashboardtile"."insight_id" IS NULL))
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.110
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.109
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -4931,7 +4903,19 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.111
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.11
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."dashboard_id" = 99999
+         AND NOT ("posthog_dashboardtile"."insight_id" IS NULL))
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.110
   '''
   SELECT "ee_role"."organization_id" AS "role__organization_id",
          "ee_rolemembership"."role_id" AS "role_id"
@@ -4943,7 +4927,7 @@
               OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.112
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.111
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -4965,7 +4949,7 @@
                   AND "ee_accesscontrol"."role_id" IS NULL)))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.113
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.112
   '''
   SELECT "posthog_dashboard"."id" AS "id"
   FROM "posthog_dashboard"
@@ -4985,7 +4969,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.114
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.113
   '''
   SELECT "posthog_dashboard"."id" AS "id",
          "posthog_dashboard"."name" AS "name"
@@ -4998,7 +4982,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.115
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.114
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboardtile"
@@ -5011,7 +4995,7 @@
                   AND "posthog_dashboardtile"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.116
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.115
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -5044,7 +5028,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.117
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.116
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -5143,7 +5127,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.118
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.117
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -5189,7 +5173,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.119
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.118
   '''
   SELECT 1 AS "a"
   FROM "posthog_sharingconfiguration"
@@ -5201,26 +5185,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.12
-  '''
-  SELECT "posthog_sharingconfiguration"."id",
-         "posthog_sharingconfiguration"."team_id",
-         "posthog_sharingconfiguration"."dashboard_id",
-         "posthog_sharingconfiguration"."insight_id",
-         "posthog_sharingconfiguration"."recording_id",
-         "posthog_sharingconfiguration"."notebook_id",
-         "posthog_sharingconfiguration"."interviewee_context_id",
-         "posthog_sharingconfiguration"."created_at",
-         "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at",
-         "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required"
-  FROM "posthog_sharingconfiguration"
-  WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.120
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.119
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -5319,7 +5284,26 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.121
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.12
+  '''
+  SELECT "posthog_sharingconfiguration"."id",
+         "posthog_sharingconfiguration"."team_id",
+         "posthog_sharingconfiguration"."dashboard_id",
+         "posthog_sharingconfiguration"."insight_id",
+         "posthog_sharingconfiguration"."recording_id",
+         "posthog_sharingconfiguration"."notebook_id",
+         "posthog_sharingconfiguration"."interviewee_context_id",
+         "posthog_sharingconfiguration"."created_at",
+         "posthog_sharingconfiguration"."enabled",
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."settings",
+         "posthog_sharingconfiguration"."password_required"
+  FROM "posthog_sharingconfiguration"
+  WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.120
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -5344,7 +5328,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.122
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.121
   '''
   SELECT "posthog_insightviewed"."id",
          "posthog_insightviewed"."team_id",
@@ -5362,7 +5346,7 @@
   UPDATE
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.123
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.122
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -5408,7 +5392,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.124
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.123
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -5505,6 +5489,35 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.124
+  '''
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
+         "posthog_dashboardtile"."widget_id",
+         "posthog_dashboardtile"."team_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
+         "posthog_dashboardtile"."filters_overrides",
+         "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
+         "posthog_dashboardtile"."group_key",
+         "posthog_dashboardtile"."badge",
+         "posthog_dashboardtile"."deleted"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.125
@@ -5538,35 +5551,6 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.126
   '''
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."text_id",
-         "posthog_dashboardtile"."button_tile_id",
-         "posthog_dashboardtile"."widget_id",
-         "posthog_dashboardtile"."team_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash",
-         "posthog_dashboardtile"."last_refresh",
-         "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."filters_overrides",
-         "posthog_dashboardtile"."show_description",
-         "posthog_dashboardtile"."transparent_background",
-         "posthog_dashboardtile"."group_key",
-         "posthog_dashboardtile"."badge",
-         "posthog_dashboardtile"."deleted"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."insight_id" = 99999)
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.127
-  '''
   SELECT "posthog_insightvariable"."id",
          "posthog_insightvariable"."name",
          "posthog_insightvariable"."code_name",
@@ -5585,7 +5569,7 @@
   ORDER BY "posthog_insightvariable"."name" ASC
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.128
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.127
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -5598,7 +5582,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.129
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.128
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
@@ -5614,15 +5598,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.13
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_taggeditem"
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.130
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.129
   '''
   SELECT "customer_analytics_teamcustomeranalyticsconfig"."team_id",
          "customer_analytics_teamcustomeranalyticsconfig"."activity_event",
@@ -5639,7 +5615,15 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.131
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.13
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_taggeditem"
+  WHERE ("posthog_taggeditem"."content_type_id" = 99999
+         AND "posthog_taggeditem"."object_id" = 99999)
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.130
   '''
   SELECT "posthog_dashboardtile"."dashboard_id" AS "dashboard_id"
   FROM "posthog_dashboardtile"
@@ -5650,7 +5634,7 @@
          AND "posthog_dashboardtile"."insight_id" = 99999)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.132
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.131
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -5683,7 +5667,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.133
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.132
   '''
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
@@ -5692,7 +5676,7 @@
          AND "posthog_taggeditem"."object_id" = 99999)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.134
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.133
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -5738,7 +5722,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.135
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.134
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -5784,7 +5768,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.136
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.135
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -5923,7 +5907,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.137
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.136
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -5978,7 +5962,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.138
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.137
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -6001,7 +5985,7 @@
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.139
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.138
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -6054,6 +6038,18 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.139
+  '''
+  SELECT "ee_role"."organization_id" AS "role__organization_id",
+         "ee_rolemembership"."role_id" AS "role_id"
+  FROM "ee_rolemembership"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_rolemembership"."organization_member_id" = "posthog_organizationmembership"."id")
+  INNER JOIN "ee_role" ON ("ee_rolemembership"."role_id" = "ee_role"."id")
+  WHERE ("ee_rolemembership"."user_id" = 99999
+         AND ("ee_rolemembership"."organization_member_id" IS NULL
+              OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
+  '''
+# ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.14
   '''
   SELECT "posthog_filesystem"."id" AS "id",
@@ -6071,18 +6067,6 @@
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.140
-  '''
-  SELECT "ee_role"."organization_id" AS "role__organization_id",
-         "ee_rolemembership"."role_id" AS "role_id"
-  FROM "ee_rolemembership"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_rolemembership"."organization_member_id" = "posthog_organizationmembership"."id")
-  INNER JOIN "ee_role" ON ("ee_rolemembership"."role_id" = "ee_role"."id")
-  WHERE ("ee_rolemembership"."user_id" = 99999
-         AND ("ee_rolemembership"."organization_member_id" IS NULL
-              OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.141
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -6104,7 +6088,7 @@
                   AND "ee_accesscontrol"."role_id" IS NULL)))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.142
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.141
   '''
   SELECT "posthog_dashboard"."id" AS "id"
   FROM "posthog_dashboard"
@@ -6124,7 +6108,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.143
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.142
   '''
   SELECT "posthog_dashboard"."id" AS "id",
          "posthog_dashboard"."name" AS "name"
@@ -6137,7 +6121,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.144
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.143
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboardtile"
@@ -6150,7 +6134,7 @@
                   AND "posthog_dashboardtile"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.145
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.144
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -6183,7 +6167,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.146
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.145
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -6282,7 +6266,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.147
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.146
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -6328,7 +6312,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.148
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.147
   '''
   SELECT 1 AS "a"
   FROM "posthog_sharingconfiguration"
@@ -6340,7 +6324,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.149
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.148
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -6439,23 +6423,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.15
-  '''
-  SELECT "posthog_filesystem"."id" AS "id",
-         "posthog_filesystem"."path" AS "path"
-  FROM "posthog_filesystem"
-  WHERE (("posthog_filesystem"."surface" IS NULL
-          OR "posthog_filesystem"."surface" = 'web')
-         AND "posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'dashboard'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
-  ORDER BY 1 ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.150
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.149
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -6480,7 +6448,23 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.151
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.15
+  '''
+  SELECT "posthog_filesystem"."id" AS "id",
+         "posthog_filesystem"."path" AS "path"
+  FROM "posthog_filesystem"
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'dashboard'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY 1 ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.150
   '''
   SELECT "posthog_insightviewed"."id",
          "posthog_insightviewed"."team_id",
@@ -6498,7 +6482,7 @@
   UPDATE
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.152
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.151
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -6544,7 +6528,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.153
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.152
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -6641,6 +6625,35 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.153
+  '''
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
+         "posthog_dashboardtile"."widget_id",
+         "posthog_dashboardtile"."team_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
+         "posthog_dashboardtile"."filters_overrides",
+         "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
+         "posthog_dashboardtile"."group_key",
+         "posthog_dashboardtile"."badge",
+         "posthog_dashboardtile"."deleted"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.154
@@ -6674,35 +6687,6 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.155
   '''
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."text_id",
-         "posthog_dashboardtile"."button_tile_id",
-         "posthog_dashboardtile"."widget_id",
-         "posthog_dashboardtile"."team_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash",
-         "posthog_dashboardtile"."last_refresh",
-         "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."filters_overrides",
-         "posthog_dashboardtile"."show_description",
-         "posthog_dashboardtile"."transparent_background",
-         "posthog_dashboardtile"."group_key",
-         "posthog_dashboardtile"."badge",
-         "posthog_dashboardtile"."deleted"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."insight_id" = 99999)
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.156
-  '''
   SELECT "posthog_insightvariable"."id",
          "posthog_insightvariable"."name",
          "posthog_insightvariable"."code_name",
@@ -6721,7 +6705,7 @@
   ORDER BY "posthog_insightvariable"."name" ASC
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.157
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.156
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -6734,7 +6718,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.158
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.157
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
@@ -6750,7 +6734,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.159
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.158
   '''
   SELECT "customer_analytics_teamcustomeranalyticsconfig"."team_id",
          "customer_analytics_teamcustomeranalyticsconfig"."activity_event",
@@ -6765,6 +6749,17 @@
   FROM "customer_analytics_teamcustomeranalyticsconfig"
   WHERE "customer_analytics_teamcustomeranalyticsconfig"."team_id" = 99999
   LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.159
+  '''
+  SELECT "posthog_dashboardtile"."dashboard_id" AS "dashboard_id"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.16
@@ -6784,17 +6779,6 @@
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.160
-  '''
-  SELECT "posthog_dashboardtile"."dashboard_id" AS "dashboard_id"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."insight_id" = 99999)
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.161
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -6827,7 +6811,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.162
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.161
   '''
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
@@ -6836,7 +6820,7 @@
          AND "posthog_taggeditem"."object_id" = 99999)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.163
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.162
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -6882,7 +6866,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.164
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.163
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -6928,7 +6912,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.165
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.164
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -7067,7 +7051,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.166
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.165
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -7122,7 +7106,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.167
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.166
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -7145,7 +7129,7 @@
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.168
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.167
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -7198,7 +7182,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.169
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.168
   '''
   SELECT "ee_role"."organization_id" AS "role__organization_id",
          "ee_rolemembership"."role_id" AS "role_id"
@@ -7208,6 +7192,28 @@
   WHERE ("ee_rolemembership"."user_id" = 99999
          AND ("ee_rolemembership"."organization_member_id" IS NULL
               OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.169
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE ("ee_accesscontrol"."resource" = 'project'
+         AND "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
+         AND ("posthog_organizationmembership"."user_id" = 99999
+              OR ("ee_accesscontrol"."organization_member_id" IS NULL
+                  AND "ee_accesscontrol"."role_id" IS NULL)))
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.17
@@ -7230,28 +7236,6 @@
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.170
-  '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE ("ee_accesscontrol"."resource" = 'project'
-         AND "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
-         AND ("posthog_organizationmembership"."user_id" = 99999
-              OR ("ee_accesscontrol"."organization_member_id" IS NULL
-                  AND "ee_accesscontrol"."role_id" IS NULL)))
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.171
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -7354,7 +7338,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.172
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.171
   '''
   SELECT "posthog_sharingconfiguration"."id",
          "posthog_sharingconfiguration"."team_id",
@@ -7377,7 +7361,7 @@
                                                           5 /* ... */)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.173
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.172
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -7740,7 +7724,7 @@
   ORDER BY "posthog_dashboarditem"."order" ASC
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.174
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.173
   '''
   SELECT ("posthog_dashboardtile"."insight_id") AS "_prefetch_related_val_insight_id",
          "posthog_dashboard"."id",
@@ -7782,7 +7766,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.175
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.174
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -7815,7 +7799,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.176
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.175
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -7844,7 +7828,7 @@
                                         2)/* ... */)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.177
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.176
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -7865,7 +7849,7 @@
                                                   5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.178
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.177
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -7964,7 +7948,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.179
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.178
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -7989,27 +7973,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.18
-  '''
-  SELECT "posthog_insightvariable"."id",
-         "posthog_insightvariable"."name",
-         "posthog_insightvariable"."code_name",
-         "posthog_insightvariable"."type",
-         "posthog_insightvariable"."default_value",
-         "posthog_insightvariable"."is_multi"
-  FROM "posthog_insightvariable"
-  INNER JOIN "posthog_team" ON ("posthog_insightvariable"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_insightvariable"."team_id" =
-           (SELECT U0."parent_team_id" AS "parent_team_id"
-            FROM "posthog_team" U0
-            WHERE U0."id" = 99999
-            LIMIT 1)
-         OR ("posthog_team"."parent_team_id" IS NULL
-             AND "posthog_insightvariable"."team_id" = 99999))
-  ORDER BY "posthog_insightvariable"."name" ASC
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.180
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.179
   '''
   SELECT "posthog_filesystemshortcut"."id",
          "posthog_filesystemshortcut"."team_id",
@@ -8032,7 +7996,7 @@
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.181
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.18
   '''
   SELECT "posthog_insightvariable"."id",
          "posthog_insightvariable"."name",
@@ -8052,7 +8016,27 @@
   ORDER BY "posthog_insightvariable"."name" ASC
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.182
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.180
+  '''
+  SELECT "posthog_insightvariable"."id",
+         "posthog_insightvariable"."name",
+         "posthog_insightvariable"."code_name",
+         "posthog_insightvariable"."type",
+         "posthog_insightvariable"."default_value",
+         "posthog_insightvariable"."is_multi"
+  FROM "posthog_insightvariable"
+  INNER JOIN "posthog_team" ON ("posthog_insightvariable"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_insightvariable"."team_id" =
+           (SELECT U0."parent_team_id" AS "parent_team_id"
+            FROM "posthog_team" U0
+            WHERE U0."id" = 99999
+            LIMIT 1)
+         OR ("posthog_team"."parent_team_id" IS NULL
+             AND "posthog_insightvariable"."team_id" = 99999))
+  ORDER BY "posthog_insightvariable"."name" ASC
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.181
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -8416,7 +8400,7 @@
   ORDER BY "posthog_dashboarditem"."order" ASC
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.183
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.182
   '''
   SELECT ("posthog_dashboardtile"."insight_id") AS "_prefetch_related_val_insight_id",
          "posthog_dashboard"."id",
@@ -8458,7 +8442,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.184
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.183
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -8491,7 +8475,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.185
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.184
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -8520,7 +8504,7 @@
                                         2)/* ... */)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.186
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.185
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -8541,7 +8525,7 @@
                                                   5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.187
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.186
   '''
   SELECT "posthog_alertconfiguration"."created_by_id",
          "posthog_alertconfiguration"."created_at",
@@ -8624,7 +8608,7 @@
                                                       5 /* ... */)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.188
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.187
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -8637,7 +8621,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.189
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.188
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
@@ -8650,6 +8634,23 @@
          "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.189
+  '''
+  SELECT "customer_analytics_teamcustomeranalyticsconfig"."team_id",
+         "customer_analytics_teamcustomeranalyticsconfig"."activity_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."signup_pageview_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."signup_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."subscription_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."payment_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index",
+         "customer_analytics_teamcustomeranalyticsconfig"."default_pinned_properties",
+         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules",
+         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at"
+  FROM "customer_analytics_teamcustomeranalyticsconfig"
+  WHERE "customer_analytics_teamcustomeranalyticsconfig"."team_id" = 99999
   LIMIT 21
   '''
 # ---
@@ -9013,19 +9014,35 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.190
   '''
-  SELECT "customer_analytics_teamcustomeranalyticsconfig"."team_id",
-         "customer_analytics_teamcustomeranalyticsconfig"."activity_event",
-         "customer_analytics_teamcustomeranalyticsconfig"."signup_pageview_event",
-         "customer_analytics_teamcustomeranalyticsconfig"."signup_event",
-         "customer_analytics_teamcustomeranalyticsconfig"."subscription_event",
-         "customer_analytics_teamcustomeranalyticsconfig"."payment_event",
-         "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index",
-         "customer_analytics_teamcustomeranalyticsconfig"."default_pinned_properties",
-         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules",
-         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at"
-  FROM "customer_analytics_teamcustomeranalyticsconfig"
-  WHERE "customer_analytics_teamcustomeranalyticsconfig"."team_id" = 99999
-  LIMIT 21
+  SELECT "posthog_dashboard"."id",
+         "posthog_dashboard"."name",
+         "posthog_dashboard"."description",
+         "posthog_dashboard"."team_id",
+         "posthog_dashboard"."pinned",
+         "posthog_dashboard"."created_at",
+         "posthog_dashboard"."created_by_id",
+         "posthog_dashboard"."deleted",
+         "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
+         "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
+         "posthog_dashboard"."customization",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
+         "posthog_dashboard"."share_token",
+         "posthog_dashboard"."is_shared"
+  FROM "posthog_dashboard"
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboard"."id" IN (1,
+                                          2,
+                                          3,
+                                          4,
+                                          5 /* ... */))
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.191
@@ -11618,15 +11635,6 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.72
   '''
-  SELECT "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index" AS "account_group_type_index"
-  FROM "customer_analytics_teamcustomeranalyticsconfig"
-  WHERE "customer_analytics_teamcustomeranalyticsconfig"."team_id" = 99999
-  ORDER BY "customer_analytics_teamcustomeranalyticsconfig"."team_id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.73
-  '''
   SELECT "posthog_dashboardtile"."dashboard_id" AS "dashboard_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -11636,7 +11644,7 @@
          AND "posthog_dashboardtile"."insight_id" = 99999)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.74
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.73
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -11669,7 +11677,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.75
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.74
   '''
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
@@ -11678,7 +11686,7 @@
          AND "posthog_taggeditem"."object_id" = 99999)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.76
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.75
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -11724,7 +11732,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.77
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.76
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -11770,7 +11778,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.78
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.77
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -11909,7 +11917,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.79
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.78
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -11964,23 +11972,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.8
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_dashboard"
-  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND ("posthog_dashboard"."team_id" =
-                (SELECT U0."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" U0
-                 WHERE U0."id" = 99999
-                 LIMIT 1)
-              OR ("posthog_team"."parent_team_id" IS NULL
-                  AND "posthog_dashboard"."team_id" = 99999))
-         AND NOT "posthog_dashboard"."deleted")
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.80
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.79
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -12003,7 +11995,23 @@
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.81
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.8
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND ("posthog_dashboard"."team_id" =
+                (SELECT U0."parent_team_id" AS "parent_team_id"
+                 FROM "posthog_team" U0
+                 WHERE U0."id" = 99999
+                 LIMIT 1)
+              OR ("posthog_team"."parent_team_id" IS NULL
+                  AND "posthog_dashboard"."team_id" = 99999))
+         AND NOT "posthog_dashboard"."deleted")
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.80
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -12056,7 +12064,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.82
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.81
   '''
   SELECT "ee_role"."organization_id" AS "role__organization_id",
          "ee_rolemembership"."role_id" AS "role_id"
@@ -12068,7 +12076,7 @@
               OR "posthog_organizationmembership"."organization_id" = ("ee_role"."organization_id")))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.83
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.82
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -12090,7 +12098,7 @@
                   AND "ee_accesscontrol"."role_id" IS NULL)))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.84
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.83
   '''
   SELECT "posthog_dashboard"."id" AS "id"
   FROM "posthog_dashboard"
@@ -12110,7 +12118,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.85
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.84
   '''
   SELECT "posthog_dashboard"."id" AS "id",
          "posthog_dashboard"."name" AS "name"
@@ -12123,7 +12131,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.86
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.85
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboardtile"
@@ -12136,7 +12144,7 @@
                   AND "posthog_dashboardtile"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.87
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.86
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -12169,7 +12177,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.88
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.87
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -12268,7 +12276,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.89
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.88
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -12312,6 +12320,18 @@
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.89
+  '''
+  SELECT 1 AS "a"
+  FROM "posthog_sharingconfiguration"
+  WHERE ("posthog_sharingconfiguration"."enabled"
+         AND ("posthog_sharingconfiguration"."expires_at" IS NULL
+              OR "posthog_sharingconfiguration"."expires_at" > 'SHARING-EXPIRY-TIMESTAMP'::timestamptz)
+         AND "posthog_sharingconfiguration"."dashboard_id" = 99999
+         AND "posthog_sharingconfiguration"."team_id" = 99999)
+  LIMIT 1
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.9
@@ -12415,18 +12435,6 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.90
   '''
-  SELECT 1 AS "a"
-  FROM "posthog_sharingconfiguration"
-  WHERE ("posthog_sharingconfiguration"."enabled"
-         AND ("posthog_sharingconfiguration"."expires_at" IS NULL
-              OR "posthog_sharingconfiguration"."expires_at" > 'SHARING-EXPIRY-TIMESTAMP'::timestamptz)
-         AND "posthog_sharingconfiguration"."dashboard_id" = 99999
-         AND "posthog_sharingconfiguration"."team_id" = 99999)
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.91
-  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -12524,7 +12532,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.92
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.91
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -12549,7 +12557,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.93
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.92
   '''
   SELECT "posthog_insightviewed"."id",
          "posthog_insightviewed"."team_id",
@@ -12567,7 +12575,7 @@
   UPDATE
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.94
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.93
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -12613,7 +12621,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.95
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.94
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -12712,6 +12720,35 @@
   LIMIT 21
   '''
 # ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.95
+  '''
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
+         "posthog_dashboardtile"."widget_id",
+         "posthog_dashboardtile"."team_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
+         "posthog_dashboardtile"."filters_overrides",
+         "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
+         "posthog_dashboardtile"."group_key",
+         "posthog_dashboardtile"."badge",
+         "posthog_dashboardtile"."deleted"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" = 99999)
+  '''
+# ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.96
   '''
   SELECT "posthog_dashboardtile"."id",
@@ -12743,35 +12780,6 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.97
   '''
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."text_id",
-         "posthog_dashboardtile"."button_tile_id",
-         "posthog_dashboardtile"."widget_id",
-         "posthog_dashboardtile"."team_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash",
-         "posthog_dashboardtile"."last_refresh",
-         "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."filters_overrides",
-         "posthog_dashboardtile"."show_description",
-         "posthog_dashboardtile"."transparent_background",
-         "posthog_dashboardtile"."group_key",
-         "posthog_dashboardtile"."badge",
-         "posthog_dashboardtile"."deleted"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."insight_id" = 99999)
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.98
-  '''
   SELECT "posthog_insightvariable"."id",
          "posthog_insightvariable"."name",
          "posthog_insightvariable"."code_name",
@@ -12790,7 +12798,7 @@
   ORDER BY "posthog_insightvariable"."name" ASC
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.99
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.98
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -12800,6 +12808,22 @@
          "posthog_teamrevenueanalyticsconfig"."base_currency"
   FROM "posthog_teamrevenueanalyticsconfig"
   WHERE "posthog_teamrevenueanalyticsconfig"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.99
+  '''
+  SELECT "posthog_teammarketinganalyticsconfig"."team_id",
+         "posthog_teammarketinganalyticsconfig"."attribution_window_days",
+         "posthog_teammarketinganalyticsconfig"."attribution_mode",
+         "posthog_teammarketinganalyticsconfig"."filter_test_accounts",
+         "posthog_teammarketinganalyticsconfig"."sources_map",
+         "posthog_teammarketinganalyticsconfig"."conversion_goals",
+         "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
+         "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+  FROM "posthog_teammarketinganalyticsconfig"
+  WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
   '''
 # ---
