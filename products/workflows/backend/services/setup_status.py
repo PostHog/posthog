@@ -23,6 +23,14 @@ def _frequency_cap_set(team: Team) -> bool:
     )
 
 
+def email_sending_paused(team: Team) -> bool:
+    # The CDP email service refuses every send in either case, so a verified domain alone is not enough.
+    config = TeamWorkflowsConfig.objects.filter(team_id=team.id).first()
+    return config is not None and (
+        config.email_sending_suspended_at is not None or config.ses_tenant_sending_status == "DISABLED"
+    )
+
+
 def get_setup_steps(team: Team) -> tuple[SetupStep, ...]:
     done = {
         SetupStepKey.CHANNEL: Integration.objects.filter(team_id=team.id, kind="email").exists(),

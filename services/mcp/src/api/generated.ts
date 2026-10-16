@@ -115210,8 +115210,10 @@ export namespace Schemas {
     export interface WorkflowSetupStatus {
       /** Every messaging setup step, in order. */
       steps: WorkflowSetupStep[];
-      /** Whether an email workflow can send. Needs a connected email channel on a verified domain. Automations that only post to tools like Slack or call webhooks do not need any of these steps. */
+      /** Whether an email workflow can send. Needs a connected email channel on a verified domain, and email sending must not be paused for the project. SMS and push use their own channels, and automations that only post to tools like Slack or call webhooks need none of these steps. */
       ready_to_send_email: boolean;
+      /** Whether email sending is paused for the project, so no email sends even with a verified domain. The person contacts PostHog support to resume it. */
+      email_sending_paused: boolean;
       /** The first step that is not done, or null when every step is done.
        *
        * * `channel` - Channel

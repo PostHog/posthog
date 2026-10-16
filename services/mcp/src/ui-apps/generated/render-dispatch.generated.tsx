@@ -448,5 +448,7 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     ),
     workflow: ({ data }) => <WorkflowView workflow={data as WorkflowData} />,
     'workflow-list': ({ data, app }) => <WorkflowListContent data={data as WorkflowListData} app={app} />,
-    'workflow-setup-status': ({ data }) => <WorkflowSetupStatusView data={data as WorkflowSetupStatusData} />,
+    'workflow-setup-status': ({ data, openLink }) => (
+        <WorkflowSetupStatusView data={data as WorkflowSetupStatusData} openLink={openLink} />
+    ),
 }

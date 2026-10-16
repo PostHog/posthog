@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -61,6 +63,22 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
         assert self._done(body)["domain"] is False
         assert body["ready_to_send_email"] is False
         assert body["next_open_step"] == "domain"
+
+    @parameterized.expand(
+        [
+            ("a staff suspension", {"email_sending_suspended_at": timezone.now()}),
+            ("a disabled SES tenant", {"ses_tenant_sending_status": "DISABLED"}),
+        ]
+    )
+    def test_paused_sending_is_not_ready(self, _name, paused_fields, _flag) -> None:
+        self._add_email_channel(verified=True)
+        TeamWorkflowsConfig.objects.create(team=self.team, **paused_fields)
+
+        body = self._status()
+
+        assert self._done(body)["domain"] is True
+        assert body["ready_to_send_email"] is False
+        assert body["email_sending_paused"] is True
 
     def test_a_set_up_project_has_every_step_done(self, _flag) -> None:
         self._add_email_channel(verified=True)

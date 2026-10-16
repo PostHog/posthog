@@ -14,15 +14,18 @@ export interface WorkflowSetupStep {
 export interface WorkflowSetupStatusData {
     steps: WorkflowSetupStep[]
     ready_to_send_email: boolean
+    email_sending_paused?: boolean
     next_open_step: string | null
     data_suggestions_available: boolean
 }
 
 export interface WorkflowSetupStatusViewProps {
     data: WorkflowSetupStatusData
+    /** The host's link opener. Hosts that sandbox the app without popups block a plain new-tab link. */
+    openLink?: (url: string) => void
 }
 
-export function WorkflowSetupStatusView({ data }: WorkflowSetupStatusViewProps): ReactElement {
+export function WorkflowSetupStatusView({ data, openLink }: WorkflowSetupStatusViewProps): ReactElement {
     const doneCount = data.steps.filter((step) => step.done).length
 
     return (
@@ -37,7 +40,11 @@ export function WorkflowSetupStatusView({ data }: WorkflowSetupStatusViewProps):
                             </span>
                         </div>
                         <Badge variant={data.ready_to_send_email ? 'success' : 'warning'}>
-                            {data.ready_to_send_email ? 'Ready to send email' : 'Email cannot send yet'}
+                            {data.ready_to_send_email
+                                ? 'Ready to send email'
+                                : data.email_sending_paused
+                                  ? 'Email sending is paused'
+                                  : 'Email cannot send yet'}
                         </Badge>
                     </div>
                     <ol className="m-0 flex list-none flex-col gap-3 p-0">
@@ -64,6 +71,12 @@ export function WorkflowSetupStatusView({ data }: WorkflowSetupStatusViewProps):
                                         size="sm"
                                         variant={step.key === data.next_open_step ? 'primary' : 'outline'}
                                         render={<a href={step.app_url} target="_blank" rel="noreferrer" />}
+                                        onClick={(event) => {
+                                            if (openLink) {
+                                                event.preventDefault()
+                                                openLink(step.app_url)
+                                            }
+                                        }}
                                     >
                                         Open
                                     </Button>

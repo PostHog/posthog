@@ -14,7 +14,7 @@ from posthog.utils import absolute_uri
 
 from products.workflows.backend.facade.contracts import SetupStep
 from products.workflows.backend.facade.enums import SetupStepKey
-from products.workflows.backend.facade.setup_status import get_setup_steps
+from products.workflows.backend.facade.setup_status import email_sending_paused, get_setup_steps
 from products.workflows.backend.presentation.views.workflow_data_suggestions import (
     FEATURE_FLAG_KEY as DATA_SUGGESTIONS_FLAG_KEY,
 )
@@ -80,8 +80,13 @@ class WorkflowSetupStepSerializer(serializers.Serializer):
 class WorkflowSetupStatusSerializer(serializers.Serializer):
     steps = WorkflowSetupStepSerializer(many=True, help_text="Every messaging setup step, in order.")
     ready_to_send_email = serializers.BooleanField(
-        help_text="Whether an email workflow can send. Needs a connected email channel on a verified domain. "
-        "Automations that only post to tools like Slack or call webhooks do not need any of these steps."
+        help_text="Whether an email workflow can send. Needs a connected email channel on a verified domain, and "
+        "email sending must not be paused for the project. SMS and push use their own channels, and automations "
+        "that only post to tools like Slack or call webhooks need none of these steps."
+    )
+    email_sending_paused = serializers.BooleanField(
+        help_text="Whether email sending is paused for the project, so no email sends even with a verified "
+        "domain. The person contacts PostHog support to resume it."
     )
     next_open_step = serializers.ChoiceField(
         choices=SetupStepKey.choices,
@@ -106,11 +111,13 @@ class WorkflowSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def status(self, request: Request, **kwargs: Any) -> Response:
         steps = get_setup_steps(self.team)
         done = {step.key: step.done for step in steps}
+        paused = email_sending_paused(self.team)
         return Response(
             WorkflowSetupStatusSerializer(
                 {
                     "steps": [self._step(step) for step in steps],
-                    "ready_to_send_email": all(done[key] for key in _REQUIRED_TO_SEND),
+                    "ready_to_send_email": all(done[key] for key in _REQUIRED_TO_SEND) and not paused,
+                    "email_sending_paused": paused,
                     "next_open_step": next((step.key for step in steps if not step.done), None),
                     "data_suggestions_available": self._data_suggestions_available(request),
                 }
