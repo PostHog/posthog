@@ -55,8 +55,8 @@ impl TypeBudget {
         }
     }
 
-    fn has_permit(&self, warning: crate::registry::WarningType, now: Instant) -> bool {
-        self.with_permits(warning, now, |permits| *permits >= 1.0)
+    fn give_back(&self, warning: crate::registry::WarningType, now: Instant) {
+        self.with_permits(warning, now, |permits| *permits += 1.0);
     }
 
     fn take_permit(&self, warning: crate::registry::WarningType, now: Instant) -> bool {
@@ -152,10 +152,9 @@ impl WarningThrottle {
         self
     }
 
-    /// Consume a permit for this `(token, type)` if the key map has room and
-    /// the key has budget, then a permit of the type budget if one is set.
-    /// Anything but [`ThrottleDecision::Emit`] means the caller should drop the
-    /// warning.
+    /// Consume a type budget permit if one is set, then the `(token, type)`
+    /// key's own permit if the key map has room. Anything but
+    /// [`ThrottleDecision::Emit`] means the caller should drop the warning.
     pub fn check(&self, token: &str, warning: crate::registry::WarningType) -> ThrottleDecision {
         self.check_at(token, warning, Instant::now())
     }
@@ -173,14 +172,15 @@ impl WarningThrottle {
         if self.limiter.len() >= self.max_tracked_keys {
             return ThrottleDecision::CardinalityCapped;
         }
-        // Asked before the per-key check tracks the key, so a token the
+        // The budget permit is held before the per-key check, so a token the
         // budget refuses neither takes a slot in the map nor spends its own
-        // permit. The permit itself is taken last, so a token that repeats
-        // a warning cannot use up the budget of every other token.
+        // hourly permit, and two racing checks cannot both pass on one
+        // permit. A repeat gives the permit back, so a token that repeats a
+        // warning cannot use up the budget of every other token.
         if self
             .type_budget
             .as_ref()
-            .is_some_and(|budget| !budget.has_permit(warning, now))
+            .is_some_and(|budget| !budget.take_permit(warning, now))
         {
             return ThrottleDecision::TypeBudgetExhausted;
         }
@@ -189,14 +189,12 @@ impl WarningThrottle {
             .check_key(&(token.to_string(), warning))
             .is_err()
         {
+            if let Some(budget) = &self.type_budget {
+                budget.give_back(warning, now);
+            }
             return ThrottleDecision::Throttled;
         }
-        match &self.type_budget {
-            Some(budget) if !budget.take_permit(warning, now) => {
-                ThrottleDecision::TypeBudgetExhausted
-            }
-            _ => ThrottleDecision::Emit,
-        }
+        ThrottleDecision::Emit
     }
 
     /// Drop per-key state that has fully refilled, bounding memory. Call
@@ -348,6 +346,57 @@ mod tests {
             throttle.tracked_keys(),
             3,
             "the refused tok_c checks must not take key-map slots"
+        );
+    }
+
+    // Racing checks on the last permit: before the permit was taken first,
+    // every racer passed the peek, spent its hourly key slot, and the losers
+    // then stayed silent for the hour.
+    #[test]
+    fn a_budget_loser_keeps_its_hourly_permit() {
+        let throttle =
+            WarningThrottle::default().with_type_budget(DEFAULT_THROTTLE_PERIOD, NonZeroU32::MIN);
+        let racers = 16;
+        let barrier = std::sync::Barrier::new(racers);
+        let decisions: Vec<(String, ThrottleDecision)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..racers)
+                .map(|n| {
+                    let token = format!("tok_{n}");
+                    let barrier = &barrier;
+                    let throttle = &throttle;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        let decision = throttle.check(&token, WarningType::InvalidOptions);
+                        (token, decision)
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        let emitted = decisions
+            .iter()
+            .filter(|(_, d)| *d == ThrottleDecision::Emit)
+            .count();
+        assert_eq!(emitted, 1, "{decisions:?}");
+        assert!(decisions.iter().all(|(_, d)| matches!(
+            d,
+            ThrottleDecision::Emit | ThrottleDecision::TypeBudgetExhausted
+        )));
+        assert_eq!(
+            throttle.tracked_keys(),
+            1,
+            "only the emitted key holds a slot"
+        );
+
+        let (loser, _) = decisions
+            .iter()
+            .find(|(_, d)| *d == ThrottleDecision::TypeBudgetExhausted)
+            .unwrap();
+        let refilled = Instant::now() + DEFAULT_THROTTLE_PERIOD;
+        assert_eq!(
+            throttle.check_at(loser, WarningType::InvalidOptions, refilled),
+            ThrottleDecision::Emit,
+            "a loser is not throttled once the budget refills"
         );
     }
 
