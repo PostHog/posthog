@@ -23,7 +23,6 @@
 <!-- Include automated tests if possible, otherwise describe the manual testing routine. -->
 <!-- Agents: do NOT claim manual testing you haven't done. State what the agent wasn't able to do and list only the automated tests you (the agent) actually ran. -->
 <!-- For each group of added or changed tests, name the distinct regression, the closest existing test checked, and why this test level is needed. If no new test is needed, name the existing coverage or explain why a test would not help. Do not add tests solely to raise patch coverage. https://posthog.com/handbook/engineering/conventions/backend-coding#testing -->
-<!-- Every added or changed test file needs a team owner, so its failures and flakes reach someone (`hogli owners:who <path>`). If you named one in owners.yaml, say which team and why. -->
 
 **Test rationale:** [Name the regression and closest existing test, or explain why no new test is needed.]
 
@@ -62,7 +61,7 @@
      - No duplicate: when this PR fixes something believed to be live on master, no open PR already fixes it. A broken master attracts parallel agents, so search before opening — `gh pr list --state open --search "<keywords>" --limit 20`, which lists drafts too, and most agent PRs start as drafts. Say here which PR you found and why this one is still needed, or that the search found nothing.
      - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
      - New events schema: Backend CI reruns the paths in `.github/new-events-schema-targets.txt` against the native-JSON events table. A new directory of tests that read event properties is added to that file. Add `test-new-events-schema` when the diff should run the whole backend suite on both tables: event ingestion or cleaning, or event reads whose tests are outside the list. Apply it while draft, or push another commit after labeling, because label events do not start Backend CI. State the result under "How did you test this code?".
-     - Test ownership: every test file this PR adds or changes resolves to a team. The `test-owners` check in `hogli ci:preflight` lists the ones that don't. Name the team responsible for the behavior each one checks in the nearest owners.yaml, and say which team under "How did you test this code?".
+     - Test ownership: the `test-owners` check in `hogli ci:preflight` passes, so every test file this PR adds or changes resolves to a team. Say under "How did you test this code?" which team you named for any it flagged, and why.
      - Public artifact: nothing in this PR — code, fixtures and sample data, comments, commit messages, or this description — carries material from the agent session that isn't already public. If the work drew on a customer conversation, ticket, or log, say so here and state that the committed data is invented. Renaming people, hosts, and identifiers does not clear real material; see AGENTS.md "Public open source repo guidance".
 -->
 

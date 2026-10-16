@@ -226,7 +226,6 @@ One line per group of tests is enough:
 > _"Added 3 cases to `test_cohort_query` covering empty / single / oversized cohorts — guards the 500 we just fixed; couldn't extend an existing test because none exercised the empty path."_
 
 If you can't write that line, you've found a test that shouldn't be in the PR.
-If you named a team owner for a test file, say which team and why in the same line.
 
 ## Related skills
 
