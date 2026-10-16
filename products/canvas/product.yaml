@@ -1,3 +1,4 @@
 name: Canvas
 owners:
     - team-agent-infrastructure
+sensitive: true

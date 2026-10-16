@@ -175,6 +175,7 @@ rules:
       owners: team-feature-flags
     - match: '/services/llm-gateway/'
       owners: team-agent-infrastructure
+      sensitive: true
     - match:
           - '/packages/owners-yaml/'
           - '/tools/hogli-commands/'

@@ -31,3 +31,4 @@ rules:
           - '/workflows/cd-agent-proxy-image.yml'
           - '/workflows/cd-tasks-golden-snapshot.yml'
       owners: team-agent-infrastructure
+      sensitive: true
