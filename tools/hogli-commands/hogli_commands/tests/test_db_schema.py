@@ -116,7 +116,7 @@ class _FakeArtifactPagesSession:
         )
 
 
-def _raw_artifact(artifact_id: int, head_branch: str) -> dict[str, Any]:
+def _raw_artifact(artifact_id: int, head_branch: str, *, head_repository_id: int | None = 1) -> dict[str, Any]:
     return {
         "id": artifact_id,
         "name": db_schema.SCHEMA_ARTIFACT_NAME,
@@ -124,8 +124,24 @@ def _raw_artifact(artifact_id: int, head_branch: str) -> dict[str, Any]:
         "size_in_bytes": db_schema.MIN_SCHEMA_ARTIFACT_BYTES + 1,
         "archive_download_url": f"https://api.github.com/artifacts/{artifact_id}/zip",
         "created_at": "2026-01-01T00:00:00Z",
-        "workflow_run": {"head_sha": "sha", "head_branch": head_branch},
+        "workflow_run": {
+            "head_sha": "sha",
+            "head_branch": head_branch,
+            "repository_id": 1,
+            "head_repository_id": head_repository_id,
+        },
     }
+
+
+@pytest.mark.parametrize("head_repository_id", [2, None])
+def test_find_skips_artifacts_from_another_repository(head_repository_id: int | None) -> None:
+    session = _FakeArtifactPagesSession(
+        [[_raw_artifact(2, "master", head_repository_id=head_repository_id), _raw_artifact(1, "master")]]
+    )
+
+    artifact = db_schema.find_newest_compatible_artifact(token="t", session=session, base_branch="master")  # type: ignore[arg-type]
+
+    assert artifact is not None and artifact.id == 1
 
 
 def test_find_stops_at_first_page_with_compatible_candidate() -> None:

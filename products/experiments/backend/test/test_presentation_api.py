@@ -29,7 +29,7 @@ from posthog.schema import (
 
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -37,11 +37,14 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.test_journeys import journeys_for
 
+from products.access_control.backend.facade.api import upsert_property_access_control
+from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.health.context import ConditionSetTraffic
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
@@ -78,6 +81,13 @@ def _make(cls, **attrs):
 
 
 _HEALTH_PAUSED = ("flag_off_while_running", "running_but_flag_disabled")
+_HEALTH_TRAFFIC = ConditionSetTraffic(
+    since=datetime(2026, 10, 12, tzinfo=UTC),
+    team_timezone="UTC",
+    people_by_set={1: 120, 2: 880},
+    calls=2000,
+    remotely_evaluated_calls=2000,
+)
 _HEALTH_METRIC = {
     "kind": "ExperimentMetric",
     "metric_type": "mean",
@@ -867,6 +877,96 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             if finding["code"] == "split_changed_mid_run"
         ]
         self.assertEqual(split_findings, [expected_split_finding])
+
+    @parameterized.expand(
+        [
+            ("pinned_share_above_five_percent", None, _HEALTH_TRAFFIC, "warning"),
+            ("traffic_query_fails", None, RuntimeError("unexpected"), "info"),
+            ("token_without_query_scope", ["experiment:read", "activity_log:read"], _HEALTH_TRAFFIC, "info"),
+            ("reader_denied_the_reason", None, _HEALTH_TRAFFIC, "info", "$feature_flag_reason"),
+        ]
+    )
+    def test_health_grades_pinned_conditions_by_their_traffic(
+        self,
+        _name: str,
+        token_scopes: list[str] | None,
+        traffic: ConditionSetTraffic | Exception,
+        expected_severity: str,
+        denied_property: str | None = None,
+    ) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"health-pinned-{_name}",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": "test",
+                    },
+                    {"properties": [], "rollout_percentage": 100},
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="health-pinned",
+            feature_flag=flag,
+            start_date=timezone.now() - timedelta(days=3),
+            metrics=[_HEALTH_METRIC],
+        )
+        if denied_property is not None:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            denied = PropertyDefinition.objects.create(
+                team=self.team, name=denied_property, property_type="String", type=PropertyDefinition.Type.EVENT
+            )
+            upsert_property_access_control(
+                team_id=self.team.id,
+                created_by_id=self.user.id,
+                input=UpsertPropertyAccessControlInput(
+                    property_definition_id=str(denied.id),
+                    access_level=PropertyAccessLevel.NONE,
+                    organization_member_id=self.organization_membership.id,
+                ),
+            )
+        headers: dict[str, str] = {}
+        if token_scopes is not None:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user, label="health", secure_value=hash_key_value(token), scopes=token_scopes
+            )
+            self.client.logout()
+            headers = {"authorization": f"Bearer {token}"}
+
+        with patch(
+            "products.experiments.backend.health.condition_set_traffic.query_condition_set_traffic",
+            side_effect=[traffic],
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/", headers=headers
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(
+            [
+                (finding["subcode"], finding["severity"])
+                for finding in response.json()["findings"]
+                if finding["code"] == "forced_variant_release_condition"
+            ],
+            [("some_conditions_pinned", expected_severity)],
+        )
 
     def _rebalance_split_at(self, flag: FeatureFlag, at: datetime) -> None:
         with time_machine.travel(at), self.captureOnCommitCallbacks(execute=True):
@@ -8189,7 +8289,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         ]
     )
     def test_bulk_remove_shared_metrics_does_not_touch_ordering(
-        self, metric_type: str, ordering_field: str, other_ordering_field: str
+        self, role: str, ordering_field: str, other_ordering_field: str
     ):
         saved_metric_uuids: list[str] = []
         saved_metric_ids: list[int] = []
@@ -8214,10 +8314,10 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             f"/api/projects/{self.team.id}/experiments/",
             {
                 "allow_unknown_events": True,
-                "name": f"Bulk Remove Activity Test ({metric_type})",
-                "feature_flag_key": f"bulk-remove-activity-{metric_type}",
+                "name": f"Bulk Remove Activity Test ({role})",
+                "feature_flag_key": f"bulk-remove-activity-{role}",
                 "saved_metrics_ids": [
-                    {"id": saved_metric_id, "metadata": {"type": metric_type}} for saved_metric_id in saved_metric_ids
+                    {"id": saved_metric_id, "metadata": {"type": role}} for saved_metric_id in saved_metric_ids
                 ],
                 ordering_field: saved_metric_uuids,
             },
@@ -8229,7 +8329,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         logs_before = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
 
         # A removal sends no ordering: the stale entries match nothing and are ignored on read.
-        inline_metrics_field = "metrics" if metric_type == "primary" else "metrics_secondary"
+        inline_metrics_field = "metrics" if role == "primary" else "metrics_secondary"
         remove_response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
             {
