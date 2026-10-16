@@ -1,6 +1,6 @@
 import re
 
-from posthog.models import UserProductList
+from posthog.models.file_system.starred_products import has_starred_product
 
 from .highlight_types import Context
 
@@ -37,6 +37,4 @@ def short(text: str, limit: int = 60) -> str:
 
 
 def uses_product(context: Context, *product_paths: str) -> bool:
-    return UserProductList.objects.filter(
-        team_id=context.team.id, user_id=context.user.id, enabled=True, product_path__in=product_paths
-    ).exists()
+    return has_starred_product(context.user, context.team, list(product_paths))
