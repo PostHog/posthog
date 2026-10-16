@@ -430,9 +430,11 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
         return [
             `Missing PostHog API scope: '${error.missingScope}'`,
             '',
-            `Your Personal API key is missing the '${error.missingScope}' scope, which is required to call ${callTarget}.`,
+            `Your PostHog connection is missing the '${error.missingScope}' scope, which is required to call ${callTarget}.`,
             '',
-            `To fix: edit the Personal API key in PostHog (User settings → Personal API keys) and add the '${error.missingScope}' scope. Alternatively, select the "MCP Server" scope preset which includes every scope the MCP needs.`,
+            `If you use a Personal API key: edit it in PostHog (User settings → Personal API keys) and add the '${error.missingScope}' scope. Alternatively, select the "MCP Server" scope preset which includes every scope the MCP needs.`,
+            '',
+            `If you connected through OAuth: reconnect PostHog in your MCP client and authorize the '${error.missingScope}' scope. If it is not offered, ask the client maintainer to request it.`,
             '',
             `See: ${PERSONAL_API_KEY_DOCS_URL}`,
         ].join('\n')

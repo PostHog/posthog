@@ -69,6 +69,9 @@ describe('formatPermissionErrorMessage', () => {
 
         expect(text).toContain("'user:read'")
         expect(text).toContain('MCP Server')
+        expect(text).toContain('If you use a Personal API key')
+        expect(text).toContain('If you connected through OAuth: reconnect PostHog')
+        expect(text).toContain("authorize the 'user:read' scope")
         expect(text).toContain('GET https://us.posthog.com/api/users/@me/')
     })
 
@@ -358,7 +361,7 @@ describe('ApiClient fetchJson on 403 permission_denied', () => {
         vi.unstubAllGlobals()
     })
 
-    it('preserves PostHogPermissionError when surfaced via ApiClient.request()', async () => {
+    it.each(['json', 'text'] as const)('preserves permission remediation for %s responses', async (responseType) => {
         const mockFetch = vi.fn().mockResolvedValue(
             new Response(permissionDeniedBody, {
                 status: 403,
@@ -373,7 +376,7 @@ describe('ApiClient fetchJson on 403 permission_denied', () => {
             baseUrl: 'https://us.posthog.com',
         })
 
-        await expect(client.request({ method: 'GET', path: '/api/users/@me/' })).rejects.toBeInstanceOf(
+        await expect(client.request({ method: 'GET', path: '/api/users/@me/', responseType })).rejects.toBeInstanceOf(
             PostHogPermissionError
         )
 
