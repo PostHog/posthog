@@ -138,9 +138,6 @@ export interface nodeDetailSceneLogicActions {
     closeLineageModal: () => {
         value: true
     }
-    markSavedQueryDeleted: () => {
-        value: true
-    }
     lineageNodeDragStopped: (
         nodeId: string,
         position: XYPosition
@@ -180,10 +177,10 @@ export interface nodeDetailSceneLogicActions {
         errorObject?: any
     }
     loadNodeSuccess: (
-        node: DataModelingNode,
+        node: DataModelingNode | null,
         payload?: any
     ) => {
-        node: DataModelingNode
+        node: DataModelingNode | null
         payload?: any
     }
     loadPostHogSubject: () => any
@@ -238,6 +235,9 @@ export interface nodeDetailSceneLogicActions {
             table: DataWarehouseTable
         } | null
         payload?: any
+    }
+    markSavedQueryDeleted: () => {
+        value: true
     }
     openLineageModal: () => {
         value: true
@@ -355,7 +355,6 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 loadSavedQueryFailure: () => true,
             },
         ],
-        // Another tab or teammate deleted the model while this page was open.
         savedQueryDeleted: [
             false,
             {

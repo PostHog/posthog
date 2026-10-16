@@ -368,3 +368,16 @@ export const NarrowSuspendedWithRunHistory: Story = {
     ...SuspendedWithRunHistory,
     decorators: NarrowView.decorators,
 }
+
+export const DeletedModel: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [404, { detail: 'Not found.' }],
+                },
+            },
+        },
+    },
+}

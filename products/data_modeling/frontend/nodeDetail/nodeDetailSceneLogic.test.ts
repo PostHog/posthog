@@ -377,7 +377,6 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.effectiveTab).toEqual('materialization')
     })
 
-    // A tab left open on a model that was deleted elsewhere must say so, not fail with an error toast.
     it('marks the saved query deleted instead of failing when it returns 404', async () => {
         useMocks({
             get: {

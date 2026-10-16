@@ -89,7 +89,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
         return <NotFound object="model" />
     }
 
-    if (node.saved_query_id && savedQueryDeleted) {
+    if (savedQueryDeleted) {
         return (
             <NotFound
                 object="model"
