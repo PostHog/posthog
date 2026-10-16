@@ -10956,6 +10956,7 @@ dependencies = [
  "common-metrics",
  "common-redis",
  "envconfig",
+ "futures",
  "lifecycle",
  "metrics",
  "moka",

@@ -17,7 +17,8 @@ use replay_core_v4::keys::batch::KeyStore;
 use replay_core_v4::keys::kms::{AwsKms, CachedKms, KmsLimits};
 use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 use replay_recorder_v4::config::Config;
-use replay_recorder_v4::consumer::{run, RecorderConsumer, Settings, Sources, Writer};
+use replay_recorder_v4::consumer::{run, RecorderConsumer, Settings, Sources};
+use replay_recorder_v4::flush::Writer;
 use replay_recorder_v4::limits::{RedisBlocklist, Restrictions};
 use replay_recorder_v4::store::S3Store;
 use replay_recorder_v4::teams::TeamCache;
@@ -139,6 +140,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sample_percentage: config.sample_percentage,
         flush_interval: Duration::from_millis(config.flush_interval_ms),
         flush_max_bytes: config.flush_max_bytes,
+        flush_concurrency: if config.flush_concurrency == 0 {
+            std::thread::available_parallelism().map_or(4, |n| n.get())
+        } else {
+            config.flush_concurrency
+        },
         session_idle: Duration::from_secs(config.session_idle_secs),
         redirecting_topic: (config.ingestion_overflow_mode == "redirect")
             .then(|| config.kafka_topic.clone()),
