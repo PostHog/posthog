@@ -58,7 +58,6 @@ interface OverviewGridProps {
     numSkeletons: number
     samplingRate?: SamplingRate
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
-    preComputeComputedAt?: string
     onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
     filterEmptyItems?: (item: OverviewItem) => boolean
@@ -71,7 +70,6 @@ export function OverviewGrid({
     numSkeletons,
     samplingRate,
     preComputeStrategy,
-    preComputeComputedAt,
     onDisablePrecompute,
     labelFromKey,
     filterEmptyItems = () => true,
@@ -97,7 +95,6 @@ export function OverviewGrid({
                               key={item.key}
                               item={item}
                               preComputeStrategy={preComputeStrategy}
-                              preComputeComputedAt={preComputeComputedAt}
                               onDisablePrecompute={onDisablePrecompute}
                               labelFromKey={labelFromKey}
                               compact={compact}
@@ -150,7 +147,6 @@ const OverviewItemCellSkeleton = ({ compact }: { compact: boolean }): JSX.Elemen
 interface OverviewItemCellProps {
     item: OverviewItem
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
-    preComputeComputedAt?: string
     onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
     compact: boolean
@@ -159,7 +155,6 @@ interface OverviewItemCellProps {
 const OverviewItemCell = ({
     item,
     preComputeStrategy,
-    preComputeComputedAt,
     onDisablePrecompute,
     labelFromKey,
     compact,
@@ -243,8 +238,6 @@ const OverviewItemCell = ({
                 does not also surface the cell's metric tooltip. */}
             {preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute ? (
                 <PreAggregatedBadge variant="precomputed" onDisable={onDisablePrecompute} />
-            ) : preComputeStrategy === WebAnalyticsPreComputeStrategy.Dimensional ? (
-                <PreAggregatedBadge variant="dimensional" computedAt={preComputeComputedAt} />
             ) : preComputeStrategy === WebAnalyticsPreComputeStrategy.PreAggregated ? (
                 <PreAggregatedBadge variant="preagg" />
             ) : null}

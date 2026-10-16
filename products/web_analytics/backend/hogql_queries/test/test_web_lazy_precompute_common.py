@@ -23,7 +23,6 @@ from posthog.schema import (
     PropertyOperator,
     SessionPropertyFilter,
     WebAnalyticsPreComputeStrategy,
-    WebAnalyticsQueryModifiers,
     WebOverviewQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -515,19 +514,17 @@ class TestComputeFiltersEligibilityHash(SimpleTestCase):
             _overview(properties=b), "UTC"
         )
 
-    @parameterized.expand(
-        [
-            ("precompute_toggle", {"useWebAnalyticsPrecompute": True}, {"useWebAnalyticsPrecompute": False}),
-            (
-                "web_query_modifiers",
-                {"webQueryModifiers": WebAnalyticsQueryModifiers(useDimensionalTables=True)},
-                {},
-            ),
-        ]
-    )
-    def test_per_request_switches_do_not_fragment_key(self, _name, on: dict, off: dict) -> None:
-        q_on = WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[], **on)
-        q_off = WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[], **off)
+    def test_use_web_analytics_precompute_toggle_does_not_fragment_key(self) -> None:
+        q_on = WebOverviewQuery(
+            dateRange=DateRange(date_from="-7d"),
+            properties=[],
+            useWebAnalyticsPrecompute=True,
+        )
+        q_off = WebOverviewQuery(
+            dateRange=DateRange(date_from="-7d"),
+            properties=[],
+            useWebAnalyticsPrecompute=False,
+        )
         assert compute_filters_eligibility_hash(q_on, "UTC") == compute_filters_eligibility_hash(q_off, "UTC")
 
     def test_hash_is_64_char_hex(self) -> None:

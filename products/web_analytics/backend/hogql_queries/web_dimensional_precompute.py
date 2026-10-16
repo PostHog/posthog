@@ -5,8 +5,8 @@ These are the precomputation-framework successors to the v2 pre-aggregation
 Where v2 was hand-written ClickHouse SQL run by a staging-table + partition-swap
 Dagster ETL, these are HogQL templates fed to `ensure_precomputed`, which manages
 job tracking, TTLs and the `ReplacingMergeTree` INSERTs. The scheduled
-`web_dimensional_precompute` Dagster job is the only caller (the write path is
-not wired into any query runner yet).
+`web_dimensional_precompute` Dagster job is the only writer. Query runners only
+check for READY jobs (`dimensional_job_ids`) and never build a window inline.
 
 The framework auto-prepends `team_id`/`job_id` and appends `expires_at` to the
 top-level SELECT, and substitutes `{time_window_min}` / `{time_window_max}` per
@@ -23,6 +23,7 @@ Parity with v2 is intentional, with two deliberate deviations:
 """
 
 from datetime import datetime
+from uuid import UUID
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -37,7 +38,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     LazyComputationTable,
     ensure_precomputed,
-    get_ready_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import SESSION_FORWARD_PAD_MINUTES
 
@@ -344,6 +344,8 @@ def ensure_web_stats_dimensional_precomputed(
     team: Team,
     time_range_start: datetime,
     time_range_end: datetime,
+    run_inserts: bool = True,
+    stale_while_revalidate_seconds: float | None = None,
 ) -> LazyComputationResult:
     return ensure_precomputed(
         team=team,
@@ -354,7 +356,10 @@ def ensure_web_stats_dimensional_precomputed(
         table=LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED,
         placeholders=_base_placeholders(),
         query_type="web_stats_dimensional_insert",
-        read_after_write=False,
+        # Readers select by job_id as soon as a job turns READY, so its rows must be on the replica quorum first.
+        read_after_write=True,
+        run_inserts=run_inserts,
+        stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         insert_settings=DIMENSIONAL_INSERT_SETTINGS,
         modifiers=_insert_modifiers(team),
     )
@@ -364,6 +369,8 @@ def ensure_web_bounces_dimensional_precomputed(
     team: Team,
     time_range_start: datetime,
     time_range_end: datetime,
+    run_inserts: bool = True,
+    stale_while_revalidate_seconds: float | None = None,
 ) -> LazyComputationResult:
     return ensure_precomputed(
         team=team,
@@ -374,7 +381,10 @@ def ensure_web_bounces_dimensional_precomputed(
         table=LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED,
         placeholders=_base_placeholders(),
         query_type="web_bounces_dimensional_insert",
-        read_after_write=False,
+        # Readers select by job_id as soon as a job turns READY, so its rows must be on the replica quorum first.
+        read_after_write=True,
+        run_inserts=run_inserts,
+        stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         insert_settings=DIMENSIONAL_INSERT_SETTINGS,
         modifiers=_insert_modifiers(team),
     )
@@ -385,42 +395,29 @@ def ensure_web_bounces_dimensional_precomputed(
 # EXPIRY_BUFFER_SECONDS, so the ClickHouse rows of a graced job still exist.
 DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS = 30 * 60
 
-# The writers skip the replica quorum (`read_after_write=False`), so a job can turn READY
-# before its rows reach every replica. Reads skip a job this young and use the previous
-# generation, which the grace above keeps visible.
-DIMENSIONAL_READ_MIN_READY_AGE_SECONDS = 2 * 60
 
-
-def web_stats_dimensional_ready_jobs(
+def dimensional_job_ids(
     team: Team, time_range_start: datetime, time_range_end: datetime
-) -> LazyComputationResult:
-    """READY jobs for the stats dimensional table covering [start, end). Read-only —
-    reuses the writer's insert template/placeholders so the query_hash matches. Not
-    ready when nothing covers the range (caller falls back to v2/live)."""
-    return get_ready_job_ids(
-        team=team,
-        insert_query=STATS_INSERT_TEMPLATE,
-        time_range_start=time_range_start,
-        time_range_end=time_range_end,
-        table=LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED,
-        placeholders=_base_placeholders(),
+) -> tuple[list[UUID], list[UUID]] | None:
+    """Return the (stats, bounces) READY job ids that cover the range, or None when either
+    table has a gap. Check-only: a read never builds a window, the scheduled job does.
+    The framework splits jobs on UTC days, so the bounds should already be in UTC."""
+    stats = ensure_web_stats_dimensional_precomputed(
+        team,
+        time_range_start,
+        time_range_end,
+        run_inserts=False,
         stale_while_revalidate_seconds=DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS,
-        min_ready_age_seconds=DIMENSIONAL_READ_MIN_READY_AGE_SECONDS,
     )
-
-
-def web_bounces_dimensional_ready_jobs(
-    team: Team, time_range_start: datetime, time_range_end: datetime
-) -> LazyComputationResult:
-    """READY jobs for the bounces dimensional table covering [start, end). See
-    `web_stats_dimensional_ready_jobs`."""
-    return get_ready_job_ids(
-        team=team,
-        insert_query=BOUNCES_INSERT_TEMPLATE,
-        time_range_start=time_range_start,
-        time_range_end=time_range_end,
-        table=LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED,
-        placeholders=_base_placeholders(),
+    if not stats.ready:
+        return None
+    bounces = ensure_web_bounces_dimensional_precomputed(
+        team,
+        time_range_start,
+        time_range_end,
+        run_inserts=False,
         stale_while_revalidate_seconds=DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS,
-        min_ready_age_seconds=DIMENSIONAL_READ_MIN_READY_AGE_SECONDS,
     )
+    if not bounces.ready:
+        return None
+    return stats.job_ids, bounces.job_ids

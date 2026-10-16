@@ -6,14 +6,14 @@ the fixed-dimension tables exist to provide.
 The write-path parity test (`test_web_dimensional_precompute_parity`) asserts the
 dimensional table *contents* equal v2's. This test instead drives the query
 *runner* end-to-end, so it covers the read path the write-path test doesn't: the
-query-builder table selection and the `job_id IN` dedup filter applied through
-`StatsTablePreAggregatedQueryBuilder`.
+dimensional builder's table selection and the `job_id IN` dedup filter.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -24,18 +24,19 @@ from posthog.schema import (
     PropertyOperator,
     WebAnalyticsPreComputeStrategy,
     WebAnalyticsQueryModifiers,
+    WebOverviewQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
     WebStatsTableQueryResponse,
 )
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
-from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
-from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
     WebAnalyticsPreAggregatedTestBase,
 )
@@ -43,6 +44,8 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
 )
+from products.web_analytics.backend.hogql_queries.web_dimensional_read import ready_dimensional_job_ids
+from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 DATE_FROM = "2024-01-01"
 DATE_TO = "2024-01-02"
@@ -51,9 +54,6 @@ DATE_TO = "2024-01-02"
 # (events only land on 01-01; the 01-02 window precomputes to an empty, still-READY job).
 WINDOW_START = datetime(2024, 1, 1, tzinfo=UTC)
 WINDOW_END = datetime(2024, 1, 3, tzinfo=UTC)
-
-# Relative to the real clock because the jobs' TTLs are, and older than the read's replica-lag guard.
-COMPUTED_AT = (datetime.now(UTC) - timedelta(hours=1)).replace(microsecond=0)
 
 LEGACY = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
 OPT_IN = WebAnalyticsQueryModifiers(useDimensionalTables=True)
@@ -143,8 +143,6 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             )
         ensure_web_stats_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
         ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
-        # Reads skip jobs that turned READY too recently to have replicated, so age them past that guard.
-        PreaggregationJob.objects.filter(team=self.team).update(computed_at=COMPUTED_AT)
 
     def _run(
         self,
@@ -196,14 +194,8 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
 
         assert v2_strategy == "stats_table_preaggregated"
         assert dimensional_strategy == "stats_table_dimensional"
-        assert (v2_response.preComputeStrategy, v2_response.preComputeComputedAt) == (
-            WebAnalyticsPreComputeStrategy.PRE_AGGREGATED,
-            None,
-        )
-        assert (dimensional_response.preComputeStrategy, dimensional_response.preComputeComputedAt) == (
-            WebAnalyticsPreComputeStrategy.DIMENSIONAL,
-            COMPUTED_AT.isoformat(),
-        )
+        assert v2_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+        assert dimensional_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
         assert dimensional == v2, f"{_name} mismatch\nv2={v2}\ndimensional={dimensional}"
         assert self._counts(dimensional) == expected_counts
 
@@ -228,10 +220,39 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             ),
             modifiers=modifiers,
         )
-        builder = StatsTablePreAggregatedQueryBuilder(runner)
-        assert not builder.use_dimensional_tables(), "partial coverage must not route to dimensional"
+        assert ready_dimensional_job_ids(runner) is None, "partial coverage must not route to dimensional"
 
         runner.calculate()
         assert runner.used_preaggregated_tables is expect_v2
         if expect_v2:
             assert runner.query_strategy() == "stats_table_preaggregated"
+
+    def test_overview_dimensional_matches_v2(self):
+        def run(modifiers, web_query_modifiers):
+            runner = WebOverviewQueryRunner(
+                query=WebOverviewQuery(
+                    dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                    properties=[],
+                    webQueryModifiers=web_query_modifiers,
+                ),
+                team=self.team,
+                modifiers=modifiers,
+            )
+            with patch(
+                "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                wraps=execute_hogql_query,
+            ) as mock_execute:
+                response = runner.calculate()
+            return [call.kwargs["query_type"] for call in mock_execute.call_args_list], response
+
+        v2_query_types, v2 = run(LEGACY, None)
+        dimensional_query_types, dimensional = run(None, OPT_IN)
+
+        assert v2_query_types == ["web_overview_preaggregated_query"]
+        assert dimensional_query_types == ["web_overview_dimensional_query"]
+        assert dimensional.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+        assert [(item.key, item.value) for item in dimensional.results] == [
+            (item.key, item.value) for item in v2.results
+        ]
+        # visitors, views, sessions: user_a has 2 pageviews, user_b and user_c have 1 each.
+        assert [item.value for item in dimensional.results[:3]] == [3, 4, 3]

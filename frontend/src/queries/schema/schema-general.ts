@@ -3506,8 +3506,6 @@ export enum WebAnalyticsPreComputeStrategy {
     LazyPrecompute = 'lazy_precompute',
     /** Computed live from raw events (no precompute). */
     Live = 'live',
-    /** Served from the scheduled dimensional precompute tables. */
-    Dimensional = 'dimensional',
 }
 
 export interface SamplingRate {
@@ -3521,8 +3519,6 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
     dateFrom?: string
     dateTo?: string
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
-    /** When the oldest precomputed window used was computed. Unset for live responses. */
-    preComputeComputedAt?: string
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string
 }
@@ -4156,8 +4152,6 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
     preComputeStale?: boolean
-    /** When the oldest precomputed window used was computed. Unset for live responses. */
-    preComputeComputedAt?: string
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string
 }

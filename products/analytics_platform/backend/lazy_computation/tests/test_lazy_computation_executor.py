@@ -1,7 +1,5 @@
 import time as time_mod
-import uuid
 from datetime import UTC, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 import pytest
 import time_machine
@@ -45,7 +43,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     TtlSchedule,
     _build_manual_insert_sql,
-    _build_query_info_for_hash,
     _get_insert_settings,
     _written_rows,
     build_lazy_computation_insert_sql,
@@ -55,7 +52,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
     filter_overlapping_jobs,
     find_missing_contiguous_windows,
-    get_ready_job_ids,
     is_non_retryable_error,
     parse_ttl_schedule,
     run_lazy_computation_insert,
@@ -263,109 +259,6 @@ class TestFindMissingContiguousWindows(BaseTest):
         missing = find_missing_contiguous_windows([full_days_job, tail_job], start, end)
 
         assert missing == expected_missing
-
-
-class TestGetReadyJobIds(BaseTest):
-    INSERT_QUERY = (
-        "SELECT count() AS c FROM events WHERE timestamp >= {time_window_min} AND timestamp < {time_window_max}"
-    )
-    TABLE = LazyComputationTable.PREAGGREGATION_RESULTS
-
-    def setUp(self) -> None:
-        super().setUp()
-        self.team.timezone = "America/Los_Angeles"
-        self.team.save()
-        self.query_hash = compute_query_hash(
-            _build_query_info_for_hash(
-                insert_query=self.INSERT_QUERY,
-                base_placeholders={},
-                sentinel_placeholders=None,
-                table=self.TABLE,
-                timezone=self.team.timezone,
-            )
-        )
-        # READY jobs for the 2024-01-01 and 2024-01-02 UTC days.
-        self.job_ids = {
-            PreaggregationJob.objects.create(
-                team=self.team,
-                query_hash=self.query_hash,
-                time_range_start=datetime(2024, 1, day, tzinfo=UTC),
-                time_range_end=datetime(2024, 1, day + 1, tzinfo=UTC),
-                status=PreaggregationJob.Status.READY,
-                expires_at=django_timezone.now() + timedelta(days=1),
-            ).id
-            for day in (1, 2)
-        }
-
-    @parameterized.expand(
-        [
-            ("utc_bounds_inside_coverage", datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC), True),
-            # 01-01..01-02 in Los Angeles ends at 01-03 07:59 UTC, past the covered UTC days.
-            (
-                "local_bounds_past_coverage",
-                datetime(2024, 1, 1, tzinfo=ZoneInfo("America/Los_Angeles")),
-                datetime(2024, 1, 2, 23, 59, 59, tzinfo=ZoneInfo("America/Los_Angeles")),
-                False,
-            ),
-        ]
-    )
-    def test_returns_ids_only_for_full_coverage(self, _name, start, end, expect_covered) -> None:
-        result = get_ready_job_ids(
-            team=self.team, insert_query=self.INSERT_QUERY, time_range_start=start, time_range_end=end, table=self.TABLE
-        )
-        assert (result.ready, set(result.job_ids)) == ((True, self.job_ids) if expect_covered else (False, set()))
-
-    @parameterized.expand(
-        [
-            # (name, previous job expired this long ago or None for no previous job, newer job computed this long ago
-            #  or None for no newer job, min ready age, expected served job)
-            ("expired_within_grace_is_served", timedelta(minutes=10), None, 0, "previous"),
-            ("expired_past_grace_is_not_served", timedelta(minutes=40), None, 0, None),
-            ("settled_newer_job_wins", timedelta(minutes=10), timedelta(minutes=5), 120, "newer"),
-            ("too_new_job_yields_to_graced_previous", timedelta(minutes=10), timedelta(seconds=30), 120, "previous"),
-            ("too_new_job_without_previous_is_not_served", None, timedelta(seconds=30), 120, None),
-        ]
-    )
-    def test_grace_and_min_ready_age(
-        self,
-        _name: str,
-        previous_expired_ago: timedelta | None,
-        newer_computed_ago: timedelta | None,
-        min_ready_age_seconds: float,
-        expected: str | None,
-    ) -> None:
-        PreaggregationJob.objects.filter(team=self.team).delete()
-        now = django_timezone.now()
-
-        def create_job(expires_at: datetime, computed_at: datetime) -> uuid.UUID:
-            return PreaggregationJob.objects.create(
-                team=self.team,
-                query_hash=self.query_hash,
-                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-                status=PreaggregationJob.Status.READY,
-                expires_at=expires_at,
-                computed_at=computed_at,
-            ).id
-
-        job_ids: dict[str, uuid.UUID] = {}
-        if previous_expired_ago is not None:
-            job_ids["previous"] = create_job(now - previous_expired_ago, now - timedelta(hours=1))
-        if newer_computed_ago is not None:
-            job_ids["newer"] = create_job(now + timedelta(hours=1), now - newer_computed_ago)
-
-        result = get_ready_job_ids(
-            team=self.team,
-            insert_query=self.INSERT_QUERY,
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            table=self.TABLE,
-            stale_while_revalidate_seconds=30 * 60,
-            min_ready_age_seconds=min_ready_age_seconds,
-        )
-
-        assert result.job_ids == ([job_ids[expected]] if expected else [])
-        assert result.stale is (expected == "previous")
 
 
 class TestClampRangesToDataHorizon(SimpleTestCase):

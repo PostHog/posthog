@@ -73,7 +73,6 @@ export function WebOverview(props: {
             numSkeletons={numSkeletons}
             samplingRate={samplingRate}
             preComputeStrategy={preComputeStrategy}
-            preComputeComputedAt={webOverviewQueryResponse?.preComputeComputedAt}
             onDisablePrecompute={props.context.onDisableWebAnalyticsPrecompute}
             labelFromKey={labelFromKey}
         />

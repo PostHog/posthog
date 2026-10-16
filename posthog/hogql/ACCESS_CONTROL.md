@@ -220,12 +220,9 @@ Covering a table means moving it out of the exemptions and into the expected map
 
 Masking rewrites `properties.<key>` reads and strips keys from a JSON blob. It does not reach a physical column that holds a copy of the same value.
 Several catalog tables expose such columns because reading them scans far less data than digging the value out of the blob: `events` exposes `$session_id`, `$window_id`, and `$group_0`..`$group_4`; `flag_evaluations` exposes `flag_key`, `response`, `session_id`, `request_id`, and `$group_0`..`$group_4`.
-The web analytics pre-aggregated tables (`web_pre_aggregated_stats`, `web_pre_aggregated_bounces`, `web_stats_dimensional_preaggregated`, `web_bounces_dimensional_preaggregated`) have no blob at all, and group by columns that copy event properties, such as `host`, `pathname`, `browser`, and `city_name`.
 
 `events`' mirror columns are not masked: restricting the property they mirror masks the blob read and leaves the column readable.
-`flag_evaluations`, `ai_events`, and web analytics pre-aggregated mirror columns are masked through `mirrored_property_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
-The web analytics tables also copy session properties into columns such as `entry_pathname` and `utm_source`.
-Those stay readable, because restricting a session property has no query-time effect on any table yet.
+`flag_evaluations` and `ai_events` mirror columns are masked through `mirrored_property_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
 For AI columns, `AI_PROPERTY_TO_COLUMN` in `posthog/hogql/database/schema/ai_events.py` is shared with the query rewriter.
 One rule for `$ai_input` masks both `events.properties.$ai_input` and `ai_events.input`, including nested reads such as `input[1].content`.
 The same rule applies when a filter or an aggregate reads the column.

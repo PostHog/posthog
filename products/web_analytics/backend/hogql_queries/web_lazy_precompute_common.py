@@ -731,14 +731,12 @@ def web_ensure_precomputed(
 
 # Fields stripped from the query payload before hashing.
 # These don't influence which precompute job_id a query would map to —
-# `useWebAnalyticsPrecompute` is just the opt-in toggle, `webQueryModifiers`
-# only picks the fallback after a lazy miss, `modifiers` is
+# `useWebAnalyticsPrecompute` is just the opt-in toggle, `modifiers` is
 # HogQL execution hints applied after the fact, and the rest are
 # metadata / pagination knobs applied at read time.
 _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
     {
         "useWebAnalyticsPrecompute",
-        "webQueryModifiers",
         "modifiers",
         "version",
         "tags",

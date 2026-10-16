@@ -1,90 +1,144 @@
 import uuid
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import WebAnalyticsPreComputeStrategy, WebAnalyticsQueryModifiers
+from posthog.schema import WebAnalyticsQueryModifiers
 
 from posthog.hogql import ast
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
-from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder import (
+from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
     WEB_STATS_DIMENSIONAL_READ_TABLE,
-    WebAnalyticsPreAggregatedQueryBuilder,
+    dimensional_job_ids,
+)
+from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    DimensionalStatsTableQueryBuilder,
+    ready_dimensional_job_ids,
 )
 
-_QB = "products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder"
+_READ = "products.web_analytics.backend.hogql_queries.web_dimensional_read"
+_PRECOMPUTE = "products.web_analytics.backend.hogql_queries.web_dimensional_precompute"
+_STATS_IDS = [uuid.uuid4()]
+_BOUNCES_IDS = [uuid.uuid4()]
+_NEW_YORK = ZoneInfo("America/New_York")
 
 
-def _runner(opted_in: bool) -> MagicMock:
+def _runner(opted_in: bool | None, compare_from: datetime | None = None) -> MagicMock:
     runner = MagicMock()
-    runner.query.webQueryModifiers = WebAnalyticsQueryModifiers(useDimensionalTables=opted_in)
-    runner.query_date_range.date_from.return_value = datetime(2026, 3, 1, tzinfo=UTC)
-    runner.query_date_range.date_to.return_value = datetime(2026, 6, 1, tzinfo=UTC)
-    runner.query_compare_to_date_range = None
-    runner.use_v2_tables = True
+    runner.team.pk = 1
+    runner.query.webQueryModifiers = (
+        None if opted_in is None else WebAnalyticsQueryModifiers(useDimensionalTables=opted_in)
+    )
     runner.query.properties = []
+    # A project-local range: the current day in New York ends after the UTC now below.
+    runner.query_date_range.date_from.return_value = datetime(2026, 3, 1, tzinfo=_NEW_YORK)
+    runner.query_date_range.date_to.return_value = datetime(2026, 3, 31, 23, 59, 59, tzinfo=_NEW_YORK)
+    if compare_from is None:
+        runner.query_compare_to_date_range = None
+    else:
+        runner.query_compare_to_date_range.date_from.return_value = compare_from
     return runner
 
 
-_STATS_COMPUTED_AT = datetime(2026, 6, 1, 10, tzinfo=UTC)
-_BOUNCES_COMPUTED_AT = datetime(2026, 6, 1, 9, tzinfo=UTC)
-_NOT_READY = LazyComputationResult(ready=False, job_ids=[])
+def _result(ready: bool, job_ids: list[uuid.UUID]) -> LazyComputationResult:
+    return LazyComputationResult(ready=ready, job_ids=job_ids if ready else [])
 
 
-def _ready(computed_at: datetime) -> LazyComputationResult:
-    return LazyComputationResult(ready=True, job_ids=[uuid.uuid4()], computed_at=computed_at)
-
-
+@time_machine.travel(datetime(2026, 3, 31, 12, tzinfo=UTC), tick=False)
 class TestDimensionalReadSelection(SimpleTestCase):
-    @patch(f"{_QB}.team_has_property_access_rules", return_value=False)
-    @patch(f"{_QB}.web_bounces_dimensional_ready_jobs", return_value=_ready(_BOUNCES_COMPUTED_AT))
-    @patch(f"{_QB}.web_stats_dimensional_ready_jobs", return_value=_ready(_STATS_COMPUTED_AT))
-    def test_opted_in_query_with_ready_data_reads_dimensional_and_filters_job_id(
-        self, _mock_stats, _mock_bounces, _mock_rules
-    ):
-        builder = WebAnalyticsPreAggregatedQueryBuilder(_runner(True), {})
+    @parameterized.expand(
+        [
+            ("no_compare", None, datetime(2026, 3, 1, 5, tzinfo=UTC)),
+            (
+                "compare_period_widens_start",
+                datetime(2026, 2, 1, tzinfo=_NEW_YORK),
+                datetime(2026, 2, 1, 5, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_opted_in_query_checks_the_utc_range_up_to_now(self, _name, compare_from, expected_start):
+        with (
+            patch(f"{_READ}.team_has_property_access_rules", return_value=False),
+            patch(f"{_READ}.dimensional_job_ids", return_value=(_STATS_IDS, _BOUNCES_IDS)) as mock_job_ids,
+        ):
+            assert ready_dimensional_job_ids(_runner(True, compare_from)) == (_STATS_IDS, _BOUNCES_IDS)
 
-        assert builder.stats_table == WEB_STATS_DIMENSIONAL_READ_TABLE
-        assert builder.bounces_table == WEB_BOUNCES_DIMENSIONAL_READ_TABLE
-        assert builder.served_strategy() == WebAnalyticsPreComputeStrategy.DIMENSIONAL
-        # The older of the two tables bounds how stale the tile can be.
-        assert builder.served_computed_at() == _BOUNCES_COMPUTED_AT.isoformat()
-
-        job_filter = builder._dimensional_job_id_filter(WEB_STATS_DIMENSIONAL_READ_TABLE)
-        assert isinstance(job_filter, ast.CompareOperation)
-        assert job_filter.op == ast.CompareOperationOp.In
-        # the WHERE built by _get_filters carries the job_id filter
-        where = builder._get_filters(WEB_STATS_DIMENSIONAL_READ_TABLE)
-        assert isinstance(where, ast.And)
-        assert any(isinstance(e, ast.CompareOperation) and e.op == ast.CompareOperationOp.In for e in where.exprs), (
-            "dimensional read WHERE must include job_id IN (...)"
-        )
+        _team, start, end = mock_job_ids.call_args.args
+        assert (start, end) == (expected_start, datetime(2026, 3, 31, 12, tzinfo=UTC))
+        assert start.tzinfo == UTC and end.tzinfo == UTC
 
     @parameterized.expand(
         [
-            ("stats_not_ready", True, _NOT_READY, False),
-            ("no_opt_in", False, _ready(_STATS_COMPUTED_AT), False),
-            ("property_access_rules", True, _ready(_STATS_COMPUTED_AT), True),
+            ("no_modifiers", None, False, (_STATS_IDS, _BOUNCES_IDS)),
+            ("opted_out", False, False, (_STATS_IDS, _BOUNCES_IDS)),
+            ("property_access_rules", True, True, (_STATS_IDS, _BOUNCES_IDS)),
+            ("not_ready", True, False, None),
+            ("lookup_fails", True, False, RuntimeError("postgres down")),
         ]
     )
-    def test_query_falls_back_to_v2(
-        self, _name: str, opted_in: bool, stats_jobs: LazyComputationResult, has_rules: bool
+    def test_query_falls_back(self, _name, opted_in, has_rules, job_ids):
+        with (
+            patch(f"{_READ}.team_has_property_access_rules", return_value=has_rules),
+            patch(f"{_READ}.dimensional_job_ids", side_effect=[job_ids]),
+        ):
+            assert ready_dimensional_job_ids(_runner(opted_in)) is None
+
+    @parameterized.expand(
+        [
+            ("both_ready", True, True, (_STATS_IDS, _BOUNCES_IDS)),
+            ("stats_gap", False, True, None),
+            ("bounces_gap", True, False, None),
+        ]
+    )
+    def test_dimensional_job_ids_needs_both_tables_ready_and_only_checks(
+        self, _name, stats_ready, bounces_ready, expected
     ):
         with (
-            patch(f"{_QB}.team_has_property_access_rules", return_value=has_rules),
-            patch(f"{_QB}.web_stats_dimensional_ready_jobs", return_value=stats_jobs),
-            patch(f"{_QB}.web_bounces_dimensional_ready_jobs", return_value=_ready(_BOUNCES_COMPUTED_AT)),
+            patch(
+                f"{_PRECOMPUTE}.ensure_web_stats_dimensional_precomputed", return_value=_result(stats_ready, _STATS_IDS)
+            ) as mock_stats,
+            patch(
+                f"{_PRECOMPUTE}.ensure_web_bounces_dimensional_precomputed",
+                return_value=_result(bounces_ready, _BOUNCES_IDS),
+            ) as mock_bounces,
         ):
-            builder = WebAnalyticsPreAggregatedQueryBuilder(_runner(opted_in), {})
+            assert (
+                dimensional_job_ids(MagicMock(), datetime(2026, 3, 1, tzinfo=UTC), datetime(2026, 3, 2, tzinfo=UTC))
+                == expected
+            )
 
-            assert builder.stats_table == "web_pre_aggregated_stats"
-            assert builder.bounces_table == "web_pre_aggregated_bounces"
-            assert builder._dimensional_job_id_filter("web_pre_aggregated_stats") is None
-            assert builder.served_strategy() == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
-            assert builder.served_computed_at() is None
+        for mock_ensure in (mock_stats, mock_bounces):
+            if mock_ensure.called:
+                assert mock_ensure.call_args.kwargs["run_inserts"] is False
+
+    @parameterized.expand(
+        [
+            ("stats", WEB_STATS_DIMENSIONAL_READ_TABLE, _STATS_IDS),
+            ("bounces", WEB_BOUNCES_DIMENSIONAL_READ_TABLE, _BOUNCES_IDS),
+        ]
+    )
+    def test_builder_reads_dimensional_tables_filtered_to_their_job_ids(self, _name, table_name, job_ids):
+        runner = _runner(True)
+        runner.query_date_range.date_from.return_value = datetime(2026, 3, 1, tzinfo=UTC)
+        builder = DimensionalStatsTableQueryBuilder(runner, (_STATS_IDS, _BOUNCES_IDS))
+
+        assert (builder.stats_table, builder.bounces_table) == (
+            WEB_STATS_DIMENSIONAL_READ_TABLE,
+            WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
+        )
+        job_id_filters = [
+            expr
+            for expr in builder._get_filters(table_name).exprs
+            if isinstance(expr, ast.CompareOperation) and expr.op == ast.CompareOperationOp.In
+        ]
+        assert len(job_id_filters) == 1
+        assert job_id_filters[0].left == ast.Field(chain=[table_name, "job_id"])
+        assert job_id_filters[0].right == ast.Constant(value=[str(job_id) for job_id in job_ids])

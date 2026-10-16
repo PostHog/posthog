@@ -210,8 +210,6 @@ export function DataTable({
     // Lazy precompute can be on without the v2 pre-agg flag, so it surfaces a
     // badge regardless of `canUseWebAnalyticsPreAggregatedTables`.
     const usedWebAnalyticsLazyPrecompute = preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute
-    const preComputeComputedAt =
-        response && 'preComputeComputedAt' in response ? response.preComputeComputedAt : undefined
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
@@ -1072,8 +1070,6 @@ export function DataTable({
                                     variant="precomputed"
                                     onDisable={context?.onDisableWebAnalyticsPrecompute}
                                 />
-                            ) : preComputeStrategy === WebAnalyticsPreComputeStrategy.Dimensional ? (
-                                <PreAggregatedBadge variant="dimensional" computedAt={preComputeComputedAt} />
                             ) : usedWebAnalyticsPreAggregatedTables ? (
                                 <PreAggregatedBadge variant="preagg" />
                             ) : null}

@@ -9693,10 +9693,6 @@ class WebOverviewQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    preComputeComputedAt: str | None = Field(
-        default=None,
-        description=("When the oldest precomputed window used was computed. Unset for live responses."),
-    )
     preComputeIneligibleReason: str | None = Field(
         default=None,
         description=(
@@ -9807,10 +9803,6 @@ class WebStatsTableQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    preComputeComputedAt: str | None = Field(
-        default=None,
-        description=("When the oldest precomputed window used was computed. Unset for live responses."),
-    )
     preComputeIneligibleReason: str | None = Field(
         default=None,
         description=(
@@ -16599,10 +16591,6 @@ class CachedWebOverviewQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
-    preComputeComputedAt: str | None = Field(
-        default=None,
-        description=("When the oldest precomputed window used was computed. Unset for live responses."),
-    )
     preComputeIneligibleReason: str | None = Field(
         default=None,
         description=(
@@ -16743,10 +16731,6 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
-    preComputeComputedAt: str | None = Field(
-        default=None,
-        description=("When the oldest precomputed window used was computed. Unset for live responses."),
-    )
     preComputeIneligibleReason: str | None = Field(
         default=None,
         description=(
@@ -17165,10 +17149,6 @@ class Response4(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    preComputeComputedAt: str | None = Field(
-        default=None,
-        description=("When the oldest precomputed window used was computed. Unset for live responses."),
-    )
     preComputeIneligibleReason: str | None = Field(
         default=None,
         description=(
@@ -17229,10 +17209,6 @@ class Response5(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    preComputeComputedAt: str | None = Field(
-        default=None,
-        description=("When the oldest precomputed window used was computed. Unset for live responses."),
-    )
     preComputeIneligibleReason: str | None = Field(
         default=None,
         description=(
@@ -21665,10 +21641,6 @@ class QueryResponseAlternative21(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    preComputeComputedAt: str | None = Field(
-        default=None,
-        description=("When the oldest precomputed window used was computed. Unset for live responses."),
-    )
     preComputeIneligibleReason: str | None = Field(
         default=None,
         description=(
@@ -21729,10 +21701,6 @@ class QueryResponseAlternative22(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    preComputeComputedAt: str | None = Field(
-        default=None,
-        description=("When the oldest precomputed window used was computed. Unset for live responses."),
-    )
     preComputeIneligibleReason: str | None = Field(
         default=None,
         description=(
@@ -22658,10 +22626,6 @@ class QueryResponseAlternative41(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    preComputeComputedAt: str | None = Field(
-        default=None,
-        description=("When the oldest precomputed window used was computed. Unset for live responses."),
-    )
     preComputeIneligibleReason: str | None = Field(
         default=None,
         description=(
@@ -22722,10 +22686,6 @@ class QueryResponseAlternative42(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    preComputeComputedAt: str | None = Field(
-        default=None,
-        description=("When the oldest precomputed window used was computed. Unset for live responses."),
-    )
     preComputeIneligibleReason: str | None = Field(
         default=None,
         description=(

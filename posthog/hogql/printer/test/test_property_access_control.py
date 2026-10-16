@@ -376,41 +376,6 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "JSONExtract" not in sql
         assert expression.split("[")[0] not in sql
 
-    @parameterized.expand(
-        [
-            ("dimensional_stats_geoip", "web_stats_dimensional_preaggregated", "city_name", "$geoip_city_name"),
-            ("dimensional_stats_pathname", "web_stats_dimensional_preaggregated", "pathname", "$pathname"),
-            ("dimensional_bounces_browser", "web_bounces_dimensional_preaggregated", "browser", "$browser"),
-            (
-                "dimensional_bounces_viewport",
-                "web_bounces_dimensional_preaggregated",
-                "viewport_width",
-                "$viewport_width",
-            ),
-            ("v2_stats_host", "web_pre_aggregated_stats", "host", "$host"),
-        ]
-    )
-    def test_web_pre_aggregated_column_copying_a_restricted_property_reads_and_filters_as_null(
-        self, _name: str, table_name: str, column: str, property_name: str
-    ) -> None:
-        # These tables have no properties blob, so the column is the only path to the value. A filter on an
-        # unmasked column would narrow the value down without selecting it.
-        self.event_prop.name = property_name
-        self.event_prop.save()
-        PropertyAccessControl.objects.create(
-            team=self.team,
-            property_definition=self.event_prop,
-            access_level=PropertyAccessLevel.NONE.value,
-        )
-
-        sql = self._compile_select(
-            f"SELECT {column} AS restricted_value, device_type FROM {table_name} WHERE {column} = 'probe'"
-        )
-
-        assert "NULL AS restricted_value" in sql
-        assert f".{column}" not in sql
-        assert ".device_type" in sql
-
     def test_ai_json_content_is_not_an_event_property(self) -> None:
         PropertyAccessControl.objects.create(
             team=self.team,
