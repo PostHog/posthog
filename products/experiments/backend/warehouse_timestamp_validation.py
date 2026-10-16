@@ -18,6 +18,8 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 
+from posthog.dataclasses import frozen
+
 # Only plain non-date column types are rejected. A computed column (ExpressionField, which curated
 # sources use for datetime conversions) or an unknown type passes, and fails later if it is wrong.
 _NON_DATE_FIELD_TYPES = (
@@ -36,9 +38,15 @@ _NON_DATE_FIELD_TYPES = (
 )
 
 
-def collect_metric_warehouse_timestamp_fields(metrics: list[dict[str, Any]]) -> set[tuple[str, str]]:
-    """Collect (table_name, timestamp_field) pairs from the ExperimentDataWarehouseNodes in metric queries."""
-    pairs: set[tuple[str, str]] = set()
+@frozen(order=True)
+class WarehouseTimestampColumn:
+    table_name: str
+    column: str
+
+
+def collect_metric_warehouse_timestamp_columns(metrics: list[dict[str, Any]]) -> set[WarehouseTimestampColumn]:
+    """Collect the timestamp columns of the ExperimentDataWarehouseNodes in metric queries."""
+    columns: set[WarehouseTimestampColumn] = set()
     stack: list[Any] = list(metrics)
     while stack:
         obj = stack.pop()
@@ -48,11 +56,11 @@ def collect_metric_warehouse_timestamp_fields(metrics: list[dict[str, Any]]) -> 
                 and obj.get("table_name")
                 and obj.get("timestamp_field")
             ):
-                pairs.add((obj["table_name"], obj["timestamp_field"]))
+                columns.add(WarehouseTimestampColumn(table_name=obj["table_name"], column=obj["timestamp_field"]))
             stack.extend(obj.values())
         elif isinstance(obj, list):
             stack.extend(obj)
-    return pairs
+    return columns
 
 
 def enforce_warehouse_metric_timestamp_types(metrics: list[dict[str, Any]], database: Database) -> None:
@@ -66,15 +74,15 @@ def enforce_warehouse_metric_timestamp_types(metrics: list[dict[str, Any]], data
     caller is denied is skipped here, so the query fails on access as it did before and the
     message never reveals that table's columns.
     """
-    for table_name, column in sorted(collect_metric_warehouse_timestamp_fields(metrics)):
+    for timestamp in sorted(collect_metric_warehouse_timestamp_columns(metrics)):
         # A missing table or column fails later with its own error.
-        if not database.has_table(table_name) or database.is_table_access_denied(table_name):
+        if not database.has_table(timestamp.table_name) or database.is_table_access_denied(timestamp.table_name):
             continue
-        field = database.get_table(table_name).fields.get(column)
+        field = database.get_table(timestamp.table_name).fields.get(timestamp.column)
         if not isinstance(field, _NON_DATE_FIELD_TYPES):
             continue
         column_type = type(field).__name__.removesuffix("DatabaseField").lower()
         raise ValidationError(
-            f"Column '{column}' on data warehouse table '{table_name}' has type {column_type}, but the "
+            f"Column '{timestamp.column}' on data warehouse table '{timestamp.table_name}' has type {column_type}, but the "
             "timestamp field must be a date or datetime column. Create a view that converts it and use the view."
         )
