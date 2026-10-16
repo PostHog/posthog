@@ -325,19 +325,10 @@ export interface TaskSummaryApi {
 
 export const SESSION_LIST_LIMIT = 30
 
-// Scout runs are headless, not conversations. The web PostHog AI task list leaves them out the same way.
-const SCOUT_ORIGIN_PRODUCT = 'signals_scout'
-
 /** `created_by` filters on the numeric user id from `users/@me/`, not the UUID. */
 export async function listMySessions(userId: number, signal?: AbortSignal): Promise<TaskSummaryApi[]> {
     const body = await apiJson<{ results?: TaskSummaryApi[] }>(projectPath('tasks/'), {
-        query: {
-            created_by: userId,
-            ordering: '-last_activity_at',
-            basic: true,
-            limit: SESSION_LIST_LIMIT,
-            exclude_origin_product: SCOUT_ORIGIN_PRODUCT,
-        },
+        query: { created_by: userId, ordering: '-last_activity_at', basic: true, limit: SESSION_LIST_LIMIT },
         signal,
     })
     return body.results ?? []
