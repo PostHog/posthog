@@ -15,7 +15,7 @@ import { RefreshIcon } from './icons/RefreshIcon'
 import { Pressable44 } from './Pressable44'
 import { colors, radii } from './tokens'
 
-/** `busy`: a request of the screen runs. `blocked`: nothing may be forced, so a tap only explains why. */
+/** `blocked` remains tappable so the screen can explain when a refresh is allowed again. */
 export type RefreshButtonState = 'idle' | 'busy' | 'blocked'
 
 interface RefreshButtonProps {
@@ -65,8 +65,8 @@ export function RefreshButton({
             onPress={onPress}
             disabled={disabled || state === 'busy'}
             accessibilityLabel={blocked ? (blockedLabel ?? 'Up to date') : state === 'busy' ? 'Updating' : 'Refresh'}
-            accessibilityState={{ busy: state === 'busy', disabled: disabled || blocked }}
-            pressedBackground={blocked ? undefined : colors.background}
+            accessibilityState={{ busy: state === 'busy', disabled: disabled || state === 'busy' }}
+            pressedBackground={colors.background}
             style={styles.button}
             testID={testID}
         >
