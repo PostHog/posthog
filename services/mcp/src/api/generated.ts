@@ -53288,10 +53288,10 @@ export namespace Schemas {
     /**
      * * `fx` - fx
      */
-    export type FxTaskRunCreateSchemaRuntimeAdapterEnum = typeof FxTaskRunCreateSchemaRuntimeAdapterEnum[keyof typeof FxTaskRunCreateSchemaRuntimeAdapterEnum];
+    export type FxRuntimeAdapterEnum = typeof FxRuntimeAdapterEnum[keyof typeof FxRuntimeAdapterEnum];
 
 
-    export const FxTaskRunCreateSchemaRuntimeAdapterEnum = {
+    export const FxRuntimeAdapterEnum = {
       Fx: 'fx',
     } as const;
 
@@ -53397,7 +53397,7 @@ export namespace Schemas {
       /** Agent runtime adapter to launch for this run. Must be 'fx' for fx runtimes.
        *
        * * `fx` - fx */
-      runtime_adapter: FxTaskRunCreateSchemaRuntimeAdapterEnum;
+      runtime_adapter: FxRuntimeAdapterEnum;
       /** LLM gateway model identifier to run in the fx runtime. Any model the gateway serves works. */
       model: string;
       /** Reasoning effort to request for models that expose an effort control.

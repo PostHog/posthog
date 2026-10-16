@@ -1689,6 +1689,35 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
         assert warm_run.state["resume_from_import_run"] is True
         assert "imported_from" not in warm_run.state
 
+    @parameterized.expand([("codex", "gpt-5.4", False), ("fx", "gpt-6-sol", True), (None, None, True)])
+    def test_warms_a_successor_of_an_fx_run_only_on_fx(self, runtime_adapter, model, warms):
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        terminal = task.create_run(mode="interactive", extra_state={"runtime_adapter": "fx", "model": "gpt-6-sol"})
+        terminal.status = TaskRun.Status.COMPLETED
+        terminal.save(update_fields=["status"])
+
+        with (
+            patch("products.tasks.backend.logic.services.warm.is_team_limited", return_value=False),
+            patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            warmed = facade.warm_task_resume_sandbox(
+                task.id,
+                self.team.id,
+                self.user.id,
+                resume_from_run_id=terminal.id,
+                runtime_adapter=runtime_adapter,
+                model=model,
+            )
+
+        assert (warmed is not None) is warms
+
     @parameterized.expand(["release", None])
     def test_warms_and_activates_a_successor_for_the_latest_terminal_run(self, base_branch):
         task = Task.objects.create(

@@ -8978,6 +8978,8 @@ def warm_task_resume_sandbox(
     previous_state = parse_run_state(previous_run.state)
     if previous_state.run_source == RunSource.AGENT or previous_state.model_access.kind == "own-subscription":
         return None
+    if previous_state.runtime_adapter == "fx" and runtime_adapter not in (None, "fx"):
+        return None
     resolved_runtime_adapter = runtime_adapter or previous_state.runtime_adapter
     resolved_model = model or previous_state.model
     resolved_reasoning_effort = reasoning_effort or previous_state.reasoning_effort

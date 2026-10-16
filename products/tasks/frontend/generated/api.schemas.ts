@@ -2653,10 +2653,9 @@ export interface CodexTaskRunCreateSchemaApi {
 /**
  * * `fx` - fx
  */
-export type FxTaskRunCreateSchemaRuntimeAdapterEnumApi =
-    (typeof FxTaskRunCreateSchemaRuntimeAdapterEnumApi)[keyof typeof FxTaskRunCreateSchemaRuntimeAdapterEnumApi]
+export type FxRuntimeAdapterEnumApi = (typeof FxRuntimeAdapterEnumApi)[keyof typeof FxRuntimeAdapterEnumApi]
 
-export const FxTaskRunCreateSchemaRuntimeAdapterEnumApi = {
+export const FxRuntimeAdapterEnumApi = {
     Fx: 'fx',
 } as const
 
@@ -2762,7 +2761,7 @@ export interface FxTaskRunCreateSchemaApi {
     /** Agent runtime adapter to launch for this run. Must be 'fx' for fx runtimes.
      *
      * * `fx` - fx */
-    runtime_adapter: FxTaskRunCreateSchemaRuntimeAdapterEnumApi
+    runtime_adapter: FxRuntimeAdapterEnumApi
     /** LLM gateway model identifier to run in the fx runtime. Any model the gateway serves works. */
     model: string
     /** Reasoning effort to request for models that expose an effort control.

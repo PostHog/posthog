@@ -2,8 +2,8 @@ import {
     ClaudeRuntimeAdapterEnumApi,
     CodexRuntimeAdapterEnumApi,
     CodexTaskRunCreateSchemaInitialPermissionModeEnumApi,
+    FxRuntimeAdapterEnumApi,
     FxTaskRunCreateSchemaInitialPermissionModeEnumApi,
-    FxTaskRunCreateSchemaRuntimeAdapterEnumApi,
     InitialPermissionModeEnumApi,
     ModelChoiceApi,
     ReasoningEffortEnumApi,
@@ -273,7 +273,7 @@ export function buildRunCreateRequest(
     if (currentRuntimeAdapter === RuntimeAdapterEnumApi.Fx) {
         return {
             ...rest,
-            runtime_adapter: FxTaskRunCreateSchemaRuntimeAdapterEnumApi.Fx,
+            runtime_adapter: FxRuntimeAdapterEnumApi.Fx,
             model,
             initial_permission_mode: resolveModeForRuntimeAdapter(
                 RuntimeAdapterEnumApi.Fx,

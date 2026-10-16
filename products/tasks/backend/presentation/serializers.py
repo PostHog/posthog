@@ -4368,9 +4368,13 @@ class CodexTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
     )
 
 
+class FxRuntimeAdapter(models.TextChoices):
+    FX = "fx", "fx"
+
+
 class FxTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
     runtime_adapter = serializers.ChoiceField(
-        choices=[RuntimeAdapter.FX.value],
+        choices=FxRuntimeAdapter.choices,
         required=True,
         help_text="Agent runtime adapter to launch for this run. Must be 'fx' for fx runtimes.",
     )
