@@ -23,6 +23,11 @@ class BatchImportAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # A worker can change the row between page load and save. Compare each submitted value
+        # with the value the page showed, not with the row at save time, so that only the
+        # operator's own edits count as changes.
+        for field in self.fields.values():
+            field.show_hidden_initial = True
         if self.instance and self.instance.import_config:
             sink = self.instance.import_config.get("sink", {})
             if sink.get("type"):
@@ -55,6 +60,10 @@ class BatchImportAdminForm(forms.ModelForm):
         return instance
 
 
+EDITABLE_MODEL_FIELDS = ("team", "created_by_id", "status", "status_message")
+SINK_FORM_FIELDS = ("sink_type", "send_rate")
+
+
 @admin.register(BatchImport)
 class BatchImportAdmin(admin.ModelAdmin):
     form = BatchImportAdminForm
@@ -83,6 +92,7 @@ class BatchImportAdmin(admin.ModelAdmin):
         "leased_until",
         "backoff_attempt",
         "backoff_until",
+        "pending_commit",
         "get_worker_progress",
     )
     autocomplete_fields = ("team",)
@@ -97,12 +107,14 @@ class BatchImportAdmin(admin.ModelAdmin):
                     "leased_until",
                     "backoff_attempt",
                     "backoff_until",
+                    "pending_commit",
                 ),
                 "description": (
-                    "A paused job keeps its worker lease; both resume actions clear it "
-                    "(a bare status change leaves the row unclaimable until the lease expires, "
-                    "up to 30 minutes). A running job with a future leased_until is actively "
-                    "claimed by a worker. Choosing a resume action: 'Resume (keep progress)' "
+                    "A running job with a future leased_until is actively claimed by a worker. "
+                    "Changing the status to running, or using a resume action, clears the lease, backoff "
+                    "and pending commit so a worker can claim the job at once. A pending commit on "
+                    "a job no worker holds means a worker stopped mid-commit: the chunk it names "
+                    "may or may not have reached the sink. Choosing a resume action: 'Resume (keep progress)' "
                     "continues from the saved byte offset - right for transient pauses and "
                     "for source data that has not changed. 'Resume + re-import in-flight part' "
                     "resets the current part to offset 0 first - right when the source bytes "
@@ -130,6 +142,22 @@ class BatchImportAdmin(admin.ModelAdmin):
         ),
         ("Metadata", {"fields": ("id", "created_at", "updated_at", "state")}),
     )
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            super().save_model(request, obj, form, change)
+            return
+
+        # A full-row save would also write the state, lease and backoff values loaded with the
+        # form, which overwrites the progress a running worker saved since then.
+        update_fields = [name for name in form.changed_data if name in EDITABLE_MODEL_FIELDS]
+        if any(name in form.changed_data for name in SINK_FORM_FIELDS):
+            update_fields.append("import_config")
+        if "status" in form.changed_data and obj.status == BatchImport.Status.RUNNING:
+            message = obj.status_message if "status_message" in form.changed_data else "Resumed by admin"
+            update_fields.extend(obj.reset_for_resume(message))
+        if update_fields:
+            obj.save(update_fields=list(dict.fromkeys([*update_fields, "updated_at"])))
 
     @admin.display(description="Progress")
     def get_progress(self, obj):
