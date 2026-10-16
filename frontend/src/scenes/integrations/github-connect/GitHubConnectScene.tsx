@@ -26,8 +26,9 @@ export function GitHubConnectScene(): JSX.Element {
         githubAvailableInstallations,
         githubAvailableInstallationsResponse,
         linkedGithubInstallationLoading,
+        integrationsLoading,
     } = useValues(githubConnectSceneLogic)
-    const { continueToGithub, linkInstallation } = useActions(githubConnectSceneLogic)
+    const { continueToGithub, linkInstallation, loadIntegrations } = useActions(githubConnectSceneLogic)
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentProject } = useValues(projectLogic)
@@ -67,6 +68,19 @@ export function GitHubConnectScene(): JSX.Element {
                         <Spinner />
                         <span>Checking your GitHub connection…</span>
                     </div>
+                ) : status === 'error' ? (
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Retry',
+                            onClick: () => loadIntegrations(),
+                            loading: integrationsLoading,
+                            'data-attr': 'github-connect-retry',
+                        }}
+                    >
+                        Couldn't check this project's GitHub connection. Retry, and if it keeps failing, reload the
+                        page.
+                    </LemonBanner>
                 ) : status === 'connected' ? (
                     <LemonBanner type="success">
                         {connectedAccount ? (

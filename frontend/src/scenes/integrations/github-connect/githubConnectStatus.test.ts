@@ -17,16 +17,24 @@ const installation: GitHubAvailableInstallationApi = {
 
 describe('githubConnectStatus', () => {
     test.each<
-        [string, IntegrationType[] | null, GitHubAvailableInstallationApi[] | null, boolean, GitHubConnectStatus]
+        [
+            string,
+            IntegrationType[] | null,
+            GitHubAvailableInstallationApi[] | null,
+            boolean,
+            boolean,
+            GitHubConnectStatus,
+        ]
     >([
-        ['integrations not loaded', null, null, false, 'loading'],
-        ['project already connected, discovery pending', [githubIntegration], null, false, 'connected'],
-        ['discovery pending', [slackIntegration], null, false, 'loading'],
-        ['installation removed on GitHub', [unavailableGithubIntegration], [], false, 'install'],
-        ['installation in another project', [slackIntegration], [installation], false, 'link-existing'],
-        ['no installation anywhere', [], [], false, 'install'],
-        ['discovery failed', [], null, true, 'install'],
-    ])('%s', (_, integrations, installations, discoveryFailed, expected) => {
-        expect(githubConnectStatus(integrations, installations, discoveryFailed)).toEqual(expected)
+        ['integrations not loaded', null, null, false, false, 'loading'],
+        ['integrations failed to load', null, null, false, true, 'error'],
+        ['project already connected, discovery pending', [githubIntegration], null, false, false, 'connected'],
+        ['discovery pending', [slackIntegration], null, false, false, 'loading'],
+        ['installation removed on GitHub', [unavailableGithubIntegration], [], false, false, 'install'],
+        ['installation in another project', [slackIntegration], [installation], false, false, 'link-existing'],
+        ['no installation anywhere', [], [], false, false, 'install'],
+        ['discovery failed', [], null, true, false, 'install'],
+    ])('%s', (_, integrations, installations, discoveryFailed, integrationsFailed, expected) => {
+        expect(githubConnectStatus(integrations, installations, discoveryFailed, integrationsFailed)).toEqual(expected)
     })
 })

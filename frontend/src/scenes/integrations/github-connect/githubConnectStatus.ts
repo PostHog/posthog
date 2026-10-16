@@ -2,15 +2,16 @@ import type { IntegrationType } from '~/types'
 
 import type { GitHubAvailableInstallationApi } from 'products/integrations/frontend/generated/api.schemas'
 
-export type GitHubConnectStatus = 'loading' | 'connected' | 'link-existing' | 'install'
+export type GitHubConnectStatus = 'loading' | 'error' | 'connected' | 'link-existing' | 'install'
 
 export function githubConnectStatus(
     integrations: IntegrationType[] | null,
     availableInstallations: GitHubAvailableInstallationApi[] | null,
-    discoveryFailed: boolean
+    discoveryFailed: boolean,
+    integrationsFailed: boolean
 ): GitHubConnectStatus {
     if (integrations === null) {
-        return 'loading'
+        return integrationsFailed ? 'error' : 'loading'
     }
     // An installation removed or suspended on GitHub can't be used, so it needs a fresh connect.
     if (
