@@ -42,7 +42,10 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.presentation.views.external_data_schema import schema_display_status
+from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    UNREADABLE_SOURCE_CONFIG_ERROR,
+    schema_display_status,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.repair import _repair_lock_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
@@ -283,6 +286,28 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         assert response.status_code == 400
+
+    def test_incremental_fields_returns_400_when_stored_config_is_still_encrypted(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "gAAAAAfake-undecrypted-token"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {"message": UNREADABLE_SOURCE_CONFIG_ERROR}
 
     def test_incremental_fields_missing_table_name(self):
         source = ExternalDataSource.objects.create(

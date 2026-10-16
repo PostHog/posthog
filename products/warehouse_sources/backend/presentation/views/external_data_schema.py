@@ -66,8 +66,10 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDC_RESET_PENDING_KEY,
     CDC_SEQ_COLUMN,
     AnySource,
+    ConfigValueError,
     RowFilterValidationError,
     SourceRegistry,
+    UndecryptedConfigError,
     WebhookSource,
     add_table_failure_message,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
@@ -225,6 +227,12 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
 # A schedule divides the sync time of day by the cadence, so a null interval cannot build one.
 NO_SYNC_FREQUENCY_ERROR = (
     "This table has no sync frequency, so its sync cannot be scheduled. Set a sync frequency first."
+)
+
+# The stored source settings cannot be read, for example after the instance encryption keys change.
+# Only new settings from the user can fix this, so it is not a bug to report.
+UNREADABLE_SOURCE_CONFIG_ERROR = (
+    "PostHog could not read the saved settings for this source. Reconnect the source, then try again."
 )
 
 # A CDC table's own schedule loads its captured changes, and the change buffer expires them after 14
@@ -1687,7 +1695,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not isinstance(source_impl, WebhookSource):
             return
 
-        config = source_impl.parse_config(source.job_inputs)
+        try:
+            config = source_impl.parse_config(source.job_inputs)
+        except (UndecryptedConfigError, ConfigValueError) as e:
+            raise ValidationError(UNREADABLE_SOURCE_CONFIG_ERROR) from e
         # Source pin only: webhook-sync schemas cannot carry a schema-level override (validate()
         # rejects it), so there is no per-schema precedence to honor here.
         effective_api_version = source_impl.resolve_api_version(source.api_version)
@@ -2340,7 +2351,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         source_type_enum = ExternalDataSourceType(source.source_type)
 
         new_source = SourceRegistry.get_source(source_type_enum)
-        config = new_source.parse_config(source.job_inputs)
+        try:
+            config = new_source.parse_config(source.job_inputs)
+        except (UndecryptedConfigError, ConfigValueError):
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": UNREADABLE_SOURCE_CONFIG_ERROR})
 
         effective_api_version = new_source.resolve_api_version(instance.api_version or source.api_version)
         credentials_valid, credentials_error = new_source.validate_credentials(
