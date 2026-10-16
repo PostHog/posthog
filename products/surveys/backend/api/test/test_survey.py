@@ -7957,6 +7957,24 @@ class TestSurveyListTypeFilter(APIBaseTest):
         self.assertIsNone(data["next"])
         self.assertEqual([survey["id"] for survey in data["results"]], [str(own_survey.id)])
 
+    def test_filter_by_linked_flag_id(self):
+        experiment_flag = FeatureFlag.objects.create(team=self.team, key="experiment-flag", created_by=self.user)
+        other_flag = FeatureFlag.objects.create(team=self.team, key="other-flag", created_by=self.user)
+        linked_survey = Survey.objects.create(
+            team=self.team, name="experiment survey", type="popover", questions=[], linked_flag=experiment_flag
+        )
+        Survey.objects.create(
+            team=self.team, name="other flag survey", type="popover", questions=[], linked_flag=other_flag
+        )
+        Survey.objects.create(team=self.team, name="unlinked survey", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?linked_flag_id={experiment_flag.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual([survey["id"] for survey in data["results"]], [str(linked_survey.id)])
+
     @parameterized.expand(
         [
             ("draft", "draft survey"),
