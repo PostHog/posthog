@@ -58,6 +58,8 @@ export type RunOptions = {
 export type PipelineRun = {
     invocationErrors: string[]
     result?: CyclotronJobInvocationResult
+    /** A throw rejects the whole batch in production, so it is never a visible failure of one invocation. */
+    thrown?: string
     requests: OutgoingRequest[]
     printedOutput: string[]
     sensitiveValues: string[]
@@ -203,11 +205,12 @@ export class TemplatePipeline {
         if (invocations.length !== 1) {
             invocationErrors.push(`expected 1 invocation, got ${invocations.length}`)
         }
-        const { result, error } = invocations.length === 1 ? await this.execute(invocations[0]) : {}
+        const { result, thrown } = invocations.length === 1 ? await this.execute(invocations[0]) : {}
 
         return {
-            invocationErrors: error ? [...invocationErrors, error] : invocationErrors,
+            invocationErrors,
             result,
+            thrown,
             requests: this.requests,
             printedOutput: result?.logs.map((log) => log.message) ?? [],
             sensitiveValues,
@@ -217,7 +220,7 @@ export class TemplatePipeline {
 
     private async execute(
         invocation: CyclotronJobInvocationHogFunction
-    ): Promise<{ result?: CyclotronJobInvocationResult; error?: string }> {
+    ): Promise<{ result?: CyclotronJobInvocationResult; thrown?: string }> {
         try {
             return {
                 result: await this.executor.executeWithAsyncFunctions(invocation, {
@@ -225,7 +228,7 @@ export class TemplatePipeline {
                 }),
             }
         } catch (error) {
-            return { error: `execution threw: ${String(error)}` }
+            return { thrown: `execution threw: ${String(error)}` }
         }
     }
 

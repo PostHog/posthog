@@ -13,7 +13,7 @@ const WORKFLOW_ONLY = 'workflow action, needs a workflow invocation to run'
 
 const RUNS_EXEMPTIONS: Exemptions = {
     'template-email': 'needs an email sender integration in its email input',
-    'template-native-push': 'needs a push notification service and firebase or apns integrations',
+    'template-native-push': 'needs a push notification service, and the harness builds no integration_multi input',
     'template-posthog-classify': WORKFLOW_ONLY,
     'template-posthog-create-customer-task': WORKFLOW_ONLY,
     'template-posthog-create-task': WORKFLOW_ONLY,
@@ -52,6 +52,7 @@ const SERVER_ERROR = { status: 500, body: { error: 'Internal error' } }
 
 const runsWithoutError = (run: PipelineRun): string[] => [
     ...run.invocationErrors,
+    ...(run.thrown ? [run.thrown] : []),
     ...(run.result?.error ? [`execution: ${String(run.result.error)}`] : []),
     ...(run.result && !run.result.finished ? ['execution did not finish'] : []),
 ]
@@ -166,15 +167,21 @@ const secretsStayOutOfOutput = (run: PipelineRun): string[] => {
     if (run.sensitiveValues.length === 0) {
         return ['the run configured no sensitive value to look for']
     }
-    const output = [...run.printedOutput, ...run.invocationErrors, String(run.result?.error ?? '')].map(
-        withDecodedBase64
-    )
+    const output = [
+        ...run.printedOutput,
+        ...run.invocationErrors,
+        run.thrown ?? '',
+        String(run.result?.error ?? ''),
+    ].map(withDecodedBase64)
     return run.sensitiveValues
         .filter((secret) => output.some((text) => text.includes(secret)))
         .map((secret) => `output shows the sensitive value ${secret}`)
 }
 
 const failureIsVisible = (run: PipelineRun): string[] => {
+    if (run.thrown) {
+        return [run.thrown]
+    }
     const failed = run.result?.error !== undefined || run.invocationErrors.length > 0
     const retrying = run.result?.finished === false && run.result.invocation.queueScheduledAt !== undefined
     return failed || retrying ? [] : ['the invocation ended as a success']
@@ -194,17 +201,24 @@ const hasIntegrationInput = ({ template }: TemplateCase): boolean =>
     template.inputs_schema.some((schema) => schema.type === 'integration')
 
 const ALL_CASES = [...DESTINATION_CASES, ...TRANSFORMATION_CASES]
-const runs = (templateCase: TemplateCase): boolean => !(templateCase.name in RUNS_EXEMPTIONS)
-const runsAsDestination = (templateCase: TemplateCase): boolean =>
-    runs(templateCase) && DESTINATION_CASES.includes(templateCase)
+const isRunnable = (templateCase: TemplateCase): boolean => !(templateCase.name in RUNS_EXEMPTIONS)
+const isRunnableDestination = (templateCase: TemplateCase): boolean =>
+    isRunnable(templateCase) && DESTINATION_CASES.includes(templateCase)
+
+const checksRequests = (templateCase: TemplateCase): boolean =>
+    isRunnableDestination(templateCase) && sendsHttpRequests(templateCase)
+const checksSecrets = (templateCase: TemplateCase): boolean =>
+    isRunnable(templateCase) && hasSensitiveValues(templateCase)
+const checksIntegration = (templateCase: TemplateCase): boolean =>
+    isRunnableDestination(templateCase) && hasIntegrationInput(templateCase)
 
 // An exempt case only fails the suite once fixed if its invariant runs, so each entry must name such a case.
 const EXEMPTION_SCOPES: [string, Exemptions, (templateCase: TemplateCase) => boolean][] = [
     ['runs', RUNS_EXEMPTIONS, () => true],
-    ['well-formed', WELL_FORMED_EXEMPTIONS, (c) => runsAsDestination(c) && sendsHttpRequests(c)],
-    ['failures', FAILURES_EXEMPTIONS, (c) => runsAsDestination(c) && sendsHttpRequests(c)],
-    ['secrets', SECRETS_EXEMPTIONS, (c) => runs(c) && hasSensitiveValues(c)],
-    ['integration', INTEGRATION_EXEMPTIONS, (c) => runsAsDestination(c) && hasIntegrationInput(c)],
+    ['well-formed', WELL_FORMED_EXEMPTIONS, checksRequests],
+    ['failures', FAILURES_EXEMPTIONS, checksRequests],
+    ['secrets', SECRETS_EXEMPTIONS, checksSecrets],
+    ['integration', INTEGRATION_EXEMPTIONS, checksIntegration],
 ]
 
 const expectInvariant = (templateCase: TemplateCase, exemptions: Exemptions, violations: string[]): void => {
@@ -252,11 +266,7 @@ describe('template contracts', () => {
             expectInvariant(templateCase, RUNS_EXEMPTIONS, runsWithoutError(run))
         })
 
-        if (!runs(templateCase)) {
-            return
-        }
-
-        if (sendsHttpRequests(templateCase)) {
+        if (checksRequests(templateCase)) {
             it('sends well-formed requests', async () => {
                 const run = await pipeline.run(templateCase, OK)
 
@@ -273,7 +283,7 @@ describe('template contracts', () => {
             })
         }
 
-        if (hasSensitiveValues(templateCase)) {
+        if (checksSecrets(templateCase)) {
             it('keeps sensitive values out of its output, also when a request is rejected', async () => {
                 const runs = [
                     await pipeline.run(templateCase, OK, { debug: true }),
@@ -284,7 +294,7 @@ describe('template contracts', () => {
             })
         }
 
-        if (hasIntegrationInput(templateCase)) {
+        if (checksIntegration(templateCase)) {
             it('sends the integration credential loaded from its connection', async () => {
                 const run = await pipeline.run(templateCase, OK)
 
@@ -300,7 +310,7 @@ describe('template contracts', () => {
             expectInvariant(templateCase, RUNS_EXEMPTIONS, runsWithoutError(run))
         })
 
-        if (runs(templateCase) && hasSensitiveValues(templateCase)) {
+        if (checksSecrets(templateCase)) {
             it('keeps sensitive values out of its output', async () => {
                 const run = await pipeline.run(templateCase, OK, { debug: true })
 
