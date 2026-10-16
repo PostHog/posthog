@@ -150,7 +150,7 @@ class TestOfflineExperimentReads(APIBaseTest):
             ([], "all", 3),
         ):
             with self.subTest(tags=tags, mode=mode):
-                query = {"tags": json.dumps(tags), "tag_match": mode, "limit": 1}
+                query: dict[str, str | int] = {"tags": json.dumps(tags), "tag_match": mode, "limit": 1}
                 response = self.client.get(self._history(), query)
                 assert response.status_code == 200, response.data
                 assert response.data["count"] == expected_count
