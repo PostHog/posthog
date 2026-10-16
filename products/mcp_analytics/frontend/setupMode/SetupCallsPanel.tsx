@@ -66,9 +66,12 @@ function Row({
 export function SetupCallsPanel({
     calls,
     status,
+    empty = COPY.none,
 }: {
     calls: SetupCallsPanelCalls
     status?: SetupCallsPanelStatus
+    /** What an empty list says, or nothing when the status line already covers it. */
+    empty?: string | null
 }): JSX.Element {
     return (
         <div className="MCPPreview">
@@ -106,7 +109,9 @@ export function SetupCallsPanel({
                         {COPY.loading}
                     </div>
                 ) : calls.length === 0 ? (
-                    <div className="MCPPreview__listening py-1.5">{COPY.none}</div>
+                    empty ? (
+                        <div className="MCPPreview__listening py-1.5">{empty}</div>
+                    ) : null
                 ) : (
                     calls
                         .slice(0, MAX_ROWS)
