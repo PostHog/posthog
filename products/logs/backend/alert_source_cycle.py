@@ -672,10 +672,15 @@ def _as_configured_now(
 
     A copy whose logs alert is gone or disabled stops: the logs stack runs no check for it, so it
     switches itself off, and the next backfill turns it back on if the alert is enabled again.
+
+    A copy the platform owns is not a seed: every edit reaches it directly, from the logs API or the
+    platform's, so it is evaluated as stored.
     """
+    owned = [check for check in checks if check.owned_by_platform]
+    checks = [check for check in checks if not check.owned_by_platform]
     legacy_ids = [check.legacy_configuration_id for check in checks]
     alerts = {alert.id: alert for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=legacy_ids)}
-    current: list[PlatformAlertCheckInput] = []
+    current: list[PlatformAlertCheckInput] = list(owned)
     stopped: list[Decision] = []
     for check in checks:
         alert = alerts.get(check.legacy_configuration_id)

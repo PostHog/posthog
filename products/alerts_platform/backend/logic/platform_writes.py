@@ -6,12 +6,15 @@ and the next check reads back. Writing the copy here would fork it, so those are
 
 from collections.abc import Callable, Sequence
 from dataclasses import replace
+from datetime import datetime
 from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone as django_timezone
 
 from pydantic import ValidationError as PydanticValidationError
+
+from posthog.exceptions_capture import capture_exception
 
 from products.alerts_platform.backend.facade.contracts import (
     MAX_EVALUATION_PERIODS,
@@ -27,6 +30,10 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads, source_configs
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
+
+
+class MissingPlatformCopy(Exception):
+    """A source row marked platform-owned with no platform copy behind it."""
 
 
 def edit_of(configuration: PlatformAlertConfiguration) -> PlatformAlertConfigurationEdit:
@@ -84,31 +91,98 @@ def update_configuration(
     configuration_id: UUID,
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
 ) -> PlatformAlertConfigurationView | None:
-    """Applies `change` to the configuration's current settings under its row lock.
+    """Applies `change` to the configuration's current settings under its row lock, and mirrors the
+    result onto the source's own row.
 
     None when the configuration does not exist or its kind is not among `source_kinds`. Taking a
     function rather than the new settings lets a partial update merge with what is stored inside
     the lock, so two partial updates of different fields both survive.
     """
+    readable = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        id=configuration_id, source_kind__in=list(source_kinds)
+    )
     with transaction.atomic():
-        configuration = (
-            PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
-            .select_for_update()
-            .filter(id=configuration_id, source_kind__in=list(source_kinds))
-            .first()
-        )
+        found = readable.values_list("source_kind", "legacy_configuration_id").first()
+        if found is None:
+            return None
+        source_kind, legacy_configuration_id = found
+        spec = source_configs.spec(SourceKind(source_kind))
+        mirror = spec.mirror if spec is not None else None
+        if mirror is not None and legacy_configuration_id is not None:
+            mirror.lock(legacy_configuration_id)
+        configuration = readable.select_for_update().first()
         if configuration is None:
             return None
-        if configuration.owner != PlatformAlertOwner.PLATFORM:
-            raise PlatformAlertNotEditable(
-                f"This alert is managed by the {configuration.source_kind} product. Edit it there."
-            )
-        current = edit_of(configuration)
-        edit = _validated(SourceKind(configuration.source_kind), current, change(current))
-
-        regrouped = not edit.grouping.splits_like(current.grouping)
-        platform_lifecycle.write_edit(configuration, edit, regrouped=regrouped, now=django_timezone.now())
+        edit = _apply(configuration, change)
+        if mirror is not None and legacy_configuration_id is not None:
+            mirror.write(legacy_configuration_id, edit)
 
     return platform_reads.get_configuration(
         team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
     )
+
+
+def update_owned_copy(
+    *,
+    team_id: int,
+    legacy_configuration_id: UUID,
+    change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+) -> None:
+    """Applies an edit the source made to its own row onto the platform's copy. Nothing is mirrored
+    back, because the source already wrote its row."""
+    with transaction.atomic():
+        configuration = _locked_owned_copy(team_id, legacy_configuration_id)
+        if configuration is not None:
+            _apply(configuration, change)
+
+
+def mute_owned_copy(*, team_id: int, legacy_configuration_id: UUID, snooze_until: datetime | None) -> None:
+    """Sets or clears the mute of a copy the platform owns, from the source's own API."""
+    with transaction.atomic():
+        configuration = _locked_owned_copy(team_id, legacy_configuration_id)
+        if configuration is None:
+            return
+        configuration.snooze_until = snooze_until
+        configuration.save(update_fields=["snooze_until", "updated_at"])
+
+
+def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
+    """Deletes the copy of a source alert the platform owns, with its instances and threads."""
+    PlatformAlertConfiguration.objects.for_team(team_id).filter(
+        legacy_configuration_id=legacy_configuration_id, owner=PlatformAlertOwner.PLATFORM
+    ).delete()
+
+
+def _locked_owned_copy(team_id: int, legacy_configuration_id: UUID) -> PlatformAlertConfiguration | None:
+    configuration = (
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .select_for_update()
+        .filter(legacy_configuration_id=legacy_configuration_id, owner=PlatformAlertOwner.PLATFORM)
+        .first()
+    )
+    if configuration is None:
+        # A source row marked platform-owned without a copy is a broken handover. The source's own
+        # edit still saves, so the user is not blocked, and the report makes the gap visible.
+        capture_exception(
+            MissingPlatformCopy(f"No platform copy owns source alert {legacy_configuration_id}"),
+            {"team_id": team_id, "legacy_configuration_id": str(legacy_configuration_id)},
+        )
+    return configuration
+
+
+def _apply(
+    configuration: PlatformAlertConfiguration,
+    change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+) -> PlatformAlertConfigurationEdit:
+    """Validates and writes an edit onto a configuration locked by the caller."""
+    if configuration.owner != PlatformAlertOwner.PLATFORM:
+        raise PlatformAlertNotEditable(
+            f"This alert is managed by the {configuration.source_kind} product. Edit it there."
+        )
+    current = edit_of(configuration)
+    edit = _validated(SourceKind(configuration.source_kind), current, change(current))
+
+    platform_lifecycle.write_edit(
+        configuration, edit, regrouped=not edit.grouping.splits_like(current.grouping), now=django_timezone.now()
+    )
+    return edit

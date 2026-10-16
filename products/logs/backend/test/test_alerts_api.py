@@ -8,8 +8,9 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
-from django.db import OperationalError, connection
+from django.db import OperationalError, connection, transaction
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from celery.exceptions import Retry
 from parameterized import parameterized
@@ -22,8 +23,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import list_configurations
-from products.alerts_platform.backend.facade.contracts import SourceKind
+from products.alerts_platform.backend.facade.api import get_configuration, list_configurations
+from products.alerts_platform.backend.facade.contracts import PlatformConfigurationSnapshot, SourceKind
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack
@@ -35,7 +36,7 @@ from products.logs.backend.platform_alert_backfill import (
     backfill_platform_alert_configurations,
     disable_platform_alert_configurations,
 )
-from products.logs.backend.platform_cutover import cut_over_team
+from products.logs.backend.platform_cutover import cut_over_team, hand_over
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
     MAX_ALERTS_PER_TEAM,
@@ -2304,6 +2305,67 @@ class TestLogsAlertAPI(APIBaseTest):
         for offset_min, expected_count in expected.items():
             assert rolling_by_offset.get(offset_min) == expected_count, (
                 f"offset={offset_min}min: expected {expected_count}, got {rolling_by_offset.get(offset_min)}"
+            )
+
+    # --- Alerts the platform owns ---
+
+    def _owned_by_the_platform(self, **overrides) -> dict:
+        created = self._create_via_api(**overrides)
+        with transaction.atomic():
+            alert = LogsAlertConfiguration.objects.select_for_update().get(pk=created["id"])
+            assert hand_over(alert, timezone.now())
+        return created
+
+    def _copy(self, alert_id: str) -> PlatformConfigurationSnapshot:
+        with team_scope(self.team.id):
+            return platform_testing.copy_of(UUID(alert_id))
+
+    def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
+        created = self._owned_by_the_platform()
+        copy = self._copy(created["id"])
+
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            platform_edit = self.client.patch(
+                f"/api/projects/{self.team.id}/platform_alerts/{copy.id}/",
+                {"name": "Edited on the platform", "grouping": {"mode": "by_result_labels", "keys": ["service_name"]}},
+                format="json",
+            )
+        logs_edit = self.client.patch(f"{self.base_url}{created['id']}/", {"threshold_count": 50}, format="json")
+
+        assert platform_edit.status_code == status.HTTP_200_OK, platform_edit.json()
+        assert logs_edit.status_code == status.HTTP_200_OK, logs_edit.json()
+        assert logs_edit.json()["name"] == "Edited on the platform"
+        with team_scope(self.team.id):
+            view = get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], configuration_id=copy.id
+            )
+        assert view is not None
+        assert (view.name, view.source_config["condition"]["threshold_count"], view.grouping.keys) == (
+            "Edited on the platform",
+            50,
+            ("service_name",),
+        )
+
+    def test_a_new_alert_in_a_team_the_platform_has_begun_taking_over_starts_on_the_platform(self) -> None:
+        self._owned_by_the_platform()
+
+        created = self._create_via_api(name="Added after the cutover")
+
+        assert LogsAlertConfiguration.objects.get(pk=created["id"]).platform_owned
+        assert self._copy(created["id"]).owner == "platform"
+
+    def test_deleting_an_alert_the_platform_owns_deletes_its_copy(self) -> None:
+        created = self._owned_by_the_platform()
+
+        response = self.client.delete(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        with team_scope(self.team.id):
+            assert (
+                list_configurations(
+                    team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+                ).configurations
+                == ()
             )
 
 

@@ -848,16 +848,30 @@ class PlatformAlertNotEditable(Exception):
     """A configuration the platform does not own, so its source's own API writes it."""
 
 
+class SourceEditMirror(Protocol):
+    """Writes an edit made through the platform API onto the source's own row.
+
+    While a source keeps its own row for an alert the platform owns, the two must agree: the
+    source's API reads that row, and a rollback hands it back. `lock` runs before the platform
+    locks its copy, because every other writer of both rows takes the source's row first.
+    """
+
+    def lock(self, legacy_configuration_id: UUID) -> None: ...
+
+    def write(self, legacy_configuration_id: UUID, edit: PlatformAlertConfigurationEdit) -> None: ...
+
+
 @frozen
 class SourceConfigSpec:
     """A source kind's schema for `source_config` and its rules for a whole edit.
 
-    `model` validates `source_config` and supplies its defaults. `validate` raises
-    `InvalidPlatformAlertEdit` for a rule that spans fields, such as one that reads `enabled`.
+    `model` validates `source_config`. `validate` raises `InvalidPlatformAlertEdit` for a rule that
+    spans fields, such as one that reads `enabled`. `mirror` runs in the edit's transaction.
     """
 
     model: type[BaseModel]
     validate: Callable[[PlatformAlertConfigurationEdit], None]
+    mirror: SourceEditMirror | None = None
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]
