@@ -2704,6 +2704,16 @@
                   "table": null,
                   "type": "string"
               },
+              "prompt_topic": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prompt_topic",
+                  "id": null,
+                  "name": "prompt_topic",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "prompt_hash": {
                   "chain": null,
                   "fields": null,
@@ -16911,6 +16921,16 @@
                   "hogql_value": "prompt_source",
                   "id": null,
                   "name": "prompt_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "prompt_topic": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prompt_topic",
+                  "id": null,
+                  "name": "prompt_topic",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
