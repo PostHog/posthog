@@ -56,6 +56,7 @@ from products.logs.backend.alert_source_cycle import (
 )
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import backfill_platform_alert_configurations
+from products.logs.backend.platform_source_config import filters_of
 from products.logs.backend.temporal.alert_evaluate import (
     EVALUATE_SCHEDULE_TO_CLOSE,
     EVALUATE_START_TO_CLOSE,
@@ -84,9 +85,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
         redis.get_client().delete(INFLIGHT_KEY)
 
     def _legacy_alert(self, source_config: dict[str, Any], **fields: Any) -> LogsAlertConfiguration:
-        filters = {key: value for key, value in source_config.items() if key != "condition"}
         return LogsAlertConfiguration.objects.create(
-            team=self.team, name="API errors", filters=filters, **source_config["condition"], **fields
+            team=self.team, name="API errors", filters=filters_of(source_config), **source_config["condition"], **fields
         )
 
     def _configuration(self, **overrides: Any) -> PlatformConfigurationSnapshot:
