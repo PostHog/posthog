@@ -930,7 +930,9 @@ def test_a_full_grouped_check_with_hostile_labels_fits_one_payload() -> None:
         policy=LOGS_ALERT_POLICY,
         now=datetime(2026, 10, 15, tzinfo=UTC),
     )
-    outcome = decision.as_outcome(configuration_id=check.id, evaluation_key="window:x", query_duration_ms=1)
+    outcome = decision.as_outcome(
+        configuration_id=check.id, evaluation_key="window:x", grouping=check.grouping, query_duration_ms=1
+    )
 
     assert len(outcome.groups) == MAX_INSTANCES_CEILING
     assert payload_bytes(outcome) < MAX_BATCH_PAYLOAD_BYTES
