@@ -303,7 +303,7 @@ class TestBuildFixVerificationPrompt:
             assert (field in prompt) is (metric_checks_enabled and monitoring_enabled)
         assert ("70-80% confidence" in prompt) is preferred
         assert ('Prefer `kind: "metric_threshold"`' in prompt) is preferred
-        assert ("1-6 hours" in prompt) is preferred
+        assert ("4-8 hours" in prompt) is preferred
         assert ("Default\n24 hours" in prompt) is (not preferred and (metric_checks_enabled or agent_checks_enabled))
         assert ('Use `kind: "agent"`' in prompt) is agent_checks_enabled
 

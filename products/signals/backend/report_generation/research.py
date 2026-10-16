@@ -373,8 +373,9 @@ confidence score. Do not require statistical significance or near-certainty, and
 invented confidence percentage. Baselines and thresholds must still come from the research.
 
 Choose the shortest useful observation window based on observed activity, recurrence frequency,
-ingestion delay, and deployment timing. Consider 1-6 hours for frequent failures or high-volume
-flows, around 24 hours when a day of activity is needed, and several days only when low volume,
+ingestion delay, and deployment timing. Allow for a deployment delay of several hours before the
+fix reaches users. Consider 4-8 hours for frequent failures or high-volume flows, around 24 hours
+when a day of activity is needed, and several days only when low volume,
 rollout timing, or a known batch cycle justifies the wait. Do not choose seven days merely because
 it is conventional.
 
