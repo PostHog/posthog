@@ -15,7 +15,6 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherObserver, BatcherOutputs, Revoker};
-use crate::commit_pacer::CommitPacer;
 use crate::config::{CompletionGranularity, Config};
 use crate::debug_recorder::{
     record_if, CommitOffset, DebugEventKind, DebugRecorder, PartitionOffset, PartitionOffsets,
@@ -234,7 +233,7 @@ struct RevokedPartition {
 fn revoke_hook(
     revoker: Revoker,
     ledger: Arc<TopicOffsetLedger>,
-    pacer: Arc<CommitPacer>,
+    settlement: Arc<dyn Settlement>,
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
 ) -> RevokeHook {
     Box::new(move |partitions| {
@@ -243,7 +242,7 @@ fn revoke_hook(
             .iter()
             .map(|(topic, partition)| TopicPartition::new(topic, *partition))
             .collect();
-        pacer.forget_partitions(&topic_partitions);
+        settlement.forget_partitions(&topic_partitions);
         revoked_partitions
             .lock()
             .unwrap()
@@ -454,7 +453,7 @@ impl IngestionConsumer {
         consumer.context().set_revoke_hook(revoke_hook(
             batcher.revoker(),
             Arc::clone(&topic_offset_ledger),
-            Arc::clone(settlement.pacer()),
+            Arc::clone(&settlement),
             Arc::clone(&revoked_partitions),
         ));
         let consumer = Arc::new(consumer);
@@ -520,7 +519,7 @@ impl IngestionConsumer {
         context.set_revoke_hook(revoke_hook(
             batcher.revoker(),
             Arc::clone(&topic_offset_ledger),
-            Arc::clone(settlement.pacer()),
+            Arc::clone(&settlement),
             Arc::clone(&revoked_partitions),
         ));
         let consumer: StreamConsumer<SentinelContext> =

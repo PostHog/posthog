@@ -30,6 +30,10 @@ pub(crate) trait Settlement: Send + Sync {
     fn settle_poll(&self, slices: &[ChargedSlice<'_>]);
 
     fn pacer(&self) -> &Arc<CommitPacer>;
+
+    fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
+        self.pacer().forget_partitions(topic_partitions);
+    }
 }
 
 pub(crate) fn for_granularity(
