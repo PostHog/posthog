@@ -379,6 +379,16 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
             sentinel.note_sent(&run.routing_key, &run.messages, kind);
             messages.extend(run.messages);
         }
+        counter!(
+            "ingestion_consumer_batcher_requests_sent_total",
+            "worker" => send.worker.clone()
+        )
+        .increment(1);
+        counter!(
+            "ingestion_consumer_batcher_messages_sent_total",
+            "worker" => send.worker.clone()
+        )
+        .increment(messages.len() as u64);
         let options = SendOptions {
             replay: send.class.replay,
             soft_budget: send.soft_budget,

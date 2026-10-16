@@ -2,12 +2,12 @@
 //! ingestion control plane UI).
 //!
 //! When `DEBUG_API_ENABLED` is set, an `Arc<DebugRecorder>` is injected into
-//! the dispatcher, consumer, transport, and worker registry. Each records a
-//! structured [`DebugEvent`] at the same points it already emits metrics —
-//! batch assignment, sub-batch resolution, deferral/flush, retries, worker
-//! health transitions. The recorder keeps a bounded rolling window of recent
-//! events (for a client connecting mid-stream to see history) and broadcasts
-//! every new event to live subscribers (the SSE feed at `/debug/events`).
+//! the consumer and the worker registry. Each records a structured
+//! [`DebugEvent`] at the same points it already emits metrics: batch
+//! dispatch, commit and failure, worker health transitions and membership.
+//! The recorder keeps a bounded rolling window of recent events (for a client
+//! connecting mid-stream to see history) and broadcasts every new event to
+//! live subscribers (the SSE feed at `/debug/events`).
 //!
 //! It is a pure observer: it never influences routing. When the feature is off,
 //! the recorder is `None` everywhere and nothing is constructed or recorded.
@@ -19,14 +19,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tokio::sync::broadcast;
-
-/// One worker's slice of an assigned (or flushed) batch.
-#[derive(Clone, Serialize)]
-pub struct SubBatchInfo {
-    pub worker: String,
-    pub messages: usize,
-    pub routing_keys: usize,
-}
 
 /// A topic-partition and the batch's max offset there, with observed lag.
 #[derive(Clone, Serialize)]
@@ -53,33 +45,6 @@ pub enum DebugEventKind {
         batch_id: String,
         messages: usize,
         partitions: Vec<PartitionOffset>,
-    },
-    /// The dispatcher grouped a batch by Kafka key and assigned sub-batches.
-    BatchAssigned {
-        batch_id: String,
-        routing_keys: usize,
-        sub_batches: Vec<SubBatchInfo>,
-        deferred_groups: u64,
-        unroutable_groups: u64,
-    },
-    /// A sub-batch resolved (ACK), releasing the worker's outstanding load.
-    SubBatchResolved {
-        worker: String,
-        messages: usize,
-        routing_keys: usize,
-        cleared_deferral: bool,
-    },
-    /// Messages were stashed rather than sent
-    /// (`reason`: drain/queued_behind_deferral/unroutable/send_failed).
-    Deferred {
-        batch_id: String,
-        reason: &'static str,
-        groups: u64,
-    },
-    /// Previously-deferred groups were re-routed to healthy workers.
-    DeferredFlushed {
-        batch_id: String,
-        sub_batches: Vec<SubBatchInfo>,
     },
     /// A batch's offsets were committed to Kafka.
     BatchCommitted {
@@ -133,26 +98,18 @@ pub struct WorkerHealthSnapshot {
     pub passive_samples: usize,
 }
 
-/// Per-worker outstanding in-flight load.
+/// The batcher's current load accounting.
 #[derive(Serialize)]
-pub struct LoadEntry {
-    pub worker: String,
-    pub in_flight: usize,
-}
-
-/// The dispatcher's current load/pin/stash accounting.
-#[derive(Serialize)]
-pub struct DispatcherLoad {
-    pub per_worker: Vec<LoadEntry>,
+pub struct BatcherLoad {
+    /// Messages sent and not yet resolved.
     pub total_in_flight: usize,
-    pub pin_count: usize,
-    pub stashed_messages: usize,
-    pub stashed_batches: usize,
+    /// Messages held for a later send: queued, packed and unplaced.
+    pub pending_messages: usize,
 }
 
-/// The dispatcher's routing configuration and, under aperture, its current
-/// ring slice — computed by the same code the assignment path uses, so what
-/// this reports is what the next batch would route with.
+/// The consumer's routing configuration and, under aperture, its current
+/// ring slice, computed by the same code the placement path uses, so what
+/// this reports is what the next request would route with.
 #[derive(Serialize)]
 pub struct RoutingDebug {
     /// Configured strategy (`p2c`, `aperture`).
@@ -161,13 +118,14 @@ pub struct RoutingDebug {
     pub min_aperture: Option<usize>,
     /// The canonical sorted worker ring shared by all peers.
     pub ring: Vec<String>,
-    /// This dispatcher's current slice candidates for unpinned keys; `None`
+    /// This consumer's current slice candidates for fresh requests; `None`
     /// when routing uses the full healthy pool (non-aperture strategy, or
     /// aperture falling back while the peer set is unknown).
     pub slice: Option<Vec<String>>,
 }
 
-/// Merged worker row: registry health plus the dispatcher's in-flight count.
+/// Merged worker row: registry health plus whether the batcher has a request
+/// in flight on the worker.
 #[derive(Serialize)]
 pub struct WorkerStatus {
     pub url: String,
@@ -176,7 +134,7 @@ pub struct WorkerStatus {
     pub consecutive_probe_failures: u32,
     pub passive_error_rate: f64,
     pub passive_samples: usize,
-    pub in_flight_messages: usize,
+    pub busy: bool,
 }
 
 /// The full snapshot returned by `/debug/state` (workers + load + event backlog).
@@ -184,7 +142,7 @@ pub struct WorkerStatus {
 pub struct DebugState {
     pub group_id: String,
     pub workers: Vec<WorkerStatus>,
-    pub dispatcher: DispatcherLoad,
+    pub batcher: BatcherLoad,
     /// This pod's index among its ready peers; `None` while not yet ready or
     /// when peer awareness is disabled.
     pub peer_index: Option<usize>,
@@ -194,13 +152,13 @@ pub struct DebugState {
     pub events: Vec<DebugEvent>,
 }
 
-/// Lightweight snapshot returned by `/debug/load` — workers + dispatcher load
+/// Lightweight snapshot returned by `/debug/load`: workers and batcher load
 /// only, no event backlog, so the UI can poll it at a high rate cheaply.
 #[derive(Serialize)]
 pub struct DebugLoad {
     pub group_id: String,
     pub workers: Vec<WorkerStatus>,
-    pub dispatcher: DispatcherLoad,
+    pub batcher: BatcherLoad,
     /// See [`DebugState::peer_index`].
     pub peer_index: Option<usize>,
     /// See [`DebugState::peer_count`].
