@@ -651,7 +651,8 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                     }
                     return
                 }
-                if (!teamId || !backfill) {
+                // Conditions are written for one target, so a retry under another would grade the wrong units.
+                if (!teamId || !backfill || backfill.target !== values.evaluation?.target) {
                     actions.transitionBackfillDone(id)
                     return
                 }

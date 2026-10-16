@@ -657,6 +657,18 @@ describe('evaluationBackfillsLogic', () => {
         }
     )
 
+    it('refuses a retry after the evaluation target changed', async () => {
+        listMock.mockResolvedValue({ count: 1, results: [backfill({ status: 'interrupted' })] })
+        await mountAndSettle()
+        saveEvaluation({ target: 'trace' })
+
+        logic.actions.retryBackfill('backfill-1')
+        await expectLogic(logic).toDispatchActions(['transitionBackfillDone'])
+
+        expect(createMock).not.toHaveBeenCalled()
+        expect(logic.values.transitioningIds).toEqual([])
+    })
+
     it('lets a retry run again after a rejected one and reports each click', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         listMock.mockResolvedValue({
