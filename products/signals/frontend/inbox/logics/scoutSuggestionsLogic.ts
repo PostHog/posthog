@@ -687,7 +687,9 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 actions.refreshRequestRefused()
                 // The endpoint refuses for ordinary reasons — the daily cap, the org's AI setting,
                 // a quota — so its own message is the one worth showing.
-                lemonToast.error(apiError?.detail ?? 'Could not start a new scan')
+                if (source !== 'onboarding' || apiError?.status !== 403) {
+                    lemonToast.error(apiError?.detail ?? 'Could not start a new scan')
+                }
             } finally {
                 cache.refreshInFlight = false
             }
