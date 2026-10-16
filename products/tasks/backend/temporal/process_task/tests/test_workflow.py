@@ -2576,13 +2576,20 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(workflow, "_start_slack_agent_design_relay", start_slack_relay_mock)
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
 
-        result = await workflow.run(ProcessTaskInput(run_id="run-id", slack_thread_context={"channel": "C1"}))
+        result = await workflow.run(
+            ProcessTaskInput(
+                run_id="run-id", slack_thread_context={"channel": "C1", "person_message": "Why is the export slow?"}
+            )
+        )
 
         assert result.success is True
         relay_sandbox_events_mock.assert_not_called()
         relay_agent_design_signals_mock.assert_called_once()
-        # The plan shows while the sandbox provisions, so the relay starts before the first turn.
-        start_slack_relay_mock.assert_awaited_once_with({"channel": "C1"}, setup_title="Setting up sandbox")
+        # The plan shows while the sandbox provisions, so the relay starts before the first turn. The
+        # mention goes with it alone, not with the context every later payload carries.
+        start_slack_relay_mock.assert_awaited_once_with(
+            {"channel": "C1"}, setup_title="Setting up sandbox", person_message="Why is the export slow?"
+        )
 
     @pytest.mark.parametrize(
         "early_relay_open, expected_starts",

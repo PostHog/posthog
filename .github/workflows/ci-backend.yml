@@ -4,11 +4,8 @@
 # .github/workflows/ci-backend-update-test-timing.yml action
 name: Backend CI
 on:
-    push:
-        branches:
-            - master
-    # No schedule trigger: the hourly full-matrix master run is on Depot CI, from the schedule
-    # trigger of .depot/workflows/ci-backend.yml.
+    # No push or schedule trigger: the master push and the hourly full-matrix master run are on
+    # Depot CI, from .depot/workflows/ci-backend.yml.
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
@@ -1648,8 +1645,6 @@ jobs:
         # over two of them: it is there to cancel a hang, not to cap how long the
         # history takes.
         timeout-minutes: 60
-        outputs:
-            mig_schema_key: ${{ steps.mig-schema-key.outputs.key }}
         # The "Publish Migration risk check" step posts the check via the
         # posthog-tests app token, which carries its own checks:write
         # installation permission — so the check lands in that app's own
@@ -2182,65 +2177,6 @@ jobs:
                       exit 1
                   fi
 
-            - name: Dump migrated schema
-              if: github.event_name == 'push'
-              run: |
-                  set -e
-                  set -o pipefail
-                  # Dump schema + django_migrations data so Django knows which migrations are applied
-                  # Run pg_dump inside container to ensure version match (host has pg_dump 16, container has 15)
-                  (docker compose -f docker-compose.dev.yml exec -T db pg_dump --schema-only --clean --if-exists -U posthog posthog && \
-                   docker compose -f docker-compose.dev.yml exec -T db pg_dump --data-only --table=django_migrations -U posthog posthog) | gzip > schema.sql.gz
-                  # Verify the dump is valid
-                  gunzip -t schema.sql.gz
-
-            - name: Upload migrated schema artifact
-              if: github.event_name == 'push'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: migrated-schema
-                  path: schema.sql.gz
-                  # Consumers only ever take the newest artifact, so a longer window just
-                  # adds pages to the artifacts listing that db:download-schema walks.
-                  retention-days: 7
-
-            - name: Save schema to Actions cache for PR shards
-              # Kept as the exact merge-base key that every consumer's restore-keys falls back to.
-              if: github.event_name == 'push'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: schema.sql.gz
-                  key: posthog-schema-master-${{ github.sha }}
-
-            - name: Compute migration-set schema key
-              # Must match the merge-base computation in turbo-discover and the
-              # master restore key above (inputs, hash, and key prefix).
-              if: github.event_name == 'push'
-              id: mig-schema-key
-              run: |
-                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
-                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
-                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
-                      | LC_ALL=C sort) || true
-                  # Routing decides which app labels are in the dump, so these inputs belong in the key.
-                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
-                  PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
-                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
-                  if [ -z "$MIG_FILES" ]; then
-                      echo "key=" >> $GITHUB_OUTPUT
-                      echo "::notice::no migration files matched — skipping migration-set schema save"
-                  else
-                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
-                      echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Save schema to Actions cache (migration-set key)
-              if: github.event_name == 'push' && steps.mig-schema-key.outputs.key != ''
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: schema.sql.gz
-                  key: ${{ steps.mig-schema-key.outputs.key }}
-
             - name: Check migrations
               # Skip migration safety check on master push (no migration_files from path filter)
               if: github.event_name != 'push'
@@ -2363,37 +2299,6 @@ jobs:
                   else
                       echo "Skipping CH migration section — script not present on this checkout"
                   fi
-
-    mirror-schema-cache:
-        needs: [check-migrations]
-        # Fork PRs run without secrets, so they aren't authenticated to Depot Cache and
-        # read only GitHub's own cache, where check-migrations' Depot-runner saves never land.
-        # Mirror the dump there so fork PRs prime instead of migrating from scratch.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        name: Mirror schema cache to GitHub cache
-        runs-on: ubuntu-24.04
-        timeout-minutes: 5
-        permissions:
-            contents: read
-        steps:
-            - name: Download migrated schema artifact
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-              with:
-                  name: migrated-schema
-
-            - name: Save schema to GitHub cache (merge-base key)
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: schema.sql.gz
-                  key: posthog-schema-master-${{ github.sha }}
-
-            - name: Save schema to GitHub cache (migration-set key)
-              if: github.ref == 'refs/heads/master' && needs.check-migrations.outputs.mig_schema_key != ''
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: schema.sql.gz
-                  key: ${{ needs.check-migrations.outputs.mig_schema_key }}
 
     check-openapi-types:
         needs: [changes]
