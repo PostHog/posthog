@@ -329,6 +329,45 @@ def team_api_test_factory():
                 ]
             )
 
+        @time_machine.travel("2022-02-08", tick=False)
+        def test_update_revenue_analytics_config_logs_only_the_config_change(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"revenue_analytics_config": {"filter_test_accounts": True}},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            self._assert_activity_log(
+                [
+                    {
+                        "activity": "updated",
+                        "created_at": "2022-02-08T00:00:00Z",
+                        "detail": {
+                            "changes": [
+                                {
+                                    "action": "changed",
+                                    "after": {"events": [], "filter_test_accounts": True},
+                                    "before": {"events": [], "filter_test_accounts": False},
+                                    "field": "revenue_analytics_config",
+                                    "type": "Team",
+                                },
+                            ],
+                            "name": "Default project",
+                            "short_id": None,
+                            "trigger": None,
+                            "type": None,
+                        },
+                        "item_id": str(self.team.pk),
+                        "scope": "Team",
+                        "user": {
+                            "email": "user1@posthog.com",
+                            "first_name": "",
+                        },
+                    },
+                ]
+            )
+
         def test_update_test_filter_default_checked(self):
             response = self.client.patch(
                 "/api/environments/@current/", {"test_account_filters_default_checked": "true"}
@@ -1331,18 +1370,18 @@ def team_api_test_factory():
                 },
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            self.team.refresh_from_db()
-            assert self.team.workflows_config.workflow_task_rate_limit_per_day == 250
-            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+            config = TeamWorkflowsConfig.objects.get(team=self.team)
+            assert config.workflow_task_rate_limit_per_day == 250
+            assert config.workflow_task_team_rate_limit_per_day == 1000
 
             response = self.client.patch(
                 f"/api/environments/{self.team.id}",
                 {"workflows_config": {"workflow_task_rate_limit_per_day": None}},
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            self.team.refresh_from_db()
-            assert self.team.workflows_config.workflow_task_rate_limit_per_day is None
-            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+            config = TeamWorkflowsConfig.objects.get(team=self.team)
+            assert config.workflow_task_rate_limit_per_day is None
+            assert config.workflow_task_team_rate_limit_per_day == 1000
 
         def test_support_raised_limit_survives_an_echoed_update(self) -> None:
             TeamWorkflowsConfig.objects.update_or_create(

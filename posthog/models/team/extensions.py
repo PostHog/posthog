@@ -105,10 +105,13 @@ class TeamExtensionDescriptor:
         self.class_name = class_name
         self.defaults = defaults
         self._model_class: type[models.Model] | None = None
-        self.attr_name = ""
+        self.cache_name = ""
 
     def __set_name__(self, owner: type, name: str) -> None:
-        self.attr_name = name
+        # The team update paths diff snapshots of `Team.__dict__` for the activity log.
+        # dict_changes_between skips keys that start with "_". A cache under the public name would
+        # log the config as a team field that changed.
+        self.cache_name = f"_{name}"
 
     @property
     def model_class(self) -> type[models.Model]:
@@ -120,6 +123,6 @@ class TeamExtensionDescriptor:
     def __get__(self, obj: "Team | None", objtype: type | None = None) -> Any:
         if obj is None:
             return self
-        value = get_or_create_team_extension(obj, self.model_class, self.defaults)
-        obj.__dict__[self.attr_name] = value
-        return value
+        if self.cache_name not in obj.__dict__:
+            obj.__dict__[self.cache_name] = get_or_create_team_extension(obj, self.model_class, self.defaults)
+        return obj.__dict__[self.cache_name]

@@ -9256,7 +9256,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             _create_person(team_id=team.pk, distinct_ids=[f"seen_person_{i}"], properties={"group": f"{i}"})
 
         with self.capture_select_queries() as queries:
-            assert team.persons_seen_so_far == 3
+            assert team.count_persons_seen_so_far() == 3
 
         assert queries
         for query in queries:

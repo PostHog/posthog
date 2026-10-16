@@ -998,6 +998,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 status=DataWarehouseSavedQuery.Status.COMPLETED,
             )
 
+        # The build reads the revenue analytics config once per Team instance. Load it first, so that
+        # the counts below cover only the queries that grow with the warehouse rows.
+        _ = self.team.revenue_analytics_config
         with self.assertNumQueries(max_queries):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
@@ -1307,10 +1310,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         config = self.team.revenue_analytics_config
         config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
         config.save()
-        # Team.revenue_analytics_config memoizes by team pk in a module-level lru_cache, so the
-        # configured object would outlive this test's transaction and leak into later tests
-        # in this class, which share the team pk.
-        self.addCleanup(Team.__dict__["revenue_analytics_config"].fget.cache_clear)
 
     def test_revenue_views_build_only_on_revenue_table_access(self):
         self._configure_revenue_events()
@@ -2363,6 +2362,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         # +2 vs the pre-bulk baseline: one bulk source fetch and one bulk credential fetch replace the
         # per-row source/credential joins (hydrate/decrypt once each, not per table).
         num_queries = FuzzyInt(7, 13)
+        # The build reads the revenue analytics config once per Team instance. Load it first, so that
+        # every iteration counts only the queries that grow with the warehouse rows.
+        _ = self.team.revenue_analytics_config
 
         for i in range(10):
             source = ExternalDataSource.objects.create(
