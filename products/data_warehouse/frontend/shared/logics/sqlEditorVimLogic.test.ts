@@ -129,7 +129,7 @@ describe('sqlEditorVimLogic', () => {
             setUp({ uiConfiguration: { version: 1 } })
 
             if (scenario === 'sidebar-before-vim') {
-                uiCustomizationLogic.actions.setSidebarDensity('compact')
+                uiCustomizationLogic.actions.completeStarredProductsSetup()
             } else {
                 logic.actions.setVimModeEnabled(true)
             }
@@ -139,7 +139,7 @@ describe('sqlEditorVimLogic', () => {
                 logic.actions.setVimrcDraft('set relativenumber')
                 logic.actions.saveVimrc()
             } else if (scenario === 'sidebar-after-vim') {
-                uiCustomizationLogic.actions.setSidebarDensity('compact')
+                uiCustomizationLogic.actions.completeStarredProductsSetup()
             } else {
                 logic.actions.setVimModeEnabled(true)
             }
@@ -149,7 +149,7 @@ describe('sqlEditorVimLogic', () => {
 
             const expectedConfiguration = {
                 version: 1,
-                ...(scenario === 'vimrc' ? {} : { sidebar: { density: 'compact' } }),
+                ...(scenario === 'vimrc' ? {} : { sidebar: { starred_products_setup_completed: true } }),
                 sql_editor: {
                     vim_mode_enabled: true,
                     ...(scenario === 'vimrc' ? { vimrc: 'set relativenumber' } : {}),

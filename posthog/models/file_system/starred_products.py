@@ -2,8 +2,6 @@ from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 
-import posthoganalytics
-
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut, lock_user_shortcuts
 from posthog.models.user import User
@@ -12,29 +10,11 @@ from posthog.products import Products
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
-# pinned: feature flag key, must match FEATURE_FLAGS.SIMPLE_SIDEPANEL in frontend/src/lib/constants.tsx
-SIMPLE_SIDEPANEL_FLAG = "simple-sidepanel"
-
 
 def starred_products_setup_completed(user: User) -> bool:
     configuration = user.ui_configuration
     sidebar = configuration.get("sidebar") if isinstance(configuration, dict) else None
     return isinstance(sidebar, dict) and bool(sidebar.get("starred_products_setup_completed"))
-
-
-def _simple_sidebar_enabled(user: User, team: "Team") -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            SIMPLE_SIDEPANEL_FLAG,
-            str(user.distinct_id),
-            person_properties={"email": user.email},
-            # Same group keys as the frontend's posthog.group() calls, so both sides get the same answer.
-            groups={"organization": str(team.organization_id), "project": str(team.uuid)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    )
 
 
 def mark_starred_products_setup_completed(user: User) -> None:
@@ -94,7 +74,7 @@ def star_products(user: User, team: "Team", product_paths: list[str]) -> int:
 
 
 def star_custom_products(user: User, team: "Team", product_paths: list[str], *, had_custom_products: bool) -> None:
-    """Star products that were just added to a user's custom products, for simple sidebar users.
+    """Star products that were just added to a user's custom products.
 
     The simple sidebar shows starred products instead of custom products, so every write that adds
     custom products calls this to keep the two in step. `had_custom_products` says whether the user
@@ -109,8 +89,6 @@ def star_custom_products(user: User, team: "Team", product_paths: list[str], *, 
         return
     completed = starred_products_setup_completed(user)
     if not completed and had_custom_products:
-        return
-    if not _simple_sidebar_enabled(user, team):
         return
 
     star_products(user, team, product_paths)
