@@ -1313,11 +1313,9 @@ class TestHogQLModel:
         )
 
         with patch("products.batch_exports.backend.temporal.pipeline.internal_stage._execute_query") as execute_query:
-            result = await activity_environment.run(insert_into_internal_stage_activity, inputs)
+            with pytest.raises(ValueError, match="requires user_id"):
+                await activity_environment.run(insert_into_internal_stage_activity, inputs)
 
-        assert result.error is not None
-        assert result.error.type == "UnsupportedHogQLQueryError"
-        assert "needs an active user" in result.error.message
         execute_query.assert_not_called()
         mock_clickhouse_client.expect_query_count(0)
 
