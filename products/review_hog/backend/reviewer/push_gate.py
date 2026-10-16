@@ -19,7 +19,8 @@ The rules, in order. The first rule that matches gives the reason:
    review, so small pushes cannot pile up without a review. A push that every rule lets through to a review
    sets the count back to 0. A push that a rule skips keeps the count, because nothing was reviewed. The
    count is stored only after the last rule has decided, so a draft or throttle skip also keeps it. When
-   another turn of the PR stored a count after this turn read it, a small push runs the review.
+   the count cannot be stored, because another turn of the PR stored one after this turn read it or Redis
+   refuses the write, a small push runs the review.
 6. `system_one_below_threshold`: System One rates the new own commits below a threshold.
 7. `draft`: the PR is a draft and no rule above skips the push. A draft cannot merge, and marking it
    ready starts a turn that reviews everything since the last reviewed head. The rules above still run,
@@ -207,7 +208,7 @@ RunReason = Literal[
     "interdiff_too_large",
     "compare_unavailable",
     "snapshot_unavailable",
-    "small_change_conflict",
+    "small_change_not_stored",
 ]
 
 
@@ -592,8 +593,8 @@ class PushGate:
         """Store the small-change count of the final decision, and return the decision that applies.
 
         The store succeeds only when the counter still holds the value `decide` read. When another turn
-        moved it first, the count of this decision is stale, so a small-change match runs the review.
-        Without Redis the next push counts again.
+        moved it first, or the write fails, the next push would count from the old value, so a small-change
+        match runs the review.
         """
         # Apart from `decide`, because the draft and throttle rules run later and can still skip the review.
         if decision.small_change_deferrals is None:
@@ -611,10 +612,10 @@ class PushGate:
                 ],
             )
         except RedisError:
-            return decision
+            stored = 0
         if stored or decision.reason != "small_change":
             return decision
-        return replace(decision, skip=False, would_skip=False, reason="small_change_conflict")
+        return replace(decision, skip=False, would_skip=False, reason="small_change_not_stored")
 
 
 def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDecision:

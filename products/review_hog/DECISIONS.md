@@ -206,7 +206,8 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   A capped file list or a file without counts makes the net lines unknown, and the rule does not match. A per-PR
   counter in Redis allows `SMALL_CHANGE_MAX_DEFERRALS` (2) deferrals in a row: the next small push runs the review and
   sets the counter to 0, and so does any push the rule does not match. Without Redis the rule does not match. A retried
-  turn at the same head reuses the count of its first attempt. `SKIP_SMALL_CHANGE = False`, so the rule only logs:
+  turn at the same head reuses the count of its first attempt. The count is stored with a compare-and-set: when another
+  turn stored a count first or the write fails, the small push runs the review (`small_change_not_stored`). `SKIP_SMALL_CHANGE = False`, so the rule only logs:
   every decision carries `net_code_lines` and `small_change_deferrals` on `reviewhog_push_gate_decided`.
 - **Why.** Since Oct 14 14:33 UTC, 71% of automatic follow-up runs surfaced nothing. The chance that a run surfaces
   something grows with the net code lines of the push, and small pushes rarely surface anything.

@@ -584,21 +584,29 @@ def test_push_gate_reviews_a_small_push_whose_count_another_turn_moved() -> None
 
     assert [(decision.reason, decision.would_skip) for decision in recorded] == [
         ("small_change", True),
-        ("small_change_conflict", False),
+        ("small_change_not_stored", False),
     ]
     assert get_client().get("reviewhog_small_change_deferrals:PostHog/posthog:1") == b"n2:2"
 
 
-def test_push_gate_reviews_a_small_push_when_redis_is_down() -> None:
+@parameterized.expand(
+    [
+        ("read_fails", True, ("system_one_above_threshold", 3, None)),
+        ("write_fails", False, ("small_change_not_stored", 3, 1)),
+    ]
+)
+def test_push_gate_reviews_a_small_push_when_redis_fails(
+    _name: str, read_fails: bool, expected: tuple[str, int, int | None]
+) -> None:
     redis = MagicMock()
-    redis.get.side_effect = RedisError("down")
+    if read_fails:
+        redis.get.side_effect = RedisError("down")
+    else:
+        redis.get.return_value = None
+        redis.register_script.return_value.side_effect = RedisError("read only")
     with patch(f"{_MODULE}.get_client", return_value=redis):
-        decision = _decide(_small_push("new", [_net_file("posthog/billing.py", 3)]), _system_one(0.8))
-    assert (decision.reason, decision.net_code_lines, decision.small_change_deferrals) == (
-        "system_one_above_threshold",
-        3,
-        None,
-    )
+        decision = _decide(_small_push("new", [_net_file("posthog/billing.py", 3)]), _system_one(0.8), record=True)
+    assert (decision.reason, decision.net_code_lines, decision.small_change_deferrals) == expected
 
 
 @parameterized.expand(
