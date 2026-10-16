@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "delete_insights": {
+            "default": false,
+            "description": "Also delete insights that have no remaining dashboard after deletion. Defaults to false.",
+            "type": "boolean"
+        },
+        "ids": {
+            "description": "Dashboard IDs to soft-delete. At most 100 IDs per request.",
+            "items": {
+                "minimum": 1,
+                "type": "number"
+            },
+            "maxItems": 100,
+            "type": "array"
+        }
+    },
+    "required": ["ids"],
+    "type": "object"
+}

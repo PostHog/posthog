@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceDescription,
 )
 from products.logs.backend.alert_evaluation_key import window_end_of
+from products.logs.backend.alert_group_columns import GROUP_COLUMNS
 from products.logs.backend.logs_url_params import build_logs_url_params, has_filter_values
 
 # A resolve reports the count that ended the firing, so it is not a breach. A held check, which
@@ -53,7 +54,13 @@ def _details(transition: AnnouncedTransition) -> tuple[MessageDetail, ...]:
         f"{count} {noun} in {condition['window_minutes']}m "
         f"(threshold: {condition['threshold_operator']} {condition['threshold_count']})"
     )
-    return (MessageDetail(label=_LABELS.get(transition.kind, "Count"), value=summary),)
+    # A grouped alert sends one message per group, so each one names the group it is about.
+    group = tuple(
+        MessageDetail(label=group_column.label, value=transition.labels[column])
+        for column, group_column in GROUP_COLUMNS.items()
+        if column in transition.labels
+    )
+    return (*group, MessageDetail(label=_LABELS.get(transition.kind, "Count"), value=summary))
 
 
 def _context(filters: dict[str, Any]) -> tuple[str, ...]:
@@ -89,7 +96,37 @@ def _window_params(transition: AnnouncedTransition) -> str:
     window_end = window_end_of(transition.evaluation_key)
     date_to = _in_utc(replace(transition, occurred_at=window_end) if window_end else transition).occurred_at
     date_from = date_to - timedelta(minutes=transition.condition["window_minutes"])
-    return build_logs_url_params(transition.source_config, date_from=date_from, date_to=date_to)
+    return build_logs_url_params(_group_filters(transition), date_from=date_from, date_to=date_to)
+
+
+def _group_filters(transition: AnnouncedTransition) -> dict[str, Any]:
+    """The alert's filters narrowed to the group a transition is about, so a link opens its logs only.
+
+    The group's value replaces any list the alert has for that column, in its own field and in each
+    `filterGroup` selection of the column. An alert with a list counted only logs inside it, so the
+    group's value is one of them and the link narrows, never widens.
+    """
+    filters = dict(transition.source_config)
+    selected: dict[str, str] = {}
+    for column, group_column in GROUP_COLUMNS.items():
+        if column in transition.labels:
+            filters[group_column.filter_key] = [transition.labels[column]]
+            selected[group_column.filter_group_key] = transition.labels[column]
+    if selected and isinstance(filters.get("filterGroup"), dict):
+        # The logs scene ignores the field when `filterGroup` selects the same column.
+        filters["filterGroup"] = _narrowed(filters["filterGroup"], selected)
+    return filters
+
+
+def _narrowed(node: Any, selected: dict[str, str]) -> Any:
+    """A copy of a filter group whose include selections of the `selected` columns hold only their value."""
+    if not isinstance(node, dict):
+        return node
+    if isinstance(node.get("values"), list):
+        return {**node, "values": [_narrowed(child, selected) for child in node["values"]]}
+    if node.get("type") == "log" and node.get("operator") == "exact" and node.get("key") in selected:
+        return {**node, "value": [selected[node["key"]]]}
+    return node
 
 
 _LEGACY_WEBHOOK_TYPES: Final = {

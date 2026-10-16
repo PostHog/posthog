@@ -21,7 +21,6 @@ import type {
     DateRange,
     EntityNode,
     EventsNode,
-    ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentMetric,
     ExperimentMetricSource,
@@ -36,10 +35,8 @@ import type {
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
-import type { IntervalType, MultivariateFlagVariant } from '~/types'
-import { ChartDisplayType, ExperimentMetricMathType, PropertyFilterType, PropertyOperator } from '~/types'
-
-import { EXPOSURE_DEFAULT_EVENT, EXPOSURE_FEATURE_FLAG_PROPERTY, featureFlagVariantProperty } from './exposureContract'
+import type { IntervalType } from '~/types'
+import { ChartDisplayType, ExperimentMetricMathType } from '~/types'
 
 /**
  * We extract all the math properties from the EntityNode type so we can use them as
@@ -302,52 +299,6 @@ export function seriesToMetricConfig(
             return source ? { metric_type: ExperimentMetricType.MEAN as const, source } : undefined
         })
         .otherwise(() => undefined)
-}
-
-/**
- * converts the experiment exposure config in to an events node
- */
-export const getExposureConfigEventsNode = (
-    exposureConfig: ExperimentEventExposureConfig,
-    options: {
-        featureFlagKey: string
-        featureFlagVariants: MultivariateFlagVariant[]
-        /** The experiment's server-resolved default exposure event, see `resolvedExposureEvent`. */
-        resolvedExposureEvent?: string
-    }
-): EventsNode => {
-    const exposure_step_name = 'Experiment exposure'
-    if (exposureConfig && exposureConfig.event !== EXPOSURE_DEFAULT_EVENT) {
-        const { featureFlagKey, featureFlagVariants } = options
-        return {
-            kind: NodeKind.EventsNode,
-            custom_name: exposure_step_name,
-            event: exposureConfig.event,
-            properties: [
-                ...(exposureConfig.properties || []),
-                {
-                    key: featureFlagVariantProperty(featureFlagKey),
-                    type: PropertyFilterType.Event,
-                    value: featureFlagVariants.map(({ key }) => key),
-                    operator: PropertyOperator.Exact,
-                },
-            ],
-        }
-    }
-
-    return {
-        kind: NodeKind.EventsNode,
-        custom_name: exposure_step_name,
-        event: options.resolvedExposureEvent ?? EXPOSURE_DEFAULT_EVENT,
-        properties: [
-            {
-                key: EXPOSURE_FEATURE_FLAG_PROPERTY,
-                type: PropertyFilterType.Event,
-                value: options.featureFlagKey,
-                operator: PropertyOperator.Exact,
-            },
-        ],
-    }
 }
 
 /**
