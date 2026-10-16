@@ -197,20 +197,36 @@ describe('ToolExecutor analytics capture', () => {
         expect(state.context.api.config.onPrivateResponse).toBeUndefined()
     })
 
-    it('injects the analytics arguments into advertised tools', async () => {
-        const state = makeToolExecutorState([], { useSingleExec: true })
+    it.each([true, false])('isolates intent descriptions with single exec=%s', async (useSingleExec) => {
+        const tool = catalog.getFilteredTools({ scopes: ['*'] }).find((entry) => entry.name === 'projects-get')!
+        const state = makeToolExecutorState([tool], { useSingleExec })
+        const prompt = 'State the task objective before the tool action. Omit identifying details.'
 
         const result = await executor.handleToolsList(state)
+        const treatment = await executor.handleToolsList({
+            ...state,
+            distinctId: 'trial-user',
+            intentPrompt: prompt,
+        })
+        const other = await executor.handleToolsList({ ...state, distinctId: 'another-user' })
+        vi.spyOn(getPostHogClient(), 'prepareToolList').mockImplementationOnce(() => {
+            throw new Error('Synthetic SDK preparation failure')
+        })
+        const fallback = await executor.handleToolsList({ ...state, intentPrompt: prompt })
 
-        const execEntry = result.tools.find((t) => t.name === 'exec')!
-        const properties = execEntry.inputSchema.properties as Record<string, unknown>
-        // The SDK injects `context` (required, to nudge the agent to state intent)
-        // while leaving the existing `command` arg untouched.
+        const entry = result.tools[0]!
+        const properties = entry.inputSchema.properties as Record<string, unknown>
         expect(properties).toHaveProperty('context')
         expect(properties).toHaveProperty('llm_model')
-        expect(properties).toHaveProperty('command')
-        expect(execEntry.inputSchema.required).toContain('context')
-        expect(execEntry.inputSchema.required).toContain('llm_model')
+        expect(entry.inputSchema.required).toContain('context')
+        expect(entry.inputSchema.required).toContain('llm_model')
+        expect(treatment.tools[0]!.inputSchema.properties?.context).toMatchObject({ description: prompt })
+        expect(other.tools[0]!.inputSchema.properties?.context).toEqual(properties.context)
+        expect(properties.context).not.toEqual(treatment.tools[0]!.inputSchema.properties?.context)
+        expect(fallback.tools[0]!.inputSchema.properties).not.toHaveProperty('context')
+        if (useSingleExec) {
+            expect(properties).toHaveProperty('command')
+        }
     })
 
     it.each([
@@ -485,6 +501,11 @@ describe('ToolExecutor analytics capture', () => {
         const hooks = {
             beforeExecute: async (callState: ResolvedState): Promise<undefined> => {
                 observedHandles.push(callState.requestContext.mcpConversationId)
+                callState.interviewRecruitmentDiagnostics = {
+                    reason: 'url_unsupported',
+                    urlSupported: false,
+                    formSupported: true,
+                }
                 return undefined
             },
             afterExecute: async (): Promise<void> => {},
@@ -495,6 +516,12 @@ describe('ToolExecutor analytics capture', () => {
         expect(handle).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
         await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
         expect(captureSpy.mock.calls[0]![0].conversationId).toBe(handle)
+        expect(captureSpy.mock.calls[0]![0].properties).toMatchObject({
+            interview_recruitment_reason: 'url_unsupported',
+            interview_recruitment_url_supported: false,
+            interview_recruitment_form_supported: true,
+        })
+        expect(state.interviewRecruitmentDiagnostics).toBeUndefined()
 
         const secondState = statelessState()
         const second = await executor.handleToolCall(

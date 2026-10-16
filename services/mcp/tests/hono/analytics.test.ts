@@ -93,6 +93,36 @@ describe('Hono MCP analytics contexts', () => {
         mockCapture.mockClear()
     })
 
+    it.each([false, true])(
+        'records recruitment diagnostics without exposing them on suppressed calls: %s',
+        async (suppressed) => {
+            const state = makeState({
+                suppressAnalytics: suppressed,
+                interviewRecruitmentDiagnostics: {
+                    reason: 'url_unsupported',
+                    urlSupported: false,
+                    formSupported: true,
+                    campaignId: 'synthetic-study',
+                },
+            })
+            await trackToolCall('user-get', 12, false, state)
+            const properties = mockCaptureToolCall.mock.calls[0]![0].properties
+            if (suppressed) {
+                expect(properties).not.toHaveProperty('interview_recruitment_reason')
+                expect(properties).not.toHaveProperty('interview_recruitment_form_supported')
+            } else {
+                expect(properties).toMatchObject({
+                    interview_recruitment_reason: 'url_unsupported',
+                    interview_recruitment_url_supported: false,
+                    interview_recruitment_form_supported: true,
+                    interview_recruitment_campaign_id: 'synthetic-study',
+                })
+                expect(properties).not.toHaveProperty('interview_recruitment_completed_calls')
+            }
+            expect(mockCapture).not.toHaveBeenCalled()
+        }
+    )
+
     it('does not dual-emit the retired legacy mcp_tool_call / mcp_initialize names', async () => {
         // Guards against reintroducing the legacy dual-emit, which double-counted every call.
         await trackInitEvent(makeState())
