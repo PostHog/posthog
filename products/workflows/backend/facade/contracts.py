@@ -59,6 +59,14 @@ class WorkflowTaskDailyLimits:
 
 
 @frozen
+class WorkflowVisionScanDailyLimits:
+    """A team's daily caps on Replay Vision scans requested by workflows. None means the default cap applies."""
+
+    per_workflow: int | None
+    per_team: int | None
+
+
+@frozen
 class WorkflowBatchJob:
     """One batch run of a workflow.
 

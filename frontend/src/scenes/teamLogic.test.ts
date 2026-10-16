@@ -109,9 +109,6 @@ describe('teamLogic', () => {
         beforeEach(() => {
             initKeaTests()
             useMocks({
-                get: {
-                    '/api/environments/:id/user_product_list': () => [200, { results: [], count: 0 }],
-                },
                 patch: {
                     // Simulates the race hit in production: `complete_product_onboarding` serializes
                     // the team from a snapshot taken before the concurrent onboarding-completion

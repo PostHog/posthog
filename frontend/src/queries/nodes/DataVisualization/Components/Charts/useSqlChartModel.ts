@@ -7,6 +7,9 @@ import {
     type TooltipConfig,
     type XAxisConfig,
     type ChartMargins,
+    type YAxisConfig,
+    type ValueDomain,
+    type BarsConfig,
 } from '@posthog/quill-charts'
 
 import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
@@ -34,7 +37,14 @@ export interface SqlChartModel<TConfig> {
 }
 
 export function useSqlChartModel<
-    TConfig extends { tooltip?: TooltipConfig; xAxis?: XAxisConfig; margins?: Partial<ChartMargins> },
+    TConfig extends {
+        tooltip?: TooltipConfig
+        xAxis?: XAxisConfig
+        yAxis?: YAxisConfig | YAxisConfig[]
+        valueDomain?: ValueDomain
+        bars?: BarsConfig
+        margins?: Partial<ChartMargins>
+    },
 >(
     {
         xData,
@@ -48,6 +58,7 @@ export function useSqlChartModel<
         labelFormatter,
         xAxis,
         margins,
+        valueDomain,
     }: SqlChartProps,
     buildConfig: (args: BuildBarConfigArgs) => TConfig
 ): SqlChartModel<TConfig> | null {
@@ -98,6 +109,31 @@ export function useSqlChartModel<
             : undefined
         return {
             ...config,
+            ...(valueDomain
+                ? {
+                      valueDomain,
+                      ...(visualizationType === ChartDisplayType.ActionsBarValue
+                          ? {
+                                bars: {
+                                    ...config.bars,
+                                    valueDomain: {
+                                        ...config.bars?.valueDomain,
+                                        ...valueDomain,
+                                        include: [
+                                            ...(config.bars?.valueDomain?.include ?? []),
+                                            ...(valueDomain.include ?? []),
+                                        ],
+                                    },
+                                },
+                            }
+                          : {}),
+                      yAxis: Array.isArray(config.yAxis)
+                          ? config.yAxis.map((axis, index) =>
+                                index === 0 ? { ...axis, min: valueDomain.min, max: valueDomain.max } : axis
+                            )
+                          : { ...config.yAxis, min: valueDomain.min, max: valueDomain.max },
+                  }
+                : {}),
             ...(formatLabel && visualizationType === ChartDisplayType.ActionsBarValue
                 ? { xTickFormatter: formatLabel }
                 : {}),
@@ -124,6 +160,7 @@ export function useSqlChartModel<
         labelFormatter,
         xAxis,
         margins,
+        valueDomain,
     ])
 
     const labels = useMemo(
