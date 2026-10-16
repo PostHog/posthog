@@ -295,6 +295,25 @@ class TestSchemas:
         assert by_name["orders"].detected_primary_keys == ["id"]
         assert by_name["events"].supports_incremental is False
 
+    def test_named_tables_are_fetched_one_by_one_and_a_dropped_one_is_left_out(self) -> None:
+        with scripted_network(
+            by_target(
+                {
+                    "GetTable": [
+                        ScriptedResponse(json=ORDERS_TABLE),
+                        aws_error("EntityNotFoundException", "Table gone not found"),
+                    ]
+                }
+            )
+        ) as network:
+            schemas = AwsAthenaSource().get_schemas(config(), team_id=1, names=["orders", "gone"])
+
+        assert [request.headers["x-amz-target"] for request in network.requests_log] == [
+            "AWSGlue.GetTable",
+            "AWSGlue.GetTable",
+        ]
+        assert [schema.name for schema in schemas] == ["orders"]
+
 
 class TestAthenaLiteral:
     @pytest.mark.parametrize(

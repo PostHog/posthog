@@ -287,6 +287,18 @@ def _glue_columns(table: dict[str, Any]) -> list[AthenaColumn]:
 
 def list_glue_tables(client: AthenaClient, database: str, names: Optional[list[str]]) -> dict[str, list[AthenaColumn]]:
     tables: dict[str, list[AthenaColumn]] = {}
+    if names is not None:
+        # A large catalog takes hundreds of GetTables pages, so named tables are fetched one by one.
+        for name in names:
+            try:
+                body = client.call(GLUE_SERVICE, "GetTable", {"DatabaseName": database, "Name": name})
+            except AwsAthenaError as error:
+                if error.code == "EntityNotFoundException":
+                    continue
+                raise
+            if columns := _glue_columns(body.get("Table") or {}):
+                tables[name] = columns
+        return tables
     next_token: Optional[str] = None
     while True:
         params: dict[str, Any] = {"DatabaseName": database, "MaxResults": GLUE_PAGE_SIZE}
@@ -297,7 +309,7 @@ def list_glue_tables(client: AthenaClient, database: str, names: Optional[list[s
             name = str(table.get("Name") or "")
             columns = _glue_columns(table)
             # A table Glue lists with no columns (a Spark-registered Delta table, for one) can never be queried.
-            if name and columns and (names is None or name in names):
+            if name and columns:
                 tables[name] = columns
         next_token = body.get("NextToken")
         if not next_token:
