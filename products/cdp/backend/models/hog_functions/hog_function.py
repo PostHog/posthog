@@ -174,10 +174,14 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["HogFunction"]:
-        base_qs = HogFunction.objects.filter(team=team, deleted=False)
+        base_qs = HogFunction.objects.filter(team=team, deleted=False, mcp_event_subscription__isnull=True)
         return cls._filter_unfiled_queryset(
             base_qs, team, type__startswith="hog_function/", ref_field="id", surface=surface
         )
+
+    @property
+    def is_mcp_event_destination(self) -> bool:
+        return "mcp_credential" in (self.encrypted_inputs or {})
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         folder = "Unfiled/Destinations"
@@ -207,7 +211,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,
             },
-            should_delete=self.deleted,
+            should_delete=self.deleted or self.is_mcp_event_destination,
         )
 
     @property
@@ -371,7 +375,7 @@ def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
         return
 
     if instance.type is None or instance.type in TYPES_THAT_RELOAD_PLUGIN_SERVER:
-        if "mcp_credential" in (instance.encrypted_inputs or {}):
+        if instance.is_mcp_event_destination:
             # Task discovery imports HogFunction before Django finishes loading its models.
             from products.cdp.backend.tasks.mcp_events import reload_mcp_destinations_after_commit  # noqa: PLC0415
 

@@ -27,6 +27,9 @@ def refresh_affected_hog_functions(
     from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
     affected_hog_functions: list[HogFunction] = []
+    live_mcp_subscription = Q(
+        mcp_event_subscription__active=True, mcp_event_subscription__expires_at__gt=timezone.now()
+    )
 
     if action_id:
         action = Action.objects.select_related("team").get(id=action_id)
@@ -35,10 +38,7 @@ def refresh_affected_hog_functions(
         affected_hog_functions = list(
             HogFunction.objects.select_related("team")
             .filter(team_id__in=project_team_ids)
-            .filter(
-                Q(team_id=action.team_id, mcp_event_subscription__isnull=True)
-                | Q(mcp_event_subscription__active=True, mcp_event_subscription__expires_at__gt=timezone.now())
-            )
+            .filter(Q(team_id=action.team_id, mcp_event_subscription__isnull=True) | live_mcp_subscription)
             .filter(filters__contains={"actions": [{"id": str(action_id)}]})
         )
     elif cohort_id:
@@ -65,6 +65,7 @@ def refresh_affected_hog_functions(
         affected_hog_functions = list(
             HogFunction.objects.select_related("team")
             .filter(team_id=team_id)
+            .filter(Q(mcp_event_subscription__isnull=True) | live_mcp_subscription)
             .filter(filters__contains={"filter_test_accounts": True})
         )
 

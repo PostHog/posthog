@@ -241,19 +241,18 @@ class TestMCPEventDelivery(MCPEventServiceTestCase):
         assert subscription.hog_function.filters is not None
         queued_bytecode = deepcopy(subscription.hog_function.filters["bytecode"])
         historical_functions: list[HogFunction] = []
-        if source != "test_account":
-            original_url = self.callback_url
-            for status in ("stopped", "expired"):
-                self.callback_url = f"https://example.com/{status}"
-                historical = self.subscribe()
-                assert historical.hog_function is not None
-                historical_functions.append(historical.hog_function)
-                if status == "stopped":
-                    self.unsubscribe()
-                else:
-                    historical.expires_at = timezone.now() - timedelta(seconds=1)
-                    historical.save(update_fields=["expires_at"])
-            self.callback_url = original_url
+        original_url = self.callback_url
+        for status in ("stopped", "expired"):
+            self.callback_url = f"https://example.com/{status}"
+            historical = self.subscribe()
+            assert historical.hog_function is not None
+            historical_functions.append(historical.hog_function)
+            if status == "stopped":
+                self.unsubscribe()
+            else:
+                historical.expires_at = timezone.now() - timedelta(seconds=1)
+                historical.save(update_fields=["expires_at"])
+        self.callback_url = original_url
         if source != "test_account":
             action.steps_json = [{"event": "example_event", "properties": updated}]
             action.save()
@@ -266,14 +265,14 @@ class TestMCPEventDelivery(MCPEventServiceTestCase):
                 assert parent_subscription.hog_function is not None
                 assert parent_subscription.hog_function.filters is not None
                 self.assertNotEqual(parent_subscription.hog_function.filters["bytecode"], queued_bytecode)
-            for function in historical_functions:
-                function.refresh_from_db()
-                assert function.filters is not None
-                self.assertEqual(function.filters["bytecode"], queued_bytecode)
         else:
             self.team.test_account_filters = updated
             self.team.save()
             self.assertEqual(refresh_affected_hog_functions(team_id=self.team.pk), 1)
+        for function in historical_functions:
+            function.refresh_from_db()
+            assert function.filters is not None
+            self.assertEqual(function.filters["bytecode"], queued_bytecode)
         self.organization.available_product_features = [
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
