@@ -4,13 +4,13 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import * as judgePng from '@posthog/brand/hoggies/png/judge'
-import { IconArrowLeft, IconChevronRight, IconPlus } from '@posthog/icons'
+import { IconArrowLeft, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { EvaluationAgentCard } from './components/EvaluationAgentCard'
+import { EvaluationAgentActions } from './components/EvaluationAgentActions'
 import { TemplateCard } from './components/TemplateCard'
 import { getEvaluationBackTarget, getEvaluationTemplateSelectionUrl } from './evaluationNavigation'
 import { EvaluationTemplate, EvaluationTemplateCategory, defaultEvaluationTemplates } from './templates'
@@ -104,45 +104,41 @@ function TemplatePicker({ title, showBackButton = false, learnMoreUrl }: Templat
                     </LemonButton>
                 </div>
             )}
-            <div className="grid grid-cols-1 gap-4 items-center @min-[56rem]/templates:grid-cols-[2fr_3fr]">
-                <div className="flex items-center min-w-0 gap-4">
-                    <HedgehogJudge className="hidden @min-[40rem]/templates:block size-24 shrink-0" />
-                    <div className="flex flex-col min-w-0 gap-2">
-                        <h1 className="m-0 text-3xl font-bold">{title}</h1>
-                        <p className="m-0 text-base text-secondary">
-                            <span>Start with a template, or let your agent suggest evaluations from your traces.</span>
-                            {learnMoreUrl && (
-                                <>
-                                    {' '}
-                                    <Link to={learnMoreUrl} target="_blank">
-                                        Learn more
-                                    </Link>
-                                </>
-                            )}
-                        </p>
+            <div className="flex items-center min-w-0 gap-4">
+                <HedgehogJudge className="hidden @min-[40rem]/templates:block size-24 shrink-0" />
+                <div className="flex flex-col min-w-0 gap-2">
+                    <h1 className="m-0 text-3xl font-bold">{title}</h1>
+                    <p className="m-0 text-base text-secondary">
+                        <span>
+                            Start with a template, write your own from scratch, or let your agent suggest evaluations
+                            from your traces.
+                        </span>
+                        {learnMoreUrl && (
+                            <>
+                                {' '}
+                                <Link to={learnMoreUrl} target="_blank">
+                                    Learn more
+                                </Link>
+                            </>
+                        )}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconPlus />}
+                            data-attr="blank-evaluation-template"
+                            onClick={() => selectTemplate(null, 'card')}
+                        >
+                            Start from scratch
+                        </LemonButton>
+                        <EvaluationAgentActions />
                     </div>
-                </div>
-                <div className="flex flex-col gap-2">
-                    <button
-                        type="button"
-                        className="group flex items-center gap-3 p-3 text-left rounded-lg border border-primary bg-surface-primary cursor-pointer hover:border-accent transition-colors motion-reduce:transition-none"
-                        data-attr="blank-evaluation-template"
-                        onClick={() => selectTemplate(null, 'card')}
-                    >
-                        <div className="flex items-center justify-center size-10 shrink-0 rounded-lg bg-fill-secondary text-accent">
-                            <IconPlus className="size-5" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <h2 className="m-0 text-sm font-semibold">Start from scratch</h2>
-                            <p className="m-0 text-xs text-secondary">Write your own prompt or Hog code.</p>
-                        </div>
-                        <IconChevronRight className="size-5 shrink-0 text-secondary transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
-                    </button>
-                    <EvaluationAgentCard />
                 </div>
             </div>
 
             <div className="flex flex-col gap-2">
+                <h2 className="m-0 text-sm font-semibold text-secondary">Or choose a template below:</h2>
                 <LemonTabs
                     activeKey={tab}
                     onChange={selectTab}

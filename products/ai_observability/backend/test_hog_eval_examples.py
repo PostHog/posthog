@@ -302,6 +302,32 @@ class TestHogEvalExamplesBehavior:
             ("empty_openai", "Empty or failed output", [{"message": {"role": "assistant", "content": ""}}], False),
             ("empty_otel_parts", "Empty or failed output", [{"role": "assistant", "parts": []}], False),
             (
+                "json_otel_with_reasoning",
+                "Valid JSON output",
+                [
+                    {
+                        "role": "assistant",
+                        "parts": [
+                            {"type": "text", "content": '{"ok": true}'},
+                            {"type": "reasoning", "content": "Checking the result."},
+                        ],
+                    }
+                ],
+                True,
+            ),
+            (
+                "empty_otel_two_messages",
+                "Empty or failed output",
+                [{"role": "assistant", "parts": []}, {"role": "assistant", "parts": []}],
+                False,
+            ),
+            (
+                "empty_otel_reasoning_only",
+                "Empty or failed output",
+                [{"role": "assistant", "parts": [{"type": "reasoning", "content": "Thinking it over."}]}],
+                False,
+            ),
+            (
                 "non_empty_otel_parts",
                 "Empty or failed output",
                 [{"role": "assistant", "parts": [{"type": "text", "content": "Hi"}]}],

@@ -21,7 +21,7 @@ describe('EvaluationTemplates', () => {
     it('replaces Start with AI with the agent card', () => {
         render(<EvaluationTemplatesEmptyState />)
 
-        expect(screen.getByText('Let your agent find them')).toBeInTheDocument()
+        expect(screen.getByText('Connect MCP')).toBeInTheDocument()
         expect(screen.queryByText('Start with AI')).not.toBeInTheDocument()
     })
 })
