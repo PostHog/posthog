@@ -108,6 +108,29 @@ describe('dataNodeLogic', () => {
         expect(mockedQuery.mock.calls[1][1]?.signal?.aborted).toBe(true)
     })
 
+    it('keeps a notebook query running across a remount instead of starting it again', async () => {
+        const query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' })
+        const response = { results: [[1]], columns: ['value'] }
+        const props: DataNodeLogicProps = { key: testUniqueKey, query, retainResponseOnUnmount: true }
+        const pending = promiseResolveReject<typeof response>()
+        mockedQuery.mockReset()
+        mockedQuery.mockReturnValueOnce(pending.promise)
+        logic = dataNodeLogic(props)
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadData'])
+        expect(mockedQuery).toHaveBeenCalledTimes(1)
+
+        logic.unmount()
+        expect(mockedQuery.mock.calls[0][1]?.signal?.aborted).toBe(false)
+
+        logic = dataNodeLogic(props)
+        logic.mount()
+        expect(logic.values.dataLoading).toBe(true)
+        pending.resolve(response)
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess']).toMatchValues({ response })
+        expect(mockedQuery).toHaveBeenCalledTimes(1)
+    })
+
     it.each(['query', 'insight response'] as const)(
         'restores notebook results when the query arrives after mount: %s',
         async (source) => {

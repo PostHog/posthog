@@ -25,18 +25,21 @@ test.each([
     { result: null },
     { results: [], query_status: { complete: false } },
     { results: [], error: 'failed' },
-    { results: ['x'.repeat(200_001)] },
+    { results: ['x'.repeat(2_000_001)] },
 ])('does not retain unusable or oversized results: %p', (response) => {
     retainResponse('example', response)
     expect(getRetainedResponse('example')).toBeNull()
 })
 
-test('evicts the least recently used result when capacity is reached', () => {
-    for (let index = 0; index < 100; index++) {
-        retainResponse(String(index), { results: [index] })
+test.each([
+    { limit: 'entry count', count: 200, payload: '' },
+    { limit: 'total size', count: 14, payload: 'x'.repeat(1_400_000) },
+])('evicts the least recently used result when the $limit limit is reached', ({ count, payload }) => {
+    for (let index = 0; index < count; index++) {
+        retainResponse(String(index), { results: [index, payload] })
     }
     getRetainedResponse('0')
-    retainResponse('next', { results: [] })
-    expect(getRetainedResponse('0')).toEqual({ results: [0] })
+    retainResponse('next', { results: [payload] })
+    expect(getRetainedResponse('0')).toEqual({ results: [0, payload] })
     expect(getRetainedResponse('1')).toBeNull()
 })

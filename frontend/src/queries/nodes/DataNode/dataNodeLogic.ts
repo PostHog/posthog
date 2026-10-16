@@ -112,10 +112,12 @@ import type {
 import type { DataNodeRegisteredProps } from './dataNodeCollectionLogic'
 import {
     forgetRetainedResponse,
+    getInflightResponse,
     getRetainedResponse,
     isCompleteResponse,
     responseCacheKey,
     retainResponse,
+    trackInflightResponse,
 } from './responseCache'
 
 export interface DataNodeLogicProps {
@@ -192,6 +194,10 @@ const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
 const productAnalyticsHomeConcurrencyController = new ConcurrencyController(6, { batchStart: true })
+// Matches the dashboard refresh limit, so one slow insight doesn't hold up the rest of a notebook.
+const notebookConcurrencyController = new ConcurrencyController(4)
+// The priority queue doesn't keep insertion order for equal priorities, so notebook loads count up instead.
+let notebookLoadOrder = 0
 
 function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
     if (isAccountsTableQuery(query)) {
@@ -207,6 +213,10 @@ function getConcurrencyController(query: DataNode, currentTeam: TeamType): Concu
 
     if (activeScene === Scene.SavedInsights) {
         return productAnalyticsHomeConcurrencyController
+    }
+
+    if (activeScene === Scene.Notebook) {
+        return notebookConcurrencyController
     }
 
     if (
@@ -1085,6 +1095,24 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         breakpoint()
                         return retainedResponse
                     }
+                    const inflightResponse =
+                        !pollOnly && !refreshArg?.startsWith('force_') ? getInflightResponse(key) : null
+                    if (inflightResponse) {
+                        let data: AnyResponseType | null | undefined
+                        try {
+                            data = await inflightResponse
+                        } catch (error: any) {
+                            // A query that never started because its node unmounted while queued is run again below.
+                            if (!isBreakpoint(error)) {
+                                throw error
+                            }
+                        }
+                        breakpoint()
+                        if (data !== undefined) {
+                            cache.responseCacheKey = null
+                            return data
+                        }
+                    }
                     forgetRetainedResponse(key)
                     const rawQuery = overrideQuery ?? props.query
                     if (!rawQuery || typeof rawQuery !== 'object' || !('kind' in rawQuery)) {
@@ -1136,16 +1164,32 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     const abortController = new AbortController()
-                    cache.disposables.add(() => () => abortController.abort(), 'query', { pauseOnPageHidden: false })
+                    // A retained query keeps running when the node unmounts, so a remount can pick it up.
+                    const keepRunningOnUnmount = !!key && !pollOnly
+                    if (keepRunningOnUnmount) {
+                        cache.abortRetainedQuery = () => abortController.abort()
+                    } else {
+                        cache.disposables.add(() => () => abortController.abort(), 'query', {
+                            pauseOnPageHidden: false,
+                        })
+                    }
                     const methodOptions: ApiMethodOptions = {
                         signal: abortController.signal,
                     }
                     try {
                         // For shared contexts, create a minimal team object if needed
-                        const response = await getConcurrencyController(query, values.currentTeam as TeamType).run({
+                        const queryConcurrencyController = getConcurrencyController(
+                            query,
+                            values.currentTeam as TeamType
+                        )
+                        const responsePromise = queryConcurrencyController.run({
                             debugTag: query.kind,
                             abortController,
-                            priority: props.loadPriority,
+                            priority:
+                                props.loadPriority ??
+                                (queryConcurrencyController === notebookConcurrencyController
+                                    ? notebookLoadOrder++
+                                    : undefined),
                             fn: async (): Promise<{ duration: number; data: Record<string, any> }> => {
                                 const now = performance.now()
                                 try {
@@ -1171,6 +1215,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 }
                             },
                         })
+                        if (keepRunningOnUnmount) {
+                            trackInflightResponse(
+                                key,
+                                responsePromise.then(({ data }) => data as AnyResponseType | null)
+                            )
+                        }
+                        const response = await responsePromise
                         breakpoint()
                         actions.setElapsedTime(response.duration)
                         return response.data
@@ -2143,6 +2194,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     listeners(({ actions, values, cache, props }) => ({
         abortAnyRunningQuery: () => {
             cache.disposables.dispose('query')
+            cache.abortRetainedQuery?.()
+            cache.abortRetainedQuery = null
         },
         abortQuery: async ({ queryId }) => {
             try {
