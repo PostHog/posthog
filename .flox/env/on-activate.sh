@@ -446,22 +446,31 @@ fi
 # Install shell completions for hogli
 HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
 mkdir -p "$HOGLI_COMPLETION_DIR"
-if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
+# The completions list only the commands in hogli.yaml, so they change only when that file
+# or their generator changes.
+if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]] && {
+  [[ ! -s "$HOGLI_COMPLETION_DIR/hogli.bash" || ! -s "$HOGLI_COMPLETION_DIR/_hogli" ]] ||
+    [[ "$FLOX_ENV_PROJECT/hogli.yaml" -nt "$HOGLI_COMPLETION_DIR/_hogli" ]] ||
+    [[ "$FLOX_ENV_PROJECT/tools/hogli/src/hogli/completion.py" -nt "$HOGLI_COMPLETION_DIR/_hogli" ]]
+}; then
   "$UV_PROJECT_ENVIRONMENT/bin/python" \
     -m hogli.completion --shell bash > "$HOGLI_COMPLETION_DIR/hogli.bash" 2>/dev/null || true
   "$UV_PROJECT_ENVIRONMENT/bin/python" \
     -m hogli.completion --shell zsh > "$HOGLI_COMPLETION_DIR/_hogli" 2>/dev/null || true
 fi
 
-# Generate hogli man page into the active environment so `man hogli` works.
+# Generate hogli man page into the active environment so `man hogli` works. The page also
+# documents commands defined in Python, so it is regenerated in the background each time
+# instead of making activation wait for it.
 HOGLI_MANPAGE_DIR="$UV_PROJECT_ENVIRONMENT/share/man/man1"
 if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   (
     mkdir -p "$HOGLI_MANPAGE_DIR"
     "$UV_PROJECT_ENVIRONMENT/bin/python" \
       "$FLOX_ENV_PROJECT/tools/hogli/scripts/generate_man_page.py" \
-      --output "$HOGLI_MANPAGE_DIR/hogli.1" >/dev/null 2>&1
-  ) || true
+      --output "$HOGLI_MANPAGE_DIR/hogli.1"
+  ) >/dev/null 2>&1 &
+  disown
 fi
 
 # ── Step 1b: Build phrocs from source ─────────────────────────────
