@@ -5,11 +5,14 @@ from typing import cast
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
+import modal
 from grpclib import GRPCError, Status
+from modal.client import _Client
 from modal.exception import AuthError, PermissionDeniedError, ResourceExhaustedError, ServiceError
-from modal.types import BillingReportItem
+from modal.types import BillingReportItem, WorkspaceBillingSummary
+from modal_proto import api_pb2
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
@@ -278,3 +281,280 @@ def test_unknown_table_does_not_connect(
         modal_source(config, inputs, manager)
     create_client.assert_not_called()
     report.assert_not_called()
+
+
+def billing_summary(cycle: datetime) -> WorkspaceBillingSummary:
+    return WorkspaceBillingSummary(
+        start=cycle,
+        end=cycle + timedelta(days=28),
+        metered_cost=Decimal("120.50"),
+        metered_cost_breakdown={"cpu": Decimal("100.25"), "gpu": Decimal("20.25")},
+        adjustments={"credits": Decimal("-30")},
+        billed_cost=Decimal("90.50"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("watermark", "incremental", "resume", "expected_cycles"),
+    [
+        (
+            None,
+            True,
+            None,
+            [datetime(2025, month, 1, tzinfo=UTC) for month in range(4, 13)]
+            + [datetime(2026, month, 1, tzinfo=UTC) for month in range(1, 4)],
+        ),
+        ("2026-01-14T00:00:00Z", True, None, [datetime(2026, month, 1, tzinfo=UTC) for month in range(1, 4)]),
+        ("2025-12-31T23:00:00-02:00", True, None, [datetime(2026, month, 1, tzinfo=UTC) for month in range(1, 4)]),
+        ("2026-03-01T00:00:00Z", True, None, [datetime(2026, 3, 1, tzinfo=UTC)]),
+        (
+            "2026-03-01T00:00:00Z",
+            False,
+            None,
+            [datetime(2025, month, 1, tzinfo=UTC) for month in range(4, 13)]
+            + [datetime(2026, month, 1, tzinfo=UTC) for month in range(1, 4)],
+        ),
+        ("2026-04-01T00:00:00Z", True, None, []),
+        (
+            None,
+            True,
+            ModalResumeConfig(next_window_start="2025-12-01T00:00:00+00:00", end="2026-01-01T00:00:00+00:00"),
+            [datetime(2025, 12, 1, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)],
+        ),
+    ],
+)
+def test_billing_summary_cycles(
+    config: ModalSourceConfig,
+    inputs: SourceInputs,
+    manager: MagicMock,
+    create_client: MagicMock,
+    workspace: MagicMock,
+    watermark: str | None,
+    incremental: bool,
+    resume: ModalResumeConfig | None,
+    expected_cycles: list[datetime],
+) -> None:
+    inputs.schema_name = "billing_summary"
+    inputs.db_incremental_field_last_value = watermark
+    inputs.should_use_incremental_field = incremental
+    manager.can_resume.return_value = resume is not None
+    manager.load_state.return_value = resume
+    summary = workspace.return_value.billing.summary
+    summary.side_effect = lambda cycle: billing_summary(cycle)
+
+    batches = list(source_items(modal_source(config, inputs, manager)))
+
+    assert [call.kwargs["cycle"] for call in summary.call_args_list] == expected_cycles
+    assert [row["cycle_start"] for batch in batches for row in batch] == expected_cycles
+    assert all(len(batch) == 1 for batch in batches)
+    assert [call.args[0].next_window_start for call in manager.save_state.call_args_list] == [
+        (datetime(cycle.year + cycle.month // 12, cycle.month % 12 + 1, 1, tzinfo=UTC)).isoformat()
+        for cycle in expected_cycles
+    ]
+    if not expected_cycles:
+        create_client.assert_not_called()
+        return
+    assert batches[0][0] == {
+        "cycle_start": expected_cycles[0],
+        "cycle_end": expected_cycles[0] + timedelta(days=28),
+        "metered_cost": 120.5,
+        "billed_cost": 90.5,
+        "metered_cost_breakdown": {"cpu": 100.25, "gpu": 20.25},
+        "adjustments": {"credits": -30.0},
+    }
+    create_client.return_value.__exit__.assert_called_once()
+
+
+def app_item(
+    app_id: str, state: api_pb2.AppState.ValueType = api_pb2.APP_STATE_DEPLOYED
+) -> api_pb2.AppListResponse.AppListItem:
+    return api_pb2.AppListResponse.AppListItem(
+        app_id=app_id,
+        name=f"name-{app_id}",
+        description=f"Example {app_id}",
+        state=state,
+        created_at=NOW.timestamp() - 86400,
+        n_running_tasks=2,
+    )
+
+
+def sandbox_info(sandbox_id: str, created_at: float, finished: bool = True) -> api_pb2.SandboxInfo:
+    return api_pb2.SandboxInfo(
+        id=sandbox_id,
+        app_id="ap-one",
+        created_at=created_at,
+        task_info=api_pb2.TaskInfo(
+            id="ta-test",
+            started_at=created_at + 5,
+            finished_at=created_at + 60 if finished else 0,
+            result=api_pb2.GenericResult(status=api_pb2.GenericResult.GENERIC_STATUS_TIMEOUT, exitcode=137)
+            if finished
+            else None,
+        ),
+        resource_info=api_pb2.ResourceInfo(
+            milli_cpu=api_pb2.ResourceInfo.ResourceValue(value=500),
+            memory_mb=api_pb2.ResourceInfo.ResourceValue(value=1024),
+        ),
+        tags=[api_pb2.SandboxTag(tag_name="team", tag_value="example")],
+        regions=["us-east"],
+        timeout_secs=300,
+    )
+
+
+@pytest.fixture
+def stub() -> Iterator[MagicMock]:
+    stub = MagicMock()
+    stub.EnvironmentList = AsyncMock(
+        return_value=api_pb2.EnvironmentListResponse(
+            items=[api_pb2.EnvironmentListItem(name="main"), api_pb2.EnvironmentListItem(name="dev")]
+        )
+    )
+    with patch.object(_Client, "stub", new_callable=PropertyMock, return_value=stub):
+        yield stub
+
+
+@pytest.fixture
+def real_client(create_client: MagicMock) -> modal.Client:
+    client = modal.Client("https://api.modal.com", api_pb2.CLIENT_TYPE_CLIENT, ("ak-test", "as-test-secret"))
+    create_client.return_value = client
+    return client
+
+
+def test_apps_list_every_environment(
+    config: ModalSourceConfig, inputs: SourceInputs, manager: MagicMock, real_client: modal.Client, stub: MagicMock
+) -> None:
+    inputs.schema_name = "apps"
+    apps = {"main": [app_item("ap-one"), app_item("ap-two", state=api_pb2.AppState.ValueType(99))], "dev": []}
+    stub.AppList = AsyncMock(side_effect=lambda request: api_pb2.AppListResponse(apps=apps[request.environment_name]))
+
+    batches = list(source_items(modal_source(config, inputs, manager)))
+
+    assert [call.args[0].environment_name for call in stub.AppList.call_args_list] == ["main", "dev"]
+    assert batches == [
+        [
+            {
+                "app_id": "ap-one",
+                "name": "name-ap-one",
+                "description": "Example ap-one",
+                "state": "deployed",
+                "environment_name": "main",
+                "created_at": NOW - timedelta(days=1),
+                "stopped_at": None,
+                "n_running_tasks": 2,
+            },
+            {
+                "app_id": "ap-two",
+                "name": "name-ap-two",
+                "description": "Example ap-two",
+                "state": "99",
+                "environment_name": "main",
+                "created_at": NOW - timedelta(days=1),
+                "stopped_at": None,
+                "n_running_tasks": 2,
+            },
+        ]
+    ]
+    assert manager.safe_point.call_count == 2
+
+
+@pytest.mark.parametrize(
+    ("pages", "expected_cursors", "expected_ids"),
+    [
+        ([[]], [0.0], []),
+        (
+            [
+                [sandbox_info("sb-3", 3000.0), sandbox_info("sb-2", 2000.0)],
+                [sandbox_info("sb-1", 1000.0)],
+                [],
+            ],
+            [0.0, 2000.0, 1000.0],
+            ["sb-3", "sb-2", "sb-1"],
+        ),
+        (
+            [[sandbox_info("sb-2", 2000.0)], [sandbox_info("sb-2", 2000.0)]],
+            [0.0, 2000.0],
+            ["sb-2", "sb-2"],
+        ),
+    ],
+)
+def test_sandboxes_page_back_through_each_app(
+    config: ModalSourceConfig,
+    inputs: SourceInputs,
+    manager: MagicMock,
+    real_client: modal.Client,
+    stub: MagicMock,
+    pages: list[list[api_pb2.SandboxInfo]],
+    expected_cursors: list[float],
+    expected_ids: list[str],
+) -> None:
+    inputs.schema_name = "sandboxes"
+    stub.AppList = AsyncMock(
+        side_effect=lambda request: api_pb2.AppListResponse(
+            apps=[app_item("ap-one")] if request.environment_name == "main" else []
+        )
+    )
+    responses = iter(pages)
+    stub.SandboxList = AsyncMock(side_effect=lambda request: api_pb2.SandboxListResponse(sandboxes=next(responses)))
+
+    rows = [row for batch in source_items(modal_source(config, inputs, manager)) for row in batch]
+
+    requests = [call.args[0] for call in stub.SandboxList.call_args_list]
+    assert [request.before_timestamp for request in requests] == expected_cursors
+    assert all(request.app_id == "ap-one" and request.environment_name == "main" for request in requests)
+    assert all(request.include_finished for request in requests)
+    assert [row["id"] for row in rows] == expected_ids
+    assert manager.safe_point.call_count == len(pages)
+
+
+@pytest.mark.parametrize("finished", [True, False])
+def test_sandbox_row_shape(
+    config: ModalSourceConfig,
+    inputs: SourceInputs,
+    manager: MagicMock,
+    real_client: modal.Client,
+    stub: MagicMock,
+    finished: bool,
+) -> None:
+    inputs.schema_name = "sandboxes"
+    created_at = NOW.timestamp() - 3600
+    stub.AppList = AsyncMock(
+        side_effect=lambda request: api_pb2.AppListResponse(
+            apps=[app_item("ap-one")] if request.environment_name == "main" else []
+        )
+    )
+    stub.SandboxList = AsyncMock(
+        side_effect=[
+            api_pb2.SandboxListResponse(sandboxes=[sandbox_info("sb-1", created_at, finished=finished)]),
+            api_pb2.SandboxListResponse(),
+        ]
+    )
+
+    (batch,) = list(source_items(modal_source(config, inputs, manager)))
+
+    assert batch == [
+        {
+            "id": "sb-1",
+            "name": None,
+            "app_id": "ap-one",
+            "environment_name": "main",
+            "image_id": None,
+            "created_at": NOW - timedelta(hours=1),
+            "ready_at": None,
+            "task_id": "ta-test",
+            "enqueued_at": None,
+            "started_at": NOW - timedelta(hours=1) + timedelta(seconds=5),
+            "finished_at": NOW - timedelta(hours=1) + timedelta(seconds=60) if finished else None,
+            "status": "timeout" if finished else None,
+            "exit_code": 137 if finished else None,
+            "gpu_type": None,
+            "milli_cpu": 500,
+            "milli_cpu_max": None,
+            "memory_mb": 1024,
+            "memory_mb_max": None,
+            "ephemeral_disk_mb": None,
+            "regions": ["us-east"],
+            "timeout_secs": 300,
+            "idle_timeout_secs": None,
+            "tags": {"team": "example"},
+        }
+    ]

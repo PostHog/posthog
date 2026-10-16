@@ -19,7 +19,6 @@ describe('MenuItems', () => {
 
     beforeEach(() => {
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {})
         jest.spyOn(api.fileSystem, 'list').mockResolvedValue({ count: 0, results: [], users: [] })
         jest.spyOn(api.fileSystem, 'unfiled').mockResolvedValue(null)
         jest.spyOn(api.fileSystemShortcuts, 'list').mockResolvedValue({ count: 0, results: [] })

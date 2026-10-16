@@ -71,6 +71,9 @@ export function isTransientPgError(err: unknown): boolean {
     return !!message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((m) => message.includes(m))
 }
 
+// Below the realtime cohort member page deadline, so a stalled connection fails before the page does.
+const BEHAVIORAL_COHORTS_CONNECTION_TIMEOUT_MS = 30_000
+
 export enum PostgresUse {
     COMMON_READ, // Read replica on the common tables, uses need to account for possible replication delay
     COMMON_WRITE, // Main PG master with common tables, we need to move as many queries away from it as possible
@@ -158,7 +161,10 @@ export class PostgresRouter {
                 createPostgresPool(
                     serverConfig.BEHAVIORAL_COHORTS_DATABASE_URL,
                     serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
+                    app_name,
+                    undefined,
+                    // A connection whose startup stalls would otherwise hold a pool slot forever.
+                    BEHAVIORAL_COHORTS_CONNECTION_TIMEOUT_MS
                 )
             )
             logger.info('👍', `Behavioral cohorts Postgresql ready`)

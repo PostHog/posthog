@@ -30,9 +30,10 @@ MAX_CHECKS_PER_WINDOW = 200_000
 # Derived from the contract, so a field added there cannot be left out of the SELECT.
 _COLUMNS = tuple(f.name for f in fields(PlatformCheck) if f.name not in ("team_id", "legacy_configuration_id"))
 
-# `LIMIT 1 BY` deduplicates on the pair the writer names, because the insert token only covers a
-# retry of the same batch and the engine remembers a bounded window of tokens. The ORDER BY is the
-# table's sort key with `team_id` fixed, so rows stream in order and arrive grouped by alert.
+# `LIMIT 1 BY` deduplicates on the check the writer names, because the insert token only covers a
+# retry of the same batch and the engine remembers a bounded window of tokens. The configuration is
+# part of it, because every failed check with no instance shares the nil `alert_id`. The ORDER BY is
+# the table's sort key with `team_id` fixed, so rows stream in order and arrive grouped by alert.
 _SELECT_SQL = f"""
 SELECT {", ".join(_COLUMNS)}
 FROM {PLATFORM_ALERT_EVENTS_TABLE}
@@ -41,7 +42,7 @@ WHERE team_id = %(team_id)s
   AND occurred_at >= %(since)s
   AND occurred_at < %(until)s
 ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
-LIMIT 1 BY alert_id, evaluation_key
+LIMIT 1 BY configuration_id, alert_id, evaluation_key
 LIMIT %(limit)s
 """
 
