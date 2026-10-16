@@ -12,6 +12,8 @@ use replay_core_v4::url_policy::{
 };
 use serde_json::{json, Value};
 
+use replay_core_v4::inspect::stats::BlockStats;
+
 use crate::batch::Block;
 
 /// The fetcher's limits on one Kafka record: its job count, and the byte length of its value without key or headers.
@@ -21,9 +23,9 @@ const MAX_RECORD_BYTES: usize = 512 * 1024;
 const REMAINING_HOPS: u32 = 10;
 
 /// Builds one job per new remote image URL, grouped by registrable domain, the topic's key. Counts each block's URLs
-/// in its stats. `already_sent` names references this process sent today.
+/// in the stats paired with it. `already_sent` names references this process sent today.
 pub fn fetch_jobs<'b>(
-    blocks: impl IntoIterator<Item = &'b mut Block>,
+    blocks: impl IntoIterator<Item = (&'b Block, &'b mut BlockStats)>,
     keys: &FlushKeys,
     key_month: &str,
     now_ms: i64,
@@ -31,7 +33,7 @@ pub fn fetch_jobs<'b>(
 ) -> BTreeMap<String, Vec<Value>> {
     let mut jobs: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     let mut seen = HashSet::new();
-    for block in blocks {
+    for (block, stats) in blocks {
         let id = SessionId {
             team_id: block.session.team_id,
             session_id: block.session.session_id.clone(),
@@ -49,7 +51,7 @@ pub fn fetch_jobs<'b>(
             else {
                 continue;
             };
-            block.stats.image_urls += 1;
+            stats.image_urls += 1;
             if already_sent(&reference) || !seen.insert(reference.clone()) {
                 continue;
             }
@@ -157,7 +159,6 @@ pub fn sent_urls(capacity: u64) -> moka::sync::Cache<(String, String), ()> {
 
 #[cfg(test)]
 mod tests {
-    use replay_core_v4::inspect::stats::BlockStats;
     use replay_core_v4::keys::batch::SessionKey as Key;
 
     use super::*;
@@ -186,7 +187,7 @@ mod tests {
             "http://localhost/private.png",
             "https://bat.bing.com/action/0",
         ];
-        let mut blocks = vec![Block {
+        let block = Block {
             session: SessionKey {
                 team_id: 7,
                 session_id: "s".to_owned(),
@@ -197,7 +198,8 @@ mod tests {
             image_urls: urls.iter().map(|u| (*u).to_owned()).collect(),
             remote_urls: Vec::new(),
             url_limit: None,
-        }];
+        };
+        let mut stats = BlockStats::default();
         let mut keys = FlushKeys::default();
         keys.sessions.insert(
             SessionId {
@@ -219,9 +221,13 @@ mod tests {
         );
         let sent = image_url_ref(7, "2026-10", &sent_hash);
 
-        let jobs = fetch_jobs(&mut blocks, &keys, "2026-10", 1_000, &|reference| {
-            reference == sent
-        });
+        let jobs = fetch_jobs(
+            [(&block, &mut stats)],
+            &keys,
+            "2026-10",
+            1_000,
+            &|reference| reference == sent,
+        );
         let domains: Vec<_> = jobs.keys().cloned().collect();
         assert_eq!(domains, ["example.com"]);
         let fetched: Vec<_> = jobs["example.com"]
@@ -245,7 +251,7 @@ mod tests {
             (Some("s"), Some(10))
         );
         // Every public URL the block referenced counts, sent before or not.
-        assert_eq!(blocks[0].stats.image_urls, 4);
+        assert_eq!(stats.image_urls, 4);
     }
 
     #[test]

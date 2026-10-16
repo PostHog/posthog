@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
+use futures::stream::{self, StreamExt};
 use metrics::counter;
 use replay_core_v4::inspect::dom::UrlLimit;
 use replay_core_v4::inspect::session::{BlockInspection, Moment, SessionInspector};
@@ -115,64 +116,74 @@ pub struct Inspectors {
 }
 
 impl Inspectors {
-    /// Decodes every buffered message, runs it through its session's inspector and returns one block per session.
-    pub fn inspect(&mut self, batch: Batch) -> (Vec<Block>, HashMap<Tp, i64>) {
-        let now = Instant::now();
+    /// Decodes every buffered message and runs it through its session's inspector, with up to `concurrency` sessions
+    /// at once off the async runtime. Returns one block per session.
+    pub async fn inspect(
+        &mut self,
+        batch: Batch,
+        concurrency: usize,
+    ) -> (Vec<Block>, HashMap<Tp, i64>) {
         let mut by_session: BTreeMap<SessionKey, (Vec<Tp>, Vec<Raw>)> = BTreeMap::new();
         for ((session, tp), pending) in batch.sessions {
             let (tps, raws) = by_session.entry(session).or_default();
             tps.push(tp);
             raws.extend(pending.messages);
         }
-        let mut blocks = Vec::with_capacity(by_session.len());
-        for (session, (tps, raws)) in by_session {
-            let mut messages = Vec::with_capacity(raws.len());
-            for raw in raws {
-                let message = read(raw.payload, raw.content_encoding.as_deref())
-                    .and_then(|m| check_read(&m, &session.session_id).map(|()| m));
-                match message {
-                    Ok(mut message) => {
-                        // Decoded once here, for the inspector and the block writer both.
-                        message.decode_compressed();
-                        messages.push(message);
+        let tasks: Vec<_> = by_session
+            .into_iter()
+            .map(|(session, (tps, raws))| {
+                let (inspector, prior) = match self.sessions.remove(&session) {
+                    Some((inspector, partitions, last_seen)) => {
+                        (inspector, Some((partitions, last_seen)))
                     }
-                    Err(skip) => {
-                        counter!("ai_research_v4_recorder_messages_total", "outcome" => skip.as_str())
-                            .increment(1);
-                    }
+                    None => (SessionInspector::default(), None),
+                };
+                (session, inspector, prior, tps, raws)
+            })
+            .collect();
+        let done: Vec<_> = stream::iter(tasks)
+            .map(|(session, inspector, prior, tps, raws)| {
+                let (key, messages) = (session.clone(), raws.len());
+                let task = tokio::task::spawn_blocking(move || {
+                    let (inspector, block) = inspect_session(&session, inspector, raws);
+                    (session, inspector, prior, tps, block)
+                });
+                async move { (key, messages, task.await) }
+            })
+            .buffer_unordered(concurrency.max(1))
+            .collect()
+            .await;
+        let now = Instant::now();
+        let mut blocks = Vec::new();
+        for (key, messages, result) in done {
+            // A panic loses that session's block and its inspector state, and the rest of the flush goes on.
+            let (session, inspector, prior, tps, block) = match result {
+                Ok(inspected) => inspected,
+                Err(error) => {
+                    tracing::error!(%error, team_id = key.team_id, "inspecting a session panicked: its block is dropped");
+                    counter!("ai_research_v4_recorder_messages_total", "outcome" => "panicked")
+                        .increment(messages as u64);
+                    continue;
                 }
-            }
-            if messages.is_empty() {
+            };
+            // A session that decoded nothing left its state as it was, and does not count as seen.
+            let Some(block) = block else {
+                if let Some((partitions, last_seen)) = prior {
+                    self.sessions
+                        .insert(session, (inspector, partitions, last_seen));
+                }
                 continue;
-            }
-            counter!("ai_research_v4_recorder_messages_total", "outcome" => "recorded")
-                .increment(messages.len() as u64);
-            // Only a session that decoded something counts as seen.
-            let (inspector, partitions, last_seen) = self
-                .sessions
-                .entry(session.clone())
-                .or_insert_with(|| (SessionInspector::default(), Vec::new(), now));
+            };
+            let mut partitions = prior.map(|(partitions, _)| partitions).unwrap_or_default();
             for tp in tps {
                 if !partitions.contains(&tp) {
                     partitions.push(tp);
                 }
             }
-            *last_seen = now;
-            let mut block = BlockInspection::default();
-            for message in &messages {
-                inspector.observe_message(&mut block, message);
-            }
-            let inspected = block.finish();
-            blocks.push(Block {
-                session,
-                messages,
-                stats: inspected.stats,
-                moments: inspected.moments,
-                image_urls: inspected.image_urls,
-                remote_urls: inspected.remote_urls,
-                url_limit: inspected.url_limit,
-            });
+            self.sessions.insert(session, (inspector, partitions, now));
+            blocks.push(block);
         }
+        blocks.sort_by(|a, b| a.session.cmp(&b.session));
         (blocks, batch.offsets)
     }
 
@@ -186,6 +197,49 @@ impl Inspectors {
             .retain(|_, (_, _, last_seen)| last_seen.elapsed() < idle);
         metrics::gauge!("ai_research_v4_recorder_live_sessions").set(self.sessions.len() as f64);
     }
+}
+
+fn inspect_session(
+    session: &SessionKey,
+    mut inspector: SessionInspector,
+    raws: Vec<Raw>,
+) -> (SessionInspector, Option<Block>) {
+    let mut messages = Vec::with_capacity(raws.len());
+    for raw in raws {
+        let message = read(raw.payload, raw.content_encoding.as_deref())
+            .and_then(|m| check_read(&m, &session.session_id).map(|()| m));
+        match message {
+            Ok(mut message) => {
+                // Decoded once here, for the inspector and the block writer both.
+                message.decode_compressed();
+                messages.push(message);
+            }
+            Err(skip) => {
+                counter!("ai_research_v4_recorder_messages_total", "outcome" => skip.as_str())
+                    .increment(1);
+            }
+        }
+    }
+    if messages.is_empty() {
+        return (inspector, None);
+    }
+    counter!("ai_research_v4_recorder_messages_total", "outcome" => "recorded")
+        .increment(messages.len() as u64);
+    let mut block = BlockInspection::default();
+    for message in &messages {
+        inspector.observe_message(&mut block, message);
+    }
+    let inspected = block.finish();
+    let block = Block {
+        session: session.clone(),
+        messages,
+        stats: inspected.stats,
+        moments: inspected.moments,
+        image_urls: inspected.image_urls,
+        remote_urls: inspected.remote_urls,
+        url_limit: inspected.url_limit,
+    };
+    (inspector, Some(block))
 }
 
 #[cfg(test)]
@@ -227,8 +281,8 @@ mod tests {
         json!([{"type": 3, "timestamp": 3, "data": {"source": 1, "positions": []}}])
     }
 
-    #[test]
-    fn a_revoked_partition_leaves_nothing_behind() {
+    #[tokio::test]
+    async fn a_revoked_partition_leaves_nothing_behind() {
         let mut batch = Batch::default();
         batch.add(tp(0), key("a"), raw(10, "a", mouse()));
         batch.add(tp(1), key("b"), raw(20, "b", mouse()));
@@ -237,7 +291,7 @@ mod tests {
         batch.drop_partitions(&[tp(1)]);
         inspectors.drop_partitions(&[tp(1)]);
 
-        let (blocks, offsets) = inspectors.inspect(batch);
+        let (blocks, offsets) = inspectors.inspect(batch, 2).await;
         assert_eq!(
             blocks
                 .iter()
@@ -248,8 +302,8 @@ mod tests {
         assert_eq!(offsets, HashMap::from([(tp(0), 10)]));
     }
 
-    #[test]
-    fn a_session_that_decodes_nothing_keeps_no_state() {
+    #[tokio::test]
+    async fn a_session_that_decodes_nothing_keeps_no_state() {
         let mut batch = Batch::default();
         batch.add(
             tp(0),
@@ -261,22 +315,22 @@ mod tests {
             },
         );
         let mut inspectors = Inspectors::default();
-        assert!(inspectors.inspect(batch).0.is_empty());
+        assert!(inspectors.inspect(batch, 1).await.0.is_empty());
         assert!(inspectors.sessions.is_empty());
     }
 
-    #[test]
-    fn session_state_carries_across_flushes() {
+    #[tokio::test]
+    async fn session_state_carries_across_flushes() {
         let mut inspectors = Inspectors::default();
         let mut first = Batch::default();
         first.add(tp(0), key("a"), raw(1, "a", snapshot()));
         first.add(tp(0), key("b"), raw(2, "b", mouse()));
-        inspectors.inspect(first);
+        inspectors.inspect(first, 2).await;
 
         let mut second = Batch::default();
         second.add(tp(0), key("a"), raw(3, "a", mouse()));
         second.add(tp(0), key("b"), raw(4, "b", mouse()));
-        let (blocks, _) = inspectors.inspect(second);
+        let (blocks, _) = inspectors.inspect(second, 2).await;
         let cold: Vec<_> = blocks
             .iter()
             .map(|b| (b.session.session_id.as_str(), b.stats.cold_start))

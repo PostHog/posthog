@@ -4,6 +4,7 @@
 pub mod batch;
 pub mod config;
 pub mod consumer;
+pub mod flush;
 pub mod index;
 pub mod limits;
 pub mod process;
