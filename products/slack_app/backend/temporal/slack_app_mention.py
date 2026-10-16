@@ -26,9 +26,7 @@ from products.slack_app.backend.temporal.types import (
 )
 
 SLACK_APP_MENTION_IDLE_TIMEOUT_SECONDS = 30
-# Temporal patch ID for the child workflow type. Runs that started a child before this
-# patch replay the old type name. Remove the else branch together with
-# LegacyPostHogCodeSlackMentionWorkflow once no run of the old type is left.
+# Temporal patch ID: runs that started a child before this patch replay the old child type name.
 _PATCH_ID_MENTION_PROCESSING_RENAME = "slack-app-mention-processing-rename-2026-10"
 # Dedup keys carried across continue_as_new. Bounded so the carry-over payload
 # stays small; old keys only matter for Slack retries, which arrive within
