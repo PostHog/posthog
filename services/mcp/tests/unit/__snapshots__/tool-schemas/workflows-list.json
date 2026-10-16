@@ -35,7 +35,7 @@
         },
         "origin_product": {
             "description": "Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
-            "enum": ["broadcasts", "loops"],
+            "enum": ["broadcasts", "loops", "wizard"],
             "type": "string"
         },
         "search": {
