@@ -2627,6 +2627,8 @@ class TestProcessTaskWorkflowUnit:
             (None, False, 1, False, "completed"),
             ("slack", False, 1, False, "completed"),
             ("user_created", False, 1, None, "completed"),
+            ("signal_report", False, 1, None, "completed"),
+            ("signals_scout", False, 1, None, "completed"),
             # Onboarding runs are one-shot, so a vanished sandbox is a failed setup rather than a
             # resumable snapshot.
             ("onboarding", False, 1, None, "failed"),
@@ -2699,7 +2701,15 @@ class TestProcessTaskWorkflowUnit:
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
 
+        async def finish_spend(activity_fn, run_id, **kwargs):
+            assert activity_fn is process_task_workflow_module.complete_signal_spend
+            assert run_id == "run-id"
+            cleanup_sandbox_mock.assert_awaited_once()
+
+        finish_spend_mock = AsyncMock(side_effect=finish_spend)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", finish_spend_mock)
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
+        assert finish_spend_mock.await_count == (1 if origin_product in {"signal_report", "signals_scout"} else 0)
 
         assert result.success is True
         assert workflow._completion_status == expected_status

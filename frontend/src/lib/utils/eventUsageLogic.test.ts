@@ -1,7 +1,5 @@
 import posthog from 'posthog-js'
 
-import { SELF_DRIVING_ONBOARDING_EVENT_PROPS } from 'scenes/onboarding/onboardingEventUsageLogic'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
@@ -19,12 +17,12 @@ import {
     type DashboardType,
     FilterLogicalOperator,
     FunnelVizType,
+    OnboardingStepKey,
     PropertyFilterType,
     StepOrderValue,
 } from '~/types'
 
 import {
-    type OnboardingEventProperties,
     dashboardViewedProperties,
     eventUsageLogic,
     getEventPropertiesForMetric,
@@ -45,16 +43,11 @@ describe('eventUsageLogic', () => {
             capture.mockRestore()
         })
 
-        const cases: [string, OnboardingEventProperties | undefined, string][] = [
-            ['legacy', undefined, 'product_selection'],
-            ['self-driving', SELF_DRIVING_ONBOARDING_EVENT_PROPS, 'welcome'],
-        ]
-
-        it.each(cases)('stamps the %s entry point on every funnel event', (_, properties, entryPoint) => {
-            eventUsageLogic.actions.reportOnboardingStarted(properties)
-            eventUsageLogic.actions.reportOnboardingStepCompleted('install', undefined, properties)
-            eventUsageLogic.actions.reportOnboardingStepSkipped('install', undefined, properties)
-            eventUsageLogic.actions.reportOnboardingCompleted('product_analytics', properties)
+        it('stamps the entry point on every funnel event', () => {
+            eventUsageLogic.actions.reportOnboardingStarted()
+            eventUsageLogic.actions.reportOnboardingStepCompleted(OnboardingStepKey.INSTALL)
+            eventUsageLogic.actions.reportOnboardingStepSkipped(OnboardingStepKey.INSTALL)
+            eventUsageLogic.actions.reportOnboardingCompleted('product_analytics')
 
             for (const event of [
                 'onboarding started',
@@ -63,7 +56,7 @@ describe('eventUsageLogic', () => {
                 'onboarding completed',
             ]) {
                 const call = capture.mock.calls.find(([name]) => name === event)
-                expect(call?.[1]).toMatchObject({ entry_point: entryPoint })
+                expect(call?.[1]).toMatchObject({ entry_point: 'product_selection' })
             }
         })
     })
