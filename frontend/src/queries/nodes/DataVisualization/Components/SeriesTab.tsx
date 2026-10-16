@@ -19,7 +19,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { DataColorToken, getSeriesColor, getSeriesColorPalette } from 'lib/colors'
-import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { INSIGHT_UNIT_OPTIONS_SHORT } from 'scenes/insights/aggregationAxisFormat'
@@ -29,6 +29,7 @@ import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, Column, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { BoxPlotSeriesTab } from './BoxPlotSeriesTab'
+import { drawsOnePartPerSeries, isBreakdownSeries, partOfWholeChartData } from './Charts/sqlPieGraphAdapter'
 import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
 import { AxisBreakdownSeries, BREAKDOWN_LIMIT_LABEL, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { getAvailableSeriesBreakdownColumns } from './seriesBreakdownUtils'
@@ -52,7 +53,7 @@ export const SeriesTab = (): JSX.Element => {
     const { updateXSeries, addYSeries, updateSeriesIndex, deleteYSeries, setTransposeResults } =
         useActions(dataVisualizationLogic)
     const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
-    const { selectedSeriesBreakdownColumn, showSeriesBreakdown } = useValues(breakdownLogic)
+    const { selectedSeriesBreakdownColumn, showSeriesBreakdown, seriesBreakdownData } = useValues(breakdownLogic)
     const { addSeriesBreakdown } = useActions(breakdownLogic)
 
     const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
@@ -119,7 +120,9 @@ export const SeriesTab = (): JSX.Element => {
     // A scatter's x axis holds a second measure rather than a category, so only numeric columns fit.
     const xAxisOptions = isScatterPlot ? numericalColumns.map(toColumnOption) : options
 
-    if (PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+    if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+        const parts = partOfWholeChartData(seriesBreakdownData, xData, yData)
+        const breakdownSplitsValue = parts.yData.some(isBreakdownSeries)
         const valueColumn = selectedYAxis?.find((series) => series !== null)?.name ?? null
         const valueOptions = numericalColumns.map(({ name, type }) => ({
             value: name,
@@ -153,7 +156,16 @@ export const SeriesTab = (): JSX.Element => {
                     className="w-full"
                     value={xData !== null ? xData.column.name : 'None'}
                     options={options}
-                    disabledReason={responseLoading ? 'Query loading...' : undefined}
+                    disabledReason={
+                        responseLoading
+                            ? 'Query loading...'
+                            : yData.length > 1
+                              ? 'A label splits one value column. Remove the other values to use it.'
+                              : breakdownSplitsValue
+                                ? 'The breakdown already splits the value. Remove the breakdown to use a label.'
+                                : undefined
+                    }
+                    data-attr="part-of-whole-label-column"
                     onChange={(value) => {
                         const column = columns.find((n) => n.name === value)
                         if (column) {
@@ -162,19 +174,27 @@ export const SeriesTab = (): JSX.Element => {
                     }}
                 />
 
-                <LemonLabel className="mt-4 mb-1">Value</LemonLabel>
-                <LemonSelect
-                    className="w-full"
-                    placeholder="Select a column"
-                    value={valueColumn}
-                    options={valueOptions}
-                    disabledReason={responseLoading ? 'Query loading...' : undefined}
-                    onChange={(value) => {
-                        if (value) {
-                            setValueColumn(value)
-                        }
-                    }}
-                />
+                {selectedSeriesBreakdownColumn && <SeriesBreakdownSelector />}
+
+                {drawsOnePartPerSeries(parts.xData, parts.yData) ? (
+                    <YSeriesList label="Values" addLabel="Add value" showAdd={!hideAddYSeries} />
+                ) : (
+                    <>
+                        <LemonLabel className="mt-4 mb-1">Value</LemonLabel>
+                        <LemonSelect
+                            className="w-full"
+                            placeholder="Select a column"
+                            value={valueColumn}
+                            options={valueOptions}
+                            disabledReason={responseLoading ? 'Query loading...' : undefined}
+                            onChange={(value) => {
+                                if (value) {
+                                    setValueColumn(value)
+                                }
+                            }}
+                        />
+                    </>
+                )}
             </div>
         )
     }
@@ -207,11 +227,22 @@ export const SeriesTab = (): JSX.Element => {
             )}
             {showSeriesBreakdownSelector && <SeriesBreakdownSelector />}
 
-            <LemonLabel className="mt-4 mb-1">Y-axis</LemonLabel>
+            <YSeriesList label="Y-axis" addLabel="Add Y-series" showAdd={!hideAddYSeries} />
+        </div>
+    )
+}
+
+function YSeriesList({ label, addLabel, showAdd }: { label: string; addLabel: string; showAdd: boolean }): JSX.Element {
+    const { yData } = useValues(dataVisualizationLogic)
+    const { addYSeries } = useActions(dataVisualizationLogic)
+
+    return (
+        <>
+            <LemonLabel className="mt-4 mb-1">{label}</LemonLabel>
             {yData.map((series, index) => (
                 <YSeries series={series} index={index} key={`${series?.column.name}-${index}`} />
             ))}
-            {!hideAddYSeries && (
+            {showAdd && (
                 <LemonButton
                     className="mt-1"
                     type="tertiary"
@@ -219,10 +250,10 @@ export const SeriesTab = (): JSX.Element => {
                     icon={<IconPlusSmall />}
                     fullWidth
                 >
-                    Add Y-series
+                    {addLabel}
                 </LemonButton>
             )}
-        </div>
+        </>
     )
 }
 
@@ -284,14 +315,8 @@ const SeriesSelectLabel = ({
 }
 
 const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: number }): JSX.Element => {
-    const {
-        columns,
-        numericalColumns,
-        responseLoading,
-        dataVisualizationProps,
-        showTableSettings,
-        effectiveVisualizationType,
-    } = useValues(dataVisualizationLogic)
+    const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
+        useValues(dataVisualizationLogic)
     const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
 
@@ -301,7 +326,6 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
     const { isSettingsOpen, canOpenSettings, activeSettingsTab } = useValues(seriesLogic)
     const { setSettingsOpen, submitFormatting, submitDisplay, setSettingsTab } = useActions(seriesLogic)
 
-    const isPieChart = PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
     const showSeriesColor = !showTableSettings && !selectedSeriesBreakdownColumn
 
@@ -336,19 +360,11 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
         ),
     }))
 
-    const settingsTabs = isPieChart
-        ? [
-              {
-                  label: Y_SERIES_SETTINGS_TABS[YSeriesSettingsTab.Formatting].label,
-                  key: YSeriesSettingsTab.Formatting,
-                  content: <YSeriesFormattingTab ySeriesLogicProps={seriesLogicProps} />,
-              },
-          ]
-        : Object.values(Y_SERIES_SETTINGS_TABS).map(({ label, Component }, index) => ({
-              label: label,
-              key: Object.keys(Y_SERIES_SETTINGS_TABS)[index],
-              content: <Component ySeriesLogicProps={seriesLogicProps} />,
-          }))
+    const settingsTabs = Object.values(Y_SERIES_SETTINGS_TABS).map(({ label, Component }, index) => ({
+        label: label,
+        key: Object.keys(Y_SERIES_SETTINGS_TABS)[index],
+        content: <Component ySeriesLogicProps={seriesLogicProps} />,
+    }))
 
     return (
         <div className="flex gap-1 mb-1">
@@ -387,6 +403,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
                     key="seriesSettings"
                     icon={<IconGear />}
                     noPadding
+                    data-attr="y-series-settings"
                     onClick={() => setSettingsOpen(true)}
                     disabledReason={!canOpenSettings && 'Select a column first'}
                 />
@@ -504,7 +521,7 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { updateSeriesIndex } = useActions(dataVisualizationLogic)
 
-    const isPieChart = PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)
+    const isPieChart = PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)
     const hideChartSpecificOptions =
         isPieChart ||
         effectiveVisualizationType === ChartDisplayType.ActionsBarValue ||

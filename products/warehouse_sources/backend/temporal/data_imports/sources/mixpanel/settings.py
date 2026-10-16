@@ -51,8 +51,14 @@ REGION_HOSTS: dict[str, RegionHosts] = {
 # last-seen event time.
 DEFAULT_EXPORT_LOOKBACK_DAYS = 365
 
+# Funnel and retention reports are recomputed over a rolling window on every sync, because
+# Mixpanel keeps revising recent buckets while conversion and return windows are still open.
+REPORT_LOOKBACK_DAYS = 90
+# Daily retention intervals returned per cohort, on top of Mixpanel's 0th interval.
+RETENTION_INTERVAL_COUNT = 30
 
-@dataclass
+
+@dataclass(frozen=True)
 class MixpanelEndpointConfig:
     name: str
     primary_keys: list[str]
@@ -61,6 +67,7 @@ class MixpanelEndpointConfig:
     # written (event time / creation date), never `updated`/`last_seen`.
     partition_key: Optional[str] = None
     partition_format: PartitionFormat = "month"
+    description: Optional[str] = None
 
 
 MIXPANEL_ENDPOINTS: dict[str, MixpanelEndpointConfig] = {
@@ -74,6 +81,7 @@ MIXPANEL_ENDPOINTS: dict[str, MixpanelEndpointConfig] = {
         primary_keys=["$insert_id", "event", "distinct_id", "time"],
         partition_key="time",
         partition_format="month",
+        description="Only syncs the last 365 days on initial sync",
         incremental_fields=[
             {
                 "label": "time",
@@ -99,6 +107,25 @@ MIXPANEL_ENDPOINTS: dict[str, MixpanelEndpointConfig] = {
     "annotations": MixpanelEndpointConfig(
         name="annotations",
         primary_keys=["id"],
+    ),
+    # Query API: saved funnel definitions (id + name). Single request, full refresh.
+    "funnels": MixpanelEndpointConfig(
+        name="funnels",
+        primary_keys=["funnel_id"],
+    ),
+    # Query API: daily step conversion for every saved funnel, one row per funnel, day and step.
+    "funnel_steps": MixpanelEndpointConfig(
+        name="funnel_steps",
+        description="Recomputes the last 90 days on every sync",
+        primary_keys=["funnel_id", "date", "step_index"],
+        partition_key="date",
+    ),
+    # Query API: daily recurring retention across all events, one row per cohort day and interval.
+    "retention": MixpanelEndpointConfig(
+        name="retention",
+        description="Recomputes the last 90 days on every sync",
+        primary_keys=["date", "interval_index"],
+        partition_key="date",
     ),
 }
 

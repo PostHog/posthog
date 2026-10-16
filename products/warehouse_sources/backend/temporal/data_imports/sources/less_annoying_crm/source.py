@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LessAnnoyingCRMSource(ResumableSource[LessAnnoyingCRMSourceConfig, LessAnnoyingCRMResumeConfig]):
+    codebase_detection = detect(env=("^(LESS_ANNOYING_CRM|LESSANNOYINGCRM)_",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://account.lessannoyingcrm.com/api_docs/v2/"
@@ -52,7 +55,7 @@ class LessAnnoyingCRMSource(ResumableSource[LessAnnoyingCRMSourceConfig, LessAnn
             label="Less Annoying CRM",
             caption="""Enter your Less Annoying CRM API key to pull your CRM data into the PostHog Data warehouse.
 
-Create an API key on the [Programmer API settings page](https://account.lessannoyingcrm.com/app/Settings/Api). Grant the key **read** access — the tables sync via the `GetUsers`, `GetTeams`, `GetContacts`, `GetTasks`, `GetNotes` and `GetEvents` functions.
+Create an API key on the [Programmer API settings page](https://account.lessannoyingcrm.com/app/Settings/Api). Grant the key **read** access — the tables sync via the `GetUsers`, `GetTeams`, `GetContacts`, `GetTasks`, `GetNotes`, `GetEvents`, `GetPipelines`, `GetPipelineStatuses`, `GetPipelineItems`, `GetGroups` and `GetContactsInGroup` functions.
 
 API keys can't be retrieved after creation, so store the key somewhere safe when you create it.""",
             iconPath="/static/services/less_annoying_crm.png",

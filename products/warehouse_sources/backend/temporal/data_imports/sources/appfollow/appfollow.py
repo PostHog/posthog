@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -10,15 +9,18 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import (
-    APPFOLLOW_ENDPOINTS,
+    APPFOLLOW_V2,
+    APPFOLLOW_V3,
     DEFAULT_START_DATE,
     AppfollowEndpointConfig,
+    endpoints_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 APPFOLLOW_BASE_URL = "https://api.appfollow.io/api/v2"
+APPFOLLOW_V3_BASE_URL = "https://api.appfollow.io/api/v3"
 
 # Ratings history is offset/limit paginated; reviews use page/pages_count. Both cap a page at 100 rows.
 DEFAULT_PAGE_SIZE = 100
@@ -26,6 +28,11 @@ DEFAULT_PAGE_SIZE = 100
 # The ASO endpoints page with a bare `page` number and publish neither a page count nor a total, so
 # the walk can only end on an empty page. Cap it so a misbehaving endpoint can't spend credits forever.
 MAX_PAGES_PER_APP = 100
+
+# The v3 reviews feed pages on a vendor-issued cursor with no published total, and each page costs
+# credits. The feed is sorted oldest first and an incremental sync restarts at the watermark, so a sync
+# that stops at this cap continues from that point on the next run.
+MAX_REVIEW_FEED_PAGES_PER_WORKSPACE = 1000
 
 # `/meta/versions` requires a country and an app does not always carry one. Last resort when neither
 # the app nor its collection names one.
@@ -36,7 +43,7 @@ class AppfollowRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class AppfollowResumeConfig:
     # Fan-out bookmark: the store `ext_id` currently being processed. A stable id (not a positional
     # index) so apps added/removed between a crash and the retry can't resume us into the wrong app.
@@ -45,6 +52,9 @@ class AppfollowResumeConfig:
     # Pagination cursor within the current app's resource: 1-indexed `page` for reviews, or the row
     # `offset` for ratings history.
     cursor: int | None = None
+    # v3 reviews fan out over workspaces and page with an opaque cursor, so they bookmark here instead.
+    collection_id: int | None = None
+    page_cursor: str | None = None
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -104,7 +114,7 @@ def _clamp_future_value_to_now(value: Any) -> Any:
     return value
 
 
-@retry(
+_retry_transient_errors = retry(
     retry=retry_if_exception_type(
         (
             AppfollowRetryableError,
@@ -117,14 +127,9 @@ def _clamp_future_value_to_now(value: Any) -> Any:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch(
-    session: requests.Session,
-    url: str,
-    params: dict[str, Any],
-    logger: FilteringBoundLogger,
-) -> Any:
-    response = session.get(url, params=params, timeout=60)
 
+
+def _parse_response(response: requests.Response, url: str, logger: FilteringBoundLogger) -> Any:
     # AppFollow rate-limits per token (1000/hr) and per account (10000/hr); treat 429 and transient
     # 5xx as retryable. 401 (bad token) / 402 (out of credits) / 403 raise for the caller and are
     # mapped to non-retryable errors at the source layer.
@@ -136,6 +141,26 @@ def _fetch(
         response.raise_for_status()
 
     return response.json()
+
+
+@_retry_transient_errors
+def _fetch(
+    session: requests.Session,
+    url: str,
+    params: dict[str, Any],
+    logger: FilteringBoundLogger,
+) -> Any:
+    return _parse_response(session.get(url, params=params, timeout=60), url, logger)
+
+
+@_retry_transient_errors
+def _post(
+    session: requests.Session,
+    url: str,
+    body: dict[str, Any],
+    logger: FilteringBoundLogger,
+) -> Any:
+    return _parse_response(session.post(url, json=body, timeout=60), url, logger)
 
 
 def _extract_rows(data: Any, data_key: str | tuple[str, ...] | None) -> list[dict[str, Any]]:
@@ -159,16 +184,21 @@ def _extract_rows(data: Any, data_key: str | tuple[str, ...] | None) -> list[dic
     return data if isinstance(data, list) else []
 
 
-def check_credentials(api_key: str) -> int | None:
-    """Probe the account collections endpoint and return its HTTP status, or None on a network error.
+_CREDENTIALS_PROBE_URLS = {
+    APPFOLLOW_V2: f"{APPFOLLOW_BASE_URL}/account/apps",
+    APPFOLLOW_V3: f"{APPFOLLOW_V3_BASE_URL}/workspaces",
+}
 
-    ``/account/apps`` costs a single credit and is reachable by any valid token, so it's the cheapest
-    genuine liveness check. 200 = valid, 401 = bad token, 402 = out of credits.
+
+def check_credentials(api_key: str, api_version: str) -> int | None:
+    """Probe the version's collections endpoint and return its HTTP status, or None on a network error.
+
+    The collections endpoint costs a single credit and is reachable by any valid token, so it's the
+    cheapest genuine liveness check. 200 = valid, 401 = bad token, 402 = out of credits.
     """
+    url = _CREDENTIALS_PROBE_URLS[api_version]
     try:
-        response = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,)).get(
-            f"{APPFOLLOW_BASE_URL}/account/apps", timeout=10
-        )
+        response = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,)).get(url, timeout=10)
         return response.status_code
     except Exception:
         return None
@@ -494,18 +524,149 @@ def _get_app_fanout(
             manager.save_state(AppfollowResumeConfig(ext_id=remaining[i + 1].ext_id, cursor=1))
 
 
+def _iter_workspaces(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[dict[str, Any]]:
+    """Yield v3 workspaces in creation order.
+
+    The response maps each `collectionCode` to its workspace, and `sortedCollections` gives the order.
+    A stable order keeps the reviews fan-out resume bookmark meaningful.
+    """
+    data = _fetch(session, f"{APPFOLLOW_V3_BASE_URL}/workspaces", {}, logger)
+    collections = data.get("collections") if isinstance(data, dict) else None
+    if not isinstance(collections, dict):
+        return
+    order = data.get("sortedCollections")
+    codes = [code for code in order if code in collections] if isinstance(order, list) else []
+    codes += [code for code in collections if code not in codes]
+    for code in codes:
+        workspace = collections[code]
+        if isinstance(workspace, dict):
+            yield workspace
+
+
+def _get_workspaces(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[list[dict[str, Any]]]:
+    rows = list(_iter_workspaces(session, logger))
+    if rows:
+        yield rows
+
+
+def _get_workspace_apps(
+    session: requests.Session,
+    config: AppfollowEndpointConfig,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    rows: list[dict[str, Any]] = []
+    for workspace in _iter_workspaces(session, logger):
+        collection_id = workspace.get("collectionId")
+        data = _fetch(session, f"{APPFOLLOW_V3_BASE_URL}{config.path}", {"appsId": collection_id}, logger)
+        for app in _extract_rows(data, config.data_key):
+            app["collectionId"] = collection_id
+            rows.append(app)
+    if rows:
+        yield rows
+
+
+def _flatten_v3_review(row: dict[str, Any]) -> None:
+    meta = row.pop("metaInformation", None) or {}
+    for key, value in meta.items():
+        row.setdefault(key, value)
+    row.setdefault("date", meta.get("created"))
+    row.setdefault("app_version", meta.get("version"))
+
+
+def _get_reviews_feed(
+    session: requests.Session,
+    config: AppfollowEndpointConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AppfollowResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    collection_ids = [
+        workspace["collectionId"]
+        for workspace in _iter_workspaces(session, logger)
+        if workspace.get("collectionId") is not None
+    ]
+
+    resume = manager.load_state() if manager.can_resume() else None
+    resume_cursor: str | None = None
+    if resume is not None and resume.collection_id in collection_ids:
+        collection_ids = collection_ids[collection_ids.index(resume.collection_id) :]
+        resume_cursor = resume.page_cursor
+
+    from_date = DEFAULT_START_DATE
+    if should_use_incremental_field and db_incremental_field_last_value:
+        from_date = _to_date_str(_clamp_future_value_to_now(db_incremental_field_last_value)) or DEFAULT_START_DATE
+
+    to_date = _today_str()
+    for i, collection_id in enumerate(collection_ids):
+        page_cursor = resume_cursor if i == 0 else None
+        pages = 0
+        while True:
+            body: dict[str, Any] = {
+                "appsId": collection_id,
+                "from": from_date,
+                "to": to_date,
+                "limit": config.page_size,
+                "sort": "oldest",
+            }
+            if page_cursor:
+                body["cursor"] = page_cursor
+
+            data = _post(session, f"{APPFOLLOW_V3_BASE_URL}{config.path}", body, logger)
+            rows = _extract_rows(data, config.data_key)
+            pages += 1
+
+            next_cursor = data.get("nextCursor") if isinstance(data, dict) and rows else None
+            if next_cursor and pages >= MAX_REVIEW_FEED_PAGES_PER_WORKSPACE:
+                logger.warning(
+                    f"AppFollow {config.name}: reached the {MAX_REVIEW_FEED_PAGES_PER_WORKSPACE} page cap for "
+                    f"workspace {collection_id}; later pages were not fetched"
+                )
+                next_cursor = None
+
+            # Stage the bookmark for the page after this batch before yielding it, because the pipeline
+            # commits staged state together with the batch.
+            if next_cursor:
+                manager.save_state(AppfollowResumeConfig(collection_id=collection_id, page_cursor=next_cursor))
+            elif i + 1 < len(collection_ids):
+                manager.save_state(AppfollowResumeConfig(collection_id=collection_ids[i + 1]))
+
+            if rows:
+                for row in rows:
+                    _flatten_v3_review(row)
+                yield rows
+
+            if not next_cursor:
+                break
+            page_cursor = next_cursor
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[AppfollowResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    config = APPFOLLOW_ENDPOINTS[endpoint]
+    config = endpoints_for_version(api_version)[endpoint]
     session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
 
-    if config.kind == "list":
+    if config.kind == "workspaces":
+        yield from _get_workspaces(session, logger)
+    elif config.kind == "workspace_apps":
+        yield from _get_workspace_apps(session, config, logger)
+    elif config.kind == "reviews_feed":
+        yield from _get_reviews_feed(
+            session,
+            config,
+            logger,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+    elif config.kind == "list":
         yield from _get_list(session, config, logger)
     elif config.kind == "apps":
         yield from _get_apps(session, logger)
@@ -541,18 +702,20 @@ def get_rows(
 def appfollow_source(
     api_key: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[AppfollowResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    config = APPFOLLOW_ENDPOINTS[endpoint]
+    config = endpoints_for_version(api_version)[endpoint]
 
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(
             api_key=api_key,
             endpoint=endpoint,
+            api_version=api_version,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,

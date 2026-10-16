@@ -6,6 +6,7 @@ import pytest
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest import mock
 
+from parameterized import parameterized
 from psycopg.types.json import Jsonb
 
 import posthog.management.commands.sync_persons_to_clickhouse
@@ -24,10 +25,37 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_TABLE_SQL,
 )
 from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_distinct_id, insert_seed_group, insert_seed_person
 
 pytestmark = pytest.mark.persons_db_direct
+
+SYNC_MODULE = posthog.management.commands.sync_persons_to_clickhouse.__name__
+
+
+def _raise_distinct_id_version_in_postgres(
+    team_id: int, distinct_id: str, min_version: int, *, revive: bool = False
+) -> None:
+    # The personhog fake keeps its own store, so write the same version update to the persons DB the sync reads.
+    with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE posthog_persondistinctid SET version = %s, is_deleted = is_deleted AND NOT %s "
+            "WHERE team_id = %s AND distinct_id = %s AND COALESCE(version, 0) < %s",
+            [min_version, revive, team_id, distinct_id, min_version],
+        )
+
+
+def _fail_the_second_call(method):
+    requests = []
+
+    def call(request, timeout=None):
+        requests.append(request)
+        if len(requests) == 2:
+            raise RuntimeError("personhog down")
+        return method(request, timeout)
+
+    return call, requests
 
 
 @pytest.mark.ee
@@ -42,6 +70,15 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         sync_execute(TRUNCATE_PERSON_TABLE_SQL)
         sync_execute(TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL)
         sync_execute(TRUNCATE_GROUPS_TABLE_SQL)
+
+    def _seed_tombstoned_person(self, person_uuid: UUID, version: int) -> None:
+        with persons_db_connection(writer=True, autocommit=True) as conn:
+            insert_seed_person(conn, team_id=self.team.pk, properties={}, version=version, uuid=person_uuid)
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE posthog_person SET is_deleted = true WHERE team_id = %s AND uuid = %s",
+                    [self.team.pk, person_uuid],
+                )
 
     def test_persons_sync(self):
         person_uuid = uuid4()
@@ -95,15 +132,131 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
             properties={"abc": 123},
         )
 
-        run_person_sync(self.team.pk, live_run=True, deletes=True)
+        with fake_personhog_client() as personhog:
+            # The only ClickHouse person is missing from Postgres, which is over the share limit.
+            run_person_sync(self.team.pk, live_run=True, deletes=True, force=True)
+            stored = personhog.stored_person(self.team.pk, uuid)
 
+        # Postgres takes the tombstone first, so a later revival lands above the ClickHouse row.
+        assert stored is not None and (stored.is_deleted, stored.version) == (True, 6)
         ch_persons = sync_execute(
             """
             SELECT id, team_id, properties, is_identified, version, is_deleted FROM person FINAL WHERE team_id = %(team_id)s
             """,
             {"team_id": self.team.pk},
         )
-        self.assertEqual(ch_persons, [(UUID(uuid), self.team.pk, "{}", False, 105, True)])
+        self.assertEqual(ch_persons, [(UUID(uuid), self.team.pk, "{}", False, 6, True)])
+
+    @parameterized.expand([("persons",), ("distinct_ids",)])
+    def test_deletes_fail_when_kafka_leaves_messages_undelivered(self, path):
+        if path == "persons":
+            create_person(uuid=str(uuid4()), team_id=self.team.pk, version=5, properties={})
+        else:
+            person_uuid = uuid4()
+            with persons_db_connection(writer=True, autocommit=True) as conn:
+                person_id = insert_seed_person(conn, team_id=self.team.pk, properties={}, version=0, uuid=person_uuid)
+                insert_seed_distinct_id(
+                    conn, team_id=self.team.pk, person_id=person_id, distinct_id="test-id", version=7
+                )
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE posthog_persondistinctid SET is_deleted = true WHERE team_id = %s AND distinct_id = %s",
+                        [self.team.pk, "test-id"],
+                    )
+            create_person_distinct_id(
+                team_id=self.team.pk, distinct_id="test-id", person_id=str(person_uuid), is_deleted=False, version=3
+            )
+
+        with (
+            fake_personhog_client(),
+            mock.patch(f"{SYNC_MODULE}.flush_all_producers", return_value=2),
+            pytest.raises(SystemExit),
+        ):
+            if path == "persons":
+                run_person_sync(self.team.pk, live_run=True, deletes=True, force=True)
+            else:
+                run_distinct_id_sync(self.team.pk, live_run=True, deletes=True)
+
+    def test_deletes_refuse_a_large_share_of_persons_missing_from_postgres(self):
+        uuid = create_person(uuid=str(uuid4()), team_id=self.team.pk, version=5, properties={"abc": 123})
+
+        with fake_personhog_client() as personhog, self.assertRaises(SystemExit):
+            run_person_sync(self.team.pk, live_run=True, deletes=True)
+
+        assert personhog.stored_person(self.team.pk, uuid) is None
+        ch_persons = sync_execute(
+            "SELECT version, is_deleted FROM person FINAL WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
+        )
+        self.assertEqual(ch_persons, [(5, False)])
+
+    @parameterized.expand(
+        [
+            # (name, version of the replica's tombstone, or None when the replica has no row)
+            ("missing_from_the_replica", None),
+            ("tombstoned_in_the_replica_above_clickhouse", 9),
+        ]
+    )
+    def test_a_person_live_on_the_postgres_primary_is_not_tombstoned(self, _name, replica_tombstone_version):
+        uuid = create_person(uuid=str(uuid4()), team_id=self.team.pk, version=5, properties={"abc": 123})
+        if replica_tombstone_version is not None:
+            self._seed_tombstoned_person(UUID(uuid), replica_tombstone_version)
+
+        # The sync's replica read misses this person, but the primary that personhog reads holds it live.
+        with fake_personhog_client() as personhog:
+            personhog.add_person(team_id=self.team.pk, person_id=1, uuid=uuid, version=5)
+            run_person_sync(self.team.pk, live_run=True, deletes=True, force=True)
+
+        ch_persons = sync_execute(
+            "SELECT version, is_deleted FROM person FINAL WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
+        )
+        self.assertEqual(ch_persons, [(5, False)])
+
+    @parameterized.expand(
+        [
+            # (name, ClickHouse live version, expected row after the sync)
+            ("stored_version_wins", 5, ('{"abc": 123}', 9, True)),
+            ("clickhouse_ahead_is_raised_above", 9, ('{"abc": 123}', 10, True)),
+        ]
+    )
+    def test_persons_tombstoned_in_postgres_publish_the_stored_version(self, _name, ch_version, expected):
+        person_uuid = uuid4()
+        self._seed_tombstoned_person(person_uuid, 9)
+        create_person(uuid=str(person_uuid), team_id=self.team.pk, version=ch_version, properties={"abc": 123})
+
+        with fake_personhog_client() as personhog:
+            personhog.add_person(team_id=self.team.pk, person_id=1, uuid=str(person_uuid), version=9, is_deleted=True)
+            run_person_sync(self.team.pk, live_run=True, deletes=True)
+
+        ch_persons = sync_execute(
+            """
+            SELECT id, team_id, properties, version, is_deleted FROM person FINAL WHERE team_id = %(team_id)s
+            """,
+            {"team_id": self.team.pk},
+        )
+        properties, version, is_deleted = expected
+        # The tombstone carries the stored Postgres version, so the next revival lands above it.
+        self.assertEqual(
+            ch_persons, [(person_uuid, self.team.pk, "{}" if is_deleted else properties, version, is_deleted)]
+        )
+
+    def test_a_failed_person_batch_leaves_earlier_batches_published(self):
+        for _ in range(2):
+            create_person(uuid=str(uuid4()), team_id=self.team.pk, version=2, properties={})
+
+        with fake_personhog_client() as personhog:
+            ensure_floors, requests = _fail_the_second_call(personhog.ensure_person_version_floors)
+            with (
+                mock.patch(f"{SYNC_MODULE}.PERSONHOG_BATCH_SIZE", 1),
+                mock.patch.object(personhog, "ensure_person_version_floors", side_effect=ensure_floors),
+                self.assertRaises(RuntimeError),
+            ):
+                run_person_sync(self.team.pk, live_run=True, deletes=True, force=True)
+
+        first, second = (UUID(r.floors[0].person_uuid) for r in requests)
+        ch_persons = sync_execute(
+            "SELECT id, version, is_deleted FROM person FINAL WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
+        )
+        self.assertCountEqual(ch_persons, [(first, 3, True), (second, 2, False)])
 
     def test_distinct_ids_sync(self):
         person_uuid = uuid4()
@@ -140,7 +293,7 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(ch_person_distinct_ids, [(person_uuid, self.team.pk, "test-id", 0, False)])
 
-    def test_distinct_ids_deleted(self):
+    def test_distinct_ids_without_a_postgres_row_are_left_alone(self):
         uuid = uuid4()
         create_person_distinct_id(
             team_id=self.team.pk,
@@ -157,10 +310,55 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
             """,
             {"team_id": self.team.pk},
         )
-        self.assertEqual(
-            ch_person_distinct_ids,
-            [(UUID(int=0), self.team.pk, "test-id-7", 107, True)],
+        # A tombstone naming the all-zero person would be copied into events by the overrides squash.
+        self.assertEqual(ch_person_distinct_ids, [(uuid, self.team.pk, "test-id-7", 7, False)])
+
+    @parameterized.expand(
+        [
+            # (name, ClickHouse live version, mapping revives during the raise, expected version and is_deleted)
+            ("stored_version_wins", 3, False, (7, True)),
+            ("clickhouse_ahead_is_raised_above", 7, False, (8, True)),
+            ("revived_during_the_raise_is_published_live", 7, True, (8, False)),
+        ]
+    )
+    def test_distinct_ids_tombstoned_in_postgres_publish_the_primary_row(self, _name, ch_version, revives, expected):
+        person_uuid = uuid4()
+        with persons_db_connection(writer=True, autocommit=True) as conn:
+            person_id = insert_seed_person(conn, team_id=self.team.pk, properties={}, version=0, uuid=person_uuid)
+            insert_seed_distinct_id(conn, team_id=self.team.pk, person_id=person_id, distinct_id="test-id", version=7)
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE posthog_persondistinctid SET is_deleted = true WHERE team_id = %s AND distinct_id = %s",
+                    [self.team.pk, "test-id"],
+                )
+        create_person_distinct_id(
+            team_id=self.team.pk,
+            distinct_id="test-id",
+            person_id=str(person_uuid),
+            is_deleted=False,
+            version=ch_version,
         )
+
+        with mock.patch(
+            f"{SYNC_MODULE}.set_distinct_id_version_floor",
+            side_effect=lambda *args: _raise_distinct_id_version_in_postgres(*args, revive=revives),
+        ):
+            run_distinct_id_sync(self.team.pk, live_run=True, deletes=True)
+
+        ch_person_distinct_ids = sync_execute(
+            f"""
+            SELECT person_id, team_id, distinct_id, version, is_deleted FROM {PERSON_DISTINCT_ID2_TABLE} FINAL WHERE team_id = %(team_id)s
+            """,
+            {"team_id": self.team.pk},
+        )
+        version, is_deleted = expected
+        self.assertEqual(ch_person_distinct_ids, [(person_uuid, self.team.pk, "test-id", version, is_deleted)])
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT version, is_deleted FROM posthog_persondistinctid WHERE team_id = %s AND distinct_id = %s",
+                [self.team.pk, "test-id"],
+            )
+            self.assertEqual(cursor.fetchall(), [(version, is_deleted)])
 
     @mock.patch(
         f"{posthog.management.commands.sync_persons_to_clickhouse.__name__}.raw_create_group_ch",
@@ -519,8 +717,11 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
             "person_override": True,
             "group": True,
             "deletes": True,
+            # Two of its six ClickHouse persons are missing from Postgres, over the share limit.
+            "force": True,
         }
-        run(options)
+        with fake_personhog_client():
+            run(options)
 
         ch_persons = sync_execute(
             """
@@ -689,8 +890,8 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
                         7,
                         False,
                     ),
-                    (UUID(deleted_person_1_uuid), self.team.pk, "{}", False, 107, True),
-                    (UUID(deleted_person_2_uuid), self.team.pk, "{}", False, 108, True),
+                    (UUID(deleted_person_1_uuid), self.team.pk, "{}", False, 8, True),
+                    (UUID(deleted_person_2_uuid), self.team.pk, "{}", False, 9, True),
                 ],
             )
             self.assertEqual(
@@ -732,8 +933,8 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
                         15,
                         False,
                     ),
-                    (UUID(int=0), self.team.pk, "distinct_id-17", 117, True),
-                    (UUID(int=0), self.team.pk, "distinct_id-18", 118, True),
+                    (deleted_distinct_id_1_uuid, self.team.pk, "distinct_id-17", 17, False),
+                    (deleted_distinct_id_2_uuid, self.team.pk, "distinct_id-18", 18, False),
                 ],
             )
             self.assertEqual(ch_groups, [(2, "group-key", '{"a": 1234}')])

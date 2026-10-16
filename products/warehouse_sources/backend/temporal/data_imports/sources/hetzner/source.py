@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -23,12 +24,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.hetzner import (
     HetznerResumeConfig,
+    hetzner_child_source,
     hetzner_metrics_source,
     hetzner_source,
     validate_credentials as validate_hetzner_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.settings import (
     ENDPOINTS,
+    HETZNER_CHILD_ENDPOINTS,
     HETZNER_METRICS_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -37,6 +40,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HetznerSource(ResumableSource[HetznerSourceConfig, HetznerResumeConfig]):
+    codebase_detection = detect(
+        env=("^HETZNER_", "^HCLOUD_TOKEN$"),
+        pypi=("hcloud",),
+        go=(
+            "github.com/hetznercloud/hcloud-go",
+            "github.com/hetznercloud/hcloud-cloud-controller-manager",
+            "github.com/hetznercloud/packer-plugin-hcloud",
+            "gitlab.com/hetznercloud/fleeting-plugin-hetzner",
+        ),
+    )
+
     # get_schemas iterates a static endpoint catalog with no I/O, so the table list is safe to
     # publish in the public docs.
     lists_tables_without_credentials = True
@@ -133,6 +147,12 @@ Create a token under **Security > API tokens** in the [Hetzner Cloud Console](ht
                 db_incremental_field_last_value=inputs.db_incremental_field_last_value
                 if inputs.should_use_incremental_field
                 else None,
+            )
+        if inputs.schema_name in HETZNER_CHILD_ENDPOINTS:
+            return hetzner_child_source(
+                api_token=config.api_token,
+                endpoint=inputs.schema_name,
+                resumable_source_manager=resumable_source_manager,
             )
         return hetzner_source(
             api_token=config.api_token,

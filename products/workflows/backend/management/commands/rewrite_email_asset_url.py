@@ -12,13 +12,14 @@ from django.utils import timezone
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers, reload_hog_functions_on_workers
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.facade.api import find_template_ids_containing, rewrite_template_content
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 
 logger = logging.getLogger(__name__)
 
 WorkerReload = Callable[[int, str], None]
+RowRewrite = Callable[[Any], int]
 
 # Only executed config has a worker-side cache to invalidate; templates are copied at creation time
 # and never read by a worker, so they need no reload.
@@ -33,12 +34,14 @@ WORKER_RELOADS: Final[dict[str, WorkerReload]] = {
 # `actions`/`inputs` carry both the editable value (html, design) and the compiled hog bytecode the
 # executor renders from when an input isn't liquid, so a rewrite has to cover the whole blob -
 # fixing only value.html would leave those sends unchanged.
-TARGETS: Final[dict[str, tuple[type[models.Model], dict[str, str]]]] = {
+MODEL_TARGETS: Final[dict[str, tuple[type[models.Model], dict[str, str]]]] = {
     "hog_flows": (HogFlow, {"actions": "updated_at", "draft": "draft_updated_at"}),
     "hog_flow_templates": (HogFlowTemplate, {"actions": "updated_at"}),
-    "message_templates": (MessageTemplate, {"content": "updated_at"}),
     "hog_functions": (HogFunction, {"inputs": "updated_at", "draft": "draft_updated_at"}),
 }
+# Message templates belong to messaging, which finds and rewrites its own rows (content, updated_at).
+MESSAGE_TEMPLATES: Final = "message_templates"
+TARGETS: Final[tuple[str, ...]] = ("hog_flows", "hog_flow_templates", MESSAGE_TEMPLATES, "hog_functions")
 
 
 @dataclass(frozen=False)
@@ -146,11 +149,59 @@ class Command(BaseCommand):
             raise CommandError(f"{totals.errors} row(s) failed to rewrite - see the errors above and re-run")
 
     def _process_target(self, target: str, from_url: str, to_url: str, options: dict[str, Any]) -> RewriteCounts:
-        model, field_timestamps = TARGETS[target]
-        fields = tuple(field_timestamps)
         counts = RewriteCounts()
+        if target == MESSAGE_TEMPLATES:
+            row_ids, rewrite_row = self._message_template_rows(from_url, to_url, options)
+        else:
+            row_ids, rewrite_row = self._model_rows(target, from_url, to_url, options)
 
-        # _default_manager, not .objects: the loop is generic over four models, and Model itself
+        self.stdout.write(f"{target}: {len(row_ids)} row(s) matched")
+        if not row_ids:
+            return counts
+
+        batch_size: int = options["batch_size"]
+        for start in range(0, len(row_ids), batch_size):
+            batch = row_ids[start : start + batch_size]
+            for row_id in batch:
+                counts.rows_scanned += 1
+                try:
+                    occurrences = rewrite_row(row_id)
+                except Exception as e:
+                    counts.errors += 1
+                    logger.exception("Failed to rewrite %s %s: %s", target, row_id, e)
+                    self.stdout.write(self.style.ERROR(f"  {row_id}: {e}"))
+                    continue
+                if occurrences:
+                    counts.rows_changed += 1
+                    counts.occurrences += occurrences
+                    if options["list_rows"]:
+                        self.stdout.write(f"  {row_id}: {occurrences} occurrence(s)")
+
+        return counts
+
+    def _message_template_rows(
+        self, from_url: str, to_url: str, options: dict[str, Any]
+    ) -> tuple[list[Any], RowRewrite]:
+        team_ids: list[int] | None = options.get("team_id")
+        row_ids = find_template_ids_containing(from_url, team_ids=team_ids, template_id=options.get("row_id"))
+
+        def rewrite_row(row_id: Any) -> int:
+            return rewrite_template_content(
+                row_id,
+                lambda blob: rewrite_blob(blob, from_url, to_url),
+                team_ids=team_ids,
+                dry_run=options["dry_run"],
+            )
+
+        return row_ids, rewrite_row
+
+    def _model_rows(
+        self, target: str, from_url: str, to_url: str, options: dict[str, Any]
+    ) -> tuple[list[Any], RowRewrite]:
+        model, field_timestamps = MODEL_TARGETS[target]
+        fields = tuple(field_timestamps)
+
+        # _default_manager, not .objects: the loop is generic over the model targets, and Model itself
         # doesn't declare a manager. unscoped() where it exists - a fix like this is deliberately
         # cross-team, so a fail-closed manager would otherwise raise TeamScopeError.
         manager = model._default_manager
@@ -170,37 +221,19 @@ class Command(BaseCommand):
             match |= models.Q(**{f"_text_{field}__contains": from_url})
 
         row_ids = list(matcher.filter(match).order_by("id").values_list("id", flat=True))
-        self.stdout.write(f"{target}: {len(row_ids)} row(s) matched")
-        if not row_ids:
-            return counts
 
-        batch_size: int = options["batch_size"]
-        for start in range(0, len(row_ids), batch_size):
-            batch = row_ids[start : start + batch_size]
-            for row_id in batch:
-                counts.rows_scanned += 1
-                try:
-                    occurrences = self._rewrite_row(
-                        base_queryset,
-                        row_id,
-                        field_timestamps,
-                        WORKER_RELOADS.get(target),
-                        from_url,
-                        to_url,
-                        dry_run=options["dry_run"],
-                    )
-                except Exception as e:
-                    counts.errors += 1
-                    logger.exception("Failed to rewrite %s %s: %s", target, row_id, e)
-                    self.stdout.write(self.style.ERROR(f"  {row_id}: {e}"))
-                    continue
-                if occurrences:
-                    counts.rows_changed += 1
-                    counts.occurrences += occurrences
-                    if options["list_rows"]:
-                        self.stdout.write(f"  {row_id}: {occurrences} occurrence(s)")
+        def rewrite_row(row_id: Any) -> int:
+            return self._rewrite_row(
+                base_queryset,
+                row_id,
+                field_timestamps,
+                WORKER_RELOADS.get(target),
+                from_url,
+                to_url,
+                dry_run=options["dry_run"],
+            )
 
-        return counts
+        return row_ids, rewrite_row
 
     def _rewrite_row(
         self,

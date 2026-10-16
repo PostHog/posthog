@@ -156,6 +156,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     GONG = "Gong", "Gong"
     CALENDLY = "Calendly", "Calendly"
     TYPEFORM = "Typeform", "Typeform"
+    UNITYADS = "UnityAds", "UnityAds"
     ITERABLE = "Iterable", "Iterable"
     ZOHOCRM = "ZohoCRM", "ZohoCRM"
     CLOSE = "Close", "Close"
@@ -567,6 +568,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     SQUARESPACE = "Squarespace", "Squarespace"
     STATSIG = "Statsig", "Statsig"
     STATUSPAGE = "Statuspage", "Statuspage"
+    STEAM = "Steam", "Steam"
     STIGG = "Stigg", "Stigg"
     STRAVA = "Strava", "Strava"
     SURVEYSPARROW = "SurveySparrow", "SurveySparrow"
@@ -1024,6 +1026,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     BLACKBOARDLEARN = "BlackboardLearn", "BlackboardLearn"
     BLING = "Bling", "Bling"
     BLOOMERANG = "Bloomerang", "Bloomerang"
+    BLUESHIFT = "Blueshift", "Blueshift"
     BLUESKY = "Bluesky", "Bluesky"
     BOLRETAILER = "BolRetailer", "BolRetailer"
     BOULEVARD = "Boulevard", "Boulevard"
@@ -1437,6 +1440,22 @@ class ExternalDataSourceType(LabeledStrEnum):
     SUPERMETRICS = "Supermetrics", "Supermetrics"
     SQLITE = "SQLite", "SQLite"
     MODAL = "Modal", "Modal"
+    VIMEO = "Vimeo", "Vimeo"
+    SCRUNCH = "Scrunch", "Scrunch"
+    LOOM = "Loom", "Loom"
+    ARCADE = "Arcade", "Arcade"
+    NEO4J = "Neo4j", "Neo4j"
+    TESTDINO = "TestDino", "TestDino"
+    CHESSCOM = "ChessCom", "ChessCom"
+    USERBACK = "Userback", "Userback"
+    REWARDFUL = "Rewardful", "Rewardful"
+    TRACKLUTION = "Tracklution", "Tracklution"
+    STACKADAPT = "StackAdapt", "StackAdapt"
+    CHECKHQ = "CheckHQ", "CheckHQ"
+    RAINFORESTPAY = "RainforestPay", "RainforestPay"
+    WISE = "Wise", "Wise"
+    LARAVELCLOUD = "LaravelCloud", "LaravelCloud"
+    NORTHBEAM = "Northbeam", "Northbeam"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
@@ -1456,6 +1475,7 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
     ExternalDataSourceType.MOTHERDUCK: "motherduck",
     ExternalDataSourceType.TRINO: "trino",
+    ExternalDataSourceType.BIGQUERY: "bigquery",
 }
 
 

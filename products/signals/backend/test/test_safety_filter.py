@@ -50,16 +50,22 @@ async def test_safety_filter_wires_prompt_source_and_model(
         ai_product: str,
         model: str,
         cache_system_prompt: bool,
+        signal_id: str | None = None,
         **_kwargs: object,
     ) -> SafetyFilterJudgeResponse:
         captured.update(system_prompt=system_prompt, user_prompt=user_prompt, ai_product=ai_product, model=model)
+        assert signal_id is not None
+        captured["signal_id"] = signal_id
         cache_flags.append(cache_system_prompt)
         return SafetyFilterJudgeResponse(safe=True)
 
     with patch(f"{MODULE_PATH}.call_llm", new=fake_call_llm), time_machine.travel("2026-09-10", tick=False):
-        result = await safety_filter(1, "a finding", source_product=source_product, source_type=source_type)
+        result = await safety_filter(
+            1, "a finding", source_product=source_product, source_type=source_type, signal_id="driver-signal"
+        )
 
     assert result.safe is True
+    assert captured["signal_id"] == "driver-signal"
     assert captured["system_prompt"] == SAFETY_FILTER_PROMPT
     assert captured["model"] == SAFETY_MODEL
     assert captured["ai_product"] == "signals_safety"

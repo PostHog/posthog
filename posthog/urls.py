@@ -47,10 +47,9 @@ from products.customer_analytics.backend.presentation.views.internal import (
     InternalAccountCustomPropertiesView as CustomerAnalyticsInternalAccountCustomPropertiesView,
     InternalAccountView as CustomerAnalyticsInternalAccountView,
 )
-from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
-from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
-from products.messaging.backend.api.push_subscriptions import push_subscriptions
+from products.messaging.backend.presentation.views.customerio_webhook import CustomerIOWebhookView
+from products.messaging.backend.presentation.views.recipient_preferences import preferences_page, update_preferences
 from products.notebooks.backend.facade.sql_v2 import (
     notebook_sql_v2_callback,
     notebook_sql_v2_data_plane,
@@ -73,6 +72,7 @@ from products.slack_app.backend.views import (
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
+from products.tasks.backend.presentation.views.artifact_preview import task_artifact_preview
 from products.tasks.backend.presentation.views.gateway_generation_requests import gateway_generation_request
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.workflows.backend.presentation.views import hog_flow
@@ -83,14 +83,12 @@ from .views import (
     health,
     login_required,
     metrics_view,
-    preferences_page,
     preflight_check,
     render_query,
     replay_player_frame,
     robots_txt,
     security_txt,
     stats,
-    update_preferences,
 )
 
 # One view for both paths, so the provider is built once per process rather than once per route.
@@ -183,7 +181,6 @@ urlpatterns = [
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
-    opt_slash_path("api/push_subscriptions", push_subscriptions),
     opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
@@ -304,7 +301,6 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
-    re_path(r"^demo.*", login_required(demo_route)),
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
@@ -357,6 +353,11 @@ urlpatterns = [
         r"^canvas-artifacts/sandbox/(?P<content_hash>[0-9a-f]{64})/index\.html$",
         canvas_sandbox_document,
         name="canvas-sandbox-document",
+    ),
+    re_path(
+        r"^canvas-artifacts/task-preview/(?P<token>[A-Za-z0-9_-]+)/index\.html$",
+        task_artifact_preview,
+        name="task-artifact-preview",
     ),
     re_path(r"^canvas-artifacts/(?P<token>[^/]+)/(?P<artifact_path>.+)$", canvas_artifact, name="canvas-artifact"),
     # Preserve the host and query when redirecting the legacy signup URL.

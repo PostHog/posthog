@@ -44,7 +44,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import user_slack_integration_from_identity
 from posthog.views import login_required
 
-from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.analytics import alias_slack_user, capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_oauth import (
     CallbackState,
@@ -262,6 +262,7 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
         slack_user_id=identity.slack_user_id,
         posthog_user=posthog_user,
     )
+    alias_slack_user(workspace_integration, identity.slack_user_id, posthog_user)
 
     _post_link_success_followup(
         workspace_integration=workspace_integration,

@@ -174,6 +174,7 @@ def _sum_session_payload_bytes(
             team=team,
             user=user,
             query_type="SessionEvaluationPayloadBytes",
+            posthog_tables_only=True,
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
         )
@@ -228,6 +229,7 @@ def _count_session_events(
             team=team,
             user=user,
             query_type="SessionEvaluationEventCount",
+            posthog_tables_only=True,
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
         )

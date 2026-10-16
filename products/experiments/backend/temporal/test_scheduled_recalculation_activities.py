@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import timedelta
 from uuid import uuid4
 
@@ -5,20 +6,36 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentMetricsRecalculation,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
 from products.experiments.backend.temporal.scheduled_recalculation_activities import (
+    SKIPPED_EVENT,
     _check_experiment_exposures_sync,
+    _discover_scheduled_recalculation_candidates_sync,
     _start_scheduled_recalculation_sync,
 )
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     SKIP_ACTIVE_RUN,
     SKIP_EXPOSURE_QUERY_FAILED,
     SKIP_INSUFFICIENT_EXPOSURES,
+    SKIP_NO_METRICS,
+    SKIP_RECENT_RUN,
+    SKIP_ZERO_ROLLOUT,
+    ScheduledRecalculationDiscovery,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -30,6 +47,7 @@ RECALCULATION = "products.experiments.backend.recalculation"
 # transaction, matching test_recalculation_activities.py.
 _check_exposures_raw = _check_experiment_exposures_sync.func  # type: ignore[attr-defined]
 _start_recalculation_raw = _start_scheduled_recalculation_sync.func  # type: ignore[attr-defined]
+_discover_raw = _discover_scheduled_recalculation_candidates_sync.func  # type: ignore[attr-defined]
 
 
 def _check_exposures(experiment_id: int, hour: int) -> bool:
@@ -43,21 +61,108 @@ def _start_recalculation(experiment_id: int, hour: int) -> ScheduledRecalculatio
         return _start_recalculation_raw(experiment_id, hour)
 
 
+def _discover() -> ScheduledRecalculationDiscovery:
+    with (
+        patch(f"{MODULE}.close_old_connections"),
+        patch(
+            "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false",
+            return_value=True,
+        ),
+    ):
+        return _discover_raw()
+
+
+def _metric() -> dict:
+    return {"kind": "ExperimentMetric", "metric_type": "mean", "uuid": str(uuid4())}
+
+
 @time_machine.travel("2026-09-15T12:00:00Z", tick=False)
 class TestScheduledRecalculationActivities(BaseTest):
     def setUp(self) -> None:
         super().setUp()
+        # Discovery selects the teams configured for the current hour, and the class clock is at 12:00.
+        TeamExperimentsConfig.objects.update_or_create(
+            team=self.team, defaults={"experiment_recalculation_times": ["12:00:00"]}
+        )
+        self.experiment = self._experiment()
+
+    def _experiment(self, **overrides: object) -> Experiment:
         flag = FeatureFlag.objects.create(
-            team=self.team, key=f"flag-{uuid4()}", created_by=self.user, filters={"groups": []}
-        )
-        self.experiment = Experiment.objects.create(
             team=self.team,
-            name="exp",
-            feature_flag=flag,
-            status=Experiment.Status.RUNNING,
-            start_date=timezone.now() - timedelta(days=2),
-            metrics=[{"kind": "ExperimentMetric", "metric_type": "mean", "uuid": str(uuid4())}],
+            key=f"flag-{uuid4()}",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
+        defaults: dict = {
+            "team": self.team,
+            "name": "exp",
+            "feature_flag": flag,
+            "created_by": self.user,
+            "start_date": timezone.now() - timedelta(days=2),
+            "metrics": [_metric()],
+        }
+        return Experiment.objects.create(**{**defaults, **overrides})
+
+    def _add_run(self, experiment: Experiment, **fields: object) -> None:
+        with team_scope(self.team.id, canonical=True):
+            ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=experiment, **fields)
+
+    def _zero_rollout(self) -> Experiment:
+        experiment = self._experiment()
+        experiment.feature_flag.filters = {"groups": [{"properties": [], "rollout_percentage": 0}]}
+        experiment.feature_flag.save()
+        return experiment
+
+    def _active_run(self) -> Experiment:
+        experiment = self._experiment()
+        self._add_run(experiment, status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at=timezone.now())
+        return experiment
+
+    def _recent_run(self) -> Experiment:
+        experiment = self._experiment()
+        saved = ExperimentSavedMetric.objects.create(team=self.team, name="saved", query=_metric())
+        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved)
+        self._add_run(
+            experiment,
+            status=ExperimentMetricsRecalculation.Status.COMPLETED,
+            completed_at=timezone.now() - timedelta(minutes=5),
+        )
+        return experiment
+
+    @parameterized.expand(
+        [
+            ("zero_rollout", lambda test: test._zero_rollout(), SKIP_ZERO_ROLLOUT),
+            ("no_metrics", lambda test: test._experiment(metrics=[]), SKIP_NO_METRICS),
+            ("active_run", lambda test: test._active_run(), SKIP_ACTIVE_RUN),
+            ("recent_run", lambda test: test._recent_run(), SKIP_RECENT_RUN),
+        ]
+    )
+    def test_discovery_sends_a_skipped_event_instead_of_returning_the_experiment(
+        self, _name: str, arrange: Callable[["TestScheduledRecalculationActivities"], Experiment], reason: str
+    ):
+        skipped = arrange(self)
+        with patch(f"{MODULE}.posthoganalytics.capture") as capture:
+            discovery = _discover()
+        assert [c.experiment_id for c in discovery.candidates] == [self.experiment.id]
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == SKIPPED_EVENT
+        assert capture.call_args.kwargs["properties"]["experiment_id"] == skipped.id
+        assert capture.call_args.kwargs["properties"]["reason"] == reason
+        assert capture.call_args.kwargs["properties"]["hour"] == 12
+
+    def test_discovery_query_count_does_not_grow_with_skips(self):
+        # Covers the skipped events too: each one reads the team, organization and creator.
+        def discovery_queries() -> int:
+            with patch(f"{MODULE}.posthoganalytics.capture"), CaptureQueriesContext(connection) as queries:
+                _discover()
+            return len(queries.captured_queries)
+
+        self._recent_run()
+        baseline = discovery_queries()
+        for _ in range(5):
+            self._recent_run()
+            self._zero_rollout()
+        assert discovery_queries() == baseline
 
     def test_exposure_gate_passes_above_threshold(self):
         with patch(f"{MODULE}.count_total_exposures", return_value=120):

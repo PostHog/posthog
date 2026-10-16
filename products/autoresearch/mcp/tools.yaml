@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product autoresearch
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product autoresearch
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Autoresearch
 feature: autoresearch
 url_prefix: /autoresearch
@@ -12,6 +10,7 @@ tools:
     autoresearch-archive-create:
         operation: autoresearch_archive_create
         enabled: false
+        disabled_reason: Pipeline lifecycle stays in the UI; see products/autoresearch/mcp/AGENTS.md
         scopes:
             - autoresearch:write
         annotations:
@@ -43,8 +42,9 @@ tools:
             label and the source of the derived output property name). An action target needs the action:read scope.
             horizon_days defaults to 7. The output person property (e.g. 'predicted_p_pageview') is auto-derived from
             target_event, or from the action name when target_event is omitted, if you do not set it. It must be unique
-            among the project's non-archived pipelines. After creating, call autoresearch-train-create to start an
-            asynchronous agent training run.
+            among the project's non-archived pipelines. Scores are written to that person property only when
+            write_person_property is true (default false); prediction events, validation and segments work without it.
+            After creating, call autoresearch-train-create to start an asynchronous agent training run.
         exclude_params:
             - id
             - created_by
@@ -54,9 +54,6 @@ tools:
             - status
             - iteration_budget_remaining
         feature_flag: autoresearch
-    autoresearch-destroy:
-        operation: autoresearch_destroy
-        enabled: false
     autoresearch-list:
         operation: autoresearch_list
         enabled: true
@@ -175,10 +172,38 @@ tools:
         feature_flag: autoresearch
     autoresearch-partial-update:
         operation: autoresearch_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - autoresearch:write
+            - person:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update a pipeline
+        description: >
+            Change fields of an existing pipeline. Send only the fields to change. Use write_person_property to turn
+            person profile writes on or off. When it is on, each live scoring run writes the champion's score to
+            output_person_property on the people it scores, so feature flags, cohorts, workflows and insights can target
+            people by score. Scores fill in over the next few scoring runs, not all at once. Turning it off starts a
+            cleanup run that removes the property from the people this pipeline scored (see autoresearch-runs-list).
+            Changing write_person_property needs the person:write scope. Prediction events, online validation and
+            segments work with it off. target_event, target_definition, horizon_days, training_lookback_days and the two
+            populations cannot change once a model has been trained.
+        exclude_params:
+            - id
+            - created_by
+            - created_at
+            - updated_at
+            - last_scored_at
+            - status
+            - iteration_budget_remaining
+        feature_flag: autoresearch
     autoresearch-pause-create:
         operation: autoresearch_pause_create
         enabled: false
+        disabled_reason: Pipeline lifecycle stays in the UI; see products/autoresearch/mcp/AGENTS.md
         scopes:
             - autoresearch:write
         annotations:
@@ -224,6 +249,7 @@ tools:
     autoresearch-resume-create:
         operation: autoresearch_resume_create
         enabled: false
+        disabled_reason: Pipeline lifecycle stays in the UI; see products/autoresearch/mcp/AGENTS.md
         scopes:
             - autoresearch:write
         annotations:
@@ -280,9 +306,6 @@ tools:
                 - started_at
                 - completed_at
                 - created_at
-    autoresearch-runs-retrieve:
-        operation: autoresearch_runs_retrieve
-        enabled: false
     autoresearch-score-create:
         operation: autoresearch_score_create
         enabled: true
@@ -389,6 +412,7 @@ tools:
     autoresearch-suggestions-retrieve:
         operation: autoresearch_suggestions_retrieve
         enabled: false
+        disabled_reason: Duplicates autoresearch-suggestions-list; the family stays at or below 25 tools
         scopes:
             - autoresearch:read
         annotations:
@@ -402,6 +426,7 @@ tools:
     autoresearch-templates-list:
         operation: autoresearch_templates_list
         enabled: false
+        disabled_reason: Replaced by autoresearch-resolve-template-create, which names every template key
         scopes:
             - autoresearch:read
         annotations:
@@ -446,6 +471,7 @@ tools:
     autoresearch-training-runs-artifacts-delete-create:
         operation: autoresearch_training_runs_artifacts_delete_create
         enabled: false
+        disabled_reason: Duplicative for the training agent; the family stays at or below 25 tools
         scopes:
             - autoresearch:write
         annotations:
@@ -531,7 +557,10 @@ tools:
             model card. Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a
             future run should try next) — these are stored in the run summary and read back by the next run during
             orientation; the backend derives the rest of the summary (kept ladder, dead-ends) from your recorded
-            iterations. If you built a report notebook for this run, pass its short_id as report_notebook_short_id.
+            iterations. Pass headline (a run title of at most 60 characters), reader_summary (one or two plain
+            sentences) and next_steps (at most 5 short items) for people who read the run; keep column names, SQL and
+            AUC numbers out of them. If you built a report notebook for this run, pass its short_id as
+            report_notebook_short_id.
         feature_flag: autoresearch
         response:
             include:
@@ -604,7 +633,9 @@ tools:
             current champion scores), 'discarded' otherwise, 'crashed' on failure. Iterations are picked up at
             completion time to choose the champion. If this iteration was spawned from a pending steering suggestion,
             pass parent_suggestion = the suggestion's ID — that links the iteration to the suggestion for attribution
-            and marks the suggestion 'acted_on'.
+            and marks the suggestion 'acted_on'. Pass summary, one plain sentence for people on what the experiment
+            tried and what happened, and headline, a title of at most 60 characters in the same plain words;
+            agent_description stays your own notes.
         feature_flag: autoresearch
         response:
             include:
@@ -643,12 +674,6 @@ tools:
                 - started_at
                 - completed_at
                 - created_at
-    autoresearch-training-runs-retrieve:
-        operation: autoresearch_training_runs_retrieve
-        enabled: false
-    autoresearch-update:
-        operation: autoresearch_update
-        enabled: false
     autoresearch-validate-create:
         operation: autoresearch_validate_create
         enabled: true
@@ -678,6 +703,7 @@ tools:
     autoresearch-validate-online-create:
         operation: autoresearch_validate_online_create
         enabled: false
+        disabled_reason: The daily validation workflow runs it; autoresearch-online-performance-retrieve reads results
         scopes:
             - autoresearch:write
             - query:read

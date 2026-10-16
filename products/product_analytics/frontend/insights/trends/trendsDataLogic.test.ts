@@ -106,6 +106,28 @@ describe('trendsDataLogic', () => {
                 })
             })
 
+            it('leaves the previous period out of a proportion bar saved with compare on', async () => {
+                const query: TrendsQuery = {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: { display: ChartDisplayType.ActionsProportionBar },
+                    compareFilter: { compare: true },
+                }
+                const insight: Partial<InsightModel> = {
+                    result: [
+                        { ...trendResult.result[0], compare: true, compare_label: 'current' },
+                        { ...trendResult.result[0], compare: true, compare_label: 'previous' },
+                    ],
+                }
+
+                await expectLogic(logic, () => {
+                    insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    indexedResults: [expect.objectContaining({ compare_label: 'current' })],
+                })
+            })
+
             it('for pie visualization', async () => {
                 const query: TrendsQuery = {
                     kind: NodeKind.TrendsQuery,

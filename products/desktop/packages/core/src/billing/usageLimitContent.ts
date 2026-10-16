@@ -44,6 +44,16 @@ export function usageLimitContent(args: {
     };
   }
 
+  if (cause === "user_limit") {
+    return {
+      title: "Usage limit reached",
+      description:
+        "You've reached a usage limit for now. Hourly model limits reset within the hour and daily limits after a day. Switch to a smaller model to keep working.",
+      actionLabel: null,
+      dismissLabel: "Got it",
+    };
+  }
+
   if (cause === "org_limit") {
     if (!canManageBilling) {
       return {

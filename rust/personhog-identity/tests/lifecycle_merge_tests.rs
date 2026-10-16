@@ -15,15 +15,17 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use common::sim_leader::{LeaderCall, Rpc, SimLeader, FENCED_METADATA_KEY};
-use common::TestContext;
+use common::{RecordingSink, TestContext};
 use personhog_common::grpc::semantic_refusal;
-use personhog_common::persons::person_uuid;
+use personhog_common::persons::{person_uuid, COOKIELESS_SENTINEL_VALUE};
 use serde_json::json;
 use sqlx::postgres::PgPool;
 use sqlx::Row;
 use tonic::{Code, Status};
 use uuid::Uuid;
 
+use personhog_identity::config::OutboxWrites;
+use personhog_identity::lifecycle::detach::DetachedDrives;
 use personhog_identity::lifecycle::engine::{
     Engine, OpDriver, OpRow, SagaError, STEP_ABORTED, STEP_COMPLETED,
 };
@@ -32,6 +34,8 @@ use personhog_identity::lifecycle::merge::{
     OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT,
     OUTCOME_SKIPPED_MOVE_LIMIT,
 };
+use personhog_identity::publish::config::MergeEventsAllowlist;
+use personhog_identity::publish::messages::{DistinctIdRow, PersonMergeEvent};
 use personhog_proto::personhog::types::v1::LifecycleOpType;
 
 struct MergeHarness {
@@ -39,14 +43,27 @@ struct MergeHarness {
     engine: Engine,
     leader: Arc<SimLeader>,
     driver: MergeDriver,
+    drives: DetachedDrives,
 }
 
 impl MergeHarness {
     async fn new() -> Self {
-        Self::new_with_tables(common::default_tables()).await
+        Self::new_with(common::default_tables(), OutboxWrites::Disabled).await
+    }
+
+    /// A harness whose completed merges enqueue a publish pointer.
+    async fn new_publishing() -> Self {
+        Self::new_with(common::default_tables(), OutboxWrites::Enabled).await
     }
 
     async fn new_with_tables(tables: personhog_identity::config::IdentityTables) -> Self {
+        Self::new_with(tables, OutboxWrites::Disabled).await
+    }
+
+    async fn new_with(
+        tables: personhog_identity::config::IdentityTables,
+        outbox_writes: OutboxWrites,
+    ) -> Self {
         let ctx = TestContext::new_with_tables(tables).await;
         let engine = ctx.engine();
         let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.clone()));
@@ -54,12 +71,14 @@ impl MergeHarness {
             leader.clone(),
             ctx.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
+            outbox_writes,
         );
         Self {
             ctx,
             engine,
             leader,
             driver,
+            drives: DetachedDrives::new(common::FAN_OUT_CONCURRENCY),
         }
     }
 
@@ -108,6 +127,23 @@ impl MergeHarness {
         .execute(&self.ctx.pool)
         .await
         .expect("insert distinct id");
+    }
+
+    async fn insert_hash_key_override(&self, person_id: i64, flag: &str, hash_key: &str) {
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO {} (team_id, person_id, feature_flag_key, hash_key)
+            VALUES ($1, $2, $3, $4)
+            "#,
+            self.ctx.tables.ff_hash_key_override
+        ))
+        .bind(self.ctx.team_id as i32)
+        .bind(person_id)
+        .bind(flag)
+        .bind(hash_key)
+        .execute(&self.ctx.pool)
+        .await
+        .expect("insert hash key override");
     }
 
     async fn set_person(&self, person_id: i64, properties: &str, version: i64, identified: bool) {
@@ -382,7 +418,8 @@ async fn a_completing_fold_leaves_a_moved_away_target_unstamped() {
 
 #[tokio::test]
 async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
-    let h = MergeHarness::new().await;
+    let h = MergeHarness::new_publishing().await;
+    let _drain_lock = h.ctx.hold_drain_lock().await;
     let target = h.ctx.insert_person_with_distinct_id("merge-target").await;
     let source = h.ctx.insert_person_with_distinct_id("merge-source").await;
     h.add_distinct_id(source, "merge-source-alias").await;
@@ -396,21 +433,10 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
         .execute(&h.ctx.pool)
         .await
         .unwrap();
-    for (person, hash) in [(target, "target-hash"), (source, "source-hash")] {
-        sqlx::query(
-            r#"
-            INSERT INTO posthog_featureflaghashkeyoverride
-                (feature_flag_key, hash_key, person_id, team_id)
-            VALUES ('flag', $2, $1, $3)
-            "#,
-        )
-        .bind(person)
-        .bind(hash)
-        .bind(h.ctx.team_id as i32)
-        .execute(&h.ctx.pool)
-        .await
-        .unwrap();
-    }
+    h.insert_hash_key_override(target, "flag", "target-hash")
+        .await;
+    h.insert_hash_key_override(source, "flag", "source-hash")
+        .await;
 
     // The source was seen after the target: the fold must carry the max.
     h.leader.set_last_seen(target, 1_000);
@@ -504,6 +530,100 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
     // Marks settled: the target's cleared, the source's deleted.
     assert_eq!(h.op_person_status(op_id, target).await, "cleared");
     assert_eq!(h.op_person_status(op_id, source).await, "deleted");
+
+    // The completion left one publish pointer, and one pass resolves it to
+    // exactly the repointed mappings: the source's ids, owned by the
+    // target's uuid at their bumped versions. The target row's own `moved`
+    // is its claim record and contributes nothing.
+    let sink = RecordingSink::default();
+    h.ctx
+        .publisher(sink.clone(), 100)
+        .drain_once()
+        .await
+        .expect("publish pass");
+    let target_uuid: Uuid = sqlx::query_scalar("SELECT uuid FROM posthog_person WHERE id = $1")
+        .bind(target)
+        .fetch_one(&h.ctx.pool)
+        .await
+        .unwrap();
+    let mut published = sink.rows_for_team(h.ctx.team_id);
+    published.sort_by(|a, b| a.distinct_id.cmp(&b.distinct_id));
+    assert_eq!(
+        published,
+        ["merge-source", "merge-source-alias"].map(|did| DistinctIdRow {
+            person_id: target_uuid,
+            team_id: h.ctx.team_id,
+            distinct_id: did.to_string(),
+            version: 1,
+            is_deleted: 0,
+        })
+    );
+    assert!(
+        h.ctx.outbox_rows().await.is_empty(),
+        "the pointer is deleted"
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_merge_keeps_a_real_hash_key_over_the_cookieless_sentinel() {
+    let h = MergeHarness::new().await;
+    let target = h
+        .ctx
+        .insert_person_with_distinct_id("sentinel-target")
+        .await;
+    let s1 = h.ctx.insert_person_with_distinct_id("sentinel-s1").await;
+    let s2 = h.ctx.insert_person_with_distinct_id("sentinel-s2").await;
+    for (person, flag, hash) in [
+        (target, "target-sentinel", COOKIELESS_SENTINEL_VALUE),
+        (s1, "target-sentinel", "s1-hash"),
+        (s1, "shared", COOKIELESS_SENTINEL_VALUE),
+        (s2, "shared", "s2-hash"),
+        (target, "both-real", COOKIELESS_SENTINEL_VALUE),
+        (s1, "both-real", "s1-both"),
+        (s2, "both-real", "s2-both"),
+        (s1, "source-sentinel", COOKIELESS_SENTINEL_VALUE),
+    ] {
+        h.insert_hash_key_override(person, flag, hash).await;
+    }
+
+    let outcome = h
+        .execute(
+            Uuid::now_v7(),
+            &merge_request("sentinel-target", &["sentinel-s1", "sentinel-s2"]),
+        )
+        .await
+        .expect("merge completes");
+    assert!(!outcome.aborted);
+
+    let overrides: Vec<(i64, String, String)> = sqlx::query_as(&format!(
+        r#"
+        SELECT person_id, feature_flag_key, hash_key FROM {}
+        WHERE team_id = $1
+        ORDER BY feature_flag_key
+        "#,
+        h.ctx.tables.ff_hash_key_override
+    ))
+    .bind(h.ctx.team_id as i32)
+    .fetch_all(&h.ctx.pool)
+    .await
+    .unwrap();
+    let flags: Vec<(i64, &str)> = overrides
+        .iter()
+        .map(|(person, flag, _)| (*person, flag.as_str()))
+        .collect();
+    assert_eq!(
+        flags,
+        [
+            (target, "both-real"),
+            (target, "shared"),
+            (target, "target-sentinel"),
+        ]
+    );
+    assert!(["s1-both", "s2-both"].contains(&overrides[0].2.as_str()));
+    assert_eq!(overrides[1].2, "s2-hash");
+    assert_eq!(overrides[2].2, "s1-hash");
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -1681,13 +1801,16 @@ impl MergeHarness {
             MergeEntrance::new(
                 storage,
                 self.leader.clone(),
+                self.leader.clone(),
                 MergeOpExecutor::new(
                     engine,
                     MergeDriver::new(
                         self.leader.clone(),
                         self.ctx.tables.clone(),
                         common::FAN_OUT_CONCURRENCY,
+                        OutboxWrites::Disabled,
                     ),
+                    self.drives.clone(),
                 ),
             ),
             common::FAN_OUT_CONCURRENCY,
@@ -1707,13 +1830,16 @@ impl MergeHarness {
             MergeEntrance::new(
                 self.ctx.storage.clone(),
                 self.leader.clone(),
+                self.leader.clone(),
                 MergeOpExecutor::new(
                     engine,
                     MergeDriver::new(
                         self.leader.clone(),
                         self.ctx.tables.clone(),
                         common::FAN_OUT_CONCURRENCY,
+                        OutboxWrites::Disabled,
                     ),
+                    self.drives.clone(),
                 ),
             ),
             common::FAN_OUT_CONCURRENCY,
@@ -1981,6 +2107,192 @@ async fn the_rpc_runs_the_saga_and_a_retry_returns_the_recorded_answer() {
     h.ctx.cleanup().await.expect("cleanup");
 }
 
+async fn op_exists(pool: &PgPool, op_id: Uuid) -> bool {
+    sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM lifecycle_op WHERE op_id = $1)")
+        .bind(op_id)
+        .fetch_one(pool)
+        .await
+        .expect("existence query runs")
+}
+
+async fn wait_until_completed(pool: &PgPool, op_id: Uuid) -> bool {
+    for _ in 0..200 {
+        if op_exists(pool, op_id).await && op_row_state(pool, op_id).await.1 {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    false
+}
+
+#[tokio::test]
+async fn a_caller_that_hangs_up_mid_saga_leaves_the_merge_to_finish() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = h.ctx.insert_person_with_distinct_id("hangup-target").await;
+    let sources = ["hangup-a", "hangup-b", "hangup-c", "hangup-d", "hangup-e"];
+    let mut source_ids = Vec::new();
+    for did in sources {
+        source_ids.push(h.ctx.insert_person_with_distinct_id(did).await);
+    }
+
+    let op_id = Uuid::now_v7();
+    let request = rpc_request(h.ctx.team_id, "hangup-target", &sources, op_id);
+    {
+        let call = service.merge_persons(Request::new(request.clone()));
+        tokio::pin!(call);
+        loop {
+            tokio::select! {
+                biased;
+                _ = &mut call => panic!("the saga finished before the caller hung up"),
+                _ = tokio::time::sleep(std::time::Duration::from_micros(200)) => {
+                    if op_exists(&h.ctx.pool, op_id).await {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(
+        wait_until_completed(&h.ctx.pool, op_id).await,
+        "the merge completed without its caller"
+    );
+    for (did, id) in sources.iter().zip(&source_ids) {
+        assert_eq!(
+            h.pdi_state(did).await.0,
+            target,
+            "{did} moved to the target"
+        );
+        assert!(h.person_state(*id).await.0, "source {did} was destroyed");
+    }
+    let calls_after_saga = h.leader.calls().len();
+
+    let retry = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("the retry attaches to the finished op")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&retry),
+        sources
+            .iter()
+            .map(|did| (did.to_string(), MergeSourceOutcome::Merged))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(retry.survivor.expect("survivor present").id, target);
+    assert_eq!(h.leader.calls().len(), calls_after_saga);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn an_executor_call_dropped_once_detached_still_drives_the_merge() {
+    let h = MergeHarness::new().await;
+    let executor = MergeOpExecutor::new(
+        Arc::new(h.ctx.engine()),
+        MergeDriver::new(
+            h.leader.clone(),
+            h.ctx.tables.clone(),
+            common::FAN_OUT_CONCURRENCY,
+            OutboxWrites::Disabled,
+        ),
+        h.drives.clone(),
+    );
+    let target = h.ctx.insert_person_with_distinct_id("drop-target").await;
+    let source = h.ctx.insert_person_with_distinct_id("drop-source").await;
+    let op_id = Uuid::now_v7();
+    let frozen = serde_json::to_value(merge_request("drop-target", &["drop-source"])).unwrap();
+
+    {
+        let call = executor.execute(op_id, h.ctx.team_id, &frozen);
+        tokio::pin!(call);
+        loop {
+            tokio::select! {
+                biased;
+                _ = &mut call => panic!("the saga finished before the caller hung up"),
+                _ = tokio::time::sleep(std::time::Duration::from_micros(200)) => {
+                    if h.drives.in_flight() == 1 {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(wait_until_completed(&h.ctx.pool, op_id).await);
+    assert_eq!(h.pdi_state("drop-source").await.0, target);
+    assert!(h.person_state(source).await.0);
+    let calls_after_saga = h.leader.calls().len();
+
+    let row = executor
+        .execute(op_id, h.ctx.team_id, &frozen)
+        .await
+        .expect("the retry returns the recorded row");
+    assert_eq!(row.step, STEP_COMPLETED);
+    assert_eq!(h.leader.calls().len(), calls_after_saga);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_retry_waiting_behind_a_live_lease_dies_with_its_caller_instead_of_detaching() {
+    let h = MergeHarness::new().await;
+    let executor = MergeOpExecutor::new(
+        Arc::new(h.ctx.engine()),
+        MergeDriver::new(
+            h.leader.clone(),
+            h.ctx.tables.clone(),
+            common::FAN_OUT_CONCURRENCY,
+            OutboxWrites::Disabled,
+        ),
+        h.drives.clone(),
+    );
+    let target = h.ctx.insert_person_with_distinct_id("waiter-target").await;
+    h.ctx.insert_person_with_distinct_id("waiter-source").await;
+    let op_id = Uuid::now_v7();
+    let request = merge_request("waiter-target", &["waiter-source"]);
+    let frozen = serde_json::to_value(&request).unwrap();
+    h.create(op_id, &request).await;
+    sqlx::query(
+        "UPDATE lifecycle_op SET lease_expires_at = now() + interval '2 seconds' WHERE op_id = $1",
+    )
+    .bind(op_id)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("hold the lease as another driver");
+
+    let hung_up = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        executor.execute(op_id, h.ctx.team_id, &frozen),
+    )
+    .await;
+    assert!(
+        hung_up.is_err(),
+        "the retry was still waiting behind the lease"
+    );
+    assert_eq!(
+        h.drives.in_flight(),
+        0,
+        "a waiter never takes a detached slot"
+    );
+    assert_eq!(h.drives.free_slots(), common::FAN_OUT_CONCURRENCY);
+
+    sqlx::query("UPDATE lifecycle_op SET lease_expires_at = NULL WHERE op_id = $1")
+        .bind(op_id)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("release the lease");
+    let row = executor
+        .execute(op_id, h.ctx.team_id, &frozen)
+        .await
+        .expect("the next retry claims and drives");
+    assert_eq!(row.step, STEP_COMPLETED);
+    assert_eq!(h.pdi_state("waiter-source").await.0, target);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
 #[tokio::test]
 async fn inline_cases_settle_without_an_op_row_and_push_the_event_properties() {
     let h = MergeHarness::new().await;
@@ -2160,7 +2472,9 @@ async fn a_create_race_loser_answers_retryable_unavailable() {
             h.leader.clone(),
             h.ctx.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
+            OutboxWrites::Disabled,
         ),
+        h.drives.clone(),
     );
     let op_id = Uuid::now_v7();
 
@@ -2367,6 +2681,134 @@ async fn a_call_that_lost_the_birth_race_does_not_stamp_its_creator() {
 }
 
 #[tokio::test]
+async fn a_source_the_leader_marks_identified_is_not_an_eligible_survivor_while_the_row_lags() {
+    // The identity row still says unidentified; only the leader has flipped it.
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("lag-ident-source")
+        .await;
+    h.leader.set_sealed_identified(source, true);
+
+    let request = rpc_request(
+        h.ctx.team_id,
+        "lag-target",
+        &["lag-ident-source"],
+        Uuid::now_v7(),
+    );
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("call succeeds")
+        .into_inner();
+
+    let survivor = response.survivor.as_ref().expect("survivor present");
+    assert_ne!(survivor.id, source);
+    assert_eq!(
+        survivor.uuid,
+        person_uuid(h.ctx.team_id, "lag-target").to_string()
+    );
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![(
+            "lag-ident-source".to_string(),
+            MergeSourceOutcome::SkippedAlreadyIdentified
+        )]
+    );
+    assert_eq!(h.leader.identified_reads(), vec![source]);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_source_destroyed_on_the_leader_is_skipped_and_the_target_is_born() {
+    // The identity row still resolves the source; the leader has destroyed it.
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let source = h.ctx.insert_person_with_distinct_id("dead-source").await;
+    h.leader.declare_dead(h.ctx.team_id, source).await;
+
+    let request = rpc_request(
+        h.ctx.team_id,
+        "dead-target",
+        &["dead-source"],
+        Uuid::now_v7(),
+    );
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("call succeeds")
+        .into_inner();
+
+    let survivor = response.survivor.as_ref().expect("survivor present");
+    assert_eq!(
+        survivor.uuid,
+        person_uuid(h.ctx.team_id, "dead-target").to_string()
+    );
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![("dead-source".to_string(), MergeSourceOutcome::Error)]
+    );
+    assert_eq!(h.leader.identified_reads(), vec![source]);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_failed_leader_read_fails_the_call_and_attaches_nothing() {
+    // The identity row says unidentified; the row alone must not clear the source.
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("readfail-source")
+        .await;
+    h.leader.fail_next(
+        Rpc::IdentifiedRead,
+        source,
+        Status::unavailable("leader down"),
+    );
+
+    let op_id = Uuid::now_v7();
+    let request = rpc_request(
+        h.ctx.team_id,
+        "readfail-target",
+        &["readfail-source"],
+        op_id,
+    );
+    let status = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect_err("a failed leader read fails the call");
+    assert_eq!(status.code(), Code::Unavailable);
+    assert!(h.leader.scripted_drained(Rpc::IdentifiedRead, source));
+
+    let target_rows: i64 = sqlx::query_scalar(&format!(
+        "SELECT count(*) FROM {} WHERE team_id = $1 AND distinct_id = $2",
+        h.ctx.tables.person_distinct_id
+    ))
+    .bind(h.ctx.team_id as i32)
+    .bind("readfail-target")
+    .fetch_one(&h.ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(target_rows, 0);
+    let op_count: i64 = sqlx::query_scalar(&format!(
+        "SELECT count(*) FROM {} WHERE op_id = $1",
+        h.ctx.tables.lifecycle_op
+    ))
+    .bind(op_id)
+    .fetch_one(&h.ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(op_count, 0);
+    assert!(h.leader.calls().is_empty());
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
 async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_target() {
     let h = MergeHarness::new().await;
     let service = h.service();
@@ -2406,7 +2848,7 @@ async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_targ
             MergeSourceOutcome::SkippedAlreadyIdentified
         )]
     );
-    // Establishment birthed the target, so the abort delivery stamps its
+    // Establishment birthed the target, so the inline delivery stamps its
     // creating event.
     let born_properties: serde_json::Value = if survivor.properties.is_empty() {
         serde_json::json!({})
@@ -2421,8 +2863,8 @@ async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_targ
     assert_eq!(h.pdi_state("elig-ident-source").await.0, source);
     let (source_deleted, _, _) = h.person_state(source).await;
     assert!(!source_deleted);
-    // The refused pair aborts the saga, so the abort delivery flips the
-    // newborn through the leader.
+    // The refused pair never reaches the saga, so the inline delivery
+    // flips the newborn through the leader.
     assert_eq!(
         h.leader.calls(),
         vec![LeaderCall::PropertyPush {
@@ -2841,7 +3283,7 @@ async fn a_move_limited_source_skips_while_the_rest_merge_through_the_rpc() {
 }
 
 #[tokio::test]
-async fn an_identified_source_abort_still_delivers_the_events_writes() {
+async fn an_identified_source_settles_inline_and_still_delivers_the_events_writes() {
     let h = MergeHarness::new().await;
     let service = h.service();
     let target = h
@@ -2865,14 +3307,14 @@ async fn an_identified_source_abort_still_delivers_the_events_writes() {
     let response = service
         .merge_persons(Request::new(request.clone()))
         .await
-        .expect("an aborted op still answers OK")
+        .expect("a skipped pair still answers OK")
         .into_inner();
 
-    // The skip is an answer, not an error. The saga never folds, so the
-    // event's $set and the identified flip are delivered through the
-    // ordinary write surface instead, and the answer carries the person
-    // they landed on — the same person ingestion continues the event with
-    // when it refuses a merge.
+    // The skip is an answer, not an error. No saga folds, so the event's
+    // $set and the identified flip are delivered through the ordinary
+    // write surface instead, and the answer carries the person they landed
+    // on — the same person ingestion continues the event with when it
+    // refuses a merge.
     assert_eq!(
         rpc_outcomes(&response),
         vec![(
@@ -2890,10 +3332,17 @@ async fn an_identified_source_abort_still_delivers_the_events_writes() {
     );
     let (source_deleted, _, _) = h.person_state(source).await;
     assert!(!source_deleted);
+    // The pre-filter settles the pair at the entrance: no op row, no
+    // claim, no fence.
+    let op_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM lifecycle_op WHERE op_id = $1")
+        .bind(op_id)
+        .fetch_one(&h.ctx.pool)
+        .await
+        .expect("count op rows");
+    assert_eq!(op_rows, 0);
 
-    // The abort is recorded: a retry reproduces the answer instead of
-    // re-running classification, and re-drives the delivery (the same
-    // at-least-once semantics as the inline branch).
+    // Nothing is recorded, so a retry re-classifies and delivers again:
+    // the same at-least-once semantics as every other inline answer.
     let retry = service
         .merge_persons(Request::new(request))
         .await
@@ -2924,7 +3373,9 @@ async fn a_failed_abort_delivery_errors_the_call_and_the_retry_delivers() {
         .ctx
         .insert_person_with_distinct_id("rpc-abort-fail-source")
         .await;
-    h.set_person(source, r#"{"plan": "pro"}"#, 3, true).await;
+    // Only the leader's sealed state carries the flip, so the entrance's
+    // pre-filter lets the pair through and the saga aborts at seal time.
+    h.leader.set_sealed_identified(source, true);
     h.leader.fail_next(
         Rpc::PropertyPush,
         target,
@@ -2964,8 +3415,14 @@ async fn a_failed_abort_delivery_errors_the_call_and_the_retry_delivers() {
             MergeSourceOutcome::SkippedAlreadyIdentified
         )]
     );
+    let pushes: Vec<LeaderCall> = h
+        .leader
+        .calls()
+        .into_iter()
+        .filter(|call| matches!(call, LeaderCall::PropertyPush { .. }))
+        .collect();
     assert_eq!(
-        h.leader.calls(),
+        pushes,
         vec![LeaderCall::PropertyPush {
             person_id: target,
             is_identified: Some(true),
@@ -3511,4 +3968,93 @@ fn nel_only_ids_match_the_javascript_trim_semantics() {
     assert!(!is_distinct_id_illegal("\u{0085}"));
     assert!(is_distinct_id_illegal(" \t\n "));
     assert!(is_distinct_id_illegal("\u{FEFF}"));
+}
+
+// One event per merged person, however many of its distinct ids the request
+// named, none for a source the saga skipped, and none at all for a team
+// outside the allowlist; the pointer is deleted either way.
+#[tokio::test]
+async fn merge_events_are_one_per_merged_person_and_gated_by_the_team_allowlist() {
+    let h = MergeHarness::new_publishing().await;
+    let _drain_lock = h.ctx.hold_drain_lock().await;
+
+    h.ctx.insert_person_with_distinct_id("ev-target").await;
+    h.ctx.insert_person_with_distinct_id("ev-source").await;
+    h.execute(Uuid::now_v7(), &merge_request("ev-target", &["ev-source"]))
+        .await
+        .expect("merge completes");
+    let silent = RecordingSink::default();
+    h.ctx
+        .publisher_with_merge_events(
+            silent.clone(),
+            100,
+            MergeEventsAllowlist::Teams(HashSet::new()),
+        )
+        .drain_once()
+        .await
+        .expect("publish pass");
+    assert_eq!(silent.rows_for_team(h.ctx.team_id).len(), 1);
+    assert!(silent.merge_events_for_team(h.ctx.team_id).is_empty());
+    assert!(h.ctx.outbox_rows().await.is_empty());
+
+    let target = h.ctx.insert_person_with_distinct_id("ev-target-2").await;
+    let source = h.ctx.insert_person_with_distinct_id("ev-source-2").await;
+    h.add_distinct_id(source, "ev-source-2-alias").await;
+    let held = h.ctx.insert_person_with_distinct_id("ev-held").await;
+    h.foreign_mark(held).await;
+    let op_id = Uuid::now_v7();
+    let outcome = h
+        .execute(
+            op_id,
+            &merge_request(
+                "ev-target-2",
+                &["ev-source-2", "ev-source-2-alias", "ev-held"],
+            ),
+        )
+        .await
+        .expect("second merge completes");
+    assert_eq!(
+        result_map(&outcome),
+        HashMap::from([
+            ("ev-source-2".to_string(), OUTCOME_MERGED.to_string()),
+            ("ev-source-2-alias".to_string(), OUTCOME_MERGED.to_string()),
+            ("ev-held".to_string(), OUTCOME_SKIPPED_CONFLICT.to_string()),
+        ])
+    );
+    let sink = RecordingSink::default();
+    h.ctx
+        .publisher_with_merge_events(sink.clone(), 100, MergeEventsAllowlist::All)
+        .drain_once()
+        .await
+        .expect("publish pass");
+    assert_eq!(sink.rows_for_team(h.ctx.team_id).len(), 2);
+    let source_uuid: Uuid = sqlx::query_scalar("SELECT uuid FROM posthog_person WHERE id = $1")
+        .bind(source)
+        .fetch_one(&h.ctx.pool)
+        .await
+        .unwrap();
+    let target_uuid: Uuid = sqlx::query_scalar("SELECT uuid FROM posthog_person WHERE id = $1")
+        .bind(target)
+        .fetch_one(&h.ctx.pool)
+        .await
+        .unwrap();
+    let completed_at: chrono::DateTime<Utc> =
+        sqlx::query_scalar("SELECT completed_at FROM lifecycle_op WHERE op_id = $1")
+            .bind(op_id)
+            .fetch_one(&h.ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        sink.merge_events_for_team(h.ctx.team_id),
+        vec![PersonMergeEvent {
+            team_id: h.ctx.team_id as i32,
+            old_person_uuid: source_uuid,
+            new_person_uuid: target_uuid,
+            merged_at_ms: completed_at.timestamp_millis(),
+            schema_version: 1,
+        }]
+    );
+    assert!(h.ctx.outbox_rows().await.is_empty());
+
+    h.ctx.cleanup().await.expect("cleanup");
 }

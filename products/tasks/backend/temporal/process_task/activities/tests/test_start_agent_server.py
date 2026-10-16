@@ -18,7 +18,6 @@ from products.tasks.backend.exceptions import (
 from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
-from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
     CollectAgentShadowResultInput,
@@ -402,6 +401,7 @@ async def test_combined_start_failure_records_step_statuses(mocker, error, expec
 )
 async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, activity, boot_path) -> None:
     context = _context()
+    context.origin_product = "review_hog"
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.supports_combined_agent_server_start_and_health.return_value = False
     sandbox.read_agent_server_boot_metrics.return_value = (
@@ -438,6 +438,7 @@ async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, act
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.update_state_atomic"
     )
     record_step = mocker.patch("products.tasks.backend.temporal.metrics.record_agent_server_step_ms")
+    metric_meter = mocker.patch("products.tasks.backend.temporal.metrics._metric_meter")
 
     await activity(
         StartAgentServerInput(
@@ -449,13 +450,21 @@ async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, act
         )
     )
 
+    read_labels = next(
+        call.args[0] for call in metric_meter.call_args_list if call.args[0]["step"] == "read_agent_boot_metrics"
+    )
+    assert read_labels["origin_product"] == "review_hog"
+    assert read_labels["runtime"] == "gvisor"
+    assert read_labels["boot_path"] == boot_path
+    assert read_labels["used_snapshot"] == "true"
+
     assert [record.args for record in record_step.call_args_list] == [
         ("agent_server_phase_context_fetch", 40, boot_path),
         ("agent_server_phase_repository_ready", 1200, boot_path),
         ("agent_server_phase_server_total", 1400, boot_path),
     ]
     assert all(
-        record.kwargs == {"used_snapshot": True, "origin_product": None, "runtime": "gvisor"}
+        record.kwargs == {"used_snapshot": True, "origin_product": "review_hog", "runtime": "gvisor"}
         for record in record_step.call_args_list
     )
 
@@ -739,34 +748,20 @@ def _mock_prepare_launch_dependencies(mocker) -> None:
     mocker.patch(f"{prefix}.get_imported_mcp_server_configs", return_value=[])
     mocker.patch(f"{prefix}.get_relayed_mcp_server_names", return_value=[])
     mocker.patch(f"{prefix}.emit_agent_log")
+    mocker.patch(f"{prefix}.release_task_run_milestone_claims")
 
 
-def test_prepare_judge_has_no_live_or_inherited_mcp_connections(mocker) -> None:
+def test_prepare_launch_releases_boot_milestone_claims(mocker) -> None:
     prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
     _mock_prepare_launch_dependencies(mocker)
-    task = Task(
-        team_id=1,
-        internal=True,
-        origin_product=Task.OriginProduct.SIGNALS_SCOUT,
-        origin_key="scout-trial-judge:00000000-0000-0000-0000-000000000001:00000000-0000-0000-0000-000000000002",
+    mocker.patch(f"{prefix}.TaskRun.objects.filter").return_value.first.return_value = mocker.Mock(
+        state={"use_dedicated_stream": True}
     )
-    mocker.patch(f"{prefix}.Task.objects.select_related").return_value.get.return_value = task
-    resolvers = [
-        mocker.patch(f"{prefix}.{name}", side_effect=AssertionError("Judge must not resolve MCP connections"))
-        for name in (
-            "get_sandbox_ph_mcp_configs",
-            "get_user_mcp_server_configs",
-            "get_imported_mcp_server_configs",
-            "get_relayed_mcp_server_names",
-        )
-    ]
+    release = mocker.patch(f"{prefix}.release_task_run_milestone_claims")
 
-    params = _prepare_launch(_context(), "signals_scout_judge", "sandbox-id")
+    _prepare_launch(_context(), "read_only", "sandbox-id")
 
-    assert params.mcp_configs == []
-    assert params.relayed_mcp_servers == []
-    for resolver in resolvers:
-        resolver.assert_not_called()
+    release.assert_called_once_with("run-id", True)
 
 
 @pytest.mark.parametrize(
@@ -1192,7 +1187,10 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
     assert result.shadow_launched is True
     shadow_result_reader.assert_not_called()
     create_event_ingest_token.assert_called_once()
-    assert create_event_ingest_token.call_args.kwargs == {"sandbox_id": "sandbox-id"}
+    assert create_event_ingest_token.call_args.kwargs == {
+        "sandbox_id": "sandbox-id",
+        "stream_generation": context.stream_generation,
+    }
     task_queryset.get.assert_called_once_with(id="task-id")
     get_user_mcp_configs.assert_called_once_with(
         token="oauth-token",

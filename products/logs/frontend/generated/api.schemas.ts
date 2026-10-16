@@ -650,11 +650,11 @@ export interface LogsAlertConfigurationApi {
     /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures: number
     /**
-     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth. For an alert the alerts platform evaluates, sourced from the platform's check history.
      * @nullable
      */
     readonly last_error_message: string | null
-    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
@@ -820,11 +820,11 @@ export interface LogsAlertConfigurationDetailApi {
     /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures: number
     /**
-     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth. For an alert the alerts platform evaluates, sourced from the platform's check history.
      * @nullable
      */
     readonly last_error_message: string | null
-    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
@@ -922,11 +922,11 @@ export interface PatchedLogsAlertConfigurationApi {
     /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
     readonly consecutive_failures?: number
     /**
-     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+     * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth. For an alert the alerts platform evaluates, sourced from the platform's check history.
      * @nullable
      */
     readonly last_error_message?: string | null
-    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. For an alert the alerts platform evaluates, state changes come from the platform's check history instead. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types?: readonly LogsAlertDestinationTypeEnumApi[]
@@ -998,6 +998,7 @@ export interface LogsAlertDeleteDestinationApi {
  * * `unsnooze` - Unsnooze
  * * `threshold_change` - Threshold change
  * * `broken_config` - Broken config
+ * * `handback` - Handback
  */
 export type LogsAlertEventKindEnumApi = (typeof LogsAlertEventKindEnumApi)[keyof typeof LogsAlertEventKindEnumApi]
 
@@ -1010,6 +1011,7 @@ export const LogsAlertEventKindEnumApi = {
     Unsnooze: 'unsnooze',
     ThresholdChange: 'threshold_change',
     BrokenConfig: 'broken_config',
+    Handback: 'handback',
 } as const
 
 export interface LogsAlertEventApi {
@@ -1721,7 +1723,7 @@ export const FacetFieldEnumApi = {
 } as const
 
 export interface _LogsFacetValuesBodyApi {
-    /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.
+    /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts come from a rollup with 5-minute buckets, so the window widens to the buckets that contain date_from and date_to. The rollup honours severityLevels and serviceNames, but not body search, log-attribute filters, or resource-attribute filters. When personId or sessionId is set, counts come from the logs table with the exact window and every other filter. Both paths exclude this facet's own filter.
      *
      * * `severity_text` - severity_text
      * * `service_name` - service_name */
@@ -2027,6 +2029,115 @@ export interface PatchedLogsMetricRuleApi {
     readonly updated_at?: string | null
 }
 
+export interface _LogsNaturalLanguageDateRangeApi {
+    /**
+     * Start of the date range. Accepts ISO 8601 timestamps or relative formats such as -1h or -7d.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * End of the date range. Same format as date_from. Null means "now".
+     * @nullable
+     */
+    date_to?: string | null
+}
+
+export interface LogsNaturalLanguageQueryRequestApi {
+    /**
+     * The plain-language request, for example 'error logs from checkout in the last 2 hours'.
+     * @maxLength 500
+     */
+    query: string
+    /** The viewer's current date range. Used when the request names no time, and to scope the service and attribute lists the model may choose from. */
+    dateRange?: _LogsNaturalLanguageDateRangeApi
+}
+
+/**
+ * * `log` - Log
+ * * `log_attribute` - Log Attribute
+ * * `log_resource_attribute` - Log Resource Attribute
+ */
+export type LogsNaturalLanguageFilterTypeEnumApi =
+    (typeof LogsNaturalLanguageFilterTypeEnumApi)[keyof typeof LogsNaturalLanguageFilterTypeEnumApi]
+
+export const LogsNaturalLanguageFilterTypeEnumApi = {
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+} as const
+
+export interface _LogsNaturalLanguageCandidateFilterApi {
+    /** Attribute key, or "message" for the log body text. */
+    key: string
+    /** "log" filters the log body. "log_attribute" and "log_resource_attribute" filter attributes.
+     *
+     * * `log` - Log
+     * * `log_attribute` - Log Attribute
+     * * `log_resource_attribute` - Log Resource Attribute */
+    type: LogsNaturalLanguageFilterTypeEnumApi
+    /** Property operator, for example exact, icontains or is_set. */
+    operator: string
+    /** A list of strings for exact and is_not, a string for text operators, absent for is_set. */
+    value?: unknown
+}
+
+export interface _LogsNaturalLanguageCandidateQueryApi {
+    /** Date range of this reading. */
+    dateRange: _LogsNaturalLanguageDateRangeApi
+    /** Severity levels to keep. Empty means all levels. */
+    severityLevels: SeverityLevelsEnumApi[]
+    /** Services to keep. Empty means all services. */
+    serviceNames: string[]
+    /** Attribute and message filters, combined with AND. */
+    filterGroup: _LogsNaturalLanguageCandidateFilterApi[]
+}
+
+export interface _LogsNaturalLanguageCandidateApi {
+    /** Short plain-language summary of this reading of the request. */
+    label: string
+    /** Viewer filters for this reading. */
+    query: _LogsNaturalLanguageCandidateQueryApi
+    /**
+     * How likely the decision model thinks this reading is. Null when not ranked.
+     * @nullable
+     */
+    probability: number | null
+}
+
+/**
+ * * `decision_model` - Decision Model
+ * * `proposal_order` - Proposal Order
+ */
+export type LogsNaturalLanguageRankedByEnumApi =
+    (typeof LogsNaturalLanguageRankedByEnumApi)[keyof typeof LogsNaturalLanguageRankedByEnumApi]
+
+export const LogsNaturalLanguageRankedByEnumApi = {
+    DecisionModel: 'decision_model',
+    ProposalOrder: 'proposal_order',
+} as const
+
+export interface LogsNaturalLanguageQueryResponseApi {
+    /** Readings of the request, best first. Can be empty. */
+    candidates: _LogsNaturalLanguageCandidateApi[]
+    /**
+     * The first candidate's probability from the decision model. Null when it did not rank them.
+     * @nullable
+     */
+    confidence: number | null
+    /** decision_model when Jev ranked the candidates, proposal_order when it was skipped.
+     *
+     * * `decision_model` - Decision Model
+     * * `proposal_order` - Proposal Order */
+    ranked_by: LogsNaturalLanguageRankedByEnumApi
+    /** Proposed readings dropped because they named a service or attribute key the project lacks. */
+    dropped_count: number
+}
+
+export interface _LogsNaturalLanguageErrorApi {
+    /** What went wrong. */
+    error: string
+}
+
 export interface _LogsPatternsBodyApi {
     /** Date range to mine patterns from. Defaults to last hour. */
     dateRange?: _DateRangeApi
@@ -2306,6 +2417,36 @@ export const OrderByEnumApi = {
     Earliest: 'earliest',
 } as const
 
+export type PropertyGroupOperatorEnumApi =
+    (typeof PropertyGroupOperatorEnumApi)[keyof typeof PropertyGroupOperatorEnumApi]
+
+export const PropertyGroupOperatorEnumApi = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export interface _LogsFilterInnerGroupApi {
+    /** How to combine the filters in `values`.
+     *
+     * * `AND` - AND
+     * * `OR` - OR */
+    type: PropertyGroupOperatorEnumApi
+    /** Property filters in this group. */
+    values: _LogPropertyFilterApi[]
+}
+
+export interface _LogsFilterGroupApi {
+    /** How to combine the groups in `values`.
+     *
+     * * `AND` - AND
+     * * `OR` - OR */
+    type: PropertyGroupOperatorEnumApi
+    /** Groups of property filters. */
+    values: _LogsFilterInnerGroupApi[]
+}
+
+export type LogsFilterGroupInputApi = _LogPropertyFilterApi[] | _LogsFilterGroupApi
+
 export interface _LogsQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
     dateRange?: _DateRangeApi
@@ -2320,8 +2461,8 @@ export interface _LogsQueryBodyApi {
     orderBy?: OrderByEnumApi
     /** Full-text search term to filter log bodies. */
     searchTerm?: string
-    /** Property filters for the query. */
-    filterGroup?: _LogPropertyFilterApi[]
+    /** Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups. */
+    filterGroup?: LogsFilterGroupInputApi
     /** Max results (1-1000). */
     limit?: number
     /** Pagination cursor from previous response. */
@@ -2373,14 +2514,21 @@ export interface _LogEntryApi {
     trace_id: string
     /** Span ID. Returns "0000000000000000" when not set (padding, not null). */
     span_id: string
-    /** OpenTelemetry trace flags. */
-    trace_flags?: number
     /** Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns). */
     attributes: _LogEntryApiAttributes
     /** Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host. */
     resource_attributes: _LogEntryApiResourceAttributes
     /** OpenTelemetry event name, if set. */
     event_name?: string
+    /** OpenTelemetry instrumentation scope name. Empty when not set. */
+    instrumentation_scope: string
+    /** Hash of the resource attributes. Logs from the same pod or host share it. */
+    resource_fingerprint: string
+    /**
+     * Latest timestamp up to which ingestion is known to be complete. The same on every row. Logs newer than it can still arrive.
+     * @nullable
+     */
+    live_logs_checkpoint: string | null
 }
 
 export interface _LogsQueryResponseApi {
@@ -2722,8 +2870,8 @@ export interface _LogsSparklineBodyApi {
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
     searchTerm?: string
-    /** Property filters for the query. */
-    filterGroup?: _LogPropertyFilterApi[]
+    /** Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups. */
+    filterGroup?: LogsFilterGroupInputApi
     /** Break down sparkline by "severity" (default) or "service".
      *
      * * `severity` - severity
@@ -2752,14 +2900,10 @@ export interface _LogsSparklineBucketApi {
     severity?: string
     /** Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines. */
     service?: string
+    /** Number of log entries in the bucket. */
     count: number
     /** Sum of uncompressed bytes for the bucket. */
     bytes_uncompressed?: number
-}
-
-export interface _LogsSparklineResponseApi {
-    /** Time-bucketed log counts. Each bucket carries either `severity` or `service` depending on breakdown. */
-    results: _LogsSparklineBucketApi[]
 }
 
 export interface _LogAttributeValueApi {

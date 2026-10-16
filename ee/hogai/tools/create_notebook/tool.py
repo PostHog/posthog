@@ -10,7 +10,7 @@ from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from products.notebooks.backend.facade import api as notebooks
-from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
+from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded, NotebookContentEditNotAllowed
 from products.notebooks.backend.facade.widget_catalog import format_notebook_widget_catalog_for_agents
 
 from ee.hogai.context.context import AssistantContextManager
@@ -226,7 +226,7 @@ class CreateNotebookTool(MaxTool):
                     "so it was not changed.",
                     None,
                 )
-            except NotebookCellLimitExceeded as err:
+            except (NotebookCellLimitExceeded, NotebookContentEditNotAllowed) as err:
                 # Deterministic: the same save fails again, so say so rather than letting the
                 # model spend turns retrying it.
                 return (

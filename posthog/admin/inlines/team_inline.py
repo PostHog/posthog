@@ -59,6 +59,7 @@ class TeamInline(TabularInlinePaginated):
             "email_sending_suspension_actions",
             "email_sending_tier_state",
             "email_sending_tier_actions",
+            "events_retention_display",
         )
     ] + ["displayed_name"]
 

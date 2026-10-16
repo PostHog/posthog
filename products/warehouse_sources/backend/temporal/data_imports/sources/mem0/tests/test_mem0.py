@@ -1,20 +1,19 @@
-import json
 from datetime import UTC, date, datetime
-from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
-
-import pytest
-from unittest import mock
+from typing import Any
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mem0 import Mem0SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0 import mem0 as api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.mem0 import (
     _MATCH_ALL_FILTER,
     Mem0ResumeConfig,
-    mem0_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.settings import (
@@ -22,211 +21,106 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.setti
     EVENTS_ENDPOINT,
     MEM0_BASE_URL,
     MEMORIES_ENDPOINT,
+    MEMORY_HISTORY_ENDPOINT,
+    PROJECTS_ENDPOINT,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.source import Mem0Source
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the mem0 module.
-MEM0_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.mem0.mem0.make_tracked_session"
+
+def _driver(org_id: str | None = None, project_id: str | None = None) -> SourceDriver:
+    return SourceDriver(Mem0Source(), Mem0SourceConfig(api_key="m0-test", org_id=org_id, project_id=project_id))
 
 
 def _response(
     results: list[dict[str, Any]] | None = None, *, status: int = 200, next_url: str | None = None
-) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.url = f"{MEM0_BASE_URL}/v3/memories/"
-    body: Any = {"count": len(results or []), "next": next_url, "previous": None, "results": results or []}
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _raw_response(body: Any, *, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.url = f"{MEM0_BASE_URL}/v1/entities/"
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _manager(resume: Mem0ResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[requests.PreparedRequest]:
-    """Wire a mock session; capture each request AT PREPARE TIME as a real PreparedRequest.
-
-    Preparing with a real session applies the framework auth and encodes params/json exactly as
-    they'd go on the wire, so tests can assert the outgoing URL, Authorization header, and body.
-    """
-    session.headers = {}
-    real = requests.Session()
-    prepared: list[requests.PreparedRequest] = []
-
-    def _prepare(request: Any) -> requests.PreparedRequest:
-        p = real.prepare_request(request)
-        prepared.append(p)
-        return p
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return prepared
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(endpoint: str, responses: list[Response], manager: mock.MagicMock, **kwargs: Any) -> tuple[list, list]:
-    with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-        session = MockSession.return_value
-        prepared = _wire(session, responses)
-        rows = _rows(
-            mem0_source("m0-test", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
-        )
-    return rows, prepared
-
-
-def _query(prepared: requests.PreparedRequest) -> dict[str, list[str]]:
-    return parse_qs(urlsplit(cast("str", prepared.url)).query)
-
-
-def _body(prepared: requests.PreparedRequest) -> Any:
-    return json.loads(cast("str", prepared.body))
+) -> ScriptedResponse:
+    return ScriptedResponse(
+        status=status,
+        json={"count": len(results or []), "next": next_url, "previous": None, "results": results or []},
+    )
 
 
 class TestValidateCredentials:
     @parameterized.expand([(200, True), (401, False), (403, False)])
-    @mock.patch(MEM0_SESSION_PATCH)
-    def test_maps_status_code_to_validity(self, status_code, expected, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
+    def test_maps_status_code_to_validity(self, status_code: int, expected: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            assert validate_credentials("m0-test") is expected
 
-        assert validate_credentials("m0-test") is expected
-
-    @mock.patch(MEM0_SESSION_PATCH)
-    def test_network_error_is_invalid_not_raised(self, mock_session):
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-
-        assert validate_credentials("m0-test") is False
-
-    @mock.patch(MEM0_SESSION_PATCH)
-    def test_probes_the_ping_endpoint_with_token_header(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-        validate_credentials("m0-test")
-
-        _args, kwargs = mock_session.return_value.get.call_args
-        assert mock_session.return_value.get.call_args.args[0] == f"{MEM0_BASE_URL}/v1/ping/"
-        assert kwargs["headers"]["Authorization"] == "Token m0-test"
+        assert network.requests_log[0].path == "/v1/ping/"
+        assert network.requests_log[0].headers["authorization"] == "Token m0-test"
 
 
 class TestMemoriesRows:
-    def test_yields_every_page_and_terminates_on_null_next(self):
-        next_url = f"{MEM0_BASE_URL}/v3/memories/?page=2&page_size=100"
-        rows, prepared = _run(
+    def test_incremental_sync_filters_on_the_users_chosen_field(self) -> None:
+        result = _driver().run(
             MEMORIES_ENDPOINT,
-            [_response([{"id": "m1"}, {"id": "m2"}], next_url=next_url), _response([{"id": "m3"}], next_url=None)],
-            _manager(),
-        )
-
-        assert rows == [{"id": "m1"}, {"id": "m2"}, {"id": "m3"}]
-        assert _query(prepared[0])["page"] == ["1"]
-        assert "page=2" in prepared[1].url
-        assert all(_query(p).get("page_size") == ["100"] for p in prepared)
-
-    def test_posts_with_token_auth_header(self):
-        _rows_, prepared = _run(MEMORIES_ENDPOINT, [_response([{"id": "m1"}], next_url=None)], _manager())
-
-        assert prepared[0].method == "POST"
-        assert prepared[0].headers["Authorization"] == "Token m0-test"
-
-    def test_full_sync_sends_wildcard_filter_over_every_entity_type(self):
-        # A bare {"user_id": "*"} filter would silently drop memories scoped only to an agent,
-        # app, or run; the request must OR the wildcard across all four entity ids.
-        _rows_, prepared = _run(MEMORIES_ENDPOINT, [_response([], next_url=None)], _manager())
-
-        body = _body(prepared[0])
-        assert body == {"filters": _MATCH_ALL_FILTER}
-        assert {"agent_id": "*"} in body["filters"]["OR"]
-
-    def test_incremental_sync_filters_on_the_users_chosen_field(self):
-        _rows_, prepared = _run(
-            MEMORIES_ENDPOINT,
-            [_response([], next_url=None)],
-            _manager(),
+            [_response()],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 7, 1, 12, 30, tzinfo=UTC),
             incremental_field="created_at",
         )
 
-        assert _body(prepared[0]) == {"filters": {"AND": [_MATCH_ALL_FILTER, {"created_at": {"gte": "2026-07-01"}}]}}
+        assert result.raised is None
+        assert result.requests[0].json() == {
+            "filters": {"AND": [_MATCH_ALL_FILTER, {"created_at": {"gte": "2026-07-01"}}]}
+        }
 
-    def test_saves_resume_state_only_after_yielding_and_only_when_pages_remain(self):
-        next_url = f"{MEM0_BASE_URL}/v3/memories/?page=2&page_size=100"
-        manager = _manager()
-        _run(
-            MEMORIES_ENDPOINT,
-            [_response([{"id": "m1"}], next_url=next_url), _response([{"id": "m2"}], next_url=None)],
-            manager,
-        )
-
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == Mem0ResumeConfig(
-            endpoint=MEMORIES_ENDPOINT, next_url=next_url, cutoff=None
-        )
-
-    def test_resumes_from_saved_next_url_and_pins_the_original_cutoff(self):
+    def test_resumes_from_saved_next_url_and_pins_the_original_cutoff(self) -> None:
         # The saved cutoff (not a freshly computed one) must drive the filter on resume, otherwise
         # the resumed run paginates a different server-side result set than the pages it already saw.
         saved_url = f"{MEM0_BASE_URL}/v3/memories/?page=3&page_size=100"
-        manager = _manager(Mem0ResumeConfig(endpoint=MEMORIES_ENDPOINT, next_url=saved_url, cutoff="2026-06-01"))
-
-        _rows_, prepared = _run(
+        result = _driver().run(
             MEMORIES_ENDPOINT,
-            [_response([], next_url=None)],
-            manager,
+            [_response()],
+            resume_state=Mem0ResumeConfig(endpoint=MEMORIES_ENDPOINT, next_url=saved_url, cutoff="2026-06-01"),
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 7, 10, tzinfo=UTC),
         )
 
-        assert "page=3" in prepared[0].url
-        assert _body(prepared[0]) == {"filters": {"AND": [_MATCH_ALL_FILTER, {"updated_at": {"gte": "2026-06-01"}}]}}
+        assert result.raised is None
+        assert result.requests[0].param("page") == "3"
+        assert result.requests[0].json() == {
+            "filters": {"AND": [_MATCH_ALL_FILTER, {"updated_at": {"gte": "2026-06-01"}}]}
+        }
 
-    def test_ignores_resume_state_saved_by_a_different_endpoint(self):
-        manager = _manager(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=f"{MEM0_BASE_URL}/v1/events/?page=9"))
+    def test_ignores_resume_state_saved_by_a_different_endpoint(self) -> None:
+        result = _driver().run(
+            MEMORIES_ENDPOINT,
+            [_response()],
+            resume_state=Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=f"{MEM0_BASE_URL}/v1/events/?page=9"),
+        )
 
-        _rows_, prepared = _run(MEMORIES_ENDPOINT, [_response([], next_url=None)], manager)
-
-        assert _query(prepared[0])["page"] == ["1"]
+        assert result.raised is None
+        assert result.requests[0].param("page") == "1"
 
 
 class TestMemoriesRejectedPage:
-    def test_a_rejected_next_page_ends_the_table_with_the_rows_already_read(self):
+    def test_a_rejected_next_page_ends_the_table_with_the_rows_already_read(self) -> None:
         # Mem0 keeps putting a `next` link in the memories envelope past the page it answers with
         # 400, so following it failed the whole sync and the table never landed.
         next_url = f"{MEM0_BASE_URL}/v3/memories/?page=2&page_size=100"
-        rows, prepared = _run(
+        result = _driver().run(
             MEMORIES_ENDPOINT,
-            [_response([{"id": "m1"}], next_url=next_url), _response([], status=400)],
-            _manager(),
+            [_response([{"id": "m1"}], next_url=next_url), _response(status=400)],
         )
 
-        assert rows == [{"id": "m1"}]
-        assert len(prepared) == 2
+        assert result.raised is None
+        assert result.rows == [{"id": "m1"}]
+        assert result.params("page") == ["1", "2"]
 
-    def test_a_resumed_run_ends_the_table_when_its_saved_page_is_rejected(self):
+    def test_a_resumed_run_ends_the_table_when_its_saved_page_is_rejected(self) -> None:
         # A resumed run's first request is Mem0's own saved `next` link, so a 400 there is the same
         # refusal to page deeper rather than a bad request of ours.
         saved_url = f"{MEM0_BASE_URL}/v3/memories/?page=21&page_size=100"
-        manager = _manager(Mem0ResumeConfig(endpoint=MEMORIES_ENDPOINT, next_url=saved_url, cutoff=None))
+        result = _driver().run(
+            MEMORIES_ENDPOINT,
+            [_response(status=400)],
+            resume_state=Mem0ResumeConfig(endpoint=MEMORIES_ENDPOINT, next_url=saved_url),
+        )
 
-        rows, prepared = _run(MEMORIES_ENDPOINT, [_response([], status=400)], manager)
-
-        assert rows == []
-        assert len(prepared) == 1
+        assert result.raised is None
+        assert result.rows == []
+        assert result.params("page") == ["21"]
 
     @parameterized.expand(
         [
@@ -237,16 +131,18 @@ class TestMemoriesRejectedPage:
             ("not_found_on_a_later_page", 404, False),
         ]
     )
-    def test_other_rejections_still_fail_the_sync(self, _name, status, on_first_request):
+    def test_other_rejections_still_fail_the_sync(self, _name: str, status: int, on_first_request: bool) -> None:
         next_url = f"{MEM0_BASE_URL}/v3/memories/?page=2&page_size=100"
         responses = (
-            [_response([], status=status)]
+            [_response(status=status)]
             if on_first_request
-            else [_response([{"id": "m1"}], next_url=next_url), _response([], status=status)]
+            else [_response([{"id": "m1"}], next_url=next_url), _response(status=status)]
         )
 
-        with pytest.raises(requests.HTTPError):
-            _run(MEMORIES_ENDPOINT, responses, _manager())
+        result = _driver().run(MEMORIES_ENDPOINT, responses)
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == (1 if on_first_request else 2)
 
 
 class TestCutoffFormatting:
@@ -259,74 +155,120 @@ class TestCutoffFormatting:
             (None, None),
         ]
     )
-    def test_formats_cursor_as_date_string(self, value, expected):
+    def test_formats_cursor_as_date_string(self, value: Any, expected: str | None) -> None:
         assert api_client._format_cutoff(value) == expected
 
 
 class TestEntitiesRows:
-    def test_yields_the_bare_array_response(self):
-        rows, prepared = _run(ENTITIES_ENDPOINT, [_raw_response([{"id": "alex", "type": "user"}])], _manager())
+    def test_yields_the_bare_array_response(self) -> None:
+        result = _driver().run(ENTITIES_ENDPOINT, [ScriptedResponse(json=[{"id": "alex", "type": "user"}])])
 
-        assert rows == [{"id": "alex", "type": "user"}]
-        assert prepared[0].method == "GET"
-        assert urlsplit(prepared[0].url).path == "/v1/entities/"
+        assert result.raised is None
+        assert result.rows == [{"id": "alex", "type": "user"}]
+        assert result.requests[0].method == "GET"
+        assert result.requests[0].path == "/v1/entities/"
 
-    def test_tolerates_an_enveloped_response(self):
-        rows, _prepared = _run(ENTITIES_ENDPOINT, [_raw_response({"results": [{"id": "alex"}]})], _manager())
+    def test_tolerates_an_enveloped_response(self) -> None:
+        result = _driver().run(ENTITIES_ENDPOINT, [ScriptedResponse(json={"results": [{"id": "alex"}]})])
 
-        assert rows == [{"id": "alex"}]
+        assert result.raised is None
+        assert result.rows == [{"id": "alex"}]
 
     @parameterized.expand(
         [
-            ("org_only", "org_1", None, {"org_id": ["org_1"]}),
-            ("project_only", None, "proj_1", {"project_id": ["proj_1"]}),
-            ("both", "org_1", "proj_1", {"org_id": ["org_1"], "project_id": ["proj_1"]}),
+            ("org_only", "org_1", None, {"org_id": ("org_1",)}),
+            ("project_only", None, "proj_1", {"project_id": ("proj_1",)}),
+            ("both", "org_1", "proj_1", {"org_id": ("org_1",), "project_id": ("proj_1",)}),
         ]
     )
-    def test_scopes_listing_with_org_and_project_params(self, _name, org_id, project_id, expected_query):
-        _rows_, prepared = _run(
-            ENTITIES_ENDPOINT, [_raw_response([])], _manager(), org_id=org_id, project_id=project_id
+    def test_scopes_listing_with_org_and_project_params(
+        self, _name: str, org_id: str | None, project_id: str | None, expected_query: dict[str, tuple[str, ...]]
+    ) -> None:
+        result = _driver(org_id, project_id).run(ENTITIES_ENDPOINT, [ScriptedResponse(json=[])])
+
+        assert result.raised is None
+        assert result.queries[0] == expected_query
+
+
+class TestMemoryHistoryRows:
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None, _MATCH_ALL_FILTER),
+            # The child takes no filters, so the watermark bounds the memories listing on
+            # `updated_at`, whichever history field the user picked as the cursor.
+            (
+                "incremental",
+                True,
+                datetime(2026, 7, 1, 12, 30, tzinfo=UTC),
+                {"AND": [_MATCH_ALL_FILTER, {"updated_at": {"gte": "2026-07-01"}}]},
+            ),
+        ]
+    )
+    def test_fans_out_over_every_memories_page(
+        self, _name: str, incremental: bool, last_value: datetime | None, expected_filters: dict[str, Any]
+    ) -> None:
+        next_url = f"{MEM0_BASE_URL}/v3/memories/?page=2&page_size=100"
+        result = _driver().run(
+            MEMORY_HISTORY_ENDPOINT,
+            [
+                _response([{"id": "m1"}, {"id": "m2"}], next_url=next_url),
+                ScriptedResponse(json=[{"id": "h1", "memory_id": "m1", "event": "ADD"}]),
+                # A memory deleted between the listing and its history fetch.
+                ScriptedResponse(status=404, json={"detail": "Not found"}),
+                _response([{"id": "m3"}], next_url=None),
+                ScriptedResponse(json=[{"id": "h3", "memory_id": "m3", "event": "UPDATE"}]),
+            ],
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=last_value,
+            incremental_field="created_at",
         )
 
-        assert _query(prepared[0]) == expected_query
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["h1", "h3"]
+        assert result.requests[0].json() == {"filters": expected_filters}
+        assert result.paths[1:] == [
+            "/v1/memories/m1/history/",
+            "/v1/memories/m2/history/",
+            "/v3/memories/",
+            "/v1/memories/m3/history/",
+        ]
+
+
+class TestProjectsRows:
+    def test_fans_out_over_organizations_and_tags_rows_with_the_org_id(self) -> None:
+        result = _driver().run(
+            PROJECTS_ENDPOINT,
+            [
+                ScriptedResponse(json=[{"org_id": "org_1", "name": "One"}, {"org_id": "org_2", "name": "Two"}]),
+                ScriptedResponse(json=[{"project_id": "proj_a", "name": "A"}]),
+                ScriptedResponse(json=[{"project_id": "proj_b", "name": "B"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"project_id": "proj_a", "name": "A", "org_id": "org_1"},
+            {"project_id": "proj_b", "name": "B", "org_id": "org_2"},
+        ]
+        assert result.paths == [
+            "/api/v1/orgs/organizations/",
+            "/api/v1/orgs/organizations/org_1/projects/",
+            "/api/v1/orgs/organizations/org_2/projects/",
+        ]
 
 
 class TestEventsRows:
-    def test_follows_next_urls_and_checkpoints_after_each_yield(self):
+    def test_follows_next_urls_and_checkpoints_after_each_yield(self) -> None:
         next_url = f"{MEM0_BASE_URL}/v1/events/?page=2"
-        manager = _manager()
-        rows, prepared = _run(
+        result = _driver().run(
             EVENTS_ENDPOINT,
-            [_response([{"id": "e1"}], next_url=next_url), _response([{"id": "e2"}], next_url=None)],
-            manager,
+            [_response([{"id": "e1"}], next_url=next_url), _response([{"id": "e2"}])],
         )
 
-        assert rows == [{"id": "e1"}, {"id": "e2"}]
-        assert prepared[1].url == next_url
-        manager.save_state.assert_called_once_with(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=next_url))
-
-    def test_follows_relative_next_urls(self):
-        # Mem0's /v1/events/ envelope returns a relative `next` link; it must resolve against the
-        # API origin rather than be rejected as off-origin.
-        absolute_next = f"{MEM0_BASE_URL}/v1/events/?page=2"
-        manager = _manager()
-        rows, prepared = _run(
-            EVENTS_ENDPOINT,
-            [_response([{"id": "e1"}], next_url="/v1/events/?page=2"), _response([{"id": "e2"}], next_url=None)],
-            manager,
-        )
-
-        assert rows == [{"id": "e1"}, {"id": "e2"}]
-        assert prepared[1].url == absolute_next
-        manager.save_state.assert_called_once_with(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=absolute_next))
-
-    def test_resumes_from_the_saved_next_url(self):
-        saved_url = f"{MEM0_BASE_URL}/v1/events/?page=5"
-        manager = _manager(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=saved_url))
-
-        _rows_, prepared = _run(EVENTS_ENDPOINT, [_response([], next_url=None)], manager)
-
-        assert prepared[0].url == saved_url
+        assert result.raised is None
+        assert result.rows == [{"id": "e1"}, {"id": "e2"}]
+        assert result.requests[1].url == next_url
+        assert result.saved_states == [Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=next_url)]
 
     @parameterized.expand(
         [
@@ -336,15 +278,14 @@ class TestEventsRows:
             ("lookalike_host", "https://api.mem0.ai.evil.example.com/v1/events/?page=2"),
         ]
     )
-    def test_refuses_to_follow_off_origin_next_links(self, _name, next_url):
+    def test_refuses_to_follow_off_origin_next_links(self, _name: str, next_url: str) -> None:
         # The session carries the API key; a tampered `next` link must never receive a credentialed
         # request or be persisted as resume state.
-        manager = _manager()
+        result = _driver().run(EVENTS_ENDPOINT, [_response([{"id": "e1"}], next_url=next_url)])
 
-        with pytest.raises(ValueError):
-            _run(EVENTS_ENDPOINT, [_response([{"id": "e1"}], next_url=next_url)], manager)
-
-        manager.save_state.assert_not_called()
+        assert isinstance(result.raised, ValueError)
+        assert result.paths == ["/v1/events/"]
+        assert result.saved_states == []
 
     @parameterized.expand(
         [
@@ -352,58 +293,20 @@ class TestEventsRows:
             ("non_https", "http://api.mem0.ai/v1/events/?page=5"),
         ]
     )
-    def test_refuses_to_resume_from_an_off_origin_saved_url(self, _name, saved_url):
-        manager = _manager(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=saved_url))
+    def test_refuses_to_resume_from_an_off_origin_saved_url(self, _name: str, saved_url: str) -> None:
+        result = _driver().run(
+            EVENTS_ENDPOINT,
+            [],
+            resume_state=Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=saved_url),
+        )
 
-        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-            session = MockSession.return_value
-            _wire(session, [_response([], next_url=None)])
-            with pytest.raises(ValueError):
-                _rows(mem0_source("m0-test", EVENTS_ENDPOINT, team_id=1, job_id="j", resumable_source_manager=manager))
-
-            session.send.assert_not_called()
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []
 
 
 class TestFetchRetry:
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    def test_retries_rate_limits_then_succeeds(self, _sleep):
-        rows, prepared = _run(
-            MEMORIES_ENDPOINT,
-            [_response([], status=429), _response([{"id": "m1"}], next_url=None)],
-            _manager(),
-        )
+    def test_auth_errors_raise_immediately_without_retry(self) -> None:
+        result = _driver().run(MEMORIES_ENDPOINT, [_response(status=401)])
 
-        assert rows == [{"id": "m1"}]
-        assert len(prepared) == 2
-
-    def test_auth_errors_raise_immediately_without_retry(self):
-        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-            session = MockSession.return_value
-            prepared = _wire(session, [_response([], status=401)])
-            with pytest.raises(requests.HTTPError):
-                _rows(
-                    mem0_source(
-                        "m0-test", MEMORIES_ENDPOINT, team_id=1, job_id="j", resumable_source_manager=_manager()
-                    )
-                )
-
-        assert len(prepared) == 1
-
-
-class TestMem0SourceResponse:
-    def test_memories_response_merges_on_id_and_partitions_on_stable_created_at(self):
-        response = mem0_source("m0-test", MEMORIES_ENDPOINT, team_id=1, job_id="j", resumable_source_manager=_manager())
-
-        assert response.name == MEMORIES_ENDPOINT
-        assert response.primary_keys == ["id"]
-        # The list endpoint has no sort parameter, so ordering is undefined; "desc" defers the
-        # incremental watermark commit to successful end of run.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
-    def test_entities_response_has_no_partitioning(self):
-        response = mem0_source("m0-test", ENTITIES_ENDPOINT, team_id=1, job_id="j", resumable_source_manager=_manager())
-
-        assert response.partition_mode is None
-        assert response.partition_keys is None
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.paths == ["/v3/memories/"]

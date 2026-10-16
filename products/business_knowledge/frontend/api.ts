@@ -2,6 +2,10 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { apiMutator } from '../../../frontend/src/lib/api-orval-mutator'
 import {
+    businessKnowledgeLibrariesCreate,
+    businessKnowledgeLibrariesDestroy,
+    businessKnowledgeLibrariesList,
+    businessKnowledgeLibrariesPartialUpdate,
     businessKnowledgePlaygroundChatsAskCreate,
     businessKnowledgePlaygroundChatsCreate,
     businessKnowledgePlaygroundChatsDestroy,
@@ -21,6 +25,7 @@ import type {
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesListSourceType,
     CrawlModeEnumApi,
+    KnowledgeLibraryApi,
     KnowledgeSourceApi,
     PlaygroundChatApi,
     PlaygroundChatListApi,
@@ -58,12 +63,15 @@ export interface UpdateSourcePayload {
     max_depth?: number
     refresh_interval?: RefreshIntervalValue
     always_include?: boolean
+    library_ids?: string[]
 }
 
 export async function listSources(params?: {
     search?: string
     sourceType?: string
     addedBy?: string
+    libraryId?: string
+    unfiled?: boolean
 }): Promise<KnowledgeSourceApi[]> {
     const search = params?.search?.trim()
     const sourceType =
@@ -79,6 +87,8 @@ export async function listSources(params?: {
         ...(search ? { search } : {}),
         ...(sourceType ? { source_type: sourceType } : {}),
         ...(addedBy ? { added_by: addedBy } : {}),
+        ...(params?.libraryId ? { library_id: params.libraryId } : {}),
+        ...(params?.unfiled ? { unfiled: true } : {}),
     }
     const response = await businessKnowledgeSourcesList(String(getCurrentTeamId()), query)
     return response.results
@@ -156,4 +166,25 @@ export async function deletePlaygroundChat(chatId: string): Promise<void> {
 
 export async function refreshSource(id: string): Promise<KnowledgeSourceApi> {
     return await businessKnowledgeSourcesRefreshCreate(String(getCurrentTeamId()), id)
+}
+
+export type KnowledgeLibrary = KnowledgeLibraryApi
+
+export async function listLibraries(): Promise<KnowledgeLibrary[]> {
+    return await businessKnowledgeLibrariesList(String(getCurrentTeamId()))
+}
+
+export async function createLibrary(name: string): Promise<KnowledgeLibrary> {
+    return await businessKnowledgeLibrariesCreate(String(getCurrentTeamId()), { name })
+}
+
+export async function updateLibrary(
+    id: string,
+    payload: { name?: string; source_ids?: string[]; repos?: string[] }
+): Promise<KnowledgeLibrary> {
+    return await businessKnowledgeLibrariesPartialUpdate(String(getCurrentTeamId()), id, payload)
+}
+
+export async function deleteLibrary(id: string): Promise<void> {
+    await businessKnowledgeLibrariesDestroy(String(getCurrentTeamId()), id)
 }

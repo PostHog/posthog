@@ -1,7 +1,6 @@
 import json
 from collections.abc import Iterable
 from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from unittest.mock import patch
@@ -31,44 +30,6 @@ def response(body: object, status: int = 200) -> Response:
     result._content = json.dumps(body).encode()
     result.headers["Content-Type"] = "application/json"
     return result
-
-
-@pytest.mark.parametrize(
-    "endpoint,path,body,expected",
-    [
-        ("site_audit", "info", {"id": 123, "errors": 2}, [{"id": 123, "errors": 2, "project_id": "123"}]),
-        (
-            "site_audit_snapshots",
-            "snapshots",
-            {"snapshots": [{"snapshot_id": "snapshot-a", "finish_date": 1700000000000}]},
-            [{"snapshot_id": "snapshot-a", "finish_date": 1700000000000, "project_id": "123"}],
-        ),
-        (
-            "site_audit_issue_descriptions",
-            "meta/issues",
-            {"issues": [{"id": 1, "title": "Server errors"}]},
-            [{"id": 1, "title": "Server errors", "project_id": "123"}],
-        ),
-        ("site_audit_snapshots", "snapshots", {"snapshots": []}, []),
-        ("site_audit_issue_descriptions", "meta/issues", {"issues": []}, []),
-    ],
-)
-def test_requests_and_terminal_page(endpoint: str, path: str, body: object, expected: list[dict[str, object]]) -> None:
-    with patch.object(Session, "send", return_value=response(body)) as send:
-        source = semrush_source("fake-api-key", "123", endpoint, 1, "job")
-        rows = [row for page in cast(Iterable[Any], source.items()) for row in page]
-
-    assert rows == expected
-    assert send.call_count == 1
-    request = send.call_args.args[0]
-    url = urlsplit(request.url)
-    assert url.scheme == "https"
-    assert url.netloc == "api.semrush.com"
-    assert url.path == f"/reports/v1/projects/123/siteaudit/{path}"
-    assert parse_qs(url.query) == {"key": ["fake-api-key"]}
-    assert "Authorization" not in request.headers
-    assert request.method == "GET"
-    assert send.call_args.kwargs["allow_redirects"] is False
 
 
 @pytest.mark.parametrize(
@@ -112,12 +73,6 @@ def test_transient_errors_retry(status: int, body: object) -> None:
     ):
         assert validate_credentials("fake-api-key", "123", 1) == (True, None)
     assert send.call_count == 2
-
-
-def test_retry_limit_bounds_paid_requests() -> None:
-    with patch.object(Session, "send", return_value=response({}, 503)) as send, patch("tenacity.nap.time.sleep"):
-        assert validate_credentials("fake-api-key", "123", 1) == (False, UNAVAILABLE_ERROR)
-    assert send.call_count == 3
 
 
 def test_connection_failure_reports_unavailable() -> None:

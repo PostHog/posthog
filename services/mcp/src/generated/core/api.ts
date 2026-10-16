@@ -353,6 +353,14 @@ export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskRateLimit
 
 export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
 
+export const organizationsProjectsCreateBodyWorkflowsConfigReplayVisionScanRateLimitPerDayMin = 0
+
+export const organizationsProjectsCreateBodyWorkflowsConfigReplayVisionScanTeamRateLimitPerDayMin = 0
+
+export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
+
+export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
+
 export const organizationsProjectsCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsCreateBodyDefaultDataThemeMax = 2147483647
 
@@ -2761,6 +2769,42 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
                     ),
+                replay_vision_scan_rate_limit_per_day: zod
+                    .number()
+                    .min(organizationsProjectsCreateBodyWorkflowsConfigReplayVisionScanRateLimitPerDayMin)
+                    .nullish()
+                    .describe(
+                        'How many Replay Vision scans one workflow can request in a rolling 24 hours. Null uses the default of 100; zero pauses scans for every workflow in the project. Support raises the limit above 500.'
+                    ),
+                replay_vision_scan_team_rate_limit_per_day: zod
+                    .number()
+                    .min(organizationsProjectsCreateBodyWorkflowsConfigReplayVisionScanTeamRateLimitPerDayMin)
+                    .nullish()
+                    .describe(
+                        'How many Replay Vision scans all workflows in the project request together in a rolling 24 hours. Null uses the default of 500; zero pauses scans for the project. Support raises the limit above 2500.'
+                    ),
+                default_email_integration_id: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        "ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted."
+                    ),
+                marketing_frequency_cap_max_messages: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax)
+                    .nullish()
+                    .describe(
+                        'Most marketing messages one person can get in the window, across all workflows. Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off.'
+                    ),
+                marketing_frequency_cap_window_days: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax)
+                    .nullish()
+                    .describe(
+                        'Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.'
+                    ),
             })
             .optional(),
         feature_flag_policy_config: zod
@@ -3058,6 +3102,14 @@ export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRa
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
 
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionScanRateLimitPerDayMin = 0
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionScanTeamRateLimitPerDayMin = 0
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
+
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
 
@@ -3201,6 +3253,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .number()
             .nullish()
             .describe("ID of the dashboard shown as the project's default landing dashboard."),
+        home_tab_dashboard: zod
+            .number()
+            .nullish()
+            .describe(
+                'ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view.'
+            ),
         live_events_columns: zod.array(zod.string()).nullish(),
         recording_domains: zod
             .array(zod.string().max(organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax).nullable())
@@ -5468,6 +5526,42 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .describe(
                         'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
                     ),
+                replay_vision_scan_rate_limit_per_day: zod
+                    .number()
+                    .min(organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionScanRateLimitPerDayMin)
+                    .nullish()
+                    .describe(
+                        'How many Replay Vision scans one workflow can request in a rolling 24 hours. Null uses the default of 100; zero pauses scans for every workflow in the project. Support raises the limit above 500.'
+                    ),
+                replay_vision_scan_team_rate_limit_per_day: zod
+                    .number()
+                    .min(organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionScanTeamRateLimitPerDayMin)
+                    .nullish()
+                    .describe(
+                        'How many Replay Vision scans all workflows in the project request together in a rolling 24 hours. Null uses the default of 500; zero pauses scans for the project. Support raises the limit above 2500.'
+                    ),
+                default_email_integration_id: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        "ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted."
+                    ),
+                marketing_frequency_cap_max_messages: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax)
+                    .nullish()
+                    .describe(
+                        'Most marketing messages one person can get in the window, across all workflows. Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off.'
+                    ),
+                marketing_frequency_cap_window_days: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax)
+                    .nullish()
+                    .describe(
+                        'Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.'
+                    ),
             })
             .optional(),
         feature_flag_policy_config: zod
@@ -5710,6 +5804,7 @@ export const UploadedMediaListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     purpose: zod.enum(['canvas', 'email']).describe('The library to list.'),
+    search: zod.string().optional().describe('Only list images whose name contains this text, ignoring case.'),
 })
 
 /**
@@ -5847,6 +5942,6 @@ export const UsersPartialUpdateBody = () => zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })

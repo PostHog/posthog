@@ -3,7 +3,6 @@ import dagster
 from posthog.dags import (
     add_index_to_materialized_column,
     backfill_materialized_column,
-    backups,
     ch_examples,
     clickhouse_cleanup,
     create_materialized_column,
@@ -18,6 +17,7 @@ from posthog.dags import (
     person_pg_cleanup_drain,
     postgres_to_clickhouse_etl,
     property_definitions,
+    warehouse_object_reads_daily,
 )
 
 from . import loggers, resources
@@ -37,6 +37,7 @@ defs = dagster.Definitions(
         drop_materialized_column.drop_materialized_column,
         deletes.deletes_job,
         deletes.manual_deletes_job,
+        deletes.monthly_old_events_cleanup_job,
         export_query_log_archive_to_s3.export_query_log_archive_to_s3,
         backfill_materialized_column.backfill_materialized_column,
         fix_person_id_overrides.fix_person_id_overrides_job,
@@ -46,13 +47,12 @@ defs = dagster.Definitions(
         person_pg_cleanup_drain.person_pg_cleanup_drain_job,
         postgres_to_clickhouse_etl.postgres_to_clickhouse_etl_job,
         property_definitions.property_definitions_ingestion_job,
-        backups.sharded_backup,
-        backups.non_sharded_backup,
         data_deletion_requests.data_deletion_request_event_removal,
         data_deletion_requests.data_deletion_request_property_removal,
         data_deletion_requests.verify_queued_deletion_requests_job,
         data_deletion_requests.auto_approve_deletion_requests_job,
         part_breaker.break_oversized_parts,
+        warehouse_object_reads_daily.warehouse_object_reads_daily_job,
     ],
     schedules=[
         export_query_log_archive_to_s3.query_log_archive_export_schedule,
@@ -60,12 +60,10 @@ defs = dagster.Definitions(
         person_pg_cleanup_drain.person_pg_cleanup_drain_schedule,
         postgres_to_clickhouse_etl.postgres_to_clickhouse_hourly_schedule,
         property_definitions.property_definitions_hourly_schedule,
-        backups.full_sharded_backup_schedule,
-        backups.incremental_sharded_backup_schedule,
-        backups.full_non_sharded_backup_schedule,
-        backups.incremental_non_sharded_backup_schedule,
         part_breaker.break_oversized_parts_schedule,
         data_deletion_requests.auto_approve_deletion_requests_schedule,
+        warehouse_object_reads_daily.warehouse_object_reads_daily_schedule,
+        deletes.monthly_old_events_cleanup_schedule,
     ],
     sensors=[
         clickhouse_cleanup.run_cleanup_sweep_after_deletes,
@@ -73,6 +71,7 @@ defs = dagster.Definitions(
         deletes.run_deletes_after_manual_trigger,
         data_deletion_requests.data_deletion_request_pickup_sensor,
         data_deletion_requests.verify_queued_deletion_requests,
+        warehouse_object_reads_daily.warehouse_object_reads_daily_overdue_sensor,
     ],
     loggers=loggers,
     resources=resources,

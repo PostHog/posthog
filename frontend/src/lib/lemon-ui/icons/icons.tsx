@@ -444,6 +444,16 @@ export function IconDonutChart(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconProportionBarChart(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="3.75" y="7.25" width="16.5" height="9.5" rx="2" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M5.75 7.25H11V16.75H5.75A2 2 0 0 1 3.75 14.75V9.25A2 2 0 0 1 5.75 7.25Z" fill="currentColor" />
+            <path d="M15.5 7.5V16.5" stroke="currentColor" strokeWidth="1.5" />
+        </LemonIconBase>
+    )
+}
+
 /*
  * Insight type icon set. Drawn at the same visual weight as the left-nav icon family
  * (~1.5-1.75 unit strokes, slim bars). Series blue is the base color; glyphs with several

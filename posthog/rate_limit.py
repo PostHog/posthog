@@ -1169,20 +1169,39 @@ class CodeBasedVerificationResendThrottle(UserOrEmailRateThrottle):
 
 class TwoFactorThrottle(UserOrEmailRateThrottle):
     """
-    Rate limiting for TOTP/backup code verification during 2FA login.
+    Rate limiting for TOTP and passkey verification during 2FA login.
     Uses the pending 2FA user ID from session to throttle per-user.
+    Backup codes count against TwoFactorBackupCodeThrottle instead, so a user who runs out of
+    authenticator attempts can still recover with a backup code.
     """
 
     scope = "two_factor"
     rate = "6/20minutes"
 
+    def applies_to(self, request) -> bool:
+        from posthog.helpers.two_factor_session import is_backup_code_attempt
+
+        token = request.data.get("token") if isinstance(request.data, dict) else None
+        return not is_backup_code_attempt(token)
+
     def get_cache_key(self, request, view):
+        if not self.applies_to(request):
+            return None
+
         user_id = request.session.get("user_authenticated_but_no_2fa")
         if user_id:
             ident = hashlib.sha256(str(user_id).encode()).hexdigest()
             return self.cache_format % {"scope": self.scope, "ident": ident}
 
         return super().get_cache_key(request, view)
+
+
+class TwoFactorBackupCodeThrottle(TwoFactorThrottle):
+    scope = "two_factor_backup_code"
+    rate = "6/20minutes"
+
+    def applies_to(self, request) -> bool:
+        return not super().applies_to(request)
 
 
 class UserAuthenticationThrottle(UserOrEmailRateThrottle):

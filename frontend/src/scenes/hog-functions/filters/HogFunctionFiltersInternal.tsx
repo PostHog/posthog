@@ -40,10 +40,12 @@ const setSimpleFilterValue = (
         ],
     }
     // Preserve properties bound by Logs alerting (alert_id) and batch export alerts
-    // (batch_export_id) — the trigger event id changes between the context's events, but the
+    // (batch_export_id), and data warehouse alerts (source_id) — the trigger event id changes between the context's events, but the
     // binding to the parent resource must survive.
     if (
-        (contextId === 'logs-alerting' || contextId === 'batch-export-alerts') &&
+        (contextId === 'logs-alerting' ||
+            contextId === 'batch-export-alerts' ||
+            contextId === 'data-warehouse-alerts') &&
         previous?.properties &&
         previous.properties.length > 0
     ) {
@@ -79,7 +81,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
             return [TaxonomicFilterGroupType.EventProperties]
         } else if (contextId === 'health-alerts') {
             return [TaxonomicFilterGroupType.EventProperties]
-        } else if (contextId === 'batch-export-alerts') {
+        } else if (contextId === 'batch-export-alerts' || contextId === 'data-warehouse-alerts') {
             return [TaxonomicFilterGroupType.EventProperties]
         }
         return []

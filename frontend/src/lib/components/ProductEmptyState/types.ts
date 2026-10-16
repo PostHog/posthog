@@ -222,4 +222,4 @@ export interface SceneProductEmptyState {
  * `tab` route param the gate covers, including `undefined` for the URL that carries no tab
  * segment - `/workflows` and `/workflows/workflows` are the same tab.
  */
-export type GatedScene = string | { scene: string; tabs: (string | undefined)[] }
+export type GatedScene = string | { scene: string; tabs: (string | undefined)[]; tabSource?: 'path' | 'search' }

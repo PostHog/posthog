@@ -1,23 +1,33 @@
 import time
 import uuid
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import wraps
 from time import sleep
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from celery import current_task
 from prometheus_client import Counter
 
 from posthog import redis, settings
 from posthog.clickhouse.backoff import ExponentialBackoff
-from posthog.clickhouse.query_tagging import Product, add_fallback_query_tags, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import (
+    Product,
+    add_fallback_query_tags,
+    get_query_tag_value,
+    get_query_tags,
+    is_api_key_access_method,
+    tag_queries,
+)
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.schema_enums import ProductKey
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 # Default concurrency limits
 DEFAULT_APP_ORG_CONCURRENT_QUERIES = 20
@@ -489,3 +499,15 @@ def get_org_app_concurrency_limit(org_id: uuid.UUID) -> Optional[int]:
         pass
 
     return None
+
+
+@contextmanager
+def app_org_concurrency_slot(team: "Team", *, task_id: str | None = None) -> Iterator[None]:
+    with get_app_org_rate_limiter().run(
+        org_id=team.organization_id,
+        team_id=team.pk,
+        task_id=task_id,
+        is_api=is_api_key_access_method(get_query_tag_value("access_method")),
+        limit=get_org_app_concurrency_limit(team.organization_id),
+    ):
+        yield

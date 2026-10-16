@@ -2,8 +2,9 @@ import { Button, Host, Image, Menu } from "@expo/ui/swift-ui";
 import { frame, glassEffect } from "@expo/ui/swift-ui/modifiers";
 import type { SignalReport, Task } from "@posthog/shared/domain-types";
 import { FlashList } from "@shopify/flash-list";
-import { useNavigation, useRouter } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueries } from "@tanstack/react-query";
+import { useFocusEffect, useNavigation, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import Animated, {
@@ -22,11 +23,14 @@ import { Glass, GlassCircleButton } from "@/components/Glass";
 import { MenuIcon } from "@/components/Icons";
 import {
   activityAt,
-  ListRow,
+  ChatRow,
   RowSkeletons,
-  TaskRow,
+  TaskChatRow,
 } from "@/components/TaskRow";
-import { useTaskPages } from "@/lib/queries";
+import { useAuth } from "@/lib/auth";
+import { getClient } from "@/lib/client";
+import { lastOpened, loadOpened } from "@/lib/openedChats";
+import { keys, useTaskPages, useTasks } from "@/lib/queries";
 import { useReports } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
 
@@ -44,6 +48,29 @@ const SCOPES = [
 ] as const;
 
 const HEADER_HEIGHT = 64;
+const LAST_OPENED_LIMIT = 8;
+
+function foundTasks(results: { data?: Task; isLoading: boolean }[]) {
+  return {
+    data: results.flatMap((result) => (result.data ? [result.data] : [])),
+    isLoading: results.some((result) => result.isLoading),
+  };
+}
+
+// Opened chats the recent page does not hold. Failed lookups (deleted tasks)
+// are left out.
+function useOpenedTasks(ids: readonly string[]) {
+  const session = useAuth((s) => s.session);
+  return useQueries({
+    queries: ids.map((id) => ({
+      queryKey: keys.task(id),
+      queryFn: () => getClient().getTask(id),
+      enabled: !!session,
+      staleTime: 60_000,
+    })),
+    combine: foundTasks,
+  });
+}
 
 function useDebounced(value: string, delay: number): string {
   const [debounced, setDebounced] = useState(value);
@@ -59,16 +86,46 @@ export default function RecentsScreen() {
   const navigation = useNavigation<{ openDrawer: () => void }>();
   const insets = useSafeAreaInsets();
   const input = useRef<TextInput>(null);
-  const [searching, setSearching] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<Scope>("all");
   const search = useDebounced(query.trim(), 250);
   const archived = scope === "archived";
-  const showReports = scope === "all" || scope === "reports";
+  const recentMode = !search && scope === "all";
+  const showReports = !recentMode && (scope === "all" || scope === "reports");
   const tasks = useTaskPages(search, archived);
   const reports = useReports(search);
+  const recentTasks = useTasks();
+  const [opened, setOpened] = useState(loadOpened);
+  useFocusEffect(useCallback(() => setOpened(loadOpened()), []));
+  // The recent page holds at most one page of tasks, so a chat opened from an
+  // older search result is fetched on its own.
+  const missing = useMemo(() => {
+    if (!recentMode || !recentTasks.data) return [];
+    const inPage = new Set(recentTasks.data.map((task) => task.id));
+    return opened.slice(0, LAST_OPENED_LIMIT).filter((id) => !inPage.has(id));
+  }, [recentMode, recentTasks.data, opened]);
+  const openedTasks = useOpenedTasks(missing);
 
   const items = useMemo(() => {
+    if (recentMode) {
+      const recent = [...(recentTasks.data ?? [])].sort((a, b) =>
+        activityAt(b).localeCompare(activityAt(a)),
+      );
+      return lastOpened(
+        opened,
+        recent,
+        openedTasks.data,
+        LAST_OPENED_LIMIT,
+      ).map(
+        (task): Item => ({
+          kind: "task",
+          id: task.id,
+          time: activityAt(task),
+          task,
+        }),
+      );
+    }
     const list: Item[] = [];
     if (scope !== "reports") {
       for (const task of tasks.data?.pages.flatMap((page) => page.visible) ??
@@ -87,11 +144,21 @@ export default function RecentsScreen() {
       }
     }
     return list.sort((a, b) => b.time.localeCompare(a.time));
-  }, [scope, showReports, tasks.data, reports.data]);
+  }, [
+    recentMode,
+    recentTasks.data,
+    openedTasks.data,
+    opened,
+    scope,
+    showReports,
+    tasks.data,
+    reports.data,
+  ]);
 
-  const loading =
-    (scope !== "reports" && tasks.isLoading) ||
-    (showReports && reports.isLoading);
+  const loading = recentMode
+    ? recentTasks.isLoading || openedTasks.isLoading
+    : (scope !== "reports" && tasks.isLoading) ||
+      (showReports && reports.isLoading);
 
   const closeSearch = (): void => {
     setQuery("");
@@ -109,9 +176,8 @@ export default function RecentsScreen() {
         getItemType={(item) => item.kind}
         renderItem={({ item }) =>
           item.kind === "task" ? (
-            <TaskRow
+            <TaskChatRow
               task={item.task}
-              label="Task"
               archived={archived}
               onPress={() =>
                 router.push({
@@ -121,14 +187,14 @@ export default function RecentsScreen() {
               }
             />
           ) : (
-            <ListRow
+            <ChatRow
+              icon="steeringwheel"
               title={item.report.title ?? "Untitled report"}
-              label="Report"
-              time={item.time}
+              snippet="Report"
               onPress={() =>
                 router.push({
-                  pathname: "/(drawer)/self-driving",
-                  params: { report: item.id },
+                  pathname: "/report/[id]",
+                  params: { id: item.id },
                 })
               }
             />
@@ -139,21 +205,33 @@ export default function RecentsScreen() {
           paddingBottom: insets.bottom + 140,
           paddingHorizontal: 18,
         }}
+        ListHeaderComponent={
+          recentMode && items.length > 0 ? (
+            <Text style={styles.section}>Last opened</Text>
+          ) : null
+        }
         onEndReached={() => {
-          if (scope !== "reports" && tasks.hasNextPage && !tasks.isFetching) {
+          if (
+            !recentMode &&
+            scope !== "reports" &&
+            tasks.hasNextPage &&
+            !tasks.isFetching
+          ) {
             void tasks.fetchNextPage();
           }
         }}
         onEndReachedThreshold={0.5}
         ListFooterComponent={
-          tasks.isFetchingNextPage ? <RowSkeletons count={2} /> : null
+          tasks.isFetchingNextPage && !recentMode ? (
+            <RowSkeletons count={2} chat />
+          ) : null
         }
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
       />
       {loading && items.length === 0 ? (
         <View style={[styles.overlay, { top }]} pointerEvents="none">
-          <RowSkeletons />
+          <RowSkeletons chat />
         </View>
       ) : null}
       {!loading && items.length === 0 ? (
@@ -251,7 +329,6 @@ export default function RecentsScreen() {
                   onFocus={() => setSearching(true)}
                   placeholder="Search"
                   placeholderTextColor={colors.inkMute}
-                  autoFocus
                   autoCorrect={false}
                   returnKeyType="search"
                   clearButtonMode="while-editing"
@@ -303,6 +380,15 @@ const styles = StyleSheet.create({
     transform: [{ rotate: "180deg" }],
   },
   overlay: { position: "absolute", left: 18, right: 18 },
+  section: {
+    fontFamily: fonts.sansSemi,
+    fontSize: 12,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: colors.inkMute,
+    paddingLeft: 4,
+    marginBottom: 4,
+  },
   empty: {
     position: "absolute",
     left: 22,

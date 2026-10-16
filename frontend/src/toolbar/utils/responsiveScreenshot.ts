@@ -1,4 +1,5 @@
 import { delay } from 'lib/utils/async'
+import { BLANK_IMAGE } from 'lib/utils/captureElementImage'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
@@ -8,6 +9,8 @@ import { captureElementScreenshot } from '~/toolbar/utils/screenshot'
 export const RESPONSIVE_CAPTURE_WIDTHS = [320, 375, 425, 768, 1024, 1440, 1920]
 
 const PER_WIDTH_SETTLE_TIMEOUT_MS = 4000
+
+const CANVAS_SIZE_ATTR = 'data-ph-canvas-size'
 
 export interface WidthCapture {
     width: number
@@ -49,14 +52,31 @@ function populateIframe(iframe: HTMLIFrameElement): void {
     copyCanvases(doc)
 }
 
+function adoptCanvasSizing(doc: Document, rules: string[]): void {
+    const view = doc.defaultView as (Window & typeof globalThis) | null
+    if (!view || rules.length === 0) {
+        return
+    }
+    try {
+        const sheet = new view.CSSStyleSheet()
+        sheet.replaceSync(rules.join('\n'))
+        doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, sheet]
+    } catch {}
+}
+
 function copyCanvases(doc: Document): void {
     const liveCanvases = document.querySelectorAll('canvas')
     const clonedCanvases = doc.querySelectorAll('canvas')
+    const sizingRules: string[] = []
     clonedCanvases.forEach((cloned, index) => {
         const live = liveCanvases[index] as HTMLCanvasElement | undefined
         if (!live || live.width === 0 || live.height === 0) {
             return
         }
+        cloned.setAttribute(CANVAS_SIZE_ATTR, String(index))
+        sizingRules.push(
+            `:where([${CANVAS_SIZE_ATTR}="${index}"]) { width: ${live.width}px; aspect-ratio: ${live.width} / ${live.height}; }`
+        )
         try {
             const clonedCanvas = cloned as HTMLCanvasElement
             clonedCanvas.width = live.width
@@ -64,6 +84,7 @@ function copyCanvases(doc: Document): void {
             clonedCanvas.getContext('2d')?.drawImage(live, 0, 0)
         } catch {}
     })
+    adoptCanvasSizing(doc, sizingRules)
 }
 
 function waitForResource(el: HTMLLinkElement | HTMLImageElement, isReady: boolean): Promise<void> {
@@ -74,6 +95,29 @@ function waitForResource(el: HTMLLinkElement | HTMLImageElement, isReady: boolea
         el.addEventListener('load', () => resolve(), { once: true })
         el.addEventListener('error', () => resolve(), { once: true })
     })
+}
+
+function blankImages(doc: Document, urls: Set<string>): void {
+    for (const image of Array.from(doc.images)) {
+        if (urls.has(image.src)) {
+            image
+                .closest('picture')
+                ?.querySelectorAll('source')
+                .forEach((source) => {
+                    source.srcset = ''
+                })
+            image.srcset = ''
+            image.src = BLANK_IMAGE
+        }
+    }
+}
+
+function collectStalledImages(doc: Document, urls: Set<string>): void {
+    for (const image of Array.from(doc.images)) {
+        if (!image.complete && image.loading !== 'lazy') {
+            urls.add(image.src)
+        }
+    }
 }
 
 async function waitForSettle(iframe: HTMLIFrameElement): Promise<void> {
@@ -91,21 +135,28 @@ async function waitForSettle(iframe: HTMLIFrameElement): Promise<void> {
         } catch {}
         iframe.style.height = `${doc.documentElement.scrollHeight}px`
         await delay(150)
-        await Promise.all(Array.from(doc.images).map((img) => waitForResource(img, img.complete)))
+        await Promise.all(
+            Array.from(doc.images)
+                .filter((img) => img.src !== BLANK_IMAGE)
+                .map((img) => waitForResource(img, img.complete))
+        )
     })()
 
     await Promise.race([settled, delay(PER_WIDTH_SETTLE_TIMEOUT_MS)])
 }
 
-async function captureWidth(width: number): Promise<Blob> {
+async function captureWidth(width: number, stalledImageUrls: Set<string>): Promise<Blob> {
     const iframe = buildReflowIframe(width)
     try {
         populateIframe(iframe)
-        await waitForSettle(iframe)
         const doc = iframe.contentDocument
         if (!doc) {
             throw new Error('Reflow iframe document went away')
         }
+        blankImages(doc, stalledImageUrls)
+        await waitForSettle(iframe)
+        collectStalledImages(doc, stalledImageUrls)
+        blankImages(doc, stalledImageUrls)
         return await captureElementScreenshot(doc.documentElement, {
             pixelRatio: 1,
             width,
@@ -124,9 +175,10 @@ export async function captureResponsiveScreenshots(
     const captures: WidthCapture[] = []
     const failures: { width: number; error: Error }[] = []
     let attempted = 0
+    const stalledImageUrls = new Set<string>()
     for (const width of widths) {
         try {
-            const blob = await captureWidth(width)
+            const blob = await captureWidth(width, stalledImageUrls)
             captures.push({ width, blob })
         } catch (e) {
             const error = toError(e, `Responsive heatmap capture failed at ${width}px`)

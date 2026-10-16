@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PingdomSource(ResumableSource[PingdomSourceConfig, PingdomResumeConfig]):
+    codebase_detection = detect(env=("^PINGDOM_",), script_hosts=("rum-static.pingdom.net",))
+
     supported_versions = ("3.1",)
     default_version = "3.1"
     api_docs_url = "https://docs.pingdom.com/api/"

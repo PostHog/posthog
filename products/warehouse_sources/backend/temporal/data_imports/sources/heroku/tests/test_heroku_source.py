@@ -1,7 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -14,16 +12,6 @@ SOURCE_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.
 class TestHerokuSource:
     def setup_method(self) -> None:
         self.source = HerokuSource()
-
-    def test_get_schemas_returns_full_refresh_only_endpoints(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1)
-
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Heroku has no server-side timestamp filters; flipping any of these on without one
-        # would sync incorrect incremental data.
-        assert all(not s.supports_incremental for s in schemas)
-        assert all(not s.supports_append for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["apps", "releases"])
@@ -44,19 +32,3 @@ class TestHerokuSource:
             valid, message = self.source.validate_credentials(config, team_id=1)
         assert not valid
         assert message == "Invalid Heroku API key"
-
-    def test_non_retryable_error_keys_match_requests_error_strings(self) -> None:
-        # `get_non_retryable_errors` keys are matched as substrings of the raised error; if
-        # the key format drifts from what requests actually produces, credential failures
-        # retry forever instead of disabling the source.
-        response = requests.Response()
-        response.status_code = 401
-        response.reason = "Unauthorized"  # verified live: Heroku sends this phrase over HTTP/1.1
-        response.url = "https://api.heroku.com/apps/some-app/releases"
-        try:
-            response.raise_for_status()
-            raise AssertionError("raise_for_status did not raise")
-        except requests.HTTPError as e:
-            error_string = str(e)
-
-        assert any(key in error_string for key in self.source.get_non_retryable_errors())

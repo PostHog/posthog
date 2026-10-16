@@ -35,6 +35,19 @@ A URL source can refresh on a schedule: every hour, every 6 hours, every day, or
 
 Text and file sources do not refresh on a schedule.
 
+## Libraries
+
+A library limits search to the sources and repositories you put in it.
+A source can be in more than one library, or in none.
+**All** searches every ready source.
+**Unfiled** shows sources that are in no library.
+
+Deleting a library removes only that grouping.
+The sources, documents, and selected repositories stay.
+
+Pass `library_id` to document search, repository search, and file read when you want one library.
+Leave it out to search the whole project.
+
 ## Playground
 
 The **Playground** tab asks a question against your sources and shows the answer.

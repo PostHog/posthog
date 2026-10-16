@@ -30,6 +30,7 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpCyclotronV2Janitor: isDevEnv(),
     cdpHogflowScheduler: isDevEnv(),
     cdpHogflowSubscriptionMatcher: isDevEnv(),
+    cdpCohortMembershipTriggers: true,
 }
 
 /** Realtime Cohorts - cohort membership persistence */
@@ -143,6 +144,10 @@ export function getPluginServerCapabilities(
             return {
                 cdpCohortMembership: true,
             }
+        case PluginServerMode.cdp_cohort_membership_triggers:
+            return {
+                cdpCohortMembershipTriggers: true,
+            }
         case PluginServerMode.cdp_legacy_on_event:
             return {
                 cdpLegacyOnEvent: true,
@@ -180,6 +185,12 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_rerun_worker:
             return {
                 cdpRerunWorker: true,
+            }
+        // Deliberately absent from CAPABILITIES_CDP: a replay is a bounded, operator-triggered run,
+        // not something a local or combined stack should start on its own.
+        case PluginServerMode.cdp_dlq_replay:
+            return {
+                cdpDlqReplay: true,
             }
         case PluginServerMode.ingestion_v2:
         case PluginServerMode.ingestion_v2_combined:

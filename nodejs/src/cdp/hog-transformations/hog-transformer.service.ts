@@ -9,7 +9,12 @@ import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 
-import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
+import {
+    CyclotronJobInvocationResult,
+    HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionType,
+} from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import type { CommonConfig } from '../../common/config'
 import { HogExecutorService } from '../services/hog-executor.service'
@@ -19,8 +24,9 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { IntegrationManagerService } from '../services/managers/integration-manager.service'
 import { HogFunctionMonitoringService, MonitoringOutput } from '../services/monitoring/hog-function-monitoring.service'
 import { EncryptedFields } from '../utils/encryption-utils'
+import { HogConfigurationError } from '../utils/hog-error-classification'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
-import { createInvocation } from '../utils/invocation-utils'
+import { createInputsFailureResult, createInvocation } from '../utils/invocation-utils'
 import { RustVmExecutor } from './rust-vm-executor'
 import { getTransformationFunctions } from './transformation-functions'
 
@@ -364,7 +370,16 @@ export class HogTransformerService implements HogTransformer {
         globals: HogFunctionInvocationGlobals
     ): Promise<CyclotronJobInvocationResult> {
         const transformationFunctions = await this.getTransformationFunctions()
-        const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+        let globalsWithInputs: HogFunctionInvocationGlobalsWithInputs
+        try {
+            globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+        } catch (error) {
+            // Returned rather than thrown, so the error reaches the transformation's own logs.
+            if (!(error instanceof HogConfigurationError)) {
+                throw error
+            }
+            return createInputsFailureResult(hogFunction, globals, error)
+        }
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 

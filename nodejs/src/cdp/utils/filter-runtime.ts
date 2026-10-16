@@ -7,7 +7,7 @@ import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs } 
 import { convertClickhouseRawEventToFilterGlobals, convertToHogFunctionFilterGlobal } from './hog-function-filtering'
 
 /** Where Django reads the result. Relative to the repository root. */
-export const FILTER_GLOBALS_RELATIVE_PATH = 'posthog/cdp/filter_globals.json'
+export const FILTER_GLOBALS_RELATIVE_PATH = 'products/cdp/backend/filter_globals.json'
 
 export type FilterRuntime = {
     /** Data globals every filter compiled by compile_filters_bytecode is evaluated with. */

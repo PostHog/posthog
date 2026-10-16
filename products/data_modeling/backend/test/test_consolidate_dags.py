@@ -14,17 +14,23 @@ from django.core.management.base import CommandError
 from parameterized import parameterized
 from temporalio.client import ScheduleListActionStartWorkflow
 
+from posthog.models.team import Team
+
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_modeling.backend.logic.schedule_reconcile import DagScheduleTeardown
-from products.data_modeling.backend.models.dag import DAG, REVENUE_ANALYTICS_DAG_NAME
+from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME, REVENUE_ANALYTICS_DAG_NAME
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 M15 = timedelta(minutes=15)
 H6 = timedelta(hours=6)
+H12 = timedelta(hours=12)
 
 COMMAND = "products.data_modeling.backend.management.commands.consolidate_dags"
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
@@ -572,23 +578,140 @@ class TestConsolidateDags(BaseTest):
             self.assertIn(f"Merge target: Default ({default.id})", output)
             self.assertIn("canonical 'Default' DAG", output)
 
-    def test_managed_dag_never_touched(self):
-        target = DAG.get_or_create_default(self.team)
+    @parameterized.expand(
+        [
+            ("default_dag_exists", DEFAULT_DAG_NAME),
+            ("only_a_differently_named_dag", "posthog_team"),
+            ("no_user_dag_yet", None),
+        ]
+    )
+    def test_managed_dag_folds_into_the_default_dag(self, _name, user_dag_name):
         managed = DAG.get_or_create_revenue_analytics(self.team)
         managed_query = self._query("stripe.prod.mrr_revenue_view", "SELECT 1")
+        managed_node = self._node(managed, managed_query)
+        set_declared_target(managed_node, H12)
+        if user_dag_name is not None:
+            default = DAG.objects.create(team=self.team, name=user_dag_name)
+            reader = self._node(default, self._query("reads_mrr", "SELECT 1"))
+            proxy = Node.objects.create(
+                team=self.team,
+                dag=default,
+                name=managed_query.name,
+                type=NodeType.TABLE,
+                properties={"origin": "cross_dag_view", "saved_query_id": str(managed_query.id)},
+            )
+            Edge.objects.create(team=self.team, dag=default, source=proxy, target=reader)
+
+        with _temporal_boundary() as mocks:
+            self._run(apply=True)
+
+        target = DAG.objects.get(team=self.team)
+        self.assertEqual(target.name, DEFAULT_DAG_NAME)
+        node = Node.objects.get(saved_query=managed_query)
+        self.assertEqual((node.id, node.dag_id), (managed_node.id, target.id))
+        self.assertEqual(get_declared_target(node), H12)
+        self.assertEqual(mocks.v2_delete.call_args.args, (str(managed.id),))
+        self.assertEqual(mocks.tier_create.call_args.kwargs["id"], tier_schedule_id(str(target.id), H12))
+        if user_dag_name is not None:
+            self.assertEqual(list(Edge.objects.filter(target=reader).values_list("source", flat=True)), [node.id])
+            self.assertFalse(Node.objects.filter(properties__has_key="saved_query_id").exists())
+
+    @parameterized.expand([("teardown_succeeds", False), ("teardown_fails", True)])
+    def test_teams_with_managed_dag_halts_at_the_first_failing_team(self, _name, teardown_fails):
+        other_team = Team.objects.create(organization=self.organization)
+        managed_dags = []
+        for team in sorted([self.team, other_team], key=lambda team: team.pk):
+            managed = DAG.objects.create(team=team, name=REVENUE_ANALYTICS_DAG_NAME)
+            managed_query = DataWarehouseSavedQuery.objects.create(
+                name="mrr_revenue_view", team=team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            )
+            Node.objects.create(team=team, dag=managed, saved_query=managed_query, type=NodeType.MAT_VIEW)
+            managed_dags.append(managed)
+
+        with _temporal_boundary(v2_teardown_fails=teardown_fails):
+            if teardown_fails:
+                with self.assertRaisesRegex(CommandError, "halted at team"):
+                    call_command("consolidate_dags", "--teams-with-managed-dag", "--apply", stdout=StringIO())
+            else:
+                call_command("consolidate_dags", "--teams-with-managed-dag", "--apply", stdout=StringIO())
+
+        remaining = set(DAG.objects.filter(name=REVENUE_ANALYTICS_DAG_NAME).values_list("id", flat=True))
+        self.assertEqual(remaining, {dag.id for dag in managed_dags} if teardown_fails else set())
+
+    def test_a_running_materialization_keeps_the_managed_dag_and_its_schedules(self):
+        DAG.get_or_create_default(self.team)
+        managed = DAG.get_or_create_revenue_analytics(self.team)
+        managed_query = self._query("stripe.prod.mrr_revenue_view", "SELECT 1")
+        managed_node = self._node(managed, managed_query)
+        DataModelingJob.objects.create(team=self.team, saved_query=managed_query, status=DataModelingJob.Status.RUNNING)
+
+        with _temporal_boundary() as mocks:
+            with self.assertRaisesRegex(CommandError, "incomplete"):
+                self._run(apply=True)
+
+        mocks.v2_delete.assert_not_called()
+        self.assertEqual(Node.objects.get(saved_query=managed_query).dag_id, managed_node.dag_id)
+
+    def test_a_managed_view_that_fails_to_resolve_stays_in_the_managed_dag_with_its_edges(self):
+        DAG.get_or_create_default(self.team)
+        managed = DAG.get_or_create_revenue_analytics(self.team)
+        managed_query = self._query("stripe.prod.mrr_revenue_view", "SELECT * FROM nonexistent_table_xyz")
+        managed_node = self._node(managed, managed_query)
+        parent = Node.objects.create(team=self.team, dag=managed, name="events", type=NodeType.TABLE)
+        Edge.objects.create(team=self.team, dag=managed, source=parent, target=managed_node)
+
+        with _temporal_boundary():
+            with self.assertRaisesRegex(CommandError, "incomplete"):
+                self._run(apply=True)
+
+        self.assertTrue(DAG.objects.filter(id=managed.id).exists())
+        self.assertEqual(Node.objects.get(saved_query=managed_query).dag_id, managed.id)
+        self.assertTrue(Edge.objects.filter(dag=managed, source=parent, target=managed_node).exists())
+
+    def test_folding_into_an_unscheduled_dag_seeds_targets_from_intervals(self):
+        managed = DAG.get_or_create_revenue_analytics(self.team)
+        managed_query = self._query("stripe.prod.mrr_revenue_view", "SELECT 1", interval=H12)
         self._node(managed, managed_query)
+
+        with _temporal_boundary() as mocks:
+            self._run(apply=True)
+
+        managed_query.refresh_from_db()
+        self.assertIsNone(managed_query.sync_frequency_interval)
+        self.assertEqual(get_declared_target(Node.objects.get(saved_query=managed_query)), H12)
+        self.assertEqual(
+            mocks.tier_create.call_args.kwargs["id"],
+            tier_schedule_id(str(DAG.objects.get(team=self.team).id), H12),
+        )
+
+    def test_a_managed_view_lands_from_the_managed_dag_not_from_a_user_dag_copy(self):
+        target = DAG.get_or_create_default(self.team)
+        managed = DAG.get_or_create_revenue_analytics(self.team)
+        viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        managed_query = self._query("stripe.prod.mrr_revenue_view", "SELECT 1")
+        unplaced_managed_query = self._query("stripe.prod.charge_revenue_view", "SELECT 1")
+        for query in (managed_query, unplaced_managed_query):
+            query.managed_viewset = viewset
+            query.save(update_fields=["managed_viewset"])
+        set_declared_target(self._node(managed, managed_query), H12)
+        set_declared_target(self._node(target, managed_query), timedelta(days=1))
         source = DAG.objects.create(team=self.team, name="posthog_team")
+        self._node(source, managed_query)
+        self._node(source, unplaced_managed_query)
         moved = self._query("only_in_source", "SELECT 1")
         self._node(source, moved)
 
         with _temporal_boundary():
-            output = self._run(apply=True)
+            self._run(apply=True)
 
-        self.assertIn(f"Excluding 1 system-managed DAG(s): {REVENUE_ANALYTICS_DAG_NAME}", output)
-        self.assertTrue(DAG.objects.filter(id=managed.id).exists())
-        self.assertTrue(Node.objects.filter(dag=managed, saved_query=managed_query).exists())
-        self.assertFalse(DAG.objects.filter(id=source.id).exists())
+        self.assertEqual(list(DAG.objects.filter(team=self.team).values_list("id", flat=True)), [target.id])
+        managed_node = Node.objects.get(saved_query=managed_query)
+        self.assertEqual(managed_node.dag_id, target.id)
+        self.assertEqual(get_declared_target(managed_node), H12)
         self.assertTrue(Node.objects.filter(dag=target, saved_query=moved).exists())
+        self.assertTrue(Node.objects.filter(dag=target, saved_query=unplaced_managed_query).exists())
 
     @parameterized.expand(
         [

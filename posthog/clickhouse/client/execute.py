@@ -463,7 +463,7 @@ def sync_execute(
             workload = Workload.OFFLINE if is_api_key_auth else Workload.ONLINE
         ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
-    if tags.workload == Workload.ENDPOINTS and workload != Workload.LOGS:
+    if tags.workload == Workload.ENDPOINTS and workload not in (Workload.LOGS, Workload.NEW_EVENTS_CLUSTER):
         workload = Workload.ENDPOINTS
 
     if workload == Workload.DEFAULT:
@@ -520,6 +520,8 @@ def sync_execute(
         # belongs on APP rather than behind a batch concurrency budget. Callers that named a user
         # keep it, so HogQL's own metadata lookups don't spend the budget meant for real queries.
         ch_user = ClickHouseUser.LLM_ANALYTICS
+    elif ch_user == ClickHouseUser.DEFAULT and tags.ch_user:
+        ch_user = ClickHouseUser(tags.ch_user)
 
     # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
     # hitting this error. Please don't do this. This error is to let us know about queries

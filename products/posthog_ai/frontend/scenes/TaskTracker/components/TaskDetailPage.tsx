@@ -33,6 +33,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
     const isActiveCreation = activeCreation?.taskId === taskId
     const artifactsTabEnabled = useFeatureFlag('TODAY_RAIL_NAV')
     const skin = useThreadSkin()
+    const piAcpEnabled = useFeatureFlag('PI_ACP')
 
     if (taskNotFound && !task) {
         return <NotFound object="task" />
@@ -53,7 +54,8 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             updateTask({ data: { title: nextTitle } })
         }
     }
-    const canRun = !!task && !isPiTaskRuntime(task.runtime) && !isLatestRunInProgress && !isLatestRunCompleted
+    const canRun =
+        !!task && (!isPiTaskRuntime(task.runtime) || piAcpEnabled) && !isLatestRunInProgress && !isLatestRunCompleted
     const taskActions =
         isHeaderLoading || !task ? (
             isActiveCreation ? undefined : (

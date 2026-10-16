@@ -15,12 +15,16 @@ from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.team.team import DEPRECATED_ATTRS
+from posthog.test.authentication_checks import covers_authentication
 from posthog.test.db_context_capturing import capture_db_queries
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.workflow_customer_tasks import get_workflow_customer_task_id
+from products.customer_analytics.backend.presentation.views.workflow_customer_tasks import (
+    WorkflowCustomerTasksJWTAuthentication,
+)
 from products.workflows.backend.models import HogFlow
 
 SECRET = "test-customer-tasks-workflow-key"
@@ -86,6 +90,7 @@ class TestWorkflowCustomerTasks(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token or self._token()}",
         )
 
+    @covers_authentication(WorkflowCustomerTasksJWTAuthentication)
     def test_creates_assigned_account_task_once_and_distinguishes_steps(self) -> None:
         account = api.create_account_for_view(
             team=self.team,

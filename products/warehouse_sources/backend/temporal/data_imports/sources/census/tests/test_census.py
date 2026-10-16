@@ -1,40 +1,35 @@
 from typing import Any, cast
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.census.census import (
     CensusResumeConfig,
-    census_source,
     get_endpoint_permissions,
     get_resource,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.census.source import CensusSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.census import CensusSourceConfig
 
 
-class _FakeDltResource:
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper):
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
+def _driver() -> SourceDriver:
+    return SourceDriver(CensusSource(), CensusSourceConfig(api_key="key", region="us"))
 
 
-def _make_manager(resume_state: CensusResumeConfig | None = None) -> Mock:
-    manager = Mock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _page(rows: list[dict[str, Any]], last_page: int = 1) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": rows, "pagination": {"last_page": last_page}})
 
 
 class TestCensusTransport:
@@ -45,15 +40,12 @@ class TestCensusTransport:
             ("unknown", "https://app.getcensus.com"),  # unrecognized region falls back to US
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.make_tracked_session")
-    def test_validate_credentials_uses_region_host(self, region, expected_host, mock_session) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=200)
+    def test_validate_credentials_uses_region_host(self, region, expected_host) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            validate_credentials(api_key="key", region=region)
 
-        validate_credentials(api_key="key", region=region)
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == f"{expected_host}/api/v1/syncs"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer key"
+        assert network.requests_log[0].url == f"{expected_host}/api/v1/syncs"
+        assert network.requests_log[0].headers["authorization"] == "Bearer key"
 
     @parameterized.expand(
         [
@@ -64,21 +56,15 @@ class TestCensusTransport:
             (500, None, False, "Census API returned an unexpected status: 500"),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.make_tracked_session")
-    def test_validate_credentials_status_mapping(
-        self, status, schema_name, expected_valid, expected_message, mock_session
-    ) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=status)
-
-        result = validate_credentials(api_key="key", region="us", schema_name=schema_name)
+    def test_validate_credentials_status_mapping(self, status, schema_name, expected_valid, expected_message) -> None:
+        with scripted_network(always(ScriptedResponse(status=status))):
+            result = validate_credentials(api_key="key", region="us", schema_name=schema_name)
 
         assert result == (expected_valid, expected_message)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.make_tracked_session")
-    def test_validate_credentials_network_failure(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-
-        result = validate_credentials(api_key="key", region="us")
+    def test_validate_credentials_network_failure(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            result = validate_credentials(api_key="key", region="us")
 
         assert result == (False, "Could not reach Census. Please check your network and selected region, then retry.")
 
@@ -97,30 +83,28 @@ class TestCensusTransport:
             (500, None),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.make_tracked_session")
-    def test_get_endpoint_permissions_reports_refusals(self, status, expected_reason, mock_session) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=status)
-
-        permissions = get_endpoint_permissions(api_key="key", region="us", endpoints=["workspaces"])
+    def test_get_endpoint_permissions_reports_refusals(self, status, expected_reason) -> None:
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
+            permissions = get_endpoint_permissions(api_key="key", region="us", endpoints=["workspaces"])
 
         assert permissions == {"workspaces": expected_reason}
-        assert mock_session.return_value.get.call_args.args[0] == "https://app.getcensus.com/api/v1/workspaces"
+        assert {request.url for request in network.requests_log} == {"https://app.getcensus.com/api/v1/workspaces"}
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.make_tracked_session")
-    def test_get_endpoint_permissions_network_failure_is_not_a_refusal(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
+    def test_get_endpoint_permissions_network_failure_is_not_a_refusal(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            assert get_endpoint_permissions(api_key="key", region="us", endpoints=["workspaces"]) == {
+                "workspaces": None
+            }
 
-        assert get_endpoint_permissions(api_key="key", region="us", endpoints=["workspaces"]) == {"workspaces": None}
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.make_tracked_session")
-    def test_get_endpoint_permissions_skips_workspace_scoped_endpoints(self, mock_session) -> None:
+    def test_get_endpoint_permissions_skips_workspace_scoped_endpoints(self) -> None:
         # Every workspace token can read these, so probing them would only slow the schema picker.
-        permissions = get_endpoint_permissions(
-            api_key="key", region="us", endpoints=["syncs", "sync_runs", "sources", "destinations"]
-        )
+        with scripted_network([]) as network:
+            permissions = get_endpoint_permissions(
+                api_key="key", region="us", endpoints=["syncs", "sync_runs", "sources", "destinations"]
+            )
 
         assert permissions == {"syncs": None, "sync_runs": None, "sources": None, "destinations": None}
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
     def test_get_resource_full_refresh(self) -> None:
         resource = cast(dict[str, Any], get_resource(endpoint="syncs"))
@@ -154,145 +138,101 @@ class TestCensusTransport:
         resource = cast(dict[str, Any], get_resource(endpoint="syncs"))
         assert "data_map" not in resource
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.make_tracked_session")
-    def test_probe_disables_sample_capture(self, mock_session) -> None:
+    def test_probe_disables_sample_capture(self) -> None:
         # The `/syncs` probe response echoes `connection_details`; capturing it would persist the
         # warehouse account/user/warehouse identifiers to shared sample storage before any mapper runs.
-        mock_session.return_value.get.return_value = Mock(status_code=200)
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            validate_credentials(api_key="key", region="us")
 
-        validate_credentials(api_key="key", region="us")
+        assert network.session_options[0]["capture"] is False
 
-        assert mock_session.call_args.kwargs["capture"] is False
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.make_tracked_session")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.rest_api_resource")
-    def test_client_session_disables_sample_capture(self, mock_rest_api_resource, mock_session) -> None:
+    def test_client_session_disables_sample_capture(self) -> None:
         # Sync responses echo `connection_details` which `_drop_fields` strips per-row, but HTTP
         # sample capture records the raw body first — the client must run capture=False so that
         # metadata never reaches shared sample storage.
-        mock_rest_api_resource.return_value = Mock()
+        result = _driver().run("syncs", [_page([{"id": 1}])])
 
-        census_source(
-            api_key="key",
-            region="us",
-            endpoint="syncs",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
+        assert result.raised is None
+        assert result.rows == [{"id": 1}]
+        assert result.session_options[0]["capture"] is False
+        assert result.session_options[0]["redact_values"] == ("key",)
+        assert result.paths == ["/api/v1/syncs"]
 
-        assert mock_session.call_args.kwargs["capture"] is False
-        assert mock_rest_api_resource.call_args.args[0]["client"]["session"] is mock_session.return_value
+    def test_census_source_top_level_response(self) -> None:
+        result = _driver().run("syncs", [_page([])])
+        response = result.response
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.rest_api_resource")
-    def test_census_source_top_level_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        response = census_source(
-            api_key="key",
-            region="us",
-            endpoint="syncs",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-
+        assert result.raised is None
+        assert response is not None
         assert response.name == "syncs"
         assert response.primary_keys == ["id"]
         assert response.sort_mode == "asc"
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.rest_api_resource")
-    def test_census_source_resumes_from_saved_state(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        manager = _make_manager(CensusResumeConfig(paginator_state={"page": 3}))
-
-        census_source(
-            api_key="key",
-            region="us",
-            endpoint="syncs",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+    def test_census_source_resumes_from_saved_state(self) -> None:
+        result = _driver().run(
+            "syncs", [_page([{"id": 3}], last_page=3)], resume_state=CensusResumeConfig(paginator_state={"page": 3})
         )
 
-        kwargs = mock_rest_api_resource.call_args.kwargs
-        assert kwargs["initial_paginator_state"] == {"page": 3}
+        assert result.raised is None
+        assert result.params("page") == ["3"]
+        assert result.rows == [{"id": 3}]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.rest_api_resource")
-    def test_census_source_saves_checkpoints_after_batches(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        manager = _make_manager()
+    def test_census_source_saves_checkpoints_after_batches(self) -> None:
+        result = _driver().run("syncs", [_page([{"id": 1}], last_page=2), _page([{"id": 2}], last_page=2)])
 
-        census_source(
-            api_key="key",
-            region="us",
-            endpoint="syncs",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
-        )
-
-        resume_hook = mock_rest_api_resource.call_args.kwargs["resume_hook"]
-        resume_hook({"page": 2})
-        manager.save_state.assert_called_once_with(CensusResumeConfig(paginator_state={"page": 2}))
-
+        assert result.raised is None
+        assert result.params("page") == ["1", "2"]
+        assert result.saved_states == [CensusResumeConfig(paginator_state={"page": 2})]
         # A terminal (None) checkpoint is not persisted — the Redis TTL handles cleanup.
-        manager.save_state.reset_mock()
-        resume_hook(None)
-        manager.save_state.assert_not_called()
+        assert result.final_state == CensusResumeConfig(paginator_state={"page": 2})
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_sync_runs_fanout_row_format(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("syncs", [{"id": 42}]),
-            _FakeDltResource("sync_runs", [{"id": 7, "status": "completed", "_syncs_id": 42}]),
-        ]
-
-        response = census_source(
-            api_key="key",
-            region="us",
-            endpoint="sync_runs",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
+    def test_sync_runs_fanout_row_format(self) -> None:
+        result = _driver().run(
+            "sync_runs",
+            [
+                _page([{"id": 42}]),
+                _page([{"id": 7, "status": "completed"}]),
+            ],
         )
 
-        rows = list(cast(Any, response.items()))
-        assert rows == [{"id": 7, "status": "completed", "sync_id": 42}]
+        assert result.raised is None
+        assert result.rows == [{"id": 7, "status": "completed", "sync_id": 42}]
+        assert result.paths == ["/api/v1/syncs", "/api/v1/syncs/42/sync_runs"]
         # Run ids are only documented per-sync, so the parent sync id is part of the key.
+        response = result.response
+        assert response is not None
         assert response.primary_keys == ["sync_id", "id"]
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
         assert response.sort_mode == "asc"
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.census.census.build_dependent_resource")
-    def test_sync_runs_fanout_wiring(self, mock_build_dependent_resource) -> None:
-        mock_build_dependent_resource.return_value = iter([])
-        manager = _make_manager(CensusResumeConfig(paginator_state={"completed": [], "current": None}))
-
-        census_source(
-            api_key="key",
-            region="us",
-            endpoint="sync_runs",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+    def test_sync_runs_fanout_wiring(self) -> None:
+        result = _driver().run(
+            "sync_runs",
+            [
+                _page([{"id": 42}], last_page=2),
+                _page([{"id": 7}]),
+                _page([{"id": 43}], last_page=2),
+                _page([{"id": 8}]),
+            ],
+            resume_state=CensusResumeConfig(paginator_state={"completed": [], "current": None}),
         )
 
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["page_size_param"] == "per_page"
-        assert "params" not in kwargs["parent_endpoint_extra"]
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "data"
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "data"
-        assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], PageNumberPaginator)
-        assert isinstance(kwargs["child_endpoint_extra"]["paginator"], PageNumberPaginator)
-        assert kwargs["child_params_extra"] == {"order": "asc"}
-        assert kwargs["db_incremental_field_last_value"] is None
-        assert kwargs["resume_hook"] is not None
-        assert kwargs["initial_paginator_state"] == {"completed": [], "current": None}
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v1/syncs",
+            "/api/v1/syncs/42/sync_runs",
+            "/api/v1/syncs",
+            "/api/v1/syncs/43/sync_runs",
+        ]
+        assert result.params("per_page") == ["100"] * 4
+        assert result.params("page") == ["1", "1", "2", "1"]
+        assert result.params("order") == ["asc"] * 4
+        assert result.requests[0].query == {"per_page": ("100",), "order": ("asc",), "page": ("1",)}
+        assert result.rows == [{"id": 7, "sync_id": 42}, {"id": 8, "sync_id": 43}]
+        assert result.saved_states
 
 
 class TestCensusPageNumberPaginator:

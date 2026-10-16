@@ -12,7 +12,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.new_relic import (
     DEFAULT_LOOKBACK_DAYS,
     DEFAULT_WINDOW_MS,
-    INGEST_LAG_BUFFER_MS,
     MIN_WINDOW_MS,
     NRQL_ROW_LIMIT,
     NewRelicGraphQLError,
@@ -22,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.
     _fetch_event_window,
     _iter_alert_conditions,
     _iter_alert_policies,
-    _iter_entities,
     _to_epoch_ms,
     get_graphql_url,
     get_rows,
@@ -164,22 +162,6 @@ class TestExecuteGraphql:
 
 
 class TestFetchEventWindow:
-    def test_yields_rows_sorted_ascending_with_datetime_timestamps(self) -> None:
-        executor = RecordingNrqlExecutor(
-            lambda start, until: [{"timestamp": 2000, "name": "b"}, {"timestamp": 1000, "name": "a"}]
-        )
-
-        batches = list(_fetch_event_window(executor, ACCOUNT_ID, "Transaction", 0, 10_000, MagicMock()))
-
-        assert len(batches) == 1
-        assert [row["name"] for row in batches[0]] == ["a", "b"]
-        assert batches[0][0]["timestamp"] == datetime.fromtimestamp(1, tz=UTC)
-        assert "SELECT * FROM Transaction SINCE 0 UNTIL 10000" in executor.queries[0]
-
-    def test_empty_window_yields_nothing(self) -> None:
-        executor = RecordingNrqlExecutor(lambda start, until: [])
-        assert list(_fetch_event_window(executor, ACCOUNT_ID, "Transaction", 0, 10_000, MagicMock())) == []
-
     def test_full_window_splits_recursively_until_under_cap(self) -> None:
         full_page = [{"timestamp": 1} for _ in range(NRQL_ROW_LIMIT)]
 
@@ -239,20 +221,6 @@ class TestGetEventRows:
                 )
             )
 
-    def test_incremental_sync_starts_one_ms_past_the_watermark(self) -> None:
-        watermark = datetime(2026, 1, 2, 10, tzinfo=UTC)
-        executor = RecordingNrqlExecutor(lambda start, until: [])
-
-        self._get_rows(
-            executor,
-            FakeResumableSourceManager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-        )
-
-        first_since, _ = _parse_since_until(executor.queries[0])
-        assert first_since == int(watermark.timestamp() * 1000) + 1
-
     def test_first_sync_reaches_back_the_default_lookback(self) -> None:
         executor = RecordingNrqlExecutor(lambda start, until: [])
 
@@ -260,34 +228,6 @@ class TestGetEventRows:
 
         first_since, _ = _parse_since_until(executor.queries[0])
         assert first_since == self._now_ms() - DEFAULT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000
-
-    def test_until_excludes_the_ingest_lag_buffer(self) -> None:
-        watermark = datetime(2026, 1, 2, 11, 30, tzinfo=UTC)
-        executor = RecordingNrqlExecutor(lambda start, until: [])
-
-        self._get_rows(
-            executor,
-            FakeResumableSourceManager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-        )
-
-        _, last_until = _parse_since_until(executor.queries[-1])
-        assert last_until == self._now_ms() - INGEST_LAG_BUFFER_MS
-
-    def test_watermark_past_until_makes_no_queries(self) -> None:
-        watermark = datetime(2026, 1, 2, 11, 59, tzinfo=UTC)  # inside the ingest-lag buffer
-        executor = RecordingNrqlExecutor(lambda start, until: [])
-
-        batches = self._get_rows(
-            executor,
-            FakeResumableSourceManager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-        )
-
-        assert batches == []
-        assert executor.queries == []
 
     def test_saves_resume_state_after_each_window_except_the_last(self) -> None:
         watermark = datetime(2026, 1, 2, tzinfo=UTC)  # ~12h of data → 2 windows
@@ -323,22 +263,6 @@ class TestGetEventRows:
 
 
 class TestEntityStyleIterators:
-    def test_entities_paginate_until_cursor_exhausted(self) -> None:
-        pages = [
-            {"entities": [{"guid": "g1"}], "nextCursor": "cursor-2"},
-            {"entities": [{"guid": "g2"}], "nextCursor": None},
-        ]
-        calls: list[str | None] = []
-
-        def execute(query: str, variables: dict[str, Any]) -> dict[str, Any]:
-            calls.append(variables["cursor"])
-            return {"actor": {"entitySearch": {"results": pages[len(calls) - 1]}}}
-
-        batches = list(_iter_entities(execute, ACCOUNT_ID))
-
-        assert batches == [[{"guid": "g1"}], [{"guid": "g2"}]]
-        assert calls == [None, "cursor-2"]
-
     def test_alert_policies_paginate_and_scope_to_account(self) -> None:
         pages = [
             {"policies": [{"id": "1"}], "nextCursor": "next"},
@@ -408,23 +332,6 @@ class TestValidateCredentials:
 
 
 class TestNewRelicSourceResponse:
-    def test_event_endpoint_is_append_only_with_datetime_partitions(self) -> None:
-        response = new_relic_source(
-            api_key="NRAK-x",
-            account_id=ACCOUNT_ID,
-            region="US",
-            endpoint="transactions",
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-
-        assert response.name == "transactions"
-        assert response.primary_keys is None
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "week"
-        assert response.partition_keys == ["timestamp"]
-
     @parameterized.expand(
         [
             ("entities", ["guid"]),

@@ -4,15 +4,21 @@ Thin: validate via the serializer, call the facade, serialize the result. Domain
 (name uniqueness, upsert, rename, validation, drift, approval) live in the logic layer behind the facade.
 """
 
+from functools import reduce
+from operator import or_
 from typing import cast
 
-from django.db.models import QuerySet
+from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVectorField
+from django.db.models import Func, QuerySet, Value
+from django.db.models.expressions import CombinedExpression
+from django.db.models.functions import Coalesce
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action as drf_action
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.filters import SearchFilter
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -21,6 +27,7 @@ from rest_framework.views import APIView
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.helpers.full_text_search import build_search_vector
 from posthog.models import User
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, HogQLQueryThrottle
 
@@ -61,11 +68,52 @@ def _resolve_bulk_metrics(
     )
 
 
+class CatalogSearchFilter(SearchFilter):
+    def get_search_vector(self, request: Request, view: APIView) -> CombinedExpression:
+        return build_search_vector(dict.fromkeys(self.get_search_fields(view, request) or [], "A"), config="english")
+
+    def filter_queryset(self, request: Request, queryset: QuerySet, view: APIView) -> QuerySet:
+        terms = self.get_search_terms(request)
+        if not terms:
+            return queryset
+        vector = self.get_search_vector(request, view)
+        query = reduce(or_, [SearchQuery(term, config="english") for term in terms[:60]])
+        return (
+            queryset.alias(_search_vector=vector, _search_rank=SearchRank(vector, query))
+            .filter(_search_vector=query)
+            .order_by("-_search_rank", "pk")
+        )
+
+
+class MetricSearchFilter(CatalogSearchFilter):
+    def get_search_vector(self, request: Request, view: APIView) -> CombinedExpression:
+        definition = Func(
+            Value("english"),
+            "definition",
+            Value('["string"]'),
+            function="jsonb_to_tsvector",
+            output_field=SearchVectorField(),
+        )
+        return CombinedExpression(
+            super().get_search_vector(request, view),
+            "||",
+            Func(
+                Coalesce(definition, Value("", output_field=SearchVectorField())),
+                Value("A"),
+                function="setweight",
+                output_field=SearchVectorField(),
+            ),
+            output_field=SearchVectorField(),
+        )
+
+
 class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/)."""
 
     scope_object = "data_catalog"
     lookup_field = "name"
+    filter_backends = [MetricSearchFilter]
+    search_fields = ["name", "display_name", "description"]
     serializer_class = MetricSerializer
     queryset = Metric.objects.unscoped()
 
@@ -274,6 +322,8 @@ class CertificationViewSet(
     """Trust marks on warehouse tables and views. Reads exclude soft-deleted targets."""
 
     scope_object = "data_catalog"
+    filter_backends = [CatalogSearchFilter]
+    search_fields = ["table__name", "saved_query__name", "notes"]
     serializer_class = CertificationSerializer
     queryset = TableCertification.objects.unscoped()
 
@@ -340,6 +390,8 @@ class RelationshipProposalViewSet(
     """Reviewed join facts. Accepting one promotes it to a real DataWarehouseJoin; rejections persist."""
 
     scope_object = "data_catalog"
+    filter_backends = [CatalogSearchFilter]
+    search_fields = ["source_table_name", "joining_table_name", "reasoning"]
     serializer_class = RelationshipProposalSerializer
     queryset = RelationshipProposal.objects.unscoped()
 

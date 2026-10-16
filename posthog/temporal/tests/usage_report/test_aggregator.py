@@ -2,28 +2,52 @@
 
 These cover the building blocks the aggregation activity composes:
 `load_all_data`, `iter_chunk_lines`, `build_manifest`,
-`filter_org_reports`, `filter_orgs_with_usage`, `sort_org_reports`.
+`write_org_report_chunks`.
 No Django / Temporal / S3 required.
 """
 
+import gzip
 import json
+import weakref
 import dataclasses
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, cast
 
+import pytest
 from unittest.mock import patch
 
-from posthog.tasks.usage_report import InstanceMetadata, OrgReport, UsageReportCounters
+from posthog.tasks.usage_report import (
+    InstanceMetadata,
+    OrgReport,
+    UsageReportCounters,
+    apply_usage_counter_metadata,
+    iter_reports_with_usage_counter_metadata,
+)
+from posthog.temporal.tests.usage_report.test_aggregate_activity import _instance_metadata
 from posthog.temporal.usage_report.aggregator import (
     add_pre_sandbox_compute_patch_defaults,
     build_manifest,
-    filter_org_reports,
-    filter_orgs_with_usage,
     iter_chunk_lines,
     load_all_data,
-    sort_org_reports,
+    load_usage_counter_report,
+    write_org_report_chunks,
 )
-from posthog.temporal.usage_report.types import Manifest, ReportCompleteness, RunQueryToS3Result, WorkflowContext
+from posthog.temporal.usage_report.types import (
+    AggregateInputs,
+    Manifest,
+    ReportCompleteness,
+    RunQueryToS3Result,
+    WorkflowContext,
+)
+from posthog.usage_counters import (
+    UsageCounterComparison,
+    UsageCounterComparisonRows,
+    UsageCounterMode,
+    UsageCounterReport,
+    UsageCounterService,
+)
+from posthog.utils import DayRange
 
 
 def _ctx(run_id: str = "abc", report_completeness: ReportCompleteness = "partial") -> WorkflowContext:
@@ -150,6 +174,152 @@ def test_load_all_data_does_not_default_compute_for_patched_workflow_history() -
     assert all_data == {}
 
 
+@pytest.mark.parametrize(
+    "state", ["zero", "failed_scan", "missing_result", "missing_object", "invalid_json", "legacy", "partial"]
+)
+def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
+    ctx = _ctx(report_completeness="partial" if state == "partial" else "complete")
+    if state != "legacy":
+        with patch("posthoganalytics.get_feature_flag", return_value="both"):
+            ctx.usage_counter_plan = UsageCounterService().resolve_plan(
+                DayRange(start=ctx.period_start, end=ctx.period_end),
+                caller="usage_reports_v2",
+                complete=ctx.report_completeness == "complete",
+            )
+    result = RunQueryToS3Result(query_name="usage_counters", s3_key="shadow.json", duration_ms=1)
+    payload = json.dumps(
+        {
+            "counts": {"teams_with_cdp_billable_invocations_in_period": [[1, 12]]},
+            "usage_sources": {"cdp_billable_invocations_in_period": "both"},
+            "counter_comparisons": None
+            if state == "failed_scan"
+            else {"cdp_billable_invocations_in_period": {"legacy_by_team": {1: 12}, "realtime_by_team": {}}},
+        }
+    ).encode()
+    with patch(
+        "posthog.storage.object_storage.read_bytes", return_value=b"invalid" if state == "invalid_json" else payload
+    ) as read:
+        if state == "missing_object":
+            read.side_effect = FileNotFoundError("missing")
+        inputs = AggregateInputs(
+            ctx=ctx, query_results=[], counter_result=None if state in {"missing_result", "legacy"} else result
+        )
+        if state in {"missing_result", "missing_object", "invalid_json"}:
+            with pytest.raises((ValueError, FileNotFoundError)):
+                load_usage_counter_report(inputs)
+            return
+        counter_report = load_usage_counter_report(inputs)
+        if state != "legacy":
+            assert counter_report.counts == {"teams_with_cdp_billable_invocations_in_period": [(1, 12)]}
+    org = _empty_org_report("org-a", cdp_billable_invocations_in_period=12)
+    org.teams["1"] = _empty_org_report("org-a", cdp_billable_invocations_in_period=12)
+    apply_usage_counter_metadata({"org-a": org}, counter_report, caller="usage_reports_v2", date=ctx.date_str)
+    assert org.cdp_billable_invocations_in_period == 12
+    if state == "legacy":
+        assert org.usage_sources is None
+        read.assert_not_called()
+    else:
+        assert org.usage_sources is not None
+        assert org.usage_sources["cdp_billable_invocations_in_period"] == "both"
+    assert org.counter_comparisons == (
+        {"cdp_billable_invocations_in_period": {"legacy": 12, "realtime": 0}} if state in {"zero", "partial"} else None
+    )
+
+
+@pytest.mark.parametrize("streamed", [False, True])
+def test_counter_comparisons_follow_current_team_ownership(streamed: bool) -> None:
+    previous_owner = _empty_org_report("org-a")
+    previous_owner.teams["1"] = _empty_org_report("org-a")
+    current_owner = _empty_org_report("org-b", cdp_billable_invocations_in_period=100)
+    current_owner.teams["2"] = _empty_org_report("org-b", cdp_billable_invocations_in_period=100)
+    counter_report = UsageCounterReport(
+        counts={},
+        usage_sources={"cdp_billable_invocations_in_period": UsageCounterMode.BOTH},
+        counter_comparisons={
+            "cdp_billable_invocations_in_period": UsageCounterComparisonRows(
+                legacy_by_team={2: 100}, realtime_by_team={2: {"org-a": 60, "org-b": 40}}
+            )
+        },
+    )
+
+    with patch("posthog.tasks.usage_report.ph_scoped_capture") as capture:
+        if streamed:
+            assert list(
+                iter_reports_with_usage_counter_metadata(
+                    iter((previous_owner, current_owner)), counter_report, caller="usage_reports_v2", date="2026-05-04"
+                )
+            ) == [previous_owner, current_owner]
+        else:
+            apply_usage_counter_metadata(
+                {"org-a": previous_owner, "org-b": current_owner},
+                counter_report,
+                caller="daily_report",
+                date="2026-05-04",
+            )
+
+    assert previous_owner.counter_comparisons == {"cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 0}}
+    assert current_owner.counter_comparisons == {"cdp_billable_invocations_in_period": {"legacy": 100, "realtime": 100}}
+    capture.assert_not_called()
+
+
+def test_counter_metadata_does_not_retain_streamed_reports() -> None:
+    references: list[weakref.ReferenceType[OrgReport]] = []
+
+    def reports() -> Iterator[OrgReport]:
+        for team_id in range(4):
+            report = _empty_org_report(str(team_id), event_count_in_period=1)
+            report.teams[str(team_id)] = _empty_org_report(str(team_id), event_count_in_period=1)
+            references.append(weakref.ref(report))
+            yield report
+
+    counter_report = UsageCounterReport(
+        counts={},
+        usage_sources={"event_count_in_period": UsageCounterMode.BOTH},
+        counter_comparisons={
+            "event_count_in_period": UsageCounterComparisonRows(
+                legacy_by_team=dict.fromkeys(range(4), 1),
+                realtime_by_team={team_id: {str(team_id): 2} for team_id in range(4)},
+            )
+        },
+    )
+    output = iter_reports_with_usage_counter_metadata(
+        reports(), counter_report, caller="usage_reports_v2", date="2026-05-04"
+    )
+    for team_id in range(4):
+        report = next(output)
+        assert report.organization_id == str(team_id)
+        assert report.counter_comparisons == {"event_count_in_period": {"legacy": 1, "realtime": 2}}
+        assert sum(ref() is not None for ref in references) == 1
+        del report
+    assert next(output, None) is None
+
+
+def test_missing_organization_diagnostics_split_without_losing_comparisons() -> None:
+    rows = {team: {f"00000000-0000-0000-0000-{team:012d}": 7} for team in range(10_000)}
+    report = UsageCounterReport(
+        counts={},
+        usage_sources={"event_count_in_period": UsageCounterMode.BOTH},
+        counter_comparisons={
+            "event_count_in_period": UsageCounterComparisonRows(legacy_by_team={}, realtime_by_team=rows)
+        },
+    )
+    with patch("posthog.tasks.usage_report.ph_scoped_capture") as scoped:
+        apply_usage_counter_metadata({}, report, caller="daily_report", date="2026-05-04")
+    calls = scoped.return_value.__enter__.return_value.call_args_list
+    assert len(calls) > 1
+    recovered: dict[str, dict[str, UsageCounterComparison]] = {}
+    for call in calls:
+        assert len(json.dumps(call.kwargs).encode("utf-8")) < 900 * 1024
+        batch = call.kwargs["properties"]["organizations"]
+        assert not recovered.keys() & batch.keys()
+        recovered.update(batch)
+    assert recovered == {
+        org: {"event_count_in_period": {"legacy": 0, "realtime": quantity}}
+        for orgs in rows.values()
+        for org, quantity in orgs.items()
+    }
+
+
 # ---- iter_chunk_lines ----------------------------------------------------
 
 
@@ -218,38 +388,7 @@ def test_build_manifest_returns_typed_manifest() -> None:
     assert manifest.total_orgs_with_usage == 678
 
 
-# ---- filter_org_reports / sort_org_reports -------------------------------
-
-
-def test_filter_org_reports_no_filter_returns_all() -> None:
-    reports = cast(dict[str, OrgReport], {"a": _FakeOrgReport("a"), "b": _FakeOrgReport("b")})
-    assert filter_org_reports(reports, None) is reports
-    assert filter_org_reports(reports, []) is reports  # empty list also no-ops
-
-
-def test_filter_org_reports_with_ids_keeps_only_requested() -> None:
-    reports = cast(
-        dict[str, OrgReport],
-        {"a": _FakeOrgReport("a"), "b": _FakeOrgReport("b"), "c": _FakeOrgReport("c")},
-    )
-    out = filter_org_reports(reports, ["a", "c", "missing"])
-    assert set(out.keys()) == {"a", "c"}
-
-
-def test_sort_org_reports_orders_by_organization_id() -> None:
-    reports = cast(
-        dict[str, OrgReport],
-        {
-            "z": _FakeOrgReport("z"),
-            "a": _FakeOrgReport("a"),
-            "m": _FakeOrgReport("m"),
-        },
-    )
-    out = sort_org_reports(reports)
-    assert [r.organization_id for r in out] == ["a", "m", "z"]
-
-
-# ---- filter_orgs_with_usage ----------------------------------------------
+# ---- write_org_report_chunks ---------------------------------------------
 
 
 def _empty_org_report(organization_id: str, **overrides: Any) -> OrgReport:
@@ -272,16 +411,77 @@ def _empty_org_report(organization_id: str, **overrides: Any) -> OrgReport:
     )
 
 
-def test_filter_orgs_with_usage_keeps_only_orgs_with_billable_counters() -> None:
-    reports = {
-        "with-events": _empty_org_report("with-events", event_count_in_period=1),
-        "with-recordings": _empty_org_report("with-recordings", recording_count_in_period=1),
-        "idle": _empty_org_report("idle"),
-        # Counters not in `has_non_zero_usage` (dashboard counts, query
-        # bytes read, etc.) must not keep an org in.
-        "non-billable-only": _empty_org_report("non-billable-only", dashboard_count=10, query_app_bytes_read=5_000_000),
-    }
+@pytest.mark.parametrize("active_orgs", [0, 4, 5])
+def test_chunks_stream_reports_and_preserve_counts(active_orgs: int) -> None:
+    references: list[weakref.ReferenceType[OrgReport]] = []
+    objects: dict[str, bytes] = {}
 
-    out = filter_orgs_with_usage(reports)
+    def reports() -> Iterator[OrgReport]:
+        for index in range(active_orgs + 1):
+            report = _empty_org_report(
+                str(index),
+                event_count_in_period=int(index < active_orgs),
+                dashboard_count=10,
+                usage_sources={"cdp_billable_invocations_in_period": "both"},
+                counter_comparisons={"cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 50}},
+            )
+            references.append(weakref.ref(report))
+            yield report
 
-    assert set(out.keys()) == {"with-events", "with-recordings"}
+    def write(key: str, content: str | bytes, **kwargs: Any) -> None:
+        objects[key] = content.encode() if isinstance(content, str) else content
+        assert sum(ref() is not None for ref in references) <= 1
+
+    with patch("posthog.storage.object_storage.write", side_effect=write):
+        result = write_org_report_chunks(
+            _ctx(), reports(), _instance_metadata(), chunk_size=2, version=2, region="US", check_cancelled=lambda: None
+        )
+
+    assert result.total_orgs == active_orgs + 1
+    assert result.total_orgs_with_usage == active_orgs
+    assert len(result.chunk_keys) == (active_orgs + 1) // 2
+    chunks = [[json.loads(line) for line in gzip.decompress(objects[key]).splitlines()] for key in result.chunk_keys]
+    assert [row["organization_id"] for chunk in chunks for row in chunk] == [str(i) for i in range(active_orgs)]
+    assert all(0 < len(chunk) <= 2 for chunk in chunks)
+    manifest = json.loads(objects[result.manifest_key])
+    assert manifest["total_orgs"] == result.total_orgs
+    assert manifest["total_orgs_with_usage"] == result.total_orgs_with_usage
+    assert manifest["chunk_keys"] == result.chunk_keys
+
+
+@pytest.mark.parametrize(
+    "failure, report_count",
+    [
+        ("upload", 3),
+        # The third report trips the check between reports.
+        ("cancel", 3),
+        # Both reports fit in the first chunk, so only the check before the manifest can trip.
+        ("cancel", 2),
+    ],
+)
+def test_failed_chunk_run_does_not_publish_manifest(failure: str, report_count: int) -> None:
+    written: list[str] = []
+
+    def write(key: str, content: str | bytes, **kwargs: Any) -> None:
+        if failure == "upload" and written:
+            raise OSError("upload failed")
+        written.append(key)
+
+    def check_cancelled() -> None:
+        if failure == "cancel" and written:
+            raise RuntimeError("cancelled")
+
+    with (
+        patch("posthog.storage.object_storage.write", side_effect=write),
+        pytest.raises((OSError, RuntimeError)),
+    ):
+        write_org_report_chunks(
+            _ctx(),
+            (_empty_org_report(str(i), event_count_in_period=1) for i in range(report_count)),
+            _instance_metadata(),
+            chunk_size=2,
+            version=2,
+            region="US",
+            check_cancelled=check_cancelled,
+        )
+    assert not any(key.endswith("manifest.json") for key in written)

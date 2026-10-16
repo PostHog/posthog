@@ -17,20 +17,56 @@ describe('sub-templates', () => {
         ['$logs_alert_firing', 'logs-alerting'],
         ['$health_check_issue_firing', 'health-alerts'],
         ['$batch_export_run_failed', 'batch-export-alerts'],
+        ['$data_warehouse_sync_failed', 'data-warehouse-alerts'],
+        ['$data_warehouse_sync_recovered', 'data-warehouse-alerts'],
+        ['$data_warehouse_sync_completed', 'data-warehouse-alerts'],
+        ['$data_warehouse_billing_limit_reached', 'data-warehouse-alerts'],
         ['$billing_alert_firing', 'billing-alerts'],
         ['$replay_vision_alert_match', 'replay-vision-alerts'],
+        ['$replay_vision_request_completed', 'replay-vision-requests'],
         ['$pageview', 'standard'],
         [undefined, 'standard'],
     ])('reads %s as the %s context', (event, expected) => {
         expect(eventToHogFunctionContextId(event)).toBe(expected)
     })
 
+    it.each([
+        ['error-tracking-issue-created', '$error_tracking_issue_created'],
+        ['error-tracking-issue-reopened', '$error_tracking_issue_reopened'],
+        ['error-tracking-issue-spiking', '$error_tracking_issue_spiking'],
+    ] as const)('pairs the %s PagerDuty trigger with issue resolution', (subTemplateId, triggerEvent) => {
+        const pagerDutyTemplate = HOG_FUNCTION_SUB_TEMPLATES[subTemplateId].find(
+            (template) => template.template_id === 'template-pagerduty'
+        )
+
+        expect(pagerDutyTemplate?.filters?.events).toEqual([
+            { id: triggerEvent, type: 'events' },
+            { id: '$error_tracking_issue_resolved', type: 'events' },
+        ])
+        expect(pagerDutyTemplate?.inputs).toMatchObject({
+            event_action: {
+                value: "{event.event == '$error_tracking_issue_resolved' ? 'resolve' : 'trigger'}",
+            },
+            dedup_key: { value: 'posthog-error-tracking-issue-{event.distinct_id}' },
+            severity: {
+                value: "{event.properties.severity == 'critical' ? 'critical' : event.properties.severity == 'high' ? 'error' : event.properties.severity == 'medium' ? 'warning' : event.properties.severity == 'low' ? 'info' : ''}",
+            },
+        })
+    })
+
     // A placeholder the sample event leaves empty renders an empty Slack block. Slack then rejects
     // the whole test message.
-    it.each(['health-check-firing', 'health-check-resolved'] as const)(
-        'gives the %s templates a sample value for every event property they read',
-        async (subTemplateId) => {
-            const sample = await SAMPLE_GLOBALS_CONTEXTS['health-alerts']!({
+    it.each([
+        ['health-alerts', 'health-check-firing'],
+        ['health-alerts', 'health-check-resolved'],
+        ['data-warehouse-alerts', 'data-warehouse-sync-failed'],
+        ['data-warehouse-alerts', 'data-warehouse-sync-recovered'],
+        ['data-warehouse-alerts', 'data-warehouse-sync-completed'],
+        ['data-warehouse-alerts', 'data-warehouse-billing-limit-reached'],
+    ] as const)(
+        'gives the %s sample event a value for every property the %s templates read',
+        async (contextId, subTemplateId) => {
+            const sample = await SAMPLE_GLOBALS_CONTEXTS[contextId]!({
                 event: { properties: {} },
             } as CyclotronJobInvocationGlobals)
             const inputs = JSON.stringify(HOG_FUNCTION_SUB_TEMPLATES[subTemplateId].map((template) => template.inputs))
