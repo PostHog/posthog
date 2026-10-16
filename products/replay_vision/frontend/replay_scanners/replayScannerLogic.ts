@@ -210,16 +210,12 @@ function goalFlowEnabled(): boolean {
     return featureFlagLogic.values.featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V3] === 'test'
 }
 
-/** The experiment a goal draft named, in the experiment type's config or in the legacy targeting. */
 function draftExperimentScope(goalDraft: DraftScannerResponseApi): ScannerExperimentScope | null {
-    if (goalDraft.scanner_type === 'experiment') {
-        const config = goalDraft.scanner_config as ExperimentScannerConfig
-        return config.experiment_id ? { experimentId: config.experiment_id, variants: config.variants ?? null } : null
+    if (goalDraft.scanner_type !== 'experiment') {
+        return null
     }
-    const targeting = goalDraft.experiment_targeting
-    return targeting?.experiment_id
-        ? { experimentId: targeting.experiment_id, variants: targeting.variant ? [targeting.variant] : null }
-        : null
+    const config = goalDraft.scanner_config as ExperimentScannerConfig
+    return config.experiment_id ? { experimentId: config.experiment_id, variants: config.variants ?? null } : null
 }
 
 /** A draft that watches an experiment becomes the experiment type, keeping the drafted prompt as its focus. */
@@ -253,6 +249,21 @@ function draftScannerTypeAndConfig(
             balance_variants: true,
         },
     }
+}
+
+/** Without the experiment type, a drafted experiment scanner becomes the summarizer it is built on, and its
+ * experiment moves to legacy targeting. */
+function legacyDraftTypeAndConfig(
+    goalDraft: DraftScannerResponseApi
+): Pick<ScannerFormValues, 'scanner_type' | 'scanner_config'> {
+    if (goalDraft.scanner_type !== 'experiment') {
+        return {
+            scanner_type: goalDraft.scanner_type as ScannerType,
+            scanner_config: goalDraft.scanner_config as ScannerConfig,
+        } as Pick<ScannerFormValues, 'scanner_type' | 'scanner_config'>
+    }
+    const config = goalDraft.scanner_config as ExperimentScannerConfig
+    return { scanner_type: 'summarizer', scanner_config: { prompt: config.prompt, length: config.length ?? 'medium' } }
 }
 
 function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
@@ -605,8 +616,10 @@ export interface replayScannerLogicActions {
         goal: string,
         monthlyCreditBudget?: number,
         templateKey?: string,
-        freeOnly?: boolean
+        freeOnly?: boolean,
+        experimentId?: number
     ) => {
+        experimentId: number | undefined
         freeOnly: boolean
         goal: string
         goalFlow: boolean
@@ -623,6 +636,7 @@ export interface replayScannerLogicActions {
     draftScannerFromGoalSuccess: (
         goalDraft: DraftScannerResponseApi | null,
         payload?: {
+            experimentId: number | undefined
             freeOnly: boolean
             goal: string
             goalFlow: boolean
@@ -632,6 +646,7 @@ export interface replayScannerLogicActions {
     ) => {
         goalDraft: DraftScannerResponseApi | null
         payload?: {
+            experimentId: number | undefined
             freeOnly: boolean
             goal: string
             goalFlow: boolean
@@ -1056,12 +1071,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             goal: string,
             monthlyCreditBudget?: number,
             templateKey?: string,
-            freeOnly?: boolean
+            freeOnly?: boolean,
+            experimentId?: number
         ) => ({
             goal,
             monthlyCreditBudget,
             templateKey,
             freeOnly: freeOnly ?? false,
+            experimentId,
             // Read when the request starts, so a flag refresh while it runs cannot change what the result saves.
             goalFlow: monthlyCreditBudget != null && goalFlowEnabled(),
         }),
@@ -1297,7 +1314,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as DraftScannerResponseApi | null,
             {
                 // Errors surface through draftScannerFromGoalFailure; kea-loaders dispatches it for us.
-                draftScannerFromGoal: async ({ goal, monthlyCreditBudget }) => {
+                draftScannerFromGoal: async ({ goal, monthlyCreditBudget, experimentId }) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId || !goal.trim()) {
                         return values.goalDraft
@@ -1305,7 +1322,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     return await visionScannersDraftCreate(String(teamId), {
                         goal: goal.trim(),
                         ...(typeof monthlyCreditBudget === 'number' && monthlyCreditBudget > 0
-                            ? { monthly_credit_budget: monthlyCreditBudget }
+                            ? { monthly_credit_budget: monthlyCreditBudget, experiment_id: experimentId }
                             : {}),
                     })
                 },
@@ -2372,10 +2389,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     description: goalDraft.description,
                     ...(asExperimentScanner
                         ? draftScannerTypeAndConfig(goalDraft, draftedExperiment, context)
-                        : {
-                              scanner_type: goalDraft.scanner_type as ScannerType,
-                              scanner_config: goalDraft.scanner_config as ScannerConfig,
-                          }),
+                        : legacyDraftTypeAndConfig(goalDraft)),
                     // The drafted session filter (when the goal mapped to real screens or events); the
                     // triggers step shows it for review like any hand-picked filter. Under an
                     // experiment prefill it keeps that experiment's test-account setting.
@@ -2405,7 +2419,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // named (or the one the wizard was entered from) stays legacy targeting.
                     experiment_targeting: asExperimentScanner
                         ? null
-                        : (goalDraft.experiment_targeting ?? (context ? buildExperimentTargeting(context) : null)),
+                        : draftedExperiment
+                          ? {
+                                experiment_id: draftedExperiment.experimentId,
+                                variant: draftedExperiment.variants?.[0] ?? null,
+                            }
+                          : context
+                            ? buildExperimentTargeting(context)
+                            : null,
                 })
                 // Loads the experiment so the editor shows its name and variants, the same way it
                 // does for a scanner started from the experiment itself.
