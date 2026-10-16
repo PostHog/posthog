@@ -12278,6 +12278,7 @@ export namespace Schemas {
      * * `Wise` - Wise
      * * `LaravelCloud` - LaravelCloud
      * * `Northbeam` - Northbeam
+     * * `GoogleAdMob` - GoogleAdMob
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13661,7 +13662,8 @@ export namespace Schemas {
         | "RainforestPay"
         | "Wise"
         | "LaravelCloud"
-        | "Northbeam";
+        | "Northbeam"
+        | "GoogleAdMob";
     /**
      * * `web` - web
      * * `api` - api
@@ -15054,6 +15056,7 @@ export namespace Schemas {
          * * `Wise` - Wise
          * * `LaravelCloud` - LaravelCloud
          * * `Northbeam` - Northbeam
+         * * `GoogleAdMob` - GoogleAdMob
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
