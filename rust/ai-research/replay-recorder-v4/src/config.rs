@@ -9,6 +9,11 @@ pub struct Config {
     #[envconfig(default = "session_recording_snapshot_item_events")]
     pub kafka_topic: String,
 
+    /// The main replay lane's overflow mode. With `redirect`, that lane moves force-overflow messages of the main topic
+    /// to the overflow topic, so v4 records them there and not twice.
+    #[envconfig(from = "INGESTION_OVERFLOW_MODE", default = "disabled")]
+    pub ingestion_overflow_mode: String,
+
     #[envconfig(default = "session-replay-recorder-v4")]
     pub kafka_consumer_group: String,
 
@@ -22,6 +27,15 @@ pub struct Config {
 
     /// The Postgres database the team list is read from. A read replica is enough.
     pub database_url: String,
+
+    /// The Redis the event ingestion restrictions are read from, as capture and the replay lanes read them.
+    pub event_restrictions_redis_url: String,
+
+    #[envconfig(default = "30")]
+    pub event_restrictions_refresh_secs: u64,
+
+    /// The session recording Redis, where the replay lanes keep the sessions their rate limiter blocked.
+    pub session_recording_redis_url: String,
 
     /// How often the team list refreshes. Consent changes take effect within this time, as in v3.
     #[envconfig(default = "300")]
@@ -59,6 +73,10 @@ pub struct Config {
     /// Where remote image URLs go for the v4 image fetcher.
     #[envconfig(default = "session_replay_image_fetch_v4")]
     pub image_fetch_topic: String,
+
+    /// A fetch job not delivered in this time fails its flush.
+    #[envconfig(default = "20000")]
+    pub image_fetch_delivery_timeout_ms: u32,
 
     #[envconfig(default = "9104")]
     pub metrics_port: u16,
