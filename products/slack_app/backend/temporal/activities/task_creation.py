@@ -874,32 +874,32 @@ def create_posthog_code_task_for_repo_activity(
         )
 
 
-def _find_followup_task_mapping(
+def _followup_task_mappings(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, event_text: str
-) -> "SlackThreadTaskMapping | None":
+) -> "models.QuerySet[SlackThreadTaskMapping] | None":
+    """The mapping a follow-up forwards to, or ``None`` when the message cannot be a follow-up."""
     from products.slack_app.backend.api import parse_rules_command
     from products.slack_app.backend.models import SlackThreadTaskMapping
 
     if parse_rules_command(event_text):
         return None
-    return (
-        SlackThreadTaskMapping.objects.select_related("task_run", "task__created_by")
-        .filter(integration_id=inputs.integration_id, channel=channel, thread_ts=thread_ts)
-        .first()
+    return SlackThreadTaskMapping.objects.filter(
+        integration_id=inputs.integration_id, channel=channel, thread_ts=thread_ts
     )
 
 
 @activity.defn
 @close_db_connections
 def posthog_code_thread_has_task_activity(
-    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, event_text: str
+    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> bool:
     """Whether `forward_posthog_code_followup_activity` will handle this message.
 
     It reads the same mapping, so the workflow knows a new thread early enough to run the
     new-thread steps at the same time as the model override classifier.
     """
-    return _find_followup_task_mapping(inputs, channel, thread_ts, event_text) is not None
+    mappings = _followup_task_mappings(inputs, channel, thread_ts, inputs.event.get("text", ""))
+    return mappings is not None and mappings.exists()
 
 
 @activity.defn
@@ -928,7 +928,8 @@ def forward_posthog_code_followup_activity(
     from products.slack_app.backend.api import resolve_slack_user
     from products.tasks.backend.facade import api as tasks_facade
 
-    mapping = _find_followup_task_mapping(inputs, channel, thread_ts, event_text)
+    mappings = _followup_task_mappings(inputs, channel, thread_ts, event_text)
+    mapping = mappings.select_related("task_run", "task__created_by").first() if mappings is not None else None
     if mapping is None:
         logger.info("posthog_code_followup_not_handled", channel=channel, thread_ts=thread_ts)
         return False

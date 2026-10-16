@@ -148,9 +148,7 @@ def _fake_activities(rec: _Recorder) -> list:
             await asyncio.wait_for(rec.new_thread_barrier.wait(), timeout=10)
 
     @activity.defn(name="posthog_code_thread_has_task_activity")
-    async def has_task(
-        inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, event_text: str
-    ) -> bool:
+    async def has_task(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> bool:
         ts = inputs.event["ts"]
         return rec.has_task_results.get(ts, rec.forward_results.get(ts, False))
 

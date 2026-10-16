@@ -281,6 +281,47 @@ def _is_file_only_followup(event: dict[str, Any]) -> bool:
     return event_has_files and not (event.get("text") or "").strip()
 
 
+async def _untagged_followup_is_agent_directed(
+    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, slack_user_id: str
+) -> bool:
+    return await _execute_posthog_code_activity(
+        classify_untagged_followup_activity,
+        inputs,
+        channel,
+        thread_ts,
+        slack_user_id,
+        inputs.event.get("text", ""),
+    )
+
+
+async def _awaiting_followup_confirmation(
+    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, slack_user_id: str
+) -> bool:
+    return await _execute_posthog_code_activity(
+        request_untagged_followup_confirmation_activity,
+        inputs,
+        channel,
+        thread_ts,
+        slack_user_id,
+    )
+
+
+async def _collect_thread_messages(
+    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
+) -> "list[SlackThreadMessage]":
+    # A forked run is the one case where the thread we read and the thread we
+    # answer in are different. `channel`/`thread_ts` stay the DM throughout —
+    # they own the task, the mapping, the reaction and every follow-up — while
+    # the context block is built from the channel thread the user forked.
+    # Unset for every other run, so both pairs coincide.
+    return await _execute_posthog_code_activity(
+        collect_posthog_code_thread_messages_activity,
+        inputs,
+        inputs.fork_source_channel or channel,
+        inputs.fork_source_thread_ts or thread_ts,
+    )
+
+
 async def _forward_followup(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -329,8 +370,6 @@ async def _prework_in_sequence(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, slack_user_id: str
 ) -> _NewThreadPrework | None:
     """The command order of histories recorded before `_PATCH_ID_PARALLEL_PREWORK`."""
-    event = inputs.event
-
     # Untagged thread replies face the Haiku classifier before any
     # forward. The webhook handler punted on this so its 3-second ack
     # budget stays unencumbered; here we run it under Temporal's retry
@@ -340,32 +379,16 @@ async def _prework_in_sequence(
     # Replies with text still face it even when files are attached, so
     # chitchat with a screenshot doesn't wake the agent.
     unconfirmed_followup = inputs.untagged_followup and not inputs.untagged_followup_confirmed
-    if unconfirmed_followup and not _is_file_only_followup(event):
-        should_forward = await _execute_posthog_code_activity(
-            classify_untagged_followup_activity,
-            inputs,
-            channel,
-            thread_ts,
-            slack_user_id,
-            event.get("text", ""),
-        )
-        if not should_forward:
+    if unconfirmed_followup and not _is_file_only_followup(inputs.event):
+        if not await _untagged_followup_is_agent_directed(inputs, channel, thread_ts, slack_user_id):
             return None
 
     # The reply is agent-directed. If the thread creator asked to be consulted
     # about other people's replies, this is the moment to ask: the prompt now
     # only interrupts someone over a message that would otherwise start work.
     # A confirmed run skips it — the answer is what re-dispatched this.
-    if unconfirmed_followup:
-        awaiting_confirmation = await _execute_posthog_code_activity(
-            request_untagged_followup_confirmation_activity,
-            inputs,
-            channel,
-            thread_ts,
-            slack_user_id,
-        )
-        if awaiting_confirmation:
-            return None
+    if unconfirmed_followup and await _awaiting_followup_confirmation(inputs, channel, thread_ts, slack_user_id):
+        return None
 
     # Read a model or effort request ("use fable for this one", "actually run
     # this on opus") out of the message. Classified above the follow-up/new-task
@@ -399,19 +422,7 @@ async def _prework_in_sequence(
     if routed_inputs is None:
         return None
 
-    # A forked run is the one case where the thread we read and the thread we
-    # answer in are different. `channel`/`thread_ts` stay the DM throughout —
-    # they own the task, the mapping, the reaction and every follow-up — while
-    # the context block is built from the channel thread the user forked.
-    # Unset for every other run, so both pairs coincide.
-    context_channel = routed_inputs.fork_source_channel or channel
-    context_thread_ts = routed_inputs.fork_source_thread_ts or thread_ts
-    thread_messages = await _execute_posthog_code_activity(
-        collect_posthog_code_thread_messages_activity,
-        routed_inputs,
-        context_channel,
-        context_thread_ts,
-    )
+    thread_messages = await _collect_thread_messages(routed_inputs, channel, thread_ts)
     if not thread_messages:
         return None
     return _NewThreadPrework(inputs=routed_inputs, model_override=model_override, thread_messages=thread_messages)
@@ -425,62 +436,33 @@ async def _prework_in_parallel(
     Each step reads only the message and the resolved project, so the slowest step sets
     the wall time instead of the sum of all of them.
     """
-    event = inputs.event
-    model_override_step = _execute_posthog_code_activity(
-        classify_slack_app_model_override_activity, _model_override_input(inputs, thread_ts)
+    model_override_task = asyncio.create_task(
+        _execute_posthog_code_activity(
+            classify_slack_app_model_override_activity, _model_override_input(inputs, thread_ts)
+        )
     )
 
     if inputs.untagged_followup:
         # Untagged replies never open a thread. The override is wasted on a dropped reply.
         unconfirmed_followup = not inputs.untagged_followup_confirmed
-        if unconfirmed_followup and not _is_file_only_followup(event):
-            should_forward, model_override = await asyncio.gather(
-                _execute_posthog_code_activity(
-                    classify_untagged_followup_activity,
-                    inputs,
-                    channel,
-                    thread_ts,
-                    slack_user_id,
-                    event.get("text", ""),
-                ),
-                model_override_step,
-            )
-            if not should_forward:
+        if unconfirmed_followup and not _is_file_only_followup(inputs.event):
+            if not await _untagged_followup_is_agent_directed(inputs, channel, thread_ts, slack_user_id):
                 return None
-        else:
-            model_override = await model_override_step
-        if unconfirmed_followup:
-            awaiting_confirmation = await _execute_posthog_code_activity(
-                request_untagged_followup_confirmation_activity,
-                inputs,
-                channel,
-                thread_ts,
-                slack_user_id,
-            )
-            if awaiting_confirmation:
-                return None
-        await _forward_followup(inputs, channel, thread_ts, slack_user_id, model_override)
+        if unconfirmed_followup and await _awaiting_followup_confirmation(inputs, channel, thread_ts, slack_user_id):
+            return None
+        await _forward_followup(inputs, channel, thread_ts, slack_user_id, await model_override_task)
         return None
 
-    model_override_task = asyncio.create_task(model_override_step)
-    has_task = await _execute_posthog_code_activity(
-        posthog_code_thread_has_task_activity, inputs, channel, thread_ts, event.get("text", "")
-    )
-    if has_task:
-        model_override = await model_override_task
-        if await _forward_followup(inputs, channel, thread_ts, slack_user_id, model_override):
+    if await _execute_posthog_code_activity(posthog_code_thread_has_task_activity, inputs, channel, thread_ts):
+        if await _forward_followup(inputs, channel, thread_ts, slack_user_id, await model_override_task):
             return None
 
     # A routed project is an install in the same Slack workspace, so the bot reads the same thread.
-    context_channel = inputs.fork_source_channel or channel
-    context_thread_ts = inputs.fork_source_thread_ts or thread_ts
     project_route, thread_messages, model_override = await asyncio.gather(
         _execute_posthog_code_activity(
             classify_slack_app_project_route_activity, _project_route_input(inputs, thread_ts, slack_user_id)
         ),
-        _execute_posthog_code_activity(
-            collect_posthog_code_thread_messages_activity, inputs, context_channel, context_thread_ts
-        ),
+        _collect_thread_messages(inputs, channel, thread_ts),
         model_override_task,
     )
     routed_inputs = await _apply_project_route(inputs, project_route, channel, thread_ts, slack_user_id)
