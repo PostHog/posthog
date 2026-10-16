@@ -13,6 +13,8 @@ import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
+import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2/types'
+import { invocationToV2JobInit, v2JobToInvocation } from '../services/job-queue/job-queue-postgres-v2'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
@@ -705,6 +707,15 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             isTeamQuotaLimited = jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(false)
         })
 
+        const requeueThroughCyclotron = (invocation: CyclotronJobInvocation): CyclotronJobInvocation => {
+            const job = invocationToV2JobInit(invocation)
+            return v2JobToInvocation({
+                ...job,
+                scheduled: TIMESTAMP,
+                cancelRequestedAt: null,
+            } as unknown as CyclotronV2DequeuedJob)
+        }
+
         const runFor = (hogFlow: HogFlow, context: Partial<HogFlowInvocationContext> = {}): CyclotronJobInvocation =>
             createSerializedHogFlowInvocation(hogFlow, {
                 event: { distinct_id: 'distinct_person_1', properties: {} } as any,
@@ -750,7 +761,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(parked.finished).toBe(false)
 
             isTeamQuotaLimited.mockResolvedValue(true)
-            const [woken] = await processor.processInvocations([parked.invocation])
+            const [woken] = await processor.processInvocations([requeueThroughCyclotron(parked.invocation)])
 
             expect(woken.canceled).toBeFalsy()
             expect(woken.metrics.map((m) => m.metric_name)).not.toContain('quota_limited')
