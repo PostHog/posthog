@@ -9,7 +9,9 @@ from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
 from django.db import close_old_connections, transaction
+from django.db.models import TextField
 from django.db.models.expressions import RawSQL
+from django.db.models.functions import MD5, Cast
 from django.utils import timezone
 
 import structlog
@@ -1433,8 +1435,16 @@ def update_all_orgs_billing_quotas(
 
     logger.info("quota_limiting_run", phase="org_loop", status="start", org_count=total_orgs)
     org_loop_start = time()
-    orgs_processed = orgs_limited_count = orgs_suspended_count = refresh_count = candidate_count = 0
+    orgs_processed = orgs_limited_count = orgs_suspended_count = refresh_count = candidate_count = orgs_skipped = 0
     refresh_total_seconds = candidates_total_seconds = 0.0
+
+    def discard_decision(org_id: str, team_tokens: list[str]) -> None:
+        failed_org_ids.add(org_id)
+        failed_team_tokens.update(team_tokens)
+        for resource in QuotaResource:
+            quota_limited_orgs[resource.value].pop(org_id, None)
+            quota_limiting_suspended_orgs[resource.value].pop(org_id, None)
+
     # The shared iterator keeps an organization's teams contiguous, including across read pages.
     organization_teams = (list(group) for _, group in groupby(teams_iterator, key=lambda team: team.organization_id))
     for team_groups in batched(organization_teams, QUOTA_ORGANIZATION_BATCH_SIZE, strict=False):
@@ -1461,6 +1471,7 @@ def update_all_orgs_billing_quotas(
             for org in retry_quota_database_operation(
                 Organization.objects.filter(id__in=refresh_candidates)
                 .only("id", "usage", "customer_trust_scores", "never_drop_data")
+                .annotate(usage_md5=MD5(Cast("usage", output_field=TextField())))
                 .in_bulk
             ).values()
         }
@@ -1479,6 +1490,7 @@ def update_all_orgs_billing_quotas(
                         org.usage = fresh.usage
                         org.customer_trust_scores = fresh.customer_trust_scores
                         org.never_drop_data = fresh.never_drop_data
+                        usage_batch.require_unchanged_usage(org, fresh.usage_md5)
                         if (org.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value):
                             # Push refreshes can raise signals usage after the source snapshot. Recount before writing it.
                             todays_report["signals_credits"] = get_self_driving_credits_used_in_period_for_org(
@@ -1508,14 +1520,18 @@ def update_all_orgs_billing_quotas(
                     orgs_suspended_count += org_is_suspended
             except Exception as error:
                 usage_batch.discard(org)
-                failed_org_ids.add(org_id)
-                failed_team_tokens.update(teams_by_org.get(org_id, []))
-                for resource in QuotaResource:
-                    quota_limited_orgs[resource.value].pop(org_id, None)
-                    quota_limiting_suspended_orgs[resource.value].pop(org_id, None)
+                discard_decision(org_id, teams_by_org.get(org_id, []))
                 capture_exception(error, {"organization_id": org_id})
             finally:
                 orgs_processed += 1
+
+        # Do not reconcile Redis from decisions whose database writes failed.
+        # A skipped organization's usage changed after this chunk read it, and that writer also updates Redis.
+        for skipped_org_id in map(str, usage_batch.write()):
+            orgs_limited_count -= any(skipped_org_id in orgs for orgs in quota_limited_orgs.values())
+            orgs_suspended_count -= any(skipped_org_id in orgs for orgs in quota_limiting_suspended_orgs.values())
+            orgs_skipped += 1
+            discard_decision(skipped_org_id, teams_by_org.get(skipped_org_id, []))
 
         orgs_with_changes: set[str] = set()
         # Convert the org ids to team tokens
@@ -1577,8 +1593,7 @@ def update_all_orgs_billing_quotas(
                 group_properties=properties,
             )
 
-        # Do not reconcile Redis from decisions whose database writes failed.
-        usage_batch.flush()
+        usage_batch.publish()
         logger.info(
             "quota_limiting_run",
             phase="org_loop",
@@ -1615,6 +1630,7 @@ def update_all_orgs_billing_quotas(
         refresh_count=refresh_count,
         refresh_total_ms=round(refresh_total_seconds * 1000, 1),
         orgs_failed=len(failed_org_ids),
+        orgs_skipped=orgs_skipped,
     )
     if progress_callback:
         progress_callback(

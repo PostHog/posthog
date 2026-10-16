@@ -2864,7 +2864,7 @@ class TestPatchTodaysUsage(BaseTest):
         # only touch `usage[events][todays_usage]` and leave billing-owned fields alone.
         changed = _patch_todays_usage(self.organization, _full_usage_counters(events=99), batch=batch)
         if batch is not None:
-            batch.flush()
+            batch.write()
 
         assert changed is True
         fresh = Organization.objects.get(id=self.organization.id)
@@ -2914,7 +2914,7 @@ class TestUpdateOrganizationUsageFields(BaseTest):
             batch=batch,
         )
         if batch is not None:
-            batch.flush()
+            batch.write()
 
         # In-memory mirror.
         assert self.organization.usage["events"]["quota_limited_until"] == 1_800_000_000

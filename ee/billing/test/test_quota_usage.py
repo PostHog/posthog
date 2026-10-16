@@ -43,7 +43,7 @@ class TestQuotaUsageBatch(BaseTest):
                             (["events", "quota_limited_until"], None if delete_only else index * 100),
                         ],
                     )
-                batch.flush()
+                batch.write()
 
         assert len(statements) == 2
         assert statements[0] == statements[1]
@@ -66,7 +66,7 @@ class TestQuotaUsageBatch(BaseTest):
         if delete_second:
             other.delete()
 
-        batch.flush()
+        batch.write()
 
         self.organization.refresh_from_db()
         assert self.organization.usage == {
@@ -112,10 +112,11 @@ class TestQuotaUsageBatch(BaseTest):
         succeeds = error_type is OperationalError and failures == 1
         with connection.execute_wrapper(fail_second_statement), self.captureOnCommitCallbacks(execute=True):
             if succeeds:
-                batch.flush()
+                batch.write()
+                batch.publish()
             else:
                 with self.assertRaises(error_type):
-                    batch.flush()
+                    batch.write()
             capture.assert_not_called()
 
         self.organization.refresh_from_db()
@@ -255,3 +256,32 @@ class TestBatchedQuotaRun(BaseTest):
                 self.redis.zscore("@posthog/quota-limiting-suspended/signals_credits", team.api_token) == 1_782_864_000
             )
         assert not any(call.kwargs["distinct_id"] == str(failed_org.id) for call in self.capture.call_args_list)
+
+    def test_usage_written_during_the_chunk_keeps_the_newer_limit(self) -> None:
+        org = self.orgs[0]
+        usage = copy.deepcopy(self.usage)
+        usage["events"].update(limit=1000, quota_limited_until=1_782_864_000)
+        Organization.objects.filter(id=org.id).update(usage=usage)
+        for team in self.teams[str(org.id)]:
+            self.redis.zadd("@posthog/quota-limits/events", {team.api_token: 1_782_864_000})
+        concurrent_usage = copy.deepcopy(usage)
+        concurrent_usage["events"]["todays_usage"] = 5000
+        written = False
+
+        def write_before_batch(execute, sql, params, many, context):
+            nonlocal written
+            if not written and sql.startswith("UPDATE posthog_organization AS o"):
+                if any(org.id in values for values in params):
+                    written = True
+                    Organization.objects.filter(id=org.id).update(usage=concurrent_usage)
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(write_before_batch), self.captureOnCommitCallbacks(execute=True):
+            result = update_all_orgs_billing_quotas()
+
+        org.refresh_from_db()
+        assert org.usage == concurrent_usage
+        assert len(result.quota_limited_orgs["events"]) == 2
+        for team in self.teams[str(org.id)]:
+            assert self.redis.zscore("@posthog/quota-limits/events", team.api_token) == 1_782_864_000
+        assert not any(call.kwargs["distinct_id"] == str(org.id) for call in self.capture.call_args_list)
