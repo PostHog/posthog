@@ -10,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import asyncify
 
+from products.signals.backend.facade.spend import complete_task_spend
 from products.tasks.backend.constants import TIMED_OUT_INACTIVITY_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
@@ -104,12 +105,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             if marker in _TERMINAL_STATE_MARKERS:
                 # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
                 task_run.state = TaskRun.update_state_atomic(task_run.id, updates={marker: True})
-            if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
-                task_run.completed_at = timezone.now()
-            elif (
-                input.status == TaskRun.Status.CANCELLED
-                and task_run.environment == TaskRun.Environment.CLOUD
-                and not task_run.completed_at
+            if not task_run.completed_at and (
+                input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]
+                or (input.status == TaskRun.Status.CANCELLED and task_run.environment == TaskRun.Environment.CLOUD)
             ):
                 task_run.completed_at = timezone.now()
             task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
@@ -160,22 +158,20 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             else ("released" if input.status == TaskRun.Status.CANCELLED else "other"),
         )
 
-    if input.status in _TERMINAL_STATUSES:
-        from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> process_task -> activities import cycle
-            handle_loop_run_terminal,
-        )
-
-        try:
-            handle_loop_run_terminal(task_run, error_type=input.error_type)
-        except Exception:
-            activity.logger.warning(f"Failed loop terminal bookkeeping for run {task_run.id}", exc_info=True)
-
     log_with_activity_context(
         "Task run status updated",
         run_id=input.run_id,
         status=input.status,
         termination_reason=marker if marker in _TERMINAL_STATE_MARKERS else None,
     )
+
+
+@activity.defn
+@asyncify
+def complete_signal_spend(run_id: str) -> None:
+    run = TaskRun.objects.only("team_id", "status").get(id=run_id)
+    if run.status in _TERMINAL_STATUSES:
+        complete_task_spend(team_id=run.team_id, run_id=run_id)
 
 
 def _capture_posthog_ai_chat_analytics(

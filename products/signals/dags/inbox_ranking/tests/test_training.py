@@ -42,6 +42,8 @@ from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
     DAILY_CANDIDATE_ROLE,
     DEFAULT_MODEL_KIND,
+    ONNX_MODEL_FILE,
+    ONNX_MODEL_KIND,
     PINNED_ROLE,
     SERVED_ROLE,
     ServingManifest,
@@ -49,12 +51,14 @@ from products.signals.backend.ranking.serving_manifest import (
     model_key,
     serving_manifest_key,
     serving_model_prefix,
+    serving_project_vectors_key,
 )
 from products.signals.backend.ranking.sinks import REPORT_SCORED_EVENT
 from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.dag import (
     EMBEDDINGS_TABLE,
     LABELS_TABLE,
+    PROJECT_VECTORS_TABLE,
     STATE_TABLE,
     TITLE_EMBEDDINGS_TABLE,
 )
@@ -863,7 +867,7 @@ def test_pr_merged_is_a_merge_from_birth_rather_than_a_merge_given_a_pr():
 
 def test_reports_missing_birth_snapshot_counts_only_the_ones_a_partition_gap_costs(monkeypatch):
     gap = D0 + datetime.timedelta(days=1)
-    dates = [D0 + datetime.timedelta(days=offset) for offset in range(6)]
+    dates = [D0 + datetime.timedelta(days=offset) for offset in range(3 + HEADS_BY_NAME["open"].horizon_days)]
     ids = ["born_in_the_gap", "older", "utc_start", "utc_end", "label_only"]
     created = [
         pd.Timestamp(gap, tz="UTC") + pd.Timedelta(hours=9),
@@ -1509,7 +1513,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         ["a"], model_version=["2026-08-25"], score=[0.8], label_at_scoring=[True], classification_threshold=[0.3]
     )
     graded = graded_rows(scores, _labels(["a"], open_count=[1]), HEADS_BY_NAME["open"], pool=POOL_NAME)
-    grades = head_grades(graded, HEADS_BY_NAME["open"], pool=POOL_NAME, scoring_partition="2026-08-22")
+    grades = head_grades(graded, HEADS_BY_NAME["open"], pool=POOL_NAME, scoring_partition="2026-08-18")
     events = [
         *candidate_events(metadata),
         *examples_events(
@@ -1564,7 +1568,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         ),
         *unseen_report_graded_events(
             run_id="run-1",
-            rows=report_grade_rows({"open": graded}, pool=POOL_NAME, horizon_days=3, scoring_partition="2026-08-22"),
+            rows=report_grade_rows({"open": graded}, pool=POOL_NAME, horizon_days=7, scoring_partition="2026-08-18"),
         ),
     ]
     client = _patch_capture(monkeypatch, cloud=True, debug=False)
@@ -1627,9 +1631,9 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
     assert {
         "head": "open",
         "model_role": CANDIDATE_ROLE,
-        "scoring_partition": "2026-08-22",
+        "scoring_partition": "2026-08-18",
         "pool": POOL_NAME,
-        "horizon_days": 3,
+        "horizon_days": 7,
         "rows": 1,
         "positives": 1,
         "birth_day_positives": 1,
@@ -1646,7 +1650,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
     calibration_props = by_event["inbox_ranking_unseen_calibration"][0]["properties"]
     assert {
         "head": "open",
-        "scoring_partition": "2026-08-22",
+        "scoring_partition": "2026-08-18",
         "pool": POOL_NAME,
         "bucket": 1,
         "rows": 1,
@@ -1666,9 +1670,9 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
     assert {
         "report_id": "a",
         "model_role": CANDIDATE_ROLE,
-        "scoring_partition": "2026-08-22",
+        "scoring_partition": "2026-08-18",
         "pool": POOL_NAME,
-        "horizon_days": 3,
+        "horizon_days": 7,
         "in_cohort_open": True,
         "outcome_open": True,
         "p_open": 0.8,
@@ -2180,7 +2184,7 @@ def test_candidate_metadata_declares_the_set_it_was_fit_on(family):
 def test_build_examples_carries_the_columns_of_the_set_it_is_given():
     # The examples Parquet is per feature set, so a second set's object holds its own features.
     ids = ["a"]
-    later = D0 + datetime.timedelta(days=3)
+    later = D0 + datetime.timedelta(days=HEADS_BY_NAME["open"].horizon_days)
     snapshots = {
         D0: Snapshot(date=D0, state=_state(ids), labels=_labels(ids)),
         later: Snapshot(date=later, state=_state(ids), labels=_labels(ids, open_count=[2])),
@@ -2535,11 +2539,13 @@ def test_a_family_without_examples_keeps_the_partition_it_already_has():
     assert metadata[f"{EMBEDDINGS_MODEL_NAME}_skipped"].value is True
 
 
-def _serving_metadata(model_name: str, version: str, *, heads=("open", "action"), readable=True, **overrides):
+def _serving_metadata(
+    model_name: str, version: str, *, heads=("open", "action"), readable=True, model_file=None, **overrides
+):
     return {
         "model_name": model_name,
         "model_version": version,
-        "heads": [{"head": head, "readable": readable, "file": f"{head}.ubj"} for head in heads],
+        "heads": [{"head": head, "readable": readable, "file": model_file or f"{head}.ubj"} for head in heads],
         **overrides,
     }
 
@@ -2595,18 +2601,29 @@ def test_a_manifest_the_sweep_could_not_act_on_is_refused(models, message):
         ServingManifest(manifest_version="2026-08-19T06:00:00+00:00", models=models)
 
 
-def test_a_manifest_entry_key_must_match_its_model():
-    # The key is the join between a manifest entry, a stored score and a model prefix. A key that
-    # names a different version sends the sweep to the wrong prefix and stores the wrong identity.
-    with pytest.raises(ValidationError, match="does not match its model"):
+@pytest.mark.parametrize(
+    "overrides,message",
+    [
+        # The key is the join between a manifest entry, a stored score and a model prefix. A key that
+        # names a different version sends the sweep to the wrong prefix and stores the wrong identity.
+        ({"key": "state_xgb@2026-08-18"}, "does not match its model"),
+        # Without the file name the copy step and the store look for per-head boosters that do not exist.
+        ({"model_kind": ONNX_MODEL_KIND}, f"must name {ONNX_MODEL_FILE}"),
+    ],
+)
+def test_a_manifest_entry_the_sweep_could_not_load_is_refused(overrides, message):
+    with pytest.raises(ValidationError, match=message):
         ServingManifestEntry(
-            key="state_xgb@2026-08-18",
-            model_name=STATE_MODEL_NAME,
-            model_version="2026-08-19",
-            model_kind=DEFAULT_MODEL_KIND,
-            roles=[SERVED_ROLE],
-            prefix="inbox_ranking/serving/models/state_xgb@2026-08-19",
-            heads=["open"],
+            **{
+                "key": "state_xgb@2026-08-19",
+                "model_name": STATE_MODEL_NAME,
+                "model_version": "2026-08-19",
+                "model_kind": DEFAULT_MODEL_KIND,
+                "roles": [SERVED_ROLE],
+                "prefix": "inbox_ranking/serving/models/state_xgb@2026-08-19",
+                "heads": ["open"],
+                **overrides,
+            }
         )
 
 
@@ -2772,6 +2789,7 @@ class _AppObjectStore:
         self.objects = dict(existing or {})
         self.fail_on = fail_on
         self.written: list[str] = []
+        self.extras: dict[str, dict[str, str] | None] = {}
 
     def head_object(self, bucket: str, file_key: str) -> dict[str, int] | None:
         return {"ContentLength": len(self.objects[file_key])} if file_key in self.objects else None
@@ -2781,21 +2799,28 @@ class _AppObjectStore:
             raise RuntimeError("object store write failed")
         self.objects[key] = content if isinstance(content, bytes) else content.encode()
         self.written.append(key)
+        self.extras[key] = extras
 
 
-def _serving_dataset_s3(prefix: str, partition_key: str):
+def _serving_dataset_s3(
+    prefix: str, partition_key: str, model_kind: str = DEFAULT_MODEL_KIND, project_vector_kinds: tuple[str, ...] = ()
+):
     """The dataset bucket holding one champion and one candidate of the served family."""
+    onnx = model_kind == ONNX_MODEL_KIND
+    model_file = ONNX_MODEL_FILE if onnx else "open.ubj"
+
+    def metadata(version: str) -> dict[str, Any]:
+        kind: dict[str, Any] = {"model_kind": model_kind, "model_file": ONNX_MODEL_FILE} if onnx else {}
+        if project_vector_kinds:
+            kind["project_vector_kinds"] = list(project_vector_kinds)
+        return _serving_metadata(EMBEDDINGS_MODEL_NAME, version, heads=("open",), **kind)
+
     objects: dict[str, bytes] = {}
-    for version, metadata in (
-        ("2026-08-15", _serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15", heads=("open",))),
-        (partition_key, _serving_metadata(EMBEDDINGS_MODEL_NAME, partition_key, heads=("open",))),
-    ):
+    for version in ("2026-08-15", partition_key):
         folder = model_object_key(prefix, EMBEDDINGS_MODEL_NAME, version, "")
-        objects[folder + METADATA_FILE] = json.dumps(metadata).encode()
-        objects[folder + "open.ubj"] = f"booster-{version}".encode()
-    objects[champion_object_key(prefix, EMBEDDINGS_MODEL_NAME)] = json.dumps(
-        _serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15", heads=("open",))
-    ).encode()
+        objects[folder + METADATA_FILE] = json.dumps(metadata(version)).encode()
+        objects[folder + model_file] = f"booster-{version}".encode()
+    objects[champion_object_key(prefix, EMBEDDINGS_MODEL_NAME)] = json.dumps(metadata("2026-08-15")).encode()
     return _ModelStoreS3(objects)
 
 
@@ -2835,26 +2860,38 @@ def _manifest_event(capture: _FakeClient) -> dict[str, Any]:
     return event
 
 
-@pytest.mark.parametrize("mirrored", [False, True])
+@pytest.mark.parametrize(
+    "mirrored,model_kind,model_file",
+    [
+        (False, DEFAULT_MODEL_KIND, "open.ubj"),
+        (True, DEFAULT_MODEL_KIND, "open.ubj"),
+        (False, ONNX_MODEL_KIND, ONNX_MODEL_FILE),
+    ],
+)
 def test_publishing_copies_every_model_the_manifest_names_and_writes_the_manifest_last(
-    monkeypatch: pytest.MonkeyPatch, mirrored: bool
+    monkeypatch: pytest.MonkeyPatch, mirrored: bool, model_kind: str, model_file: str
 ) -> None:
     # The EU sweep reads the mirror, so it needs the same files, in the same order, as the primary.
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     store = _AppObjectStore()
     mirror = _AppObjectStore() if mirrored else None
-    capture = _run_serving_manifest(monkeypatch, store, mirror=mirror)
+    dataset = _serving_dataset_s3(prefix, "2026-08-19", model_kind=model_kind)
+    capture = _run_serving_manifest(monkeypatch, store, mirror=mirror, dataset_client=dataset)
 
     manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
     assert manifest.served.key == model_key(EMBEDDINGS_MODEL_NAME, "2026-08-15")
-    # Every entry the manifest names has its record and its booster in the store the sweep reads.
+    # Every entry the manifest names has its record and its model file in the store the sweep reads.
     for entry in manifest.models:
+        assert (entry.model_kind, entry.heads, entry.files) == (model_kind, ["open"], [model_file])
         assert f"{entry.prefix}/{METADATA_FILE}" in store.objects
-        assert f"{entry.prefix}/open.ubj" in store.objects
+        assert f"{entry.prefix}/{model_file}" in store.objects
     assert store.written[-1] == serving_manifest_key(prefix)
+    assert all("ACL" not in (extras or {}) for extras in store.extras.values())
     if mirror is not None:
         assert mirror.objects == store.objects
         assert mirror.written[-1] == serving_manifest_key(prefix)
+        # The mirror bucket is in another account, and its policy refuses a write without this ACL.
+        assert all((extras or {}).get("ACL") == "bucket-owner-full-control" for extras in mirror.extras.values())
     assert _manifest_event(capture).get("mirror_published") is (True if mirrored else None)
 
 
@@ -2869,6 +2906,47 @@ def test_a_failed_mirror_leaves_the_primary_publish_intact(monkeypatch: pytest.M
     event = _manifest_event(capture)
     assert event["published"] is True
     assert event["mirror_published"] is False
+
+
+@pytest.mark.parametrize(
+    "source_present,already_published,mirrored",
+    [(True, False, False), (True, True, False), (True, False, True), (False, False, False)],
+)
+def test_project_vectors_are_published_before_the_manifest_that_names_them(
+    monkeypatch: pytest.MonkeyPatch, source_present: bool, already_published: bool, mirrored: bool
+) -> None:
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    partition_key = "2026-08-19"
+    target = serving_project_vectors_key(prefix, partition_key)
+    previous = b'{"manifest_version": "2026-08-18T06:00:00+00:00"}'
+    existing = {serving_manifest_key(prefix): previous}
+    if already_published:
+        existing[target] = b"published before"
+    store = _AppObjectStore(existing)
+    mirror = _AppObjectStore() if mirrored else None
+    dataset = _serving_dataset_s3(
+        prefix, partition_key, model_kind=ONNX_MODEL_KIND, project_vector_kinds=("typical", "open", "action", "dismiss")
+    )
+    if source_present:
+        dataset.objects[partition_object_key(prefix, PROJECT_VECTORS_TABLE, partition_key)] = b"vectors"
+
+    if not source_present:
+        with pytest.raises(dagster.Failure, match="project vectors"):
+            _run_serving_manifest(monkeypatch, store, dataset_client=dataset)
+        assert store.objects[serving_manifest_key(prefix)] == previous
+        return
+    _run_serving_manifest(monkeypatch, store, mirror=mirror, dataset_client=dataset)
+
+    manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+    assert manifest.project_vectors == target
+    assert all(entry.reads_project_vectors for entry in manifest.models)
+    assert store.objects[target] == (b"published before" if already_published else b"vectors")
+    assert store.written[-1] == serving_manifest_key(prefix)
+    assert (target in store.written) is not already_published
+    if mirror is not None:
+        # Team-level vectors stay in the deployment that owns the teams, and a served model that
+        # reads them could not score there, so the mirror keeps its previous manifest.
+        assert mirror.objects == {}
 
 
 def test_a_version_already_in_the_store_is_not_copied_again(monkeypatch):
@@ -2969,7 +3047,7 @@ def test_a_missing_pin_is_dropped_and_the_manifest_still_publishes(monkeypatch):
     assert manifest.served.key == model_key(EMBEDDINGS_MODEL_NAME, "2026-08-15")
     _, dropped = _pinned_models(denied_client, "bucket", prefix, pins)
     assert dropped.keys() == set(pins)
-    assert "missing boosters" in dropped[missing_key]
+    assert "missing model files" in dropped[missing_key]
     assert METADATA_FILE in dropped[absent_key]
     assert "AccessDenied" in dropped[denied_key]
     assert "this build can produce" in dropped[retired_key]

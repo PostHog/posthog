@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -19,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsea
     ElasticsearchAuth,
     elasticsearch_source,
     hostname_of,
+    list_data_streams,
     list_indices,
     validate_credentials as validate_elasticsearch_credentials,
 )
@@ -36,6 +38,42 @@ def _auth_from_config(config: ElasticsearchSourceConfig) -> ElasticsearchAuth:
 
 @SourceRegistry.register
 class ElasticsearchSource(SimpleSource[ElasticsearchSourceConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^ELASTICSEARCH_", "^ELASTIC_CLOUD_ID$", "^ELASTIC_API_KEY$"),
+        npm=("@elastic/elasticsearch",),
+        pypi=("elasticsearch", "elasticsearch-dsl"),
+        cargo=("elasticsearch",),
+        composer=("elasticsearch/elasticsearch",),
+        go=(
+            "github.com/elastic/go-elasticsearch",
+            "github.com/elastic/elasticsearch-k8s-metrics-adapter",
+            "github.com/elastic/xk6-output-elasticsearch",
+        ),
+        maven=("co.elastic.clients:elasticsearch-java", "co.elastic.clients:elasticsearch-rest5-client"),
+        rubygems=(
+            "elasticsearch",
+            "elasticsearch-api",
+            "elasticsearch-dsl",
+            "elasticsearch-extensions",
+            "elasticsearch-model",
+            "elasticsearch-persistence",
+            "elasticsearch-rails",
+            "elasticsearch-transport",
+            "elasticsearch-watcher",
+            "elasticsearch-xpack",
+            "logstash-filter-elasticsearch",
+            "logstash-input-elasticsearch",
+            "logstash-output-elasticsearch",
+            "logstash-output-elasticsearch-ec2",
+            "logstash-output-elasticsearch-license",
+            "logstash-output-elasticsearch-shield",
+            "logstash-output-elasticsearch_http",
+            "logstash-output-elasticsearch_java",
+            "logstash-output-elasticsearch_java-shield",
+            "logstash-output-elasticsearch_java_shield",
+        ),
+    )
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ELASTICSEARCH
@@ -56,7 +94,7 @@ class ElasticsearchSource(SimpleSource[ElasticsearchSourceConfig], ValidateDatab
             label="Elasticsearch",
             caption="""Connect your Elasticsearch cluster to pull index documents into the PostHog Data warehouse.
 
-Enter the full cluster URL (e.g. `https://my-deployment.es.us-east-1.aws.found.io:9243`) and credentials with read access to the indices you want to sync. Each non-system index appears as a separate table.""",
+Enter the full cluster URL (e.g. `https://my-deployment.es.us-east-1.aws.found.io:9243`) and credentials with read access to the indices you want to sync. Each non-system index and data stream appears as a separate table.""",
             iconPath="/static/services/elasticsearch.png",
             docsUrl="https://posthog.com/docs/cdp/sources/elasticsearch",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -134,9 +172,11 @@ Enter the full cluster URL (e.g. `https://my-deployment.es.us-east-1.aws.found.i
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every non-system index is a schema. Generic Elasticsearch has no
-        # knowable timestamp field per index, so syncs are full refresh.
-        indices = list_indices(config.host, _auth_from_config(config))
+        # Every non-system index and data stream is a schema. Generic Elasticsearch has no
+        # knowable timestamp field per index, and a data stream's `@timestamp` keeps whatever
+        # format each client sent in `_source`, so syncs are full refresh.
+        auth = _auth_from_config(config)
+        indices = sorted({*list_indices(config.host, auth), *list_data_streams(config.host, auth)})
         if names is not None:
             names_set = set(names)
             indices = [index for index in indices if index in names_set]

@@ -111,6 +111,7 @@ TRINO_PERMANENT_SYNC_ERROR_MESSAGES = frozenset(
 POSTHOG_MANAGED_TRINO_HOSTS = frozenset(
     {
         "trino.dw.dev.postwh.com",
+        "trino.dw.eu.postwh.com",
         "trino.dw.us.postwh.com",
     }
 )
@@ -251,16 +252,22 @@ def connect_trino(config: TrinoSourceConfig, *, timezone: str | None = None) -> 
 def discover_trino_schemas(
     cursor: Cursor, config: TrinoSourceConfig, names: list[str] | None = None
 ) -> list[DiscoveredTrinoTable]:
-    escaped_catalog = config.catalog.replace(chr(34), chr(34) * 2)
+    return discover_trino_catalog(cursor, catalog=config.catalog, schema=config.schema, names=names)
+
+
+def discover_trino_catalog(
+    cursor: Cursor, *, catalog: str, schema: str | None = None, names: list[str] | None = None
+) -> list[DiscoveredTrinoTable]:
+    escaped_catalog = catalog.replace(chr(34), chr(34) * 2)
     table_query = (
         "SELECT table_schema, table_name "
         f'FROM "{escaped_catalog}".information_schema.tables '
         "WHERE table_schema <> 'information_schema'"
     )
     parameters: list[object] = []
-    if config.schema:
+    if schema:
         table_query += " AND table_schema = ?"
-        parameters.append(config.schema)
+        parameters.append(schema)
     table_query += " ORDER BY table_schema, table_name"
     cursor.execute(table_query, parameters)
 
@@ -269,7 +276,7 @@ def discover_trino_schemas(
     for schema_name, table_name in cursor.fetchall():
         schema_name = str(schema_name)
         table_name = str(table_name)
-        display_name = table_name if config.schema else f"{schema_name}.{table_name}"
+        display_name = table_name if schema else f"{schema_name}.{table_name}"
         if requested is not None and display_name not in requested:
             continue
         table_names_by_schema.setdefault(schema_name, []).append(table_name)
@@ -295,7 +302,7 @@ def discover_trino_schemas(
                 )
     return [
         DiscoveredTrinoTable(
-            catalog=config.catalog,
+            catalog=catalog,
             schema=schema_name,
             name=table_name,
             columns=tuple(columns),

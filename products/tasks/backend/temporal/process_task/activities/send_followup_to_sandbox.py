@@ -55,7 +55,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     mark_sandbox_github_identity,
     mark_sandbox_mcp_session,
     mcp_exclude_tools_from_state,
-    record_message_actor,
+    record_delivered_message,
     sandbox_identity_scope,
     upgrade_run_to_user_authorship,
 )
@@ -297,9 +297,8 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
     # Reject the marker written by user-initiated cancel, and the bare CANCELLED status that
-    # loop overlap and lifecycle cancellation set without that marker (loop_runs.py,
-    # loop_lifecycle.py). Either means the run is winding down, so no follow-up should rebind
-    # credentials or reach the sandbox.
+    # out-of-band cancellation sets without that marker. Either means the run is winding down,
+    # so no follow-up should rebind credentials or reach the sandbox.
     if (task_run.state or {}).get("cancel_requested_at") or task_run.status == TaskRun.Status.CANCELLED:
         if peer_message_id is not None:
             _mark_peer_delivery_outcome(
@@ -443,8 +442,14 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             )
             raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
-    if input.message_id and actor_slack_user_id:
-        record_message_actor(input.run_id, input.message_id, actor_slack_user_id)
+    if input.message_id:
+        person_message = (input.context or {}).get("person_message")
+        record_delivered_message(
+            input.run_id,
+            input.message_id,
+            actor_slack_user_id=actor_slack_user_id,
+            person_message=person_message if isinstance(person_message, str) else None,
+        )
 
     result = send_user_message(
         task_run,

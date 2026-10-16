@@ -11,7 +11,7 @@ from requests.exceptions import (
     Timeout as RequestsTimeout,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.deadline import (
     DeadlineExceededError,
     run_with_deadline,
@@ -130,7 +130,7 @@ _MAX_TOKEN_REFRESH_ATTEMPTS = 4
 
 def _salesforce_app_credentials() -> dict[str, str]:
     """PostHog's own Salesforce connected-app key and secret, named as the token endpoint wants."""
-    resolved = integration_secrets.get_secrets(["SALESFORCE_CONSUMER_KEY", "SALESFORCE_CONSUMER_SECRET"])
+    resolved = credentials_service.get_secrets(["SALESFORCE_CONSUMER_KEY", "SALESFORCE_CONSUMER_SECRET"])
     return {
         "client_id": resolved["SALESFORCE_CONSUMER_KEY"],
         "client_secret": resolved["SALESFORCE_CONSUMER_SECRET"],

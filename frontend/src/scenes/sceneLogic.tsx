@@ -23,6 +23,7 @@ import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { markBootPhase } from 'lib/utils/bootTiming'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -56,9 +57,10 @@ import { AccessControlLevel } from '~/types'
 
 import { handleLoginRedirect } from './authentication/login/loginLogic'
 import { parseCouponCampaign } from './coupons/utils'
-import { isOnboardingRedirectSuppressed } from './onboarding/legacy/onboardingDelegationState'
+import { isOnboardingRedirectSuppressed } from './onboarding/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
+import { isPathOpenWhileProjectPendingDeletion, projectLogic } from './projectLogic'
 import type { SceneProps } from './sceneTypes'
 import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
@@ -803,6 +805,10 @@ export const sceneLogic = kea<sceneLogicType>([
             await cache.homepageSave
         },
         setScene: ({ sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
+            if (exportedScene) {
+                markBootPhase('scene_loaded', { scene: sceneId })
+            }
+
             const {
                 sceneId: lastSceneId,
                 sceneKey: lastSceneKey,
@@ -934,6 +940,16 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
+                if (projectLogic.findMounted()?.values.currentProject?.is_pending_deletion) {
+                    // Same reasons as the organization block above, including skipping the onboarding redirects.
+                    if (isPathOpenWhileProjectPendingDeletion(router.values.location.pathname)) {
+                        actions.loadScene(sceneId, sceneKey, params, method)
+                    } else {
+                        router.actions.replace(urls.projectPendingDeletion())
+                    }
+                    return
+                }
+
                 if (sceneId === Scene.OrganizationDeactivated || sceneId === Scene.OrganizationPendingDeletion) {
                     // The organization is open again, so let the member back in, as the server does. The server
                     // only matches the bare block path, and the router writes it with a `/project/<id>` prefix.
@@ -946,7 +962,10 @@ export const sceneLogic = kea<sceneLogicType>([
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (
                             location.pathname !== urls.organizationCreateFirst() &&
-                            !location.pathname.startsWith(urls.settings('user'))
+                            !location.pathname.startsWith(urls.settings('user')) &&
+                            // The agentic consent page picks or creates the organization and project
+                            // it uses, so approving there must not require either first.
+                            !location.pathname.startsWith(urls.agenticAuthorize())
                         ) {
                             console.warn('Organization not available, redirecting to organization creation')
                             router.actions.replace(urls.organizationCreateFirst())
@@ -961,7 +980,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             // Allow settings to be opened, otherwise route to project creation
                             if (
                                 location.pathname !== urls.projectCreateFirst() &&
-                                !location.pathname.startsWith('/settings')
+                                !location.pathname.startsWith('/settings') &&
+                                !location.pathname.startsWith(urls.agenticAuthorize())
                             ) {
                                 console.warn(
                                     'Project not available and no other projects, redirecting to project creation'
@@ -1146,7 +1166,7 @@ export const sceneLogic = kea<sceneLogicType>([
         // already at it, which also guards against loops when the homepage is the launchpad itself.
         const redirectToConfiguredHomepage = (searchParams: Params, hashParams: Params): boolean => {
             const homepage = values.homepage
-            // The rail nav makes /home the Today briefing and has no control to change the homepage,
+            // The rail nav makes /home the Today page and has no control to change the homepage,
             // so a homepage saved before the rail would hide Today with no way back.
             if (!homepage || values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
                 return false
@@ -1203,8 +1223,12 @@ export const sceneLogic = kea<sceneLogicType>([
         }
 
         mapping['/*'] = (_, __, { method }) => {
-            // This route skips `openScene`, so it applies the organization block itself, as the server does.
+            // This route skips `openScene`, so it applies the organization block and the project lockout itself.
             if (leaveBlockedOrganizationPath()) {
+                return
+            }
+            if (projectLogic.findMounted()?.values.currentProject?.is_pending_deletion) {
+                router.actions.replace(urls.projectPendingDeletion())
                 return
             }
             return actions.loadScene(Scene.Error404, undefined, emptySceneParams, method)

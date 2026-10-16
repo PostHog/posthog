@@ -79,6 +79,12 @@ assert_result "agent workspace package coupled with backend fails" 7 1 "must be 
 register_pr 8 "[]" packages/agent/agent-shadow/main.go products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
 assert_result "agent-shadow ships with the sandbox image, so it is out of scope" 8 0 "No products/desktop changes"
 
+register_pr 9 "[]" products/desktop/packages/api-client/src/generated.ts posthog/api/insight.py
+assert_result "regenerated desktop API client types ride along with a backend change" 9 0 "No products/desktop changes"
+
+register_pr 10 "[]" products/desktop/packages/api-client/src/generated.ts products/desktop/packages/api-client/src/posthog-client.ts posthog/api/insight.py
+assert_result "a desktop call site next to the regenerated types still fails" 10 1 "must be separated into different PRs"
+
 register_pr 4 '[{"name": "desktop-skip-backend-check"}]' products/desktop/apps/foo.ts posthog/models.py
 assert_result "skip label suppresses the check" 4 0 "skipping the coupling check"
 

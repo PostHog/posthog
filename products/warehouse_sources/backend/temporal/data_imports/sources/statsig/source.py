@@ -2,6 +2,9 @@ from typing import cast
 
 from requests import HTTPError
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +37,91 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class StatsigSource(ResumableSource[StatsigSourceConfig, StatsigResumeConfig]):
+    codebase_detection = detect(
+        env=("^STATSIG_", "^NEXT_PUBLIC_STATSIG_CLIENT_KEY$", "^VITE_STATSIG_SDK_KEY$"),
+        npm=(
+            "statsig-js",
+            "statsig-node",
+            "@statsig/js-client",
+            "@statsig/react-bindings",
+            "@statsig/statsig-node-core",
+            "@statsig/react-native-bindings",
+            "@statsig/react-native-core",
+            "@statsig/expo-bindings",
+            "@statsig/angular-bindings",
+            "@statsig/next",
+            "@statsig/web-analytics",
+            "@statsig/session-replay",
+            "@statsig/js-local-overrides",
+            "@statsig/js-user-persisted-storage",
+            "@statsig/js-on-device-eval-client",
+            "@statsig/on-device-eval-core",
+            "@statsig/js-on-device-eval-adapter",
+            "@statsig/react-bindings-on-device-eval",
+            "@statsig/react-native-bindings-on-device-eval",
+            "@statsig/expo-bindings-on-device-eval",
+            "@statsig/serverless-client",
+            "@statsig/vercel-edge",
+            "@statsig/experimental-edge-client",
+            "@statsig/sidecar",
+            "@statsig/cli-session-replay-node",
+            "@statsig/client-core",
+            "@statsig/statsig-ai",
+            "@statsig/statsig-ai-node",
+            "@statsig/azure-ai",
+            "@statsig/siggy",
+            "@statsig/pulumi-statsig",
+            "@statsig/on-device-evaluations",
+            "@statsig/precomputed-evaluations",
+            "@statsig/client-extensions",
+            "@flags-sdk/statsig",
+            "statsig-react",
+            "statsig-react-native",
+            "statsig-react-native-expo",
+            "statsig-js-lite",
+            "statsig-js-local-eval",
+            "statsig-node-lite",
+            "statsig-node-vercel",
+            "statsig-node-redis",
+            "statsig-node-cloudflare-kv",
+            "statsig-node-fastly",
+            "statsig-node-fastly-kv",
+            "statsig-akamai-edge",
+            "statsig-sidecar",
+            "statsig-sidecar-v2-beta",
+            "statsig-web-analytics",
+            "statsig-landing-page-exp",
+            "statsig-unleash-connector",
+        ),
+        pypi=("statsig", "statsig-python-core", "statsig-ai", "azureai-statsig", "pulumi-statsig"),
+        cargo=("statsig-rust", "statsig", "sigstat", "sigstat-grpc"),
+        cocoapods=("Statsig", "StatsigOnDeviceEvaluations", "StatsigInternalObjC"),
+        composer=("statsig/statsigsdk", "statsig/statsig-php-core", "statsig/statsig-core-php"),
+        go=(
+            "github.com/statsig-io/go-sdk",
+            "github.com/statsig-io/statsig-go-core",
+            "github.com/statsig-io/statsig-server-core/statsig-go",
+            "github.com/statsig-io/fastly-data-adapter-go",
+            "github.com/statsig-io/pulumi-statsig/sdk",
+        ),
+        hex=("statsig_elixir", "statsig"),
+        maven=(
+            "com.statsig:serversdk",
+            "com.statsig:android-sdk",
+            "com.statsig:javacore",
+            "com.github.statsig-io:android-sdk",
+            "com.github.statsig-io:android-local-eval",
+        ),
+        pub=("statsig",),
+        rubygems=("statsig",),
+        swiftpm=(
+            "github.com/statsig-io/statsig-kit",
+            "github.com/statsig-io/swift-on-device-evaluations-sdk",
+            "github.com/statsig-io/ios-sdk",
+        ),
+        alternative_to=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)
     default_version = API_VERSION

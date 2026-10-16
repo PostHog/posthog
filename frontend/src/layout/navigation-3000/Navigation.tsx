@@ -140,10 +140,12 @@ export function Navigation({
                 <main
                     className={
                         mode === 'zen'
-                            ? 'p-4'
+                            ? '@container/main-content p-4'
                             : mode === 'embedded'
                               ? '@container/main-content min-h-screen p-4'
-                              : undefined
+                              : mode === 'minimal' && sceneConfig?.layout !== 'plain'
+                                ? '@container/main-content flex flex-col p-4'
+                                : undefined
                     }
                 >
                     {children}

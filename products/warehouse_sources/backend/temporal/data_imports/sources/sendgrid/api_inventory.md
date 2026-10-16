@@ -16,18 +16,22 @@ on the primary key — wasted API calls, not corrupted data.
 
 ## Endpoints
 
-| Schema                | Path                          | Pagination    | Data shape            | Primary key | Incremental                          |
-| --------------------- | ----------------------------- | ------------- | --------------------- | ----------- | ------------------------------------ |
-| `bounces`             | `/suppression/bounces`        | limit/offset  | bare array            | `email`     | `created` (epoch) via `start_time`   |
-| `blocks`              | `/suppression/blocks`         | limit/offset  | bare array            | `email`     | `created` (epoch) via `start_time`   |
-| `invalid_emails`      | `/suppression/invalid_emails` | limit/offset  | bare array            | `email`     | `created` (epoch) via `start_time`   |
-| `spam_reports`        | `/suppression/spam_reports`   | limit/offset  | bare array            | `email`     | `created` (epoch) via `start_time`   |
-| `global_unsubscribes` | `/suppression/unsubscribes`   | limit/offset  | bare array            | `email`     | `created` (epoch) via `start_time`   |
-| `stats`               | `/stats`                      | none (single) | nested daily stats    | `date`      | `date` via `start_date` (YYYY-MM-DD) |
-| `unsubscribe_groups`  | `/asm/groups`                 | none (single) | bare array            | `id`        | full refresh                         |
-| `marketing_lists`     | `/marketing/lists`            | `_metadata`   | `{"result": [...]}`   | `id`        | full refresh                         |
-| `templates`           | `/templates`                  | `_metadata`   | `{"result": [...]}`   | `id`        | full refresh                         |
-| `message_activity`    | `/messages`                   | query window  | `{"messages": [...]}` | `msg_id`    | `last_event_time` via `query`        |
+| Schema                           | Path                                                                   | Pagination    | Data shape            | Primary key                                                        | Incremental                          |
+| -------------------------------- | ---------------------------------------------------------------------- | ------------- | --------------------- | ------------------------------------------------------------------ | ------------------------------------ |
+| `bounces`                        | `/suppression/bounces`                                                 | limit/offset  | bare array            | `email`                                                            | `created` (epoch) via `start_time`   |
+| `blocks`                         | `/suppression/blocks`                                                  | limit/offset  | bare array            | `email`                                                            | `created` (epoch) via `start_time`   |
+| `invalid_emails`                 | `/suppression/invalid_emails`                                          | limit/offset  | bare array            | `email`                                                            | `created` (epoch) via `start_time`   |
+| `spam_reports`                   | `/suppression/spam_reports`                                            | limit/offset  | bare array            | `email`                                                            | `created` (epoch) via `start_time`   |
+| `global_unsubscribes`            | `/suppression/unsubscribes`                                            | limit/offset  | bare array            | `email`                                                            | `created` (epoch) via `start_time`   |
+| `stats`                          | `/stats`                                                               | none (single) | nested daily stats    | `date`                                                             | `date` via `start_date` (YYYY-MM-DD) |
+| `unsubscribe_groups`             | `/asm/groups`                                                          | none (single) | bare array            | `id`                                                               | full refresh                         |
+| `marketing_lists`                | `/marketing/lists`                                                     | `_metadata`   | `{"result": [...]}`   | `id`                                                               | full refresh                         |
+| `templates`                      | `/templates`                                                           | `_metadata`   | `{"result": [...]}`   | `id`                                                               | full refresh                         |
+| `message_activity`               | `/messages`                                                            | query window  | `{"messages": [...]}` | `msg_id`                                                           | `last_event_time` via `query`        |
+| `unsubscribe_group_suppressions` | `/asm/suppressions`                                                    | none (single) | bare array            | `group_id`, `email`                                                | full refresh                         |
+| `singlesends`                    | `/marketing/singlesends`                                               | `_metadata`   | `{"result": [...]}`   | `id`                                                               | full refresh                         |
+| `singlesend_stats`               | `/marketing/stats/singlesends`                                         | `_metadata`   | `{"results": [...]}`  | `id`, `ab_variation`, `ab_phase`                                   | full refresh                         |
+| `singlesend_link_stats`          | `/marketing/stats/singlesends/{id}/links` (fan-out over `singlesends`) | `_metadata`   | `{"results": [...]}`  | `singlesend_id`, `url`, `url_location`, `ab_variation`, `ab_phase` | full refresh                         |
 
 Notes:
 
@@ -68,6 +72,20 @@ Notes:
   `settings.py` records each endpoint's scope as `/v3/scopes` spells it (`suppression.bounces.read`,
   `asm.groups.read`, `marketing.read`, `templates.read`), and `get_endpoint_permissions` probes them so the
   schema picker can disable what the key can't reach.
+- `unsubscribe_group_suppressions` reads `/asm/suppressions`, which returns every unsubscribe group
+  membership as `{email, group_id, group_name, created_at}` in one unpaginated response. The per-group
+  `/asm/groups/{group_id}/suppressions` returns only bare email strings, so it would need a fan-out
+  over `/asm/groups` and still lack the creation time. Neither takes a time filter.
+- The Single Send endpoints (`singlesends`, `singlesend_stats`, `singlesend_link_stats`) follow
+  `_metadata.next` like the other marketing endpoints. The stats endpoints cap `page_size` at 50.
+  `singlesend_stats` sends no `singlesend_ids`, so it returns lifetime totals for every Single Send;
+  without `group_by` each row has `ab_variation` and `ab_phase` set to `all`. `singlesend_link_stats`
+  fans out over `singlesends`, and a 404 for a Single Send deleted mid-sync is skipped. No Single Send
+  endpoint takes a time filter, so all three are full refresh. They need `marketing.read` and an
+  account with Marketing Campaigns, like `/marketing/lists`.
+- `/marketing/contacts` is not synced. The GET returns a sample of at most 50 recent contacts. The full
+  set needs an asynchronous export job (`POST /marketing/contacts/exports`, then poll, then download
+  files from S3 links), which creates a job in the customer's account.
 - `/marketing/lists` is the outlier: it needs `marketing.read` **and** an account with Marketing Campaigns.
   Accounts without it, and accounts still on legacy Marketing Campaigns (a different API, scoped
   `marketing_campaigns.read`), return 403 no matter how the key is scoped, so the table can be genuinely

@@ -3,7 +3,7 @@ import random
 import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -52,6 +52,7 @@ from products.signals.backend.report_generation.research import (
     PriorityUpdate,
     ReportPresentationOutput,
     ReportResearchOutput,
+    ResearchReviewerDecision,
     SignalFinding,
     _resolve_actionability_response,
     _resolve_priority_response,
@@ -601,7 +602,7 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository == "posthog/posthog"
@@ -632,7 +633,7 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result is previous
@@ -661,7 +662,7 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result is previous
@@ -690,7 +691,7 @@ async def test_select_repository_activity_no_repo(monkeypatch, ateam):
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository is None
@@ -733,7 +734,7 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
 
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository == "posthog/posthog"
@@ -1498,6 +1499,41 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
             lambda: SignalReportArtefact.objects.filter(report=report).count()
         )()
         assert artefact_count == 0
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("selected", [False, True])
+async def test_research_returns_reviewer_decision_only_when_enabled(enabled: bool, selected: bool) -> None:
+    decision = ResearchReviewerDecision.model_validate(
+        {
+            "reviewers": [{"user_uuid": "00000000-0000-4000-8000-000000000001", "reason": "Owns this component."}]
+            if selected
+            else [],
+            "reason": "Checked ownership and corrections for this component.",
+        }
+    )
+    finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+    session = Mock(task=Mock(id="research-task-id"), end=AsyncMock())
+    session.send_followup = AsyncMock(
+        side_effect=[
+            ActionabilityAssessment(
+                explanation="No change needed.",
+                actionability=ActionabilityChoice.NOT_ACTIONABLE,
+                already_addressed=False,
+            ),
+            ReportPresentationOutput(title="Report", summary="Summary", reviewer_decision=decision),
+        ]
+    )
+    with (
+        patch(
+            "products.tasks.backend.facade.agents.MultiTurnSession.start", AsyncMock(return_value=(session, finding))
+        ),
+        patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
+    ):
+        result = await run_multi_turn_research(
+            _build_signals()[:1], Mock(team_id=1), reviewer_selection_enabled=enabled
+        )
+    assert result.reviewer_decision == (decision if enabled else None)
 
 
 @parameterized.expand(

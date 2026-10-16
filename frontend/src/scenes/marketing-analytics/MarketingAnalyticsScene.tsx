@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import { IconComment, IconGear, IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSwitch, LemonTabs, LemonSkeleton, Spinner, Link } from '@posthog/lemon-ui'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -261,8 +262,14 @@ const MarketingAnalyticsDashboardSkeleton = (): JSX.Element => (
 
 const LegacyMarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { hasSources, hasNoConfiguredSources, loading, isAdPerformance, includeConversionGoals } =
-        useValues(marketingAnalyticsLogic)
+    const {
+        hasSources,
+        hasNoConfiguredSources,
+        loading,
+        sourcesInitialLoading,
+        isAdPerformance,
+        includeConversionGoals,
+    } = useValues(marketingAnalyticsLogic)
     const { setAdPerformanceConversionGoals } = useActions(marketingAnalyticsLogic)
     const { loadSources } = useActions(sourcesDataLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
@@ -325,7 +332,9 @@ const LegacyMarketingAnalyticsDashboard = (): JSX.Element => {
         )
     }
 
-    if (loading) {
+    // Only the first load gets the skeleton: a background refresh (window focus, sync polling)
+    // also sets `loading`, and swapping the tiles for the skeleton would remount and refetch them.
+    if (sourcesInitialLoading) {
         return (
             <>
                 {feedbackBanner}
@@ -661,6 +670,7 @@ const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNo
 }
 
 export function MarketingAnalyticsScene(): JSX.Element {
+    const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const setupEnabled =
         !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] ||
@@ -687,7 +697,7 @@ export function MarketingAnalyticsScene(): JSX.Element {
                                         type="secondary"
                                         size="small"
                                         icon={<IconComment />}
-                                        id="marketing-analytics-feedback-button"
+                                        onClick={() => openSupportForm({ kind: 'feedback', isEmailFormOpen: true })}
                                     >
                                         Send feedback
                                     </LemonButton>
