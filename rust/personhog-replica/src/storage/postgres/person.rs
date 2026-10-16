@@ -983,8 +983,8 @@ impl PersonLookup for PostgresStorage {
         // service-layer cap bounds the number of rows locked.
         let mut tx = self.bulk_primary_pool.begin().await?;
 
-        // No FOR UPDATE on the source person: deletes lock PDI rows before person
-        // rows, so locking the person first here would invert that order and risk
+        // No FOR UPDATE on the source person: deletes lock the person before its
+        // PDIs, so locking it after the PDIs here would invert that order and risk
         // deadlock. The PDI locks below are what guard the reassignment.
         let person_version: i64 = sqlx::query_scalar!(
             r#"
@@ -1041,7 +1041,7 @@ impl PersonLookup for PostgresStorage {
             .map(|pdi| (pdi.distinct_id.as_str(), pdi.version))
             .collect();
         let dids: Vec<String> = distinct_ids_to_split.to_vec();
-        let new_uuids: Vec<Uuid> = dids
+        let derived_uuids: Vec<Uuid> = dids
             .iter()
             .map(|did| personhog_common::persons::person_uuid(team_id, did))
             .collect();
@@ -1050,16 +1050,41 @@ impl PersonLookup for PostgresStorage {
             .map(|did| pdi_version_by_did[did.as_str()] + SPLIT_VERSION_OFFSET)
             .collect();
 
-        // Find persons that already exist for these UUIDs: an idempotent
-        // re-split, or a tombstone left by a merge or delete of the person
-        // that once owned the distinct id. No ON CONFLICT — the partitioned
-        // table has a unique index, not a unique constraint, so ON CONFLICT
-        // inference doesn't work.
-        let existing_persons = sqlx::query!(
+        // A live person here (the source itself, for the distinct id that created it) would absorb
+        // the distinct id and get its ClickHouse row blanked by the split's empty-person publish.
+        // It is never written, so it is not locked: deletes lock the person before its PDIs.
+        let live_uuids: HashSet<Uuid> = sqlx::query_scalar!(
+            r#"
+            SELECT uuid as "uuid!"
+            FROM posthog_person
+            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = false
+            "#,
+            team_id as i32,
+            &derived_uuids
+        )
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .collect();
+        let new_uuids: Vec<Uuid> = derived_uuids
+            .into_iter()
+            .map(|u| {
+                if live_uuids.contains(&u) {
+                    Uuid::new_v4()
+                } else {
+                    u
+                }
+            })
+            .collect();
+
+        // No ON CONFLICT — the partitioned table has a unique index, not a
+        // unique constraint, so ON CONFLICT inference doesn't work.
+        let tombstones = sqlx::query!(
             r#"
             SELECT id::bigint as "id!", uuid as "uuid!", created_at as "created_at!"
             FROM posthog_person
-            WHERE team_id = $1 AND uuid = ANY($2)
+            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = true
+            ORDER BY id
             FOR UPDATE
             "#,
             team_id as i32,
@@ -1068,7 +1093,7 @@ impl PersonLookup for PostgresStorage {
         .fetch_all(&mut *tx)
         .await?;
 
-        let mut person_by_uuid: HashMap<Uuid, (i64, DateTime<Utc>)> = existing_persons
+        let mut person_by_uuid: HashMap<Uuid, (i64, DateTime<Utc>)> = tombstones
             .into_iter()
             .map(|r| (r.uuid, (r.id, r.created_at)))
             .collect();
@@ -1107,17 +1132,13 @@ impl PersonLookup for PostgresStorage {
         if !uuids_to_update.is_empty() {
             // A tombstoned row comes back to life here, one above its own
             // version so it outranks its ClickHouse tombstone; the split
-            // offset applies when that is higher. A live row never moves
-            // down, or ClickHouse would ignore the next update from ingestion.
+            // offset applies when that is higher.
             let updated = sqlx::query!(
                 r#"
                 UPDATE posthog_person
                 SET is_deleted = false,
-                    version = GREATEST(
-                        COALESCE(version, 0) + CASE WHEN is_deleted THEN 1 ELSE 0 END,
-                        $3
-                    )
-                WHERE team_id = $1 AND uuid = ANY($2)
+                    version = GREATEST(COALESCE(version, 0) + 1, $3)
+                WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = true
                 RETURNING uuid as "uuid!", version as "version!"
                 "#,
                 team_id as i32,

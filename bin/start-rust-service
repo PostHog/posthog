@@ -300,6 +300,18 @@ case "$RS_SVC" in
     export METRICS_PORT=9108
     ;;
 
+  personhog-publisher)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    # Same database and table set as personhog-identity: it drains the outbox identity writes.
+    export PRIMARY_DATABASE_URL="${PRIMARY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}"
+    export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
+    # The topic has no default; locally the ClickHouse Kafka table reads the Node name.
+    export PERSON_DISTINCT_ID_TOPIC="${PERSON_DISTINCT_ID_TOPIC:-clickhouse_person_distinct_id}"
+    export METRICS_PORT=9109
+    ;;
+
   flags-consumer)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn

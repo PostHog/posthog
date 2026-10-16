@@ -482,7 +482,7 @@ describe('TaxonomicFilter', () => {
             await userEvent.click(screen.getByTestId(testId))
         }
 
-        it('offers a button to jump to the all section when another group has matches', async () => {
+        it('offers jumps to the matching group and to the all section when another group has matches', async () => {
             renderFilter({
                 taxonomicGroupTypes: [
                     TaxonomicFilterGroupType.SuggestedFilters,
@@ -506,6 +506,10 @@ describe('TaxonomicFilter', () => {
                 expect(switchButton).toBeTruthy()
             })
             expect(switchButton).toHaveTextContent(/See results from other categories/i)
+            // The named jump says where the match is, so it shows too, above the "all" fallback.
+            const eventsButton = inVisibleTab(screen.getAllByTestId('taxonomic-switch-to-events'))
+            expect(eventsButton).toHaveTextContent(/See results in Events/i)
+            expect(eventsButton!.compareDocumentPosition(switchButton!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
 
             await userEvent.click(switchButton!)
 

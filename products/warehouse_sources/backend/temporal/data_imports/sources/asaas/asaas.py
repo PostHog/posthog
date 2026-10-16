@@ -6,6 +6,8 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.settings import (
     ENDPOINT_PARAMS,
     ENDPOINT_PATHS,
+    FANOUT_PARENT_ID_COLUMNS,
+    FANOUT_PARENTS,
     INCREMENTAL_DATE_PARAMS,
     INCREMENTAL_FIELDS,
     TABLE_NAMES,
@@ -14,11 +16,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 SANDBOX_BASE_URL = "https://api-sandbox.asaas.com"
@@ -79,6 +88,22 @@ def get_resource(endpoint: str, should_use_incremental_field: bool) -> EndpointR
     }
 
 
+def get_fanout_resource(endpoint: str) -> EndpointResource:
+    parent = FANOUT_PARENTS[endpoint]
+    return {
+        "name": endpoint,
+        "table_name": TABLE_NAMES[endpoint],
+        "write_disposition": "replace",
+        "include_from_parent": ["id"],
+        "endpoint": {
+            "data_selector": "data[*]",
+            "path": f"{API_PATH}/{ENDPOINT_PATHS[endpoint]}",
+            "params": {"id": {"type": "resolve", "resource": parent, "field": "id"}},
+        },
+        "table_format": "delta",
+    }
+
+
 def asaas_source(
     api_key: str,
     environment: str,
@@ -89,20 +114,39 @@ def asaas_source(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
 ):
-    config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url(environment),
-            "auth": {
-                "type": "api_key",
-                "name": "access_token",
-                "api_key": api_key,
-                "location": "header",
-            },
-            "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path="totalCount"),
-            # Reject redirects: the `access_token` header must never be replayed onto
-            # a host other than the one it was issued for.
-            "allow_redirects": False,
+    client: ClientConfig = {
+        "base_url": base_url(environment),
+        "auth": {
+            "type": "api_key",
+            "name": "access_token",
+            "api_key": api_key,
+            "location": "header",
         },
+        "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path="totalCount"),
+        # Reject redirects: the `access_token` header must never be replayed onto
+        # a host other than the one it was issued for.
+        "allow_redirects": False,
+    }
+
+    if endpoint in FANOUT_PARENTS:
+        parent = FANOUT_PARENTS[endpoint]
+        # The fan-out resume state (completed parents + child page) doesn't fit AsaasResumeConfig,
+        # so a resumed run restarts the fan-out from the first dunning.
+        resources = rest_api_resources(
+            {
+                "client": client,
+                "resource_defaults": {},
+                "resources": [get_resource(parent, False), get_fanout_resource(endpoint)],
+            },
+            team_id,
+            job_id,
+            None,
+        )
+        child = next(resource for resource in resources if resource.name == endpoint)
+        return child.add_map(rename_parent_fields(parent, {"id": FANOUT_PARENT_ID_COLUMNS[endpoint]}))
+
+    config: RESTAPIConfig = {
+        "client": client,
         "resource_defaults": {
             "write_disposition": {
                 "disposition": "merge",
