@@ -248,6 +248,31 @@ def resume_workflow_step(team_id: int, origin_key: str, status: str, result: dic
     )
 
 
+# The workers that wake parked steps also wake parked batch resolvers, so the two share a key. The
+# audience keeps a token for one from waking the other.
+WORKFLOWS_RESUME_BATCH_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_RESUME_BATCH,
+    settings_name="WORKFLOWS_STEP_RESUME_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def resume_hog_flow_batch_job(team_id: int, hog_flow_id: str, batch_job_id: str) -> requests.Response:
+    """Wake a batch run's resolver, parked until its realtime cohort finished calculating. The JSON
+    `outcome` is `resumed` or `already_resumed` on success; a 409 means the resolver isn't parked."""
+    if not WORKFLOWS_RESUME_BATCH_JWT_PURPOSE.enabled():
+        raise RuntimeError("WORKFLOWS_STEP_RESUME_JWT_SECRET is not configured — cannot resume a batch run")
+    token = WORKFLOWS_RESUME_BATCH_JWT_PURPOSE.mint(
+        {"team_id": team_id, "hog_flow_id": hog_flow_id, "batch_job_id": batch_job_id}
+    )
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_jobs/{batch_job_id}/resume",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+
+
 def cancel_hog_flow_invocations(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
     """Flag a workflow's in-flight invocations for cancellation. `payload` carries exactly one
     selector: {"invocation_ids": [...]} or {"all": true}. The Node side only marks rows and wakes
@@ -332,6 +357,8 @@ def create_batch_hog_flow_job_invocation(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
         json={"max_audience_size": max_audience_size, "filters": filters, "realtime_cohort": realtime_cohort},
         headers=get_internal_api_headers(),
+        # The waiting-run sweep dispatches while it holds the run's row lock, which a stop waits on.
+        timeout=30,
     )
 
 

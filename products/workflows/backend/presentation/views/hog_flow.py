@@ -206,6 +206,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowOriginProduct,
     HogFlowScheduleStatus,
     HogFlowState,
+    RealtimeAudienceCohortState,
     WorkflowProposalStatus,
 )
 from products.workflows.backend.facade.message_assets import fetch_message_asset_html, fetch_message_assets
@@ -1043,6 +1044,21 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
     )
 
 
+class RealtimeCohortStatusSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="The realtime cohort the audience sends to.")
+    name = serializers.CharField(help_text="The cohort's name.")
+    state = serializers.ChoiceField(
+        choices=RealtimeAudienceCohortState.choices,
+        help_text=(
+            "'ready' when the cohort's membership is calculated. 'building' or 'rebuilding' while it is "
+            "still calculating, when a send waits for it. 'needs_attention' when its calculation is stuck."
+        ),
+    )
+    percent_complete = serializers.IntegerField(
+        allow_null=True, help_text="How far the calculation has come, while the cohort is not ready."
+    )
+
+
 class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
@@ -1056,6 +1072,14 @@ class BlastRadiusSerializer(serializers.Serializer):
         help_text=(
             "Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after "
             "echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes."
+        ),
+    )
+    realtime_cohort = RealtimeCohortStatusSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Set when the audience is one realtime cohort. 'affected' is then the cohort's last calculated "
+            "size, and a batch run waits until the cohort is ready."
         ),
     )
 
@@ -1441,15 +1465,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         )
                     }
                 )
-            if not realtime_cohort.ready:
-                raise serializers.ValidationError(
-                    {
-                        "filters": (
-                            f"Cohort '{realtime_cohort.name}' isn't ready yet. You can send to it once it "
-                            "finishes calculating."
-                        )
-                    }
-                )
+            # A cohort that is still calculating is accepted: a batch run waits until it is ready.
             return
 
         cohort_name = find_behavioral_cohort_name(project_id, cohort_ids)
@@ -6034,6 +6050,11 @@ class HogFlowViewSet(
             dedupe_key=dedupe_key,
             sends_email=params["sends_email"],
         )
+        # The cohort API denies a scoped token without cohort:read, so this response withholds the
+        # cohort's name and build state from it too.
+        token_scopes = get_authenticator_scopes(request.successful_authenticator)
+        reads_cohorts = token_scopes is None or bool({"*", "cohort:read", "cohort:write"} & set(token_scopes))
+        realtime_cohort = size.realtime_cohort if reads_cohorts else None
         return Response(
             BlastRadiusSerializer(
                 {
@@ -6043,6 +6064,16 @@ class HogFlowViewSet(
                     "dedupe_key": size.dedupe_key,
                     "confirm_token": mint_audience_confirm_token(
                         self.team_id, filters, group_type_index, size.dedupe_key
+                    ),
+                    "realtime_cohort": (
+                        {
+                            "id": realtime_cohort.id,
+                            "name": realtime_cohort.name,
+                            "state": realtime_cohort.state,
+                            "percent_complete": realtime_cohort.percent_complete,
+                        }
+                        if realtime_cohort
+                        else None
                     ),
                 }
             ).data
@@ -6586,7 +6617,6 @@ class HogFlowViewSet(
         }
         if batch_job.status not in non_terminal:
             return Response({"status": batch_job.status, "marked": 0, "remaining": 0, "done": True})
-
         # One CDP call flags a bounded chunk of rows; a large batch needs several. Same
         # shape as cancel_invocations — `done: false` after the cap tells the caller to
         # request again for the rest.

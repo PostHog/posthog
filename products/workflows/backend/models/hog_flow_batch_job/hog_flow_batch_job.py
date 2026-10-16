@@ -1,4 +1,7 @@
-from django.db import models
+from datetime import timedelta
+from typing import TYPE_CHECKING
+
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -14,6 +17,11 @@ from products.workflows.backend.services.batch_audience_cohorts import (
 )
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit, hog_flow_sends_email
 
+if TYPE_CHECKING:
+    import requests
+
+    from products.cohorts.backend.models.cohort import Cohort
+
 logger = structlog.get_logger(__name__)
 
 
@@ -25,6 +33,12 @@ class HogFlowBatchJob(RootTeamMixin, UUIDTModel):
     class Meta:
         indexes = [
             models.Index(fields=["team"]),
+            # The minute-by-minute sweep reads only waiting runs, across every team.
+            models.Index(
+                fields=["created_at"],
+                name="hogflowbatchjob_waiting_idx",
+                condition=models.Q(status="waiting"),
+            ),
         ]
 
     State = HogFlowBatchJobState
@@ -54,39 +68,50 @@ def batch_job_audience_filters(job: HogFlowBatchJob) -> dict:
     }
 
 
+# A run waits this long for its realtime cohort to finish calculating, then fails.
+REALTIME_COHORT_WAIT_LIMIT = timedelta(hours=24)
+
+
+def dispatch_batch_job(
+    job: HogFlowBatchJob, realtime_cohort: "Cohort | None", *, wait_for_cohort: bool = False
+) -> "requests.Response":
+    cohort_target: dict | None = None
+    if realtime_cohort is not None:
+        cohort_target = {"id": realtime_cohort.pk, "team_id": realtime_cohort.team_id}
+        if wait_for_cohort:
+            # The resolver parks until a resume wakes it, and fails the run at this instant otherwise.
+            cohort_target["wait_until"] = (job.created_at + REALTIME_COHORT_WAIT_LIMIT).isoformat()
+    return create_batch_hog_flow_job_invocation(
+        team_id=job.team.id,
+        hog_flow_id=job.hog_flow.id,
+        batch_job_id=job.id,
+        max_audience_size=get_hogflow_batch_trigger_limit(
+            job.team.id,
+            # The dispatch runs the live config, so the live actions decide the channel.
+            # Adding an email step after this write does not re-cap the queued batch; that
+            # gap is bounded by the send-time buckets, which cap every email at execution
+            # regardless of the audience size dispatched here.
+            sends_email=hog_flow_sends_email(job.hog_flow.actions),
+        ),
+        # The audience snapshot the confirm check validated - the resolver dispatches from
+        # this, not the live trigger, so a trigger edit racing the dispatch can't widen it.
+        filters=job.filters,
+        realtime_cohort=cohort_target,
+    )
+
+
 @receiver(post_save, sender=HogFlowBatchJob)
 def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
     if created:
         realtime_cohort = realtime_audience_cohort(instance.team.project_id, batch_job_audience_filters(instance))
-        if realtime_cohort is not None and not realtime_cohort_is_ready(realtime_cohort):
-            # An edit to the cohort since the save cleared its readiness. Its membership is partial until
-            # it finishes calculating again, so the run fails instead of sending to the wrong people.
-            logger.warning(
-                "Batch run audience realtime cohort isn't ready", batch_job_id=instance.id, cohort_id=realtime_cohort.pk
-            )
-            HogFlowBatchJob.objects.filter(pk=instance.pk).update(status=HogFlowBatchJobState.FAILED)
-            instance.status = HogFlowBatchJobState.FAILED
-            return
+        # The cohort's membership is partial until it finishes calculating, so its resolver parks until
+        # the cohort's ready signal resumes it.
+        wait_for_cohort = realtime_cohort is not None and not realtime_cohort_is_ready(realtime_cohort)
+        if wait_for_cohort:
+            HogFlowBatchJob.objects.filter(pk=instance.pk).update(status=HogFlowBatchJobState.WAITING)
+            instance.status = HogFlowBatchJobState.WAITING
         try:
-            create_batch_hog_flow_job_invocation(
-                team_id=instance.team.id,
-                hog_flow_id=instance.hog_flow.id,
-                batch_job_id=instance.id,
-                max_audience_size=get_hogflow_batch_trigger_limit(
-                    instance.team.id,
-                    # The dispatch runs the live config, so the live actions decide the channel.
-                    # Adding an email step after this write does not re-cap the queued batch; that
-                    # gap is bounded by the send-time buckets, which cap every email at execution
-                    # regardless of the audience size dispatched here.
-                    sends_email=hog_flow_sends_email(instance.hog_flow.actions),
-                ),
-                # The audience snapshot the confirm check validated - the resolver dispatches from
-                # this, not the live trigger, so a trigger edit racing the dispatch can't widen it.
-                filters=instance.filters,
-                realtime_cohort=(
-                    {"id": realtime_cohort.pk, "team_id": realtime_cohort.team_id} if realtime_cohort else None
-                ),
-            )
+            dispatch_batch_job(instance, realtime_cohort, wait_for_cohort=wait_for_cohort)
         except Exception as e:
             logger.exception(
                 "Failed to create batch hogflow job invocation",
@@ -94,3 +119,16 @@ def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
                 error=str(e),
             )
             raise
+        if wait_for_cohort and realtime_cohort is not None:
+            # The cohort can finish between the check above and the park, and its ready signal then finds
+            # no parked resolver. A resume check after the park covers that; it does nothing while the
+            # cohort still calculates. A failed publish only logs, because the send is already accepted and a
+            # retried request would create a second run.
+            from products.workflows.backend.tasks.batch_jobs import (  # noqa: PLC0415 — the task module imports this model
+                resume_batch_jobs_waiting_for_realtime_cohort,
+            )
+
+            team_id, cohort_id = realtime_cohort.team_id, realtime_cohort.pk
+            transaction.on_commit(
+                lambda: resume_batch_jobs_waiting_for_realtime_cohort.delay(team_id, cohort_id), robust=True
+            )
