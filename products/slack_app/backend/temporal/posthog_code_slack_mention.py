@@ -377,12 +377,7 @@ async def _execute_posthog_code_agent_activity(activity_fn: Any, *args: Any) -> 
 
 @workflow.defn(name="posthog-code-slack-mention-processing")
 class LegacyPostHogCodeSlackMentionWorkflow(SlackAppMentionProcessingWorkflow):
-    """The same workflow under its previous type name.
-
-    Workers and Django deploy separately, so callers keep starting this name until every
-    worker also registers ``slack-app-mention-processing``. Delete it once no execution of
-    this type is running in any region.
-    """
+    """Previous type name, kept registered until no execution of it remains in any region."""
 
     @workflow.run
     async def run(self, inputs: PostHogCodeSlackMentionWorkflowInputs) -> None:
