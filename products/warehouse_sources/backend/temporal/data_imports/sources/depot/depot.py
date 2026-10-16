@@ -1,7 +1,7 @@
 import datetime as dt
-from collections import deque
+import contextvars
 from collections.abc import Callable, Iterator
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from requests import Response, Session
@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     DEFAULT_RETRY,
     make_tracked_session,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.request_pacer import submit_with_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.settings import (
@@ -34,7 +33,7 @@ LIST_RUNS_PAGE_SIZES = (100, 57)
 TERMINAL_STATUSES = ["finished", "failed", "cancelled"]
 # Each run costs one GetRunStatus call plus one GetWorkflow call per workflow. Read one at a time, a
 # reconciliation of retained history outlasts the time a worker stays up between deploys. Stays
-# below the session's connection pool size of 10.
+# below the connection pool size of 10 that requests gives each host by default.
 RUN_FETCH_CONCURRENCY = 8
 # Connect sends every RPC as a POST. Every RPC this source calls is a read, so a retry is as safe as
 # a retried GET.
@@ -171,23 +170,19 @@ def _run_attempt_rows(session: Session, run: JSONObject) -> list[JSONObject]:
 def _attempt_rows_in_run_order(
     session: Session, runs: list[JSONObject]
 ) -> Iterator[tuple[JSONObject, list[JSONObject]]]:
+    # Pool threads start with an empty context, which would strip the team and job labels that the HTTP
+    # observer reads. Each fetch runs in its own copy, because one context cannot be entered by two threads.
+    context = contextvars.copy_context()
     pool = ThreadPoolExecutor(max_workers=RUN_FETCH_CONCURRENCY, thread_name_prefix="depot-runs")
-    queued_runs = iter(runs)
-    in_flight: deque[tuple[JSONObject, Future[list[JSONObject]]]] = deque()
-
-    def submit_next() -> None:
-        run = next(queued_runs, None)
-        if run is not None:
-            in_flight.append((run, submit_with_context(pool, _run_attempt_rows, session, run)))
-
     try:
-        for _ in range(RUN_FETCH_CONCURRENCY):
-            submit_next()
-        while in_flight:
-            run, future = in_flight.popleft()
-            rows = future.result()
-            submit_next()
-            yield run, rows
+        yield from zip(
+            runs,
+            pool.map(
+                lambda run: context.copy().run(_run_attempt_rows, session, run),
+                runs,
+                buffersize=RUN_FETCH_CONCURRENCY,
+            ),
+        )
     finally:
         # The consumer can close the generator early, so never block on the fetches still in flight.
         pool.shutdown(wait=False, cancel_futures=True)
@@ -200,14 +195,15 @@ def depot_source(
     reconciled_at: str | None,
     resumable_source_manager: ResumableSourceManager[DepotResumeState],
     logger: FilteringBoundLogger,
-    stage_reconciliation: Callable[[str], None] | None = None,
+    stage_reconciliation: Callable[[str], None],
 ) -> SourceResponse:
     def items() -> Iterator[list[JSONObject]]:
-        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+        resume = resumable_source_manager.load_state()
         # A resumed attempt keeps the window of the first attempt, so a long reconciliation finishes across restarts.
-        window_start = resume.created_after if resume is not None else created_after
+        start = resume.created_after if resume is not None else created_after
         window_reconciled_at = resume.reconciled_at if resume is not None else reconciled_at
-        lower_bound = _parse_timestamp(window_start) if window_start is not None else None
+        lower_bound = _parse_timestamp(start) if start is not None else None
+        window_start = lower_bound.isoformat() if lower_bound is not None else None
         session = _make_session(api_token)
         listed = _list_runs(session, repository, TERMINAL_STATUSES, lower_bound)
         if resume is not None:
@@ -218,14 +214,13 @@ def depot_source(
         logger.info(
             "depot_ci.runs_to_sync",
             run_count=len(runs),
-            created_after=lower_bound.isoformat() if lower_bound else None,
+            created_after=window_start,
             resumed=resume is not None,
         )
-        state_created_after = lower_bound.isoformat() if lower_bound is not None else None
         for run, rows in _attempt_rows_in_run_order(session, runs):
             resumable_source_manager.save_state(
                 DepotResumeState(
-                    created_after=state_created_after,
+                    created_after=window_start,
                     reconciled_at=window_reconciled_at,
                     run_created_at=run["createdAt"],
                     run_id=run["runId"],
@@ -234,7 +229,7 @@ def depot_source(
             if rows:
                 yield rows
             resumable_source_manager.safe_point()
-        if window_reconciled_at is not None and stage_reconciliation is not None:
+        if window_reconciled_at is not None:
             stage_reconciliation(window_reconciled_at)
 
     return SourceResponse(
