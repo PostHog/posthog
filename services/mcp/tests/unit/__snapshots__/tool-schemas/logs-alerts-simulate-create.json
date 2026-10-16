@@ -10,7 +10,7 @@
         },
         "cooldown_minutes": {
             "default": 0,
-            "description": "Minutes to wait after firing before sending another notification.",
+            "description": "Minimum minutes between notifications. A fire or resolve notification inside the cooldown is skipped. 0 means no minimum.",
             "minimum": 0,
             "type": "number"
         },
