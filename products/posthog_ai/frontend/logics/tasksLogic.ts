@@ -55,6 +55,9 @@ export interface tasksLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
+    taskDeleted: () => {
+        value: true
+    } // taskEventsLogic
     loadUserSuccess: (
         user: UserType | null,
         payload?:
@@ -217,7 +220,14 @@ export const tasksLogic = kea<tasksLogicType>([
 
     connect(() => ({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
-        actions: [featureFlagLogic, ['setFeatureFlags'], userLogic, ['loadUserSuccess']],
+        actions: [
+            featureFlagLogic,
+            ['setFeatureFlags'],
+            taskEventsLogic,
+            ['taskDeleted'],
+            userLogic,
+            ['loadUserSuccess'],
+        ],
     })),
 
     actions({
@@ -485,7 +495,7 @@ export const tasksLogic = kea<tasksLogicType>([
                 if (payload) {
                     taskHistoryLogic.findMounted()?.actions.taskArchived(payload.taskId)
                 }
-                taskEventsLogic.findMounted()?.actions.taskDeleted()
+                actions.taskDeleted()
             },
             renameTaskFailure: ({ error, errorObject }) => {
                 lemonToast.error(`Couldn't rename the task: ${loadErrorMessage(error, errorObject)}`)
