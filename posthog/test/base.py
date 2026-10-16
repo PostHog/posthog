@@ -1816,6 +1816,7 @@ def _create_flag_evaluations(
     response: str | bool = True,
     properties: dict[str, Any] | None = None,
     person_properties: dict[str, str] | None = None,
+    person_mode: str = "full",
 ) -> None:
     """Insert `count` $feature_flag_called rows for flag_key into flag_evaluations. Unlike _create_event, it writes
     the rows immediately. Each row gets a new random person_id unless the caller passes one. Without a
@@ -1826,7 +1827,7 @@ def _create_flag_evaluations(
     sync_execute(
         """
         INSERT INTO writable_flag_evaluations
-            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id, person_created_at, person_properties)
+            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id, person_created_at, person_properties, person_mode)
         VALUES
         """,
         [
@@ -1841,6 +1842,7 @@ def _create_flag_evaluations(
                 str(person_id or uuid.uuid4()),
                 person_created_at or ZERO_DATE,
                 json.dumps(person_properties or {}),
+                person_mode,
             )
             for _ in range(count)
         ],
