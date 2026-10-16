@@ -15974,6 +15974,21 @@
             "readOnlyHint": false
         }
     },
+    "workflows-send-email": {
+        "description": "Send one transactional email to one recipient from a template, named by template.key (as uploaded with workflows-upload-email-template) or template.id (a template made in PostHog). Put every value the template needs into message_data, read as {{ variables.* }}; the template can't read person properties. Set identifiers.distinct_id to record the email on that person. Pass template.hash, the content_hash of the last upload, to check that PostHog holds that content: template_outdated means nothing was sent, so upload the template and send again; a template_superseded warning means newer content was sent. Each call sends an email, so never repeat a call that succeeded. A plain 404 without a code means the transactional email API is not enabled for this project: stop and tell the user.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Send transactional email",
+        "title": "Send transactional email",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-transactional-email-api"
+    },
     "workflows-show-email-template": {
         "description": "Render an email template as an inline preview for the user. Call after creating or updating a template, and whenever the user asks to see one. The response carries the final rendered html — read it before describing the result. For fetching a template to edit it, use workflows-get-email-template.",
         "category": "Workflows",

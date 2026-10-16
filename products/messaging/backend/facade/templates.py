@@ -9,13 +9,20 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 
 from posthog.dataclasses import frozen
 
-from products.messaging.backend.facade.contracts import TemplateManagedBy, TemplateUpload, TemplateUploadResult
+from products.messaging.backend.facade.contracts import (
+    ContentHashState,
+    TemplateManagedBy,
+    TemplateReference,
+    TemplateUpload,
+    TemplateUploadResult,
+)
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.services import (
     message_templates as templates_service,
     template_saves,
     template_uploads,
 )
+from products.messaging.backend.services.content_hash import sent_hash_state
 from products.messaging.backend.services.lazy_list import LazyList
 
 
@@ -54,6 +61,12 @@ class UploadedTemplate:
     template: MessageTemplateRow
 
 
+@frozen
+class TemplateToSend:
+    template: MessageTemplateRow
+    hash_state: ContentHashState
+
+
 def _to_contract(row: MessageTemplate) -> MessageTemplateRow:
     return MessageTemplateRow(
         id=row.id,
@@ -86,6 +99,27 @@ def get_template(team_id: int, template_id: UUID | str) -> MessageTemplateRow:
         return _to_contract(templates_service.team_template(team_id, template_id))
     except (MessageTemplate.DoesNotExist, ValidationError, ValueError, TypeError) as e:
         raise MessageTemplateMissing() from e
+
+
+def find_template_to_send(team_id: int, reference: TemplateReference) -> TemplateToSend:
+    """The template a send names, and how the hash the send carries compares with its published content.
+
+    Raises MessageTemplateMissing when the team has no template with that key or id that is not deleted.
+    """
+    try:
+        template = _referenced_template(team_id, reference)
+    except (MessageTemplate.DoesNotExist, ValidationError, ValueError, TypeError) as e:
+        raise MessageTemplateMissing() from e
+    hash_state = sent_hash_state(reference.hash, template.content_hash, template.superseded_content_hashes or [])
+    return TemplateToSend(template=_to_contract(template), hash_state=hash_state)
+
+
+def _referenced_template(team_id: int, reference: TemplateReference) -> MessageTemplate:
+    if reference.key is not None:
+        return templates_service.team_template_with_key(team_id, reference.key)
+    if reference.id is not None:
+        return templates_service.team_template(team_id, reference.id)
+    raise MessageTemplate.DoesNotExist()
 
 
 def team_category_id(team_id: int, category_id: Any) -> UUID:

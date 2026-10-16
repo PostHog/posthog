@@ -20,6 +20,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
@@ -43,6 +44,8 @@ from products.messaging.backend.facade.api import (
 from products.messaging.backend.facade.contracts import (
     TEMPLATE_KEY_MAX_LENGTH,
     TEMPLATE_KEY_PATTERN,
+    ContentHashState,
+    QueuedEmail,
     TemplateManagedBy,
     TemplateSource,
     TemplateUpload,
@@ -419,7 +422,7 @@ class UploadTemplateResponseSerializer(serializers.Serializer):
     )
 
 
-class TemplateUploadErrorSerializer(serializers.Serializer):
+class TransactionalEmailErrorSerializer(serializers.Serializer):
     type = serializers.CharField(help_text="Error class, such as `invalid_request`.")
     code = serializers.CharField(help_text="Stable error code to branch on, such as `invalid_template_key`.")
     detail = serializers.CharField(help_text="What went wrong.")
@@ -433,7 +436,9 @@ TRANSACTIONAL_EMAIL_DOCS_URL = "https://posthog.com/docs/workflows/transactional
 
 
 @frozen
-class UploadRefused:
+class RequestRefused:
+    """A refusal of the upload or send routes, with what to change before the caller retries."""
+
     code: str
     detail: str
     attr: str | None
@@ -452,33 +457,35 @@ class FieldError:
     message: str
 
 
-def invalid_template_key(key: str) -> UploadRefused | None:
+def invalid_template_key(key: str, attr: str = "key") -> RequestRefused | None:
     if len(key) <= TEMPLATE_KEY_MAX_LENGTH and re.match(TEMPLATE_KEY_PATTERN, key):
         return None
-    return UploadRefused(
+    return RequestRefused(
         code="invalid_template_key",
         detail=f"The key can have at most {TEMPLATE_KEY_MAX_LENGTH} letters, digits, hyphens (-) and underscores (_).",
-        attr="key",
-        why="The key is part of the URL and names the template in every project, so it must stay the same.",
+        attr=attr,
+        why="Code names the template by its key in every project, so the key must stay the same.",
         fix="Use a key like `password-reset`.",
     )
 
 
-def invalid_upload(errors: Any) -> UploadRefused:
+def invalid_request(errors: Any, *, why: str, retry: str) -> RequestRefused:
     error = first_field_error(errors)
-    return UploadRefused(
+    return RequestRefused(
         code="invalid_request",
         detail=f"{error.attr}: {error.message}",
         attr=error.attr,
-        why="An upload needs a name, a subject and HTML, each as a string.",
-        fix=f"Fix `{error.attr}` and upload again.",
+        why=why,
+        fix=f"Fix `{error.attr}` and {retry}.",
     )
 
 
 def first_field_error(errors: Any, path: tuple[str, ...] = ()) -> FieldError:
     if isinstance(errors, dict):
         field, nested = next(iter(errors.items()))
-        return first_field_error(nested, (*path, str(field)))
+        # An error about a nested object as a whole names the object.
+        field_path = path if field == api_settings.NON_FIELD_ERRORS_KEY else (*path, str(field))
+        return first_field_error(nested, field_path)
     if isinstance(errors, list) and errors and not isinstance(errors[0], str):
         return first_field_error(errors[0], path)
     return FieldError(attr="__".join(path), message=str(errors[0] if isinstance(errors, list) else errors))
@@ -531,6 +538,87 @@ class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottl
     rate = "20000/hour"
 
 
+TRANSACTIONAL_EMAIL_THROTTLES = [
+    TransactionalEmailBurstThrottle,
+    TransactionalEmailSustainedThrottle,
+    TransactionalEmailTeamBurstThrottle,
+    TransactionalEmailTeamSustainedThrottle,
+]
+
+
+class TransactionalEmailViewSetMixin(TeamAndOrgViewSetMixin):
+    """What every route of the transactional email API shares: the flag, workflow access and the send."""
+
+    def _require_transactional_email_flag(self) -> None:
+        if not posthoganalytics.feature_enabled(
+            TRANSACTIONAL_EMAIL_API_FLAG,
+            str(self.team.uuid),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+            send_feature_flag_events=False,
+        ):
+            raise NotFound()
+
+    def _require_workflow_editor(self, hog_flow_id: Any) -> None:
+        # A project secret API key has no user to check, and its scope already limits it to sending and uploads.
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return
+        try:
+            get_workflow(
+                team_id=self.team_id,
+                workflow_id=str(hog_flow_id),
+                user_access_control=self.user_access_control,
+                required_level="editor",
+            )
+        except WorkflowAccessDenied:
+            raise exceptions.PermissionDenied(
+                "You need editor access to this template's transactional email workflow."
+            ) from None
+        except WorkflowNotFound:
+            return
+
+    @staticmethod
+    def _auth_method(request: Request) -> str:
+        return "project_secret_api_key" if is_authenticated_via_project_secret_api_key(request) else "user"
+
+    def _send_transactional_email(
+        self, request: Any, template: MessageTemplateRow, data: dict[str, Any], *, usage: dict[str, str]
+    ) -> QueuedEmail:
+        if template.transactional_hog_flow_id:
+            self._require_workflow_editor(template.transactional_hog_flow_id)
+        outcome: dict[str, Any] = {"outcome": "error"}
+        try:
+            queued = send_transactional_email(
+                self.team,
+                template.id,
+                to=data["to"],
+                distinct_id=(data.get("identifiers") or {}).get("distinct_id") or None,
+                message_data=data["message_data"],
+            )
+            outcome = {"outcome": "queued"}
+        except TransactionalEmailError as e:
+            outcome = {"outcome": "rejected", "error_code": e.code}
+            raise TransactionalEmailRejected(e)
+        except DeliveryUnavailable:
+            outcome = {"outcome": "unavailable"}
+            raise TransactionalEmailUnavailable() from None
+        finally:
+            self._report_transactional_email_send(request, {"template_id": str(template.id), **usage, **outcome})
+        return queued
+
+    def _report_transactional_email_send(self, request: Any, properties: dict[str, Any]) -> None:
+        # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
+        try:
+            posthoganalytics.capture(
+                distinct_id=request.user.distinct_id,
+                event="transactional email api send",
+                properties={"team_id": self.team_id, "auth_method": self._auth_method(request), **properties},
+                groups=groups(self.organization, self.team),
+            )
+        except Exception as e:
+            logger.warning("Failed to capture transactional email usage event", error=str(e))
+
+
 @extend_schema_view(
     retrieve=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
     update=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
@@ -538,7 +626,7 @@ class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottl
     destroy=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
 )
 class MessageTemplatesViewSet(
-    TeamAndOrgViewSetMixin,
+    TransactionalEmailViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
@@ -565,12 +653,7 @@ class MessageTemplatesViewSet(
 
     def get_throttles(self):
         if self.action in ("send", "upload"):
-            return [
-                TransactionalEmailBurstThrottle(),
-                TransactionalEmailSustainedThrottle(),
-                TransactionalEmailTeamBurstThrottle(),
-                TransactionalEmailTeamSustainedThrottle(),
-            ]
+            return [throttle() for throttle in TRANSACTIONAL_EMAIL_THROTTLES]
         return super().get_throttles()
 
     def dangerously_get_object(self) -> MessageTemplateRow:
@@ -651,24 +734,6 @@ class MessageTemplatesViewSet(
             raise TransactionalEmailRejected(e) from None
         self._emit_resource_edited(updated)
         return Response(self._serialize(updated))
-
-    def _require_workflow_editor(self, hog_flow_id: Any) -> None:
-        # A project secret API key has no user to check, and its scope already limits it to sending and uploads.
-        if is_authenticated_via_project_secret_api_key(self.request):
-            return
-        try:
-            get_workflow(
-                team_id=self.team_id,
-                workflow_id=str(hog_flow_id),
-                user_access_control=self.user_access_control,
-                required_level="editor",
-            )
-        except WorkflowAccessDenied:
-            raise exceptions.PermissionDenied(
-                "You need editor access to this template's transactional email workflow."
-            ) from None
-        except WorkflowNotFound:
-            return
 
     def _actor_id(self) -> int | None:
         return self.request.user.id if self.request.user.is_authenticated else None
@@ -769,32 +834,13 @@ class MessageTemplatesViewSet(
     def send(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         self._require_transactional_email_flag()
 
-        template = self.get_object()
-        if template.transactional_hog_flow_id:
-            self._require_workflow_editor(template.transactional_hog_flow_id)
-        data = request.validated_data
-        outcome: dict[str, Any] = {"outcome": "error"}
-        try:
-            queued = send_transactional_email(
-                self.team,
-                template.id,
-                to=data["to"],
-                distinct_id=(data.get("identifiers") or {}).get("distinct_id") or None,
-                message_data=data["message_data"],
-            )
-            outcome = {"outcome": "queued"}
-        except TransactionalEmailError as e:
-            outcome = {"outcome": "rejected", "error_code": e.code}
-            raise TransactionalEmailRejected(e)
-        except DeliveryUnavailable:
-            outcome = {"outcome": "unavailable"}
-            raise TransactionalEmailUnavailable() from None
-        finally:
-            self._report_transactional_email_send(request, template, outcome)
-        return Response(
-            SendTransactionalEmailResponseSerializer(queued).data,
-            status=status.HTTP_202_ACCEPTED,
+        queued = self._send_transactional_email(
+            request,
+            self.get_object(),
+            request.validated_data,
+            usage={"addressed_by": "url_id", "hash_state": ContentHashState.NONE},
         )
+        return Response(SendTransactionalEmailResponseSerializer(queued).data, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
         request=UploadTemplateSerializer,
@@ -804,7 +850,7 @@ class MessageTemplatesViewSet(
             ),
             201: OpenApiResponse(response=UploadTemplateResponseSerializer, description="The template was created"),
             400: OpenApiResponse(
-                response=TemplateUploadErrorSerializer,
+                response=TransactionalEmailErrorSerializer,
                 description="The key or a field is invalid, the template can't be sent, or there is no verified "
                 "default sender",
             ),
@@ -827,10 +873,12 @@ class MessageTemplatesViewSet(
         refused = invalid_template_key(key)
         body = UploadTemplateSerializer(data=request.data)
         if refused is None and not body.is_valid():
-            refused = invalid_upload(body.errors)
+            refused = invalid_request(
+                body.errors, why="An upload needs a name, a subject and HTML, each as a string.", retry="upload again"
+            )
         if refused is not None:
             self._report_template_upload(request, {"result": "rejected", "error_code": refused.code})
-            return Response(TemplateUploadErrorSerializer(refused).data, status=status.HTTP_400_BAD_REQUEST)
+            return Response(TransactionalEmailErrorSerializer(refused).data, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             uploaded = upload_template(
@@ -906,20 +954,6 @@ class MessageTemplatesViewSet(
         except Exception as e:
             logger.warning("Failed to capture transactional email template upload event", error=str(e))
 
-    @staticmethod
-    def _auth_method(request: Request) -> str:
-        return "project_secret_api_key" if is_authenticated_via_project_secret_api_key(request) else "user"
-
-    def _require_transactional_email_flag(self) -> None:
-        if not posthoganalytics.feature_enabled(
-            TRANSACTIONAL_EMAIL_API_FLAG,
-            str(self.team.uuid),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-            send_feature_flag_events=False,
-        ):
-            raise NotFound()
-
     @validated_request(
         MakeTransactionalSerializer,
         responses={
@@ -968,22 +1002,3 @@ class MessageTemplatesViewSet(
             except Exception as e:
                 logger.warning("Failed to capture message template usage event", error=str(e))
         return Response(self._serialize(updated))
-
-    def _report_transactional_email_send(
-        self, request: Any, template: MessageTemplateRow, outcome: dict[str, Any]
-    ) -> None:
-        # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
-        try:
-            posthoganalytics.capture(
-                distinct_id=request.user.distinct_id,
-                event="transactional email api send",
-                properties={
-                    "template_id": str(template.id),
-                    "team_id": self.team_id,
-                    "auth_method": self._auth_method(request),
-                    **outcome,
-                },
-                groups=groups(self.organization, self.team),
-            )
-        except Exception as e:
-            logger.warning("Failed to capture transactional email usage event", error=str(e))

@@ -259,3 +259,41 @@ class TestTemplateUpload(APIBaseTest):
         assert superseded_after_edit == [WELCOME_HASH]
         assert (rolled_back["result"], rolled_back["content_hash"]) == ("updated", WELCOME_HASH)
         assert self._superseded_hashes(first["id"]) == [edited_hash]
+
+    @parameterized.expand(
+        [
+            ("current", None, status.HTTP_202_ACCEPTED, []),
+            ("superseded", WELCOME_HASH, status.HTTP_202_ACCEPTED, ["template_superseded"]),
+            ("outdated", f"v1:{'0' * 64}", status.HTTP_409_CONFLICT, None),
+        ]
+    )
+    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    def test_a_send_by_key_with_a_hash_only_ever_sends_the_published_content(
+        self, hash_state, sent_hash, expected_status, expected_warnings, _reload, post: MagicMock, _flag, capture
+    ):
+        post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
+        self._upload(WELCOME)
+        published = self._upload({**WELCOME, "subject": "Welcome aboard, {{ variables.first_name }}"})
+        hog_flow_id = published["transactional_hog_flow_id"]
+
+        response = self.psak.post(
+            f"/api/projects/{self.team.id}/messaging/send/email/",
+            {
+                "template": {"key": "welcome", "hash": sent_hash or published["content_hash"]},
+                "to": "jane@example.com",
+                "message_data": {"first_name": "Jane"},
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert capture.call_args.kwargs["properties"]["hash_state"] == hash_state
+        if expected_warnings is None:
+            assert response.json()["code"] == "template_outdated"
+            post.assert_not_called()
+        else:
+            assert [warning["code"] for warning in response.json()["warnings"]] == expected_warnings
+            assert post.call_args.args[0].endswith(f"/hog_flows/{hog_flow_id}/transactional_email")
+        assert self._template(published["id"])["content_hash"] == published["content_hash"]
+        assert self._sent_email(hog_flow_id)["subject"] == "Welcome aboard, {{ variables.first_name }}"
+        assert self._workflow(hog_flow_id)["version"] == 2

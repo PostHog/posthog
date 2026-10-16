@@ -3,11 +3,70 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
+/**
+ * Send one transactional email to one recipient from a template named by its key or id. `message_data` fills the template's `{{ variables.* }}` placeholders. With `template.hash`, PostHog checks that it holds the content you hold: content it never published sends nothing, and content that newer content replaced sends the current content with a `template_superseded` warning. Transactional emails skip opt-outs and frequency caps.
+ * @summary Send a transactional email
+ */
+export const MessagingSendEmailCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingSendEmailCreateBodyIdentifiersOneDistinctIdMax = 400
+
+export const MessagingSendEmailCreateBody = () => zod.object({
+    to: zod.email().describe('Email address of the recipient.'),
+    identifiers: zod
+        .object({
+            distinct_id: zod
+                .string()
+                .max(messagingSendEmailCreateBodyIdentifiersOneDistinctIdMax)
+                .nullish()
+                .describe(
+                    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
+                ),
+        })
+        .optional()
+        .describe('Who the email is for, used to attribute engagement events.'),
+    message_data: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Data for the template\'s Liquid placeholders, available as `variables`. For example `{\"reset_link\": \"https:\/\/...\"}` fills `{{ variables.reset_link }}`.'
+        ),
+    template: zod
+        .object({
+            key: zod
+                .string()
+                .optional()
+                .describe(
+                    'Key of the template, as uploaded with `PUT \/api\/projects\/@current\/messaging_templates\/by_key\/{key}\/`. Give either `key` or `id`.'
+                ),
+            hash: zod
+                .string()
+                .optional()
+                .describe(
+                    'Content hash of the template you hold, as `v1:` and 64 hex characters. When PostHog never published that content, the send answers `template_outdated` and sends nothing. Only with `key`.'
+                ),
+            id: zod
+                .string()
+                .optional()
+                .describe('ID of the template, for templates made in PostHog. Give either `key` or `id`.'),
+        })
+        .describe('The template to send, by key or by id.'),
+})
+
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const MessagingTemplatesListParams = () => zod.object({
     project_id: zod
         .string()
@@ -21,6 +80,9 @@ export const MessagingTemplatesListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const MessagingTemplatesCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -116,6 +178,9 @@ export const MessagingTemplatesCreateBody = () => zod.object({
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
 })
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const MessagingTemplatesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this message template.'),
     project_id: zod
@@ -125,6 +190,9 @@ export const MessagingTemplatesRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const MessagingTemplatesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this message template.'),
     project_id: zod
@@ -222,6 +290,9 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
 })
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const MessagingTemplatesDesignPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this message template.'),
     project_id: zod

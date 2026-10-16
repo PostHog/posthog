@@ -91,6 +91,24 @@ class TemplateUploadResult(LabeledStrEnum):
     UNCHANGED = "unchanged", "Unchanged"
 
 
+class ContentHashState(LabeledStrEnum):
+    """How the content hash a send carries compares with the template's published content."""
+
+    NONE = "none", "None"
+    CURRENT = "current", "Current"
+    SUPERSEDED = "superseded", "Superseded"
+    OUTDATED = "outdated", "Outdated"
+
+
+@frozen
+class TemplateReference:
+    """A template a send names by exactly one of `key` or `id`."""
+
+    key: str | None
+    id: UUID | None
+    hash: str | None
+
+
 @frozen
 class TemplateSource:
     """Where the uploaded file lives. A part that is None leaves the stored part as it is."""

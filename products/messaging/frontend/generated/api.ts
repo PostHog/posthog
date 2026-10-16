@@ -33,6 +33,8 @@ import type {
     PatchedMessageTemplateApi,
     PreferencesLinkApi,
     RemoveOptOutRequestApi,
+    SendEmailApi,
+    SendEmailResponseApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
     UploadTemplateApi,
@@ -56,6 +58,27 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getMessagingSendEmailCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/send/email/`
+}
+
+/**
+ * Send one transactional email to one recipient from a template named by its key or id. `message_data` fills the template's `{{ variables.* }}` placeholders. With `template.hash`, PostHog checks that it holds the content you hold: content it never published sends nothing, and content that newer content replaced sends the current content with a `template_superseded` warning. Transactional emails skip opt-outs and frequency caps.
+ * @summary Send a transactional email
+ */
+export const messagingSendEmailCreate = async (
+    projectId: string,
+    sendEmailApi: SendEmailApi,
+    options?: RequestInit
+): Promise<SendEmailResponseApi> => {
+    return apiMutator<SendEmailResponseApi>(getMessagingSendEmailCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendEmailApi),
+    })
+}
 
 export const getMessagingCategoriesListUrl = (projectId: string, params?: MessagingCategoriesListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -612,6 +635,9 @@ export const getMessagingTemplatesListUrl = (projectId: string, params?: Messagi
         : `/api/projects/${projectId}/messaging_templates/`
 }
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesList = async (
     projectId: string,
     params?: MessagingTemplatesListParams,
@@ -627,6 +653,9 @@ export const getMessagingTemplatesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_templates/`
 }
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesCreate = async (
     projectId: string,
     messageTemplateApi: NonReadonly<MessageTemplateApi>,
@@ -644,6 +673,9 @@ export const getMessagingTemplatesRetrieveUrl = (projectId: string, id: string) 
     return `/api/projects/${projectId}/messaging_templates/${id}/`
 }
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesRetrieve = async (
     projectId: string,
     id: string,
@@ -659,6 +691,9 @@ export const getMessagingTemplatesUpdateUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/messaging_templates/${id}/`
 }
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesUpdate = async (
     projectId: string,
     id: string,
@@ -677,6 +712,9 @@ export const getMessagingTemplatesPartialUpdateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/messaging_templates/${id}/`
 }
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -713,6 +751,9 @@ export const getMessagingTemplatesDesignPartialUpdateUrl = (projectId: string, i
     return `/api/projects/${projectId}/messaging_templates/${id}/design/`
 }
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesDesignPartialUpdate = async (
     projectId: string,
     id: string,

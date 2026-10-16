@@ -4,6 +4,8 @@ the caller holds."""
 import hashlib
 from typing import Any
 
+from products.messaging.backend.facade.contracts import ContentHashState
+
 HASH_PREFIX = "v1:"
 HASHED_FIELDS = ("subject", "preheader", "html", "text")
 SUPERSEDED_HASHES_KEPT = 100
@@ -28,3 +30,13 @@ def superseded_after_publish(previous_hash: str | None, published_hash: str, sup
     replaced = [previous_hash] if previous_hash and previous_hash != published_hash else []
     kept = [h for h in superseded if h not in (previous_hash, published_hash)]
     return (replaced + kept)[:SUPERSEDED_HASHES_KEPT]
+
+
+def sent_hash_state(sent_hash: str | None, content_hash: str | None, superseded: list[str]) -> ContentHashState:
+    if sent_hash is None:
+        return ContentHashState.NONE
+    if sent_hash == content_hash:
+        return ContentHashState.CURRENT
+    if sent_hash in superseded:
+        return ContentHashState.SUPERSEDED
+    return ContentHashState.OUTDATED
