@@ -29,6 +29,7 @@ from products.surveys.backend.models import Survey
 
 NOTICE_TEAM_ID = 42
 SURVEY_ID = "0b1c5a52-6d1e-4c43-9a0e-5f2b8f8d1a01"
+TOUR_ID = "6f0d2c11-3b7a-4e58-8c1d-2a9e4b7f3c02"
 BETA_TESTERS = DeletedCohort(id=7, name="Beta testers", missing=False)
 
 
@@ -82,6 +83,37 @@ class TestBuildNotice(SimpleTestCase):
                 [],
             ),
             (
+                "one_product_tour_flag",
+                [
+                    _affected_flag(
+                        103, "product-tour-welcome", FlagOwner(kind="product_tour", id=TOUR_ID, name="Welcome tour")
+                    )
+                ],
+                {
+                    "source_type": None,
+                    "source_url": f"/product_tours/{TOUR_ID}",
+                    "resource_type": "feature_flag",
+                    "title": "Product tour targets a deleted cohort: Welcome tour",
+                },
+                [],
+                [],
+            ),
+            (
+                "two_survey_flags",
+                [
+                    _affected_flag(104, "survey-targeting-a", FlagOwner(kind="survey", id=SURVEY_ID, name="NPS")),
+                    _affected_flag(105, "survey-targeting-b", FlagOwner(kind="survey", id=SURVEY_ID, name="CSAT")),
+                ],
+                {
+                    "source_type": None,
+                    "source_url": "/surveys",
+                    "resource_type": "survey",
+                    "title": "2 surveys target deleted cohorts",
+                },
+                ["survey 'NPS' (cohort 'Beta testers')"],
+                [],
+            ),
+            (
                 "six_plain_flags",
                 [_affected_flag(110 + n, f"rollout-{n}") for n in range(1, 7)],
                 {
@@ -128,14 +160,17 @@ class TestNotifyFlagsOnDeletedCohorts(BaseTest):
     def _cohort(self, name: str, *, team: Team | None = None, deleted: bool = False) -> Cohort:
         return Cohort.objects.create(team=team or self.team, name=name, deleted=deleted)
 
-    def _flag(self, key: str, cohort: Cohort, **fields: Any) -> FeatureFlag:
+    def _flag(self, key: str, *cohort_ids: int, team: Team | None = None, **fields: Any) -> FeatureFlag:
         return FeatureFlag.objects.create(
-            team=self.team,
+            team=team or self.team,
             created_by=self.user,
             key=key,
             filters={
                 "groups": [
-                    {"properties": [{"key": "id", "type": "cohort", "value": cohort.id}], "rollout_percentage": 100}
+                    {
+                        "properties": [{"key": "id", "type": "cohort", "value": cohort_id} for cohort_id in cohort_ids],
+                        "rollout_percentage": 100,
+                    }
                 ]
             },
             **fields,
@@ -143,12 +178,14 @@ class TestNotifyFlagsOnDeletedCohorts(BaseTest):
 
     def test_finder_reports_active_flags_on_deleted_or_foreign_cohorts_only(self) -> None:
         deleted_cohort = self._cohort("Beta testers", deleted=True)
+        live_cohort = self._cohort("Power users")
         other_project_cohort = self._cohort("Early adopters", team=Team.objects.create(organization=self.organization))
-        on_deleted_cohort = self._flag("checkout-redesign", deleted_cohort)
-        self._flag("pricing-page-v2", self._cohort("Power users"))
-        on_other_project_cohort = self._flag("onboarding-checklist", other_project_cohort)
-        self._flag("dark-mode", deleted_cohort, active=False)
-        self._flag("legacy-search", deleted_cohort, deleted=True)
+        nonexistent_cohort_id = other_project_cohort.id + 1000
+        on_deleted_cohort = self._flag("checkout-redesign", live_cohort.id, deleted_cohort.id)
+        self._flag("pricing-page-v2", live_cohort.id)
+        on_other_project_cohort = self._flag("onboarding-checklist", other_project_cohort.id, nonexistent_cohort_id)
+        self._flag("dark-mode", deleted_cohort.id, active=False)
+        self._flag("legacy-search", deleted_cohort.id, deleted=True)
         survey = Survey.objects.create(
             team=self.team, name="Onboarding feedback", type="popover", targeting_flag=on_deleted_cohort
         )
@@ -174,7 +211,10 @@ class TestNotifyFlagsOnDeletedCohorts(BaseTest):
                     team_id=self.team.id,
                     key="onboarding-checklist",
                     last_called_at=None,
-                    cohorts=(DeletedCohort(id=other_project_cohort.id, name=None, missing=True),),
+                    cohorts=(
+                        DeletedCohort(id=other_project_cohort.id, name=None, missing=True),
+                        DeletedCohort(id=nonexistent_cohort_id, name=None, missing=True),
+                    ),
                     owner=FlagOwner(kind="product_tour", id=str(tour.id), name="Welcome tour"),
                 ),
             ]
@@ -182,12 +222,29 @@ class TestNotifyFlagsOnDeletedCohorts(BaseTest):
 
     @parameterized.expand(
         [
-            ("notifications_on", True, ["Feature flag targets a deleted cohort: checkout-redesign"]),
-            ("notifications_off", False, []),
+            (
+                "notifications_on",
+                True,
+                "Would deliver to up to 1 people.",
+                ["Feature flag targets a deleted cohort: checkout-redesign"],
+                "Already sent notice",
+            ),
+            (
+                "notifications_off",
+                False,
+                "Would not deliver: real-time notifications are off for this organization.",
+                [],
+                "Not delivered",
+            ),
         ]
     )
-    def test_dry_run_sends_nothing_and_send_notifies_the_team_once(
-        self, _name: str, notifications_on: bool, expected_titles: list[str]
+    def test_dry_run_sends_nothing_and_send_notifies_only_the_listed_team_once(
+        self,
+        _name: str,
+        notifications_on: bool,
+        expected_delivery_line: str,
+        expected_titles: list[str],
+        expected_resend_line: str,
     ) -> None:
         self.enterContext(
             patch(
@@ -195,23 +252,27 @@ class TestNotifyFlagsOnDeletedCohorts(BaseTest):
                 side_effect=lambda flag, *args, **kwargs: notifications_on and flag == "real-time-notifications",
             )
         )
-        self._flag("checkout-redesign", self._cohort("Beta testers", deleted=True))
+        self._flag("checkout-redesign", self._cohort("Beta testers", deleted=True).id)
+        other_team = Team.objects.create(organization=self.organization)
+        self._flag("search-v2", self._cohort("Old plan", team=other_team, deleted=True).id, team=other_team)
 
         dry_run = self._run("--team-id", str(self.team.id))
         with self.assertRaises(CommandError):
             self._run("--send")
 
         assert stored_notifications_for_team(self.team.id) == []
-        assert self.team.name in dry_run
-        assert str(self.team.id) in dry_run
+        assert f"Team {self.team.id} ({self.team.name})" in dry_run
+        assert expected_delivery_line in dry_run
 
         first_send = self._run("--send", "--team-id", str(self.team.id))
 
         sent = stored_notifications_for_team(self.team.id)
         assert [notice.title for notice in sent] == expected_titles
+        assert stored_notifications_for_team(other_team.id) == []
         if not notifications_on:
-            assert "not delivered" in first_send.lower()
+            assert "Not delivered" in first_send
 
-        self._run("--send", "--team-id", str(self.team.id))
+        second_send = self._run("--send", "--team-id", str(self.team.id))
 
         assert stored_notifications_for_team(self.team.id) == sent
+        assert expected_resend_line in second_send
