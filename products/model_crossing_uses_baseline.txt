@@ -132,7 +132,6 @@ data_catalog.TableCertification products.data_catalog.backend.facade.api.depreca
 data_catalog.TableCertification products.data_catalog.backend.facade.api.deprecate facade-returns 1
 data_catalog.TableCertification products.data_catalog.backend.facade.api.propose_certification facade-returns 1
 data_catalog.TableCertification products.data_catalog.backend.facade.api.revoke_certification facade-accepts(cert) 1
-data_modeling.DAG products.data_modeling.backend.facade.api.sync_saved_query_to_dag facade-accepts(dag) 1
 data_modeling.DataModelingJob products.data_modeling.backend.facade.api.latest_saved_query_materialization_job facade-returns 1
 data_modeling.DataWarehouseSavedQuery products.customer_analytics.backend.facade.api get_model 5
 data_modeling.DataWarehouseSavedQuery products.data_modeling.backend.facade.api.apply_saved_query_frequency_anchor facade-accepts(saved_query) 1

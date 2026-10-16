@@ -78,8 +78,6 @@ def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bo
             continue
         if saved_query_id is not None:
             identifiers.add(str(saved_query_id))
-        elif properties.get("saved_query_id"):
-            identifiers.add(str(properties["saved_query_id"]))
         elif properties.get("warehouse_table_id"):
             identifiers.add(str(properties["warehouse_table_id"]))
         else:
