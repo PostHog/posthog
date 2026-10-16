@@ -14,6 +14,7 @@ import type {
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
     GenerateLinkRequestApi,
+    MakeTransactionalApi,
     MessageCategoryApi,
     MessagePreferencesApi,
     MessageSuppressionApi,
@@ -719,5 +720,27 @@ export const messagingTemplatesDesignPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedDesignPatchApi),
+    })
+}
+
+export const getMessagingTemplatesMakeTransactionalCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_templates/${id}/make_transactional/`
+}
+
+/**
+ * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. Calling it again on a transactional template changes nothing.
+ * @summary Make a template transactional
+ */
+export const messagingTemplatesMakeTransactionalCreate = async (
+    projectId: string,
+    id: string,
+    makeTransactionalApi?: MakeTransactionalApi,
+    options?: RequestInit
+): Promise<MessageTemplateApi> => {
+    return apiMutator<MessageTemplateApi>(getMessagingTemplatesMakeTransactionalCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(makeTransactionalApi),
     })
 }
