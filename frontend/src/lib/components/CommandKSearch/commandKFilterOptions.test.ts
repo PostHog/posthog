@@ -39,6 +39,13 @@ describe('viewAllFor', () => {
             '/feature_flags?search=checkout%20v2',
         ],
         [
+            'a list that searches quoted text without its quotes',
+            [chip('feature_flag', 'Feature flag')],
+            '"checkout v2" beta',
+            'View all feature flags',
+            '/feature_flags?search=checkout%20v2%20beta',
+        ],
+        [
             'a fallback page that searches the text',
             [chip('dashboard', 'Dashboard')],
             'revenue',

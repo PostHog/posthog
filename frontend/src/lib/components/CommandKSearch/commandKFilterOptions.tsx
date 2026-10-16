@@ -9,7 +9,7 @@ import { fileSystemTypes } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { FileSystemListQuery, OrganizationMemberType, UserType } from '~/types'
 
-import { FilterOptions, QueryChip, ResolvedQuery, ValueOption, queryAsText } from './commandKQuery'
+import { FilterOptions, QueryChip, ResolvedQuery, ValueOption, queryAsText, tokenize, unquote } from './commandKQuery'
 import type { ViewAll } from './commandKSections'
 
 /** Short words people type for a type, on top of its name and key. */
@@ -101,7 +101,10 @@ const LIST_HREF_FALLBACKS: Record<string, (query: FileSystemListQuery) => string
 
 /** Everything in the query except the type, which the list page already implies. */
 const listQueryFor = (typeChip: QueryChip, { filters, freeText }: ResolvedQuery): FileSystemListQuery => ({
-    search: freeText.trim() || undefined,
+    search:
+        tokenize(freeText)
+            .map((token) => unquote(token.raw))
+            .join(' ') || undefined,
     query:
         queryAsText(
             freeText,

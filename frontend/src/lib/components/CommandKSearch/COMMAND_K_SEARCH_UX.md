@@ -100,7 +100,8 @@ The input is always in exactly one mode, decided from the token under the cursor
 - With an `is:` chip (not negated), **Results** holds a **View all <types>** row (`View all feature flags`) that opens the list page of that type. With no search text it is the first row; once you type a search it moves below the results. It shows only for types with a list page.
   - A list page that reads a search from its URL opens with the rest of the query. The type's `listHref` in its product manifest receives the search text and the full query without the `is:` chip, and builds the URL from them.
   - Feature flags, experiments, cohorts, surveys, insights, and dashboards take the search text as `?search=`. Their own filters take user IDs or exact folders, not Command K's values, so `createdBy:`, `in:`, and `name:` do not carry over.
-  - Workflows takes the full query as `?q=`, filters and `-` negations included (`createdBy:me -in:Growth welcome`).
+  - Quotes that group words in the search text (`"checkout v2"`) are dropped from `?search=`, because the lists match them literally.
+  - Workflows takes the full query as `?q=`, filters and `-` negations included (`createdBy:me -in:Growth welcome`). Only the workflows list v2 reads `q`. Until it ships, the link opens the unfiltered list.
   - Any other type opens its bare list page.
 
 ## Smart filters
