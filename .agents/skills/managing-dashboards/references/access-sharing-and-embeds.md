@@ -5,7 +5,7 @@
 Check both server and client behavior.
 
 - The server is the authority for view, edit, create, delete, move, copy, and refresh actions.
-- Dashboard edit access is governed by RBAC access controls (`UserAccessControl`) rather than a per-dashboard collaborator list.
+- Dashboard edit access is governed by access controls (`UserAccessControl`).
 - Dashboard sharing uses the core `SharingConfigurationViewSet` under `dashboards/<id>/sharing`.
 - Public and embedded callers must not gain mutation rights through an endpoint that the UI hides.
 - A related insight or widget can have stricter access than its dashboard. Preserve its access checks and safe error response.
