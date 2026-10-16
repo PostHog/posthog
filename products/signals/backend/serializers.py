@@ -1945,8 +1945,7 @@ class SignalReportsForYouQuerySerializer(serializers.Serializer):
         default=True,
         help_text=(
             "Whether to include P0 reports that nobody owns. These belong to the project rather than to "
-            "one person, and they rank above everything else, so a surface that only shows a person's own "
-            "work passes false. Defaults to true."
+            "one person, so a surface that only shows a person's own work passes false. Defaults to true."
         ),
     )
 
@@ -1955,12 +1954,10 @@ class SignalReportsForYouResponseSerializer(serializers.Serializer):
     results = SignalReportListSerializer(
         many=True,
         help_text=(
-            "One page of the open, actionable reports that matter most to the current user. The ranking "
-            "model picks which reports make the page; the page is then in display order: by priority, P0 "
-            "first and reports without a priority last, then best first within a priority. They are "
-            "reports waiting for their input, reports they claimed, reports naming them as a reviewer, "
-            "and P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks "
-            "reports the same way."
+            "One page of the open, actionable reports that matter most to the current user, in the order "
+            "of the inbox Recommended sort. They are reports waiting for their input, reports they claimed, "
+            "reports naming them as a reviewer, and P0 reports that nobody owns unless `include_unowned` "
+            "is false. The Today briefing ranks reports the same way."
         ),
     )
     count = serializers.IntegerField(

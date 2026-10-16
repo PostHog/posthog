@@ -118,7 +118,7 @@ from products.signals.backend.billing import (
     refund_ineligibility_reason,
     report_pr_is_merged,
 )
-from products.signals.backend.briefing_reports import open_report_counts, reports_for_briefing
+from products.signals.backend.briefing_reports import open_report_counts, reports_for_person
 from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.facade.api import emit_signal
@@ -1315,7 +1315,7 @@ class SignalReportViewSet(
         if self._needs_priority_annotation():
             qs = self._annotate_signal_report_priority(qs)
             qs = self._apply_signal_report_priority_filter(qs)
-        if self.action == "list":
+        if self.action in {"list", "for_you"}:
             qs = self._annotate_signal_report_ranking(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         if self.action != "bulk_state":
@@ -2030,7 +2030,7 @@ class SignalReportViewSet(
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
-        if self.action != "list":
+        if self.action not in {"list", "for_you"}:
             # A by-ID lookup has nothing to order. More importantly, keeping list ordering here
             # forces every detail request to compute status/priority/reviewer annotations that
             # cannot affect which primary-key row is returned.
@@ -2060,7 +2060,8 @@ class SignalReportViewSet(
     @cached_property
     def _inbox_ranker(self) -> InboxRanker | None:
         params = self.request.query_params
-        if params.get("ordering") is not None or params.get("sort") != "recommended":
+        recommended = params.get("ordering") is None and params.get("sort") == "recommended"
+        if self.action != "for_you" and not recommended:
             return None
         return resolve_recommended_ranker(self.team, cast(User, self.request.user))
 
@@ -2666,8 +2667,8 @@ class SignalReportViewSet(
         summary="List the reports that matter most to the current user",
         description=(
             "One page of the open, actionable reports for the current user, and how many there are in "
-            "total. The ranking picks the page and priority orders it for display. Uses the same ranking and count as the Today briefing, so this is the short "
-            "list to show someone who asks what needs them. Pass `exclude` to leave out reports already "
+            "total, in the order of the inbox Recommended sort. Uses the same ranking and count as the Today "
+            "briefing, so this is the short list to show someone who asks what needs them. Pass `exclude` to leave out reports already "
             "on screen and `offset` to get the next page. Pass `include_unowned=false` to leave out the "
             "P0 reports nobody owns, which belong to the project rather than to this person."
         ),
@@ -2677,19 +2678,12 @@ class SignalReportViewSet(
         user = cast(User, request.user)
         query = request.validated_query_data
         excluded = [str(report_id) for report_id in query["exclude"]]
-        ranked_ids = [
-            report.report_id
-            for report in reports_for_briefing(
-                team_id=self.team_id,
-                user_id=user.id,
-                limit=query["limit"],
-                include_unowned=query["include_unowned"],
-                offset=query["offset"],
-                exclude_report_ids=excluded,
-            )
-        ]
-        by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=ranked_ids)}
-        reports = [by_id[report_id] for report_id in ranked_ids if report_id in by_id]
+        for_person = reports_for_person(self.team_id, user, include_unowned=query["include_unowned"])
+        queryset = (
+            self.filter_queryset(self.get_queryset()).filter(id__in=for_person.values("id")).exclude(id__in=excluded)
+        )
+        offset = query["offset"]
+        reports = list(queryset[offset : offset + query["limit"]])
         counts = open_report_counts(
             team_id=self.team_id, user=user, exclude_report_ids=excluded, include_unowned=query["include_unowned"]
         )
