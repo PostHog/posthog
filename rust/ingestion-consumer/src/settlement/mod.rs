@@ -1,0 +1,80 @@
+//! When accepted offsets reach the ledger and the commit pacer: per poll or per group.
+
+mod group;
+mod poll;
+
+use std::sync::Arc;
+
+use common_kafka_consumer::{Charge, Offset, TopicOffsetLedger, TopicPartition};
+use tracing::warn;
+
+use crate::commit_pacer::CommitPacer;
+use crate::config::CompletionGranularity;
+use crate::order_sentinel::OffsetSpan;
+
+pub(crate) use group::GroupSettlement;
+pub(crate) use poll::PollSettlement;
+
+pub(crate) struct ChargedSlice<'a> {
+    pub(crate) topic_partition: &'a TopicPartition,
+    pub(crate) generation: u64,
+    pub(crate) span: OffsetSpan,
+    pub(crate) charges: &'a [(Offset, Charge)],
+}
+
+pub(crate) trait Settlement: Send + Sync {
+    /// Accepted offsets from one poll's slice of a partition, charged under `generation`.
+    fn settle_run(&self, topic_partition: &TopicPartition, generation: u64, offsets: &[Offset]);
+
+    /// The oldest poll retired with every message accepted.
+    fn settle_poll(&self, slices: &[ChargedSlice<'_>]);
+}
+
+pub(crate) fn for_granularity(
+    granularity: CompletionGranularity,
+    ledger: Arc<TopicOffsetLedger>,
+    pacer: Arc<CommitPacer>,
+) -> Arc<dyn Settlement> {
+    match granularity {
+        CompletionGranularity::Poll => Arc::new(PollSettlement::new(ledger, pacer)),
+        CompletionGranularity::Group => Arc::new(GroupSettlement::new(ledger, pacer)),
+    }
+}
+
+fn hand_over_frontier(
+    ledger: &TopicOffsetLedger,
+    pacer: &CommitPacer,
+    topic_partition: &TopicPartition,
+) -> bool {
+    let Some(taken) = ledger.take_frontier(topic_partition) else {
+        return false;
+    };
+    if taken.gap_offset_count > 0 {
+        warn!(
+            topic = %topic_partition.topic,
+            partition = topic_partition.partition,
+            window_base = taken.first.0,
+            frontier = taken.offset.0,
+            gap_offsets = taken.gap_offset_count,
+            "Commit frontier walked over offsets Kafka never delivered"
+        );
+    }
+    pacer.advance_frontier(topic_partition, taken);
+    true
+}
+
+#[cfg(test)]
+pub(crate) fn charge_offsets(
+    ledger: &TopicOffsetLedger,
+    topic_partition: &TopicPartition,
+    generation: u64,
+    offsets: &[i64],
+) {
+    ledger
+        .charge(
+            topic_partition,
+            generation,
+            offsets.iter().map(|&o| (Offset(o), Charge::ZERO)),
+        )
+        .expect("the test ledger accepts the charge");
+}

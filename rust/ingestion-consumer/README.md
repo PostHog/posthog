@@ -36,7 +36,7 @@ Each frontier the consumer takes goes to the commit pacer (`commit_pacer.rs`), a
 The pacer holds no I/O: the consumer commits what it is given.
 A partition that leaves the assignment drops its pending frontier with its ledger, so a later commit cannot commit under another owner.
 
-`CONSUMER_COMPLETION_GRANULARITY` selects the unit that settles against the ledger.
+`CONSUMER_COMPLETION_GRANULARITY` selects the unit that settles against the ledger; each unit is one implementation of `Settlement` in `src/settlement/`, and the consumer loop is the same for both.
 `poll` (the default) settles a whole poll once every one of its groups is accepted, oldest poll first, and commits its frontiers at once.
 `group` settles each group's offsets as its completion arrives, in any order, so a stalled key holds back only its own partition's commit.
 At `group` granularity the pacer keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS` (default 500 ms).
