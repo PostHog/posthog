@@ -54,6 +54,10 @@ class ExtractionModelBusyError(Exception):
     """The model timed out, was unreachable, or asked the caller to slow down."""
 
 
+class ExtractionModelTimedOutError(ExtractionModelBusyError):
+    """The model did not answer within EXTRACTION_TIMEOUT_SECONDS."""
+
+
 class ExtractionModelRefusedError(Exception):
     def __init__(self, status_code: int) -> None:
         super().__init__(f"model refused the request with status {status_code}")
@@ -114,6 +118,8 @@ def extract_fields(
             if error.status_code == 429 or error.status_code >= 500:
                 raise ExtractionModelBusyError() from error
             raise ExtractionModelRefusedError(error.status_code) from error
+        except anthropic.APITimeoutError as error:
+            raise ExtractionModelTimedOutError() from error
         except anthropic.APIConnectionError as error:
             raise ExtractionModelBusyError() from error
 
@@ -172,6 +178,10 @@ def _read_values(response: Any, fields: list[ExtractionField]) -> dict[str, Extr
         ),
         None,
     )
+    if getattr(response, "stop_reason", None) == "max_tokens":
+        raise ExtractionUnusableError(
+            "The model's answer was cut off before it filled every field. Ask for fewer or shorter fields."
+        )
     if not isinstance(answer, dict):
         raise ExtractionUnusableError("The model did not return the fields. Run the step again.")
     values: dict[str, ExtractedValue] = {}

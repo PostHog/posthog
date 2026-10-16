@@ -49,8 +49,10 @@ def _token(
     )
 
 
-def _tool_reply(values: Any) -> SimpleNamespace:
-    return SimpleNamespace(content=[SimpleNamespace(type="tool_use", name="record_fields", input=values)])
+def _tool_reply(values: Any, stop_reason: str = "tool_use") -> SimpleNamespace:
+    return SimpleNamespace(
+        content=[SimpleNamespace(type="tool_use", name="record_fields", input=values)], stop_reason=stop_reason
+    )
 
 
 def _fake_client(reply: Any = None, error: Exception | None = None) -> MagicMock:
@@ -135,44 +137,44 @@ class TestWorkflowExtractionsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("rate_limited", _status_error(429), status.HTTP_503_SERVICE_UNAVAILABLE),
-            ("gateway_down", _status_error(502), status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("rate_limited", _status_error(429), status.HTTP_503_SERVICE_UNAVAILABLE, "busy or unreachable"),
+            ("gateway_down", _status_error(502), status.HTTP_503_SERVICE_UNAVAILABLE, "busy or unreachable"),
             (
                 "timeout",
                 anthropic.APITimeoutError(request=httpx.Request("POST", "https://gateway.example.com")),
                 status.HTTP_503_SERVICE_UNAVAILABLE,
+                "fewer or shorter fields",
             ),
-            ("refused", _status_error(400), status.HTTP_422_UNPROCESSABLE_ENTITY),
+            ("refused", _status_error(400), status.HTTP_422_UNPROCESSABLE_ENTITY, "refused"),
         ]
     )
     def test_a_model_failure_maps_onto_a_status_the_step_can_retry_or_fail_on(
-        self, _name: str, error: Exception, expected: int
+        self, _name: str, error: Exception, expected: int, reason: str
     ) -> None:
         with patch(_BUILD_CLIENT, return_value=_fake_client(error=error)):
             response = self._post()
 
         assert response.status_code == expected
+        assert reason in response.json()["detail"]
 
     @parameterized.expand(
         [
-            ("spent_by_a_model_call", "model call", status.HTTP_429_TOO_MANY_REQUESTS, 1),
-            ("refunded_when_no_gateway_ran", "no gateway", status.HTTP_200_OK, 2),
+            ("spent_by_a_model_call", "model call", status.HTTP_429_TOO_MANY_REQUESTS),
+            ("refunded_when_no_gateway_ran", "no gateway", status.HTTP_200_OK),
         ]
     )
     def test_charges_the_team_budget_only_for_model_calls(
-        self, _name: str, first_attempt: str, second_status: int, model_clients_built: int
+        self, _name: str, first_attempt: str, second_status: int
     ) -> None:
         reply = _tool_reply({"pr_url": None, "files_changed": 3, "needs_review": True})
-        first = _fake_client(reply) if first_attempt == "model call" else ValueError("AI_GATEWAY_URL is not set")
-        with (
-            patch(_BUDGET, Budget(burst=1, per_hour=1)),
-            patch(_BUILD_CLIENT, side_effect=[first, _fake_client(reply)]) as build_client,
-        ):
+        gateway = _fake_client(reply)
+        first = gateway if first_attempt == "model call" else ValueError("AI_GATEWAY_URL is not set")
+        with patch(_BUDGET, Budget(burst=1, per_hour=1)), patch(_BUILD_CLIENT, side_effect=[first, gateway]):
             self._post()
             response = self._post()
 
         assert response.status_code == second_status, response.json()
-        assert build_client.call_count == model_clients_built
+        assert gateway.with_options.return_value.messages.create.call_count == 1
 
     def test_reports_a_deployment_without_a_gateway(self) -> None:
         with patch(_BUILD_CLIENT, side_effect=ValueError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")):
@@ -182,6 +184,11 @@ class TestWorkflowExtractionsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            (
+                "answer_cut_off_at_the_token_limit",
+                _tool_reply({"pr_url": "https://example.com"}, stop_reason="max_tokens"),
+                "cut off",
+            ),
             (
                 "no_tool_call",
                 SimpleNamespace(content=[SimpleNamespace(type="text", text="pr_url is ...")]),

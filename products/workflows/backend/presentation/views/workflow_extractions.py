@@ -15,12 +15,14 @@ from posthog.models import Team
 from products.cdp.backend.presentation.hog_functions import gated_template_enabled
 from products.tasks.backend.facade.workflow_tasks import get_workflow_task_run_final_message
 from products.workflows.backend.facade.extraction import (
+    EXTRACTION_TIMEOUT_SECONDS,
     MAX_TEXT_VALUE_CHARS,
     ExtractionBudgetExceededError,
     ExtractionField,
     ExtractionFieldType,
     ExtractionModelBusyError,
     ExtractionModelRefusedError,
+    ExtractionModelTimedOutError,
     ExtractionUnavailableError,
     ExtractionUnusableError,
     extract_fields,
@@ -199,6 +201,13 @@ class WorkflowExtractionViewSet(viewsets.GenericViewSet):
             return response
         except ExtractionUnavailableError:
             return _error("The model is not available on this PostHog deployment.", status.HTTP_501_NOT_IMPLEMENTED)
+        except ExtractionModelTimedOutError:
+            logger.warning("workflow_extraction_timed_out", team_id=team.id)
+            return _error(
+                f"The model took longer than {EXTRACTION_TIMEOUT_SECONDS:g} seconds to answer. "
+                "Ask for fewer or shorter fields.",
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except ExtractionModelBusyError:
             logger.warning("workflow_extraction_unreachable", team_id=team.id)
             return _error("The model is busy or unreachable. Retry later.", status.HTTP_503_SERVICE_UNAVAILABLE)
