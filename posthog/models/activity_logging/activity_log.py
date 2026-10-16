@@ -219,10 +219,13 @@ class ActivityLog(UUIDTModel):
             # key-existence family (`?`, `?|`, `?&`) that no query path uses. It also stores no
             # entry for a JSON structure that holds no scalar, so containment against an empty
             # object or array (`detail @> '{"changes": []}'`) falls back to a full index scan.
+            # fastupdate is off: with a pending list, the insert that fills it merges the whole
+            # list into the index inline, and a bulk audit insert then stalls for many seconds.
             GinIndex(
                 name="idx_alog_detail_gin_path_ops",
                 fields=["detail"],
                 opclasses=["jsonb_path_ops"],
+                fastupdate=False,
             ),
             # User-specific filtered queries
             models.Index(
