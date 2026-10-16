@@ -37,9 +37,12 @@ BASE_URL_TEMPLATE = "https://{subdomain}.xmatters.com/api/xm/1"
 SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class XmattersResumeConfig:
-    offset: int
+    # Flat endpoints resume from `offset`; fan-out endpoints round-trip the framework's opaque
+    # per-parent checkpoint through `paginator_state`.
+    offset: int = 0
+    paginator_state: Optional[dict[str, Any]] = None
 
 
 def is_valid_subdomain(subdomain: str) -> bool:
@@ -173,8 +176,20 @@ def _fanout_source(
     client_config: ClientConfig,
     team_id: int,
     job_id: str,
+    resumable_source_manager: ResumableSourceManager[XmattersResumeConfig],
 ) -> SourceResponse:
     assert config.fanout is not None
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = resume.paginator_state
+
+    def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(XmattersResumeConfig(paginator_state=dict(state)))
+
     resource = cast(
         Resource,
         build_dependent_resource(
@@ -189,6 +204,8 @@ def _fanout_source(
             db_incremental_field_last_value=None,
             parent_endpoint_extra={"data_selector": "data"},
             child_endpoint_extra={"data_selector": "data"},
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=initial_paginator_state,
         ),
     )
     if config.name == "group_members":
@@ -230,7 +247,7 @@ def xmatters_source(
     }
 
     if config.fanout is not None:
-        return _fanout_source(config, client_config, team_id, job_id)
+        return _fanout_source(config, client_config, team_id, job_id, resumable_source_manager)
 
     rest_config: RESTAPIConfig = {
         "client": client_config,

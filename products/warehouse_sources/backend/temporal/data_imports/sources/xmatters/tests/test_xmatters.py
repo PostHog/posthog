@@ -211,6 +211,22 @@ class TestFanout:
         if endpoint == "audits":
             assert child_request.param("eventId") == "p-1"
 
+    def test_fanout_saves_per_parent_progress(self) -> None:
+        script = route(
+            {
+                "/groups/g-1/members": [_response([{"group": {"id": "g-1"}, "member": {"id": "m-1"}}])],
+                "/groups/g-2/members": [_response([{"group": {"id": "g-2"}, "member": {"id": "m-2"}}])],
+                "/groups": [_response([{"id": "g-1"}, {"id": "g-2"}])],
+            }
+        )
+        result = _driver().run("group_members", script)
+
+        assert result.raised is None
+        assert result.saved_states
+        state = result.saved_states[-1].paginator_state
+        assert state is not None
+        assert "completed" in state
+
     def test_child_404_for_a_deleted_parent_is_skipped(self) -> None:
         script = route(
             {
