@@ -517,6 +517,7 @@ export interface replayScannerLogicValues {
     isScannerSubmitting: boolean
     isScannerValid: boolean
     linkedExperimentContext: ExperimentScannerContext | null
+    lockedToExperimentScanner: boolean
     observationBackfillFilter: string | null
     observationDateFrom: string | null
     observationDateTo: string | null
@@ -696,8 +697,8 @@ export interface replayScannerLogicActions {
         tagSuggestions: TagSuggestionApi[]
         payload?: any
     }
-    rebuildExperimentContext: () => {
-        value: true
+    rebuildExperimentContext: (linkedExperimentId?: number | null) => {
+        linkedExperimentId: number | null
     }
     refreshObservations: () => {
         value: true
@@ -960,6 +961,10 @@ export interface replayScannerLogicMeta {
             experimentContext: ExperimentScannerContext | null,
             experimentContextLinked: boolean
         ) => ExperimentScannerContext | null
+        lockedToExperimentScanner: (
+            linkedExperimentContext: ExperimentScannerContext | null,
+            scanner: ScannerFormValues
+        ) => boolean
         hasUnsavedChanges: (scanner: ScannerFormValues, originalScanner: ScannerFormValues | null) => boolean
         hasObservationsInFlight: (observationStatsApi: ObservationStatsApi | null) => boolean
         hasActiveObservationFilters: (
@@ -1030,7 +1035,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setExperimentVariant: (variantKey: string | null) => ({ variantKey }),
         setScannerExperiment: (experimentId: number | null) => ({ experimentId }),
         detachExperimentContext: true,
-        rebuildExperimentContext: true,
+        // Pass the experiment the wizard was entered from to restore that link with the context.
+        rebuildExperimentContext: (linkedExperimentId: number | null = null) => ({ linkedExperimentId }),
         saveAffectedCohort: (windowDays: number, qualifier: AffectedCohortQualifier = {}) => ({
             windowDays,
             qualifier,
@@ -1739,6 +1745,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 experimentContextLinked: boolean
             ): ExperimentScannerContext | null => (experimentContextLinked ? experimentContext : null),
         ],
+        // Started from an experiment as an experiment scanner: the experiment fixes the type, so the
+        // wizard offers no other type and no template step.
+        lockedToExperimentScanner: [
+            (s) => [s.linkedExperimentContext, s.scanner],
+            (linkedExperimentContext: ExperimentScannerContext | null, scanner: ScannerFormValues | null): boolean =>
+                !!linkedExperimentContext && scanner?.scanner_type === 'experiment',
+        ],
         hasUnsavedChanges: [
             (s) => [s.scanner, s.originalScanner],
             (scanner: ReplayScanner | null, original: ReplayScanner | null): boolean => {
@@ -1956,7 +1969,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.setScannerDraftSavedAt(null)
                 return
             }
-            const savedAt = writeScannerDraft(teamId, values.scanner)
+            const linkedExperimentId = values.linkedExperimentContext?.experiment.id
+            const savedAt = writeScannerDraft(
+                teamId,
+                values.scanner,
+                typeof linkedExperimentId === 'number' ? linkedExperimentId : null
+            )
             if (savedAt === null) {
                 // A failed write leaves any older draft behind; drop it so it can't resurrect stale edits.
                 clearScannerDraft()
@@ -2133,8 +2151,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             actions.setScannerValues(draft.scanner)
                             actions.setScannerDraftSavedAt(draft.savedAt)
                             // A draft made from an experiment prefill carries targeting the
-                            // loadScannerSuccess above (a bare newScanner) didn't see.
-                            actions.rebuildExperimentContext()
+                            // loadScannerSuccess above (a bare newScanner) didn't see. A draft started
+                            // from an experiment link restores that link, so the wizard stays locked.
+                            actions.rebuildExperimentContext(draft.linkedExperimentId)
                         }
                     } finally {
                         cache.restoringDraft = false
@@ -2193,7 +2212,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             // from. The API hides the experiment from viewers denied it, so this never fetches an
             // experiment the viewer can't see. Fails soft: without the context the scanner still
             // edits normally.
-            rebuildExperimentContext: async () => {
+            rebuildExperimentContext: async ({ linkedExperimentId }) => {
                 const scope = scannerExperimentScope(values.scanner)
                 if (!scope) {
                     // A card left over from earlier targeting would keep offering variants of an
@@ -2223,7 +2242,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // narrows to one variant through the card.
                     const variantKey =
                         values.scanner?.scanner_type === 'experiment' ? null : (current.variants?.[0] ?? null)
-                    actions.setExperimentContext({ experiment, variantKey })
+                    const context = { experiment, variantKey }
+                    if (linkedExperimentId === scope.experimentId) {
+                        actions.linkExperimentContext(context)
+                    } else {
+                        actions.setExperimentContext(context)
+                    }
                 } catch {
                     // The card simply doesn't render; targeting stays intact on the scanner.
                 }
