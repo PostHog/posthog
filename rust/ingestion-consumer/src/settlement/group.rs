@@ -131,6 +131,44 @@ mod tests {
     }
 
     #[test]
+    fn a_frontier_within_the_interval_waits_for_it_unless_everything_is_taken() {
+        let ledger = Arc::new(TopicOffsetLedger::new());
+        let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::from_secs(3600));
+        let p0 = TopicPartition::new("events", 0);
+        charge_offsets(&ledger, &p0, 0, &[10, 11]);
+        let now = Instant::now();
+
+        settlement.settle_run(&p0, 0, &[Offset(10)]);
+        assert_eq!(
+            settlement.take_due(now),
+            Some(HashMap::from([(p0.clone(), Offset(11))]))
+        );
+
+        settlement.settle_run(&p0, 0, &[Offset(11)]);
+        assert!(settlement.take_due(now).is_none());
+        assert_eq!(
+            settlement.take_all(),
+            Some(HashMap::from([(p0, Offset(12))]))
+        );
+    }
+
+    #[test]
+    fn a_revoked_partitions_pending_frontier_is_not_committed() {
+        let ledger = Arc::new(TopicOffsetLedger::new());
+        let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::from_secs(3600));
+        let p0 = TopicPartition::new("events", 0);
+        charge_offsets(&ledger, &p0, 0, &[10]);
+        settlement.settle_run(&p0, 0, &[Offset(10)]);
+        assert!(settlement.take_due(Instant::now()).is_some());
+
+        charge_offsets(&ledger, &p0, 0, &[11]);
+        settlement.settle_run(&p0, 0, &[Offset(11)]);
+        settlement.forget_partitions(&[p0]);
+
+        assert!(settlement.take_all().is_none());
+    }
+
+    #[test]
     fn a_retired_poll_settles_nothing_more() {
         let (ledger, settlement) = settlement();
         let p0 = TopicPartition::new("events", 0);
