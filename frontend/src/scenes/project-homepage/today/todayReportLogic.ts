@@ -21,7 +21,6 @@ import {
     todayReportsPageRetrieve,
 } from 'products/today/frontend/generated/api'
 import type {
-    BriefingItemStateEnumApi,
     CodeFileApi,
     FigureMarkApi,
     FigureTextEnumApi,
@@ -35,13 +34,13 @@ import {
     todayExcerptChoiceCreateBodyFindingMax,
 } from 'products/today/frontend/generated/api.zod'
 
-import { reportItemState } from './todayBriefingItems'
 import { type TodaySignalDestination } from './todayEvidence'
 import { type TodayMarkedFigure, markedFigures, staleEvidenceDate } from './todayFigureSources'
 import { TodayImpactNumber, impactNumbers } from './todayImpact'
 import { type TodayAskSource, todayLogic } from './todayLogic'
 import { reportWorkKind, reportWorkPrompt } from './todayNextStep'
 import { TodayCodeQuote, codeIdentifiers, findCodeQuote } from './todayQuotedCode'
+import { type TodayReportState, reportState } from './todayReportState'
 import { findSampleReport, isSampleReportId } from './todaySampleReports'
 import { todayVerdictLogic } from './todayVerdictLogic'
 
@@ -65,7 +64,7 @@ export interface todayReportLogicValues {
     currentTeamId: number | null // teamLogic
     askingAi: boolean // todayLogic
     reports: SignalReport[] // todayLogic
-    reportStateOverrides: Record<string, BriefingItemStateEnumApi> // todayVerdictLogic
+    reportStateOverrides: Record<string, TodayReportState> // todayVerdictLogic
     asksJev: boolean
     codeQuotes: Record<string, TodayCodeQuoteState>
     composerOpen: boolean
@@ -90,7 +89,7 @@ export interface todayReportLogicValues {
     pageLoading: boolean
     proposal: string
     reportFailed: boolean
-    reportState: BriefingItemStateEnumApi
+    reportState: TodayReportState
     reportUrl: string
     shownEvidence: SignalViewApi[]
     shownFigureMarks: FigureMarkApi[] | null
@@ -262,8 +261,8 @@ export interface todayReportLogicMeta {
         impactNumbers: (currentReport: SignalReport | null, page: ReportPageApi | null) => TodayImpactNumber[]
         reportState: (
             currentReport: SignalReport | null,
-            reportStateOverrides: Record<string, BriefingItemStateEnumApi>
-        ) => BriefingItemStateEnumApi
+            reportStateOverrides: Record<string, TodayReportState>
+        ) => TodayReportState
         isSample: (reportId: string) => boolean
         asksJev: (featureFlags: FeatureFlagsSet, isSample: boolean) => boolean
         proposal: (page: ReportPageApi | null) => string
@@ -453,10 +452,9 @@ export const todayReportLogic = kea<todayReportLogicType>([
             (s) => [s.currentReport, s.reportStateOverrides],
             (
                 currentReport: SignalReport | null,
-                reportStateOverrides: Record<string, BriefingItemStateEnumApi>
-            ): BriefingItemStateEnumApi =>
-                reportStateOverrides[props.reportId] ??
-                (currentReport ? reportItemState(currentReport.status) : 'open'),
+                reportStateOverrides: Record<string, TodayReportState>
+            ): TodayReportState =>
+                reportStateOverrides[props.reportId] ?? (currentReport ? reportState(currentReport.status) : 'open'),
         ],
         isSample: [(_, p) => [p.reportId], (reportId: string): boolean => isSampleReportId(reportId)],
         asksJev: [

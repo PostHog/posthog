@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { healthFindingReason } from './experimentHealthFindingEvents'
 import { HealthFindingActionButton } from './HealthFindingActionButton'
 import type { HealthPanelFinding } from './healthPanelFindings'
 import { useHealthFindingReporting } from './useHealthFindingReporting'
@@ -15,6 +16,8 @@ export function HealthFindingRow({ finding }: { finding: HealthPanelFinding }): 
     const { reportOpened, reportActedOn } = useHealthFindingReporting({
         code: finding.code,
         variant: finding.subcode ?? undefined,
+        severity: finding.severity,
+        reason: healthFindingReason(finding.evidence),
     })
 
     return (

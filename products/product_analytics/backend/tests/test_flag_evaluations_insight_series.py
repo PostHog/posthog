@@ -36,6 +36,8 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_HOGQL_TABLE
+
 from products.product_analytics.backend.facade.queries import (
     FunnelsQueryRunner,
     LifecycleQueryRunner,
@@ -44,7 +46,7 @@ from products.product_analytics.backend.facade.queries import (
     TrendsQueryRunner,
 )
 
-TABLE = "posthog.flag_evaluations"
+TABLE = FLAG_EVALUATIONS_HOGQL_TABLE
 NOW = datetime(2025, 1, 10, 12, 0, tzinfo=UTC)
 DATE_RANGE = DateRange(date_from="2025-01-08", date_to="2025-01-10")
 PROBE_FLAG = DataWarehousePropertyFilter(key="flag_key", operator=PropertyOperator.EXACT, value="probe-flag")
@@ -259,6 +261,14 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
         aggregation_group_type_index: int | None,
         expected: dict[str, list[int]],
     ):
+        # Lifecycle excludes this personless call. Counting it would add a third new user or group on 2025-01-08.
+        _create_flag_evaluations(
+            self.team.pk,
+            "probe-flag",
+            timestamp=datetime(2025, 1, 8, 14, tzinfo=UTC),
+            distinct_id="anonymous",
+            properties={"$process_person_profile": False, "$group_0": "org-c"},
+        )
         query = LifecycleQuery(
             dateRange=DATE_RANGE,
             interval=IntervalType.DAY,

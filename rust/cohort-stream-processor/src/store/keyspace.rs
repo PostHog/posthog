@@ -143,6 +143,31 @@ impl PersonRecordKey {
     }
 }
 
+/// `[partition_id u16][0xFE]` in `cf_person_records`: every image's `delete_partition` removes it
+/// with its slice, and person-record reads are 26-byte point gets that never reach it.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct SliceCoverageKey(pub u16);
+
+const SLICE_COVERAGE_KEY_LEN: usize = 3;
+const SLICE_COVERAGE_KEY_SUFFIX: u8 = 0xFE;
+
+impl SliceCoverageKey {
+    pub fn encode(&self) -> [u8; SLICE_COVERAGE_KEY_LEN] {
+        let [high, low] = self.0.to_be_bytes();
+        [high, low, SLICE_COVERAGE_KEY_SUFFIX]
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, StoreError> {
+        check_len(bytes, SLICE_COVERAGE_KEY_LEN, "slice_coverage")?;
+        if bytes[2] != SLICE_COVERAGE_KEY_SUFFIX {
+            return Err(StoreError::UnknownKey {
+                kind: "slice_coverage",
+            });
+        }
+        Ok(Self(u16::from_be_bytes(array2(&bytes[0..2]))))
+    }
+}
+
 /// `cf_meta` key: a small set of ASCII-literal keys carrying store-wide guards (schema version). Not
 /// partition-prefixed, so it is exempt from partition wipes.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -150,6 +175,12 @@ pub struct MetaKey(pub &'static [u8]);
 
 /// `cf_meta[b"schema_version"]` → the store schema version as a big-endian `u32`.
 pub const META_SCHEMA_VERSION: MetaKey = MetaKey(b"schema_version");
+
+/// Present once the store records slice coverage. The value is empty.
+pub const META_SLICE_COVERAGE: MetaKey = MetaKey(b"slice_coverage");
+
+// `Meta::decode` assumes one key length.
+const _: () = assert!(META_SLICE_COVERAGE.0.len() == META_SCHEMA_VERSION.0.len());
 
 mod sealed {
     /// Sealed so only this module's keyspaces implement [`super::Keyspace`]; downstream code cannot
@@ -193,6 +224,25 @@ impl Keyspace for Behavioral {
     }
 }
 
+/// One coverage record per partition, in `cf_person_records`.
+pub struct SliceCoverages;
+
+impl sealed::Sealed for SliceCoverages {}
+
+impl Keyspace for SliceCoverages {
+    const CF: Cf = Cf::PersonRecords;
+    const PARTITIONED: bool = true;
+    type Key = SliceCoverageKey;
+
+    fn encode(key: &SliceCoverageKey) -> Vec<u8> {
+        key.encode().to_vec()
+    }
+
+    fn decode(bytes: &[u8]) -> Result<SliceCoverageKey, StoreError> {
+        SliceCoverageKey::decode(bytes)
+    }
+}
+
 /// The per-person-record keyspace: one row per person under the 26-byte prefix. Partitioned, so a
 /// partition wipe reclaims it via the shared partition range.
 pub struct PersonRecords;
@@ -233,8 +283,11 @@ impl Keyspace for Meta {
         // `cf_meta` keys are a closed set of literals; match them rather than fabricate a `&'static`
         // from runtime bytes. A wrong length is a length error; a right-length key that matches no
         // literal is an unknown key — conflating the two would report "expected N bytes, got N".
-        if bytes == META_SCHEMA_VERSION.0 {
-            Ok(META_SCHEMA_VERSION)
+        if let Some(key) = [META_SCHEMA_VERSION, META_SLICE_COVERAGE]
+            .into_iter()
+            .find(|key| key.0 == bytes)
+        {
+            Ok(key)
         } else if bytes.len() != META_SCHEMA_VERSION.0.len() {
             Err(StoreError::KeyDecode {
                 kind: "meta",
@@ -452,6 +505,10 @@ mod tests {
         // match `delete_partition` relies on. A drift here would range-delete (or spare) the wrong CF.
         assert_eq!(Behavioral::PARTITIONED, Cf::Behavioral.partitioned());
         assert_eq!(PersonRecords::PARTITIONED, Cf::PersonRecords.partitioned());
+        assert_eq!(
+            SliceCoverages::PARTITIONED,
+            SliceCoverages::CF.partitioned()
+        );
         assert_eq!(Meta::PARTITIONED, Cf::Meta.partitioned());
     }
 
@@ -511,6 +568,10 @@ mod tests {
         assert_eq!(
             Meta::decode(b"schema_version").unwrap(),
             META_SCHEMA_VERSION,
+        );
+        assert_eq!(
+            Meta::decode(b"slice_coverage").unwrap(),
+            META_SLICE_COVERAGE,
         );
         // Wrong length reports the length; a right-length unknown key reports the content — a
         // conflation would claim "expected 14 bytes, got 14" for the latter.

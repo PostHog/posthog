@@ -36,7 +36,10 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
+import {
+    ImpersonationTicketContext,
+    impersonationNoticeLogic,
+} from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import api, { ApiConfig } from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
@@ -81,6 +84,7 @@ import type {
     ChatMessage,
     MessageDeliveryStatus,
     Ticket,
+    TicketChannel,
     TicketPriority,
     TicketStatus,
 } from '../../types'
@@ -135,6 +139,47 @@ function regionFromUrl(url?: string): Region | undefined {
         }
     }
     return undefined
+}
+
+// A verified ticket on these channels holds an attested identity that the admin user search matches:
+// the signed distinct ID of a widget request, or the sender's address. A GitHub ticket holds a GitHub
+// login in distinct_id, which matches no PostHog user.
+const ATTESTED_LOOKUP_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack', 'teams']
+
+export function getImpersonationTicketContext(
+    ticket: Pick<
+        Ticket,
+        | 'id'
+        | 'channel_source'
+        | 'distinct_id'
+        | 'identity_verified'
+        | 'anonymous_traits'
+        | 'email_from'
+        | 'session_context'
+    >
+): ImpersonationTicketContext {
+    // The ticket update API stores traits as any JSON value, so the email trait can be a non-string.
+    const traitEmail = ticket.anonymous_traits?.email
+    // email_from is the customer's address on email tickets, and it's the only
+    // place it lives on tickets whose traits were never populated.
+    const email = (typeof traitEmail === 'string' && traitEmail) || ticket.email_from || ''
+    // An outbound email ticket keeps the recipient's analytics ID in distinct_id. A later authenticated
+    // reply from email_from verifies the ticket, so email_from is the attested identity on email tickets.
+    const attestedIdentity =
+        ticket.channel_source === 'email' ? ticket.email_from || ticket.distinct_id : ticket.distinct_id
+    const verifiedDistinctId =
+        ticket.identity_verified === true && ATTESTED_LOOKUP_CHANNELS.includes(ticket.channel_source)
+            ? attestedIdentity || undefined
+            : undefined
+    return {
+        ticketId: ticket.id,
+        email,
+        region: regionFromUrl(ticket.session_context?.current_url),
+        // The widget form supplies the traits email, so the sender can enter the address of another
+        // account. The email counts as verified only when it is the attested identity.
+        isEmailUnverified: !verifiedDistinctId || email.toLowerCase() !== verifiedDistinctId.toLowerCase(),
+        verifiedDistinctId,
+    }
 }
 
 function createEventsQuery(personId: string, sessionId?: string, ticketCreatedAt?: string): DataTableNode {
@@ -1301,13 +1346,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(ticket)
                 actions.loadMessages()
 
-                impersonationNoticeLogic.findMounted()?.actions.setTicketContext({
-                    ticketId: ticket.id,
-                    // email_from is the customer's address on email tickets, and it's the only
-                    // place it lives on tickets whose traits were never populated.
-                    email: ticket.anonymous_traits?.email || ticket.email_from || '',
-                    region: regionFromUrl(ticket.session_context?.current_url),
-                })
+                impersonationNoticeLogic.findMounted()?.actions.setTicketContext(getImpersonationTicketContext(ticket))
 
                 // Load session context data
                 actions.loadPerson()

@@ -9,13 +9,20 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.alerts.backend.facade.contracts import DestinationBucket, DestinationEligibility, DestinationHoldBack
+from products.alerts.backend.facade.contracts import (
+    INSIGHT_ALERT_EVENT_IDS,
+    DestinationBucket,
+    DestinationEligibility,
+    DestinationHoldBack,
+)
 from products.alerts.backend.facade.destinations import (
     bucket_for,
     classify_alert_destinations,
     unbound_alert_destinations,
 )
 from products.alerts.backend.logic.destination_bucket_report import bucketed_destinations
+from products.alerts.backend.logic.insight_alert_destinations import build_insight_alert_slack_config
+from products.alerts_platform.backend.facade.contracts import AlertDestinationData, DestinationType
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 
@@ -31,6 +38,11 @@ PAGERDUTY_INPUTS: dict[str, Any] = {
     "routing_key": {"value": "not-a-real-key"},
     "severity": {"value": "critical"},
     "region": {"value": "us"},
+}
+INSIGHT_SLACK_DATA: AlertDestinationData = {
+    "type": DestinationType.SLACK,
+    "slack_workspace_id": 1,
+    "slack_channel_id": "C-1",
 }
 SLACK_INPUTS: dict[str, Any] = {
     "slack_workspace": {"value": 1},
@@ -341,6 +353,55 @@ class TestDestinationEligibility(APIBaseTest):
             (ALERT_ID, bound.id, DestinationBucket.STOCK),
         ]
         assert [d.alert_id for d in report] == [None, None, ALERT_ID, other_alert]
+
+    @parameterized.expand(
+        [
+            ("stock_blocks", {}, False, ()),
+            ("text_edited_before_the_first_save", {"text": "Look at this"}, True, (DestinationHoldBack.MESSAGE,)),
+            ("text_edited_with_no_revision", {"text": "Look at this"}, False, (DestinationHoldBack.MESSAGE,)),
+            ("an_emptied_text", {"text": ""}, False, ()),
+            (
+                "stock_text_rendered_as_liquid",
+                {"text": {"value": "Alert triggered: {event.properties.insight_name}", "templating": "liquid"}},
+                False,
+                (DestinationHoldBack.MESSAGE,),
+            ),
+            (
+                "an_agent_chosen_emoji",
+                {"icon_emoji": ":rotating_light:"},
+                True,
+                (DestinationHoldBack.MESSAGE_COSMETIC,),
+            ),
+        ]
+    )
+    def test_an_insight_destination_is_compared_with_the_shipped_defaults(
+        self, _name: str, changes: dict[str, Any], revised: bool, expected: tuple[DestinationHoldBack, ...]
+    ) -> None:
+        (event,) = INSIGHT_ALERT_EVENT_IDS
+        stock = build_insight_alert_slack_config(
+            alert_id=ALERT_ID,
+            alert_name="API errors",
+            data=INSIGHT_SLACK_DATA,
+        ).payload
+        function = self._function(
+            "template-slack",
+            {
+                **stock["inputs"],
+                **{key: value if isinstance(value, dict) else {"value": value} for key, value in changes.items()},
+            },
+        )
+        HogFunction.objects.filter(pk=function.pk).update(filters=stock["filters"])
+        if revised:
+            function.refresh_from_db()
+            self._edited(function)
+
+        (eligibility,) = classify_alert_destinations(team_id=self.team.id, alert_id=ALERT_ID, allowed_event_ids=[event])
+        assert eligibility.hold_backs == expected
+
+    def test_a_logs_destination_is_not_compared_with_insight_defaults(self) -> None:
+        self._function("template-slack", _with(SLACK_INPUTS, "text", "Look at this"))
+
+        assert self._classify() == ()
 
 
 class TestBucketFor(SimpleTestCase):

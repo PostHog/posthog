@@ -9,6 +9,7 @@ from posthog.schema import AlertCondition, InsightThreshold, IntervalType, NodeK
 
 from posthog.api.services.query import ExecutionMode
 from posthog.dataclasses import frozen
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.hogql_queries.validation.validate_query import rule_violation_message
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
@@ -84,6 +85,10 @@ def run_extractor(
     that is itself sound (see ``build_failure_exception`` in
     ``posthog/hogql_queries/query_failure_handling.py``), and disabling on it would silence a
     working alert over a load problem, so it keeps the ordinary failure path.
+
+    A SQL insight that ClickHouse rejects with a user-safe error, such as a column type mismatch,
+    gets the same verdict: the owner wrote the query, and it fails the same way until they fix it.
+    Other kinds keep the ordinary path, because PostHog builds their SQL and the error can be a bug.
     """
     try:
         return extractor.extract(alert, insight, query, execution_mode)
@@ -91,6 +96,10 @@ def run_extractor(
         if getattr(err, "served_from_query_failure_cache", False):
             raise
         raise AlertExtractionError(rule_violation_message(err)) from err
+    except ExposedCHQueryError as err:
+        if isinstance(err, CH_TRANSIENT_ERRORS) or get_from_dict_or_attr(query, "kind") != NodeKind.HOG_QL_QUERY:
+            raise
+        raise AlertExtractionError(str(err)) from err
 
 
 def check_detector_alert(
@@ -205,13 +214,20 @@ def _one_series(result: ExtractionResult, series: ComparableSeries) -> Extractio
 
 @frozen
 class SeriesEvaluation:
+    # What per-series state is keyed on. `label` is for display, and two series can share one.
+    identity: str
     label: str
     result: AlertEvaluationResult
 
 
-def check_alert_per_series(
-    alert: AlertConfiguration,
-) -> tuple[SeriesEvaluation, ...] | AlertEvaluationResult:
+@frozen
+class PerSeriesEvaluation:
+    series: tuple[SeriesEvaluation, ...]
+    # The breakdown limit folded some values into "Other", so a value not in `series` may still breach.
+    truncated: bool = False
+
+
+def check_alert_per_series(alert: AlertConfiguration) -> PerSeriesEvaluation | AlertEvaluationResult:
     """Each series' own verdict for a threshold alert, rather than one verdict for the insight.
 
     `check_alert_for_insight` stops at the first series that breaches, because one alert holds one
@@ -227,16 +243,25 @@ def check_alert_per_series(
     except DelayedEvaluationUnavailable as err:
         return AlertEvaluationResult(value=None, breaches=[], skipped_reason=str(err))
     if extracted is None:
-        return ()
-    return tuple(
-        SeriesEvaluation(
-            label=series.label,
-            result=describe_delayed_evaluation(
-                evaluate_threshold(_one_series(extracted.result, series), extracted.condition, extracted.threshold),
-                extracted.result,
-            ),
-        )
-        for series in extracted.result.series
+        return PerSeriesEvaluation(series=())
+    result = extracted.result
+    if result.is_breakdown and result.empty_query_result:
+        # The extractor stands in a zero series for a query with no rows. A breakdown with no rows
+        # has no values, so that series is not a breakdown value and must not become a group.
+        return PerSeriesEvaluation(series=())
+    return PerSeriesEvaluation(
+        series=tuple(
+            SeriesEvaluation(
+                identity=series.identity or series.label,
+                label=series.label,
+                result=describe_delayed_evaluation(
+                    evaluate_threshold(_one_series(result, series), extracted.condition, extracted.threshold),
+                    result,
+                ),
+            )
+            for series in result.series
+        ),
+        truncated=result.truncated,
     )
 
 
