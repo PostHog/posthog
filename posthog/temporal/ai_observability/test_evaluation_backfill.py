@@ -15,7 +15,13 @@ import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.client import WorkflowFailureError
 from temporalio.common import WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, ApplicationError, CancelledError, WorkflowAlreadyStartedError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    CancelledError,
+    ChildWorkflowError,
+    WorkflowAlreadyStartedError,
+)
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from temporalio.workflow import ParentClosePolicy
@@ -87,7 +93,19 @@ class _BackfillMocks:
         self.active_at_advance: list[int] = []
         self.activity_calls: list[tuple] = []
         self.sleep = AsyncMock()
+        self.waits: list[tuple[timedelta, bool]] = []
+        self.waiting = False
         self.child_calls: list[dict] = []
+
+    async def wait_condition(self, fn, *, timeout: timedelta) -> None:
+        self.waiting = True
+        for _ in range(100):
+            if fn():
+                self.waits.append((timeout, True))
+                return
+            await asyncio.sleep(0)
+        self.waits.append((timeout, False))
+        raise TimeoutError
 
     async def execute_activity(self, activity_fn, activity_input, **_) -> object:
         self.activity_calls.append((activity_fn, activity_input))
@@ -166,6 +184,7 @@ async def _run(mocks: _BackfillMocks, inputs: EvaluationBackfillInputs | None = 
         patch("temporalio.workflow.start_child_workflow", side_effect=mocks.start_child_workflow),
         patch("temporalio.workflow.continue_as_new") as continue_as_new,
         patch("temporalio.workflow.sleep", new=mocks.sleep),
+        patch("temporalio.workflow.wait_condition", new=mocks.wait_condition),
         patch("temporalio.workflow.patched", return_value=bounded),
     ):
         await EvaluationBackfillWorkflow().run(inputs or _inputs())
@@ -369,7 +388,21 @@ class TestEvaluationBackfillWorkflow:
         )
 
     @pytest.mark.asyncio
-    async def test_bounded_dispatch_records_execution_failures_and_skips(self) -> None:
+    @pytest.mark.parametrize("cancelled_run", [False, True])
+    async def test_bounded_dispatch_records_execution_failures_and_skips(self, cancelled_run: bool) -> None:
+        failure: Exception = RuntimeError("worker unavailable")
+        if cancelled_run:
+            failure = ChildWorkflowError(
+                "Child workflow cancelled",
+                namespace="default",
+                workflow_id="llma-hog-eval-E-u1-ingestion",
+                run_id="run",
+                workflow_type="run-evaluation",
+                initiated_event_id=1,
+                started_event_id=2,
+                retry_state=None,
+            )
+            failure.__cause__ = CancelledError("cancelled")
         mocks = _BackfillMocks(
             activity_results={
                 prepare_evaluation_backfill_tick_activity: _tick(),
@@ -378,7 +411,7 @@ class TestEvaluationBackfillWorkflow:
                 ),
             },
             child_results_for_ids={
-                "llma-hog-eval-E-u1-ingestion": RuntimeError("worker unavailable"),
+                "llma-hog-eval-E-u1-ingestion": failure,
                 "llma-hog-eval-E-u2-ingestion": {
                     "evaluation_id": "E",
                     "evaluation_type": "hog",
@@ -490,7 +523,7 @@ class TestEvaluationBackfillWorkflow:
                 "skip_reason": "key_invalid",
             }
         units = [_candidate(f"u{i}") for i in range(70)]
-        inputs, advances, sleeps = _inputs(), [], []
+        inputs, advances, sleeps, waits = _inputs(), [], [], []
         for first in range(0, len(units), page_size):
             mocks = _BackfillMocks(
                 activity_results={
@@ -504,6 +537,7 @@ class TestEvaluationBackfillWorkflow:
             continue_as_new = await _run(mocks, inputs, bounded=True)
             advances.append(_advance_input(mocks))
             sleeps += [call.args[0] for call in mocks.sleep.call_args_list]
+            waits += [timeout for timeout, _ in mocks.waits]
             if not continue_as_new.called:
                 break
             assert sleeps.pop() == BACKFILL_TICK_INTERVAL
@@ -511,10 +545,37 @@ class TestEvaluationBackfillWorkflow:
 
         advance = advances[-1]
         assert sum(page.dispatched_delta for page in advances) == started
-        assert sleeps == pauses
+        assert sleeps == []
+        assert waits == pauses
         assert advance.stop_reason == stop_reason
         assert advance.exhausted == (stop_reason is None)
         assert (advance.new_cursor_timestamp is None) == (stop_reason is not None)
+
+    @pytest.mark.asyncio
+    async def test_a_stop_during_a_pause_ends_the_pause(self) -> None:
+        disabling = asyncio.get_running_loop().create_future()
+        results: dict[str, WorkflowResult | Exception | asyncio.Future] = {
+            f"llma-hog-eval-E-u{i}-ingestion": RuntimeError("judge unavailable") for i in range(1, 20)
+        }
+        results["llma-hog-eval-E-u0-ingestion"] = disabling
+        mocks = _BackfillMocks(
+            activity_results={
+                prepare_evaluation_backfill_tick_activity: _tick(max_in_flight=2),
+                find_evaluation_backfill_candidates_activity: _found([_candidate(f"u{i}") for i in range(20)]),
+            },
+            child_results_for_ids=results,
+        )
+        run = asyncio.create_task(_run(mocks, bounded=True))
+        while not mocks.waiting:
+            await asyncio.sleep(0)
+
+        disabling.set_result(
+            {"evaluation_id": "E", "evaluation_type": "hog", "skipped": True, "skip_reason": "key_invalid"}
+        )
+        await run
+
+        assert mocks.waits == [(BACKFILL_FAILURE_PAUSES[0], True)]
+        assert _advance_input(mocks).stop_reason == "evaluation_disabled"
 
     @pytest.mark.asyncio
     async def test_finished_tick_returns_without_dispatch(self) -> None:
@@ -1150,8 +1211,8 @@ class TestEvaluationBackfillActivities:
         assert row.completed_count is None
         assert row.remaining_count is None
 
-    @pytest.mark.parametrize("cancelled,dispatched", [(False, 0), (True, 1)])
-    def test_advance_loses_to_concurrent_cancel(self, backfill_data, cancelled: bool, dispatched: int) -> None:
+    @pytest.mark.parametrize("cancelled", [False, True])
+    def test_advance_after_a_cancel_counts_the_page_once(self, backfill_data, cancelled: bool) -> None:
         _update_backfill(backfill_data, status=EvaluationBackfillStatus.CANCELLED)
         advance = dataclasses.replace(_advance(backfill_data), cancelled=cancelled)
 
@@ -1161,7 +1222,7 @@ class TestEvaluationBackfillActivities:
         assert first.finished and second.finished
         backfill_data["backfill"].refresh_from_db()
         assert backfill_data["backfill"].status == EvaluationBackfillStatus.CANCELLED
-        assert backfill_data["backfill"].dispatched_count == dispatched
+        assert backfill_data["backfill"].dispatched_count == 1
 
 
 @temporalio.workflow.defn(name="run-evaluation")
