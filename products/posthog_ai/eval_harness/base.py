@@ -5,9 +5,11 @@ import time
 import uuid
 import asyncio
 import logging
+import traceback
 from collections.abc import Callable, Sequence
 from contextlib import suppress
 from dataclasses import replace
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -37,9 +39,10 @@ from .harness.retries import infrastructure_retry_delay
 from .harness.trial_stats import trial_stats
 from .log_parser import describe_tool_use
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
+from .offline_results import OfflineEvalPublisher, OfflineEvalSettings, OfflineEvalSuite, OfflineUploadError
 from .runner import AgentNeverRanError, EvalCaseResult, agent_never_ran, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
-from .trace_events import RunMetadata, emit_evaluation_events, emit_trace_events, emit_trace_root
+from .trace_events import RunMetadata, emit_trace_events, emit_trace_root
 
 if TYPE_CHECKING:
     from .harness.context import EvalContext
@@ -151,8 +154,7 @@ class _BaseEvalRun:
     """
 
     trace_namespace = "evals"
-    """How this run labels itself in PostHog: the experiment-name prefix on every emitted
-    event, and the `$ai_eval_source` on evaluation events. Subclasses set it per run kind."""
+    """Experiment-name prefix on PostHog trace events. Subclasses set it per run kind."""
 
     def __init__(
         self,
@@ -163,12 +165,16 @@ class _BaseEvalRun:
         is_public: bool,
         no_send_logs: bool,
         engine: EvalEngine | None = None,
+        offline_suite: OfflineEvalSuite | None = None,
     ) -> None:
         self.experiment_name = experiment_name
         self.cases = cases
         self.ctx = ctx
         self.is_public = is_public
         self.no_send_logs = no_send_logs
+        self.offline_suite = offline_suite
+        self.offline_publisher: OfflineEvalPublisher | None = None
+        self.started_at = datetime.now(UTC)
         # The execution/reporting backend, resolved once per run and shared via
         # ctx.engine; an explicit engine (in tests) overrides it.
         self.engine = engine or ctx.engine
@@ -258,6 +264,7 @@ class _BaseEvalRun:
         )
         status: Literal["ok", "timeout", "error"] = "ok"
         error_type: str | None = None
+        error_detail: str | None = None
         cancelled = False
         try:
             return await self._execute_case(input, hooks)
@@ -271,7 +278,8 @@ class _BaseEvalRun:
                 output["stderr"] = str(error)
             if poll_timeout := hooks.metadata.get("poll_timeout"):
                 output["poll_timeout"] = poll_timeout
-            logger.warning("Eval case '%s' timed out: %s", case_name, output.get("stderr") or output.get("error"))
+            error_detail = str(output.get("stderr") or output.get("error") or "")
+            logger.warning("Eval case '%s' timed out: %s", case_name, error_detail)
             try:
                 write_case_logs(
                     case_dir=self.run_log_dir,
@@ -291,6 +299,7 @@ class _BaseEvalRun:
             raise
         except Exception as error:
             error_type = type(error).__name__
+            error_detail = "".join(traceback.format_exception(error)).rstrip()
             # Infra failure (provisioning, demo copy, setup hook, poll). Re-raise so
             # Braintrust records the case as errored and excludes it from score
             # averages, instead of scoring the task 0 for the harness's fault.
@@ -309,6 +318,7 @@ class _BaseEvalRun:
                     status=status,
                     trial_id=hooks.metadata["trial_id"],
                     error_type=error_type,
+                    error_detail=error_detail,
                 )
 
     async def _set_case_phase(self, hooks: CaseHooks | None, phase: CasePhase) -> None:
@@ -316,7 +326,7 @@ class _BaseEvalRun:
             await self.ctx.reporter.case_phase(trial_id, phase)
 
     async def _finalize(self, result: ExperimentResult) -> None:
-        """Append scores to local summaries, emit PostHog evaluation/trace-root
+        """Append scores to local summaries, emit PostHog trace-root
         events, and hand the summary to the reporter — after scoring completes."""
         # Append final scores to local summary files for every case we wrote.
         if result.results:
@@ -334,23 +344,6 @@ class _BaseEvalRun:
                     )
                 except Exception:
                     logger.exception("Failed to append scores to local log summary for '%s'", case_name)
-
-        evaluation_client = self.ctx.posthog_evaluation_client
-        if not self.no_send_logs and evaluation_client is not None and result.results:
-            try:
-                emit_evaluation_events(
-                    evaluation_client,
-                    self.experiment_id,
-                    self.experiment_name,
-                    result.results,
-                    namespace=self.trace_namespace,
-                    scorer_traces=self.scorer_traces,
-                    run_metadata=self._experiment_metadata(),
-                )
-                await asyncio.to_thread(evaluation_client.flush)
-                await self.ctx.reporter.record_posthog_evaluations_url(self.experiment_name, self.experiment_id)
-            except Exception:
-                logger.exception("Failed to emit evaluation events for '%s'", self.experiment_name)
 
         # Emit trace roots to PostHog (after scoring)
         if self.posthog_client and result.results:
@@ -398,6 +391,40 @@ class _BaseEvalRun:
         if os.getenv("EXPORT_EVAL_RESULTS"):
             self._export_case_results(result)
 
+        await self._enqueue_offline_upload(result)
+
+    async def _enqueue_offline_upload(self, result: ExperimentResult) -> None:
+        if self.offline_publisher is None or self.no_send_logs:
+            return
+        try:
+            upload = await asyncio.to_thread(
+                self.offline_publisher.prepare,
+                experiment_id=self.experiment_id,
+                experiment_name=self.experiment_name,
+                started_at=self.started_at,
+                result=result,
+                metadata=self._experiment_metadata(),
+            )
+        except Exception as error:
+            detail = str(error) if isinstance(error, OfflineUploadError) else type(error).__name__
+            await self.ctx.reporter.record_posthog_offline_result(
+                self.experiment_name, f"upload preparation failed: {detail}"
+            )
+            return
+
+        delivery = self.ctx.offline_delivery
+        if delivery is None:
+            await self.ctx.reporter.record_posthog_offline_result(
+                self.experiment_name,
+                "upload failed: background delivery is unavailable. Results were not saved for retry.",
+            )
+            return
+        await self.ctx.reporter.record_posthog_offline_result(self.experiment_name, "upload queued")
+        if not delivery.submit(self.offline_publisher, upload):
+            await self.ctx.reporter.record_posthog_offline_result(
+                self.experiment_name, "upload failed: upload queue is full or closed. Results were not saved for retry."
+            )
+
     def _export_case_results(self, result: ExperimentResult) -> None:
         """Write one JSONL row per case x trial to the run's local log dir.
 
@@ -444,6 +471,27 @@ class _BaseEvalRun:
     async def run(self) -> ExperimentResult:
         eval_cases = self._build_eval_cases()
 
+        if self.offline_suite is not None and not self.no_send_logs:
+            try:
+                settings = OfflineEvalSettings.from_env(self.offline_suite)
+                if settings is not None:
+                    self.offline_publisher = OfflineEvalPublisher(
+                        settings,
+                        self.offline_suite,
+                        application_trace_ids_enabled=(
+                            self.posthog_client is not None
+                            and not self.posthog_client.disabled
+                            and settings.host == self.ctx.posthog_trace_host
+                            and settings.project_id == self.ctx.posthog_trace_project_id
+                        ),
+                    )
+                else:
+                    await self.ctx.reporter.record_posthog_offline_result(
+                        self.experiment_name, "disabled: set POSTHOG_OFFLINE_EVAL_* to enable uploads"
+                    )
+            except OfflineUploadError as error:
+                await self.ctx.reporter.record_posthog_offline_result(self.experiment_name, f"disabled: {error}")
+
         # Register the case total (post-filter, times trials) so the reporter can
         # append a per-experiment progress counter to each case line.
         planned_cases = len(eval_cases) * self.ctx.trials
@@ -463,6 +511,7 @@ class _BaseEvalRun:
                     # runs; the metadata is what lets an engine filter or compare by them.
                     metadata=self._experiment_metadata(),
                     on_results=self._report_results,
+                    record_scorer_results=self.offline_publisher is not None,
                 )
             )
             await self._report_results(result)
@@ -557,6 +606,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
         ctx: EvalContext,
         is_public: bool,
         no_send_logs: bool,
+        offline_suite: OfflineEvalSuite | None = None,
     ) -> None:
         if any(isinstance(scorer, ExitCodeZero) for scorer in scorers):
             raise ValueError("ExitCodeZero is added by the sandboxed eval harness; remove it from scorers")
@@ -567,6 +617,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
             ctx=ctx,
             is_public=is_public,
             no_send_logs=no_send_logs,
+            offline_suite=offline_suite,
         )
         # Narrow the infra-backed optionals once: they are None only when the
         # harness didn't boot sandbox infrastructure for this run.
@@ -642,6 +693,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     total_attempts=self.ctx.infrastructure_retries + 1,
                     delay_seconds=delay,
                     error_type=error_type,
+                    trial_id=hooks.metadata.get("trial_id") if hooks is not None else None,
                 )
                 await asyncio.sleep(delay)
         raise AssertionError("unreachable")
@@ -811,6 +863,7 @@ async def SandboxedEval(
     ctx: EvalContext,
     is_public: bool = False,
     no_send_logs: bool = True,
+    offline_suite: OfflineEvalSuite | None = None,
 ) -> ExperimentResult:
     """Run a sandboxed agent evaluation suite via Braintrust.
 
@@ -834,6 +887,7 @@ async def SandboxedEval(
         ctx=ctx,
         is_public=is_public,
         no_send_logs=no_send_logs,
+        offline_suite=offline_suite,
     )
     return await run.run()
 

@@ -42,6 +42,7 @@ const WORKFLOW_SCENE_TABS = [
     'opt-outs',
     'suppression',
     'reputation',
+    'settings',
     'onboarding',
 ] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
@@ -66,6 +67,7 @@ export interface workflowsSceneLogicActions {
             | 'onboarding'
             | 'opt-outs'
             | 'reputation'
+            | 'settings'
             | 'suppression'
             | 'templates'
             | 'workflows'
@@ -83,6 +85,7 @@ export interface workflowsSceneLogicMeta {
                 | 'onboarding'
                 | 'opt-outs'
                 | 'reputation'
+                | 'settings'
                 | 'suppression'
                 | 'templates'
                 | 'workflows'

@@ -39,8 +39,6 @@ from rest_framework.settings import api_settings
 
 from posthog.schema import ProductKey
 
-from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
-
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -154,6 +152,7 @@ from products.feature_flags.backend.models.evaluation_context import normalize_c
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
+from products.feature_flags.backend.reserved_variant_keys import is_reserved_variant_key
 from products.feature_flags.backend.session_recording_links import (
     REPLAY_GATE_DELETE_ERROR,
     ReplayFlagGates,
@@ -933,29 +932,26 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
 
 
-def _reserved_variant_key(filters: dict) -> str | None:
-    """The first `multivariate.variants[].key` that is a sentinel the ingest cleaner stores a variant named "false" or
-    "true" under, if any.
+def _variant_keys(filters: Mapping[str, Any]) -> Iterator[str]:
+    multivariate = filters.get("multivariate")
+    if not isinstance(multivariate, dict):
+        return
+    variants = multivariate.get("variants")
+    if not isinstance(variants, list):
+        return
+    for variant in variants:
+        if isinstance(variant, dict) and isinstance(variant.get("key"), str):
+            yield variant["key"]
+
+
+def _reserved_variant_key(filters: dict, *, stored: Mapping[str, Any]) -> str | None:
+    """The first `multivariate.variants[].key` in `filters` that a write may not store over `stored`, if any.
 
     Checked on the raw request shape ahead of every validation tier, so the rejection does not depend on the #50084
     rollout switch.
     """
-    multivariate = filters.get("multivariate")
-    if not isinstance(multivariate, dict):
-        return None
-    variants = multivariate.get("variants")
-    if not isinstance(variants, list):
-        return None
-    return next(
-        (
-            variant["key"]
-            for variant in variants
-            if isinstance(variant, dict)
-            and isinstance(variant.get("key"), str)
-            and variant["key"] in FEATURE_FLAG_VARIANT_SENTINELS
-        ),
-        None,
-    )
+    held = set(_variant_keys(stored))
+    return next((key for key in _variant_keys(filters) if is_reserved_variant_key(key, held=held)), None)
 
 
 def _filters_rule_is_enforced(rule_id: str | None) -> bool:
@@ -2015,7 +2011,8 @@ class FeatureFlagSerializer(
                 raise self._v2_validation_error(exc) from exc
 
     def _validate_filters_inner(self, filters, operation: str):
-        reserved_variant_key = _reserved_variant_key(filters)
+        stored_filters = (self.instance.filters or {}) if self.instance is not None else {}
+        reserved_variant_key = _reserved_variant_key(filters, stored=stored_filters)
         if reserved_variant_key is not None:
             raise serializers.ValidationError(
                 f"The variant key {reserved_variant_key} is reserved. Choose another key.",

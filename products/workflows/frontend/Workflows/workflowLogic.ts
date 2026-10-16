@@ -594,6 +594,7 @@ export interface workflowLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'replay_vision_scan'
                                                         | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
@@ -833,6 +834,9 @@ export interface workflowLogicActions {
                         }
                       | {
                             config:
+                                | {
+                                      type: 'api'
+                                  }
                                 | {
                                       type: 'schedule'
                                   }
@@ -1115,6 +1119,9 @@ export interface workflowLogicActions {
                   team_id: number
                   trigger?:
                       | {
+                            type: 'api'
+                        }
+                      | {
                             type: 'schedule'
                         }
                       | {
@@ -1260,6 +1267,7 @@ export interface workflowLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'replay_vision_scan'
                                 | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
@@ -1469,6 +1477,7 @@ export interface workflowLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'replay_vision_scan'
                                                         | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
@@ -1708,6 +1717,9 @@ export interface workflowLogicActions {
                         }
                       | {
                             config:
+                                | {
+                                      type: 'api'
+                                  }
                                 | {
                                       type: 'schedule'
                                   }
@@ -1990,6 +2002,9 @@ export interface workflowLogicActions {
                   team_id: number
                   trigger?:
                       | {
+                            type: 'api'
+                        }
+                      | {
                             type: 'schedule'
                         }
                       | {
@@ -2135,6 +2150,7 @@ export interface workflowLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'replay_vision_scan'
                                 | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
@@ -2181,6 +2197,9 @@ export interface workflowLogicActions {
               }
             | {
                   reason?: string | undefined
+              }
+            | {
+                  type: 'api'
               }
             | {
                   type: 'schedule'
@@ -2326,6 +2345,7 @@ export interface workflowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'replay_vision_scan'
                                           | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
@@ -2579,6 +2599,9 @@ export interface workflowLogicActions {
                   reason?: string | undefined
               }
             | {
+                  type: 'api'
+              }
+            | {
                   type: 'schedule'
               }
             | {
@@ -2722,6 +2745,7 @@ export interface workflowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'replay_vision_scan'
                                           | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
@@ -2995,6 +3019,9 @@ export interface workflowLogicMeta {
             triggerAction:
                 | ({
                       config:
+                          | {
+                                type: 'api'
+                            }
                           | {
                                 type: 'schedule'
                             }

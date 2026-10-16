@@ -52,6 +52,8 @@ SUPPORTED_ACTION_TYPES: Final[list[str]] = [
 TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
     {
         "event",
+        # A transactional email: one authenticated API call runs the workflow once.
+        "api",
         "schedule",
         "manual",
         "batch",
