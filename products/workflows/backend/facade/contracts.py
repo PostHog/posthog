@@ -51,6 +51,18 @@ class WorkflowActivitySummary:
 
 
 @frozen
+class OwnedWorkflowHealth:
+    """A live workflow one person created: its runs over the last 7 days and what waits on its owner."""
+
+    workflow_id: UUID
+    name: str
+    succeeded: int
+    failed: int
+    email_sending_paused: bool
+    pending_suggestions: int
+
+
+@frozen
 class WorkflowTaskDailyLimits:
     """A team's daily caps on tasks created by workflows. None means the default cap applies."""
 
@@ -486,6 +498,29 @@ class WorkflowRef:
     variables: list[dict[str, Any]] | None
     # Read from the published steps, not the draft.
     has_email_step: bool
+
+
+@frozen
+class TransactionalEmailContent:
+    """What a transactional email's workflow sends, taken from the message template it was made from."""
+
+    message_template_id: UUID
+    name: str
+    subject: str
+    preheader: str
+    html: str
+    text: str
+    # None uses the project's default sender on create, and keeps the workflow's sender on update.
+    from_integration_id: int | None
+    message_category_id: UUID | None
+
+
+class TransactionalEmailSenderUnavailable(Exception):
+    """No verified email sender: neither the requested one nor the project's default."""
+
+
+class TransactionalEmailContentInvalid(Exception):
+    """The content has no subject or no body, so the workflow could not send it."""
 
 
 class WorkflowNotFound(Exception):

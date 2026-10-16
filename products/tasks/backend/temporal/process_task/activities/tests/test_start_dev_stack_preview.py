@@ -57,6 +57,7 @@ def _sandbox(
         return ExecutionResult(stdout="", stderr="", exit_code=launch_exit_code)
 
     sandbox.execute.side_effect = _execute
+    sandbox.execute_in_task_filesystem.side_effect = _execute
     mocker.patch(f"{MODULE}.Sandbox.get_by_id", return_value=sandbox)
     return sandbox
 
@@ -192,7 +193,7 @@ def test_start_launches_the_stack_against_the_minted_preview_host(task_context, 
     sandbox.create_preview_connect_credentials.assert_called_once()
     assert sandbox.create_preview_connect_credentials.call_args.kwargs["port"] == DEV_STACK_PREVIEW_PORT
     assert sandbox.write_file.call_args.args[0] == "/tmp/start-dev-stack-preview.sh"
-    launch_command = sandbox.execute.call_args.args[0]
+    launch_command = sandbox.execute_in_task_filesystem.call_args.args[0]
     assert launch_command.startswith("/usr/bin/env -i ")
     assert "HOME=/root" in launch_command
     assert "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin" in launch_command

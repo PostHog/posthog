@@ -18,6 +18,9 @@ class MessageTemplate(UUIDTModel):
     content = models.JSONField(default=dict)
     type = models.CharField(max_length=24, blank=True, default="email")
     deleted = models.BooleanField(default=False)
+    # Set once the template is made transactional: the workflow the send API runs for it. A plain id,
+    # because the workflow lives in the workflows product.
+    transactional_hog_flow_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_messagetemplate"
