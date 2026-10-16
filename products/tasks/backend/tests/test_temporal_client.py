@@ -195,6 +195,12 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0].kwargs["properties"]["error_type"], "workflow_start_failed")
+        dispatch = next(
+            c.kwargs["properties"]
+            for c in mock_capture.call_args_list
+            if c.args and c.args[0] == "task_startup_step_completed" and c.kwargs["properties"]["step"] == "dispatch"
+        )
+        self.assertEqual(dispatch["status"], "FAILED")
 
     @parameterized.expand([("sync",), ("async",)])
     def test_does_not_overwrite_run_that_already_started(self, executor: str) -> None:

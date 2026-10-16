@@ -200,6 +200,13 @@ impl TestContext {
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
         sqlx::query(&format!(
             "DELETE FROM {} WHERE team_id = $1",
+            self.tables.person_publish_outbox
+        ))
+        .bind(self.team_id as i32)
+        .execute(&self.pool)
+        .await?;
+        sqlx::query(&format!(
+            "DELETE FROM {} WHERE team_id = $1",
             self.tables.lifecycle_op
         ))
         .bind(self.team_id as i32)

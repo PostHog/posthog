@@ -827,6 +827,11 @@ class TestFileDownloadHogQL:
                 id="events-model-missing-intervals",
             ),
             pytest.param(
+                {"hogql_modifiers": {"useNewEventsCluster": True}},
+                "synchronous query API",
+                id="native-cluster-modifier",
+            ),
+            pytest.param(
                 {"model": "events", "hogql_query": None, "hogql_modifiers": {"convertToProjectTimezone": False}},
                 "'hogql_modifiers' are only supported when 'model' is 'hogql'",
                 id="modifiers-with-events-model",
@@ -1250,6 +1255,15 @@ class TestFileDownloadHogQL:
                 },
                 "Extra inputs are not permitted",
                 id="unknown-modifier",
+            ),
+            pytest.param(
+                {
+                    "model": "hogql",
+                    "hogql_query": "SELECT event AS event FROM events",
+                    "hogql_modifiers": {"useNewEventsCluster": True},
+                },
+                "synchronous query API",
+                id="native-cluster-modifier",
             ),
         ],
     )

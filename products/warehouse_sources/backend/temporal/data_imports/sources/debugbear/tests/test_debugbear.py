@@ -279,6 +279,13 @@ class TestIterRumMetricsForProject:
         assert list(_iter_rum_metrics_for_project(session, {}, {}, since=None)) == []
         session.get.assert_not_called()
 
+    def test_400_response_raises_a_stable_non_retryable_message(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response({}, status_code=400)
+
+        with pytest.raises(HTTPError, match="DebugBear rejected the RUM metrics request"):
+            list(_iter_rum_metrics_for_project(session, {}, {"id": "p1"}, since=None))
+
 
 class TestIterRumPageViewsForProject:
     def test_incremental_passes_the_watermark_as_from(self) -> None:
