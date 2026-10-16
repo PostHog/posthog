@@ -28,11 +28,19 @@ from posthog.permissions import posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG, MetricFilter
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp
-from products.metrics.backend.hogql_queries.metrics_query_runner import metrics_query_date_range
 from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _QUERY_SETTINGS, _interval_step
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
+from products.metrics.backend.variables import (
+    filter_referenced_names,
+    from_dashboard,
+    from_query,
+    substitute_filters,
+    to_query,
+    unresolved_message,
+)
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -101,6 +109,9 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             else:
                 interval = _INTERVAL_LADDER[-1][0]
 
+        substitution = substitute_filters(self.query.filters, from_query(self.query.variables))
+        if substitution.unresolved:
+            raise ExposedHogQLError(unresolved_message(substitution.unresolved))
         filters = tuple(
             MetricFilter(
                 key=f.key,
@@ -108,7 +119,7 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
                 value=f.value,
                 scope=AttributeScope(f.scope.value) if f.scope is not None else AttributeScope.AUTO,
             )
-            for f in self.query.filters or []
+            for f in substitution.filters
         )
 
         try:
@@ -210,3 +221,9 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             )
         if dashboard_filter.metricFilters:
             self.query.filters = [*(self.query.filters or []), *dashboard_filter.metricFilters]
+        if dashboard_filter.metricVariables:
+            # The values go into the query, so each selection has its own cache entry and reaches the async worker.
+            self.query.variables = (
+                to_query(from_dashboard(dashboard_filter.metricVariables), filter_referenced_names(self.query.filters))
+                or None
+            )

@@ -13,6 +13,8 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     GoalLine,
+    MetricsDashboardVariable,
+    MetricsDashboardVariableSelection,
     MetricsDisplaySettings,
     MetricsQuery,
     MetricsQueryClause,
@@ -71,6 +73,28 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert (request.date_to - request.date_from) == dt.timedelta(hours=1)
 
     @time_machine.travel("2026-09-19T12:00:00Z", tick=False)
+    def test_dashboard_label_filters_can_use_dashboard_variables(self) -> None:
+        runner = MetricsQueryRunner(
+            query=MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")]),
+            team=self.team,
+        )
+
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricFilters=[MetricsQueryFilter(key="job", op="eq", value="$job")],
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="job",
+                        source="custom",
+                        customValues=["api"],
+                        current=MetricsDashboardVariableSelection(values=["api"]),
+                    )
+                ],
+            )
+        )
+
+        assert runner.query.variables is not None and runner.query.variables["job"].values == ["api"]
+
     def test_default_date_range_is_last_24_hours(self) -> None:
         query = MetricsQuery(
             clauses=[MetricsQueryClause(name="a", metricName="http_requests_total", aggregation="sum")]
