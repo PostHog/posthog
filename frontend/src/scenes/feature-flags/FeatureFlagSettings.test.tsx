@@ -28,7 +28,7 @@ describe('<FlagsSecureApiKeys />', () => {
         render(<FlagsSecureApiKeys />)
 
         expect(screen.getByText('Create a project secret API key')).toBeInTheDocument()
-        expect(screen.queryByText('Primary Key', { exact: false })).not.toBeInTheDocument()
+        expect(screen.queryByText(/keeps working/)).not.toBeInTheDocument()
     })
 
     it('never renders the plaintext key for teams that still have one', () => {
@@ -41,6 +41,7 @@ describe('<FlagsSecureApiKeys />', () => {
         render(<FlagsSecureApiKeys />)
 
         expect(screen.getByText('Create a project secret API key')).toBeInTheDocument()
+        expect(screen.getByText(/keeps working/)).toBeInTheDocument()
         expect(screen.queryByText('phs_legacy_primary_token_value', { exact: false })).not.toBeInTheDocument()
         expect(screen.queryByText('phs_legacy_backup_token_value', { exact: false })).not.toBeInTheDocument()
     })

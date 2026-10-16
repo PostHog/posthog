@@ -43,7 +43,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey, create_project_secret_api_key_for_token
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -849,7 +849,7 @@ def team_api_test_factory():
             )
             self.assertEqual(mirrored, {hash_key_value(current_primary), hash_key_value(current_backup)})
 
-            # Deleting the backup from an instance that predates both rotations must not
+            # Deleting the backup from an instance that missed the second rotation must not
             # write its stale primary back over the current token.
             first.delete_secret_token_backup_and_save(user=self.user, is_impersonated_session=False)
             updated = Team.objects.get(pk=self.team.pk)
@@ -3894,6 +3894,97 @@ class TestChangeOrganizationConcurrency(TransactionTestCase):
         org_b_departure = ActivityLog.objects.get(organization_id=self.org_b.id, scope="Project", team_id=None)
         assert org_b_departure.detail is not None
         assert org_b_departure.detail["changes"][0]["before"] == str(self.org_b.id)
+
+
+class TestRotateSecretTokenConcurrency(TransactionTestCase):
+    """Two rotations of the same team must serialize on the team row lock.
+
+    Without it, both read the same primary before either commits; the second save
+    overwrites the first rotation's token while that token's mirror row keeps
+    authenticating, referenced by no column.
+    """
+
+    LOCK_WAIT_TIMEOUT = 15
+
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Rotation org")
+        # A previous failed run can leave this user behind: the test database survives between runs.
+        User.objects.filter(email="rotator@example.com").delete()
+        self.user = User.objects.create_and_join(
+            organization=self.organization, email="rotator@example.com", password=None
+        )
+        self.project, self.team = Project.objects.create_with_team(
+            name="Concurrent rotation", organization=self.organization, initiating_user=self.user
+        )
+        self.team.secret_api_token = "phs_initial_primary_token_value"
+        self.team.save()
+
+    def _rotate(self, errors: list) -> None:
+        try:
+            Team.objects.get(pk=self.team.pk).rotate_secret_token_and_save(
+                user=self.user, is_impersonated_session=False
+            )
+        except Exception as error:
+            errors.append(error)
+        finally:
+            from django.db import connections
+
+            connections.close_all()
+
+    def test_concurrent_rotations_serialize_on_the_team_lock(self):
+        errors: list[Exception] = []
+        counter_lock = threading.Lock()
+        select_calls = [0]
+        mint_calls = [0]
+        first_rotation_locked = threading.Event()
+        second_rotation_at_lock = threading.Event()
+        release_first_rotation = threading.Event()
+
+        real_select_for_update = Team.objects.select_for_update
+
+        def traced_select_for_update(*args: Any, **kwargs: Any):
+            with counter_lock:
+                select_calls[0] += 1
+                call_number = select_calls[0]
+            if call_number == 2:
+                # The second rotation's get() is about to block on the row lock.
+                second_rotation_at_lock.set()
+            return real_select_for_update(*args, **kwargs)
+
+        def traced_mint(team_id: int, token: str) -> None:
+            create_project_secret_api_key_for_token(team_id, token)
+            with counter_lock:
+                mint_calls[0] += 1
+                call_number = mint_calls[0]
+            if call_number == 1:
+                # Hold the first rotation's transaction open until the second reaches
+                # the lock, so both reads provably overlap.
+                first_rotation_locked.set()
+                if not release_first_rotation.wait(self.LOCK_WAIT_TIMEOUT):
+                    errors.append(AssertionError("Second rotation never reached the team lock"))
+
+        with (
+            patch.object(Team.objects, "select_for_update", traced_select_for_update),
+            patch("posthog.models.team.team.create_project_secret_api_key_for_token", traced_mint),
+        ):
+            first = threading.Thread(target=self._rotate, args=(errors,))
+            first.start()
+            assert first_rotation_locked.wait(self.LOCK_WAIT_TIMEOUT), "First rotation never acquired the team lock"
+
+            second = threading.Thread(target=self._rotate, args=(errors,))
+            second.start()
+            assert second_rotation_at_lock.wait(self.LOCK_WAIT_TIMEOUT), "Second rotation never reached the team lock"
+
+            release_first_rotation.set()
+            first.join(self.LOCK_WAIT_TIMEOUT)
+            second.join(self.LOCK_WAIT_TIMEOUT)
+
+        assert errors == []
+        updated = Team.objects.get(pk=self.team.pk)
+        assert updated.secret_api_token is not None and updated.secret_api_token_backup is not None
+        # Exactly the final primary and backup: no orphaned row keeps authenticating.
+        mirrored = set(ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("secure_value", flat=True))
+        assert mirrored == {hash_key_value(updated.secret_api_token), hash_key_value(updated.secret_api_token_backup)}
 
 
 class TestTeamSerializerHomeViewWins(APIBaseTest):

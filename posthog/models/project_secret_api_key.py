@@ -112,13 +112,10 @@ def create_project_secret_api_key_for_token(team_id: int, token: str) -> None:
     """With the legacy verifiers off, a legacy token only authenticates through its PSAK
     mirror row — so the rotation that mints a token must mint its row too (#63111)."""
     secure_value = hash_key_value(token)
-    label = MIRRORED_LEGACY_TOKEN_LABEL
-    if ProjectSecretAPIKey.objects.filter(team_id=team_id, label=label).exists():
-        # (team, label) is unique and the backup's migrated row keeps the plain label.
-        label = f"{label} {secure_value[-8:]}"
     ProjectSecretAPIKey.objects.create(
         team_id=team_id,
-        label=label,
+        # Suffixed unconditionally: (team, label) is unique and the backfill's row keeps the plain label.
+        label=f"{MIRRORED_LEGACY_TOKEN_LABEL} {secure_value[-8:]}",
         mask_value=mask_key_value(token),
         secure_value=secure_value,
         scopes=MIRRORED_LEGACY_TOKEN_SCOPES,

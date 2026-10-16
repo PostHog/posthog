@@ -1158,13 +1158,10 @@ class Team(UUIDTClassicModel):
     def delete_secret_token_backup_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
-        if not self.secret_api_token_backup:
-            # Nothing to delete.
-            return
-
         try:
             with transaction.atomic():
                 # A rotation racing this delete rewrites the backup column, so read under lock.
+                # No in-memory precheck: this instance may predate a rotation that set the backup.
                 locked = Team.objects.select_for_update(no_key=True).get(pk=self.pk)
                 old_backup_token = locked.secret_api_token_backup
                 if not old_backup_token:
