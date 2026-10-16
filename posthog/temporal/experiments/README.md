@@ -104,9 +104,17 @@ The timeseries workflows keep one schedule per hour, because each runs its own m
 can outlive its hour. This one starts other workflows and returns, so a single schedule with a
 `SKIP` overlap policy covers it.
 
-It skips an experiment whose recalculation is already running, or whose last one finished within
-the hour. That freshness check ignores `timeseries_sync` rows, which carry a timeseries run's
-window rather than a full recalculation.
+Discovery skips an experiment before its exposure query when:
+
+- its recalculation is already running,
+- its last one finished within the hour on a recent window,
+- no release condition of its flag has a rollout above 0%,
+- it has no metric that the recalculation computes, inline or saved.
+
+The freshness check ignores `timeseries_sync` rows, which carry a timeseries run's window rather
+than a full recalculation. Discovery reads these with a fixed number of queries for the whole hour,
+and sends the skipped event for each experiment it drops. The start step checks the running and
+recent rules again, to catch a run that started after discovery.
 
 The coordinator never waits for the runs it starts. Each run's outcome lands on its own
 `ExperimentMetricsRecalculation` row, and the `experiment scheduled recalculation started` and

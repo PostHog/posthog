@@ -5,6 +5,7 @@ import time
 import uuid
 import asyncio
 import logging
+import traceback
 from collections.abc import Callable, Sequence
 from contextlib import suppress
 from dataclasses import replace
@@ -258,6 +259,7 @@ class _BaseEvalRun:
         )
         status: Literal["ok", "timeout", "error"] = "ok"
         error_type: str | None = None
+        error_detail: str | None = None
         cancelled = False
         try:
             return await self._execute_case(input, hooks)
@@ -271,7 +273,8 @@ class _BaseEvalRun:
                 output["stderr"] = str(error)
             if poll_timeout := hooks.metadata.get("poll_timeout"):
                 output["poll_timeout"] = poll_timeout
-            logger.warning("Eval case '%s' timed out: %s", case_name, output.get("stderr") or output.get("error"))
+            error_detail = str(output.get("stderr") or output.get("error") or "")
+            logger.warning("Eval case '%s' timed out: %s", case_name, error_detail)
             try:
                 write_case_logs(
                     case_dir=self.run_log_dir,
@@ -291,6 +294,7 @@ class _BaseEvalRun:
             raise
         except Exception as error:
             error_type = type(error).__name__
+            error_detail = "".join(traceback.format_exception(error)).rstrip()
             # Infra failure (provisioning, demo copy, setup hook, poll). Re-raise so
             # Braintrust records the case as errored and excludes it from score
             # averages, instead of scoring the task 0 for the harness's fault.
@@ -309,6 +313,7 @@ class _BaseEvalRun:
                     status=status,
                     trial_id=hooks.metadata["trial_id"],
                     error_type=error_type,
+                    error_detail=error_detail,
                 )
 
     async def _set_case_phase(self, hooks: CaseHooks | None, phase: CasePhase) -> None:
@@ -642,6 +647,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     total_attempts=self.ctx.infrastructure_retries + 1,
                     delay_seconds=delay,
                     error_type=error_type,
+                    trial_id=hooks.metadata.get("trial_id") if hooks is not None else None,
                 )
                 await asyncio.sleep(delay)
         raise AssertionError("unreachable")
