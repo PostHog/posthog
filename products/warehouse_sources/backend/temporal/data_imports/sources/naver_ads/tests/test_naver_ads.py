@@ -202,27 +202,6 @@ def test_a_first_sync_starts_on_the_kst_day_of_the_recorded_history_start() -> N
     assert (window.start, window.end) == (date(2025, 10, 15), date(2026, 10, 15))
 
 
-def test_stats_rows_without_delivery_are_dropped() -> None:
-    def respond(request: RecordedRequest) -> ScriptedResponse:
-        if request.path == "/ncc/campaigns":
-            return ok([{"nccCampaignId": "cmp-1"}, {"nccCampaignId": "cmp-2"}])
-        return ok(
-            {
-                "data": [
-                    {"id": "cmp-1", "impCnt": 0, "clkCnt": 0, "salesAmt": 0, "ccnt": 0},
-                    {"id": "cmp-2", "impCnt": 0, "clkCnt": 0, "salesAmt": 0, "ccnt": 2},
-                ]
-            }
-        )
-
-    result = driver().run(
-        "campaign_stats", respond, incremental_field="date", db_incremental_field_last_value=date(2026, 10, 15)
-    )
-
-    assert result.raised is None
-    assert [row["id"] for row in result.rows] == ["cmp-2"]
-
-
 def test_stats_chunk_ids_and_resume_after_the_last_written_id(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(naver_ads_module, "STATS_IDS_PER_REQUEST", 2)
     requests_per_day: dict[str, list[list[str]]] = {}

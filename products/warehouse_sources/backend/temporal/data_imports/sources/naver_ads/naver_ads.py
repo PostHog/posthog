@@ -195,12 +195,8 @@ def fetch_stats(client: RESTClient, ids: list[str], day: date) -> Rows:
         data_selector="data",
         data_selector_required=True,
     ):
-        # An entity with no delivery that day comes back with every metric at zero, which adds a billed row and no data.
-        rows.extend(
-            {**row, "date": day}
-            for row in page
-            if isinstance(row, dict) and row.get("id") and any(row.get(field) for field in STAT_FIELDS)
-        )
+        # Zero-metric rows are kept: a restated day can drop to zero, and the watermark advances only on rows written.
+        rows.extend({**row, "date": day} for row in page if isinstance(row, dict) and row.get("id"))
     return rows
 
 
