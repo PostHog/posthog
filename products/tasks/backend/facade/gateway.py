@@ -10,6 +10,31 @@ if TYPE_CHECKING:
     from posthog.llm.gateway_client import AIGatewayConfig
 
 
+def mint_trial_gateway_token(
+    *,
+    team_id: int,
+    funding: dict[str, str | int],
+    cap_usd: str,
+    model: str,
+    gateway_config: "AIGatewayConfig",
+) -> str:
+    from products.tasks.backend.temporal.process_task.ai_gateway_token import (
+        mint_scoped_token,  # noqa: PLC0415 -- Temporal imports this facade
+    )
+
+    token = mint_scoped_token(
+        ai_product="signals",
+        team_id=team_id,
+        trial_funding=funding,
+        cap_usd=cap_usd,
+        allowed_models=[model],
+        gateway_config=gateway_config,
+    )
+    if token is None:
+        raise GatewayNotConfiguredError("AI gateway did not acknowledge trial funding")
+    return token
+
+
 def mint_private_gateway_token(
     *,
     team_id: int,

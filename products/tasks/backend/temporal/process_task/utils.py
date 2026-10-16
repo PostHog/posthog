@@ -4,8 +4,10 @@ import re
 import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional
+from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -1444,6 +1446,51 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
+    from products.signals.backend.facade.trial import start_task_trial  # noqa: PLC0415 -- Signals depends on Tasks
+
+    funding = (
+        start_task_trial(team=task.team, run_id=UUID(str(ctx.run_id)))
+        if (ctx.state or {}).get("self_driving_funding")
+        else None
+    )
+    if funding is not None:
+        gateway_url = settings.SANDBOX_AI_GATEWAY_URL
+        if not gateway_url or ctx.task_runtime == "pi":
+            raise GatewayNotConfiguredError("Free trial work requires accounted AI gateway execution")
+        if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
+            raise GatewayNotConfiguredError("Free trial work requires the AI gateway")
+        ai_product = resolve_sandbox_ai_product(
+            ctx.origin_product, (ctx.state or {}).get("ai_stage"), internal=task.internal
+        )
+        cap = str(
+            Decimal(funding.estimated_microusd - settings.SELF_DRIVING_TRIAL_COMPUTE_RESERVATION_MICROUSD) / 1_000_000
+        )
+        token = mint_scoped_token(
+            ai_product=ai_product,
+            team_id=ctx.team_id,
+            user=ctx.distinct_id,
+            trial_funding=funding.as_pin(),
+            cap_usd=cap,
+            capture_mode="none" if task.is_scout_experiment is True else None,
+        )
+        if token is None:
+            raise GatewayNotConfiguredError("AI gateway did not acknowledge trial funding")
+        try:
+            if not _record_pinned_gateway_product(ctx.run_id, ctx.state, ai_product):
+                raise GatewayNotConfiguredError("Trial gateway routing changed after admission")
+            record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=True)
+        except Exception:
+            revoke_private_gateway_token(token)
+            raise
+        return {
+            "LLM_GATEWAY_URL": "",
+            "AI_GATEWAY_URL": gateway_url,
+            "AI_GATEWAY_PRODUCTS": ai_product,
+            "AI_GATEWAY_TOKEN": token,
+            "AI_GATEWAY_TOKEN_CAP_USD": cap,
+            "AI_GATEWAY_PRODUCT": ai_product,
+            "AI_GATEWAY_AI_STAGE": (ctx.state or {}).get("ai_stage") or "scout",
+        }
     if task.is_scout_experiment is True:
         ensure_scout_trial_capture_ready()
         if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):

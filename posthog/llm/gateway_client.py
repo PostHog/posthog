@@ -476,6 +476,7 @@ def build_async_anthropic_client(
     use_bedrock_fallback: bool = False,
     trace_id: str | None = None,
     properties: Mapping[str, str] | None = None,
+    gateway_config: AIGatewayConfig | None = None,
 ) -> AsyncAnthropic:
     """Return a raw Anthropic client routed through the internal Go ai-gateway when configured,
     else the Python LLM gateway via :func:`get_async_anthropic_gateway_client`.
@@ -497,7 +498,7 @@ def build_async_anthropic_client(
     ``trace_id`` and custom ``properties``; otherwise the trace falls back to :func:`team_trace_id`.
     The Python-gateway fallback receives the same trace and properties through its native headers.
     """
-    gateway = resolve_ai_gateway_config()
+    gateway = gateway_config or resolve_ai_gateway_config()
     labels = dict(properties or {})
     labels.update(
         {

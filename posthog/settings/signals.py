@@ -5,6 +5,21 @@ from posthog.settings.utils import get_list, get_set
 
 SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE = os.getenv("SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", "false").lower() == "true"
 
+# Deploy the billing and gateway funding contracts before allowing claims.
+SELF_DRIVING_TRIAL_V2_BILLING_READY = os.getenv("SELF_DRIVING_TRIAL_V2_BILLING_READY", "false").lower() == "true"
+
+# Holds include token usage and compute; the sandbox token is capped below this hold.
+SELF_DRIVING_TRIAL_RESERVATIONS_MICROUSD = {
+    "scout": 1_000_000,
+    "short": 250_000,
+    "research": 3_000_000,
+    "report_pass": 250_000,
+    "repo_selection": 1_000_000,
+    "generation": 1_000_000,
+    "implementation": 5_000_000,
+}
+SELF_DRIVING_TRIAL_COMPUTE_RESERVATION_MICROUSD = 500_000
+
 # Signs the per-delivery map of already-rendered chart assets that scout Slack delivery keeps in the
 # shared Redis, so a process able to write that Redis cannot swap in another asset id. Dedicated and
 # rotatable rather than SECRET_KEY, which is fleet-wide and backs session/CSRF signing: give this

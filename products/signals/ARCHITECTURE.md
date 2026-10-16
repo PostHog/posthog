@@ -1599,6 +1599,7 @@ Promotion-stage events keep the billing discipline of firing only when the signa
 ### Self-driving free trial
 
 A third pause with the same shape, on the implementation side only: while the `self-driving-free-trial` flag is on for an org (org-keyed, toggled by sales per trial), Self-driving still researches and writes reports but opens no pull requests.
+A project that has claimed the one-time trial replaces this restriction while `self-driving-free-tier-v2` is enabled. Its implementation requests follow the one-time funding policy and existing opt-ins; unclaimed projects retain the legacy restriction.
 Billing happens only when a PR opens, so nothing is billed, and the exemption and refund machinery in `billing.py` is not involved.
 Implemented in `backend/free_trial.py`, a sibling of `quota.py` with the same fail-open posture: a flag-read error counts as "not on trial", because a flag outage must not stop every org's PRs.
 
@@ -1611,7 +1612,7 @@ Implemented in `backend/free_trial.py`, a sibling of `quota.py` with the same fa
 The research-side gates are not involved: a trial org is meant to get every report.
 The block is blanket, so billing-exempt reports (health checks) are held back too.
 Discuss stays open: a Discuss run can still open a PR, and billing never counts it, because billing only counts implementation records. That is an accepted risk of a sales trial.
-The inbox reads the same flag and keeps Create PR visible but disabled (detail pane, triage view, card context menu) with the sentence the refusal carries (`FREE_TRIAL_PR_MESSAGE`); the desktop app gets the server refusal only.
+The inbox reads the effective restriction from the backend trial status and keeps Create PR visible but disabled (detail pane, triage view, card context menu) with the sentence the refusal carries (`FREE_TRIAL_PR_MESSAGE`); the desktop app gets the server refusal only.
 A run that is already in flight when the flag goes on is not stopped, because there is no mid-run check like the quota gate's; it can still open its PR.
 Resume is organic, like the other pauses: nothing restarts when the flag goes off; a held-back report gets its PR on the next auto-start re-evaluation, or by hand.
 

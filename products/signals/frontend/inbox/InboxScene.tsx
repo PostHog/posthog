@@ -22,6 +22,7 @@ import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBanner'
 import { InboxWelcome } from './components/onboarding/InboxWelcome'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
+import { SelfDrivingTrialBanner } from './components/SelfDrivingTrialBanner'
 import { InboxListViewLegacy } from './components/shell/InboxListViewLegacy'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { InboxValueSummary } from './components/shell/InboxValueSummary'
@@ -294,6 +295,7 @@ export function InboxScene(): JSX.Element {
                 />
 
                 <div className="flex flex-col -mx-4 -mt-4 flex-1 min-h-0">
+                    <SelfDrivingTrialBanner />
                     {/* The inbox always renders (its own list skeleton covers loading). When self-driving
                         isn't set up, the list view itself swaps in the welcome page; the banner sits
                         above the otherwise-normal inbox when there's already work to keep. */}

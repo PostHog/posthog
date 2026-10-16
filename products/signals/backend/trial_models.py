@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models.functions import Coalesce
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
@@ -73,8 +74,17 @@ class SignalTrialOperation(TeamScopedRootMixin, UUIDModel):
     cancelled_at = models.DateTimeField(null=True)
     gateway_mint_attempts = models.PositiveIntegerField(default=0)
     last_reconciled_at = models.DateTimeField(null=True)
+    next_reconcile_at = models.DateTimeField(null=True)
 
     class Meta:
+        indexes = [
+            models.Index(
+                Coalesce("next_reconcile_at", "admitted_at"),
+                "admitted_at",
+                condition=models.Q(funding="trial"),
+                name="signals_trial_reconcile_due",
+            ),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["team_id", "operation_key"], name="signals_trial_operation_identity"),
         ]

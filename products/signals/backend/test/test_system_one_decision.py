@@ -46,6 +46,15 @@ from products.signals.backend.temporal.safety_filter import SafetyFilterJudgeRes
 
 
 @pytest.fixture(autouse=True)
+def existing_funding_policy():
+    with (
+        patch("products.signals.backend.trial_llm_execution.TrialLLMExecution.prepare", return_value=None),
+        patch("products.signals.backend.system_one_decision.requires_trial_accounting", return_value=False),
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def reset_jev_budget() -> Iterator[MagicMock]:
     TEST_reset_scripts()
     with (

@@ -12,6 +12,16 @@ from products.signals.backend.temporal import llm
 from products.signals.backend.temporal.llm import call_llm
 from products.signals.eval.llm_gen.client import CanonicalSignal, CanonicalSignalBatch, generate_canonical_signals
 
+
+@pytest.fixture(autouse=True)
+def existing_funding_policy():
+    with (
+        patch("products.signals.backend.trial_llm_execution.TrialLLMExecution.prepare", return_value=None),
+        patch("products.signals.backend.system_one_decision.requires_trial_accounting", return_value=False),
+    ):
+        yield
+
+
 MODULE_PATH = "products.signals.backend.temporal.llm"
 
 

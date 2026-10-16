@@ -1,6 +1,6 @@
 import os
 from collections.abc import Callable, Mapping
-from typing import Final, Literal, Optional, TypedDict, TypeVar
+from typing import TYPE_CHECKING, Final, Literal, Optional, TypedDict, TypeVar
 
 from django.conf import settings
 
@@ -14,9 +14,13 @@ from posthog.llm.gateway_client import (
     get_async_anthropic_gateway_client,
     resolve_ai_gateway_config,
 )
+from posthog.sync import database_sync_to_async
 
 from products.signals.backend.llm_spend import generate_with_spend
 from products.signals.backend.temporal import metrics
+
+if TYPE_CHECKING:
+    from products.signals.backend.trial_llm_execution import TrialLLMExecution
 
 logger = structlog.get_logger(__name__)
 
@@ -161,7 +165,51 @@ async def call_llm(
     properties: Mapping[str, str] | None = None,
     signal_id: str | None = None,
 ) -> T:
+    from products.signals.backend.trial_llm_execution import (
+        trial_llm_execution,  # noqa: PLC0415 -- trial accounting imports the Tasks facade and Temporal
+    )
+
+    async with trial_llm_execution(team_id=team_id, model=model or MATCHING_MODEL) as trial:
+        return await _call_llm(
+            team_id=team_id,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            validate=validate,
+            thinking=thinking,
+            temperature=temperature,
+            retries=retries,
+            stage=stage,
+            ai_product=ai_product,
+            model=model,
+            cache_system_prompt=cache_system_prompt,
+            trace_id=trace_id,
+            properties=properties,
+            signal_id=signal_id,
+            trial=trial,
+        )
+
+
+async def _call_llm(
+    *,
+    team_id: int | None,
+    system_prompt: str,
+    user_prompt: str,
+    validate: Callable[[str], T],
+    thinking: bool,
+    temperature: float | None,
+    retries: int,
+    stage: str | None,
+    ai_product: str | None,
+    model: str | None,
+    cache_system_prompt: bool,
+    trace_id: str | None,
+    properties: Mapping[str, str] | None,
+    signal_id: str | None,
+    trial: "TrialLLMExecution | None",
+) -> T:
     model = model or MATCHING_MODEL
+    if trial is not None:
+        ai_product = "signals"
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
     capabilities = get_model_capabilities(model)
     thinking = thinking and capabilities.thinking != "none"
@@ -180,6 +228,7 @@ async def call_llm(
             use_bedrock_fallback=True,
             trace_id=trace_id,
             properties=properties,
+            gateway_config=trial.gateway if trial else None,
         )
     else:
         client = get_async_anthropic_gateway_client(product="signals", team_id=team_id, use_bedrock_fallback=True)
@@ -231,9 +280,14 @@ async def call_llm(
             create_kwargs["thinking"] = {"type": "adaptive"}
             create_kwargs.pop("temperature", None)
 
+    if trial is not None:
+        client = client.with_options(max_retries=0)
+
     last_exception: Exception | None = None
     stage_label = stage or "unknown"
     for attempt in range(retries):
+        if trial is not None:
+            await database_sync_to_async(trial.before_request)()
         # NOTE - we explicitly don't want to retry if we fail to call the llm, or fail to extract text content,
         # only if we fail to validate the response. A transport/extraction failure is a hot-path LLM error.
         try:
@@ -242,8 +296,12 @@ async def call_llm(
                 generation, gateway=gateway, team_id=team_id, signal_id=signal_id, stage=stage_label
             )
             response = priced.response
+            if trial is not None:
+                await database_sync_to_async(trial.record_request)(getattr(response, "_request_id", None))
             text_content = _extract_text_content(response)
-        except Exception:
+        except Exception as error:
+            if trial is not None:
+                await database_sync_to_async(trial.record_request)(getattr(error, "request_id", None))
             metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
             raise
         text_content = _strip_markdown_json_fences(text_content)

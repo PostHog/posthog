@@ -38,6 +38,16 @@ from products.signals.backend.emission.pipeline import (
 )
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
 
+
+@pytest.fixture(autouse=True)
+def existing_funding_policy():
+    with (
+        patch("products.signals.backend.trial_llm_execution.TrialLLMExecution.prepare", return_value=None),
+        patch("products.signals.backend.system_one_decision.requires_trial_accounting", return_value=False),
+    ):
+        yield
+
+
 PIPELINE_MODULE_PATH = "products.signals.backend.emission.pipeline"
 FETCHER_MODULE_PATH = "products.signals.backend.emission.fetchers.data_warehouse"
 ACTIVITY_MODULE_PATH = "products.signals.backend.emission.emit_signals"

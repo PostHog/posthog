@@ -513,6 +513,31 @@ class SignalReport(UUIDModel):
             return self.Status.RESOLVED
         return self.Status(self.status)
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        from products.signals.backend.trial_policy import (
+            TrialPolicy,  # noqa: PLC0415 -- trial policy imports registered models lazily
+        )
+
+        terminal = self.status in {
+            self.Status.POTENTIAL,
+            self.Status.READY,
+            self.Status.PENDING_INPUT,
+            self.Status.FAILED,
+            self.Status.SUPPRESSED,
+        }
+        writes_status = kwargs.get("update_fields") is None or "status" in kwargs["update_fields"]
+        if terminal and writes_status:
+            with transaction.atomic():
+                if not self._state.adding:
+                    # Report writers already lock this row; keep publication in the same lock order.
+                    SignalReport.objects.select_for_update().filter(id=self.id, team_id=self.team_id).exists()
+                with TrialPolicy(self.team).publish_report(
+                    self.id, delivered=self.status in {self.Status.READY, self.Status.PENDING_INPUT}
+                ):
+                    super().save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
+
     def transition_to(
         self,
         new_status: "SignalReport.Status",
@@ -2959,7 +2984,12 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                     touched.add("status_changed_at")
             if fields is not None:
                 kwargs["update_fields"] = fields | touched
-        super().save(*args, **kwargs)
+        from products.signals.backend.trial_scouts import (
+            scout_capacity,  # noqa: PLC0415 -- capacity policy depends on this model
+        )
+
+        with scout_capacity(self):
+            super().save(*args, **kwargs)
 
     @classmethod
     def _pause_reasons_share_writer(cls, current: str | None, incoming: "SignalScoutConfig.PauseReason") -> bool:

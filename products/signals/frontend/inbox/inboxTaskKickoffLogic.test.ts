@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
@@ -27,6 +28,7 @@ import {
     buildDiscussReportPrompt,
     inboxTaskKickoffLogic,
 } from './inboxTaskKickoffLogic'
+import { selfDrivingTrialLogic } from './logics/selfDrivingTrialLogic'
 import { SignalReportStatus } from './types'
 
 describe('inboxTaskKickoffLogic', () => {
@@ -80,6 +82,7 @@ describe('inboxTaskKickoffLogic', () => {
             runDefaultsGate = null
             useMocks({
                 get: {
+                    '/api/projects/:team/signals/trial/': { legacy_pr_restricted: false },
                     '/api/projects/:team/signals/reports/:id/': report,
                     '/api/projects/:team/tasks/@me/config/': async () => {
                         if (runDefaultsGate) {
@@ -527,10 +530,17 @@ describe('inboxTaskKickoffLogic', () => {
 
     describe('freeTrialDisabledReason', () => {
         let logic: ReturnType<typeof inboxTaskKickoffLogic.build>
+        let restricted: boolean
 
         beforeEach(() => {
             // featureFlagLogic persists to localStorage, which jsdom keeps across tests.
             localStorage.clear()
+            restricted = false
+            useMocks({
+                get: {
+                    '/api/projects/:team/signals/trial/': () => [200, { legacy_pr_restricted: restricted }],
+                },
+            })
             initKeaTests()
             featureFlagLogic.mount()
             logic = inboxTaskKickoffLogic()
@@ -544,10 +554,12 @@ describe('inboxTaskKickoffLogic', () => {
         it.each([
             [true, FREE_TRIAL_PR_DISABLED_REASON],
             [false, null],
-        ])('with the free trial flag %s, Create PR carries %s', (enabled, expected) => {
+        ])('with the backend restriction %s, Create PR carries %s', async (enabled, expected) => {
+            restricted = enabled as boolean
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL], {
-                [FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL]: enabled,
+                [FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL]: !enabled,
             })
+            await selfDrivingTrialLogic({ teamId: teamLogic.values.currentTeamId! }).asyncActions.loadTrial()
             expect(logic.values.freeTrialDisabledReason).toBe(expected)
         })
     })

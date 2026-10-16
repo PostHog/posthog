@@ -177,6 +177,7 @@ def create_scout_report(
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
     idempotency_key: str | None = None,
+    reserved_report_id: uuid.UUID | None = None,
 ) -> PersistedScoutReport:
     """Author a `SignalReport` directly plus its backing signal rows, in one report-owning transaction.
 
@@ -245,6 +246,7 @@ def create_scout_report(
     try:
         with transaction.atomic():
             report = SignalReport.objects.create(
+                **({"id": reserved_report_id} if reserved_report_id else {}),
                 team_id=team_id,
                 status=status,
                 title=title,

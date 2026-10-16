@@ -83,6 +83,7 @@ import type {
     ScoutTrialSetupApi,
     ScoutTrialStartedApi,
     ScratchpadEntryApi,
+    SelfDrivingTrialStatusApi,
     SignalReportApi,
     SignalReportArtefactApi,
     SignalReportArtefactLogCreateApi,
@@ -2915,6 +2916,34 @@ export const signalsSourceConfigsDestroy = async (
     return apiMutator<void>(getSignalsSourceConfigsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsTrialListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/trial/`
+}
+
+export const signalsTrialList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SelfDrivingTrialStatusApi> => {
+    return apiMutator<SelfDrivingTrialStatusApi>(getSignalsTrialListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsTrialCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/trial/`
+}
+
+export const signalsTrialCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SelfDrivingTrialStatusApi> => {
+    return apiMutator<SelfDrivingTrialStatusApi>(getSignalsTrialCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

@@ -583,7 +583,13 @@ def max_enabled_scouts_for_team(canonical_team_id: int) -> int:
     """
     payload = _read_flag_payload()
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
-    return resolve_max_enabled_scouts([team_configs.get(canonical_team_id) or {}, _default_team_config(payload)])
+    from products.signals.backend.trial_scouts import (
+        trial_scout_limit,  # noqa: PLC0415 -- avoid model registration cycle
+    )
+
+    configured = resolve_max_enabled_scouts([team_configs.get(canonical_team_id) or {}, _default_team_config(payload)])
+    trial_limit = trial_scout_limit(canonical_team_id)
+    return min(configured, trial_limit) if trial_limit is not None else configured
 
 
 # Flag payload key overriding the GLOBAL per-tick dispatch ceiling (the coordinator's

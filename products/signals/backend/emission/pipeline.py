@@ -12,7 +12,7 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from anthropic import AsyncAnthropic
-from anthropic.types import MessageParam
+from anthropic.types import Message, MessageParam
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -38,6 +38,7 @@ from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import summarize_drop_error
 from products.signals.backend.temporal.llm import effort_kwargs
+from products.signals.backend.trial_policy import TrialRefused
 
 logger = structlog.get_logger(__name__)
 
@@ -193,6 +194,24 @@ def build_emitter_outputs(
     return outputs, error_count
 
 
+async def _create_message(
+    client: AsyncAnthropic, *, team_id: int, messages: list[MessageParam], extra_headers: dict[str, str]
+) -> Message:
+    from products.signals.backend.trial_llm_execution import (
+        accounted_anthropic_client,  # noqa: PLC0415 -- avoids workflow import cycle
+    )
+
+    async with accounted_anthropic_client(client, team_id=team_id, model=LLM_MODEL) as accounted:
+        return await accounted.messages.create(
+            model=LLM_MODEL,
+            messages=messages,
+            max_tokens=LLM_MAX_OUTPUT_TOKENS,
+            metadata={"user_id": f"team-{team_id}"},
+            extra_headers=extra_headers,
+            **effort_kwargs(LLM_MODEL),
+        )
+
+
 async def _summarize_description(
     client: AsyncAnthropic,
     team_id: int,
@@ -215,14 +234,7 @@ async def _summarize_description(
         summary = ""
         try:
             generation = asyncio.wait_for(
-                client.messages.create(
-                    model=LLM_MODEL,
-                    messages=messages,
-                    max_tokens=LLM_MAX_OUTPUT_TOKENS,
-                    metadata={"user_id": f"team-{team_id}"},
-                    extra_headers=extra_headers,
-                    **effort_kwargs(LLM_MODEL),
-                ),
+                _create_message(client, team_id=team_id, messages=messages, extra_headers=extra_headers),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
             priced = await generate_with_spend(
@@ -237,6 +249,8 @@ async def _summarize_description(
             if len(summary) > threshold:
                 raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
             return dataclasses.replace(output, description=summary)
+        except TrialRefused:
+            raise
         except Exception as e:
             posthoganalytics.capture_exception(
                 e,
@@ -385,13 +399,11 @@ async def check_actionability(
                 await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
             try:
                 generation = asyncio.wait_for(
-                    client.messages.create(
-                        model=LLM_MODEL,
+                    _create_message(
+                        client,
+                        team_id=team_id,
                         messages=[{"role": "user", "content": prompt}],
-                        max_tokens=LLM_MAX_OUTPUT_TOKENS,
-                        metadata={"user_id": f"team-{team_id}"},
                         extra_headers=extra_headers,
-                        **effort_kwargs(LLM_MODEL),
                     ),
                     timeout=LLM_CALL_TIMEOUT_SECONDS,
                 )
@@ -401,6 +413,8 @@ async def check_actionability(
                 response = priced.response
                 response_text = _extract_text(response).strip().upper()
                 return "NOT_ACTION" not in response_text
+            except TrialRefused:
+                raise
             except Exception as e:
                 posthoganalytics.capture_exception(
                     e,
@@ -468,6 +482,8 @@ async def filter_actionable(
                     context_fields=context_fields,
                     system_one_prompt=system_one_prompt,
                 )
+            except TrialRefused:
+                return False
             except Exception:
                 logger.exception(
                     "Actionability check failed, assuming actionable",
