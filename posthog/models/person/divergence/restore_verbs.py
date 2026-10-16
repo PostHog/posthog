@@ -45,9 +45,6 @@ from . import lookups, observe, repairs
 if TYPE_CHECKING:
     from .verbs import VerbContext
 
-# The most rows a personhog repair write takes in one call.
-_BATCH = 250
-
 _LIVE = "is_deleted = 0 AND _row_exists"
 _PAYLOAD_SQL = f"""
 SELECT
@@ -128,7 +125,7 @@ def _write_mappings(context: VerbContext, rows: list[dict[str, Any]], targets: d
     """Point each row's mapping at its target person: insert where Postgres has no row, raise where Postgres
     already names the target. Publishes what Postgres stores and returns the distinct ids that now point there."""
     moved: list[str] = []
-    for batch in lookups._chunks(rows, _BATCH):
+    for batch in lookups._chunks(rows, repairs._WRITE_BATCH_SIZE):
         ch = observe.ch_mapping_states(context.team_id, [r["key"] for r in batch])
         writes = []
         for row in batch:
@@ -220,7 +217,7 @@ def _restore_persons(
             ids_by_owner[row["evidence"]["ch"]["winner_person_uuid"]].append(row)
     restored: dict[str, list[str]] = {}
     handled: set[str] = set()
-    for batch in lookups._chunks(rows, _BATCH):
+    for batch in lookups._chunks(rows, repairs._WRITE_BATCH_SIZE):
         by_uuid = {row["key"]: row for row in batch}
         payloads = _live_payloads(context.team_id, list(by_uuid))
         in_postgres = observe.pg_person_states(context.team_id, list(by_uuid))
@@ -366,8 +363,7 @@ class _PendingMerge:
 def _confirm_merges(context: VerbContext, pending: list[_PendingMerge], *, done: str) -> None:
     """Wait for ingestion to merge each old person away, then point its diverged ids at the survivor.
 
-    Republishing those ids only after the merge landed means a merge that never lands leaves them diverged, so the
-    next scan finds the group again instead of a silent split. The wait polls one batched replica read at a time.
+    A merge that has not landed by the deadline leaves its ids diverged, so the next scan finds the group again.
     """
     deadline = _monotonic() + _MERGE_CONFIRM_SECONDS
     wait = 1.0
@@ -419,11 +415,9 @@ def _any_live_distinct_id(team_id: int, person_uuid: str) -> str | None:
 
 
 def merge(rows: list[dict[str, Any]], context: VerbContext) -> None:
-    """Merge a live old person A into the live person B that holds A's distinct ids in Postgres, through ingestion:
-    send $merge_dangerously on a B id with an A id as the alias, so B survives.
+    """Merge a live old person A into B, which holds A's ids in Postgres, with $merge_dangerously on a B id.
 
-    Once ingestion merged A, the same run points the diverged ids at B. A merge that does not land within the wait
-    leaves them diverged, so a later scan reports the merge again.
+    The diverged ids move to B once ingestion merged A.
     """
     for row in rows:
         if not (row.get("group") or "").startswith("merge:"):
