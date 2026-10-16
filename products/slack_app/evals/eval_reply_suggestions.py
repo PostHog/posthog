@@ -22,6 +22,10 @@ from products.slack_app.evals.scorers import REPLY_OFFER_KEY, NoUnaskedButtons, 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
 
+# The person's last message, when a case needs it to show who decides or what they want.
+PERSON_MESSAGE_KEY = "person_message"
+
+
 def _offer(offer: bool) -> dict:
     return {REPLY_OFFER_KEY: {"offer": offer}}
 
@@ -46,6 +50,7 @@ WAITING_CASES = [
             "after a failure. The fix is two lines in `relay.py`. Should I open a pull request with it?"
         ),
         expected=_offer(True),
+        metadata={PERSON_MESSAGE_KEY: "Why does the relay keep retrying after the export fails?"},
     ),
     BaseEvalCase(
         name="choice_between_options",
@@ -102,6 +107,18 @@ WAITING_CASES = [
         ),
         expected=_offer(True),
     ),
+    # Buttons for every mix of the two answers would differ by one word each and leave a mix out.
+    BaseEvalCase(
+        name="two_separate_questions",
+        prompt=(
+            "The weekly digest is ready. Two things to decide:\n\n"
+            "1. **Channel:** email reaches everyone, and Slack reaches only the team that joined the "
+            "`#digest` channel. I recommend Slack, because the email list has many old addresses.\n"
+            "2. **Day:** Monday or Friday. I suggest Monday, so the numbers are fresh for the week.\n\n"
+            "Which channel and which day do you want?"
+        ),
+        expected=_offer(True),
+    ),
     BaseEvalCase(
         name="permission_in_german",
         prompt=(
@@ -145,6 +162,17 @@ BARE_CASES = [
         prompt="Done. The alert now fires at 5% instead of 10%. Let me know if you need anything else.",
         expected=_offer(False),
     ),
+    # The reader cannot make this decision, so a button would commit to a choice for another team.
+    BaseEvalCase(
+        name="decision_waits_for_another_team",
+        prompt=(
+            "The billing team is choosing between monthly and yearly usage caps. If they pick monthly caps, "
+            "I can open the pull request for the new limit. If they pick yearly caps, the current branch is "
+            "ready to merge as it is."
+        ),
+        expected=_offer(False),
+        metadata={PERSON_MESSAGE_KEY: "What is left before we can ship the usage caps?"},
+    ),
     # Only the person can answer this, and a button would have to guess the repository.
     BaseEvalCase(
         name="asks_for_a_value_only_the_person_knows",
@@ -157,17 +185,24 @@ BARE_CASES = [
 async def eval_reply_suggestions(ctx: EvalContext) -> None:
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
         model = reply_suggestions.SUGGESTIONS_MODEL
+        person_message = case.metadata.get(PERSON_MESSAGE_KEY)
         try:
             # Sync and blocking on the gateway, so off the event loop to keep cases concurrent.
             suggestions = await asyncio.to_thread(
                 reply_suggestions.request_reply_suggestions,
                 case.prompt,
                 reply_suggestions.ReplySuggestionAttribution(),
+                person_message,
             )
         except Exception as error:
             return {"model": model, "suggestions": None, "error": f"{type(error).__name__}: {error}"}
         offered = [{"label": s.label, "reply": s.reply} for s in suggestions]
-        return {"model": model, "suggestions": offered, "last_message": f"{model}: {offered}"}
+        return {
+            "model": model,
+            "suggestions": offered,
+            "person_message": person_message,
+            "last_message": f"{model}: {offered}",
+        }
 
     await OneShotPublicEval(
         experiment_name="slack-app-reply-suggestions",

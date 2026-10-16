@@ -69,6 +69,15 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('schedule'),
     }),
+    // A transactional email: Django's send endpoint runs the workflow once per call.
+    z.object({
+        type: z.literal('api'),
+    }),
+    z.object({
+        type: z.literal('cohort'),
+        cohort_id: z.number(),
+        transition: z.enum(['entered', 'left']),
+    }),
     z.object({
         type: z.literal('batch'),
         filters: z.object({

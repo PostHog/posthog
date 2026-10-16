@@ -3460,7 +3460,7 @@ export interface LLMProviderModelsSummaryApi {
     provider: string
     /** How many of this provider's models appear in `models`. */
     model_count: number
-    /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys. PostHog funds no models for it, so `model_count` is 0 until a key is supplied. */
+    /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations and LLM taggers always run on one of the team's own provider keys, whatever this value is. */
     requires_provider_key: boolean
 }
 

@@ -17,6 +17,11 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: apm
+scout-precheck-query: |
+  SELECT 1 AS has_spans
+  FROM posthog.trace_spans
+  WHERE timestamp > {now} - INTERVAL 24 HOUR
+  LIMIT 1
 ---
 
 # Signals scout: distributed tracing (APM)
@@ -30,6 +35,8 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 **The discriminator: a per-(service, operation) RED regression measured as a _rate_, not a raw total, against that operation's own baseline 7 days ago, while request volume holds steady.** Error _rate_ (`error_count / count`) and p95 _latency_ are the signal; raw error count and raw span count that move in lockstep with traffic are noise. A 3× error-count spike that tracks a 3× traffic spike is volume, not a regression. Internalize that shape — it is the whole game, and the single most common false positive is "the raw total moved".
 
 ## Quick close-out: is APM even in use?
+
+A scheduled run can start with a `<precheck_result>` block. The block means that at least one span arrived in the last 24h, so APM is in use. When the block is present, skip this check and go to the full run.
 
 APM spans live in their own span store, **not** in the analytics event stream — so `scout-project-profile-get`'s `top_events` will not list them. Use the APM tools to check:
 
