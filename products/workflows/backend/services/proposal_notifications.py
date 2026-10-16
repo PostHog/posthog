@@ -60,7 +60,7 @@ def user_can_receive(user: User, team: Team, hog_flow: HogFlow) -> bool:
 
 def _recipient(team: Team, hog_flow: HogFlow, filed_by_user_id: int | None) -> User | None:
     for user_id in _candidate_user_ids(hog_flow, filed_by_user_id):
-        user = User.objects.filter(id=user_id).first()
+        user = User.objects.filter(id=user_id, is_active=True).first()
         if user is not None and user_can_receive(user, team, hog_flow):
             return user
     return None
