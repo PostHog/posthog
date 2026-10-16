@@ -2,7 +2,7 @@ import re
 import base64
 import dataclasses
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlencode
 
 from requests import Response
@@ -12,13 +12,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.settings import (
+    PAGE_SIZE,
     XMATTERS_ENDPOINTS,
     XmattersEndpointConfig,
 )
@@ -29,9 +35,6 @@ BASE_URL_TEMPLATE = "https://{subdomain}.xmatters.com/api/xm/1"
 # A single DNS label: letters, digits, and internal hyphens only. Anything else (slashes, dots,
 # `@`, etc.) could redirect worker requests to an attacker-controlled host (SSRF).
 SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")
-
-# xMatters caps `limit` at 1000; using the max reduces round-trips.
-PAGE_SIZE = 1000
 
 
 @dataclasses.dataclass
@@ -110,6 +113,11 @@ class XmattersPaginator(OffsetPaginator):
         self._has_next_page = True
 
 
+def _normalize_group_member(item: dict[str, Any]) -> dict[str, Any]:
+    # Membership rows carry no id of their own; lift the nested member id so it can key the row.
+    return {**item, "member_id": item["member"]["id"]}
+
+
 def _build_params(
     config: XmattersEndpointConfig,
     should_use_incremental_field: bool,
@@ -140,6 +148,9 @@ def validate_credentials(
     endpoint).
     """
     config = XMATTERS_ENDPOINTS.get(endpoint) if endpoint else None
+    if config and config.fanout:
+        # A per-parent path needs a parent id, so probe the parent listing instead.
+        config = XMATTERS_ENDPOINTS[config.fanout.parent_name]
     path = config.path if config else "/people"
     url = f"{_base_url(subdomain)}{path}?{urlencode({'limit': 1})}"
 
@@ -157,6 +168,46 @@ def validate_credentials(
     return False, status, None
 
 
+def _fanout_source(
+    config: XmattersEndpointConfig,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+) -> SourceResponse:
+    assert config.fanout is not None
+    resource = cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs=XMATTERS_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            # The per-parent endpoints have no server-side time filter, so they are full refresh.
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"data_selector": "data"},
+            child_endpoint_extra={"data_selector": "data"},
+        ),
+    )
+    if config.name == "group_members":
+        resource = resource.add_map(_normalize_group_member)
+
+    return SourceResponse(
+        name=config.name,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        sort_mode="asc",
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
+    )
+
+
 def xmatters_source(
     subdomain: str,
     username: str,
@@ -169,16 +220,20 @@ def xmatters_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = XMATTERS_ENDPOINTS[endpoint]
+    client_config: ClientConfig = {
+        "base_url": _base_url(subdomain),
+        # Auth (HTTP Basic) is supplied via the framework auth config so the password is
+        # redacted from logs and raised error messages; only non-secret headers go here.
+        "headers": {"Accept": "application/json", "Content-Type": "application/json"},
+        "auth": {"type": "http_basic", "username": username, "password": password},
+        "paginator": XmattersPaginator(limit=PAGE_SIZE),
+    }
+
+    if config.fanout is not None:
+        return _fanout_source(config, client_config, team_id, job_id)
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": _base_url(subdomain),
-            # Auth (HTTP Basic) is supplied via the framework auth config so the password is
-            # redacted from logs and raised error messages; only non-secret headers go here.
-            "headers": {"Accept": "application/json", "Content-Type": "application/json"},
-            "auth": {"type": "http_basic", "username": username, "password": password},
-            "paginator": XmattersPaginator(limit=PAGE_SIZE),
-        },
+        "client": client_config,
         "resource_defaults": {},
         "resources": [
             {
@@ -216,7 +271,7 @@ def xmatters_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         # We request START_TIME ascending where a sort is available, and full-refresh endpoints
         # replace wholesale, so ascending is correct everywhere.
         sort_mode="asc",
