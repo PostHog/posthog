@@ -83,29 +83,31 @@ export function SettingsScreen(): ReactElement {
                 </SettingsGroup>
                 {signedIn && !demo ? <ProjectSwitcher /> : null}
                 {signedIn ? <PushStatusGroup /> : null}
-                <SettingsGroup
-                    title="Demo"
-                    footer={
-                        demo && signedIn
-                            ? 'The inbox shows sample reports. Turn this off to see your projects.'
-                            : undefined
-                    }
-                >
-                    <SettingsRow
-                        label="Demo mode"
-                        accessory={
-                            <Switch
-                                {...WEB_SWITCH_PROPS}
-                                value={demo}
-                                onValueChange={toggleDemo}
-                                trackColor={{ true: colors.ink, false: colors.border }}
-                                thumbColor={colors.white}
-                                accessibilityLabel="Demo mode"
-                                testID="settings-demo-toggle"
-                            />
+                {__DEV__ ? (
+                    <SettingsGroup
+                        title="Demo"
+                        footer={
+                            demo && signedIn
+                                ? 'The inbox shows sample reports. Turn this off to see your projects.'
+                                : undefined
                         }
-                    />
-                </SettingsGroup>
+                    >
+                        <SettingsRow
+                            label="Demo mode"
+                            accessory={
+                                <Switch
+                                    {...WEB_SWITCH_PROPS}
+                                    value={demo}
+                                    onValueChange={toggleDemo}
+                                    trackColor={{ true: colors.ink, false: colors.border }}
+                                    thumbColor={colors.white}
+                                    accessibilityLabel="Demo mode"
+                                    testID="settings-demo-toggle"
+                                />
+                            }
+                        />
+                    </SettingsGroup>
+                ) : null}
                 <SettingsGroup title="App">
                     <SettingsRow label="Version" value={version} />
                 </SettingsGroup>

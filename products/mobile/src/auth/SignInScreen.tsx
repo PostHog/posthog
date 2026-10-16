@@ -229,16 +229,20 @@ export function SignInScreen(): ReactElement {
                         Log in opens your browser, where you can use your password, Google, GitHub, GitLab or SSO.
                     </Text>
                 )}
-                <View style={styles.divider} />
-                <Pressable44
-                    onPress={tryDemo}
-                    disabled={submit.pending}
-                    pressedBackground={colors.sunken}
-                    style={styles.secondary}
-                    testID="try-demo"
-                >
-                    <Text style={styles.secondaryText}>Try the demo</Text>
-                </Pressable44>
+                {__DEV__ ? (
+                    <>
+                        <View style={styles.divider} />
+                        <Pressable44
+                            onPress={tryDemo}
+                            disabled={submit.pending}
+                            pressedBackground={colors.sunken}
+                            style={styles.secondary}
+                            testID="try-demo"
+                        >
+                            <Text style={styles.secondaryText}>Try the demo</Text>
+                        </Pressable44>
+                    </>
+                ) : null}
                 <View style={styles.links}>
                     <Pressable44
                         onPress={() => {

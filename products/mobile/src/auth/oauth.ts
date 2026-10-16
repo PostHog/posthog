@@ -59,7 +59,7 @@ const MESSAGES: Record<OAuthErrorKind, string> = {
     missing_scope: "This app's OAuth registration is missing a permission. Ask an admin to update it.",
     server: 'PostHog had a problem signing you in. Try again in a moment.',
     session_expired: 'Your session ended. Sign in again.',
-    unsupported: 'Sign in works in the iOS and Android apps. Try the demo here instead.',
+    unsupported: 'Sign in works in the iOS and Android apps. Open the app to log in.',
 }
 
 /** A sign-in or token failure. `message` is user-facing copy; `detail` is the server's own text. */

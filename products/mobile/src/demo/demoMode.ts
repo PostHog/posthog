@@ -16,8 +16,7 @@ import { DEMO_AGENT, DEMO_USER_NAME } from './briefings'
 import { DEMO_PEOPLE } from './fixtures'
 
 const REFRESH_MS = 450
-/** Builds made with EXPO_PUBLIC_DEMO_MODE=1 start in demo mode, so a simulator or preview build needs no account. */
-const DEMO_FROM_ENV = process.env.EXPO_PUBLIC_DEMO_MODE === '1'
+const DEMO_FROM_ENV = __DEV__ && process.env.EXPO_PUBLIC_DEMO_MODE === '1'
 
 export type DemoLogTag = 'handoff' | 'decision' | 'snooze' | 'reviewers' | 'priority' | 'verdict'
 
@@ -113,7 +112,7 @@ export const useDemoMode = create<DemoModeState>()(
         (set) => ({
             enabled: DEMO_FROM_ENV,
             ...freshState(),
-            setEnabled: (enabled) => set({ enabled, ...freshState() }),
+            setEnabled: (enabled) => set({ enabled: __DEV__ && enabled, ...freshState() }),
             reset: () => set(freshState()),
             refresh: () => {
                 set({ isRefreshing: true })
@@ -193,6 +192,12 @@ export const useDemoMode = create<DemoModeState>()(
             name: 'posthog-mobile-demo',
             storage: createJSONStorage(() => AsyncStorage),
             partialize: (state) => ({ enabled: state.enabled }),
+            // Ignore saved demo sessions in releases so existing installs require a real account.
+            merge: (persistedState, currentState) => ({
+                ...currentState,
+                enabled:
+                    __DEV__ && ((persistedState as { enabled?: boolean } | undefined)?.enabled ?? currentState.enabled),
+            }),
         }
     )
 )
