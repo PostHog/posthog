@@ -962,7 +962,10 @@ def _render_previous_metrics_context(previous_metrics: list[ReportMetric]) -> st
     return (
         "## Impact metrics this report already shows\n\n"
         "Re-send each metric whose bounded event/action query still matches the updated observation, "
-        "optionally refresh its observed snapshot, move a metric still on an older window to the standard 14-day daily window, and omit stale, snapshot-only, or queryless metrics. "
+        "optionally refresh its observed snapshot, and omit stale, snapshot-only, or queryless metrics. "
+        "Preserve evidence-backed shorter windows for follow-up metrics. Change such a window only when "
+        "new research establishes a better measurement period and its baseline. Use the standard 14-day "
+        "daily window only as a default when the evidence establishes no better window. "
         "Omitting a metric removes it.\n\n"
         f"```json\n{rendered}\n```"
     )

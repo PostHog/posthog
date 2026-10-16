@@ -581,7 +581,9 @@ class TestBuildReportPresentationPrompt:
                 "value_at": "2026-08-29T12:00:00Z",
                 "value_format": "count",
                 "unit": "users",
-                "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}]),
+                "query": trends_metric_query(
+                    series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}], date_from="-8h"
+                ),
                 "comparison": {"value": 11, "label": "Previous period"},
             }
         )
@@ -590,6 +592,12 @@ class TestBuildReportPresentationPrompt:
 
         assert '"comparison"' not in prompt
         assert "Previous period" not in prompt
+
+        presentation = build_report_presentation_prompt(1, metrics_enabled=True, previous_metrics=[metric])
+        assert "## Metrics for follow-up checks" in presentation
+        assert "Preserve evidence-backed shorter windows for follow-up metrics" in presentation
+        assert "move a metric still on an older window" not in presentation
+        assert '"date_from": "-8h"' in presentation
 
 
 class TestReportPresentationOutputCharts:
