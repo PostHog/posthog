@@ -178,7 +178,7 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
 
     @validated_request(
         request_serializer=OfflineExperimentMetadataSerializer,
-        responses={200: OfflineExperimentReadSerializer, **READ_ERROR_RESPONSES},
+        responses={200: OfflineExperimentReadSerializer, **ERROR_RESPONSES, **READ_ERROR_RESPONSES},
         parameters=[EXPERIMENT_ID_PARAMETER],
     )
     def partial_update(self, request: ValidatedRequest, **kwargs: object) -> Response:

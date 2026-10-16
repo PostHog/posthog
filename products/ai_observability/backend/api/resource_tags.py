@@ -18,7 +18,7 @@ MAX_FILTER_TAGS = 20
 
 
 class ResourceTagNameField(serializers.CharField):
-    def to_internal_value(self, data: object) -> str:
+    def to_internal_value(self, data: str) -> str:
         return tagify(super().to_internal_value(data))
 
 
