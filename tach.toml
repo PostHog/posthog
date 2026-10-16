@@ -1650,6 +1650,7 @@ depends_on = [
     "products.customer_analytics",
     "products.dashboards",
     "products.error_tracking",
+    "products.feature_flags",
     "products.product_analytics",
     "products.signals",
     "products.tasks",
