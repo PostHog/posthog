@@ -23,14 +23,14 @@ export function ResourceTagFilter({
                         lemonToast.error('Choose up to 20 tags to filter by')
                         return
                     }
-                    onChange({ ...filters, tags })
+                    onChange({ tags, tag_match: filters.tag_match })
                 }}
                 listDataAttr="aio-resource-tags-filter"
             />
             {filters.tags.length > 1 && (
                 <LemonSelect
                     value={filters.tag_match}
-                    onChange={(tag_match) => onChange({ ...filters, tag_match })}
+                    onChange={(tag_match) => onChange({ tags: filters.tags, tag_match })}
                     options={[
                         { value: 'any', label: 'Match any' },
                         { value: 'all', label: 'Match all' },

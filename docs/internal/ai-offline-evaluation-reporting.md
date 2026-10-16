@@ -284,7 +284,7 @@ Datasets, stable scorer definitions, and offline experiments use the shared proj
 Tags belong to the resource, not to dataset revisions or scorer versions, and do not propagate between linked resources.
 Their list and detail responses include `tags`. Dataset and scorer creation and updates accept a `tags` array.
 Use `PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/` with `{"tags": ["quality", "production"]}` to replace experiment tags; it requires evaluation editor access and `evaluation:write` for personal API keys. Ingestion credentials cannot edit tags.
-Omitting `tags` preserves existing assignments; sending `[]` clears them. Names are trimmed and lowercased, with up to 100 tags of at most 255 characters each.
+Omitting `tags` preserves existing assignments, including an empty experiment PATCH body; sending `[]` clears them. Names are trimmed and lowercased, with up to 100 tags of at most 255 characters each after normalization.
 
 All three list APIs accept `tags` as a JSON-encoded array of up to 20 names and `tag_match=any` (OR, the default) or `tag_match=all` (AND).
 For example, `?tags=%5B%22quality%22%2C%22production%22%5D&tag_match=all` finds resources with both tags, including resources with additional tags.
@@ -292,7 +292,7 @@ Filters apply before pagination; an empty array disables tag filtering. MCP list
 Assignments use the shared generic tagged-item relation. List queries use correlated existence checks and batch tag loading, so multiple matching tags do not duplicate rows or add a query per resource.
 
 The three tables have a Tags column before the timestamp columns, showing up to two tags with remaining tags in an overflow popover and a control to edit assignments.
-Tag filters are included in the URL and remembered separately per resource type, project, and user in browser storage.
+Tag filters are included in the URL and remembered separately per resource type, project, and user in browser storage. Changing tags or their match mode resets table pagination.
 Explicit URL filters take precedence over remembered filters, including `tags=[]` to clear them.
 On the offline overview, the top-level tag selector filters both the recent experiments table and score trend charts.
 Scorer history supports the same tag filters through its UI, API, and MCP tool, including comparison periods. Its tables show experiment tags without editing controls.

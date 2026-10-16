@@ -28,7 +28,10 @@ from products.ai_observability.backend.api.offline_experiment_access import (
 from products.ai_observability.backend.api.offline_experiment_errors import OfflineEvaluationErrorSerializer
 from products.ai_observability.backend.api.offline_experiment_parser import OfflineEvaluationJSONParser
 from products.ai_observability.backend.api.offline_experiment_read_serializers import OfflineExperimentReadSerializer
-from products.ai_observability.backend.api.offline_experiment_reads import OfflineExperimentReadViewSet
+from products.ai_observability.backend.api.offline_experiment_reads import (
+    READ_ERROR_RESPONSES,
+    OfflineExperimentReadViewSet,
+)
 from products.ai_observability.backend.api.offline_experiment_serializers import (
     ExperimentSubmissionSerializer,
     UploadSubmissionSerializer,
@@ -119,7 +122,7 @@ EXPERIMENT_ID_PARAMETER = OpenApiParameter("id", UUID, OpenApiParameter.PATH, de
 
 
 class OfflineExperimentMetadataSerializer(serializers.Serializer):
-    tags = ResourceTagNamesField(required=True)
+    tags = ResourceTagNamesField(required=False)
 
 
 class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
@@ -175,14 +178,17 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
 
     @validated_request(
         request_serializer=OfflineExperimentMetadataSerializer,
-        responses={200: OfflineExperimentReadSerializer, **ERROR_RESPONSES},
+        responses={200: OfflineExperimentReadSerializer, **READ_ERROR_RESPONSES},
         parameters=[EXPERIMENT_ID_PARAMETER],
     )
     def partial_update(self, request: ValidatedRequest, **kwargs: object) -> Response:
         experiment = get_object_or_404(OfflineExperiment.objects.for_team(self.team_id), pk=self._path_id())
         self.check_object_permissions(request, experiment)
-        ResourceTags.set(experiment, request.validated_data["tags"])
-        return Response(OfflineExperimentReadSerializer(self._read_service().get_experiment(experiment.id)).data)
+        if "tags" in request.validated_data:
+            ResourceTags.set(experiment, request.validated_data["tags"])
+        return self._read_response(
+            lambda: self._read_service().get_experiment(experiment.id), OfflineExperimentReadSerializer
+        )
 
     @validated_request(
         ExperimentSubmissionSerializer,

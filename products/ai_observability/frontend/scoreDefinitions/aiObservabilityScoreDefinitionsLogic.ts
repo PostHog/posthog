@@ -346,7 +346,9 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
     listeners(({ actions, asyncActions, values, selectors }) => ({
         setFilters: async ({ debounce }, _, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
-            saveTagFilters('scorers', values.filters)
+            if (values.currentTeamId) {
+                saveTagFilters('scorers', values.filters, values.currentTeamId)
+            }
 
             if (!objectsEqual(oldFilters, values.filters)) {
                 await asyncActions.loadScoreDefinitions(debounce)
@@ -381,7 +383,13 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
 
     urlToAction(({ actions, values }) => ({
         [urls.aiObservabilityScorers()]: (_, searchParams, __, { method }) => {
-            const newFilters = cleanFilters({ ...searchParams, ...restoreTagFilters('scorers', searchParams) })
+            if (!values.currentTeamId) {
+                return
+            }
+            const newFilters = cleanFilters({
+                ...searchParams,
+                ...restoreTagFilters('scorers', searchParams, values.currentTeamId),
+            })
 
             if (!objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)

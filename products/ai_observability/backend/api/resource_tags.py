@@ -17,8 +17,13 @@ MAX_RESOURCE_TAGS = 100
 MAX_FILTER_TAGS = 20
 
 
+class ResourceTagNameField(serializers.CharField):
+    def to_internal_value(self, data: object) -> str:
+        return tagify(super().to_internal_value(data))
+
+
 class ResourceTagNamesField(serializers.ListField):
-    child = serializers.CharField(max_length=255, allow_blank=False)
+    child = ResourceTagNameField(max_length=255, allow_blank=False)
 
     def __init__(self, *, required: bool = True, max_length: int = MAX_RESOURCE_TAGS) -> None:
         super().__init__(
@@ -28,7 +33,7 @@ class ResourceTagNamesField(serializers.ListField):
         )
 
     def to_internal_value(self, data: object) -> list[str]:
-        return sorted({tagify(tag) for tag in super().to_internal_value(cast(list[str], data))})
+        return sorted(set(super().to_internal_value(cast(list[str], data))))
 
 
 class ResourceTagsWriteSerializer(serializers.Serializer):

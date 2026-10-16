@@ -1,10 +1,10 @@
 import json
 from uuid import uuid4
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
-from django.db import connection
+from django.db import connection, transaction
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -14,6 +14,7 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.ai_observability.backend.api.resource_tags import ResourceTagFilterSerializer, ResourceTagsWriteSerializer
+from products.ai_observability.backend.dataset_service import create_dataset
 from products.ai_observability.backend.models.datasets import Dataset
 from products.ai_observability.backend.models.offline_evaluations import OfflineExperiment
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
@@ -57,6 +58,9 @@ class TestResourceTags(APIBaseTest):
         url = self._url(entity)
         detail_url = f"{url}{first.pk}/"
         response = self.client.patch(detail_url, {"tags": [" Quality ", "production", "QUALITY", "a,b"]}, format="json")
+        assert response.status_code == 200, response.data
+        assert response.data["tags"] == ["a,b", "production", "quality"]
+        response = self.client.patch(detail_url, {}, format="json")
         assert response.status_code == 200, response.data
         assert response.data["tags"] == ["a,b", "production", "quality"]
         ResourceTags.set(second, ["quality"])
@@ -135,12 +139,34 @@ class TestResourceTags(APIBaseTest):
         response = self.client.get(self._url(entity), {"tags": "not-json"})
         assert response.status_code == 400, response.data
 
+    @parameterized.expand(RESOURCES)
+    def test_rejects_tag_names_that_exceed_the_normalized_length_limit(self, entity: str) -> None:
+        resource = self._resource(entity, "Tagged resource")
+        response = self.client.patch(f"{self._url(entity)}{resource.pk}/", {"tags": ["İ" * 128]}, format="json")
+        assert response.status_code == 400, response.data
+        assert ResourceTags.names(resource) == []
+
+
+class TestResourceTagTransactions(NonAtomicBaseTest):
+    def test_dataset_creation_allows_concurrent_project_foreign_key_checks(self) -> None:
+        other_connection = connection.copy()
+        try:
+            with transaction.atomic():
+                dataset = create_dataset(team=self.team, created_by=self.user, name="Tagged dataset")
+                ResourceTags.set(dataset, ["quality", "production"])
+                with other_connection.cursor() as cursor:
+                    cursor.execute("SELECT id FROM posthog_team WHERE id = %s FOR KEY SHARE NOWAIT", [self.team.id])
+                    assert cursor.fetchone() == (self.team.id,)
+        finally:
+            other_connection.close()
+
 
 class TestResourceTagValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("blank", [" "]),
             ("too_long", ["x" * 256]),
+            ("normalized_too_long", ["İ" * 128]),
             ("too_many", [str(i) for i in range(101)]),
             ("not_list", "quality"),
         ]
