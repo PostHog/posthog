@@ -12,6 +12,7 @@ const {
     parseType,
     docsLabelApplies,
     labelsForTitle,
+    labelsForFiles,
     loadRules,
     isFlagsLowHangingFruitCandidate,
     isFlagsLowHangingFruit,
@@ -84,6 +85,43 @@ test('labelsForTitle', async (t) => {
     }
 })
 
+const PATH_RULES = [{ scopes: ['agent'], paths: ['packages/agent/'], labels: ['feature/agent-infra'] }]
+
+const LABELS_FOR_FILES_CASES = [
+    {
+        files: [
+            { filename: 'posthog/api/survey.py', status: 'modified' },
+            { filename: 'packages/agent/src/run.ts', status: 'modified' },
+        ],
+        expected: ['feature/agent-infra'],
+        description: 'one of several files under a path prefix',
+    },
+    {
+        files: [{ filename: 'elsewhere/run.ts', previous_filename: 'packages/agent/src/run.ts', status: 'renamed' }],
+        expected: ['feature/agent-infra'],
+        description: 'a rename out of a path prefix',
+    },
+    {
+        files: [{ filename: 'elsewhere/run.ts', previous_filename: 'packages/agent/src/run.ts', status: 'copied' }],
+        expected: [],
+        description: 'a copy from a path prefix',
+    },
+    {
+        files: [{ filename: 'packages/agentic/run.ts', status: 'modified' }],
+        expected: [],
+        description: 'a sibling directory that starts with the same name',
+    },
+    { files: [], expected: [], description: 'no files' },
+]
+
+test('labelsForFiles', async (t) => {
+    for (const { files, expected, description } of LABELS_FOR_FILES_CASES) {
+        await t.test(description, () => {
+            assert.deepEqual(labelsForFiles(files, PATH_RULES), expected)
+        })
+    }
+})
+
 const PARSE_TYPE_CASES = [
     { title: 'docs: add guide', expected: 'docs', description: 'type with no scope' },
     { title: 'docs(internal): x', expected: 'docs', description: 'type with scope' },
@@ -125,6 +163,10 @@ test('the shipped config loads into well-formed rules', () => {
     for (const rule of rules) {
         assert.ok(Array.isArray(rule.scopes) && rule.scopes.length > 0, 'rule missing scopes')
         assert.ok(Array.isArray(rule.labels) && rule.labels.length > 0, 'rule missing labels')
+        assert.ok(
+            (rule.paths || []).every((prefix) => typeof prefix === 'string' && prefix && !prefix.startsWith('/')),
+            'rule paths must be relative to the repo root'
+        )
     }
 })
 
@@ -175,6 +217,18 @@ for (const scope of [
         const labels = labelsForTitle(`feat(${scope}): x`, loadRules())
         assert.ok(labels.includes('feature/agent-infra'), `${scope} scope does not map to feature/agent-infra`)
         assert.ok(!labels.includes('feature/desktop'), `${scope} scope still maps to feature/desktop`)
+    })
+}
+
+for (const filename of [
+    'packages/agent/src/run.ts',
+    'products/tasks/backend/api.py',
+    'services/agent-proxy/src/main.rs',
+    'services/llm-gateway/src/app.py',
+]) {
+    test(`the shipped config maps a change to ${filename} to the agent infra label`, () => {
+        const labels = labelsForFiles([{ filename, status: 'modified' }], loadRules())
+        assert.ok(labels.includes('feature/agent-infra'), `${filename} does not map to feature/agent-infra`)
     })
 }
 

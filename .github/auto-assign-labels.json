@@ -1,5 +1,5 @@
 {
-    "_comment": "Maps a PR's conventional-commit scope (the part in parens of `type(scope): summary`) to labels the Auto Assign Labels workflow applies. Owned by @PostHog/team-feature-flags via owners.yaml, so mappings can change without editing the workflow or script. Scopes are matched case-insensitively. Labels must already exist in the repo. Add a new object to `rules` to map more scopes.",
+    "_comment": "Maps a PR's conventional-commit scope (the part in parens of `type(scope): summary`) to labels the Auto Assign Labels workflow applies. Owned by @PostHog/team-feature-flags via owners.yaml, so mappings can change without editing the workflow or script. Scopes are matched case-insensitively. A rule can also list `paths`, prefixes from the repo root: a PR that changes a file under one, either side of a rename, gets the rule's labels. Labels must already exist in the repo. Add a new object to `rules` to map more scopes.",
     "rules": [
         {
             "scopes": ["flags", "flag", "feature-flags", "feature-flag", "feature_flags", "feature_flag"],
@@ -25,6 +25,17 @@
                 "gateway",
                 "llm-gateway",
                 "ai-gateway"
+            ],
+            "paths": [
+                ".github/workflows/cd-agent-proxy-image.yml",
+                ".github/workflows/cd-tasks-golden-snapshot.yml",
+                ".github/workflows/ci-agent-proxy.yml",
+                "nodejs/src/ingestion/pipelines/ai/costs/providers/",
+                "nodejs/src/ingestion/pipelines/ai/costs/scripts/",
+                "packages/agent/",
+                "products/tasks/",
+                "services/agent-proxy/",
+                "services/llm-gateway/"
             ],
             "labels": ["feature/agent-infra"]
         }

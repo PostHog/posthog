@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 // Adds team/feature labels to a PR based on its conventional-commit scope
-// (`type(scope): summary`), plus the `docs` label for docs-typed or Inkeep-bot
+// (`type(scope): summary`) and the paths it changes, plus the `docs` label for docs-typed or Inkeep-bot
 // PRs, plus the feature flags team's `review/low-hanging-fruit` label (see the
 // feature flags team section below). Additive only — it never removes labels, so manual labels and the
 // ownership-based labeler (assign-reviewers.js) are left intact.
 //
-// The scope -> labels mapping lives in .github/auto-assign-labels.json, OUTSIDE
+// The scope and path -> labels mapping lives in .github/auto-assign-labels.json, OUTSIDE
 // this script, so the owning team can adjust mappings without changing (and
 // re-approving) the workflow or this script. The config is read from the master
 // checkout, never the PR, so a fork PR can't inject its own mappings, and the
@@ -78,6 +78,60 @@ function labelsForTitle(title, rules) {
     return Array.from(labels)
 }
 
+function labelsForFiles(files, rules) {
+    const filenames = files.flatMap((file) =>
+        file.status === 'renamed' && file.previous_filename ? [file.filename, file.previous_filename] : [file.filename]
+    )
+    const labels = new Set()
+
+    for (const rule of rules) {
+        if ((rule.paths || []).some((prefix) => filenames.some((filename) => filename.startsWith(prefix)))) {
+            for (const label of rule.labels || []) {
+                labels.add(label)
+            }
+        }
+    }
+
+    return Array.from(labels)
+}
+
+const PR_FILES_PAGE_SIZE = 100
+const PR_FILES_REQUEST_TIMEOUT_MS = 10_000
+
+async function fetchPrFiles() {
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
+    const files = []
+
+    try {
+        for (let page = 1; ; page++) {
+            const response = await fetch(
+                `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=${PR_FILES_PAGE_SIZE}&page=${page}`,
+                {
+                    headers: {
+                        Authorization: `token ${GITHUB_TOKEN}`,
+                        Accept: 'application/vnd.github.v3+json',
+                    },
+                    signal: AbortSignal.timeout(PR_FILES_REQUEST_TIMEOUT_MS),
+                }
+            )
+
+            if (!response.ok) {
+                console.warn(`⚠️  Could not list PR files: ${response.status} ${response.statusText}`)
+                return files
+            }
+
+            const batch = await response.json()
+            files.push(...batch)
+            if (batch.length < PR_FILES_PAGE_SIZE) {
+                return files
+            }
+        }
+    } catch (error) {
+        console.warn(`⚠️  Could not list PR files: ${error?.message ?? error}`)
+        return files
+    }
+}
+
 // Best-effort: a labeling failure must never fail the job. The workflow does
 // nothing but label, so a hard failure would only paint a non-blocking red ✗ on
 // the PR over a transient blip or config drift (e.g. a renamed label). We warn
@@ -86,7 +140,7 @@ async function addLabels(labels) {
     const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
 
     if (labels.length === 0) {
-        console.info('ℹ️  Title has no labelable scope; nothing to do')
+        console.info('ℹ️  No scope or path maps to a label; nothing to do')
         return
     }
 
@@ -301,7 +355,8 @@ async function main() {
 
     try {
         const rules = loadRules()
-        const labels = labelsForTitle(PR_TITLE, rules)
+        const files = rules.some((rule) => rule.paths?.length) ? await fetchPrFiles() : []
+        const labels = Array.from(new Set([...labelsForTitle(PR_TITLE, rules), ...labelsForFiles(files, rules)]))
         if (docsLabelApplies(PR_TITLE, PR_AUTHOR) && !labels.includes('docs')) {
             labels.push('docs')
         }
@@ -326,6 +381,7 @@ module.exports = {
     parseType,
     docsLabelApplies,
     labelsForTitle,
+    labelsForFiles,
     loadRules,
     isFlagsLowHangingFruitCandidate,
     isFlagsLowHangingFruit,
