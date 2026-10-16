@@ -131,11 +131,15 @@ from products.product_analytics.backend.facade.models import Insight
 from products.workflows.backend.facade.api import (
     filter_hog_flow_references_by_access_level,
     get_active_workflows_using_realtime_cohort,
+    team_has_active_workflows_using_cohorts,
 )
 from products.workflows.backend.facade.contracts import CohortDependentWorkflow, HogFlowReference
 
 
 def _workflows_relying_on_cohort(cohort: Cohort) -> list[CohortDependentWorkflow]:
+    # Most teams have no active cohort workflows, so skip loading every cohort in the project for them.
+    if not team_has_active_workflows_using_cohorts(team_id=cohort.team_id):
+        return []
     # A cohort that includes this one as a criterion reads its membership, so a workflow on that cohort
     # also relies on this one. Load the project's cohort references in one query and walk them in memory.
     dependents: defaultdict[int, set[int]] = defaultdict(set)
@@ -417,6 +421,37 @@ def _single_value_operator_value(operator: str | None, value: Any) -> Any:
         if isinstance(value[0], str):
             return value[0]
     return value
+
+
+_COMPUTED_FILTER_KEYS = frozenset({"bytecode", "bytecode_error", "conditionHash"})
+
+
+def _canonical_criteria(node: Any) -> Any:
+    """The criteria with server-computed keys removed and single-child groups collapsed.
+
+    The editor wraps conditions in an extra group and the server recompiles bytecode on every save,
+    so comparing raw filters would count a save that touched no criteria as a change.
+    """
+    if isinstance(node, list):
+        return [_canonical_criteria(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    canonical = {key: _canonical_criteria(value) for key, value in node.items() if key not in _COMPUTED_FILTER_KEYS}
+    values = canonical.get("values")
+    if (
+        canonical.get("type") in ("AND", "OR")
+        and isinstance(values, list)
+        and len(values) == 1
+        and isinstance(values[0], dict)
+        and values[0].get("type") in ("AND", "OR")
+    ):
+        return values[0]
+    return canonical
+
+
+def _criteria_key(filters: Any) -> str:
+    # JSON keeps 1 and 1.0 apart, which Python equality does not, and they compile to different criteria.
+    return json.dumps(_canonical_criteria(filters), sort_keys=True, default=str)
 
 
 def _coerce_stored_filter_values(filters: Any) -> Any:
@@ -1600,8 +1635,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         existing_has_criteria = cohort_filters_have_values(cohort.filters)
-        filters_changed = "filters" in validated_data and validated_data.get("filters") != _coerce_stored_filter_values(
-            cohort.filters
+        filters_changed = "filters" in validated_data and _criteria_key(validated_data.get("filters")) != _criteria_key(
+            _coerce_stored_filter_values(cohort.filters)
         )
 
         create_in_folder = validated_data.pop("_create_in_folder", None)
@@ -1636,16 +1671,27 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
         # A cohort that stops being realtime stops emitting membership changes, so its workflows would
         # never trigger and their branches would read frozen membership, with no error anywhere.
-        if was_realtime and (cohort.is_static or cohort.cohort_type != CohortType.REALTIME):
-            workflows_relying_on_realtime = _workflows_relying_on_cohort(cohort)
-            if workflows_relying_on_realtime:
+        stops_realtime = was_realtime and (cohort.is_static or cohort.cohort_type != CohortType.REALTIME)
+        # A criteria edit makes the stream processor re-evaluate every person and send `entered` again for
+        # current members, so cohort-triggered workflows would run again for people who never left.
+        if stops_realtime or filters_changed:
+            workflows_relying_on_cohort = _workflows_relying_on_cohort(cohort)
+            if workflows_relying_on_cohort:
+                count = len(workflows_relying_on_cohort)
                 names = _workflow_names_suffix(
-                    request, self._user_access_control(), cohort.team_id, workflows_relying_on_realtime
+                    request, self._user_access_control(), cohort.team_id, workflows_relying_on_cohort
                 )
+                if stops_realtime:
+                    raise ValidationError(
+                        f"This change stops the cohort updating in real time, and {count} "
+                        f"active workflow(s) rely on that{names}. "
+                        "Please remove the cohort from these workflows before making this change.",
+                        code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
+                    )
                 raise ValidationError(
-                    f"This change stops the cohort updating in real time, and {len(workflows_relying_on_realtime)} "
-                    f"active workflow(s) rely on that{names}. "
-                    "Please remove the cohort from these workflows before making this change.",
+                    f"This cohort is used in {count} active workflow(s){names}. Changing its criteria would send "
+                    "its current members through them again. "
+                    "Please remove the cohort from these workflows before changing its criteria.",
                     code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
                 )
 
