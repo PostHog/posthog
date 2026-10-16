@@ -13414,6 +13414,18 @@ snapshots:
         hash: v1.k794b7964.730f63a37031a8670713c04b565dee44eb0daf7ca1739d3ec65fb46cf1fb6022.P67NSd6TYkZMOWMhgH7gK0ia88hUc1NU3u0rPO5Gn08
     scenes-app-people-cohorts-add-person-to-cohort-modal--modal-with-all-selected--light:
         hash: v1.k794b7964.c8a802919fbe8b57ddd3484e0736960c6e7aef3e5236f3518ad5d78b5de0741f.qL7rlejiasuC6pwlUE5inv_GZ1tjujnDGsZQk48MiHI
+    scenes-app-people-cohorts-blocking-workflows-modal--delete-blocked--dark:
+        hash: v1.k794b7964.ef919a6aca9609d0783731ec8bc26d8d09efaf8b1c2474d7ccb02bb6fac50aa6.qIa0KtoTlo_FBuI5D_yGUKkRZllRs4Y6MIDRn-rtV-g
+    scenes-app-people-cohorts-blocking-workflows-modal--delete-blocked--light:
+        hash: v1.k794b7964.6f6ceb5effdae404b9f66569db456095c2af833f861b93af32578c499d028f27.mz4x5kPGdheXrB1x9LMwRyL-jWlMZ74IBbKy8vHI3zY
+    scenes-app-people-cohorts-blocking-workflows-modal--edit-blocked--dark:
+        hash: v1.k794b7964.4ab673c6606d909b34c56b8bfb177364d5eb7fa35d02061cd9f833f12c63cdaf.wkc81U4GRFFxj8xah2nNomuMtXvizMXjF5bSZbNDlkk
+    scenes-app-people-cohorts-blocking-workflows-modal--edit-blocked--light:
+        hash: v1.k794b7964.a20b5934f62fbbd3cefc8844040941854f8c07d7baab13cde28e99c51a77776b.fXVAOpjznHOqNSNNaHMHG0HiD5IGiDrBeEODg2cTtoc
+    scenes-app-people-cohorts-blocking-workflows-modal--locked-from-details--dark:
+        hash: v1.k794b7964.a8256a9ab17c87980c37f839c64524986fc4faa877c0ed181ff243b881c4b8bf.nYbKjn1dpL-ZVnM4yrFPXO90qg8a2LgFPB5Fg7G9Qcg
+    scenes-app-people-cohorts-blocking-workflows-modal--locked-from-details--light:
+        hash: v1.k794b7964.9819971802de11467c344f7a264ee683d097adcf9365dbf0ddf7247a3ff52f72.uf3FzWXYyPG0c_v1sj4Tzz3essREBnh8ZvXL0Hh3WLs
     scenes-app-people-groups--groups--dark:
         hash: v1.k794b7964.43aff64914fff6a42e75760dd43d3a6a389992009b996d68255cdf1edfaa4c08.J_2LUzPOjqGdvly-10vw0UsY8tOJAv6Jt76dYvjl7Gs
     scenes-app-people-groups--groups--light:
@@ -15598,6 +15610,10 @@ snapshots:
         hash: v1.k794b7964.5de3e955f865fa9301e3e3e7a1cd018790e74f18b3aec241c4164549eaa2ad68.rsccvu79W2TIlGdjUPSc6M0r4sz5rF5MX7rHkJOkFA4
     scenes-other-settings-organization-oauth-apps--with-apps--light:
         hash: v1.k794b7964.b205875d375c5a66196e4ad55b794f719e0f8d98e3e5f7838da6f8e846294194.d6wj83uWgchZ8z3T8PNbeKl1NaCAhZFiVOm2hF6qKsk
+    scenes-other-settings-project-gateway-key-spend--with-spend--dark:
+        hash: v1.k794b7964.c80a6bb6d26aeea08ba16ade17e3338f55ced40ace8197076692b1816065d580.rfUZNNvsXcBb-qHUEkLkYqOYRnRZ-5fXDWvx7Cnmp9M
+    scenes-other-settings-project-gateway-key-spend--with-spend--light:
+        hash: v1.k794b7964.4b25dec6b1eccb8ed6cb9b00031606d0bdbcf06bab4ce9fa5143dc9ab37d2386.wRszJ8E6zhUO_cRvzwm8KQ1shzGv-RbPxGS_q7Bet2w
     scenes-other-startup-program--email-domain-blocked--dark:
         hash: v1.k794b7964.3415b4b283c8afd8ae270ebd5640b9b526e7c91fcf0c081176a3ffb22fbd16af.Zv8TLzbKuqfD5P1FrOelwSY5EaK409zF0IpWkHPQfZ8
     scenes-other-startup-program--email-domain-blocked--light:
