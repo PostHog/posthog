@@ -428,6 +428,17 @@ async function releaseMilestoneClaim(
     }
 }
 
+export async function trackAgentActivity(
+    redisStream: TaskRunRedisStream,
+    event: Record<string, unknown>
+): Promise<void> {
+    if (isTurnComplete(event)) {
+        await redisStream.setAgentActive(false)
+    } else if (isSessionUpdate(event) || isAgentGenerationEvent(event)) {
+        await redisStream.setAgentActive(true)
+    }
+}
+
 export async function heartbeatWorkflowIfNeeded(
     redisStream: TaskRunRedisStream,
     runId: string,

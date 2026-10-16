@@ -57,8 +57,14 @@ import {
 } from "../pi/types";
 import { PostHogAPIClient } from "../posthog-api";
 import { attachmentFilePath } from "../utils/attachments";
+import { withTimeout } from "../utils/common";
 import { createEventIdSource } from "../utils/event-id";
 import { Logger } from "../utils/logger";
+import {
+  AGENT_CALLBACK_SETTLE_BUDGET_MS,
+  type AgentCallbackReporter,
+  createAgentCallbackReporter,
+} from "./agent-callback-reporter";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import {
   buildPiProviderRoute,
@@ -102,6 +108,15 @@ const MAX_PENDING_EVENTS = 1_000;
 const MAX_PENDING_LOG_ENTRIES = 10_000;
 const MAX_COVERED_EVENT_IDS = 10_000;
 const LOG_FLUSH_ENTRY_COUNT = 100;
+const PI_STOP_REASON_ERROR = "error";
+const PI_ACTIVITY_EVENTS: ReadonlySet<AgentConversationEvent["type"]> = new Set(
+  [
+    "assistant_message_chunk",
+    "assistant_thought_chunk",
+    "tool_call_started",
+    "tool_call_updated",
+  ],
+);
 
 const userMessageCommandSchema = z
   .object({
@@ -177,6 +192,7 @@ export class PiAgentServer {
   });
   private readonly posthogAPI: PostHogAPIClient;
   private readonly eventStreamSender: TaskRunEventStreamSender | null;
+  private readonly agentCallbacks: AgentCallbackReporter | null;
   private readonly nextEventId = createEventIdSource();
   private server: ServerType | null = null;
   private session: PiCloudSession | null = null;
@@ -214,11 +230,27 @@ export class PiAgentServer {
       getApiKey: () => config.apiKey,
       userAgent: `posthog/pi-cloud`,
     });
+    this.agentCallbacks = config.eventIngestToken
+      ? createAgentCallbackReporter({
+          eventIngestToken: config.eventIngestToken,
+          logger: this.logger.child("AgentCallback"),
+          send: (callback) =>
+            this.posthogAPI.sendAgentCallback(
+              config.taskId,
+              config.runId,
+              callback,
+            ),
+          awaitEventAck: () =>
+            this.eventStreamSender?.awaitAckOfLastEvent() ??
+            Promise.resolve(null),
+        })
+      : null;
     this.eventStreamSender = config.eventIngestToken
       ? new TaskRunEventStreamSender({
           apiUrl: config.apiUrl,
           eventIngestBaseUrl: config.eventIngestBaseUrl,
           keepProxyStreamOpen: config.eventIngestKeepStreamOpen,
+          agentSendsCallbacks: this.agentCallbacks !== null,
           projectId: config.projectId,
           taskId: config.taskId,
           runId: config.runId,
@@ -336,6 +368,11 @@ export class PiAgentServer {
     );
     await this.emitRtkSavings();
     await this.eventStreamSender?.stop();
+    this.agentCallbacks?.stopWaitingForAcks();
+    await withTimeout(
+      this.agentCallbacks?.settled() ?? Promise.resolve(),
+      AGENT_CALLBACK_SETTLE_BUDGET_MS,
+    );
     this.server?.close();
     this.server = null;
   }
@@ -379,6 +416,11 @@ export class PiAgentServer {
       );
     await this.emitRtkSavings();
     await this.eventStreamSender?.stop();
+    this.agentCallbacks?.stopWaitingForAcks();
+    await withTimeout(
+      this.agentCallbacks?.settled() ?? Promise.resolve(),
+      AGENT_CALLBACK_SETTLE_BUDGET_MS,
+    );
   }
 
   private async emitRtkSavings(): Promise<void> {
@@ -843,6 +885,24 @@ export class PiAgentServer {
       event.usage
     ) {
       this.broadcastUsage(event.usage);
+    }
+    this.reportAgentEvent(event);
+  }
+
+  private reportAgentEvent(event: AgentConversationEvent): void {
+    if (!this.agentCallbacks) {
+      return;
+    }
+    if (event.type !== "turn_completed") {
+      if (PI_ACTIVITY_EVENTS.has(event.type)) {
+        this.agentCallbacks.agentActivity(true);
+      }
+      return;
+    }
+    if (event.stopReason === PI_STOP_REASON_ERROR) {
+      this.agentCallbacks.turnFailed();
+    } else {
+      this.agentCallbacks.turnCompleted(event.stopReason ?? "");
     }
   }
 

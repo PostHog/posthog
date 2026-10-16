@@ -90,6 +90,17 @@ export const taskRunStreamWriteSkippedTotal = new Counter({
     registers: [register],
 })
 
+export const taskRunIngestRequestsTotal = new Counter({
+    name: 'posthog_tasks_task_run_ingest_requests_total',
+    help: "Task-run ingest requests, by whether the agent or the ingest handler sends the run's callbacks",
+    labelNames: ['callback_sender', 'origin_product'],
+    registers: [register],
+})
+
+export function observeIngestRequest(callbackSender: 'agent' | 'ingest', originProduct: string): void {
+    taskRunIngestRequestsTotal.labels({ callback_sender: callbackSender, origin_product: originProduct }).inc()
+}
+
 // 'run_over'/'idle' are expected sandbox teardown; 'mid_turn' is a genuine cut worth alerting on.
 export const ingestClientDisconnectsTotal = new Counter({
     name: 'agent_proxy_ingest_client_disconnects_total',
