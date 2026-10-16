@@ -18,6 +18,7 @@ from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
+    Grouping,
     GroupOutcome,
     InstanceCheckState,
     PlatformAlertCheckInput,
@@ -154,7 +155,7 @@ class GroupDecision:
     evicted: frozenset[str] = frozenset()
 
     def as_outcome(
-        self, *, configuration_id: UUID, evaluation_key: str, query_duration_ms: int | None
+        self, *, configuration_id: UUID, evaluation_key: str, grouping: Grouping, query_duration_ms: int | None
     ) -> PlatformAlertOutcome:
         """The outcome of a grouped check that ran. A query that ran reset the failure count."""
         return PlatformAlertOutcome(
@@ -162,6 +163,7 @@ class GroupDecision:
             evaluation_key=evaluation_key,
             consecutive_failures=0,
             groups=tuple(verdict.group for verdict in self.verdicts),
+            grouping=grouping,
             query_duration_ms=query_duration_ms,
             overflowed=self.overflowed,
             evicted=tuple(sorted(self.evicted)),

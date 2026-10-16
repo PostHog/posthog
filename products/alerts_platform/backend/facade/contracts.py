@@ -545,6 +545,10 @@ class PlatformAlertOutcome:
     # A team's checks with the same group are due in one slot, so a source that answers them with
     # one query can do so. None spreads the configuration by its own id.
     schedule_group: str | None = None
+    # The grouping the check ran under. An edit can change it while the check is in flight, and the
+    # groups of a stale check are keyed for a grouping the configuration no longer has, so they are
+    # dropped. None when the outcome carries no groups to drop.
+    grouping: Grouping | None = None
 
     @classmethod
     def ungrouped(
@@ -598,6 +602,7 @@ class PlatformAlertOutcome:
             evaluation_key=evaluation_key,
             consecutive_failures=consecutive_failures,
             groups=groups,
+            grouping=Grouping(),
             failure=failure,
             error_message=error_message,
             query_duration_ms=query_duration_ms,
