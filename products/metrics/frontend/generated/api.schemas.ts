@@ -1281,12 +1281,14 @@ export interface _MetricVariableOptionsRequestApi {
     /** The current selection of the other dashboard variables that the query can refer to. */
     variables?: _MetricVariableSelectionApi[]
     /**
-     * Start of the window that options come from. ISO 8601. Defaults to 24 hours ago.
+     * Start of the window that options come from, as in a dashboard date filter: ISO 8601 or a relative date such as '-7d'. Defaults to 24 hours ago.
+     * @maxLength 64
      * @nullable
      */
     dateFrom?: string | null
     /**
-     * End of the window that options come from. ISO 8601. Defaults to now.
+     * End of the window that options come from, in the same format as dateFrom. Defaults to now.
+     * @maxLength 64
      * @nullable
      */
     dateTo?: string | null

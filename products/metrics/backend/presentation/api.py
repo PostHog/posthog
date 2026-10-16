@@ -21,7 +21,12 @@ from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSelection, MetricsDashboardVariableSource
+from posthog.schema import (
+    DateRange,
+    MetricsDashboardVariable,
+    MetricsDashboardVariableSelection,
+    MetricsDashboardVariableSource,
+)
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -63,6 +68,7 @@ from products.metrics.backend.facade.enums import (
     MetricRangeFunction,
     MetricType,
 )
+from products.metrics.backend.hogql_queries.metrics_query_runner import metrics_query_date_range
 
 __all__ = ["MetricsViewSet"]
 
@@ -757,17 +763,22 @@ class _MetricVariableOptionsRequestSerializer(serializers.Serializer):
         default=list,
         help_text="The current selection of the other dashboard variables that the query can refer to.",
     )
-    dateFrom = serializers.DateTimeField(
+    dateFrom = serializers.CharField(
         required=False,
         allow_null=True,
         default=None,
-        help_text="Start of the window that options come from. ISO 8601. Defaults to 24 hours ago.",
+        max_length=64,
+        help_text=(
+            "Start of the window that options come from, as in a dashboard date filter: "
+            "ISO 8601 or a relative date such as '-7d'. Defaults to 24 hours ago."
+        ),
     )
-    dateTo = serializers.DateTimeField(
+    dateTo = serializers.CharField(
         required=False,
         allow_null=True,
         default=None,
-        help_text="End of the window that options come from. ISO 8601. Defaults to now.",
+        max_length=64,
+        help_text="End of the window that options come from, in the same format as dateFrom. Defaults to now.",
     )
 
 
@@ -1110,8 +1121,12 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         body = _MetricVariableOptionsRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         data = body.validated_data
-        date_to: dt.datetime = data["dateTo"] or timezone.now()
-        date_from: dt.datetime = data["dateFrom"] or date_to - dt.timedelta(days=1)
+        # The tiles resolve the dashboard date filter the same way, so the options come from the tile window.
+        try:
+            window = metrics_query_date_range(self.team, DateRange(date_from=data["dateFrom"], date_to=data["dateTo"]))
+            date_from, date_to = window.date_from(), window.date_to()
+        except (ValueError, OverflowError):
+            raise ParseError("The window of the variable options is not a valid date range.")
         if date_from >= date_to:
             raise ParseError("The start of the window must be before its end.")
         # PromQL goes to Snuffle, which has its own gate, as the PromQL insights and the Prometheus API do.

@@ -311,7 +311,8 @@ def substitute_sql(sql: str, variables: Mapping[str, Variable]) -> SqlSubstituti
             if char == "'":
                 whole = _SQL_REFERENCE.fullmatch(literal[1:-1])
                 names = [name for name in referenced_names(literal) if name in variables]
-                if whole is not None and (whole.group("braced") or whole.group("plain")) in variables:
+                # A string that holds only a reference is a variable, so a missing selection is reported.
+                if whole is not None and _is_variable_reference(whole.group("braced") or whole.group("plain")):
                     parts.append(placeholder(whole.group("braced") or whole.group("plain")))
                     index = end
                     continue

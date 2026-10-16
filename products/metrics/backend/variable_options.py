@@ -26,6 +26,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
+from posthog.errors import ExposedCHQueryError
 from posthog.models import Team
 
 from products.metrics.backend.metric_query_runner import _QUERY_SETTINGS
@@ -52,10 +53,12 @@ _REGEX_WITH_GROUP_QUERY = (
 )
 # The dashboard selects and the SQL tiles that use a variable set to All share the options for this long.
 _OPTIONS_CACHE_SECONDS = 60
-# Tiles of one dashboard run at the same time. One of them loads the options, and the others wait this long for them.
-_OPTIONS_LOCK_SECONDS = 30
-_OPTIONS_WAIT_SECONDS = 10
+# Tiles of one dashboard run at the same time. One of them loads the options and holds a lock while it runs.
+# The lock outlasts the slowest query, a 60 second Snuffle or ClickHouse query, so a slow query runs only once.
+_OPTIONS_LOCK_SECONDS = 90
 _OPTIONS_POLL_SECONDS = 0.1
+# The selection API accepts values up to this length, so a longer option could not be selected.
+MAX_OPTION_LENGTH = 1024
 
 
 @frozen
@@ -191,7 +194,7 @@ def apply_regex(team: Team, options: list[str], regex: str | None) -> list[str]:
         response = execute_hogql_query(
             query_type="MetricsVariableRegex", query=query, team=team, workload=Workload.LOGS, settings=_QUERY_SETTINGS
         )
-    except ExposedHogQLError as exc:
+    except (ExposedHogQLError, ExposedCHQueryError) as exc:
         raise ValueError(f"The variable regex cannot be used: {exc}") from exc
     rows = response.results or []
     return [str(option) for option in rows[0][0]] if rows else []
@@ -266,32 +269,28 @@ def _query_cache_key(
 
 
 def _shared_options(key: str, load: Callable[[], list[str]]) -> list[str]:
-    """The options from the shared cache. When several callers miss at once, one runs `load` and the others wait."""
-    options = cache.get(key)
-    if options is not None:
-        return options
+    """The options from the shared cache. When several callers miss at once, one runs `load` and the others wait.
+
+    Only the caller that holds the lock runs `load`. When the loader fails, it releases the lock and the
+    next waiter takes it.
+    """
     lock_key = f"{key}:lock"
-    locked = cache.add(lock_key, True, _OPTIONS_LOCK_SECONDS)
-    if not locked:
-        deadline = time.monotonic() + _OPTIONS_WAIT_SECONDS
-        while time.monotonic() < deadline:
-            time.sleep(_OPTIONS_POLL_SECONDS)
-            options = cache.get(key)
-            if options is not None:
-                return options
-            if cache.get(lock_key) is None:
-                # The loader finished or failed. Read once more, and load here if it failed.
-                options = cache.get(key)
-                if options is not None:
-                    return options
-                break
+    deadline = time.monotonic() + _OPTIONS_LOCK_SECONDS
+    while True:
+        options = cache.get(key)
+        if options is not None:
+            return options
+        if cache.add(lock_key, True, _OPTIONS_LOCK_SECONDS):
+            break
+        if time.monotonic() >= deadline:
+            raise ValueError("The variable values are still loading. Try again in a moment.")
+        time.sleep(_OPTIONS_POLL_SECONDS)
     try:
         options = load()
         cache.set(key, options, _OPTIONS_CACHE_SECONDS)
         return options
     finally:
-        if locked:
-            cache.delete(lock_key)
+        cache.delete(lock_key)
 
 
 def list_variable_options(
@@ -345,6 +344,7 @@ def list_variable_options(
                     team, sql.sql, date_from, date_to, MAX_VARIABLE_OPTIONS, sql.placeholders
                 ),
             )
-        except ExposedHogQLError as exc:
+        except (ExposedHogQLError, ExposedCHQueryError) as exc:
             raise ValueError(str(exc)) from exc
-    return list(dict.fromkeys(str(option) for option in options))[:MAX_VARIABLE_OPTIONS]
+    kept = (str(option) for option in options if len(str(option)) <= MAX_OPTION_LENGTH)
+    return list(dict.fromkeys(kept))[:MAX_VARIABLE_OPTIONS]

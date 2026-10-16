@@ -781,6 +781,10 @@ export const metricsVariableOptionsCreateBodyVariablesItemValuesMax = 1000
 export const metricsVariableOptionsCreateBodyVariablesItemAllDefault = false
 export const metricsVariableOptionsCreateBodyVariablesItemAllValueMax = 1024
 
+export const metricsVariableOptionsCreateBodyDateFromMax = 64
+
+export const metricsVariableOptionsCreateBodyDateToMax = 64
+
 export const MetricsVariableOptionsCreateBody = /* @__PURE__ */ zod.object({
     source: zod
         .enum(['custom', 'promql', 'sql', 'textbox'])
@@ -825,12 +829,16 @@ export const MetricsVariableOptionsCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe('The current selection of the other dashboard variables that the query can refer to.'),
-    dateFrom: zod.iso
-        .datetime({ offset: true })
+    dateFrom: zod
+        .string()
+        .max(metricsVariableOptionsCreateBodyDateFromMax)
         .nullish()
-        .describe('Start of the window that options come from. ISO 8601. Defaults to 24 hours ago.'),
-    dateTo: zod.iso
-        .datetime({ offset: true })
+        .describe(
+            "Start of the window that options come from, as in a dashboard date filter: ISO 8601 or a relative date such as '-7d'. Defaults to 24 hours ago."
+        ),
+    dateTo: zod
+        .string()
+        .max(metricsVariableOptionsCreateBodyDateToMax)
         .nullish()
-        .describe('End of the window that options come from. ISO 8601. Defaults to now.'),
+        .describe('End of the window that options come from, in the same format as dateFrom. Defaults to now.'),
 })

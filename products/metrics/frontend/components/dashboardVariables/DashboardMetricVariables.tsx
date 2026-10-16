@@ -73,6 +73,8 @@ export function DashboardMetricVariables(): JSX.Element | null {
                     dashboardId={dashboard.id}
                     variables={variables}
                     options={options}
+                    dateFrom={effectiveEditBarFilters.date_from}
+                    dateTo={effectiveEditBarFilters.date_to}
                     onClose={() => setEditorOpen(false)}
                     onSave={(next) => {
                         setEditorOpen(false)

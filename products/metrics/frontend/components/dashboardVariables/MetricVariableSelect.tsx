@@ -8,7 +8,7 @@ import { objectsEqual } from 'lib/utils/objects'
 
 import type { MetricsDashboardVariable, MetricsDashboardVariableSelection } from '~/queries/schema/schema-general'
 
-import { ALL_OPTION, selectionFromValues } from './metricVariables'
+import { ALL_OPTION, MAX_VALUE_LENGTH, selectionFromValues } from './metricVariables'
 
 /** One dashboard variable: a select of its options, or a text input for a free-text variable. */
 export function MetricVariableSelect({
@@ -85,6 +85,7 @@ function MetricVariableTextInput({
             className="w-40"
             value={text}
             placeholder="Enter a value"
+            maxLength={MAX_VALUE_LENGTH}
             onChange={setText}
             onBlur={commit}
             onPressEnter={commit}

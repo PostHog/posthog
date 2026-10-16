@@ -1,9 +1,11 @@
 import type { MetricsDashboardVariable } from '~/queries/schema/schema-general'
 
+import { variableErrors } from './metricVariableEditorLogic'
 import {
     ALL_OPTION,
     applyVariableRegex,
     orderVariables,
+    ownValue,
     reconcileSelection,
     selectionFromValues,
     selectionsForRequest,
@@ -75,6 +77,11 @@ describe('metricVariables', () => {
         expect(selectionFromValues({ ...custom('v', []), includeAll: true, multi }, values, ['a', 'b'])).toEqual(
             expected
         )
+    })
+
+    it.each(['__proto__', '__interval'])('rejects the reserved name %s', (name) => {
+        const errors = variableErrors([{ name, source: 'promql', query: 'label_values(job)' }])
+        expect(ownValue(errors, name)?.field).toEqual('name')
     })
 
     it.each([

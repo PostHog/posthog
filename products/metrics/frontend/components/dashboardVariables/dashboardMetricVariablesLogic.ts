@@ -12,7 +12,6 @@ import {
     reducers,
 } from 'kea'
 
-import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -178,8 +177,9 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
                             source: variable.source,
                             query: variable.query ?? null,
                             variables: selectionsForRequest(variable, variables, values.options),
-                            dateFrom: dateStringToDayJs(props.dateFrom ?? null)?.toISOString() ?? null,
-                            dateTo: dateStringToDayJs(props.dateTo ?? null)?.toISOString() ?? null,
+                            // The server resolves the dashboard date filter as the tiles do.
+                            dateFrom: props.dateFrom ?? null,
+                            dateTo: props.dateTo ?? null,
                         })
                         breakpoint()
                         options = applyVariableRegex(response.results, variable.regex)

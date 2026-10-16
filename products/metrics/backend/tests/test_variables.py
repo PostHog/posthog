@@ -97,6 +97,10 @@ def test_sql_text_that_is_not_a_reference_stays(_name: str, sql: str) -> None:
     assert (substitution.sql, substitution.placeholders) == (sql, {})
 
 
+def test_sql_quoted_reference_without_a_selection_is_reported() -> None:
+    assert substitute_sql("SELECT 1 WHERE job = '$job'", {"env": ONE}).unresolved == ("job",)
+
+
 def test_sql_reference_inside_a_longer_string_is_rejected() -> None:
     with pytest.raises(ValueError, match=r"\$env is inside a string"):
         substitute_sql("SELECT 1 WHERE env = 'prefix-$env'", {"env": INJECTED})

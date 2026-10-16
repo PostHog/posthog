@@ -14,9 +14,10 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSource
+from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
 
 from posthog.constants import AvailableFeature
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
@@ -25,6 +26,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.facade.user_access_control import AccessControlLevelResource
 from products.access_control.backend.models.access_control import AccessControl
 from products.error_tracking.backend.facade.testing import create_issue, create_spike_event
+from products.metrics.backend.hogql_queries.metrics_query_runner import metrics_query_date_range
 from products.metrics.backend.variable_options import fill_all_values
 from products.metrics.backend.variables import Variable
 
@@ -80,23 +82,29 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
         assert results == [["api", "worker"]] * 8
 
     def test_the_dashboard_select_fills_the_cache_that_tiles_read(self) -> None:
-        date_to = timezone.now()
-        date_from = date_to - timedelta(hours=6)
+        # The select sends the dashboard date filter as written, and the tile resolves the same filter.
+        window = metrics_query_date_range(self.team, DateRange(date_from="-6h"))
+        too_long = "x" * 1025
         with patch(
-            "products.metrics.backend.variable_options.run_metrics_sql_values", return_value=["api", "worker"]
+            "products.metrics.backend.variable_options.run_metrics_sql_values",
+            return_value=["api", "worker", too_long],
         ) as run:
-            response = self._post(
-                {
-                    "source": "sql",
-                    "query": OPTIONS_SQL,
-                    "dateFrom": date_from.isoformat(),
-                    "dateTo": date_to.isoformat(),
-                }
-            )
+            response = self._post({"source": "sql", "query": OPTIONS_SQL, "dateFrom": "-6h"})
             assert response.status_code == status.HTTP_200_OK
-            assert self._fill_all(date_from, date_to) == ["api", "worker"]
+            assert response.json() == {"results": ["api", "worker"]}
+            assert self._fill_all(window.date_from(), window.date_to()) == ["api", "worker"]
 
         assert run.call_count == 1
+
+    def test_clickhouse_limits_are_shown_to_the_user(self) -> None:
+        with patch(
+            "products.metrics.backend.variable_options.run_metrics_sql_values",
+            side_effect=CHQueryErrorTooManyBytes("Limit for rows or bytes to read exceeded"),
+        ):
+            response = self._post({"source": "sql", "query": OPTIONS_SQL})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "bytes to read" in response.json()["detail"]
 
     def test_custom_options_drop_duplicates_and_blanks(self) -> None:
         response = self._post({"source": "custom", "customValues": ["b", "a", "b", ""]})

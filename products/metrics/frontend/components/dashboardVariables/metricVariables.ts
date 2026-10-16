@@ -9,6 +9,8 @@ import type { _MetricVariableSelectionApi } from 'products/metrics/frontend/gene
 /** The select value that stands for All. Grafana uses the same text. */
 export const ALL_OPTION = '$__all'
 export const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+/** The API accepts selected values up to this length. */
+export const MAX_VALUE_LENGTH = 1024
 const REFERENCE =
     /\$\{([A-Za-z0-9_]+)(?::[A-Za-z0-9_]+)?\}|\[\[([A-Za-z0-9_]+)(?::[A-Za-z0-9_]+)?\]\]|\$([A-Za-z0-9_]+)/g
 
