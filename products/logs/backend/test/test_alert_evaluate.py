@@ -14,6 +14,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import redis
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.scoping import team_scope
 from posthog.temporal.alerts.admission import admit_evaluation_slots
 
@@ -68,6 +69,9 @@ CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minut
 _LOGS_OWNED_FIELDS = ("state", "consecutive_failures", "next_check_at", "last_notified_at", "snooze_until")
 # Settings a check reads from the logs alert rather than from its platform copy.
 _LEGACY_ALERT_FIELDS = ("evaluation_periods", "datapoints_to_alarm", "cooldown_minutes", "schedule_restriction")
+
+
+_BY_SERVICE = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",))
 
 
 class TestLogsAlertEvaluation(APIBaseTest):
@@ -473,6 +477,61 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert configuration.check_status == expected_status
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
+
+    @parameterized.expand(
+        [
+            ("cohort_cut_short_by_an_earlier_query", Grouping(), True, 10, None),
+            ("cohort_with_its_full_time_after_another", Grouping(), True, 0, 5),
+            ("cohort_first_in_its_batch", Grouping(), False, 0, 5),
+            ("grouped_cut_short_by_an_earlier_query", _BY_SERVICE, True, 10, None),
+            ("grouped_with_its_full_time_after_another", _BY_SERVICE, True, 0, 5),
+        ]
+    )
+    def test_a_query_out_of_time_counts_only_when_no_earlier_query_spent_its_time(
+        self,
+        _name: str,
+        grouping: Grouping,
+        after_another: bool,
+        earlier_query_seconds: int,
+        expected_failures: int | None,
+    ) -> None:
+        if after_another:
+            self._configuration()
+        slow = self._configuration(
+            consecutive_failures=4,
+            grouping=grouping.to_stored(),
+            source_config={"condition": {**CONDITION, "window_minutes": 10}},
+        )
+        clock = [1000.0]
+        cohort_calls: list[int] = []
+
+        def cohort_query_run(*_args: Any, **_kwargs: Any) -> BatchedBucketedResult:
+            # The first cohort is the earlier query when one runs; any later cohort is the slow one.
+            cohort_calls.append(1)
+            if after_another and grouping.mode == GroupingMode.SINGLE and len(cohort_calls) > 1:
+                raise ClickHouseQueryTimeOut()
+            if not after_another:
+                raise ClickHouseQueryTimeOut()
+            clock[0] += earlier_query_seconds
+            return BatchedBucketedResult(per_alert={}, query_duration_ms=1)
+
+        with (
+            patch(f"{_MODULE}.time") as fake_time,
+            patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
+            patch(f"{_MODULE}.BatchedAlertCheckQuery") as cohort_query,
+            patch(f"{_MODULE}.GroupedAlertCheckQuery") as grouped_query,
+        ):
+            fake_time.monotonic.side_effect = lambda: clock[0]
+            cohort_query.return_value.execute_rolling_checks.side_effect = cohort_query_run
+            grouped_query.return_value.execute_rolling_checks.side_effect = ClickHouseQueryTimeOut()
+            evaluation = evaluate_logs_batch(self.team.id, self._slot(), self.cutoff)
+        self._record(evaluation)
+
+        failures = [o.consecutive_failures for o in evaluation.outcomes if o.configuration_id == slow.id]
+        with team_scope(self.team.id):
+            still_due = platform_testing.count_still_due([slow.id], at=self.cutoff)
+        # A query cut short by an earlier one leaves its check due, so its slot comes back alone.
+        assert (failures, still_due) == (([], 1) if expected_failures is None else ([expected_failures], 0))
 
     def test_a_failure_the_batch_cannot_record_leaves_the_whole_batch_due(self) -> None:
         configuration = self._configuration(consecutive_failures=4)
