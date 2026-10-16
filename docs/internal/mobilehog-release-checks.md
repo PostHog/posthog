@@ -52,7 +52,7 @@ The mobile app does not show space names in the drawer, search, composer, or Act
 
 Task completion from Desktop or mobile uses the same server-side owner notification path. Delivery requires a signed-in account, permission to show notifications, an Expo push token registered with the server, and working iOS push credentials for the app's EAS project.
 The app registers after sign-in and retries when it becomes active. Notification permissions stay in iOS settings. Expo push delivery can be tested on a supported iOS simulator or a physical device; it needs a push-enabled native build.
-To check cross-device delivery, start a cloud task from Desktop, put the mobile app in the background, and confirm that the completion alert arrives and opens that task. Server delivery metrics count Expo acceptance, not confirmed device delivery.
+To check cross-device delivery, start a cloud task from Desktop, put the mobile app in the background, and confirm that the completion alert arrives with the title "PostHog" and opens that task. Loop push notifications use the same capitalization. Server delivery metrics count Expo acceptance, not confirmed device delivery.
 
 ## Self-driving and task conversations
 
@@ -132,6 +132,17 @@ Before sharing a build:
 
 Native checks need an iOS simulator or a device.
 Type checks alone do not validate WebView messages, native appearance, or cloud login.
+
+## Hedgehog widget
+
+- Confirm the Keyboard Garden grass fills both widget sizes, including the gallery preview. Check that the enlarged hog remains fully visible at the edges and the top of a jump in both widget sizes.
+- Watch through several walks, jumps and a timeline refresh. Tap during movement; the hog must continue in place. Every flip must finish upright within one animation. If iOS delays or skips an update, the hog must rest on its feet and resume from there, without jumping across the garden.
+- Install a new native build to include the bundled visitor illustrations. Open the app once to update the widget's script, even if it was already opened today.
+- Place small and medium iOS widgets, or resize the Android widget. Check the enlarged artwork near both edges. Watch a full walk and direction change: motion must interpolate throughout each two-second interval without rigid steps or a pause between destinations. Record at 30 fps or higher to catch position snaps that still screenshots miss. On Android, check that the 30 ms frame interval remains smooth through taps and refreshes. No dialogue should appear, even with an older saved script.
+- Watch the same selected character walk, jump and turn throughout the routine. It must never switch artwork without a tap. On Android 12+, also verify that launcher refreshes and resizing preserve the displayed frame.
+- Tap the hog several times. Each tap selects a different character at the same position; it stays selected through movement, app launches and daily script updates. A background tap opens the app. On iOS the other widget family must not react.
+- Turn on Reduce Motion on iOS. The hog remains upright and visible without travel or flip animations.
+- Place a widget before launching the app and test a tap. Its built-in routine, garden background and character switching must work offline. Keep an older saved script and confirm that it cannot change the selected character automatically.
 
 ## Rich content, dictation, and report controls
 

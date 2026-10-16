@@ -20,6 +20,9 @@ packages:
     # products/desktop is a nested standalone workspace (own lockfile, catalog,
     # overrides, Node version); the root install must not absorb it.
     - '!products/desktop'
+    # products/mobile is the standalone Expo app: its own lockfile and React 19,
+    # so the root install must not absorb it either.
+    - '!products/mobile'
     - docs/onboarding
     - services/agent-proxy
     - services/credentials-service

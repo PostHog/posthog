@@ -72,6 +72,7 @@ PROJECTIONS: tuple[Projection, ...] = (
             "products/desktop/packages/core/src/inbox/objectKinds.generated.ts",
             "packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts",
             "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts",
+            "products/mobile/src/features/chat/objectKinds.generated.ts",
         ),
     ),
     Projection(

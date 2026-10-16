@@ -1,0 +1,279 @@
+import { forwardRef, type ReactElement, type ReactNode } from 'react'
+import { StyleSheet, Text, TextInput, View } from 'react-native'
+
+import { ArrowUpIcon } from '@/ui/icons/ArrowUpIcon'
+import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
+import { PaperclipIcon } from '@/ui/icons/PaperclipIcon'
+import { Pressable44 } from '@/ui/Pressable44'
+import { colors, iconSizes, inputReset, radii, shadows, type } from '@/ui/tokens'
+
+interface ComposerProps {
+    text: string
+    onChangeText: (text: string) => void
+    chips?: ReactNode
+    mentionOpen: boolean
+    onToggleMention: () => void
+    modelLabel: string
+    modeLabel: string
+    openOption: 'model' | 'mode' | null
+    optionsDisabled: boolean
+    onOpenModel: () => void
+    onOpenMode: () => void
+    onSend: () => void
+    canSend: boolean
+    isStreaming: boolean
+    onStop: () => void
+}
+
+interface OptionChipProps {
+    label: string
+    accessibilityLabel: string
+    open: boolean
+    disabled: boolean
+    onPress: () => void
+    /** False keeps the whole label, so a short label never truncates to one letter beside a long one. */
+    shrinks: boolean
+    testID: string
+}
+
+function OptionChip({
+    label,
+    accessibilityLabel,
+    open,
+    disabled,
+    onPress,
+    shrinks,
+    testID,
+}: OptionChipProps): ReactElement {
+    return (
+        <Pressable44
+            onPress={onPress}
+            disabled={disabled}
+            accessibilityLabel={accessibilityLabel}
+            accessibilityState={{ expanded: open, disabled }}
+            pressedBackground={colors.background}
+            style={[
+                styles.chip,
+                !shrinks && styles.chipFixed,
+                open && styles.toolActive,
+                disabled && styles.toolDisabled,
+            ]}
+            testID={testID}
+        >
+            <Text style={styles.chipLabel} numberOfLines={1}>
+                {label}
+            </Text>
+            <View style={styles.chevron}>
+                <ChevronDownIcon size={iconSizes.small} color={colors.muted} />
+            </View>
+        </Pressable44>
+    )
+}
+
+export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
+    {
+        text,
+        onChangeText,
+        chips,
+        mentionOpen,
+        onToggleMention,
+        modelLabel,
+        modeLabel,
+        openOption,
+        optionsDisabled,
+        onOpenModel,
+        onOpenMode,
+        onSend,
+        canSend,
+        isStreaming,
+        onStop,
+    },
+    ref
+): ReactElement {
+    return (
+        <View style={[styles.card, shadows.popover]}>
+            {chips ? <View style={styles.chips}>{chips}</View> : null}
+            <TextInput
+                ref={ref}
+                value={text}
+                onChangeText={onChangeText}
+                placeholder="Ask anything…"
+                placeholderTextColor={colors.tertiary}
+                style={styles.input}
+                autoFocus
+                multiline={false}
+                returnKeyType="send"
+                // Keeps the keyboard up after sending, so a follow-up is one tap away.
+                submitBehavior="submit"
+                onSubmitEditing={onSend}
+                accessibilityLabel="Message"
+                testID="chat-input"
+            />
+            <View style={styles.toolbar}>
+                <Pressable44
+                    disabled
+                    accessibilityLabel="Attach a file"
+                    style={[styles.tool, styles.placeholder, styles.toolDisabled]}
+                >
+                    <PaperclipIcon size={iconSizes.control} />
+                </Pressable44>
+                <Pressable44
+                    onPress={onToggleMention}
+                    accessibilityLabel="Add a report"
+                    accessibilityState={{ expanded: mentionOpen }}
+                    pressedBackground={colors.background}
+                    style={[styles.tool, mentionOpen && styles.toolActive]}
+                    testID="chat-mention"
+                >
+                    <Text style={styles.at}>@</Text>
+                </Pressable44>
+                <OptionChip
+                    label={modelLabel}
+                    accessibilityLabel={`Model: ${modelLabel}`}
+                    open={openOption === 'model'}
+                    disabled={optionsDisabled}
+                    onPress={onOpenModel}
+                    shrinks
+                    testID="chat-model"
+                />
+                <OptionChip
+                    label={modeLabel}
+                    accessibilityLabel={`Mode: ${modeLabel}`}
+                    open={openOption === 'mode'}
+                    disabled={optionsDisabled}
+                    onPress={onOpenMode}
+                    shrinks={false}
+                    testID="chat-mode"
+                />
+                <View style={styles.spacer} />
+                {isStreaming ? (
+                    <Pressable44
+                        onPress={onStop}
+                        accessibilityLabel="Stop the reply"
+                        pressedBackground={colors.inkHover}
+                        style={[styles.send, styles.sendReady]}
+                        testID="chat-stop"
+                    >
+                        <View style={styles.stopSquare} />
+                    </Pressable44>
+                ) : (
+                    <Pressable44
+                        onPress={onSend}
+                        disabled={!canSend}
+                        accessibilityLabel="Send"
+                        accessibilityState={{ disabled: !canSend }}
+                        style={[styles.send, canSend ? styles.sendReady : styles.sendIdle]}
+                        testID="chat-send"
+                    >
+                        <ArrowUpIcon size={iconSizes.control} color={colors.white} />
+                    </Pressable44>
+                )}
+            </View>
+        </View>
+    )
+})
+
+const styles = StyleSheet.create({
+    card: {
+        marginHorizontal: 10,
+        marginBottom: 10,
+        borderWidth: 1,
+        borderColor: colors.hairline,
+        borderRadius: radii.softCard,
+        backgroundColor: colors.white,
+        paddingTop: 12,
+        paddingHorizontal: 12,
+        paddingBottom: 10,
+        gap: 10,
+    },
+    chips: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'flex-start',
+        gap: 6,
+    },
+    input: {
+        ...inputReset,
+        height: 40,
+        paddingHorizontal: 6,
+        paddingVertical: 0,
+        ...type.input,
+        color: colors.ink,
+    },
+    toolbar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    tool: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    // The default 6pt hit slop keeps the disabled placeholder at a 44pt target, so it can give the chips room.
+    placeholder: {
+        width: 32,
+    },
+    chip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        flexShrink: 1,
+        minWidth: 0,
+        height: 32,
+        paddingLeft: 10,
+        paddingRight: 8,
+        borderRadius: radii.pill,
+        borderWidth: 1,
+        borderColor: colors.hairline,
+    },
+    chevron: {
+        flexShrink: 0,
+    },
+    chipFixed: {
+        flexShrink: 0,
+    },
+    chipLabel: {
+        flexShrink: 1,
+        fontSize: 14,
+        lineHeight: 18,
+        fontWeight: '600',
+        color: colors.ink,
+    },
+    toolActive: {
+        backgroundColor: colors.background,
+    },
+    toolDisabled: {
+        opacity: 0.4,
+    },
+    at: {
+        fontSize: 20,
+        lineHeight: 24,
+        fontWeight: '500',
+        color: colors.ink,
+    },
+    spacer: {
+        flex: 1,
+    },
+    send: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    sendReady: {
+        backgroundColor: colors.ink,
+    },
+    sendIdle: {
+        backgroundColor: colors.border,
+    },
+    stopSquare: {
+        width: 12,
+        height: 12,
+        borderRadius: 2,
+        backgroundColor: colors.white,
+    },
+})

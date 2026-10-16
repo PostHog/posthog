@@ -1,0 +1,13 @@
+{
+    "images": [
+        {
+            "filename": "hog_idle_20.png",
+            "idiom": "universal",
+            "scale": "1x"
+        }
+    ],
+    "info": {
+        "author": "xcode",
+        "version": 1
+    }
+}
