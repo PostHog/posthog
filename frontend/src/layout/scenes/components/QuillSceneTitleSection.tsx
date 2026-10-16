@@ -2,11 +2,13 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { Button, cn } from '@posthog/quill'
+import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
-import { releaseStageProductForScene } from 'lib/components/ReleaseStageTag/releaseStage'
-import { ReleaseStageTag } from 'lib/components/ReleaseStageTag/ReleaseStageTag'
+import { releaseStage, releaseStageProductForScene } from 'lib/components/ReleaseStageTag/releaseStage'
+import { ReleaseStageBadge } from 'lib/components/ReleaseStageTag/ReleaseStageBadge'
+import { ReleaseStageDetails } from 'lib/components/ReleaseStageTag/ReleaseStageDetails'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
@@ -58,6 +60,8 @@ export function QuillSceneTitleSection({
         () => releaseStageProductForScene(releaseStageSceneId, name),
         [releaseStageSceneId, name]
     )
+    const stage = releaseStageProduct ? releaseStage(releaseStageProduct) : null
+    const { user } = useValues(userLogic)
     const staticName = name !== null && !titleInPhoneHeader && !(onNameChange && canEdit) && !forceEdit && !isLoading
     const hasDescription = description != null && (description || canEdit)
     const descriptionShown =
@@ -66,12 +70,29 @@ export function QuillSceneTitleSection({
     const backTo = forceBackTo || (breadcrumbs.length > 2 ? breadcrumbs[breadcrumbs.length - 2] : undefined)
     const backPath = !titleInPhoneHeader && backTo && 'path' in backTo ? backTo.path : undefined
     const resourceIcon = name !== null && !titleInPhoneHeader ? sceneResourceIcon(resourceType) : undefined
+    const releaseStageBadge =
+        stage && releaseStageProduct ? (
+            user?.is_staff ? (
+                <Tooltip>
+                    <TooltipTrigger render={<span className="inline-flex" />}>
+                        <ReleaseStageBadge stage={stage} />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                        <ReleaseStageDetails stage={stage} product={releaseStageProduct} />
+                    </TooltipContent>
+                </Tooltip>
+            ) : (
+                <ReleaseStageBadge stage={stage} />
+            )
+        ) : null
     const nameSuffixes = (
-        // Lemon tags read --success and --warning, which quill redefines as pale fills
-        <span data-not-quill className="contents">
-            {releaseStageProduct && <ReleaseStageTag product={releaseStageProduct} />}
-            {nameSuffix}
-        </span>
+        <>
+            {releaseStageBadge}
+            {/* Callers pass Lemon tags, which read --success and --warning that quill redefines as pale fills */}
+            <span data-not-quill className="contents">
+                {nameSuffix}
+            </span>
+        </>
     )
     const [menuBarSlot, setMenuBarSlot] = useState<HTMLDivElement | null>(null)
     useRegisterSceneMenuBarSlot(menuBarSlot)
