@@ -156,6 +156,7 @@ the row lists both.
 | bland_ai                         | HTTP                        | requests                                                        | ✅                          |
 | blogger                          | HTTP                        | requests                                                        | ✅                          |
 | bloomerang                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| blueshift                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | bluesky                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | bluetally                        | HTTP                        | requests                                                        | ✅                          |
 | bol_retailer                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
