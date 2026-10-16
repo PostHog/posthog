@@ -65,8 +65,8 @@ import { sortAccountRows } from './accountsSort'
 import {
     AccountsTableQueryPlan,
     BuildAccountsTableQueryPlanInput,
+    accountsTableCell,
     accountsTableDatasetKey,
-    accountsTableSortValue,
     buildAccountsTableQueryPlan,
     isAccountsTableRow,
     supportedAccountFilters,
@@ -1192,7 +1192,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 canSortClientSide && sortOrder
                     ? (rows: DataTableRow[]): DataTableRow[] =>
                           sortAccountRows(rows, sortOrder, (record, column) =>
-                              isAccountsTableRow(record) ? accountsTableSortValue(record, column, plan) : undefined
+                              isAccountsTableRow(record) ? accountsTableCell(record, column, plan) : undefined
                           )
                     : undefined,
         ],

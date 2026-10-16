@@ -141,7 +141,7 @@ Clicking a column header toggles `accountsLogic.sortOrder` (asc → desc → off
   The query keeps the sort that produced the completed response, which prevents response metadata from changing the query identity and starting another fetch.
   Later asc/desc header toggles do not change that query, but clearing the sort issues an unsorted query.
   Asc/desc changes reorder the loaded rows in the browser through `accountsLogic.sortedRowsTransformer`, which wraps `sortAccountRows` from `accountsSort.ts` and is passed through the DataTable's `dataTableRowsTransformer` context seam.
-  `sortAccountRows` reads each keyed row through `accountsTableSortValue` (the name sorts by `.name`, relationship/tag arrays join to a string, numbers sort numerically, sparkline history columns sort by their latest point like the server's scalar sort), is stable, and always sinks empty cells to the bottom in both directions.
+  `sortAccountRows` reads each keyed row through `accountsTableCell` (the name sorts by `.name`, relationship/tag arrays join to a string, numbers sort numerically), is stable, and always sinks empty cells to the bottom in both directions.
 - **Paginated (more rows than one page):** `canSortClientSide` is false, so the live sort stays in the query and Postgres sorts the entire set before returning each page.
   Reaching the final page does not change this state or reset the accumulated rows to page one.
 
