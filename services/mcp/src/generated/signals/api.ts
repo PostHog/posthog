@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 65 enabled ops
+ * PostHog API - MCP 66 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -381,6 +381,40 @@ export const SignalsReportsClaimBody = () => zod.object({
         .boolean()
         .default(signalsReportsClaimBodyReleaseDefault)
         .describe('Release ownership while preserving any attached pull request.'),
+})
+
+/**
+ * Record the thumbs rating at the end of a report, with an optional note. For browser-session requests the rating is persisted as a per-person report action, which counts as consumption evidence for the scout that authored the report (scouts whose output nobody consumes are eventually paused); requests authenticated any other way record no action. When a note is present and the report was authored by a scout, the note is also forwarded to that scout as a steering note it reads on its next run; for any other report there is nothing to steer. The report's state is never changed.
+ * @summary Leave feedback on a report
+ */
+export const SignalsReportsFeedbackCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReportsFeedbackCreateBodyNoteDefault = ``
+export const signalsReportsFeedbackCreateBodyNoteMax = 4000
+
+export const SignalsReportsFeedbackCreateBody = () => zod.object({
+    sentiment: zod
+        .union([
+            zod.enum(['positive', 'negative']).describe('\* `positive` - positive\n\* `negative` - negative'),
+            zod.null(),
+        ])
+        .describe(
+            "The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.\n\n\* `positive` - positive\n\* `negative` - negative"
+        ),
+    note: zod
+        .string()
+        .max(signalsReportsFeedbackCreateBodyNoteMax)
+        .default(signalsReportsFeedbackCreateBodyNoteDefault)
+        .describe(
+            'Free-form note explaining the rating. Capped at 4000 characters. Optional — a bare thumb carries none. When present and the report was authored by a scout, the note is forwarded to that scout as a steering note.'
+        ),
 })
 
 /**

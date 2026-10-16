@@ -3541,7 +3541,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # TODO: Make sure permission bool doesn't cause n + 1
         # +1 query for survey internal flag IDs lookup, +1 for the project's replay gates
-        with self.assertNumQueries(23):
+        with self.assertNumQueries(21):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
