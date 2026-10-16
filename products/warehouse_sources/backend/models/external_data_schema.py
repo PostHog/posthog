@@ -1954,6 +1954,27 @@ def release_repartition_hold_if_claimed(schema: ExternalDataSchema, *, claim_tok
     schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
 
 
+def mark_repartition_dropping_if_claimed(schema: ExternalDataSchema, *, claim_token: str) -> int | None:
+    """Count one failed drop of the pending target while `claim_token` still owns the schema.
+
+    Returns the drop attempts so far, or None when a newer attempt owns the schema. A target marked
+    `dropping` is never promoted by a reset (see `pending_scheme_for_table_replacement`).
+    """
+    drop_attempts: int | None = None
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal drop_attempts
+        claim = config.get("repartition_claim")
+        pending = config.get("repartition_pending")
+        if not (claim and claim.get("token") == claim_token) or not isinstance(pending, dict):
+            return
+        drop_attempts = int(pending.get("drop_attempts", 0)) + 1
+        pending.update({"dropping": True, "drop_attempts": drop_attempts})
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return drop_attempts
+
+
 def clear_repartition_checkpoint_if_claimed(schema: ExternalDataSchema, *, claim_token: str, temp_uri: str) -> bool:
     """Remove the rewrite checkpoint for `temp_uri` while `claim_token` still owns the schema.
 

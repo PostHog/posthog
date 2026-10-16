@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     clear_repartition_checkpoint_if_claimed,
+    mark_repartition_dropping_if_claimed,
     release_repartition_hold_if_claimed,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import import_replaces_table
@@ -1182,13 +1183,16 @@ def _drop_append_split(
         logger.info("repartition: a swap is staged, so the append split stays until it lands")
         return
     rewrite_rows = _rewrite_rows_written(schema)
+    # First, so that a delete that keeps failing cannot hold the import of a rewrite that never resumes.
+    release_repartition_hold_if_claimed(schema, claim_token=claim_token)
     if not _purge_abandoned_temp(schema, table_ref, claim_token, logger):
         # The checkpoint is the only record of the temp table, and an append table rarely runs the fresh
         # rebuild that sweeps orphans, so the drop retries on later runs, up to the attempt cap.
-        pending = schema.repartition_pending or {}
-        drop_attempts = int(pending.get("drop_attempts", 0)) + 1
+        drop_attempts = mark_repartition_dropping_if_claimed(schema, claim_token=claim_token)
+        if drop_attempts is None:
+            logger.info("repartition: append split drop superseded by a newer claim")
+            return
         if drop_attempts < MAX_REPARTITION_ATTEMPTS:
-            schema.set_repartition_pending({**pending, "dropping": True, "drop_attempts": drop_attempts})
             logger.info(f"repartition: append split drop waits for the temp table delete, attempt {drop_attempts}")
             return
         capture_exception(

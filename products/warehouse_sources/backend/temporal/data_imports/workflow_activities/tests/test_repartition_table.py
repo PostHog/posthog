@@ -1573,6 +1573,7 @@ class TestResetDeferral:
         assert mock_capture.call_args.args[0] == "warehouse_repartition_skipped"
         assert mock_capture.call_args.args[1]["reason"] == "reset_replaces_the_table"
 
+    @patch(f"{MODULE}.release_repartition_hold_if_claimed")
     @patch(f"{MODULE}.purge_abandoned_rewrite_temp", new_callable=AsyncMock)
     @patch(f"{MODULE}.capture_repartition_event")
     @patch(f"{MODULE}.HeartbeaterSync")
@@ -1589,6 +1590,7 @@ class TestResetDeferral:
         _mock_heartbeater: MagicMock,
         mock_capture: MagicMock,
         mock_purge: AsyncMock,
+        _mock_release: MagicMock,
     ) -> None:
         mock_schema_model.SyncType.FULL_REFRESH = "full_refresh"
         schema = _reset_schema(sync_type="append", config_reset=True, rewrite=dict(CHECKPOINT))

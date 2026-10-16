@@ -1380,7 +1380,9 @@ class TestRepartitionActivity:
                 "drop_attempts": prior_attempts,
             }
         )
-        schema.set_repartition_rewrite({"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10})
+        schema.set_repartition_rewrite(
+            {"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10, "held_at": timezone.now().isoformat()}
+        )
         mocked = AsyncMock()
         with (
             patch.object(repartition_table, "purge_abandoned_rewrite_temp", new=AsyncMock(side_effect=OSError("s3"))),
@@ -1398,9 +1400,40 @@ class TestRepartitionActivity:
             assert schema.repartition_pending is not None
             assert schema.repartition_pending["dropping"] is True
             assert schema.repartition_pending["drop_attempts"] == 1
+            # The checkpoint stays as the record of the temp table, and no longer holds the import.
             assert schema.repartition_rewrite == {"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10}
         # A dropped split changes no layout, so it must not start the cooldown or age the layout.
         assert schema.last_repartition_at is None
+
+    def test_a_failed_append_split_drop_never_overwrites_a_newer_claim(self, team):
+        schema = _make_schema(team, {})
+        schema.sync_type = ExternalDataSchema.SyncType.APPEND
+        schema.save()
+        schema.set_repartition_pending(
+            {"partition_mode": "md5", "partition_keys": ["id"], "trigger_reason": "proactive_threshold"}
+        )
+        schema.set_repartition_rewrite({"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10})
+        newer_claim = {"token": "newer", "job_id": "other", "claimed_at": "2999-01-01T00:00:00+00:00"}
+
+        async def newer_attempt_claims_then_delete_fails(*_args, **_kwargs):
+            await asyncio.to_thread(
+                external_data_schema.update_sync_type_config_keys,
+                schema_id=schema.id,
+                team_id=schema.team_id,
+                updates={"repartition_claim": newer_claim},
+            )
+            raise OSError("s3")
+
+        with patch.object(
+            repartition_table,
+            "purge_abandoned_rewrite_temp",
+            new=AsyncMock(side_effect=newer_attempt_claims_then_delete_fails),
+        ):
+            self._run(self._inputs(team, schema), AsyncMock())
+
+        schema.refresh_from_db()
+        assert schema.repartition_claim == newer_claim
+        assert "dropping" not in (schema.repartition_pending or {})
 
     def test_failure_increments_attempts_without_clearing(self, team):
         schema = _make_schema(team, {})
