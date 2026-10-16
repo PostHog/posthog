@@ -370,6 +370,10 @@ def _stored_idea_build(team: Team, suggestion_id: str) -> BuiltSuggestion | None
     )
 
 
+def _enqueue_for(enqueue: Callable[[str, str], None], suggestion_id: str) -> Callable[[str], None]:
+    return lambda lock_token: enqueue(suggestion_id, lock_token)
+
+
 def prebuild_suggestions(*, team_id: int, user_id: int, enqueue: Callable[[str, str], None]) -> None:
     """Builds every open card in the background for projects with the prebuild flag, so a click creates the
     workflow at once. `enqueue` takes the suggestion id and the build lock token."""
@@ -383,7 +387,7 @@ def prebuild_suggestions(*, team_id: int, user_id: int, enqueue: Callable[[str, 
             suggestion_id=suggestion.id,
             caller=_EDITOR_CALLER,
             retry=False,
-            enqueue=lambda lock_token, suggestion_id=suggestion.id: enqueue(suggestion_id, lock_token),
+            enqueue=_enqueue_for(enqueue, suggestion.id),
         )
 
 
