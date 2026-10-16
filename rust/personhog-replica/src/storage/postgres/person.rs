@@ -13,9 +13,9 @@ use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{
-    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult, SplitResult,
-    TombstoneTarget, TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
-    VersionFloorOutcome,
+    DeletePersonsOutcome, Person, PersonListEntry, PersonTombstoneQueueEntry,
+    PersonVersionFloorResult, SplitResult, TombstoneTarget, TombstonedDeleteOutcome,
+    TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
@@ -1429,6 +1429,58 @@ impl PersonLookup for PostgresStorage {
             results.iter().map(|r| r.outcome),
         );
         Ok(results)
+    }
+    async fn list_persons_for_team(
+        &self,
+        team_id: i64,
+        after_person_id: i64,
+        before_person_id: Option<i64>,
+        limit: i64,
+    ) -> StorageResult<Vec<PersonListEntry>> {
+        let labels = [
+            ("operation".to_string(), "list_persons_for_team".to_string()),
+            ("pool".to_string(), "bulk_replica".to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_replica_pool, "bulk_replica").await?;
+        let rows = sqlx::query!(
+            r#"
+            SELECT p.id::bigint as "id!", p.uuid as "uuid!",
+                   COALESCE(p.version, 0)::bigint as "version!", p.is_deleted as "is_deleted!",
+                   p.created_at as "created_at!",
+                   EXISTS (
+                       SELECT 1 FROM posthog_persondistinctid d
+                       WHERE d.team_id = p.team_id AND d.person_id = p.id AND d.is_deleted = false
+                   ) as "has_live_distinct_ids!"
+            FROM posthog_person p
+            WHERE p.team_id = $1 AND p.id > $2 AND ($4::bigint IS NULL OR p.id < $4)
+            ORDER BY p.id
+            LIMIT $3
+            "#,
+            team_id as i32,
+            after_person_id,
+            limit,
+            before_person_id
+        )
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .map(|r| PersonListEntry {
+            id: r.id,
+            uuid: r.uuid,
+            version: r.version,
+            is_deleted: r.is_deleted,
+            has_live_distinct_ids: r.has_live_distinct_ids,
+            created_at: r.created_at,
+        })
+        .collect::<Vec<_>>();
+
+        common_metrics::histogram(DB_ROWS_RETURNED, &labels, rows.len() as f64);
+        Ok(rows)
     }
 }
 
