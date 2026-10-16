@@ -190,6 +190,8 @@ class AudienceSize:
     dedupe_key: str | None
     # Set when the audience is one realtime cohort. A send waits until that cohort is ready.
     realtime_cohort: RealtimeCohortStatus | None = None
+    # Set when a realtime cohort shares the audience with other conditions, which a save rejects.
+    realtime_cohort_with_other_conditions: RealtimeAudienceCohort | None = None
 
 
 @frozen

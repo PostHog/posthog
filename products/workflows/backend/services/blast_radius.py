@@ -6,9 +6,10 @@ from django.core.cache import cache
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 
+from products.cdp.backend.presentation.hog_functions import filter_cohort_ids
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
-from products.workflows.backend.facade.contracts import AudiencePage, AudienceSize
+from products.workflows.backend.facade.contracts import AudiencePage, AudienceSize, RealtimeAudienceCohort
 from products.workflows.backend.services.account_audience import (
     ACCOUNT_BATCH_SIZE,
     get_account_audience_count,
@@ -17,7 +18,12 @@ from products.workflows.backend.services.account_audience import (
 )
 from products.workflows.backend.services.audience_v2 import get_dedupe_audience_count_v2, get_person_audience_count_v2
 from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
-from products.workflows.backend.services.batch_audience_cohorts import realtime_audience_cohort, realtime_cohort_status
+from products.workflows.backend.services.batch_audience_cohorts import (
+    find_realtime_behavioral_cohort,
+    realtime_audience_cohort,
+    realtime_cohort_is_ready,
+    realtime_cohort_status,
+)
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 
 # An open send screen re-sizes a realtime cohort audience every few seconds while the cohort calculates. The
@@ -68,11 +74,25 @@ def get_audience_size(
     else:
         blast_radius = get_person_audience_count_v2(team, filters)
 
+    mixed_realtime_cohort = (
+        find_realtime_behavioral_cohort(team.project_id, filter_cohort_ids(filters))
+        if group_type_index is None
+        else None
+    )
     return AudienceSize(
         affected=blast_radius.affected,
         total=blast_radius.total,
         limit=get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email),
         dedupe_key=applied_dedupe_key,
+        realtime_cohort_with_other_conditions=(
+            RealtimeAudienceCohort(
+                id=mixed_realtime_cohort.pk,
+                name=str(mixed_realtime_cohort.name),
+                ready=realtime_cohort_is_ready(mixed_realtime_cohort),
+            )
+            if mixed_realtime_cohort is not None
+            else None
+        ),
     )
 
 

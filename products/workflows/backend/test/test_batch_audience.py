@@ -148,3 +148,44 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         assert (size.affected, size.total, size.dedupe_key) == (2, 3, None)
         assert size.realtime_cohort is not None
         assert (size.realtime_cohort.id, size.realtime_cohort.state) == (cohort.pk, expected_state)
+
+    @parameterized.expand([("realtime", True), ("not_realtime", False)])
+    def test_audience_size_flags_a_realtime_cohort_mixed_with_other_conditions(self, _name, realtime):
+        self._create_audience(["a@x.com"])
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="c",
+            cohort_type=CohortType.REALTIME if realtime else None,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        }
+                    ],
+                }
+            },
+        )
+
+        size = get_audience_size(
+            team_id=self.team.pk,
+            filters={
+                "properties": [
+                    {"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"},
+                    {"key": "email", "type": "person", "value": "x.com", "operator": "icontains"},
+                ]
+            },
+            group_type_index=None,
+            dedupe_key=None,
+            sends_email=True,
+        )
+
+        assert size.realtime_cohort is None
+        mixed = size.realtime_cohort_with_other_conditions
+        assert (mixed.id if mixed else None) == (cohort.pk if realtime else None)
