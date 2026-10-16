@@ -186,6 +186,7 @@ Convex not-checkable:schemas
 Copper fail:stall-budget
 Coralogix fail:stall-budget
 Cortex fail:stall-budget
+CosmosDB not-checkable:schemas
 Coupa fail:rate-limit-budget,stall-budget
 Courier fail:stall-budget
 Coveralls not-checkable:no-request
