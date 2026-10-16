@@ -12,13 +12,10 @@ import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isProjectNameTaken } from 'scenes/project/isProjectNameTaken'
 import { projectLogic } from 'scenes/projectLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 const NAME_TAKEN_REASON = 'There is already a project with this name in this organization. Choose a different name.'
 
 export function ProjectNameAndLogo(): JSX.Element {
-    const { currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
     const { currentProject, currentProjectLoading } = useValues(projectLogic)
     const { updateCurrentProject } = useActions(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -121,16 +118,14 @@ export function ProjectNameAndLogo(): JSX.Element {
                 <div>
                     <LemonButton
                         type="primary"
-                        onClick={() => {
-                            if (nameChanged) {
-                                updateCurrentTeam({ name: trimmedName })
-                            }
-                            if (logoChanged) {
-                                updateCurrentProject({ logo_media_id: logoMediaId })
-                            }
-                        }}
+                        onClick={() =>
+                            updateCurrentProject({
+                                ...(nameChanged ? { name: trimmedName } : {}),
+                                ...(logoChanged ? { logo_media_id: logoMediaId } : {}),
+                            })
+                        }
                         disabledReason={saveDisabledReason}
-                        loading={currentTeamLoading || currentProjectLoading}
+                        loading={currentProjectLoading}
                         data-attr="project-name-and-logo-save"
                     >
                         Save

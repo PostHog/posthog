@@ -131,6 +131,13 @@ export interface teamLogicActions {
         currentProject: ProjectType | null
         payload?: any
     } // projectLogic
+    updateCurrentProjectSuccess: (
+        currentProject: ProjectType,
+        payload?: Partial<ProjectType>
+    ) => {
+        currentProject: ProjectType
+        payload?: Partial<ProjectType>
+    } // projectLogic
     loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
     } // userLogic
@@ -350,7 +357,7 @@ export const teamLogic = kea<teamLogicType>([
             organizationLogic,
             ['loadCurrentOrganization'],
             projectLogic,
-            ['loadCurrentProjectSuccess'],
+            ['loadCurrentProjectSuccess', 'updateCurrentProjectSuccess'],
         ],
     })),
     actions({
@@ -647,10 +654,15 @@ export const teamLogic = kea<teamLogicType>([
                 currentTeam?.customer_analytics_config ?? ({} as CustomerAnalyticsConfig),
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCurrentTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {
                 ApiConfig.setCurrentTeamId(currentTeam.id)
+            }
+        },
+        updateCurrentProjectSuccess: ({ currentProject, payload }) => {
+            if (payload && 'name' in payload && values.currentTeam?.project_id === currentProject.id) {
+                actions.loadCurrentTeamSuccess({ ...values.currentTeam, name: currentProject.name })
             }
         },
         updateCurrentTeamSuccess: () => {
