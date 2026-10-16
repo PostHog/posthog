@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import {
     IconChevronDown,
@@ -23,7 +24,11 @@ import { notebookLogic } from './notebookLogic'
 import { notebookRunLogic } from './notebookRunLogic'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
-export function NotebookJupyterToolbar(): JSX.Element | null {
+export function NotebookJupyterToolbar({
+    collapsedContainer,
+}: {
+    collapsedContainer?: HTMLElement | null
+}): JSX.Element | null {
     const [isExpanded, setIsExpanded] = useState(false)
     const jupyter = useNotebookJupyterCommands()
     const { shortId, isShared } = useValues(notebookLogic)
@@ -67,12 +72,13 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
         handler?.interrupt?.()
     }
 
-    return (
+    const toolbar = (
         <>
             <div
                 className={clsx(
-                    'NotebookJupyterToolbar sticky top-0 z-10 flex max-w-full flex-wrap items-center gap-0.5 py-1 mb-2 border rounded-xs bg-(--jupyter-paper-background)',
-                    !isExpanded && 'w-fit'
+                    'NotebookJupyterToolbar flex max-w-full items-center gap-0.5 border rounded-xs bg-surface-primary',
+                    isExpanded ? 'sticky top-0 z-10 flex-wrap py-1 mb-2' : 'w-fit flex-nowrap',
+                    !isExpanded && !collapsedContainer && 'ml-auto mb-2'
                 )}
                 // Keeps focus, and with it command mode, on the selected cell while a button is clicked.
                 onMouseDown={(event) => event.preventDefault()}
@@ -220,4 +226,6 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
             <NotebookJupyterShortcutsModal />
         </>
     )
+
+    return !isExpanded && collapsedContainer ? createPortal(toolbar, collapsedContainer) : toolbar
 }
