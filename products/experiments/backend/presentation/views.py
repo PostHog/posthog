@@ -67,6 +67,10 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
     access_level_satisfied_for_resource,
@@ -917,6 +921,19 @@ class EnterpriseExperimentsViewSet(
         `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
         flag and, with an API key, `activity_log:read`) gets that finding for every running
         experiment, because the changes are not read.
+
+        The severity of the `some_conditions_pinned` finding follows the largest share that the
+        users of the pinned release conditions make up among the users who got one variant from
+        the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
+        the flag's calls that name the matched condition, not the experiment's exposure criteria:
+        info up to 5%, warning above, and no finding under 1% when at least half of the calls
+        that returned a variant name a condition. The finding is info when the share is unknown,
+        and `evidence.reason` says why: `not_measured` (for example an API key without
+        `query:read`, or a caller denied a flag call property), `too_few_people` (under 100), or
+        `evaluated_outside_flag_service` (most calls come from local evaluation, a bootstrap or
+        the caller's own assignment). A pin to a variant with 0% in the split adds an info,
+        because that variant's results show only the pinned users, unless the experiment
+        excludes the variant from the analysis.
         """
         experiment: Experiment = self.get_object()
         findings = get_experiment_health_findings(
@@ -938,9 +955,13 @@ class EnterpriseExperimentsViewSet(
         can_view_flag = experiment.feature_flag_id is None or self.user_access_control.check_access_level_for_object(
             experiment.feature_flag, required_level="viewer"
         )
+        restrictions = get_restricted_properties_with_group_type_index_for_team(
+            user=cast(User, request.user), team_id=self.team_id
+        )
         return ExperimentHealthReaderAccess(
             can_read_flag_history=bool(can_view_flag) and "activity_log:read" not in missing_scopes,
             can_query_events="query:read" not in missing_scopes,
+            denied_event_properties=split_restricted_property_names(restrictions).event,
         )
 
     @validated_request(
@@ -1135,10 +1156,10 @@ class EnterpriseExperimentsViewSet(
         Move a legacy experiment onto the new experiments engine.
 
         Creates a new experiment with the same configuration and its metrics converted
-        to the new format, and returns it. The legacy experiment is left untouched and
-        keeps its results, so the project ends up with two experiments. Both point at
-        the same feature flag, so no new rollout is needed and users keep the variant
-        they already have.
+        to the new format, and returns it. Legacy experiments no longer show results,
+        so this is how to get results for one. The legacy experiment is left untouched,
+        so the project ends up with two experiments. Both point at the same feature
+        flag, so no new rollout is needed and users keep the variant they already have.
 
         Legacy shared metrics used by the experiment are converted as part of the same
         call. Each one gets a new shared metric, and the new experiment links to that.

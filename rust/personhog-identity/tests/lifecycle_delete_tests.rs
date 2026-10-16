@@ -8,14 +8,16 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use common::sim_leader::{LeaderCall, Rpc, SimLeader, FENCED_METADATA_KEY};
-use common::TestContext;
+use common::{RecordingSink, TestContext};
 use personhog_common::partitioning::partition_for_person;
 use tonic::{Request, Status};
 use uuid::Uuid;
 
+use personhog_identity::config::OutboxWrites;
 use personhog_identity::lifecycle::delete::{DeleteDriver, DeleteOutcome};
 use personhog_identity::lifecycle::engine::{Engine, OpRow, SagaError};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
+use personhog_identity::publish::messages::DistinctIdRow;
 use personhog_identity::storage::{IdentityStorage, PersonStub, StubOutcome};
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePersonsRequest};
@@ -23,6 +25,10 @@ use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePerso
 /// Storage-assertion helpers used only by this test binary.
 impl TestContext {
     fn lifecycle_service(&self) -> PersonHogLifecycleService {
+        self.lifecycle_service_with(OutboxWrites::Disabled)
+    }
+
+    fn lifecycle_service_with(&self, outbox_writes: OutboxWrites) -> PersonHogLifecycleService {
         let engine = Arc::new(self.engine());
         let leader = Arc::new(SimLeader::new(self.pool.clone(), self.tables.clone()));
         PersonHogLifecycleService::new(
@@ -31,6 +37,7 @@ impl TestContext {
             self.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
             common::NUM_PARTITIONS,
+            outbox_writes,
         )
     }
 
@@ -167,7 +174,8 @@ fn outcomes(
 #[tokio::test]
 async fn delete_destroys_the_person_and_its_satellite_rows() {
     let ctx = TestContext::new().await;
-    let service = ctx.lifecycle_service();
+    let _drain_lock = ctx.hold_drain_lock().await;
+    let service = ctx.lifecycle_service_with(OutboxWrites::Enabled);
 
     let person_id = ctx.insert_person_with_distinct_id("victim-primary").await;
     sqlx::query(
@@ -234,6 +242,33 @@ async fn delete_destroys_the_person_and_its_satellite_rows() {
         .collect();
     assert_eq!(moved_ids.len(), 2);
     assert!(moved_ids.contains(&"victim-primary") && moved_ids.contains(&"victim-extra"));
+
+    // One publish pass resolves the op's pointer to the tombstones at their
+    // tombstoned versions, flagged deleted and still owned by the victim's
+    // uuid, never as live rows.
+    let sink = RecordingSink::default();
+    ctx.publisher(sink.clone(), 100)
+        .drain_once()
+        .await
+        .expect("publish pass");
+    let victim_uuid: Uuid = sqlx::query_scalar("SELECT uuid FROM posthog_person WHERE id = $1")
+        .bind(person_id)
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    let mut published = sink.rows_for_team(ctx.team_id);
+    published.sort_by(|a, b| a.distinct_id.cmp(&b.distinct_id));
+    assert_eq!(
+        published,
+        [("victim-extra", 2), ("victim-primary", 1)].map(|(did, version)| DistinctIdRow {
+            person_id: victim_uuid,
+            team_id: ctx.team_id,
+            distinct_id: did.to_string(),
+            version,
+            is_deleted: 1,
+        })
+    );
+    assert!(ctx.outbox_rows().await.is_empty(), "the pointer is deleted");
 
     ctx.cleanup().await.expect("cleanup");
 }
@@ -563,6 +598,7 @@ impl FencedHarness {
             ctx.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
             common::NUM_PARTITIONS,
+            OutboxWrites::Disabled,
         );
         Self {
             ctx,

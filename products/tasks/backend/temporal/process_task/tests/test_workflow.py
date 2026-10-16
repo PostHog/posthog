@@ -1519,9 +1519,13 @@ async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(
 
 
 @pytest.mark.parametrize("timing_enabled", [False, True])
-@pytest.mark.parametrize("same_run_resume", [False, True])
+@pytest.mark.parametrize(
+    ("same_run_resume", "requested_at"),
+    [(False, None), (True, None), (True, "2026-01-01T00:00:00.500000+00:00")],
+)
+@pytest.mark.parametrize("continued", [False, True])
 async def test_shared_startup_boundaries_are_present_only_for_new_workflows(
-    monkeypatch, timing_enabled, same_run_resume
+    monkeypatch, timing_enabled, same_run_resume, requested_at, continued
 ):
     instance = ProcessTaskWorkflow()
     instance._context = _build_context(github_integration_id=123)
@@ -1529,18 +1533,26 @@ async def test_shared_startup_boundaries_are_present_only_for_new_workflows(
         "startup_requested_at": "2026-01-01T00:00:00+00:00",
         "same_run_resume": same_run_resume,
     }
+    instance._context.startup_requested_at = requested_at
     instance._startup_worker_started_at = datetime(2026, 1, 1, 0, 0, 2, tzinfo=UTC) if timing_enabled else None
     instance._startup_context_loaded_at = datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC) if timing_enabled else None
     now = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
-    instance._chain_started_at = now
+    instance._chain_started_at = datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC)
     instance._agent_ready_at = now
+    if continued:
+        resumed = instance._build_resumed_input(ProcessTaskInput(run_id="run-id"), sandbox_id="sb-1")
+        restored = ProcessTaskWorkflow()
+        restored._context = instance._context
+        assert resumed.resumed_sandbox is not None
+        restored._restore_resumed_state(resumed.resumed_sandbox)
+        instance = restored
     track = AsyncMock()
     monkeypatch.setattr(instance, "_track_boot_milestone", track)
     monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=now))
     monkeypatch.setattr(
         process_task_workflow_module.workflow,
         "info",
-        Mock(return_value=SimpleNamespace(start_time=datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC))),
+        Mock(return_value=SimpleNamespace(start_time=now if continued else instance._chain_started_at)),
     )
     monkeypatch.setattr(process_task_workflow_module, "record_agent_boot_milestone_ms", Mock())
 
@@ -1549,17 +1561,17 @@ async def test_shared_startup_boundaries_are_present_only_for_new_workflows(
 
     properties = track.call_args.args[1]
     if timing_enabled:
-        assert properties["startup_requested_at"] == "2026-01-01T00:00:00+00:00"
+        assert properties["startup_requested_at"] == (requested_at if same_run_resume else "2026-01-01T00:00:00+00:00")
         assert properties["workflow_accepted_at"] == "2026-01-01T00:00:01+00:00"
         assert properties["worker_started_at"] == "2026-01-01T00:00:02+00:00"
         assert properties["context_loaded_at"] == "2026-01-01T00:00:03+00:00"
         assert properties["observed_at"] == now.isoformat()
-        if same_run_resume:
+        if same_run_resume and requested_at is None:
             assert "since_startup_requested_ms" not in properties
             assert "handoff_ms" not in properties
         else:
-            assert properties["since_startup_requested_ms"] == 10000
-            assert properties["handoff_ms"] == 1000
+            assert properties["since_startup_requested_ms"] == (9500 if same_run_resume else 10000)
+            assert properties["handoff_ms"] == (500 if same_run_resume else 1000)
         assert properties["worker_wait_ms"] == 1000
         assert properties["task_setup_ms"] == 1000
     else:
@@ -2564,13 +2576,20 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(workflow, "_start_slack_agent_design_relay", start_slack_relay_mock)
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
 
-        result = await workflow.run(ProcessTaskInput(run_id="run-id", slack_thread_context={"channel": "C1"}))
+        result = await workflow.run(
+            ProcessTaskInput(
+                run_id="run-id", slack_thread_context={"channel": "C1", "person_message": "Why is the export slow?"}
+            )
+        )
 
         assert result.success is True
         relay_sandbox_events_mock.assert_not_called()
         relay_agent_design_signals_mock.assert_called_once()
-        # The plan shows while the sandbox provisions, so the relay starts before the first turn.
-        start_slack_relay_mock.assert_awaited_once_with({"channel": "C1"}, setup_title="Setting up sandbox")
+        # The plan shows while the sandbox provisions, so the relay starts before the first turn. The
+        # mention goes with it alone, not with the context every later payload carries.
+        start_slack_relay_mock.assert_awaited_once_with(
+            {"channel": "C1"}, setup_title="Setting up sandbox", person_message="Why is the export slow?"
+        )
 
     @pytest.mark.parametrize(
         "early_relay_open, expected_starts",
@@ -2627,6 +2646,8 @@ class TestProcessTaskWorkflowUnit:
             (None, False, 1, False, "completed"),
             ("slack", False, 1, False, "completed"),
             ("user_created", False, 1, None, "completed"),
+            ("signal_report", False, 1, None, "completed"),
+            ("signals_scout", False, 1, None, "completed"),
             # Onboarding runs are one-shot, so a vanished sandbox is a failed setup rather than a
             # resumable snapshot.
             ("onboarding", False, 1, None, "failed"),
@@ -2699,7 +2720,15 @@ class TestProcessTaskWorkflowUnit:
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
 
+        async def finish_spend(activity_fn, run_id, **kwargs):
+            assert activity_fn is process_task_workflow_module.complete_signal_spend
+            assert run_id == "run-id"
+            cleanup_sandbox_mock.assert_awaited_once()
+
+        finish_spend_mock = AsyncMock(side_effect=finish_spend)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", finish_spend_mock)
         result = await workflow.run(ProcessTaskInput(run_id="run-id"))
+        assert finish_spend_mock.await_count == (1 if origin_product in {"signal_report", "signals_scout"} else 0)
 
         assert result.success is True
         assert workflow._completion_status == expected_status

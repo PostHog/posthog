@@ -114,6 +114,7 @@ from products.customer_analytics.backend.logic import (
     customer_tasks as _customer_tasks_logic,
     feature_request_github as _feature_request_github_logic,
     feature_requests as _feature_requests_logic,
+    key_metrics as _key_metrics_logic,
     ownership as _ownership,
     relationships as _relationships_logic,
     user_customer_analytics_config as _user_customer_analytics_config_logic,
@@ -5752,3 +5753,8 @@ def list_announcement_channels(team_id: int) -> list[contracts.AnnouncementChann
     except SupportSlackChannelsUnavailable:
         logger.warning("announcement_channels_unavailable", team_id=team_id)
         return []
+
+
+def get_key_metrics(*, team: Team, user: "User") -> list[contracts.KeyMetric] | None:
+    """The key metrics, or None while a background calculation is still running."""
+    return _key_metrics_logic.key_metrics(team, user)
