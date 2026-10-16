@@ -84,7 +84,7 @@ class LogAnalyticsWorkspaceSource(ResumableSource[ConfigType, AzureLogAnalyticsR
     missing_table_message = (
         "The workspace has no table named {table}. Check the table name, or remove it from the list."
     )
-    no_tables_message = missing_table_reason
+    no_tables_message = "None of the listed tables exist in the workspace. Check the table names."
 
     @abstractmethod
     def credentials(self, config: ConfigType) -> WorkspaceCredentials: ...
@@ -92,9 +92,9 @@ class LogAnalyticsWorkspaceSource(ResumableSource[ConfigType, AzureLogAnalyticsR
     @abstractmethod
     def table_names(self, config: ConfigType) -> list[str]: ...
 
-    def workspace_probe_query(self, config: ConfigType) -> str:
-        """The query that proves at source creation that the app can read the workspace."""
-        return "print ok = 1"
+    def tables_checked_at_creation(self, config: ConfigType) -> list[str]:
+        """Tables probed at source creation; creation fails when every one of them is missing."""
+        return []
 
     @property
     def connection_host_fields(self) -> list[str]:
@@ -165,10 +165,17 @@ class LogAnalyticsWorkspaceSource(ResumableSource[ConfigType, AzureLogAnalyticsR
                 self.missing_table_message.format(table=schema_name),
             )
         try:
-            probe_query = self.workspace_probe_query(config)
+            tables = self.tables_checked_at_creation(config)
         except ValueError as error:
             return False, str(error)
-        return validate_workspace(self.credentials(config), probe_query, self.no_tables_message)
+        valid, message = validate_workspace(self.credentials(config), "print ok = 1", self.no_tables_message)
+        if not valid or not tables:
+            return valid, message
+        # One query per table: a Basic plan table fails any query that names it, and must not block the rest.
+        reasons = probe_tables(self.credentials(config), tables, self.missing_table_reason)
+        if all(reason == self.missing_table_reason for reason in reasons.values()):
+            return False, self.no_tables_message
+        return True, None
 
     def get_resumable_source_manager(
         self, inputs: SourceInputs
@@ -253,6 +260,5 @@ List the tables to sync, one per line, for example `AppRequests` or `MyEvents_CL
             self.credentials(config).client(structlog.get_logger(__name__), probe=True)
         )
 
-    def workspace_probe_query(self, config: AzureLogAnalyticsSourceConfig) -> str:
-        parse_table_names(config.tables)
-        return super().workspace_probe_query(config)
+    def tables_checked_at_creation(self, config: AzureLogAnalyticsSourceConfig) -> list[str]:
+        return parse_table_names(config.tables)

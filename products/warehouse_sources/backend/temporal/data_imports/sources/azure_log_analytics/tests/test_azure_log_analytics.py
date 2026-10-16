@@ -58,6 +58,22 @@ def _row(ingested_at: str, item_id: str) -> list[Any]:
     return [ingested_at, ingested_at, f"message {item_id}", '{"level": "info"}', item_id, ingested_at]
 
 
+def _missing(table: str) -> ScriptedResponse:
+    return ScriptedResponse(
+        status=400,
+        json={
+            "error": {
+                "code": "BadArgumentError",
+                "message": "The request had some invalid properties",
+                "innererror": {
+                    "code": "SemanticError",
+                    "message": f"'take' operator: Failed to resolve table or column expression named '{table}'",
+                },
+            }
+        },
+    )
+
+
 def _page(rows: list[list[Any]]) -> ScriptedResponse:
     return ScriptedResponse(json={"tables": [{"name": "PrimaryResult", "columns": COLUMNS, "rows": rows}]})
 
@@ -455,7 +471,9 @@ class TestValidateCredentials:
         self, query_response: ScriptedResponse, table: str | None, expected_ok: bool, expected_fragment: str | None
     ) -> None:
         with scripted_network(route({TOKEN_PATH: [_token()], QUERY_PATH: [query_response]})) as network:
-            ok, message = AzureLogAnalyticsSource().validate_credentials(_config(), team_id=1, schema_name=table)
+            ok, message = AzureLogAnalyticsSource().validate_credentials(
+                _config(tables=None), team_id=1, schema_name=table
+            )
 
         assert ok is expected_ok
         if expected_fragment is None:
@@ -476,6 +494,26 @@ class TestValidateCredentials:
         assert ok is False
         assert message is not None and "Microsoft Entra ID" in message
         assert [request.path for request in network.requests_log] == [TOKEN_PATH]
+
+    @pytest.mark.parametrize(
+        ("second_table", "expected_ok"),
+        [(_missing("MyEvents_CL"), False), (_page([]), True)],
+    )
+    def test_creation_fails_only_when_every_listed_table_is_missing(
+        self, second_table: ScriptedResponse, expected_ok: bool
+    ) -> None:
+        with scripted_network(
+            route({TOKEN_PATH: [_token(), _token()], QUERY_PATH: [_page([]), _missing("AppTrace"), second_table]})
+        ) as network:
+            ok, message = AzureLogAnalyticsSource().validate_credentials(
+                _config(tables="AppTrace\nMyEvents_CL"), team_id=1
+            )
+
+        assert ok is expected_ok
+        if not expected_ok:
+            assert message is not None and "None of the listed tables exist" in message
+        queries = [request.json()["query"] for request in network.requests_log if request.path == QUERY_PATH]
+        assert queries == ["print ok = 1", "AppTrace | take 0", "MyEvents_CL | take 0"]
 
     def test_setup_probes_use_short_deadlines_and_no_retries(self) -> None:
         unavailable = ScriptedResponse(
