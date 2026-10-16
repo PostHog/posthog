@@ -22,7 +22,7 @@ The tools here find each disagreement, name its flavor, and repair it with a ver
    - Pass `--purged-at <ISO time>` when the team lost Postgres persons in a known purge. It dates each ghost as `after_purge` (restore it) or `historical` (leave it).
    - For a large team, run `plan --chunks K` first, then `scan --chunk i` per chunk in parallel, then `scan --phase postgres`, then `finalize`.
    - A stopped run continues with `--resume`.
-2. **Read `DIR/summary.json` first.** It holds counts by flavor and verb, the groups, and `complete`. It never names a key, so it is safe to quote.
+2. **Read `DIR/summary.json` first.** It holds counts by flavor and verb, the largest groups, and `complete`. It names groups by verb and a hash, never by a key, so it is safe to quote. The scan directory itself is private to you, because the rows hold raw keys.
 3. **Read `DIR/report.jsonl` only for the rows you act on.** It holds one row per key that is not ok: `kind`, `key`, `flavor`, `sub_flavor`, `verb`, `group`, `also`, and `evidence` (`pg`, `ch`). Keys are customer data: never paste distinct ids into chat, PRs or tickets. Use `key_hash` instead.
 4. **Map rows to verbs** with [references/flavors.md](references/flavors.md). The report already names the verb. A row with `verb: null` is report-only: explain it, do not repair it.
 5. **For each verb, run a dry run, then a canary, then the rest:**

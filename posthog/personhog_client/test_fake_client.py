@@ -860,10 +860,8 @@ class TestFakePersonHogClientRepairWrites:
         assert restored is not None and json.loads(restored.properties) == {"plan": "free"} and restored.version == 6
 
     def test_restore_inserts_listed_distinct_ids_and_skips_a_person_none_of_them_could_reach(self):
-        self._write(
-            ("taken", person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT, self.LIVE, 0),
-            ("taken-2", person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT, self.LIVE, 0),
-        )
+        holder = "00000000-0000-0000-0000-000000000009"
+        self.client.add_person(team_id=self.TEAM_ID, person_id=9, uuid=holder, distinct_ids=["taken", "taken-2"])
         reachable, unreachable = "00000000-0000-0000-0000-000000000005", "00000000-0000-0000-0000-000000000006"
 
         def ids(*dids: str) -> list[person_pb2.RestoredDistinctId]:
@@ -890,7 +888,7 @@ class TestFakePersonHogClientRepairWrites:
             person_pb2.GetDistinctIdRowsRequest(team_id=self.TEAM_ID, distinct_ids=["new", "taken"])
         )
         rows = {r.distinct_id: (r.person_uuid, r.version) for r in stored.rows}
-        assert rows == {"new": (reachable, 4), "taken": (self.LIVE, 0)}
+        assert rows == {"new": (reachable, 4), "taken": (holder, 0)}
 
     def test_write_distinct_ids_applies_each_write_only_from_its_expected_state(self):
         insert = person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT

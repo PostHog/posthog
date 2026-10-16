@@ -178,7 +178,8 @@ def _write_mappings(context: VerbContext, rows: list[dict[str, Any]], targets: d
                 context.deliveries.track(
                     create_person_distinct_id(
                         context.team_id, result.distinct_id, write.person_uuid, version=int(stored.version)
-                    )
+                    ),
+                    repairs.PublishedKey(kind="mapping", key=result.distinct_id),
                 )
                 outcome = done if result.outcome == DISTINCT_ID_WRITE_OUTCOME_APPLIED else f"already_{done}"
                 context.action(
@@ -272,16 +273,20 @@ def _restore_persons(
             row = by_uuid[result.person_uuid]
             ids = list(result.restored_distinct_ids)
             if result.outcome == RESTORE_OUTCOME_INSERTED:
+                # A person whose publish does not land is recorded undelivered; it then exists in Postgres, so the
+                # next scan reports it as behind ClickHouse, and republish publishes it.
                 context.deliveries.track(
                     _publish_person(
                         context.team_id, result.person_uuid, payloads[result.person_uuid], int(result.version)
-                    )
+                    ),
+                    repairs.PublishedKey(kind="person", key=result.person_uuid),
                 )
                 for distinct_id in ids:
                     context.deliveries.track(
                         create_person_distinct_id(
                             context.team_id, distinct_id, result.person_uuid, version=versions.get(distinct_id, 0)
-                        )
+                        ),
+                        repairs.PublishedKey(kind="mapping", key=distinct_id),
                     )
                 restored[result.person_uuid] = ids
                 context.action(row, "restored", version=int(result.version))

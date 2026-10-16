@@ -9,8 +9,9 @@ persons and mappings ClickHouse has no row for, and live persons with no live ma
 key against the key sets the ClickHouse phases wrote, so it runs after every chunk finished.
 
 Every page is classified completely, appended to the rows file, and only then recorded in the cursor, so a
-run that stops resumes at the first page it did not record. Rows hold the raw keys a repair needs; the
-summary holds counts and group names only.
+run that stops resumes at the first page it did not record. Rows hold the raw keys a repair needs, so the
+scan directory is private to the user who runs the scan. The summary holds counts, and names groups by a
+hash of their persons, so it carries no key.
 """
 
 from __future__ import annotations
@@ -213,6 +214,14 @@ def key_hash(key: str) -> int:
     return int.from_bytes(hashlib.blake2b(key.encode(), digest_size=8).digest(), "little")
 
 
+def _private_dir(scan_dir: Path) -> None:
+    """Create the scan directory readable only by its owner, because its rows hold raw customer keys."""
+    if not scan_dir.exists():
+        scan_dir.mkdir(mode=0o700, parents=True)
+    elif scan_dir.stat().st_mode & 0o077:
+        raise ScanError(f"{scan_dir} is readable by other users; choose a new directory for the scan")
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -277,7 +286,7 @@ def create_plan(
     chunk run of the scan shares the same bounds."""
     if (scan_dir / PLAN_FILE).exists():
         raise ScanError(f"{scan_dir / PLAN_FILE} already exists")
-    scan_dir.mkdir(parents=True, exist_ok=True)
+    _private_dir(scan_dir)
     if chunks > 1:
         bounds = _chunks_from_bounds(
             _sample_bounds(team_id, "persons", chunks), _sample_bounds(team_id, "mappings", chunks), chunks
@@ -835,6 +844,11 @@ def _regroup(row: dict[str, Any], groups: _Groups, plan: ScanPlan) -> dict[str, 
     return row
 
 
+def _summary_group_name(team_id: int, group: str) -> str:
+    # Group names embed person uuids; the summary keeps the verb and a hash, which report rows can be matched by.
+    return f"{group.split(':', 1)[0]}:{hash_distinct_id(team_id, group)}"
+
+
 def finalize(scan_dir: Path, *, partial: bool = False) -> dict[str, Any]:
     """Join every run's rows into the report, apply the cross-key groups, and write the summary."""
     plan = load_plan(scan_dir)
@@ -903,7 +917,7 @@ def finalize(scan_dir: Path, *, partial: bool = False) -> dict[str, Any]:
             "fold_modes": dict(sorted(Counter(fold_modes.values()).items())),
             "largest": [
                 {
-                    "group": group,
+                    "group": _summary_group_name(plan.team_id, group),
                     "verb": group_verbs[group],
                     "fold_mode": fold_modes.get(group),
                     "person_rows": c["person"],

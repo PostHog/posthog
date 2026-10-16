@@ -22,5 +22,5 @@ Copy only `summary.json` and actions-file outcome counts off the pod; the report
 ## When something looks wrong
 
 - Many `skipped_changed` outcomes: ingestion is writing to these persons now. Rescan later.
-- `undelivered` in the summary line: some ClickHouse rows were not published. Rerun the same verb with `--resume`; every write is idempotent.
+- `undelivered` in the summary line: some ClickHouse rows were not published. Those keys carry an `undelivered` action, so rerunning the same verb with `--resume` retries exactly them; every write is idempotent.
 - A count far above what the scan predicted: stop, and inspect a few keys with `person_inspect` before continuing.

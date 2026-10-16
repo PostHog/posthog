@@ -230,7 +230,7 @@ def _execute_plan(
     apply: bool,
     include_stale: bool,
     before_write: Callable[[], None],
-    published: Callable[[ProduceResult], None],
+    published: Callable[[ProduceResult, PublishedKey], None],
     stale_merge_distinct_id: str | None = None,
 ) -> list[datatypes.RepairAction]:
     person = plan.person
@@ -323,7 +323,7 @@ def _execute_plan(
         # The replica has not caught up with the raise, so its properties may predate the raised version.
         person_outcome = "skipped_reread_lagging"
     else:
-        published(_publish_person(plan.team_id, reread))
+        published(_publish_person(plan.team_id, reread), PublishedKey(kind="person", key=plan.person_uuid))
         person_outcome = "repaired"
 
     # The write reply holds the row the primary stored, at or above the target, so it is the version to publish.
@@ -335,10 +335,17 @@ def _execute_plan(
                 person_id=plan.person_uuid,
                 version=stored_versions[mapping.distinct_id],
                 is_deleted=False,
-            )
+            ),
+            PublishedKey(kind="mapping", key=mapping.distinct_id),
         )
         mapping_actions.append(_mapping_action(plan, mapping, "repaired"))
     return [_person_action(plan, person_outcome), *mapping_actions]
+
+
+@frozen
+class PublishedKey:
+    kind: str
+    key: str
 
 
 @frozen(frozen=False)
@@ -360,13 +367,17 @@ class _WritePacer:
 
 @frozen(frozen=False)
 class _Deliveries:
-    """Kafka produce results of the published rows, so a failed delivery counts as undelivered."""
+    """Kafka produce results of the published rows, so a failed delivery counts as undelivered.
 
-    pending: list[ProduceResult] = field(default_factory=list)
+    A row tracked with a key names that key in `undelivered_keys` when its delivery fails.
+    """
+
+    pending: list[tuple[ProduceResult, PublishedKey | None]] = field(default_factory=list)
     failed: int = 0
+    failed_keys: list[PublishedKey] = field(default_factory=list)
 
-    def track(self, result: ProduceResult) -> None:
-        self.pending.append(result)
+    def track(self, result: ProduceResult, key: PublishedKey | None = None) -> None:
+        self.pending.append((result, key))
         if len(self.pending) >= _DELIVERY_PRUNE_EVERY:
             self._prune()
 
@@ -375,16 +386,22 @@ class _Deliveries:
         self._prune()
         return self.failed + len(self.pending)
 
+    def undelivered_keys(self) -> list[PublishedKey]:
+        """The keys whose rows failed or are still waiting, as of the last `undelivered` call."""
+        return [*self.failed_keys, *(key for _, key in self.pending if key is not None)]
+
     def _prune(self) -> None:
-        waiting: list[ProduceResult] = []
-        for result in self.pending:
+        waiting: list[tuple[ProduceResult, PublishedKey | None]] = []
+        for result, key in self.pending:
             if not result.done():
-                waiting.append(result)
+                waiting.append((result, key))
                 continue
             try:
                 result.get(timeout=0)
             except Exception:
                 self.failed += 1
+                if key is not None:
+                    self.failed_keys.append(key)
         self.pending = waiting
 
 
@@ -417,6 +434,7 @@ def repair_persons(
     log: Callable[[str], None],
     republish_equal: Collection[str] = (),
     stale_merge_distinct_ids: Mapping[str, str] | None = None,
+    deliveries: _Deliveries | None = None,
 ) -> datatypes.RepairSummary:
     """Republish the Postgres state of each target person and its mappings where ClickHouse disagrees.
 
@@ -430,6 +448,7 @@ def repair_persons(
     ``republish_equal`` names persons to republish although ClickHouse holds their Postgres version.
     ``stale_merge_distinct_ids`` maps a stale person to the distinct id that sends its ClickHouse-only properties
     to ingestion; a rerun after ingestion applied them raises and republishes the person.
+    ``deliveries``, when given, collects the publishes; the caller flushes it, and the summary counts none.
     """
     if max_writes_per_second is not None and max_writes_per_second <= 0:
         raise ValueError("max_writes_per_second must be above 0")
@@ -441,7 +460,9 @@ def repair_persons(
     processed = 0
     undelivered = 0
     pacer = _WritePacer(max_per_second=max_writes_per_second)
-    deliveries = _Deliveries()
+    # A caller that passes its own tracker flushes it, and learns which keys did not land.
+    flush_here = deliveries is None
+    deliveries = deliveries if deliveries is not None else _Deliveries()
     existing_teams = set(Team.objects.filter(id__in=list(by_team)).values_list("id", flat=True))
     try:
         for team_id, person_uuids in sorted(by_team.items()):
@@ -490,7 +511,7 @@ def repair_persons(
                     processed += 1
             log(f"team {team_id}: {len(person_uuids)} persons, {processed} processed in total")
     finally:
-        if apply:
+        if apply and flush_here:
             undelivered = deliveries.undelivered(_FLUSH_TIMEOUT_SECONDS)
             if undelivered:
                 log(f"{undelivered} ClickHouse messages were not delivered; rerun the repair for the same input")

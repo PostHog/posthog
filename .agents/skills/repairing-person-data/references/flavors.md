@@ -53,6 +53,7 @@ A pair is a group only when neither person takes part in another pair, so a grou
 - `would_repair`: a dry run found the key still broken.
 - `repaired`, `restored`, `moved`, `folded`, `buried`, `tombstoned`, `republished`: the key was written.
 - `already_*`: an earlier run wrote it, and this run published it again.
+- `undelivered`: the Postgres write happened, but its ClickHouse publish did not land. `--resume` retries the key. A restored person that stays undelivered shows up as `behind` in the next scan, and `republish` publishes it.
 - `merge_queued`: `merge_stale` sent properties to ingestion. Run the verb again later.
 - `properties_sent`: a light `fold` sent the old person's properties to the survivor. Run `fold` again later.
 - `merge_sent` (person) and `awaiting_merge` (ids): `merge` or a full `fold` sent `$merge_dangerously`. Rescan after ingestion processed it.
