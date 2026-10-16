@@ -160,12 +160,20 @@ _UNIQUE_METRIC_FIELDS = {
 }
 
 
-def _without_unique_metrics(field_names: list[str]) -> list[str]:
-    return [f for f in field_names if f not in _UNIQUE_METRIC_FIELDS]
+# Hourly and creative-asset breakdowns do not support these video metrics.
+_VIDEO_METRIC_FIELDS = {"video_play_actions", "video_thruplay_watched_actions"}
 
 
-HOURLY_BREAKDOWN_STATS_FIELDS = _without_unique_metrics(CAMPAIGN_BREAKDOWN_STATS_FIELDS)
-AD_ASSET_BREAKDOWN_STATS_FIELDS = _without_unique_metrics(AD_BREAKDOWN_STATS_FIELDS)
+def _without_metrics(field_names: list[str], excluded_fields: set[str]) -> list[str]:
+    return [f for f in field_names if f not in excluded_fields]
+
+
+HOURLY_BREAKDOWN_STATS_FIELDS = _without_metrics(
+    CAMPAIGN_BREAKDOWN_STATS_FIELDS, _UNIQUE_METRIC_FIELDS | _VIDEO_METRIC_FIELDS
+)
+AD_ASSET_BREAKDOWN_STATS_FIELDS = _without_metrics(
+    AD_BREAKDOWN_STATS_FIELDS, _UNIQUE_METRIC_FIELDS | _VIDEO_METRIC_FIELDS
+)
 
 
 @frozen
@@ -608,7 +616,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
     MetaAdsResource.AdsetStatsHourly: _breakdown_stats(
         "adset",
         ["hourly_stats_aggregated_by_advertiser_time_zone"],
-        _without_unique_metrics(ADSET_BREAKDOWN_STATS_FIELDS),
+        _without_metrics(ADSET_BREAKDOWN_STATS_FIELDS, _UNIQUE_METRIC_FIELDS | _VIDEO_METRIC_FIELDS),
     ),
     MetaAdsResource.AdStatsByAgeGender: _breakdown_stats("ad", ["age", "gender"], AD_BREAKDOWN_STATS_FIELDS),
     MetaAdsResource.AdStatsByCountry: _breakdown_stats("ad", ["country"], AD_BREAKDOWN_STATS_FIELDS),
@@ -617,7 +625,9 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "ad", ["publisher_platform", "platform_position", "impression_device"], AD_BREAKDOWN_STATS_FIELDS
     ),
     MetaAdsResource.AdStatsHourly: _breakdown_stats(
-        "ad", ["hourly_stats_aggregated_by_advertiser_time_zone"], _without_unique_metrics(AD_BREAKDOWN_STATS_FIELDS)
+        "ad",
+        ["hourly_stats_aggregated_by_advertiser_time_zone"],
+        _without_metrics(AD_BREAKDOWN_STATS_FIELDS, _UNIQUE_METRIC_FIELDS | _VIDEO_METRIC_FIELDS),
     ),
     # Spend against the landing page an ad sent people to. Meta reports the destination URL only
     # as a creative asset, and `ad_creatives.link_url` alone cannot carry spend, so this is the

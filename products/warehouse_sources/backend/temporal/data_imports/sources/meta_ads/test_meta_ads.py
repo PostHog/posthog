@@ -2035,6 +2035,16 @@ class TestBreakdownStatsRequests:
         assert result.requests[0].param("breakdowns") == schema.extra_params["breakdowns"]
         assert result.requests[0].param("level") == schema.extra_params["level"]
 
+        requested_fields = set(result.requests[0].param("fields").split(","))
+        video_fields = {"video_play_actions", "video_thruplay_watched_actions"}
+        if (
+            "hourly_stats_aggregated_by_advertiser_time_zone" in schema.extra_params["breakdowns"]
+            or endpoint == MetaAdsResource.AdStatsByLinkUrl
+        ):
+            assert video_fields.isdisjoint(requested_fields)
+        else:
+            assert video_fields <= requested_fields
+
     def test_non_stats_endpoint_is_not_windowed(self, monkeypatch) -> None:
         result = self._capture_request(monkeypatch, MetaAdsResource.AdCreatives)
 
