@@ -6,7 +6,11 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
-from posthog.models.file_system.starred_products import DEFAULT_PRODUCT_PATHS, star_default_products
+from posthog.models.file_system.starred_products import (
+    DEFAULT_PRODUCT_PATHS,
+    has_starred_product,
+    star_default_products,
+)
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.products import Products
@@ -38,6 +42,22 @@ class TestDefaultStarredProducts(BaseTest):
             )
         )
         assert starred == ["Logs"]
+
+    @parameterized.expand(
+        [
+            ("a star in this environment", "same", None, True),
+            ("a star in another environment of the project", "other", None, True),
+            ("a starred file with the same name", "same", "42", False),
+        ]
+    )
+    def test_has_starred_product(self, _name: str, environment: str, ref: str | None, expected: bool) -> None:
+        other_environment = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        team = other_environment if environment == "other" else self.team
+        user = User.objects.create_user(email="stars@posthog.com", password="password", first_name="Stars")
+        FileSystemShortcut.objects.create(team=team, user=user, path="Error tracking", type="error_tracking", ref=ref)
+
+        assert has_starred_product(user, self.team, ["Error tracking", "Session replay"]) is expected
+        assert has_starred_product(user, self.team, ["Session replay"]) is False
 
     def _make_team_private(self, team: Team) -> None:
         # Project-level access controls only apply when the org has the feature.
