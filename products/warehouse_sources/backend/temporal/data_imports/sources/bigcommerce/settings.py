@@ -34,10 +34,6 @@ ENDPOINT_PATHS: dict[str, str] = {
 # and a different incremental filter param + date format than V3.
 V2_ENDPOINTS = frozenset({"orders"})
 
-# Order transactions have no collection endpoint, so they're fetched per order listed from the
-# parent endpoint.
-FANOUT_PARENTS: dict[str, str] = {"order_transactions": "orders"}
-
 # Endpoint -> (server-side "since" filter param, cursor field it filters on). Categories, brands
 # and variants carry no modification timestamp, and order transactions have no filter, so those
 # are full refresh only.

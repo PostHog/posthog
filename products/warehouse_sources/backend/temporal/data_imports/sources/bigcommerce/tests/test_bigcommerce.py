@@ -214,7 +214,13 @@ class TestBigCommerceSourceResumeBehavior:
             "/stores/store123/v3/orders/103/transactions",
             "/stores/store123/v2/orders",
         ]
+        assert result.params("page") == ["1", None, None, None, "2"]
         assert [(row["order_id"], row["id"]) for row in result.rows] == [(101, 1), (101, 2)]
+        assert result.saved_states == [
+            BigCommerceResumeConfig(page=1, order_index=1),
+            BigCommerceResumeConfig(page=1, order_index=2),
+            BigCommerceResumeConfig(page=1, order_index=3),
+        ]
 
     def test_order_transactions_resume_skips_completed_orders(self) -> None:
         result = self._driver().run(
@@ -224,9 +230,7 @@ class TestBigCommerceSourceResumeBehavior:
                 ScriptedResponse(json={"data": [{"id": 3, "order_id": 102}], "meta": {}}),
                 ScriptedResponse(json=[]),
             ],
-            resume_state=BigCommerceResumeConfig(
-                fanout_state={"completed": ["/v3/orders/101/transactions"], "current": None, "child_state": None}
-            ),
+            resume_state=BigCommerceResumeConfig(page=4, order_index=1),
         )
 
         assert result.raised is None
@@ -235,6 +239,7 @@ class TestBigCommerceSourceResumeBehavior:
             "/stores/store123/v3/orders/102/transactions",
             "/stores/store123/v2/orders",
         ]
+        assert result.params("page") == ["4", None, "5"]
         assert result.rows == [{"id": 3, "order_id": 102}]
 
     def test_refunds_stop_on_empty_page_without_pagination_meta(self) -> None:

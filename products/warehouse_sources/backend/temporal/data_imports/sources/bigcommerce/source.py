@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.bigcommerce import (
     BigCommerceResumeConfig,
     bigcommerce_source,
+    order_transactions_source,
     validate_credentials as validate_bigcommerce_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.settings import (
@@ -128,6 +129,18 @@ class BigCommerceSource(ResumableSource[BigCommerceSourceConfig, BigCommerceResu
         # incrementally — guard against a stale schema requesting it elsewhere.
         use_incremental = inputs.should_use_incremental_field and inputs.schema_name in INCREMENTAL_FIELDS
 
+        if inputs.schema_name == "order_transactions":
+            response = SourceResponse(
+                name=inputs.schema_name,
+                items=lambda: order_transactions_source(
+                    config.store_hash, config.access_token, resumable_source_manager
+                ),
+                primary_keys=PRIMARY_KEYS[inputs.schema_name],
+                sort_mode="asc",
+            )
+            self._set_partitioning(response, inputs.schema_name)
+            return response
+
         resource = bigcommerce_source(
             store_hash=config.store_hash,
             access_token=config.access_token,
@@ -151,15 +164,18 @@ class BigCommerceSource(ResumableSource[BigCommerceSourceConfig, BigCommerceResu
             sort_mode="desc" if use_incremental else "asc",
         )
 
-        partition_key = PARTITION_FIELDS.get(inputs.schema_name)
+        self._set_partitioning(response, inputs.schema_name)
+        return response
+
+    @staticmethod
+    def _set_partitioning(response: SourceResponse, schema_name: str) -> None:
+        partition_key = PARTITION_FIELDS.get(schema_name)
         if partition_key:
             response.partition_count = 1
             response.partition_size = 1
             response.partition_mode = "datetime"
             response.partition_format = "month"
             response.partition_keys = [partition_key]
-
-        return response
 
     @property
     def get_source_config(self) -> SourceConfig:
