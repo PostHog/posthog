@@ -267,6 +267,21 @@ describe('sendCalendarUtils', () => {
         expect(movedScheduleFields(value, days, dayjs('2026-08-31T00:00:00Z'))).toEqual(expected)
     })
 
+    it.each([
+        [
+            'a series that ends after a count keeps only the sends left',
+            schedule('FREQ=WEEKLY;BYDAY=TU;COUNT=10', '2026-09-01T09:00:00Z', 'active', 'UTC'),
+            { starts_at: '2026-10-21T09:00:00.000Z', rrule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=WE;COUNT=3' },
+        ],
+        [
+            'a one-time send that names a weekday becomes a plain one-time send',
+            schedule('FREQ=WEEKLY;BYDAY=TU;COUNT=1', '2026-10-20T09:00:00Z', 'active', 'UTC'),
+            { starts_at: '2026-10-21T09:00:00.000Z', rrule: 'FREQ=DAILY;COUNT=1' },
+        ],
+    ])('moves %s', (_, value, expected) => {
+        expect(movedScheduleFields(value, 1, NOW)).toEqual(expected)
+    })
+
     it('starts a moved weekly send from its next send, so no past send comes back', () => {
         const weekly = schedule('FREQ=WEEKLY;BYDAY=TU', '2026-09-01T09:00:00Z', 'active', 'UTC')
 
