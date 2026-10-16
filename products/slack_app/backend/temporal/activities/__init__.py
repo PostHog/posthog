@@ -40,6 +40,7 @@ from products.slack_app.backend.temporal.activities.task_creation import (
     create_posthog_code_task_for_repo_activity,
     derive_mention_workflow_id,
     forward_posthog_code_followup_activity,
+    posthog_code_thread_has_task_activity,
 )
 from products.slack_app.backend.temporal.activities.thread import collect_posthog_code_thread_messages_activity
 from products.slack_app.backend.temporal.activities.unfurl_charts import (
@@ -71,6 +72,7 @@ __all__ = [
     "discover_posthog_code_repository_via_agent_activity",
     "enforce_posthog_code_billing_quota_activity",
     "forward_posthog_code_followup_activity",
+    "posthog_code_thread_has_task_activity",
     "handle_posthog_code_slack_mention_command_activity",
     "mark_slack_app_message_processing_activity",
     "mark_slack_app_message_queued_activity",
