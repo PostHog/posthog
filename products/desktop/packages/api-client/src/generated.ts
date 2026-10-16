@@ -4398,7 +4398,6 @@ export namespace Schemas {
         response?: (HogQLQueryResponse | null) | undefined;
         sendRawQuery?: (boolean | null) | undefined;
         tags?: (QueryLogTags | null) | undefined;
-        useBusinessIntelligenceLimits?: (boolean | null) | undefined;
         values?: (Record<string, unknown> | null) | undefined;
         variables?: (Record<string, HogQLVariable> | null) | undefined;
         version?: (number | null) | undefined;
@@ -4711,14 +4710,7 @@ export namespace Schemas {
         nextField: BIField;
         previousField: BIField;
     };
-    export type BIQueryLimit =
-        | 100
-        | 1000
-        | 10000
-        | 50000
-        | 100000
-        | 500000
-        | 1000000;
+    export type BIQueryLimit = 100 | 1000 | 10000 | 50000;
     export type MemberAliase = { aliases: Array<Alias>; field: BIField };
     export type MissingDates = "gap" | "zero";
     export type ReferenceLines = "pane" | "worksheet";
