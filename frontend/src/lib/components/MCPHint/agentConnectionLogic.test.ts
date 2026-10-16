@@ -15,14 +15,14 @@ const AGENT_APP: ConnectedApp = {
     authorized_at: '2026-06-18T00:00:00Z',
     is_verified: false,
     is_first_party: false,
-    is_setup_wizard: false,
+    is_self_registered: true,
 }
 const WIZARD_APP: ConnectedApp = {
     ...AGENT_APP,
     id: 'wizard',
     name: 'PostHog Wizard',
     is_first_party: true,
-    is_setup_wizard: true,
+    is_self_registered: false,
 }
 
 describe('agentConnectionLogic', () => {

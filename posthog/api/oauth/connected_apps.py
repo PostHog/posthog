@@ -2,14 +2,13 @@ import uuid
 from datetime import datetime
 from typing import cast
 
-from django.conf import settings
-
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.oauth.cimd import is_cimd_client_id
 from posthog.auth import SessionAuthentication
 from posthog.models.oauth import (
     OAuthApplication,
@@ -36,8 +35,11 @@ class ConnectedAppSerializer(serializers.Serializer):
             "the user's organizations and PostHog has not verified it"
         )
     )
-    is_setup_wizard = serializers.BooleanField(
-        help_text="Whether this is the PostHog setup wizard, which signs in to install the SDK, not to connect an agent"
+    is_self_registered = serializers.BooleanField(
+        help_text=(
+            "Whether the application registered itself, through dynamic client registration or a client ID "
+            "metadata document. MCP clients connect this way; applications PostHog registers do not."
+        )
     )
 
 
@@ -88,7 +90,6 @@ class ConnectedAppsViewSet(viewsets.ViewSet):
                 application_id__in=app_map.keys(), organization__membership__user=user
             ).values_list("application_id", flat=True)
         )
-        wizard_client_ids = {*settings.WIZARD_GATEWAY_CLIENT_IDS, settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID} - {""}
 
         results = []
         for app in applications:
@@ -105,7 +106,7 @@ class ConnectedAppsViewSet(viewsets.ViewSet):
                     "requires_access_confirmation": (
                         app.id in provisioner_ids and not app.is_verified and not app.is_first_party
                     ),
-                    "is_setup_wizard": app.client_id in wizard_client_ids,
+                    "is_self_registered": app.is_dcr_client or is_cimd_client_id(app.client_id),
                 }
             )
 
