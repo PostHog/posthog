@@ -53,7 +53,9 @@ tools:
         enrich_url: '{id}/workflow'
         title: Create workflow
         description: >
-            Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run
+            Create a workflow. Before a project's first email, SMS or push workflow, call workflows-setup-status when it
+            is available, so the user knows what blocks sending. It is created as a draft and does NOT run until
+            enabled: test it with workflows-test-run
             first, then enable (workflows-enable) only with the user's explicit approval — from then on it runs on real
             people, and further content edits stage as a draft you must publish (workflows-publish) to take effect.
             Provide an actions array with exactly one type='trigger' (config.type:
