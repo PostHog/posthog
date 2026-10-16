@@ -73,6 +73,10 @@ def test_dashboard_streams_progress_and_relays_view_cancel_and_failures(
                     assert time.monotonic() - started < 1
                     assert canceled.wait(timeout=5)
                     assert "stopped reading" in str(dashboard.failure)
+                    finishing = threading.Thread(target=dashboard.finish, args=(130,), daemon=True)
+                    finishing.start()
+                    finishing.join(timeout=5)
+                    assert not finishing.is_alive()
                     return
                 dashboard.update_trial(
                     TrialProgress(

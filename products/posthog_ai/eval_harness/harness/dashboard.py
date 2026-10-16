@@ -313,8 +313,13 @@ class EvalDashboard:
             self._outbox.put(event, timeout=VIEW_WRITE_TIMEOUT_SECONDS)
         except queue.Full:
             return
-        if self._process is not None:
-            self._process.wait()
+        # A failed view never reads the finish event, so stop waiting and let display() terminate it.
+        while self._process is not None and self._error is None:
+            try:
+                self._process.wait(timeout=0.5)
+                return
+            except subprocess.TimeoutExpired:
+                continue
 
 
 @contextmanager
