@@ -10,16 +10,7 @@ export interface RealtimeCohortAudienceNoticeProps {
 
 /** Explains why an audience that holds a realtime cohort takes no other conditions. */
 export function RealtimeCohortAudienceNotice({ blastRadius }: RealtimeCohortAudienceNoticeProps): JSX.Element | null {
-    const mixed = blastRadius?.realtime_cohort_with_other_conditions
-    if (mixed) {
-        return (
-            <LemonBanner type="warning">
-                Cohort <Link to={urls.cohort(mixed.id)}>{mixed.name}</Link> is a realtime cohort, so it has to be the
-                only condition. Remove the other conditions, or add them to the cohort itself.
-            </LemonBanner>
-        )
-    }
-    if (blastRadius?.realtime_cohort) {
+    if (blastRadius?.realtime_cohort || blastRadius?.realtime_cohort_with_other_conditions) {
         return (
             <LemonBanner type="info">
                 Realtime cohorts can't be combined with other conditions. To narrow this audience,{' '}
