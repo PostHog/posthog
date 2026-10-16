@@ -862,11 +862,10 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     schedule_restriction=schedule_restriction,
                 )
             created = super().create(validated_data)
-            if has_begun_cutover(created.team_id):
-                # A team the platform has begun taking over gets new alerts on the platform too, so
-                # it never has to be cut over again for them.
-                hand_over(created, timezone.now())
-            elif created.enabled:
+            # A team the platform has begun taking over gets new alerts on the platform too, so it
+            # never has to be cut over again for them. A refused handover leaves the alert with logs.
+            handed_over = has_begun_cutover(created.team_id) and hand_over(created, timezone.now())
+            if not handed_over and created.enabled:
                 transaction.on_commit(
                     lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
                 )
