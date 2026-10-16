@@ -44,6 +44,7 @@ from products.alerts.backend.llm_detector_limits import (
     llm_detector_access_error,
 )
 from products.alerts.backend.models.alert import METRICS_INSIGHT_QUERY_FILTER, AlertCheck, AlertConfiguration
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -193,16 +194,19 @@ def list_firing_alerts_created_by(
     ).filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=timezone.now()))
     if not include_metrics_insights:
         alerts = alerts.exclude(id__in=alerts.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
-    access = UserAccessControl(user, team=team)
+    viewable_insights = UserAccessControl(user, team=team).filter_queryset_by_access_level(
+        Insight.objects.filter(team_id=team.id)
+    )
+    rows = (
+        alerts.filter(insight_id__in=viewable_insights.values("id"))
+        .order_by("-created_at")
+        .values_list("id", "name", "insight__name", "insight__derived_name", "insight__short_id")[:limit]
+    )
     return [
         contracts.FiringAlert(
-            id=alert.id,
-            name=alert.name,
-            insight_name=alert.insight.name or alert.insight.derived_name,
-            insight_short_id=alert.insight.short_id,
+            id=alert_id, name=name, insight_name=insight_name or derived_name, insight_short_id=short_id
         )
-        for alert in alerts.select_related("insight").order_by("-created_at")[:limit]
-        if access.check_access_level_for_object(alert.insight, "viewer")
+        for alert_id, name, insight_name, derived_name, short_id in rows
     ]
 
 

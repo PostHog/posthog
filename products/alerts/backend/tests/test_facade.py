@@ -91,12 +91,17 @@ class TestListFiringAlertsCreatedBy(BaseTest):
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        alert = self._alert(self.team, {"created_by": self._create_user("other@example.com")}, {})
+        viewable = self._alert(self.team, {}, {})
+        hidden = self._alert(self.team, {"created_by": self._create_user("other@example.com")}, {})
         AccessControl.objects.create(
-            resource="insight", resource_id=alert.insight.id, team=self.team, access_level="none"
+            resource="insight", resource_id=hidden.insight.id, team=self.team, access_level="none"
         )
+        AlertConfiguration.objects.filter(id=hidden.id).update(created_at=datetime(2026, 10, 14, 13, tzinfo=UTC))
 
-        assert self._firing() == []
+        assert [
+            alert.id
+            for alert in api.list_firing_alerts_created_by(self.team, self.user, include_metrics_insights=True, limit=1)
+        ] == [viewable.id]
 
     @parameterized.expand(
         [
