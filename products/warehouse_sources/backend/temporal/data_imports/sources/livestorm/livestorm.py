@@ -1,9 +1,9 @@
+import dataclasses
 from typing import Any, Optional, cast
-
-from requests import Response
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -12,15 +12,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     build_dependent_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
-    find_values,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
     IncrementalConfig,
 )
@@ -30,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.livestorm.settings import (
     LIVESTORM_BASE_URL,
     LIVESTORM_ENDPOINTS,
-    PAGE_SIZE,
+    SESSION_PEOPLE_LOOKBACK_SECONDS,
     LivestormEndpointConfig,
 )
 
@@ -45,26 +43,6 @@ class LivestormResumeConfig:
     fanout_state: Optional[dict[str, Any]] = None
 
 
-class LivestormPaginator(PageNumberPaginator):
-    """Follows `meta.next_page`. Livestorm answers a page past the last one with a 400, so the walk
-    must stop on the server's signal instead of probing for an empty page."""
-
-    def __init__(self) -> None:
-        super().__init__(base_page=0, page_param="page[number]")
-
-    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
-        try:
-            values = find_values("meta.next_page", response.json())
-        except Exception:
-            values = []
-        next_page = values[0] if values else None
-        if next_page is None:
-            self._has_next_page = False
-            return
-        self.page = int(next_page)
-        self._has_next_page = True
-
-
 def flatten_json_api(item: dict[str, Any]) -> dict[str, Any]:
     row = {key: value for key, value in item.items() if key not in _JSON_API_ENVELOPE_KEYS}
     row.update(item.get("attributes") or {})
@@ -77,7 +55,9 @@ def _client_config(api_token: str) -> ClientConfig:
         "headers": {"Accept": "application/vnd.api+json"},
         # Livestorm takes the bare token, without a `Bearer` prefix.
         "auth": {"type": "api_key", "name": "Authorization", "api_key": api_token, "location": "header"},
-        "paginator": LivestormPaginator(),
+        # Livestorm answers a page past the last one with a 400, so stop on `meta.page_count`
+        # instead of probing for an empty page.
+        "paginator": PageNumberPaginator(base_page=0, page_param="page[number]", total_path="meta.page_count"),
     }
 
 
@@ -85,19 +65,31 @@ def _incremental_config(cursor: str) -> IncrementalConfig:
     return {"cursor_path": cursor, "start_param": "filter[updated_since]", "initial_value": "0"}
 
 
-def get_resource(config: LivestormEndpointConfig, is_incremental: bool) -> EndpointResource:
-    params: dict[str, Any] = {"page[size]": PAGE_SIZE}
-    if is_incremental:
-        params["filter[updated_since]"] = {"type": "incremental", "cursor_path": "updated_at", "initial_value": "0"}
+def get_resource(config: LivestormEndpointConfig, incremental_field: Optional[str]) -> EndpointResource:
+    endpoint: Endpoint = {"path": config.path, "params": {"page[size]": config.page_size}, "data_selector": "data"}
+    if incremental_field is not None:
+        endpoint["incremental"] = _incremental_config(incremental_field)
     return {
         "name": config.name,
         "table_name": config.name,
         "primary_key": config.primary_keys,
-        "write_disposition": {"disposition": "merge", "strategy": "upsert"} if is_incremental else "replace",
-        "endpoint": {"path": config.path, "params": params, "data_selector": "data"},
+        "write_disposition": {"disposition": "merge", "strategy": "upsert"} if incremental_field else "replace",
+        "endpoint": endpoint,
         "data_map": flatten_json_api,
         "table_format": "delta",
     }
+
+
+def _session_window_start(watermark: Any) -> Optional[int]:
+    """The `filter[date_from]` value, in Unix seconds, that bounds an incremental session walk."""
+    if isinstance(watermark, int | float):
+        seconds = int(watermark)
+    else:
+        parsed = parse_datetime_value(watermark)
+        if parsed is None:
+            return None
+        seconds = int(parsed.timestamp())
+    return seconds - SESSION_PEOPLE_LOOKBACK_SECONDS
 
 
 def _source_response(config: LivestormEndpointConfig, resource: Any, is_incremental: bool) -> SourceResponse:
@@ -119,9 +111,11 @@ def livestorm_source(
     resumable_source_manager: ResumableSourceManager[LivestormResumeConfig],
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
+    incremental_field: Optional[str] = None,
 ) -> SourceResponse:
     config = LIVESTORM_ENDPOINTS[endpoint]
     is_incremental = should_use_incremental_field and bool(config.incremental_fields)
+    cursor = (incremental_field or config.default_incremental_field) if is_incremental else None
     client_config = _client_config(api_token)
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
@@ -131,19 +125,24 @@ def livestorm_source(
             if state:
                 resumable_source_manager.save_state(LivestormResumeConfig(fanout_state=state))
 
+        fanout = config.fanout
+        window_start = _session_window_start(db_incremental_field_last_value) if cursor else None
+        if window_start is not None:
+            fanout = dataclasses.replace(fanout, parent_params={"filter[date_from]": window_start})
+
         child = cast(
             Resource,
             build_dependent_resource(
                 endpoint_configs=LIVESTORM_ENDPOINTS,
                 child_endpoint=endpoint,
-                fanout=config.fanout,
+                fanout=fanout,
                 client_config=client_config,
                 path_format_values={},
                 team_id=team_id,
                 job_id=job_id,
                 db_incremental_field_last_value=db_incremental_field_last_value,
                 should_use_incremental_field=is_incremental,
-                incremental_field="updated_at",
+                incremental_field=cursor,
                 incremental_config_factory=_incremental_config,
                 parent_endpoint_extra={"data_selector": "data"},
                 child_endpoint_extra={"data_selector": "data"},
@@ -158,7 +157,7 @@ def livestorm_source(
     rest_config: RESTAPIConfig = {
         "client": client_config,
         "resource_defaults": {},
-        "resources": [get_resource(config, is_incremental)],
+        "resources": [get_resource(config, cursor)],
     }
 
     initial_paginator_state = {"page": resume.next_page} if resume and resume.next_page is not None else None

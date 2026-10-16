@@ -12,6 +12,11 @@ LIVESTORM_BASE_URL = "https://api.livestorm.co/v1"
 # Livestorm caps `page[size]` at 50.
 PAGE_SIZE = 50
 
+# An incremental `session_people` run reads only sessions that start at most this long before the
+# watermark. Livestorm allows 10,000 calls per 30 days per account, so a walk over every session
+# ever held would use up the quota.
+SESSION_PEOPLE_LOOKBACK_SECONDS = 7 * 24 * 60 * 60
+
 # Livestorm sends timestamps as Unix seconds, and `filter[updated_since]` accepts the same.
 UPDATED_AT_INCREMENTAL_FIELD: IncrementalField = {
     "label": "updated_at",

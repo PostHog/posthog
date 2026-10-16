@@ -33,17 +33,17 @@ def _item(item_id: str, **attributes: Any) -> dict[str, Any]:
     }
 
 
-def _page(items: list[dict[str, Any]], next_page: int | None) -> ScriptedResponse:
-    return ScriptedResponse(json={"data": items, "meta": {"next_page": next_page, "record_count": 3}})
+def _page(items: list[dict[str, Any]], page_count: int) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": items, "meta": {"page_count": page_count, "record_count": 3}})
 
 
 class TestLivestormLists:
-    def test_walks_pages_until_next_page_is_null(self) -> None:
+    def test_walks_pages_until_the_last_page_count(self) -> None:
         result = _driver().run(
             "events",
             [
-                _page([_item("e1", title="Launch"), _item("e2", title="Demo")], next_page=1),
-                _page([_item("e3", title="Q&A")], next_page=None),
+                _page([_item("e1", title="Launch"), _item("e2", title="Demo")], page_count=2),
+                _page([_item("e3", title="Q&A")], page_count=2),
             ],
         )
 
@@ -56,7 +56,7 @@ class TestLivestormLists:
 
     def test_resume_starts_from_the_saved_page(self) -> None:
         result = _driver().run(
-            "sessions", [_page([_item("s9")], next_page=None)], resume_state=LivestormResumeConfig(next_page=4)
+            "sessions", [_page([_item("s9")], page_count=5)], resume_state=LivestormResumeConfig(next_page=4)
         )
 
         assert result.params("page[number]") == ["4"]
@@ -75,7 +75,7 @@ class TestLivestormLists:
     def test_incremental_filter_and_sort_mode(
         self, _name: str, inputs: dict[str, Any], expected_filter: str | None, expected_sort: str
     ) -> None:
-        result = _driver().run("sessions", [_page([_item("s1")], next_page=None)], **inputs)
+        result = _driver().run("sessions", [_page([_item("s1")], page_count=1)], **inputs)
 
         assert result.requests[0].param("filter[updated_since]") == expected_filter
         assert result.response is not None
@@ -88,12 +88,12 @@ class TestLivestormSessionPeople:
             "session_people",
             route(
                 {
-                    "/v1/sessions": [_page([_item("s1"), _item("s2")], next_page=None)],
+                    "/v1/sessions": [_page([_item("s1"), _item("s2")], page_count=1)],
                     "/v1/sessions/s1/people": [
-                        _page([_item("p1", email="a@example.com")], next_page=1),
-                        _page([_item("p2", email="b@example.com")], next_page=None),
+                        _page([_item("p1", email="a@example.com")], page_count=2),
+                        _page([_item("p2", email="b@example.com")], page_count=2),
                     ],
-                    "/v1/sessions/s2/people": [_page([_item("p1", email="a@example.com")], next_page=None)],
+                    "/v1/sessions/s2/people": [_page([_item("p1", email="a@example.com")], page_count=1)],
                 }
             ),
             incremental_field="updated_at",
@@ -108,6 +108,8 @@ class TestLivestormSessionPeople:
             "/v1/sessions/s2/people",
         ]
         assert result.requests[0].param("filter[updated_since]") is None
+        # The session walk is bounded to sessions starting up to a week before the watermark.
+        assert result.requests[0].param("filter[date_from]") == str(1759000000 - 7 * 24 * 60 * 60)
         assert {r.param("filter[updated_since]") for r in result.requests[1:]} == {"1759000000"}
         assert [(row["session_id"], row["id"]) for row in result.rows] == [("s1", "p1"), ("s1", "p2"), ("s2", "p1")]
         assert all("attributes" not in row and "_sessions_id" not in row for row in result.rows)
@@ -117,8 +119,8 @@ class TestLivestormSessionPeople:
             "session_people",
             route(
                 {
-                    "/v1/sessions": [_page([_item("s1"), _item("s2")], next_page=None)],
-                    "/v1/sessions/s2/people": [_page([_item("p3")], next_page=None)],
+                    "/v1/sessions": [_page([_item("s1"), _item("s2")], page_count=1)],
+                    "/v1/sessions/s2/people": [_page([_item("p3")], page_count=1)],
                 }
             ),
             resume_state=LivestormResumeConfig(
@@ -128,6 +130,7 @@ class TestLivestormSessionPeople:
 
         assert result.raised is None
         assert result.paths == ["/v1/sessions", "/v1/sessions/s2/people"]
+        assert result.requests[0].param("filter[date_from]") is None
 
 
 class TestLivestormValidateCredentials:
