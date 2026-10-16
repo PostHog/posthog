@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 
 import bson
+import certifi
 from bson import Binary, DatetimeMS, Decimal128, Int64, ObjectId, Timestamp
 from bson.binary import UUID_SUBTYPE, UuidRepresentation
 from bson.code import Code
@@ -39,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     SERVER_SELECTION_TIMEOUT_MS,
     SOCKET_TIMEOUT_MS,
     MongoResumeConfig,
+    UnsupportedConnectionOptionError,
     _adaptive_chunk_size,
     _build_query,
     _get_avg_document_size,
@@ -824,7 +826,7 @@ def _read_rows(
     on_row: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[Any, list[dict[str, Any]]]:
     @contextlib.contextmanager
-    def fake_mongo_client(connection_string: str, team_id: int) -> Any:
+    def fake_mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None = None) -> Any:
         client = MagicMock()
         client.__getitem__.return_value.__getitem__.return_value = collection
         yield client
@@ -1283,6 +1285,53 @@ class TestConnectionTimeouts(SimpleTestCase):
         assert kwargs["serverSelectionTimeoutMS"] == SERVER_SELECTION_TIMEOUT_MS
         assert kwargs["connectTimeoutMS"] == CONNECT_TIMEOUT_MS
         assert kwargs["socketTimeoutMS"] == SOCKET_TIMEOUT_MS
+
+    @parameterized.expand(
+        [
+            (
+                "public_ca_without_file_options",
+                "mongodb://user:pw@db.example.com/db?tls=true",
+                None,
+                "mongodb://user:pw@db.example.com/db?tls=true",
+                certifi.where(),
+            ),
+            (
+                "aws_string_with_its_bundle_name",
+                "mongodb://user:pw@docdb.example.com:27017/?tls=true&tlsCAFile=global-bundle.pem&retryWrites=false",
+                "/srv/bundle.pem",
+                "mongodb://user:pw@docdb.example.com:27017/?tls=true&retryWrites=false",
+                "/srv/bundle.pem",
+            ),
+            (
+                "option_names_are_not_case_sensitive",
+                "mongodb://user:pw@db.example.com/db?TLSCAFILE=ca.pem&tls=true",
+                None,
+                "mongodb://user:pw@db.example.com/db?tls=true",
+                certifi.where(),
+            ),
+        ]
+    )
+    def test_client_trusts_the_source_ca_and_never_reads_the_ca_file_the_string_names(
+        self, _name, connection_string, tls_ca_file, expected_string, expected_ca
+    ):
+        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
+            with mongo_client(connection_string, team_id=1, tls_ca_file=tls_ca_file):
+                pass
+
+        assert client_class.call_args.args[0] == expected_string
+        assert client_class.call_args.kwargs["tlsCAFile"] == expected_ca
+
+    @parameterized.expand(
+        [("revocation_list", "tlsCRLFile=crl.pem"), ("client_certificate", "tlscertificatekeyfile=c.pem")]
+    )
+    def test_a_file_option_with_no_replacement_stops_the_sync_before_the_client_opens(self, _name, option):
+        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
+            with pytest.raises(UnsupportedConnectionOptionError) as raised:
+                with mongo_client(f"mongodb://user:pw@db.example.com/db?tls=true&{option}", team_id=1):
+                    pass
+
+        client_class.assert_not_called()
+        assert error_message_matches(str(raised.value), MongoDBSource().get_non_retryable_errors())
 
     def test_socket_timeout_error_is_retryable(self):
         # pymongo's NetworkTimeout wording when a socket read reaches `socketTimeoutMS`.

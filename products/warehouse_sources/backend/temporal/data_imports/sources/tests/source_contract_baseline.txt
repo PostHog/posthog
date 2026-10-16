@@ -63,6 +63,7 @@ AwsComputeOptimizer fail:rate-limit-budget
 AwsConfig fail:rate-limit-budget
 AwsCostAnomalyDetection fail:rate-limit-budget,stall-budget
 AwsCostExplorer fail:rate-limit-budget,safe-point,stall-budget
+AwsDocumentDB not-checkable:driver:pymongo
 AwsGlueDataCatalog fail:rate-limit-budget
 AwsGuardduty fail:rate-limit-budget
 AwsIamAccessAnalyzer fail:rate-limit-budget

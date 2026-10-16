@@ -979,6 +979,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     AWSCOSTANDUSAGEREPORT = "AwsCostAndUsageReport", "AwsCostAndUsageReport"
     AWSCOSTANOMALYDETECTION = "AwsCostAnomalyDetection", "AwsCostAnomalyDetection"
     AWSCOSTEXPLORER = "AwsCostExplorer", "AwsCostExplorer"
+    AWSDOCUMENTDB = "AwsDocumentDB", "AwsDocumentDB"
     AWSGLUEDATACATALOG = "AwsGlueDataCatalog", "AwsGlueDataCatalog"
     AWSGUARDDUTY = "AwsGuardduty", "AwsGuardduty"
     AWSHEALTH = "AwsHealth", "AwsHealth"
