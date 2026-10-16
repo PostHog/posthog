@@ -322,7 +322,8 @@ def user_chat_rows(
     start_cursor = resume.cursor if resume is not None else None
     seen: set[str] | None = set() if full_refresh else None
     for page in user_chat_pages(client, user_chat_segments(run, full_refresh), start_segment, start_cursor):
-        manager.save_state(_after_page(page, run))
+        if not full_refresh:
+            manager.save_state(_after_page(page, run))
         chats = first_reads(page.chats, seen)
         if chats:
             yield [normalize_row(chat) for chat in chats]
@@ -369,6 +370,8 @@ def message_rows(
         ]
 
         def checkpoint(index: int, cursor: str | None, page: UserChatPage = page, chats: Rows = chats) -> None:
+            if full_refresh:
+                return
             manager.save_state(
                 ChannelIOResumeConfig(
                     segment=page.segment,
@@ -434,7 +437,10 @@ def channel_io_source(
             **partitioning,
         )
 
-    resume = manager.load_state() if manager.can_resume() else None
+    # A full refresh does not resume: a retry starts over and its first batch overwrites the table, so rows of an
+    # earlier attempt cannot be written twice. Its chat dedupe only needs to span one attempt.
+    full_refresh = not inputs.should_use_incremental_field
+    resume = manager.load_state() if not full_refresh and manager.can_resume() else None
     watermark = (
         parse_datetime_value(inputs.db_incremental_field_last_value) if inputs.should_use_incremental_field else None
     )
@@ -443,11 +449,12 @@ def channel_io_source(
 
     return SourceResponse(
         name=endpoint.name,
-        items=lambda: read(client, watermark, resume, manager, not inputs.should_use_incremental_field),
+        items=lambda: read(client, watermark, resume, manager, full_refresh),
         primary_keys=list(endpoint.primary_keys),
         # Chats come back state by state, so rows are not in watermark order across a run. "desc" holds the
         # watermark until the run ends.
-        sort_mode="desc" if inputs.should_use_incremental_field else "asc",
+        sort_mode="asc" if full_refresh else "desc",
+        supports_resume=not full_refresh,
         on_complete=manager.clear_state,
         **partitioning,
     )

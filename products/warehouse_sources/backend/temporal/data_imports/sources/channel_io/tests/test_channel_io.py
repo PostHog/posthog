@@ -84,6 +84,13 @@ WINDOWS = [
 ]
 
 
+# Resume belongs to incremental runs. A watermark at the channel's creation keeps the same windows.
+INCREMENTAL: dict[str, Any] = {
+    "incremental_field": "deskUpdatedAt",
+    "db_incremental_field_last_value": CHANNEL_CREATED,
+}
+
+
 def pinned_state(**fields: Any) -> ChannelIOResumeConfig:
     return ChannelIOResumeConfig(window_start_ms=CHANNEL_CREATED_MS, started_at_ms=NOW_MS, **fields)
 
@@ -131,6 +138,7 @@ def test_user_chats_resume_at_the_saved_segment_and_cursor_without_reading_the_c
         "user_chats",
         always(page("userChats", [])),
         resume_state=pinned_state(segment=2, cursor="c9"),
+        **INCREMENTAL,
     )
 
     assert result.raised is None
@@ -167,7 +175,7 @@ def test_messages_fan_out_per_chat_carry_the_chat_activity_time_and_skip_a_delet
         {"id": "chat-2", "deskUpdatedAt": "2024-03-29 03:28:37+00:00"},
     ]
 
-    result = driver().run("messages", message_responder(chats))
+    result = driver().run("messages", message_responder(chats), **INCREMENTAL)
 
     assert result.raised is None
     assert [row["id"] for row in result.rows] == ["chat-1-m1", "chat-1-m2", "chat-2-m1", "chat-2-m2"]
@@ -219,6 +227,9 @@ def test_a_full_refresh_reads_the_last_window_up_to_each_request_and_keeps_one_c
     assert [row["id"] for row in result.rows] == ["chat-1", "chat-2"]
     last_window = [r for r in result.requests if int(r.param("from") or 0) == WINDOWS[1][0]]
     assert {int(r.param("to") or 0) for r in last_window} == {NOW_MS + 5 * 60 * 1000}
+    # The dedupe lives in memory, so a retried full refresh starts over instead of resuming.
+    assert result.response is not None and result.response.supports_resume is False
+    assert result.saved_states == []
 
 
 def test_messages_resume_from_the_saved_chats_without_reading_their_page_again() -> None:
@@ -227,6 +238,7 @@ def test_messages_resume_from_the_saved_chats_without_reading_their_page_again()
         "messages",
         message_responder([{"id": "chat-1"}, {"id": "chat-2"}]),
         resume_state=pinned_state(pending_chats=[{"id": "chat-2", "deskUpdatedAt": None}], message_cursor="m2"),
+        **INCREMENTAL,
     )
 
     assert result.raised is None
