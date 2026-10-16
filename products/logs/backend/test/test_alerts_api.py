@@ -8,7 +8,8 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
-from django.db import OperationalError
+from django.db import OperationalError, connection
+from django.test.utils import CaptureQueriesContext
 
 from celery.exceptions import Retry
 from parameterized import parameterized
@@ -20,6 +21,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import list_configurations
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -33,6 +35,7 @@ from products.logs.backend.platform_alert_backfill import (
     backfill_platform_alert_configurations,
     disable_platform_alert_configurations,
 )
+from products.logs.backend.platform_cutover import cut_over_team
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
     MAX_ALERTS_PER_TEAM,
@@ -162,6 +165,42 @@ class TestLogsAlertAPI(APIBaseTest):
         assert len(results) == 2
         assert results[0]["name"] == "Alert 2"
         assert results[1]["name"] == "Alert 1"
+
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_a_platform_owned_alert_reports_the_platform_state(self, action: str) -> None:
+        now = datetime.now(UTC)
+        alerts = [
+            LogsAlertConfiguration.objects.create(
+                team=self.team,
+                name=f"Errors {i}",
+                filters={"severityLevels": ["error"]},
+                next_check_at=now + timedelta(minutes=3),
+                last_notified_at=now - timedelta(days=1),
+            )
+            for i in range(2)
+        ]
+        cut_over_team(self.team.id, now=now)
+        platform_due_at = now + timedelta(minutes=7)
+        with team_scope(self.team.id):
+            for alert in alerts:
+                copy_id = platform_testing.copy_of(alert.id).id
+                platform_testing.start_firing(copy_id, team_id=self.team.id, at=now)
+                platform_testing.set_due_at(copy_id, platform_due_at)
+
+        with CaptureQueriesContext(connection) as queries:
+            if action == "list":
+                response = self.client.get(self.base_url)
+                rows = response.json()["results"]
+            else:
+                response = self.client.get(f"{self.base_url}{alerts[0].id}/")
+                rows = [response.json()]
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [(row["state"], row["next_check_at"]) for row in rows] == [
+            ("firing", platform_due_at.isoformat().replace("+00:00", "Z"))
+        ] * len(rows)
+        platform_reads = [q for q in queries.captured_queries if "alerts_platformalertconfiguration" in q["sql"]]
+        assert len(platform_reads) == 1
 
     def test_list_filters_by_created_by(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
@@ -1560,6 +1599,54 @@ class TestLogsAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Only broken alerts can be reset." in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("both_broken_inside_the_shadow", "broken", "broken", False, status.HTTP_200_OK),
+            ("platform_broke_after_the_shadow", "broken", "not_firing", False, status.HTTP_200_OK),
+            ("broke_while_firing", "broken", "not_firing", True, status.HTTP_200_OK),
+            ("only_the_frozen_logs_row_is_broken", "not_firing", "broken", False, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_reset_of_a_platform_owned_alert_clears_the_platform_copy(
+        self,
+        _name: str,
+        state_at_cutover: str,
+        logs_state_after: str,
+        fired_before_breaking: bool,
+        expected_status: int,
+    ) -> None:
+        now = datetime.now(UTC)
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="Errors",
+            filters={"severityLevels": ["error"]},
+            state=state_at_cutover,
+            consecutive_failures=5 if state_at_cutover == "broken" else 0,
+            next_check_at=now + timedelta(minutes=3),
+        )
+        cut_over_team(self.team.id, now=now)
+        LogsAlertConfiguration.objects.filter(pk=alert.id).update(state=logs_state_after)
+        if fired_before_breaking:
+            with team_scope(self.team.id):
+                platform_testing.start_firing(platform_testing.copy_of(alert.id).id, team_id=self.team.id, at=now)
+
+        response = self.client.post(self._reset_url(str(alert.id)))
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status != status.HTTP_200_OK:
+            return
+        assert (response.json()["state"], response.json()["consecutive_failures"]) == ("not_firing", 0)
+        with team_scope(self.team.id):
+            copy = platform_testing.copy_of(alert.id)
+            platform_alert = platform_testing.alert_for(copy.id)
+        assert platform_alert is not None
+        assert (platform_alert.state, platform_alert.firing_started_at, copy.consecutive_failures) == (
+            "not_firing",
+            None,
+            0,
+        )
+        assert self.client.post(self._reset_url(str(alert.id))).status_code == status.HTTP_400_BAD_REQUEST
 
     def test_reset_other_teams_alert_returns_404(self):
         other_team = Team.objects.create(organization=self.organization, name="Other")

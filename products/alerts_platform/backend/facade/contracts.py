@@ -339,6 +339,16 @@ class PlatformHandback:
     next_check_at: datetime | None
 
 
+@frozen
+class PlatformAlertRuntime:
+    """Where an alert the platform owns stands, for a source whose API still shows the alert."""
+
+    state: PlatformAlertState
+    last_notified_at: datetime | None
+    consecutive_failures: int
+    next_check_at: datetime | None
+
+
 class SkipReason(StrEnum):
     """Why a check reached an outcome without a query answering it.
 

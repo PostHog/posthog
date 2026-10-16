@@ -2,10 +2,11 @@ import os
 import datetime as dt
 from datetime import UTC, datetime
 from typing import Any, Final, Literal, TypedDict, cast
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import F, Manager, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -41,12 +42,14 @@ from products.alerts.backend.facade.destinations import (
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
+from products.alerts_platform.backend.facade.api import reset_broken, runtime_by_legacy_id
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
     PagerDutyRegion,
     PagerDutySeverity,
+    PlatformAlertRuntime,
 )
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
@@ -79,6 +82,7 @@ from products.logs.backend.facade.api import (
     close_incident_before_delete,
     close_incident_on_commit,
     follow_logs_alert,
+    logs_state_of_platform,
     next_allowed_check_at,
 )
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
@@ -202,6 +206,24 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
         required=False,
         help_text="PagerDuty service region the events go to.",
     )
+
+
+_PLATFORM_RUNTIME_CONTEXT_KEY: Final = "platform_runtime"
+
+
+def _platform_runtime_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, PlatformAlertRuntime]:
+    owned = [alert for alert in alerts if alert.platform_owned]
+    if not owned:
+        return {}
+    return runtime_by_legacy_id(team_id=owned[0].team_id, legacy_configuration_ids=[alert.id for alert in owned])
+
+
+class LogsAlertConfigurationListSerializer(serializers.ListSerializer):
+    def to_representation(self, data: Any) -> list[dict[str, Any]]:
+        alerts = list(data.all() if isinstance(data, Manager) else data)
+        # One platform read for the page, which the child serializer finds in the shared context.
+        self.context[_PLATFORM_RUNTIME_CONTEXT_KEY] = _platform_runtime_of(alerts)
+        return super().to_representation(alerts)
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -453,8 +475,28 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             .first()
         )
 
+    def to_representation(self, instance: LogsAlertConfiguration) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if not instance.platform_owned:
+            return data
+        # The platform evaluates an alert it owns, so the logs row stops moving once the shadow ends.
+        runtimes = self.context.get(_PLATFORM_RUNTIME_CONTEXT_KEY)
+        if runtimes is None:
+            runtimes = _platform_runtime_of([instance])
+        runtime = runtimes.get(instance.id)
+        if runtime is None:
+            return data
+        data["state"] = logs_state_of_platform(
+            runtime.state, logs_state=instance.state, snooze_until=instance.snooze_until, at=timezone.now()
+        ).value
+        data["consecutive_failures"] = runtime.consecutive_failures
+        data["next_check_at"] = self.fields["next_check_at"].to_representation(runtime.next_check_at)
+        data["last_notified_at"] = self.fields["last_notified_at"].to_representation(runtime.last_notified_at)
+        return data
+
     class Meta:
         model = LogsAlertConfiguration
+        list_serializer_class = LogsAlertConfigurationListSerializer
         fields = [
             "id",
             "name",
@@ -1190,16 +1232,30 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["POST"], url_path="reset", required_scopes=["logs:write"])
     def reset(self, request: Request, *args: object, **kwargs: object) -> Response:
-        alert = self.get_object()
-        previous_failures = alert.consecutive_failures
-        try:
-            outcome = apply_user_reset(alert.to_snapshot())
-        except InvalidTransition:
-            raise ValidationError({"state": "Only broken alerts can be reset."})
         with transaction.atomic():
-            update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
-            update_fields.extend(alert.clear_next_check())
-            alert.save(update_fields=update_fields)
+            # The logs row first, then the platform copy: the cutover and rollback take the two
+            # locks in that order, and the opposite order deadlocks against them.
+            alert = self._get_locked_alert()
+            previous_failures = alert.consecutive_failures
+            if alert.platform_owned:
+                # The platform skips a broken alert, so the reset has to reach its copy. Its state
+                # decides, because the logs row stops moving once the shadow ends.
+                platform_failures = reset_broken(
+                    team_id=alert.team_id, legacy_configuration_id=alert.id, at=timezone.now()
+                )
+                if platform_failures is None:
+                    raise ValidationError({"state": "Only broken alerts can be reset."})
+                previous_failures = platform_failures
+            try:
+                outcome = apply_user_reset(alert.to_snapshot())
+            except InvalidTransition:
+                if not alert.platform_owned:
+                    raise ValidationError({"state": "Only broken alerts can be reset."})
+                outcome = None
+            if outcome is not None:
+                update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
+                update_fields.extend(alert.clear_next_check())
+                alert.save(update_fields=update_fields)
             # The model's auto-signal skips these fields (signal_exclusions silences
             # engine-driven churn) so we log the user-initiated reset explicitly.
             log_activity(

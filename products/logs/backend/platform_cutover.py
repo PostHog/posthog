@@ -24,7 +24,7 @@ from products.logs.backend.cutover_gate import CutoverRefused, TeamGate
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import (
     PLATFORM_HANDOVER_STATE,
-    logs_state_after_handback,
+    logs_state_of_platform,
     platform_upsert_of,
 )
 
@@ -174,7 +174,9 @@ def _roll_back_alert(alert_id: UUID, now: datetime | None) -> RollbackSkip | Non
         update_fields = apply_outcome(
             alert,
             ControlPlaneOutcome(
-                new_state=logs_state_after_handback(alert, handback.state, at),
+                new_state=logs_state_of_platform(
+                    handback.state, logs_state=alert.state, snooze_until=alert.snooze_until, at=at
+                ),
                 consecutive_failures=handback.consecutive_failures,
             ),
             kind=LogsAlertEvent.Kind.HANDBACK,

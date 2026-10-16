@@ -76,25 +76,25 @@ PLATFORM_HANDOVER_STATE: Final[dict[str, PlatformAlertState]] = {
 }
 
 
-def logs_state_after_handback(
-    alert: LogsAlertConfiguration, platform_state: PlatformAlertState, at: datetime
+def logs_state_of_platform(
+    platform_state: PlatformAlertState, *, logs_state: str, snooze_until: datetime | None, at: datetime
 ) -> AlertState:
-    """The logs state for an alert the platform hands back, the inverse of `PLATFORM_HANDOVER_STATE`.
+    """The logs state for a platform state, the inverse of `PLATFORM_HANDOVER_STATE`.
+
+    A handback and the API's read of an alert the platform owns both use it. Only the read can
+    see a firing, because the platform keeps a firing alert until it resolves.
 
     The platform keeps a mute on `snooze_until` rather than as a state, and the logs API kept
     writing snoozes to the logs row, so an active one stays the logs state.
     """
-    if (
-        alert.state == LogsAlertConfiguration.State.SNOOZED
-        and alert.snooze_until is not None
-        and alert.snooze_until > at
-    ):
+    if logs_state == LogsAlertConfiguration.State.SNOOZED and snooze_until is not None and snooze_until > at:
         return AlertState.SNOOZED
-    return _LOGS_STATE_AFTER_HANDBACK[platform_state]
+    return _LOGS_STATE_OF_PLATFORM[platform_state]
 
 
-_LOGS_STATE_AFTER_HANDBACK: Final[dict[PlatformAlertState, AlertState]] = {
+_LOGS_STATE_OF_PLATFORM: Final[dict[PlatformAlertState, AlertState]] = {
     PlatformAlertState.NOT_FIRING: AlertState.NOT_FIRING,
+    PlatformAlertState.FIRING: AlertState.FIRING,
     PlatformAlertState.SNOOZED: AlertState.NOT_FIRING,
     PlatformAlertState.ERRORED: AlertState.ERRORED,
     PlatformAlertState.BROKEN: AlertState.BROKEN,

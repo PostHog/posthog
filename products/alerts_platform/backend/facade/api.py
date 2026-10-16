@@ -17,6 +17,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
     PlatformAlertOutcome,
+    PlatformAlertRuntime,
     PlatformAlertUpsert,
     PlatformHandback,
     PlatformOwnershipHandover,
@@ -81,6 +82,11 @@ def give_back_ownership(
     )
 
 
+def reset_broken(*, team_id: int, legacy_configuration_id: UUID, at: datetime) -> int | None:
+    """Clears a broken alert the platform owns. Returns the failure count it cleared, or None when not broken."""
+    return platform_lifecycle.reset_broken(team_id=team_id, legacy_configuration_id=legacy_configuration_id, at=at)
+
+
 def disable_configurations(
     source_kind: SourceKind, *, team_id: int | None = None, legacy_configuration_ids: Collection[UUID] | None = None
 ) -> int:
@@ -104,3 +110,10 @@ def get_configuration(
     return platform_reads.get_configuration(
         team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
     )
+
+
+def runtime_by_legacy_id(
+    *, team_id: int, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformAlertRuntime]:
+    """The runtime state of each named alert the platform owns, keyed by the source's id."""
+    return platform_reads.runtime_by_legacy_id(team_id=team_id, legacy_configuration_ids=legacy_configuration_ids)
