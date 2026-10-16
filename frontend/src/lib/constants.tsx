@@ -642,7 +642,6 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_ISP_SENDING_HEALTH: 'workflows-isp-sending-health', // owner: #team-workflows
-    WORKFLOWS_LINEAR_VIEW: 'workflows-linear-view', // owner: #team-workflows
     WORKFLOWS_OVERVIEW_TAB: 'workflows-overview-tab', // owner: @dmarchuk #team-workflows, experimental Overview tab on a workflow
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
     WORKFLOWS_SEND_CALENDAR: 'workflows-send-calendar', // owner: @meikelmosby #team-workflows, calendar of scheduled email sends in Broadcasts and Workflows

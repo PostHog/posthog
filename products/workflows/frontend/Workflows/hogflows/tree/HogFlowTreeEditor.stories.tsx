@@ -2,7 +2,6 @@ import type { Meta, StoryFn } from '@storybook/react'
 import { BindLogic, useActions } from 'kea'
 import { useEffect, type ReactNode } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -297,7 +296,6 @@ const meta: Meta<typeof HogFlowTreeEditor> = {
     title: 'Products/Workflows/Editor/Tree',
     component: HogFlowTreeEditor,
     parameters: {
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW],
         layout: 'fullscreen',
         mockDate: '2026-09-04 12:00:00',
         testOptions: {
