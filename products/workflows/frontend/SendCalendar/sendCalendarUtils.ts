@@ -15,6 +15,7 @@ import { audienceCohortIds } from '../Broadcasts/audience/audienceList'
 import { manageDisabledReason } from '../Broadcasts/broadcastLifecycle'
 import {
     fakeUtcToReal,
+    ONE_TIME_RRULE,
     isOneTimeSchedule,
     parseRRuleToState,
     scheduleToText,
@@ -314,8 +315,12 @@ export function movedScheduleFields(
     now: dayjs.Dayjs = dayjs()
 ): { starts_at: string; rrule: string } {
     const timezone = schedule.timezone || 'UTC'
+    const startsAt = dayjs(schedule.starts_at)
     if (isOneTimeSchedule(schedule.rrule)) {
-        return { starts_at: shiftDays(dayjs(schedule.starts_at), days, timezone).toISOString(), rrule: schedule.rrule }
+        // A one-time rule can still name a weekday, which would move the send off the target day. Save the send
+        // as a plain one-time rule at the time it actually goes out, shifted.
+        const sendsAt = scheduleSendTimes(schedule, { start: startsAt, end: startsAt.add(1, 'year') })[0] ?? startsAt
+        return { starts_at: shiftDays(sendsAt, days, timezone).toISOString(), rrule: ONE_TIME_RRULE }
     }
     // Start the shifted rule at the next send. Shifting the original start instead can bring a past send back
     // into the future, so the next send lands on the wrong day.
@@ -324,7 +329,12 @@ export function movedScheduleFields(
     const starts_at = shiftDays(nextSend, days, timezone).toISOString()
     const state = parseRRuleToState(schedule.rrule)
     const weekdays = state.weekdays.map((weekday) => (((weekday + days) % 7) + 7) % 7)
-    return { starts_at, rrule: stateToRRule({ ...state, weekdays }, starts_at) }
+    // The shifted rule starts at the next send, so a series that ends after a count keeps only the sends left.
+    const endCount =
+        state.endType === 'after_count'
+            ? Math.max(1, state.endCount - scheduleSendTimes(schedule, { start: startsAt, end: now }).length)
+            : state.endCount
+    return { starts_at, rrule: stateToRRule({ ...state, weekdays, endCount }, starts_at) }
 }
 
 /** The days that the grid shows, as YYYY-MM-DD. A month view starts and ends on full weeks. */
