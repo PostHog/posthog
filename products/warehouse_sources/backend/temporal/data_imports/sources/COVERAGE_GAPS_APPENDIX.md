@@ -853,20 +853,20 @@ Note: Diffed against the upstream swagger spec (82 paths). PostHog's deployment_
 
 ## Asaas — **thin**
 
-Today (9): `Customers`, `FinancialTransactions`, `Installments`, `Invoices`, `Payments`, `PixTransactions`, `ReceivedSplits`, `Subscriptions`, `Transfers`
+Today (13): `BillPayments`, `Customers`, `FinancialTransactions`, `Installments`, `Invoices`, `PaymentDunningHistory`, `PaymentDunnings`, `PaymentLinks`, `Payments`, `PixTransactions`, `ReceivedSplits`, `Subscriptions`, `Transfers`
 
 Diffed against: <https://docs.asaas.com/reference/llms.txt>
 
-- [ ] `Payment links (GET /v3/paymentLinks)` — resolves paymentLink IDs in Payments and identifies the checkout offers that produced revenue (high)
+- [x] `Payment links (GET /v3/paymentLinks)` — resolves paymentLink IDs in Payments and identifies the checkout offers that produced revenue (high)
 - [x] `Pix transactions (GET /v3/pix/transactions)` — resolves pixTransaction IDs in Payments and supports reconciliation of incoming and outgoing Pix transfers (high)
 - [x] `Financial statement (GET /v3/financialTransactions)` — reconciles account credits, debits, and fees to calculate cash movements (high)
 - [x] `Invoices (GET /v3/invoices)` — connects fiscal invoice status and tax details to customers and payments (high)
 - [x] `Received splits (GET /v3/payments/splits/received)` — measures marketplace revenue received from payments created by other accounts (high)
 - [ ] `Anticipations (GET /v3/anticipations)` — measures receivable advances, financing costs, and their effects on cash flow (medium)
 - [ ] `Paid splits (GET /v3/payments/splits/paid)` — adds settlement dates and account relationships beyond the split details embedded in Payments (medium)
-- [ ] `Bill payments (GET /v3/bill)` — tracks outgoing bill payments and their status for cash flow analysis (medium)
-- [ ] `Payment dunnings (GET /v3/paymentDunnings)` — tracks debt recovery requests and outcomes for overdue receivables (medium)
-- [ ] `Dunning event history (GET /v3/paymentDunnings/{id}/history)` — shows debt recovery progress and time spent in each state (medium)
+- [x] `Bill payments (GET /v3/bill)` — tracks outgoing bill payments and their status for cash flow analysis (medium)
+- [x] `Payment dunnings (GET /v3/paymentDunnings)` — tracks debt recovery requests and outcomes for overdue receivables (medium)
+- [x] `Dunning event history (GET /v3/paymentDunnings/{id}/history)` — shows debt recovery progress and time spent in each state (medium)
 
 Note: Used the official reference index and parsed embedded OpenAPI JSON from its linked operation pages. Compared Payments response schemas with nested resources before selecting gaps. Refunds and chargebacks already appear in Payments; paid split reads add settlement detail, while received splits cover other accounts. Dunning history needs parent requests; excluded API keys, webhooks, document uploads, and settings.
 
@@ -1176,14 +1176,14 @@ Note: Compared the official botocore operation model with the static table map a
 
 ## AWS Glue Data Catalog — **thin**
 
-Today (6): `crawlers`, `databases`, `job_runs`, `jobs`, `partitions`, `tables`
+Today (10): `crawlers`, `crawls`, `data_quality_results`, `databases`, `job_runs`, `jobs`, `partitions`, `table_versions`, `tables`, `workflow_runs`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/glue/2017-03-31/service-2.json>
 
-- [ ] `Data quality results (ListDataQualityResults, POST /)` — links data quality scores and failed rules to synced tables and job runs (high)
-- [ ] `Table versions (GetTableVersions, POST /)` — preserves schema and metadata history for existing catalog tables (medium)
-- [ ] `Crawler history (ListCrawls, POST /)` — tracks crawl duration, failures, catalog changes, and compute use beyond the latest crawler result (medium)
-- [ ] `Workflow runs (GetWorkflowRuns, POST /)` — measures complete pipeline duration and failures across related jobs and crawlers (medium)
+- [x] `Data quality results (ListDataQualityResults, POST /)` — links data quality scores and failed rules to synced tables and job runs (high)
+- [x] `Table versions (GetTableVersions, POST /)` — preserves schema and metadata history for existing catalog tables (medium)
+- [x] `Crawler history (ListCrawls, POST /)` — tracks crawl duration, failures, catalog changes, and compute use beyond the latest crawler result (medium)
+- [x] `Workflow runs (GetWorkflowRuns, POST /)` — measures complete pipeline duration and failures across related jobs and crawlers (medium)
 - [ ] `Table column statistics (GetColumnStatisticsForTable, POST /)` — provides column distributions, null counts, and cardinality for data profiling (medium)
 - [ ] `Table optimizer runs (ListTableOptimizerRuns, POST /)` — tracks compaction and cleanup execution history, failures, and resource use for catalog tables (medium)
 - [ ] `Interactive sessions (ListSessions, POST /)` — measures interactive ETL session duration, status, and compute use alongside scheduled job runs (medium)
@@ -1218,14 +1218,14 @@ Note: Compared the official botocore operation model with the static endpoint ma
 
 ## AWS Inspector — gaps
 
-Today (3): `coverage`, `coverage_statistics`, `findings`
+Today (7): `cis_scan_result_details`, `cis_scans`, `clusters_for_image`, `coverage`, `coverage_statistics`, `findings`, `members`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/inspector2/2020-06-08/service-2.json>
 
-- [ ] `Members (ListMembers, POST /members/list)` — links account IDs in findings and coverage to delegated administrators and membership status (high)
-- [ ] `CIS scans (ListCisScans, POST /cis/scan/list)` — tracks benchmark scan history and failed check counts beyond vulnerability findings (high)
-- [ ] `CIS scan result details (GetCisScanResultDetails, POST /cis/scan-result/details/get)` — provides individual benchmark check outcomes and remediation guidance for each scanned resource (high)
-- [ ] `Clusters for image (GetClustersForImage, POST /cluster/get)` — links vulnerable container images to running clusters for workload exposure analysis (medium)
+- [x] `Members (ListMembers, POST /members/list)` — links account IDs in findings and coverage to delegated administrators and membership status (high)
+- [x] `CIS scans (ListCisScans, POST /cis/scan/list)` — tracks benchmark scan history and failed check counts beyond vulnerability findings (high)
+- [x] `CIS scan result details (GetCisScanResultDetails, POST /cis/scan-result/details/get)` — provides individual benchmark check outcomes and remediation guidance for each scanned resource (high)
+- [x] `Clusters for image (GetClustersForImage, POST /cluster/get)` — links vulnerable container images to running clusters for workload exposure analysis (medium)
 - [ ] `Usage totals (ListUsageTotals, POST /usage/list)` — reports scanning usage and estimated cost by account over the last 30 days (medium)
 
 Note: Compared the official Inspector V2 botocore operation model with the static endpoint map and extraction code. CIS details require scan discovery, target traversal through ListCisScanResultsAggregatedByTargetResource, and calls for each target and account. Image associations require ECR resource IDs from synced findings; membership reads require administrator permissions. Scan configuration, filters, integration setup, and asynchronous exports were excluded.
@@ -1236,10 +1236,10 @@ Today (4): `buckets`, `classification_jobs`, `findings`, `members`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/macie2/2020-01-01/service-2.json>
 
-- [ ] `Resource sensitivity profiles (GetResourceProfile, GET /resource-profiles)` — counts analyzed, sensitive, and skipped objects, which bucket inventory and findings cannot reconstruct (high)
-- [ ] `Resource profile detections (ListResourceProfileDetections, GET /resource-profiles/detections)` — shows sensitive data types and occurrence counts for each bucket (high)
-- [ ] `Resource profile artifacts (ListResourceProfileArtifacts, GET /resource-profiles/artifacts)` — shows selected objects and analysis outcomes, including skipped objects and objects without sensitive data (medium)
-- [ ] `Usage statistics (GetUsageStatistics, POST /usage/statistics)` — reports classification usage, quotas, and estimated costs by account (medium)
+- [x] `Resource sensitivity profiles (GetResourceProfile, GET /resource-profiles)` — counts analyzed, sensitive, and skipped objects, which bucket inventory and findings cannot reconstruct (high)
+- [x] `Resource profile detections (ListResourceProfileDetections, GET /resource-profiles/detections)` — shows sensitive data types and occurrence counts for each bucket (high)
+- [x] `Resource profile artifacts (ListResourceProfileArtifacts, GET /resource-profiles/artifacts)` — shows selected objects and analysis outcomes, including skipped objects and objects without sensitive data (medium)
+- [x] `Usage statistics (GetUsageStatistics, POST /usage/statistics)` — reports classification usage, quotas, and estimated costs by account (medium)
 
 Note: Compared the official Macie V2 botocore operation model with the static endpoint map and extraction code. Findings already call GetFindings; bucket inventory already includes sensitivity scores, so scores alone are not a gap. Profile endpoints require bucket ARN traversal and automated discovery; artifacts expose a limited sample rather than a complete object inventory. Classification jobs currently contain list summaries; raw sensitive data retrieval, filters, and setup endpoints were excluded.
 
@@ -1262,10 +1262,10 @@ Today (4): `endpoints`, `models`, `processing_jobs`, `training_jobs`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/sagemaker/2017-07-24/service-2.json>
 
-- [ ] `Endpoint configurations (ListEndpointConfigs and DescribeEndpointConfig, POST /)` — resolve EndpointConfigName on synced endpoints to deployed model names and instance types (high)
-- [ ] `Model packages (ListModelPackages and DescribeModelPackage, POST /)` — resolve model package references in models and training jobs to registered versions, approval status, and evaluation results (high)
-- [ ] `Hyperparameter tuning jobs (ListHyperParameterTuningJobs and DescribeHyperParameterTuningJob, POST /)` — resolve TuningJobArn on training jobs and compare tuning objectives, outcomes, and resource use (high)
-- [ ] `AutoML jobs (ListAutoMLJobs, DescribeAutoMLJob and DescribeAutoMLJobV2, POST /)` — resolve AutoMLJobArn on training jobs and compare automated training outcomes and best candidates (high)
+- [x] `Endpoint configurations (ListEndpointConfigs and DescribeEndpointConfig, POST /)` — resolve EndpointConfigName on synced endpoints to deployed model names and instance types (high)
+- [x] `Model packages (ListModelPackages and DescribeModelPackage, POST /)` — resolve model package references in models and training jobs to registered versions, approval status, and evaluation results (high)
+- [x] `Hyperparameter tuning jobs (ListHyperParameterTuningJobs and DescribeHyperParameterTuningJob, POST /)` — resolve TuningJobArn on training jobs and compare tuning objectives, outcomes, and resource use (high)
+- [x] `AutoML jobs (ListAutoMLJobs, DescribeAutoMLJob and DescribeAutoMLJobV2, POST /)` — resolve AutoMLJobArn on training jobs and compare automated training outcomes and best candidates (high)
 - [ ] `Experiments, trials, and trial components (ListExperiments, ListTrials, ListTrialComponents and their Describe operations, POST /)` — resolve ExperimentConfig references on training jobs and compare experiment runs, parameters, and metrics (high)
 - [ ] `Transform jobs (ListTransformJobs and DescribeTransformJob, POST /)` — analyze batch inference status, duration, failures, and model use (high)
 - [ ] `Pipeline executions (ListPipelineExecutions and DescribePipelineExecution, POST /)` — measure workflow success rates, execution duration, and repeated failures (high)
@@ -1281,24 +1281,24 @@ Today (4): `coverage_daily`, `savings_plans`, `utilization_daily`, `utilization_
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/savingsplans/2019-06-28/service-2.json>
 
-- [ ] `Savings Plans offerings (DescribeSavingsPlansOfferings, POST /DescribeSavingsPlansOfferings)` — resolve offeringId on synced plans to service, usage type, and offering properties (high)
-- [ ] `Savings Plan rates (DescribeSavingsPlanRates, POST /DescribeSavingsPlanRates)` — compare contracted rates by service, usage type, operation, and billing unit (medium)
-- [ ] `Savings Plans purchase recommendations (GetSavingsPlansPurchaseRecommendation, POST / on Cost Explorer)` — evaluate recommended commitments and expected savings against current utilization and coverage (medium)
-- [ ] `Savings Plan purchase recommendation details (GetSavingsPlanPurchaseRecommendationDetails, POST / on Cost Explorer)` — analyze hourly cost, coverage, and utilization estimates behind each recommendation (medium)
+- [x] `Savings Plans offerings (DescribeSavingsPlansOfferings, POST /DescribeSavingsPlansOfferings)` — resolve offeringId on synced plans to service, usage type, and offering properties (high)
+- [x] `Savings Plan rates (DescribeSavingsPlanRates, POST /DescribeSavingsPlanRates)` — compare contracted rates by service, usage type, operation, and billing unit (medium)
+- [x] `Savings Plans purchase recommendations (GetSavingsPlansPurchaseRecommendation, POST / on Cost Explorer)` — evaluate recommended commitments and expected savings against current utilization and coverage (medium)
+- [x] `Savings Plan purchase recommendation details (GetSavingsPlanPurchaseRecommendationDetails, POST / on Cost Explorer)` — analyze hourly cost, coverage, and utilization estimates behind each recommendation (medium)
 - [ ] `Savings Plans offering rates (DescribeSavingsPlansOfferingRates, POST /DescribeSavingsPlansOfferingRates)` — compare prospective contract prices with current plan rates before a purchase (medium)
 
 Note: The Savings Plans SDK model was compared with the static table map. The official ce/2017-10-25/service-2.json model also verifies both missing recommendation operations. Daily coverage and utilization already include the core savings metrics; plan rates require a request for each plan. Recommendations must already exist, while generation, purchase, cancellation, and tagging operations are excluded.
 
 ## AWS Security Hub — gaps
 
-Today (4): `enabled_standards`, `findings`, `insights`, `standards`
+Today (8): `enabled_standards`, `findings`, `insights`, `members`, `products`, `security_control_definitions`, `standards`, `standards_controls`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/securityhub/2018-10-26/service-2.json>
 
-- [ ] `Security control definitions (GET /securityControls/definitions)` — resolve SecurityControlId in findings to control titles, severity, descriptions, and remediation guidance (high)
-- [ ] `Standards controls (GET /standards/controls/{StandardsSubscriptionArn+})` — connect enabled standards to individual controls, enablement status, severity, and disablement reasons (high)
-- [ ] `Products (GET /products)` — resolve ProductArn in findings to vendor names and product descriptions (high)
-- [ ] `Member accounts (GET /members)` — resolve finding account IDs to member account details and analyze security coverage across accounts (high)
+- [x] `Security control definitions (GET /securityControls/definitions)` — resolve SecurityControlId in findings to control titles, severity, descriptions, and remediation guidance (high)
+- [x] `Standards controls (GET /standards/controls/{StandardsSubscriptionArn+})` — connect enabled standards to individual controls, enablement status, severity, and disablement reasons (high)
+- [x] `Products (GET /products)` — resolve ProductArn in findings to vendor names and product descriptions (high)
+- [x] `Member accounts (GET /members)` — resolve finding account IDs to member account details and analyze security coverage across accounts (high)
 - [ ] `Finding history (POST /findingHistory/get)` — measure remediation progress and changes in severity, compliance, and workflow status (high)
 - [ ] `Security Hub V2 findings (GetFindingsV2, POST /findingsv2)` — analyze findings from the newer Security Hub surface that legacy CSPM GetFindings does not provide (high)
 - [ ] `Security Hub V2 resources (GetResourcesV2, POST /resourcesv2)` — analyze resource risk and connect newer findings to a separate resource inventory (medium)
@@ -2898,18 +2898,18 @@ Note: Codacy API v3 swagger is served at https://api.codacy.com/api/api-docs/swa
 
 ## Codecov — gaps
 
-Today (12): `branches`, `commits`, `components`, `coverage_trend`, `flags`, `pulls`, `repo_totals`, `report_files`, `report_tree`, `repos`, `test_results`, `users`
+Today (17): `branches`, `commit_uploads`, `commits`, `components`, `coverage_trend`, `flag_coverage_trend`, `flags`, `pull_component_comparisons`, `pull_flag_comparisons`, `pull_impacted_files`, `pulls`, `repo_totals`, `report_files`, `report_tree`, `repos`, `test_results`, `users`
 
 Diffed against: <https://api.codecov.io/api/v2/schema>
 
 - [x] `/{service}/{owner}/repos/{repo}/totals/` — Current coverage totals per repo (lines, hits, misses, partials) - the headline number, only available as a trend today (high)
 - [x] `/{service}/{owner}/repos/{repo}/test-results/ (and /test-results/{id}/)` — Test Analytics: per-test failure rate, flake rate and runtime - Codecov's flagship non-coverage product, entirely unsynced (high)
 - [x] `/{service}/{owner}/repos/{repo}/report/ and /report/tree` — The coverage report broken down by file and directory, which turns repo-level coverage into something actionable (high)
-- [ ] `/{service}/{owner}/repos/{repo}/flags/{flag_name}/coverage/` — Coverage trend per flag - the breakdown dimension for the flags table already synced (medium)
+- [x] `/{service}/{owner}/repos/{repo}/flags/{flag_name}/coverage/` — Coverage trend per flag - the breakdown dimension for the flags table already synced (medium)
 - [ ] `/{service}/{owner}/repos/{repo}/file_report/{path}/` — Line-level coverage for a specific file, needed to find persistently uncovered hot spots (medium)
-- [ ] `/{service}/{owner}/repos/{repo}/commits/{commitid}/uploads/` — Which CI jobs uploaded coverage for each commit - the way to detect missing or failed uploads skewing coverage (medium)
+- [x] `/{service}/{owner}/repos/{repo}/commits/{commitid}/uploads/` — Which CI jobs uploaded coverage for each commit - the way to detect missing or failed uploads skewing coverage (medium)
 - [x] `/{service}/{owner}/users/` — Org member lookup resolving the author IDs on commits and pulls already synced (medium)
-- [ ] `/{service}/{owner}/repos/{repo}/compare/impacted_files (also /compare/flags, /compare/components)` — Coverage delta of a pull request by file, flag and component - the review-time metric teams actually track (medium)
+- [x] `/{service}/{owner}/repos/{repo}/compare/impacted_files (also /compare/flags, /compare/components)` — Coverage delta of a pull request by file, flag and component - the review-time metric teams actually track (medium)
 - [ ] `/{service}/{owner}/repos/{repo}/test-analytics/` — Aggregated test-suite health summary that pairs with the raw test results (medium)
 - [ ] `/{service}/{owner}/` — Owner/org record giving repos an organization-level parent to roll up to (low)
 
@@ -4178,7 +4178,7 @@ Today (1): `<non-system index>`
 
 Diffed against: <https://raw.githubusercontent.com/elastic/elasticsearch-specification/main/output/openapi/elasticsearch-openapi.json>
 
-- [ ] `Data stream documents (GET /{index}/_search, discovered via GET /_data_stream)` — import logs, events, and metrics stored in data streams whose hidden backing indices do not appear as source tables (high)
+- [x] `Data stream documents (GET /{index}/_search, discovered via GET /_data_stream)` — import logs, events, and metrics stored in data streams whose hidden backing indices do not appear as source tables (high)
 
 Note: The official OpenAPI spec lists index discovery, data stream discovery, and document search operations. Each discovered non-system index becomes a table; the placeholder represents dynamic names. Official data stream documentation confirms hidden backing indices, which current discovery excludes. Stream documents need separate discovery and logical stream tables; cluster administration and operational health endpoints are excluded.
 
@@ -4643,7 +4643,7 @@ Today (4): `auth_users`, `firestore_<collection_id>`, `firestore_collection_grou
 
 Diffed against: <https://identitytoolkit.googleapis.com/$discovery/rest?version=v1>
 
-- [ ] `Tenant accounts (GET /v1/projects/{targetProjectId}/tenants/{tenantId}/accounts:batchGet)` — include tenant users in signup and account activity analysis for projects that use Identity Platform tenants (high)
+- [x] `Tenant accounts (GET /v1/projects/{targetProjectId}/tenants/{tenantId}/accounts:batchGet)` — include tenant users in signup and account activity analysis for projects that use Identity Platform tenants (high)
 
 Note: Google discovery documents supplied Auth and Firestore operations, including the separate tenant account collection. Placeholders represent discovered collections and configured database paths; auth_users is fixed. Tenant accounts require Identity Toolkit v2 tenant discovery; current Auth reads use only the project route. Credentials, indexes, backups, and authentication settings are excluded; sampled subcollection discovery can also miss collections.
 
@@ -5505,10 +5505,10 @@ Today (14): `alert_groups`, `escalation_chains`, `escalation_policies`, `inciden
 
 Diffed against: <https://grafana.com/docs/grafana-cloud/observe-and-act/respond-to-incidents/reference/incident-api/reference/>
 
-- [ ] `Custom fields (POST /api/plugins/grafana-irm-app/resources/api/v1/FieldsService.GetFields)` — resolve fieldUUID values already included in incidents and activity into named analytical dimensions (high)
-- [ ] `Roles (POST /api/plugins/grafana-irm-app/resources/api/v1/RolesService.GetRoles)` — resolve roleID values in synced incident membership previews to named response responsibilities (high)
-- [ ] `Alerts (GET /api/v1/alerts/)` — measure individual alert volume and inspect payloads hidden by alert group aggregation (high)
-- [ ] `Incident membership (POST /api/plugins/grafana-irm-app/resources/api/v1/IncidentsService.GetIncidentMembership)` — include all responders and observers when comparing incident participation and response workload (medium)
+- [x] `Custom fields (POST /api/plugins/grafana-irm-app/resources/api/v1/FieldsService.GetFields)` — resolve fieldUUID values already included in incidents and activity into named analytical dimensions (high)
+- [x] `Roles (POST /api/plugins/grafana-irm-app/resources/api/v1/RolesService.GetRoles)` — resolve roleID values in synced incident membership previews to named response responsibilities (high)
+- [x] `Alerts (GET /api/v1/alerts/)` — measure individual alert volume and inspect payloads hidden by alert group aggregation (high)
+- [x] `Incident membership (POST /api/plugins/grafana-irm-app/resources/api/v1/IncidentsService.GetIncidentMembership)` — include all responders and observers when comparing incident participation and response workload (medium)
 - [ ] `Final schedule shifts (GET /api/v1/schedules/{schedule_id}/final_shifts)` — measure actual scheduled hours per responder after rotations and overrides are applied (medium)
 - [ ] `Key updates (POST /api/plugins/grafana-irm-app/resources/api/v1/KeyUpdatesService.QueryKeyUpdates)` — analyze incident communications, update frequency, and status changes across incident timelines (medium)
 
@@ -8096,10 +8096,10 @@ Diffed against: <https://raw.githubusercontent.com/mollie/openapi/main/specs.yam
 - [x] `/v2/balances` — balance accounts that transactions and settlements roll up to; lookup for balanceId (high)
 - [x] `/v2/profiles` — lookup resolving the profileId carried on payments, payment links and methods (high)
 - [x] `/v2/customers/{customerId}/mandates` — SEPA/card mandates that subscriptions and recurring payments reference (high)
-- [ ] `/v2/payouts` — bank payouts of settled funds — needed to tie settlements to money received (high)
-- [ ] `/v2/payments/{paymentId}/captures` — capture events on authorized payments; without them captured vs authorized amounts can't be split (medium)
-- [ ] `/v2/invoices` — Mollie's own invoices to the merchant (fees charged) for cost analysis (medium)
-- [ ] `/v2/settlements/{settlementId}/payments` — join table mapping payments/refunds/captures/chargebacks to a settlement (medium)
+- [x] `/v2/payouts` — bank payouts of settled funds — needed to tie settlements to money received (high)
+- [x] `/v2/payments/{paymentId}/captures` — capture events on authorized payments; without them captured vs authorized amounts can't be split (medium)
+- [x] `/v2/invoices` — Mollie's own invoices to the merchant (fees charged) for cost analysis (medium)
+- [x] `/v2/settlements/{settlementId}/payments` — join table mapping payments/refunds/captures/chargebacks to a settlement (medium)
 - [ ] `/v2/methods/all` — payment-method lookup resolving the method code on every payment (medium)
 - [ ] `/v2/business-accounts/accounts/{businessAccountId}/transactions` — business account ledger for merchants using Mollie banking (medium)
 - [ ] `/v2/balances/{balanceId}/report` — pre-aggregated balance report grouped by transaction category (low)
@@ -8148,7 +8148,7 @@ Note: Compared all GET operations in the official llms.txt, including nested acc
 
 ## MonteCarlo — **thin**
 
-Today (7): `alerts`, `domains`, `events`, `monitors`, `tables`, `users`, `warehouses`
+Today (12): `alerts`, `dbt_runs`, `dbt_test_results`, `domains`, `events`, `fh_events`, `job_executions`, `job_schedules`, `monitors`, `tables`, `users`, `warehouses`
 
 Diffed against: <https://apidocs.getmontecarlo.com/>
 
@@ -8156,10 +8156,10 @@ Diffed against: <https://apidocs.getmontecarlo.com/>
 - [x] `getEvents / getEventGroups` — raw detector events (freshness, volume, schema change) underlying alerts (high). Added as `events` (incremental on `createdTime`). `getEventGroups` skipped: it takes one required `alertId` and regroups the same events, which carry their alert id.
 - ~~`getEventsForIncidents`~~ — deprecated in the GraphQL schema; the timeline events it returned are in `events` (`INCIDENT_*` event types)
 - [x] `getDomainsV2 + getDomainsForMcons` — domain lookup and the domain-to-asset membership join for the mcons already synced (high). Added as `domains`; its `assignments` column holds the member MCONs. `getDomainsForMcons` skipped: it returns per-warehouse domain counts for a batch of at most 250 MCONs, not a per-asset membership row.
-- [ ] `getFhEvents / getFhEventsByMonitor` — field-health event series per monitor — the per-field metric history behind monitor results (medium)
-- [ ] `getDbtRuns / getDbtJobExecutions / getDbtTestResults` — dbt run and test outcomes tied to the same tables already synced (medium)
-- [ ] `getQueryLogs / getAggregatedQueries` — warehouse query logs attributed to tables — usage and cost analysis (medium)
-- [ ] `getJobExecutions / getJobSchedules` — pipeline job execution history for freshness root-causing (medium)
+- [x] `getFhEvents / getFhEventsByMonitor` — field-health event series per monitor — the per-field metric history behind monitor results (medium). Added as `fh_events` (`getFhEventsByMonitor` fanned out over metric monitors, incremental on `date`). `getFhEvents` skipped: it takes one alert id and returns a subset of the same events, which carry their `alertUuid`.
+- [x] `getDbtRuns / getDbtJobExecutions / getDbtTestResults` — dbt run and test outcomes tied to the same tables already synced (medium). Added as `dbt_runs` (full refresh) and `dbt_test_results` (incremental on `runStartedAt`). `getDbtJobExecutions` skipped: it needs one required `jobUuid` per call, and each `dbt_runs` row already carries its job execution.
+- [ ] `getQueryLogs / getAggregatedQueries` — warehouse query logs attributed to tables — usage and cost analysis (medium). Not added: `getAggregatedQueries` is deprecated and takes one table MCON per call; `getQueryLogs` is a search API with offset paging, no documented sort field or depth limit, and the full SQL text of each query.
+- [x] `getJobExecutions / getJobSchedules` — pipeline job execution history for freshness root-causing (medium). Added as `job_executions` (monitor run history, fanned out over monitors, incremental on `startTime` through `historyDays`) and `job_schedules` (data collector schedules, fanned out over warehouses, full refresh).
 - [ ] `getDataProductsV2` — data product definitions that group assets for SLA reporting (medium)
 - [ ] `getAccountUsage / getAssetsUsage / getBillingMonitorUsage` — monitored-asset and monitor usage counts — how consumption is tracked (medium)
 - [ ] `getAuthorizationGroups + getAccountRoles` — user group/role membership lookup for the users table already synced (medium)
@@ -8173,9 +8173,9 @@ Today (4): `projects`, `tasks`, `users`, `workspaces`
 
 Diffed against: <https://docs.usemotion.com/api-reference/comments/get/>
 
-- [ ] `List recurring tasks (GET /v1/recurring-tasks)` — analyze recurring work obligations and assigned workloads that ordinary task records do not fully describe (high)
-- [ ] `Get comments (GET /v1/comments?taskId={taskId})` — track task discussions and collaboration activity with comment creation times and authors (medium)
-- [ ] `Get custom fields (GET /beta/workspaces/{workspaceId}/custom-fields)` — interpret workspace field definitions when reporting on custom task and project values (medium)
+- [x] `List recurring tasks (GET /v1/recurring-tasks)` — analyze recurring work obligations and assigned workloads that ordinary task records do not fully describe (high)
+- [x] `Get comments (GET /v1/comments?taskId={taskId})` — track task discussions and collaboration activity with comment creation times and authors (medium)
+- [x] `Get custom fields (GET /beta/workspaces/{workspaceId}/custom-fields)` — interpret workspace field definitions when reporting on custom task and project values (medium)
 
 Note: Enumerated the official reference navigation and read the recurring task, comment, custom field, and workspace operation pages. Workspace records already include statuses and labels, so those collections are covered as nested data. Comments need task enumeration; recurring tasks and custom fields need workspace enumeration. Excluded write operations and the authenticated user schedule configuration.
 
@@ -8446,7 +8446,7 @@ Today (2): `Downloads`, `Versions`
 
 Diffed against: <https://raw.githubusercontent.com/npm/registry/master/docs/REGISTRY-API.md>
 
-- [ ] `GET https://api.npmjs.org/versions/{package}/last-week` — per-version download counts - joins straight onto the Versions table already synced and is the only way to measure version adoption or upgrade lag (high)
+- [x] `GET https://api.npmjs.org/versions/{package}/last-week` — per-version download counts - joins straight onto the Versions table already synced and is the only way to measure version adoption or upgrade lag (high)
 - [ ] `GET /-/v1/search` — search results carry npms.io quality, popularity and maintenance scores per package, unavailable from the packument (medium)
 - [ ] `GET https://api.npmjs.org/downloads/point/{period}/{pkg1},{pkg2}` — bulk point downloads for up to 128 packages in one call - same data as Downloads but far cheaper for large package lists (low)
 - [ ] `GET / (registry meta)` — registry-wide doc_count and update_seq, useful only as a sync watermark (low)
@@ -12854,10 +12854,10 @@ Today (20): `access_grants`, `anomaly_alerts`, `billing_rules`, `budgets`, `cost
 
 Diffed against: <https://api.vantage.sh/v2/swagger.json>
 
-- [ ] `GET /costs` — the actual cost rows for a cost report — we sync report definitions but none of the cost data (high)
-- [ ] `GET /resources` — the resource inventory returned by a resource report; today only the report definition is synced (high)
-- [ ] `GET /financial_commitments` — actual RI/savings-plan commitments; we sync only financial_commitment_reports definitions (high)
-- [ ] `GET /tags and GET /tags/{key}/values` — lookup for the cost-allocation tag keys/values every cost breakdown groups by (high)
+- [x] `GET /costs` — the actual cost rows for a cost report — we sync report definitions but none of the cost data (high)
+- [x] `GET /resources` — the resource inventory returned by a resource report; today only the report definition is synced (high)
+- [x] `GET /financial_commitments` — actual RI/savings-plan commitments; we sync only financial_commitment_reports definitions (high)
+- [x] `GET /tags and GET /tags/{key}/values` — lookup for the cost-allocation tag keys/values every cost breakdown groups by (high)
 - [ ] `GET /cost_providers, GET /cost_provider_accounts, GET /cost_services` — lookup tables resolving the provider, account and service ids that appear in cost data (high)
 - [ ] `GET /unit_costs` — unit economics per cost report (cost per business unit), a headline FinOps metric (medium)
 - [ ] `GET /business_metrics and GET /business_metrics/{token}/values` — the metric series that unit costs divide by; needed to reproduce unit-cost math (medium)
@@ -12906,9 +12906,9 @@ Today (5): `document_indexes`, `documents`, `prompt_deployments`, `workflow_depl
 
 Diffed against: <https://docs.vellum.ai/openapi.json>
 
-- [ ] `GET /v1/workflow-deployments/{id}/releases` — release/version history per workflow deployment — the state-transition table for what shipped when (medium)
-- [ ] `GET /v1/workflow-deployments/{id}/release-tags` — lookup mapping tags (LATEST, PRODUCTION) to workflow deployment releases (medium)
-- [ ] `GET /v1/deployments/{id}/release-tags` — same lookup for the prompt deployments we already sync (medium)
+- [x] `GET /v1/workflow-deployments/{id}/releases` — release/version history per workflow deployment — the state-transition table for what shipped when (medium)
+- [x] `GET /v1/workflow-deployments/{id}/release-tags` — lookup mapping tags (LATEST, PRODUCTION) to workflow deployment releases (medium)
+- [x] `GET /v1/deployments/{id}/release-tags` — same lookup for the prompt deployments we already sync (medium)
 - [ ] `GET /v1/folder-entities` — lookup mapping deployments, indexes and sandboxes to the folders that organize them (low)
 - [ ] `GET /v1/test-suite-runs/{id}/executions` — eval results per test suite run; only reachable if run tokens are known (low)
 
@@ -13034,10 +13034,10 @@ Today (2): `Incidents`, `Metrics`
 
 Diffed against: <https://api-docs.waydev.co/>
 
-- [ ] `Repositories (GET /v2/repositories)` — resolve repository IDs on synced incidents and group failures by codebase (high)
+- [x] `Repositories (GET /v2/repositories)` — resolve repository IDs on synced incidents and group failures by codebase (high)
 - [ ] `Dashboard and developer statistics (GET /v2/stats/dashboard; POST /v2/stats)` — import measured engineering performance; the synced Metrics table contains metric definitions, not measured results (high)
-- [ ] `Contributors (GET /v2/contributors)` — identify developers and compare contribution patterns across repositories (medium)
-- [ ] `Teams (GET /v2/teams)` — group engineering performance by named teams (medium)
+- [x] `Contributors (GET /v2/contributors)` — identify developers and compare contribution patterns across repositories (medium)
+- [x] `Teams (GET /v2/teams)` — group engineering performance by named teams (medium)
 - [ ] `Team members (GET /v2/teams/{team_id}/members)` — connect contributors to teams for team and developer comparisons (medium)
 - [ ] `Pull requests (GET /v2/repositories/{repository_id}/pulls)` — analyze review delays, delivery throughput, and pull request activity (medium)
 - [ ] `Commits (GET /v2/repositories/{repository_id}/commits)` — analyze code contribution frequency and development activity by repository (medium)

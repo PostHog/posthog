@@ -37,7 +37,15 @@ const config: BIConfig = {
 }
 const tabId = 'bi-exploration-story'
 
-function WorksheetStage({ config, width = 1200 }: { config: BIConfig; width?: number }): JSX.Element {
+function WorksheetStage({
+    config,
+    width = 1200,
+    sqlPreview = false,
+}: {
+    config: BIConfig
+    width?: number
+    sqlPreview?: boolean
+}): JSX.Element {
     useEffect(() => {
         const logic = biSceneLogic({ tabId })
         const unmount = logic.mount()
@@ -48,8 +56,11 @@ function WorksheetStage({ config, width = 1200 }: { config: BIConfig; width?: nu
         }
         logic.actions.restoreWorksheet(node)
         logic.actions.recordWorksheet(true)
+        if (sqlPreview) {
+            logic.actions.setSqlPreviewOpen(true)
+        }
         return unmount
-    }, [config])
+    }, [config, sqlPreview])
     return (
         <div className="h-[850px] max-w-full" style={{ width }}>
             <BusinessIntelligenceScene tabId={tabId} />
@@ -84,7 +95,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/external_data_sources/direct_connection_options/': [],
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
                     const { query } = (await request.json()) as {
                         query: { kind: string; query?: string; limit?: number }
                     }
@@ -102,7 +113,24 @@ const meta: Meta = {
                             200,
                             {
                                 tables: {
+                                    example_legacy_orders: {
+                                        id: 'example_legacy_orders',
+                                        name: 'example_legacy_orders',
+                                        type: 'data_warehouse',
+                                        fields: {},
+                                        certification: {
+                                            status: 'deprecated',
+                                            notes: 'Use example_orders for new worksheets.',
+                                        },
+                                    },
+                                    example_raw_orders: {
+                                        id: 'example_raw_orders',
+                                        name: 'example_raw_orders',
+                                        type: 'data_warehouse',
+                                        fields: {},
+                                    },
                                     example_orders: {
+                                        certification: { status: 'certified', notes: 'Reviewed example order totals.' },
                                         id: 'example_orders',
                                         name: 'example_orders',
                                         type: 'data_warehouse',
@@ -184,6 +212,7 @@ export default meta
 
 export const FiltersAndHierarchy: StoryObj = { render: () => <WorksheetStage config={config} /> }
 export const Narrow: StoryObj = { render: () => <WorksheetStage config={config} width={520} /> }
+export const SQLPreview: StoryObj = { render: () => <WorksheetStage config={config} sqlPreview /> }
 const dailyConfig: BIConfig = {
     ...config,
     chartType: ChartDisplayType.ActionsLineGraph,

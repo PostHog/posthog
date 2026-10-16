@@ -822,6 +822,11 @@ export interface hogFlowEditorLogicActions {
                                       type: 'batch'
                                   }
                                 | {
+                                      cohort_id: number | null
+                                      transition: 'entered' | 'left'
+                                      type: 'cohort'
+                                  }
+                                | {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
@@ -986,6 +991,11 @@ export interface hogFlowEditorLogicActions {
                                 tag_names?: string[] | undefined
                             }
                             type: 'batch'
+                        }
+                      | {
+                            cohort_id: number | null
+                            transition: 'entered' | 'left'
+                            type: 'cohort'
                         }
                       | {
                             filters: {
@@ -1687,6 +1697,11 @@ export interface hogFlowEditorLogicActions {
                                       type: 'batch'
                                   }
                                 | {
+                                      cohort_id: number | null
+                                      transition: 'entered' | 'left'
+                                      type: 'cohort'
+                                  }
+                                | {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
@@ -1851,6 +1866,11 @@ export interface hogFlowEditorLogicActions {
                                 tag_names?: string[] | undefined
                             }
                             type: 'batch'
+                        }
+                      | {
+                            cohort_id: number | null
+                            transition: 'entered' | 'left'
+                            type: 'cohort'
                         }
                       | {
                             filters: {

@@ -2684,6 +2684,8 @@ export namespace Schemas {
       /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
       sessionPropertyPreAggregation?: boolean | null;
       sessionTableVersion?: SessionTableVersion | null;
+      /** Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range. */
+      sessionTimestampBufferMinutes?: number | null;
       sessionsV2JoinMode?: SessionsV2JoinMode | null;
       timings?: boolean | null;
       /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
@@ -10985,6 +10987,23 @@ export namespace Schemas {
       Zero: 'zero',
     } as const;
 
+    export type ReferenceLines = typeof ReferenceLines[keyof typeof ReferenceLines];
+
+
+    export const ReferenceLines = {
+      Pane: 'pane',
+      Worksheet: 'worksheet',
+    } as const;
+
+    export interface BIPaneSettings {
+      /** Ordered dimension IDs used to split returned groups into separate charts. */
+      fields: string[];
+      /** Use a separate value scale for each pane instead of a shared primary scale. */
+      independentAxes?: boolean | null;
+      /** Calculate reference lines from each pane or from all returned worksheet marks. */
+      referenceLines?: ReferenceLines | null;
+    }
+
     export type Operator1 = typeof Operator1[keyof typeof Operator1];
 
 
@@ -11128,6 +11147,8 @@ export namespace Schemas {
       memberAliases?: MemberAliase[] | null;
       /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
       missingDates?: MissingDates | null;
+      /** Split the returned groups into charts using these ordered dimension IDs. */
+      panes?: BIPaneSettings | null;
       resultFilterGroup?: BIConditionGroup | null;
       resultFilters?: BIResultFilter[] | null;
       rowFilterGroup?: BIConditionGroup | null;
@@ -17531,6 +17552,31 @@ export namespace Schemas {
       billing_limit: number;
     }
 
+    export interface BillingActivationRequest {
+      /** Organization selected when this payment flow started. */
+      organization_id: string;
+      /** Product and plan keys to activate. */
+      products?: string;
+      /** Product that prompted the subscription upgrade. */
+      intent_product?: string;
+      /** JSON-encoded custom product limits to apply on activation. */
+      custom_limits_usd?: string;
+    }
+
+    export interface BillingActivationResponse {
+      /** Whether the subscription was activated. */
+      success?: boolean;
+      /** Whether payment details are required. */
+      must_setup_payment?: boolean;
+      /** Products activated by this request. */
+      products?: string[];
+      /**
+         * Reason activation failed.
+         * @nullable
+         */
+      error?: string | null;
+    }
+
     /**
      * * `product` - Product
      * * `addon` - Addon
@@ -18055,6 +18101,35 @@ export namespace Schemas {
       hog_function_ids: string[];
     }
 
+    export interface BillingAuthorizationResponse {
+      /** Stripe client secret for the authorization intent. */
+      clientSecret?: string;
+      /** Whether authorization completed without a payment form. */
+      success?: boolean;
+    }
+
+    export interface BillingAuthorizationStatusRequest {
+      /** Organization selected when this payment flow started. */
+      organization_id: string;
+      /**
+         * Stripe payment intent created for this organization.
+         * @nullable
+         */
+      payment_intent_id?: string | null;
+    }
+
+    export interface BillingAuthorizationStatusResponse {
+      /** Authorization status: loading, success, or failed. */
+      status?: string;
+      /**
+         * Reason authorization failed.
+         * @nullable
+         */
+      error?: string | null;
+      /** Whether authorization completed without a payment form. */
+      success?: boolean;
+    }
+
     export interface BillingFeatures {
       available_product_features: ProductFeature[];
     }
@@ -18246,6 +18321,11 @@ export namespace Schemas {
       never_drop_data?: boolean;
       /** Set when a provisioning partner pays for this organization and the organization has no Stripe customer of its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise. */
       billing_managed_by_partner: BillingManagedByPartner | null;
+    }
+
+    export interface BillingPaymentOrganization {
+      /** Organization selected when this payment flow started. */
+      organization_id: string;
     }
 
     export interface BillingPeriodResponse {
@@ -18871,341 +18951,6 @@ export namespace Schemas {
       citations: BriefSectionCitation[];
       /** Model confidence in this section, 0.0-1.0. */
       confidence: number;
-    }
-
-    export interface BriefingSegment {
-      /** A run of text in a paragraph. Includes its own spaces. */
-      text: string;
-      /**
-         * Key of the item this run links to, or null for plain text.
-         * @nullable
-         */
-      item_key: string | null;
-      /** True only for the run that names the top item. */
-      highlight: boolean;
-    }
-
-    /**
-     * * `draft` - draft
-     * * `open` - open
-     * * `closed` - closed
-     * * `merged` - merged
-     */
-    export type PullRequestStateEnum = typeof PullRequestStateEnum[keyof typeof PullRequestStateEnum];
-
-
-    export const PullRequestStateEnum = {
-      Draft: 'draft',
-      Open: 'open',
-      Closed: 'closed',
-      Merged: 'merged',
-    } as const;
-
-    /**
-     * * `affected_users` - affected_users
-     * * `affected_sessions` - affected_sessions
-     * * `occurrences` - occurrences
-     * * `conversion_rate` - conversion_rate
-     * * `error_rate` - error_rate
-     * * `duration` - duration
-     * * `revenue` - revenue
-     * * `custom` - custom
-     */
-    export type ReportMetricKindEnum = typeof ReportMetricKindEnum[keyof typeof ReportMetricKindEnum];
-
-
-    export const ReportMetricKindEnum = {
-      AffectedUsers: 'affected_users',
-      AffectedSessions: 'affected_sessions',
-      Occurrences: 'occurrences',
-      ConversionRate: 'conversion_rate',
-      ErrorRate: 'error_rate',
-      Duration: 'duration',
-      Revenue: 'revenue',
-      Custom: 'custom',
-    } as const;
-
-    /**
-     * * `primary` - primary
-     * * `supporting` - supporting
-     */
-    export type RoleEnum = typeof RoleEnum[keyof typeof RoleEnum];
-
-
-    export const RoleEnum = {
-      Primary: 'primary',
-      Supporting: 'supporting',
-    } as const;
-
-    /**
-     * * `number` - number
-     * * `count` - count
-     * * `percentage` - percentage
-     * * `percentage_scaled` - percentage_scaled
-     * * `duration` - duration
-     * * `currency` - currency
-     */
-    export type ValueFormatEnum = typeof ValueFormatEnum[keyof typeof ValueFormatEnum];
-
-
-    export const ValueFormatEnum = {
-      Number: 'number',
-      Count: 'count',
-      Percentage: 'percentage',
-      PercentageScaled: 'percentage_scaled',
-      Duration: 'duration',
-      Currency: 'currency',
-    } as const;
-
-    export interface BriefingItemMetric {
-      /** Stable slug of the metric within its report. */
-      metric_id: string;
-      /** Short label of what the metric measures. */
-      title: string;
-      /** What the value measures, for example affected_users.
-       *
-       * * `affected_users` - affected_users
-       * * `affected_sessions` - affected_sessions
-       * * `occurrences` - occurrences
-       * * `conversion_rate` - conversion_rate
-       * * `error_rate` - error_rate
-       * * `duration` - duration
-       * * `revenue` - revenue
-       * * `custom` - custom */
-      kind: ReportMetricKindEnum;
-      /** `primary` for the report's key observation, otherwise `supporting`.
-       *
-       * * `primary` - primary
-       * * `supporting` - supporting */
-      role: RoleEnum;
-      /** The latest saved snapshot of the metric. */
-      value: number;
-      /**
-         * Trailing per-bucket values saved with the snapshot, oldest first. Null when none were saved.
-         * @nullable
-         */
-      series: number[] | null;
-      /** How to format the value, for example count.
-       *
-       * * `number` - number
-       * * `count` - count
-       * * `percentage` - percentage
-       * * `percentage_scaled` - percentage_scaled
-       * * `duration` - duration
-       * * `currency` - currency */
-      value_format: ValueFormatEnum;
-      /**
-         * Optional short suffix or currency code, such as USD.
-         * @nullable
-         */
-      unit: string | null;
-      /** The metric's live InsightVizNode wrapping one TrendsQuery, as the report stores it. */
-      query: unknown;
-    }
-
-    export interface BriefingItemChart {
-      /** Stable slug of the chart within its report. */
-      chart_id: string;
-      /** Short heading of the chart. */
-      title: string;
-      /** The query node the report body draws, as the report stores it. */
-      query: unknown;
-    }
-
-    export interface BriefingItemReport {
-      /**
-         * The report's priority, P0 to P4, or null if unset.
-         * @nullable
-         */
-      priority: string | null;
-      /** The report's summary, shortened to a few sentences. */
-      summary: string;
-      /** State of the report's implementation pull request, or null when it has none.
-       *
-       * * `draft` - draft
-       * * `open` - open
-       * * `closed` - closed
-       * * `merged` - merged */
-      pull_request_state: PullRequestStateEnum | null;
-      /**
-         * URL of the report's implementation pull request, or null when it has none.
-         * @nullable
-         */
-      pull_request_url: string | null;
-      /** How many signals the report groups. */
-      signal_count: number;
-      /** When the report last changed. */
-      updated_at: string;
-      /** The report's metrics that have a saved snapshot, in the report's order. */
-      metrics: BriefingItemMetric[];
-      /** The charts in the report body, in the report's order. */
-      charts: BriefingItemChart[];
-    }
-
-    /**
-     * * `report` - REPORT
-     * * `dashboard` - DASHBOARD
-     * * `other` - OTHER
-     */
-    export type TodayItemGroupEnum = typeof TodayItemGroupEnum[keyof typeof TodayItemGroupEnum];
-
-
-    export const TodayItemGroupEnum = {
-      Report: 'report',
-      Dashboard: 'dashboard',
-      Other: 'other',
-    } as const;
-
-    /**
-     * * `self_driving` - SELF_DRIVING
-     * * `product_analytics` - PRODUCT_ANALYTICS
-     * * `alerts` - ALERTS
-     * * `support` - SUPPORT
-     * * `error_tracking` - ERROR_TRACKING
-     * * `github` - GITHUB
-     */
-    export type TodayItemSourceEnum = typeof TodayItemSourceEnum[keyof typeof TodayItemSourceEnum];
-
-
-    export const TodayItemSourceEnum = {
-      SelfDriving: 'self_driving',
-      ProductAnalytics: 'product_analytics',
-      Alerts: 'alerts',
-      Support: 'support',
-      ErrorTracking: 'error_tracking',
-      Github: 'github',
-    } as const;
-
-    /**
-     * * `claimed_by_you` - CLAIMED_BY_YOU
-     * * `waiting_for_you` - WAITING_FOR_YOU
-     * * `suggested_reviewer` - SUGGESTED_REVIEWER
-     * * `urgent_for_project` - URGENT_FOR_PROJECT
-     * * `dashboard_you_viewed` - DASHBOARD_YOU_VIEWED
-     * * `dashboard_you_starred` - DASHBOARD_YOU_STARRED
-     * * `insight_you_viewed` - INSIGHT_YOU_VIEWED
-     * * `insight_you_starred` - INSIGHT_YOU_STARRED
-     * * `alert_firing` - ALERT_FIRING
-     * * `assigned_ticket` - ASSIGNED_TICKET
-     * * `assigned_error_issue` - ASSIGNED_ERROR_ISSUE
-     * * `review_requested` - REVIEW_REQUESTED
-     * * `your_pull_request` - YOUR_PULL_REQUEST
-     */
-    export type TodayItemReasonEnum = typeof TodayItemReasonEnum[keyof typeof TodayItemReasonEnum];
-
-
-    export const TodayItemReasonEnum = {
-      ClaimedByYou: 'claimed_by_you',
-      WaitingForYou: 'waiting_for_you',
-      SuggestedReviewer: 'suggested_reviewer',
-      UrgentForProject: 'urgent_for_project',
-      DashboardYouViewed: 'dashboard_you_viewed',
-      DashboardYouStarred: 'dashboard_you_starred',
-      InsightYouViewed: 'insight_you_viewed',
-      InsightYouStarred: 'insight_you_starred',
-      AlertFiring: 'alert_firing',
-      AssignedTicket: 'assigned_ticket',
-      AssignedErrorIssue: 'assigned_error_issue',
-      ReviewRequested: 'review_requested',
-      YourPullRequest: 'your_pull_request',
-    } as const;
-
-    /**
-     * * `open` - OPEN
-     * * `done` - DONE
-     * * `dismissed` - DISMISSED
-     * * `left` - LEFT
-     */
-    export type BriefingItemStateEnum = typeof BriefingItemStateEnum[keyof typeof BriefingItemStateEnum];
-
-
-    export const BriefingItemStateEnum = {
-      Open: 'open',
-      Done: 'done',
-      Dismissed: 'dismissed',
-      Left: 'left',
-    } as const;
-
-    export interface BriefingItem {
-      /** Stable item key, for example report:<uuid>, dashboard:<id> or ticket:<uuid>. */
-      key: string;
-      /** The item's own title, as the source names it. */
-      title: string;
-      /** Short left-bar label of at most 6 words. */
-      label: string;
-      /** Short fact under the label, at most 40 characters, for example 'Spend down 37%'. */
-      signal: string;
-      /** Where the item opens: an app path, or a GitHub URL for pull requests. */
-      url: string;
-      /** Position in `items`, 1 is the first item. */
-      rank: number;
-      /**
-         * For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.
-         * @nullable
-         */
-      source_product: string | null;
-      /** For a report, its priority, summary, implementation pull request and the metric snapshots the viewer may read. Null for every other item and for a deleted report. */
-      report: BriefingItemReport | null;
-      group: TodayItemGroupEnum;
-      source: TodayItemSourceEnum;
-      reason: TodayItemReasonEnum;
-      /** `done` when the item was resolved since the briefing was written, `dismissed` when it was dismissed or suppressed, `left` when the report no longer names the viewer as a suggested reviewer, else `open`. Pull requests always stay `open`.
-       *
-       * * `open` - OPEN
-       * * `done` - DONE
-       * * `dismissed` - DISMISSED
-       * * `left` - LEFT */
-      state: BriefingItemStateEnum;
-    }
-
-    /**
-     * * `collecting` - COLLECTING
-     * * `writing` - WRITING
-     * * `ready` - READY
-     * * `failed` - FAILED
-     */
-    export type BriefingStatusEnum = typeof BriefingStatusEnum[keyof typeof BriefingStatusEnum];
-
-
-    export const BriefingStatusEnum = {
-      Collecting: 'collecting',
-      Writing: 'writing',
-      Ready: 'ready',
-      Failed: 'failed',
-    } as const;
-
-    /**
-     * * `agent` - AGENT
-     */
-    export type WriterEnum = typeof WriterEnum[keyof typeof WriterEnum];
-
-
-    export const WriterEnum = {
-      Agent: 'agent',
-    } as const;
-
-    export interface Briefing {
-      /** Briefing id. */
-      id: string;
-      /** The day this briefing is for, in the person's timezone. */
-      local_day: string;
-      /** One sentence that counts what needs the person. Empty while the briefing is collecting. */
-      headline: string;
-      /** Up to 3 paragraphs, each a list of text runs; runs with an item_key are links. */
-      paragraphs: BriefingSegment[][];
-      /** The items the text names, in display order: by the report's current priority, P0 first and items without one last, then in the order the briefing ranked them. */
-      items: BriefingItem[];
-      /** Other open reports for the person, beyond the ones the briefing shows. */
-      more_reports_count: number;
-      /** Open reports in the whole project beyond the ones the briefing shows, whoever they are for. */
-      open_reports_count: number;
-      /** When the next briefing day starts, at 8:00 in the briefing's timezone. Load the briefing again then. */
-      refresh_at: string;
-      status: BriefingStatusEnum;
-      writer: WriterEnum | null;
-      created_at: string;
-      /** @nullable */
-      ready_at: string | null;
     }
 
     /**
@@ -20435,29 +20180,6 @@ export namespace Schemas {
       check_id: string;
     }
 
-    export interface CandidateFact {
-      /** Fact name, for example pct_change or unread_messages. */
-      name: string;
-      /** Fact value as text. */
-      value: string;
-    }
-
-    export interface Candidate {
-      /** Stable item key, for example report:<uuid> or dashboard:<id>. */
-      key: string;
-      /** The item's own title. */
-      title: string;
-      /** Where the item opens. */
-      url: string;
-      /** Position in the briefing, 1 is the top item. */
-      rank: number;
-      /** The numbers and short facts the briefing text rests on. */
-      facts: CandidateFact[];
-      group: TodayItemGroupEnum;
-      source: TodayItemSourceEnum;
-      reason: TodayItemReasonEnum;
-    }
-
     export interface CandidateEvent {
       /** Name of the candidate event */
       event_name: string;
@@ -20481,15 +20203,6 @@ export namespace Schemas {
       suggestion_score: number;
       /** Human-readable rationale for the suggestion */
       suggestion_reason: string;
-    }
-
-    export interface CandidateList {
-      /** The day the list is for, in the person's timezone. */
-      local_day: string;
-      /** The briefing's items in rank order, up to 5. */
-      candidates: Candidate[];
-      /** Other open reports for the person not in the list. */
-      more_reports_count: number;
     }
 
     export interface CannyFeedbackSignalExtra {
@@ -28130,6 +27843,31 @@ export namespace Schemas {
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
+    export interface DashboardBulkDeleteRequest {
+      /**
+         * Dashboard IDs to soft-delete. At most 100 IDs per request.
+         * @maxItems 100
+         * @items.minimum 1
+         */
+      ids: number[];
+      /** Also delete insights that have no remaining dashboard after deletion. Defaults to false. */
+      delete_insights?: boolean;
+    }
+
+    export interface DashboardBulkDeleteSkipped {
+      /** ID of the dashboard that was skipped. */
+      id: number;
+      /** Reason the dashboard was skipped. */
+      reason: string;
+    }
+
+    export interface DashboardBulkDeleteResponse {
+      /** IDs of dashboards that were soft-deleted. */
+      deleted: number[];
+      /** Dashboards that were not deleted. */
+      skipped: DashboardBulkDeleteSkipped[];
+    }
+
     /**
      * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
      *
@@ -30169,6 +29907,8 @@ export namespace Schemas {
       suggestion_id: string;
       /** Start a new build when the last one failed. Leave it false when asking for a running build's status. */
       retry?: boolean;
+      /** Save the built draft in the project and return its workflow_id. Blank settings, like a webhook URL, stay blank and are listed in missing_inputs. Leave it false to get the workflow back without saving. */
+      save_draft?: boolean;
     }
 
     /**
@@ -30185,17 +29925,33 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    export interface DataSuggestionMissingInput {
+      /** The id of the workflow step (action) the setting belongs to. */
+      step_id: string;
+      /** The step's name, as the editor shows it. */
+      step_name: string;
+      /** The setting to fill, like 'Webhook URL', 'Email sender' or 'Condition: Is on a paid plan'. */
+      field: string;
+    }
+
     export interface DataSuggestionBuildResponse {
-      /** ready when the draft is built, building while a background build runs (call build again to check), failed when the plan did not produce a valid workflow. A failed result is reported once, so the next call starts a new build.
+      /** ready when the draft is built, building while a background build runs (call build again to check), failed when the plan did not produce a valid workflow. A failed result stays until a call sends retry.
        *
        * * `ready` - Ready
        * * `building` - Building
        * * `failed` - Failed */
       status: DataSuggestionBuildStatusEnum;
-      /** With status ready: a validated draft workflow (name, description, trigger, actions, edges, conversion, exit_condition) that the workflow create endpoint accepts from this caller. Nothing is saved by this call. Null otherwise. */
+      /** With status ready: a validated draft workflow (name, description, trigger, actions, edges, conversion, exit_condition) that the workflow create endpoint accepts from this caller. Saved only with save_draft. Null otherwise. */
       workflow: unknown;
       /** Whether an email step reuses a saved email template. */
       uses_saved_template: boolean;
+      /**
+         * With status ready and save_draft: the id of the saved draft workflow. Null otherwise.
+         * @nullable
+         */
+      workflow_id: string | null;
+      /** With status ready: the settings the draft leaves blank, which must be filled before it is enabled. */
+      missing_inputs: DataSuggestionMissingInput[];
     }
 
     export interface DataSuggestionGenerateRequest {
@@ -30229,6 +29985,8 @@ export namespace Schemas {
       status: DataSuggestionsStatusEnum;
       /** Up to 3 suggested workflows, ranked by lifecycle stage and then by weekly volume. */
       suggestions: DataSuggestion[];
+      /** Whether the project has a verified email sender. Without one, an email workflow can be saved as a draft but cannot send until a sending domain is added and verified. */
+      readonly email_sender_ready: boolean;
     }
 
     export interface DataWarehouseExpression {
@@ -38838,6 +38596,62 @@ export namespace Schemas {
       size?: SizeEnum | null;
     }
 
+    /**
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom
+     */
+    export type ReportMetricKindEnum = typeof ReportMetricKindEnum[keyof typeof ReportMetricKindEnum];
+
+
+    export const ReportMetricKindEnum = {
+      AffectedUsers: 'affected_users',
+      AffectedSessions: 'affected_sessions',
+      Occurrences: 'occurrences',
+      ConversionRate: 'conversion_rate',
+      ErrorRate: 'error_rate',
+      Duration: 'duration',
+      Revenue: 'revenue',
+      Custom: 'custom',
+    } as const;
+
+    /**
+     * * `primary` - primary
+     * * `supporting` - supporting
+     */
+    export type RoleEnum = typeof RoleEnum[keyof typeof RoleEnum];
+
+
+    export const RoleEnum = {
+      Primary: 'primary',
+      Supporting: 'supporting',
+    } as const;
+
+    /**
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency
+     */
+    export type ValueFormatEnum = typeof ValueFormatEnum[keyof typeof ValueFormatEnum];
+
+
+    export const ValueFormatEnum = {
+      Number: 'number',
+      Count: 'count',
+      Percentage: 'percentage',
+      PercentageScaled: 'percentage_scaled',
+      Duration: 'duration',
+      Currency: 'currency',
+    } as const;
+
     export interface ReportMetricComparison {
       /** Baseline or previous value, formatted like the current value. */
       value: number;
@@ -43535,6 +43349,28 @@ export namespace Schemas {
       probability: number;
     }
 
+    /**
+     * * `wrong_length` - The search is too short or too long to ask about
+     * * `only_values` - Nothing but values is left for the model to read
+     * * `unavailable` - The model could not answer at all
+     * * `partial` - Some model requests failed, so an event it never asked about might have matched
+     * * `nothing_likely` - The model found no core event likely
+     * * `not_ingested` - The project never sent the likely events
+     * * `matched` - At least one likely event has data
+     */
+    export type EventMatchOutcomeEnum = typeof EventMatchOutcomeEnum[keyof typeof EventMatchOutcomeEnum];
+
+
+    export const EventMatchOutcomeEnum = {
+      WrongLength: 'wrong_length',
+      OnlyValues: 'only_values',
+      Unavailable: 'unavailable',
+      Partial: 'partial',
+      NothingLikely: 'nothing_likely',
+      NotIngested: 'not_ingested',
+      Matched: 'matched',
+    } as const;
+
     export interface EventMatchRequest {
       /**
          * What the person typed into the events list search box, which matched no event name.
@@ -43546,6 +43382,18 @@ export namespace Schemas {
     export interface EventMatchResponse {
       /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
       matches: EventMatch[];
+      /** The step that decided the answer, so an empty answer says why it is empty.
+       *
+       * * `wrong_length` - The search is too short or too long to ask about
+       * * `only_values` - Nothing but values is left for the model to read
+       * * `unavailable` - The model could not answer at all
+       * * `partial` - Some model requests failed, so an event it never asked about might have matched
+       * * `nothing_likely` - The model found no core event likely
+       * * `not_ingested` - The project never sent the likely events
+       * * `matched` - At least one likely event has data */
+      outcome: EventMatchOutcomeEnum;
+      /** Likely core events this project never sent, strongest first. Only filled when outcome is not_ingested. */
+      unsent: EventMatch[];
     }
 
     export type EventMatchScope = typeof EventMatchScope[keyof typeof EventMatchScope];
@@ -44568,6 +44416,7 @@ export namespace Schemas {
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `split_changed_mid_run` - Split Changed Mid Run
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -44583,6 +44432,7 @@ export namespace Schemas {
       ZeroExposures: 'zero_exposures',
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
       FlagVariantsMismatch: 'flag_variants_mismatch',
+      SplitChangedMidRun: 'split_changed_mid_run',
     } as const;
 
     /**
@@ -44601,6 +44451,7 @@ export namespace Schemas {
 
     /**
      * * `open_feature_flag` - Open Feature Flag
+     * * `open_feature_flag_history` - Open Feature Flag History
      * * `adjust_distribution` - Adjust Distribution
      * * `use_first_seen_variant` - Use First Seen Variant
      * * `add_primary_metric` - Add Primary Metric
@@ -44613,6 +44464,7 @@ export namespace Schemas {
 
     export const ExperimentHealthFindingActionKindEnum = {
       OpenFeatureFlag: 'open_feature_flag',
+      OpenFeatureFlagHistory: 'open_feature_flag_history',
       AdjustDistribution: 'adjust_distribution',
       UseFirstSeenVariant: 'use_first_seen_variant',
       AddPrimaryMetric: 'add_primary_metric',
@@ -44624,7 +44476,7 @@ export namespace Schemas {
     /**
      * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
      */
-    export type ExperimentHealthFindingEvidence = {[key: string]: string | number | null};
+    export type ExperimentHealthFindingEvidence = {[key: string]: string | number | boolean | null};
 
     export interface ExperimentHealthFinding {
       /** Stable identifier of the problem. Each code has one meaning across every surface that reports it.
@@ -44638,7 +44490,8 @@ export namespace Schemas {
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
        * * `forced_variant_release_condition` - Forced Variant Release Condition
-       * * `flag_variants_mismatch` - Flag Variants Mismatch */
+       * * `flag_variants_mismatch` - Flag Variants Mismatch
+       * * `split_changed_mid_run` - Split Changed Mid Run */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -59940,6 +59793,45 @@ export namespace Schemas {
       working: ImpactWorking | null;
     }
 
+    export interface InboxSummaryPullRequest {
+      /** GitHub repository in owner/name format. */
+      repository: string;
+      /** GitHub pull request number. */
+      number: number;
+      /** URL of the GitHub pull request. */
+      url: string;
+    }
+
+    export interface InboxSummaryPerson {
+      /** Stable GitHub user ID. */
+      id: number;
+      /** Current GitHub login from the participant snapshot. */
+      login: string;
+    }
+
+    export interface InboxSummary {
+      /** Inclusive start of the rolling seven-day period. */
+      period_start: string;
+      /** Exclusive end of the rolling seven-day period. */
+      period_end: string;
+      /** Distinct verified Self-driving implementation PRs merged in the period. */
+      merged_pr_count: number;
+      /**
+         * Distinct human approvers and mergers, or null while incomplete.
+         * @nullable
+         */
+      people_count: number | null;
+      /** Whether every counted PR has a complete participant snapshot. */
+      participation_complete: boolean;
+      /** Verified Self-driving implementation PRs merged in the period. */
+      pull_requests: InboxSummaryPullRequest[];
+      /**
+         * Distinct human approvers and mergers, or null while participation is incomplete.
+         * @nullable
+         */
+      people: InboxSummaryPerson[] | null;
+    }
+
     /**
      * Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine.
      */
@@ -61127,6 +61019,27 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface KnowledgeLibrary {
+      /** Library id. */
+      id: string;
+      /** Library name. Unique in this project, ignoring case. */
+      name: string;
+      /** True for the library new learned sources join. There is at most one. */
+      is_default: boolean;
+      /** How many sources are in this library. */
+      source_count: number;
+      /** Selected repositories in this library that this environment is allowed to read. */
+      repos: string[];
+    }
+
+    export interface KnowledgeLibraryCreate {
+      /**
+         * Name for the new library.
+         * @maxLength 255
+         */
+      name: string;
+    }
+
     /**
      * One ranked chunk from a business knowledge search.
      *
@@ -61268,6 +61181,8 @@ export namespace Schemas {
       /** @nullable */
       readonly file_size_bytes: number | null;
       readonly always_include: boolean;
+      /** Libraries this source belongs to. Empty when the source is in none. */
+      readonly library_ids: readonly string[];
     }
 
     /**
@@ -61346,7 +61261,7 @@ export namespace Schemas {
       provider: string;
       /** How many of this provider's models appear in `models`. */
       model_count: number;
-      /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys. PostHog funds no models for it, so `model_count` is 0 until a key is supplied. */
+      /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations and LLM taggers always run on one of the team's own provider keys, whatever this value is. */
       requires_provider_key: boolean;
     }
 
@@ -74118,7 +74033,7 @@ export namespace Schemas {
       /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
       readonly ranking: ReportRanking | null;
       /**
-         * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the ranking score decile, then the priority as a tiebreak. Reports without a usable score sort after scored ones. Null for every other sort.
+         * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's head (open, action or fixed), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
          * @nullable
          */
       readonly inbox_merge_key: number | null;
@@ -74132,7 +74047,7 @@ export namespace Schemas {
       previous?: string | null;
       results: SignalReportList[];
       /**
-         * The ranker that ordered the page when sort=recommended: priority, or fixed for the served ranking model's fixed head. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+         * The ranker that ordered the page when sort=recommended: priority, or open, action or fixed for that head of the served ranking model. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
          * @nullable
          */
       ranker?: string | null;
@@ -82161,6 +82076,18 @@ export namespace Schemas {
       js_snippet_version?: string | null;
     }
 
+    export interface PatchedKnowledgeLibraryUpdate {
+      /**
+         * New name. Omit to keep the current name.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Replaces every source in this library. Omit to leave sources unchanged. An empty list removes them all. */
+      source_ids?: string[];
+      /** Replaces this environment's repositories in the library. Omit to leave them unchanged. Repositories only another environment allows stay. */
+      repos?: string[];
+    }
+
     /**
      * JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt.
      * @nullable
@@ -86986,6 +86913,8 @@ export namespace Schemas {
       text?: string;
       /** When true, this source's content is injected into every support reply prompt as general context. */
       always_include?: boolean;
+      /** Replaces the libraries this source belongs to. Omit to leave membership unchanged. An empty list removes it from every library. */
+      library_ids?: string[];
     }
 
     /**
@@ -90810,8 +90739,7 @@ export namespace Schemas {
     /**
      * Top-level `payload` shape on a `SignalProjectProfile` row.
      *
-     * v1 carries `inventory` only. Phase 7 will add `deltas`, `activity_notes`, and
-     * `narrative` slots — they're absent (not null) in v1 responses.
+     * Carries `inventory` only.
      */
     export interface ProjectProfilePayload {
       /** Deterministic snapshot of what's true about the project. */
@@ -90822,9 +90750,9 @@ export namespace Schemas {
      * Wire shape for the project profile returned by `signals-scout-harness-project-profile-list`.
      *
      * Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
-     * is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
-     * latest cached profile or a freshly-built one if the cache was stale or the caller passed
-     * `force_refresh=true`.
+     * is per-team with a soft TTL (`PROFILE_TTL`). The internal scout token gets a fresh
+     * profile, built on a stale cache or `force_refresh=true`. Other callers get the newest
+     * stored profile, with `stale=true` when it is past `expires_at`.
      *
      * `summary` leads the response and `payload` trails it: the inventory runs to tens of
      * kilobytes, so a client that truncates a long tool result would otherwise cut off the emit
@@ -90839,6 +90767,8 @@ export namespace Schemas {
       computed_at: string;
       /** ISO-8601 timestamp after which the profile is considered stale. */
       expires_at: string;
+      /** True when the profile is past `expires_at`. Only read-only callers get a stale profile. Read `computed_at` to see how old it is, and verify a detail live when its age matters. */
+      stale: boolean;
       /** Schema version of the inventory builder. Bumps invalidate older cached rows. */
       source_version: string;
       /** Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`. */
@@ -95392,6 +95322,16 @@ export namespace Schemas {
          * @nullable
          */
       merge_queue_billable_minutes_prev: number | null;
+      /**
+         * Slice of billable_minutes from jobs that ran on the Depot CI engine; null when the job-level source isn't synced.
+         * @nullable
+         */
+      depot_ci_billable_minutes: number | null;
+      /**
+         * Depot CI billable minutes over the previous window; null when the job-level source isn't synced.
+         * @nullable
+         */
+      depot_ci_billable_minutes_prev: number | null;
       /** PRs merged in the window with at least one corroborated merge-queue gate run: the population behind every merge_queue_* landing stat. All authors, bots included. */
       merge_queue_merged_pr_count: number;
       /** Queue-landed merges over the previous window. */
@@ -96110,6 +96050,13 @@ export namespace Schemas {
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
     export interface SignalNode {
+      /**
+         * Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked signals.
+         * @nullable
+         */
+      readonly total_spend: number | null;
+      /** Pipeline stages with generations whose spend could not be accounted for. Cleared when accounting recovers. */
+      readonly spend_accounting_failed_stages: readonly string[];
       /** ClickHouse document id of the signal. */
       signal_id: string;
       /** The signal's human-readable description. */
@@ -97115,6 +97062,11 @@ export namespace Schemas {
          * @nullable
          */
       total: number | null;
+      /** What the in-flight turn runs: 'full' (Deep) or 'flash' (Standard). The row's `review_mode` describes the last completed turn, which can differ. Null until the turn records its mode, shortly before its review sessions start.
+       *
+       * * `full` - Deep
+       * * `flash` - Standard */
+      review_mode: ReviewTriggerReviewModeEnum | null;
     }
 
     export interface ReviewResolutionStatus {
@@ -102365,6 +102317,11 @@ export namespace Schemas {
      * LLMA token-cost join) can land here without bloating the list response.
      */
     export interface SignalScoutRunDetail {
+      /**
+         * Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked runs.
+         * @nullable
+         */
+      readonly total_spend: number | null;
       /** UUID of the bridge row. */
       run_id: string;
       /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
@@ -102465,6 +102422,11 @@ export namespace Schemas {
      * Status and timestamps flow from the linked `tasks.TaskRun`.
      */
     export interface SignalScoutRunSummary {
+      /**
+         * Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked runs.
+         * @nullable
+         */
+      readonly total_spend: number | null;
       /** UUID of the bridge row. */
       run_id: string;
       /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
@@ -109623,6 +109585,64 @@ export namespace Schemas {
       user: number;
     }
 
+    /**
+     * * `autoresearch` - autoresearch
+     * * `error_tracking` - error_tracking
+     * * `eval_clusters` - eval_clusters
+     * * `experiments` - experiments
+     * * `hogdesk` - hogdesk
+     * * `image_builder` - image_builder
+     * * `loop` - loop
+     * * `mcp_analytics` - mcp_analytics
+     * * `onboarding` - onboarding
+     * * `posthog_ai` - posthog_ai
+     * * `posthog_desktop` - posthog_desktop
+     * * `posthog_mobile` - posthog_mobile
+     * * `posthog_web` - posthog_web
+     * * `review_hog` - review_hog
+     * * `scout_suggestions` - scout_suggestions
+     * * `session_summaries` - session_summaries
+     * * `signal_report` - signal_report
+     * * `signals_chat` - signals_chat
+     * * `signals_scout` - signals_scout
+     * * `slack` - slack
+     * * `space_setup` - space_setup
+     * * `support_queue` - support_queue
+     * * `support_reply` - support_reply
+     * * `task_analysis` - task_analysis
+     * * `workflow` - workflow
+     */
+    export type TaskListSourceEnum = typeof TaskListSourceEnum[keyof typeof TaskListSourceEnum];
+
+
+    export const TaskListSourceEnum = {
+      Autoresearch: 'autoresearch',
+      ErrorTracking: 'error_tracking',
+      EvalClusters: 'eval_clusters',
+      Experiments: 'experiments',
+      Hogdesk: 'hogdesk',
+      ImageBuilder: 'image_builder',
+      Loop: 'loop',
+      McpAnalytics: 'mcp_analytics',
+      Onboarding: 'onboarding',
+      PosthogAi: 'posthog_ai',
+      PosthogDesktop: 'posthog_desktop',
+      PosthogMobile: 'posthog_mobile',
+      PosthogWeb: 'posthog_web',
+      ReviewHog: 'review_hog',
+      ScoutSuggestions: 'scout_suggestions',
+      SessionSummaries: 'session_summaries',
+      SignalReport: 'signal_report',
+      SignalsChat: 'signals_chat',
+      SignalsScout: 'signals_scout',
+      Slack: 'slack',
+      SpaceSetup: 'space_setup',
+      SupportQueue: 'support_queue',
+      SupportReply: 'support_reply',
+      TaskAnalysis: 'task_analysis',
+      Workflow: 'workflow',
+    } as const;
+
     export interface TaskPinRequest {
       /** Whether the task should be pinned for the requester. */
       pinned: boolean;
@@ -110928,6 +110948,11 @@ export namespace Schemas {
       id: string;
       /** SHA-256 digest of the uploaded session content */
       content_sha256: string;
+    }
+
+    export interface TaskSourcesResponse {
+      /** Distinct sources of the requester's own non-archived tasks, sorted, in the words of the task list `sources` filter. Each value filters the task list back to at least one task. */
+      sources: TaskListSourceEnum[];
     }
 
     export interface TaskStagedArtifactFinalizeUpload {
@@ -117658,6 +117683,18 @@ export namespace Schemas {
       compare: _SpanTreeNode[] | null;
     }
 
+    export type BillingListParams = {
+    /**
+     * Whether to include usage forecasting.
+     * @nullable
+     */
+    include_forecasting?: boolean | null;
+    /**
+     * Explicit organization to refresh after payment.
+     */
+    organization_id?: string;
+    };
+
     export type BillingSpendRetrieveParams = {
     /**
      * The `next` cursor from the previous page. Opaque. Ignored without page_size.
@@ -119311,6 +119348,8 @@ export namespace Schemas {
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `KnowledgeSource` - KnowledgeSource
+     * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
@@ -119420,6 +119459,8 @@ export namespace Schemas {
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
+      KnowledgeSource: 'KnowledgeSource',
+      KnowledgeLibrary: 'KnowledgeLibrary',
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
@@ -119515,6 +119556,8 @@ export namespace Schemas {
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `KnowledgeSource` - KnowledgeSource
+     * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
@@ -119612,6 +119655,8 @@ export namespace Schemas {
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
+      KnowledgeSource: 'KnowledgeSource',
+      KnowledgeLibrary: 'KnowledgeLibrary',
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
@@ -120440,6 +120485,10 @@ export namespace Schemas {
 
     export type BusinessKnowledgeDocumentsSearchListParams = {
     /**
+     * Limit retrieval to sources in this library. Pass the same id to repository search and file read. Omit to search every ready source.
+     */
+    library_id?: string;
+    /**
      * Maximum number of ranked chunks to return. Defaults to 10, capped at 20.
      */
     limit?: number;
@@ -120470,6 +120519,10 @@ export namespace Schemas {
 
     export type BusinessKnowledgeRepositoriesFileRetrieveParams = {
     /**
+     * Require the repository to be in this library. Pass the same id used for document search and repository search. Omit to read any selected repository.
+     */
+    library_id?: string;
+    /**
      * File path returned by the repository search.
      * @minLength 1
      */
@@ -120482,6 +120535,10 @@ export namespace Schemas {
     };
 
     export type BusinessKnowledgeRepositoriesSearchParams = {
+    /**
+     * Limit the search to repositories in this library. Pass the same id to document search and file read. Omit to search every selected repository.
+     */
+    library_id?: string;
     /**
      * File names, path fragments, or identifiers to match. Not a full sentence.
      * @minLength 1
@@ -120499,6 +120556,10 @@ export namespace Schemas {
      */
     added_by?: BusinessKnowledgeSourcesListAddedBy;
     /**
+     * Return only sources in this library. Do not combine with unfiled.
+     */
+    library_id?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -120514,6 +120575,10 @@ export namespace Schemas {
      * Filter to a single source type (text, url, or file).
      */
     source_type?: BusinessKnowledgeSourcesListSourceType;
+    /**
+     * When true, return only sources that are in no library. Do not combine with library_id.
+     */
+    unfiled?: boolean;
     };
 
     export type BusinessKnowledgeSourcesListAddedBy = typeof BusinessKnowledgeSourcesListAddedBy[keyof typeof BusinessKnowledgeSourcesListAddedBy];
@@ -129485,7 +129550,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per project to a ranker: the priority order, or the served ranking model's fixed head with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
+     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fixed head of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
      */
     sort?: string;
     /**
@@ -130984,30 +131049,6 @@ export namespace Schemas {
      * @pattern ^[A-Z0-9]{4,12}$
      */
     room: string;
-    };
-
-    export type TodayBriefingRetrieveParams = {
-    /**
-     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
-     * @maxLength 64
-     */
-    timezone?: string;
-    };
-
-    export type TodayBriefingRefreshCreateParams = {
-    /**
-     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
-     * @maxLength 64
-     */
-    timezone?: string;
-    };
-
-    export type TodayCandidatesRetrieveParams = {
-    /**
-     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
-     * @maxLength 64
-     */
-    timezone?: string;
     };
 
     export type TodayReportsKeyClausesRetrieveParams = {

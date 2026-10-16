@@ -1106,6 +1106,20 @@ export const maxLogic = kea<maxLogicType>([
     }),
 ])
 
+/**
+ * The side panel chat logic. The first call holds a mount for the rest of the session, so the open chat
+ * survives when the panel closes and unmounts its React tree. The hold is separate from any mount React
+ * already has, because that mount ends when the panel closes.
+ */
+export function sidePanelMaxLogic(): ReturnType<typeof maxLogic.build> {
+    const logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
+    if (!logic.cache.sessionMountHeld) {
+        logic.mount()
+        logic.cache.sessionMountHeld = true
+    }
+    return logic
+}
+
 export function getScrollableContainer(element?: Element | null): HTMLElement | null {
     if (!element) {
         return null

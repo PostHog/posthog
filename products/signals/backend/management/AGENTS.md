@@ -183,6 +183,15 @@ records. `--batch-size` bounds each page; the printed `--after` cursor resumes i
 The command is idempotent and does not call GitHub, change report state, or enqueue
 reviewers. See `docs/internal/signals-pr-lifecycle.md` for rollout and cleanup.
 
+## Backfilling inbox summary participants
+
+`uv run manage.py backfill_inbox_summary --team-id <id> --dry-run` previews the next
+batch of verified implementation PRs that need participant snapshots. Remove
+`--dry-run` to queue the GitHub refresh. `--limit` bounds each invocation (default
+100, maximum 1000); use the printed `--after` cursor to continue. Run it without a
+cursor again to retry missing snapshots. The worker repairs missing merge times
+before checking the seven-day window. Completed snapshots are skipped.
+
 ## Repairing a report's cached actionability
 
 `SignalReport.latest_actionability` and `latest_already_addressed` cache the two values of a report's newest `actionability_judgment` artefact, so the inbox list can sort and filter on a column instead of walking the artefact log once per report.

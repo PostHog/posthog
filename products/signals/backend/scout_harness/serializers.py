@@ -187,6 +187,11 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
     Status and timestamps flow from the linked `tasks.TaskRun`.
     """
 
+    total_spend = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked runs.",
+    )
     run_id = serializers.CharField(help_text="UUID of the bridge row.")
     skill_name = serializers.CharField(
         help_text="Canonical skill name the run executed (e.g. `signals-scout-general`)."
@@ -2711,8 +2716,7 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
 class ProjectProfilePayloadSerializer(serializers.Serializer):
     """Top-level `payload` shape on a `SignalProjectProfile` row.
 
-    v1 carries `inventory` only. Phase 7 will add `deltas`, `activity_notes`, and
-    `narrative` slots — they're absent (not null) in v1 responses.
+    Carries `inventory` only.
     """
 
     inventory = ProjectProfileInventorySerializer(help_text="Deterministic snapshot of what's true about the project.")
@@ -2790,9 +2794,9 @@ class ProjectProfileSerializer(serializers.Serializer):
     """Wire shape for the project profile returned by `signals-scout-harness-project-profile-list`.
 
     Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
-    is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
-    latest cached profile or a freshly-built one if the cache was stale or the caller passed
-    `force_refresh=true`.
+    is per-team with a soft TTL (`PROFILE_TTL`). The internal scout token gets a fresh
+    profile, built on a stale cache or `force_refresh=true`. Other callers get the newest
+    stored profile, with `stale=true` when it is past `expires_at`.
 
     `summary` leads the response and `payload` trails it: the inventory runs to tens of
     kilobytes, so a client that truncates a long tool result would otherwise cut off the emit
@@ -2808,6 +2812,12 @@ class ProjectProfileSerializer(serializers.Serializer):
     profile_id = serializers.CharField(help_text="UUID of the `SignalProjectProfile` row.")
     computed_at = serializers.CharField(help_text="ISO-8601 timestamp the profile was built.")
     expires_at = serializers.CharField(help_text="ISO-8601 timestamp after which the profile is considered stale.")
+    stale = serializers.BooleanField(
+        help_text=(
+            "True when the profile is past `expires_at`. Only read-only callers get a stale profile. "
+            "Read `computed_at` to see how old it is, and verify a detail live when its age matters."
+        ),
+    )
     source_version = serializers.CharField(
         help_text="Schema version of the inventory builder. Bumps invalidate older cached rows.",
     )
@@ -2961,6 +2971,7 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
         raise RuntimeError("Scout config output destination validation requires project_id in its context")
 
     integration_id = slack["integration_id"]
+    # nosemgrep: environment-model-scoped-by-project -- scout configs are project-level, so a Slack integration from any environment of the project is valid
     integration = Integration.objects.filter(
         id=integration_id,
         team__project_id=project_id,
