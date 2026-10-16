@@ -928,8 +928,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 assert create_result.task is not None
                 task = create_result.task
                 run_error = create_result.run_error
-                if sandbox_starter is not None:
-                    tasks_agent_run_starts.link_agent_started_task(self.team_id, task.id, sandbox_starter)
             else:
                 task = tasks_facade.create_task(
                     self.team_id,
@@ -1581,8 +1579,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if result.error is not None:
             return self._task_error_response(result.error)
-        if sandbox_starter is not None:
-            tasks_agent_run_starts.link_agent_started_task(self.team_id, pk, sandbox_starter)
         response_data = TaskSerializer(result.task).data
         if result.run_error:
             response_data["run_error"] = result.run_error
@@ -1643,8 +1639,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @staticmethod
     def _sandbox_run_attribution(starter: tasks_contracts.SandboxRunStarter) -> dict[str, str]:
         return {
-            "agent_parent_task_id": str(starter.parent_task_id),
-            **({"agent_parent_run_id": str(starter.parent_run_id)} if starter.parent_run_id else {}),
+            tasks_agent_run_starts.AGENT_PARENT_TASK_ID_STATE_KEY: str(starter.parent_task_id),
+            **(
+                {tasks_agent_run_starts.AGENT_PARENT_RUN_ID_STATE_KEY: str(starter.parent_run_id)}
+                if starter.parent_run_id
+                else {}
+            ),
         }
 
     def _warm_enabled(self, origin_product: str) -> bool:

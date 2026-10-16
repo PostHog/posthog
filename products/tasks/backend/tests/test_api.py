@@ -2426,7 +2426,6 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(run.state["run_source"], "agent")
         self.assertEqual(run.state["agent_parent_task_id"], str(parent.id))
         self.assertEqual(run.state["agent_parent_run_id"], str(parent_run.id))
-        self.assertEqual(child.state["agent_parent_task_id"], str(parent.id))
         parent.refresh_from_db()
         self.assertEqual(parent.state["agent_started_run_count"], 1)
         mock_workflow.assert_called_once()
@@ -2451,8 +2450,7 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_internal_team.return_value = case != "not_internal"
         parent = self.create_task(created_by=self.create_organization_user("owner") if case == "other_owner" else None)
         if case == "nested":
-            parent.state = {"agent_parent_task_id": str(uuid.uuid4())}
-            parent.save(update_fields=["state"])
+            parent.create_run(extra_state={"agent_parent_task_id": str(uuid.uuid4())})
         if case == "forwarded":
             client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
             client.defaults["HTTP_X_POSTHOG_SANDBOX_ORIGIN"] = "1"
@@ -2468,7 +2466,7 @@ class TestTaskAPI(BaseTaskAPITest):
         if expected_code is not None:
             self.assertEqual(response.json()["code"], expected_code)
         self.assertEqual(Task.objects.count(), task_count)
-        self.assertFalse(TaskRun.objects.filter(task__team=self.team).exists())
+        self.assertFalse(TaskRun.objects.filter(task=target).exists())
         mock_workflow.assert_not_called()
 
     @parameterized.expand(

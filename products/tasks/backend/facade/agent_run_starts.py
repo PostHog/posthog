@@ -2,8 +2,8 @@
 Function facade for runs that an agent in a task sandbox starts.
 
 The request layer reads the sandbox credential. This module decides whether the task behind
-that credential may start a run, caps how many runs one task may start, and links each child
-task to the task that started it.
+that credential may start a run, and caps how many runs one task may start. Each child run
+records its parent in its state, which ``run_task`` writes before the workflow starts.
 """
 
 from uuid import UUID
@@ -15,7 +15,6 @@ __all__ = [
     "AGENT_PARENT_RUN_ID_STATE_KEY",
     "AGENT_PARENT_TASK_ID_STATE_KEY",
     "AGENT_RUN_FANOUT_CAP",
-    "link_agent_started_task",
     "reserve_agent_run_slot",
     "resolve_sandbox_run_starter",
 ]
@@ -41,13 +40,13 @@ def resolve_sandbox_run_starter(
     """
     if sandbox_task_id is None or user_id is None:
         return contracts.SandboxRunStartDenial.NO_ACTOR
-    parent = (
-        Task.objects.filter(id=sandbox_task_id, team_id=team_id, deleted=False).values("created_by_id", "state").first()
-    )
-    if parent is None or parent["created_by_id"] is None or parent["created_by_id"] != user_id:
+    if not Task.objects.filter(id=sandbox_task_id, team_id=team_id, deleted=False, created_by_id=user_id).exists():
         return contracts.SandboxRunStartDenial.NO_ACTOR
-    if (parent["state"] or {}).get(AGENT_PARENT_TASK_ID_STATE_KEY) or (
-        target_task_id is not None and str(target_task_id) == str(sandbox_task_id)
+    if (
+        str(target_task_id) == str(sandbox_task_id)
+        or TaskRun.objects.filter(
+            task_id=sandbox_task_id, team_id=team_id, state__has_key=AGENT_PARENT_TASK_ID_STATE_KEY
+        ).exists()
     ):
         return contracts.SandboxRunStartDenial.NESTED
     parent_run_id = None
@@ -81,14 +80,3 @@ def reserve_agent_run_slot(team_id: int, parent_task_id: UUID) -> bool:
 
     Task.mutate_state_atomic(parent_task_id, _reserve, team_id=team_id)
     return reserved
-
-
-def link_agent_started_task(team_id: int, task_id: str | UUID, starter: contracts.SandboxRunStarter) -> None:
-    """Record the parent on the child task, which also stops the child's sandbox from starting runs."""
-
-    def _link(state: dict) -> None:
-        state[AGENT_PARENT_TASK_ID_STATE_KEY] = str(starter.parent_task_id)
-        if starter.parent_run_id is not None:
-            state[AGENT_PARENT_RUN_ID_STATE_KEY] = str(starter.parent_run_id)
-
-    Task.mutate_state_atomic(task_id, _link, team_id=team_id)
