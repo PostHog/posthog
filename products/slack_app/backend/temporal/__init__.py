@@ -1,7 +1,7 @@
 """Temporal activities for the PostHog Slack App.
 
 Activities living here run on ``settings.TASKS_TASK_QUEUE`` and are imported by
-``posthog_code_slack_mention.py`` and ``posthog_code_slack_mention_command.py``
+``slack_app_mention_processing.py`` and ``posthog_code_slack_mention_command.py``
 in this package at module load time.
 """
 

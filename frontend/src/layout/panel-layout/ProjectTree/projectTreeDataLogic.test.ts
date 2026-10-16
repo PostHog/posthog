@@ -13,7 +13,6 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
-import { customProductsLogic } from './customProductsLogic'
 import { MovedItem, projectTreeDataLogic } from './projectTreeDataLogic'
 import { projectTreeLogic } from './projectTreeLogic'
 
@@ -44,22 +43,9 @@ describe('projectTreeDataLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('initializes the home folder once when the sidebar flag arrives after mount', async () => {
-        const initialize = jest.fn(() => [200, { id: 'home', path: 'Users/Alex' }])
-        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': initialize } })
-        expect(logic.values.homeFolder).toBeNull()
-        await expectLogic(logic, () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
-                [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
-            })
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
-                [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
-            })
-        }).toDispatchActions(['loadHomeFolderSuccess'])
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
-            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
-        })
-        expect(initialize).toHaveBeenCalledTimes(1)
+    it('follows the home folder after it moves', async () => {
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
+        await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
         expect(logic.values.currentHomeFolder).toEqual({ id: 'home', path: 'Users/Alex' })
         logic.actions.loadFolderSuccess(
             'Research',
@@ -172,22 +158,6 @@ describe('projectTreeDataLogic', () => {
         }).toFinishAllListeners()
         expect(projectTree.values.scrollTargetId).toBe('project/note')
         projectTree.unmount()
-    })
-
-    it('shows only the products the user added, with nothing injected alongside them', () => {
-        customProductsLogic.actions.loadCustomProductsSuccess([
-            {
-                id: 'abc',
-                product_path: 'Session replay',
-                enabled: true,
-                created_at: '2026-01-01T00:00:00Z',
-                updated_at: '2026-01-01T00:00:00Z',
-            },
-        ])
-
-        const paths = logic.values.getCustomProductTreeItems('').map((item) => item.record?.path)
-
-        expect(paths).toEqual(['Session replay'])
     })
 
     it('shows Warehouse properties in Data when its persisted feature flag is enabled', () => {
@@ -312,7 +282,7 @@ describe('projectTreeDataLogic', () => {
         expect(api.fileSystem.list).toHaveBeenCalledWith({ type: 'insight', ref: 'insight1' })
         currentItem.mockReturnValue({ type: 'insight', ref: 'insight2' })
         await expectLogic(consumer, () =>
-            panelLayoutLogic.actions.setActivePanelIdentifier('Products')
+            panelLayoutLogic.actions.setActivePanelIdentifier('Notifications')
         ).toFinishAllListeners()
         expect(api.fileSystem.list).toHaveBeenCalledWith({ type: 'insight', ref: 'insight2' })
         consumer.unmount()
@@ -348,7 +318,7 @@ describe('projectTreeDataLogic', () => {
 
         currentItem.mockReturnValue({ type: 'insight', ref: 'insight2' })
         await expectLogic(projectTree, () => {
-            panelLayoutLogic.actions.setActivePanelIdentifier('Products')
+            panelLayoutLogic.actions.setActivePanelIdentifier('Notifications')
         }).toFinishAllListeners()
         expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ parent: 'Reports' }))
         expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ ref: 'insight2' }))

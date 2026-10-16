@@ -82,7 +82,7 @@ from .core_event import CoreEventViewSet
 from .data_management import DataManagementViewSet
 from .emoji_search import EmojiSearchViewSet
 from .event_filter_config import EventFilterConfigViewSet
-from .file_system import file_system, file_system_shortcut, user_product_list
+from .file_system import file_system, file_system_shortcut
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .organization_notification_locks import OrganizationNotificationLockViewSet
@@ -231,13 +231,6 @@ projects_router.register(
     ["team_id"],
 )
 
-
-projects_router.register(
-    r"user_product_list",
-    user_product_list.UserProductListViewSet,
-    "project_user_product_list",
-    ["team_id"],
-)
 
 projects_router.register(
     r"event_definitions",
