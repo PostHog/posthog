@@ -7,8 +7,9 @@ an insight alert means.
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
-from typing import Final
+from typing import Any, Final
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -96,3 +97,18 @@ class FiringAlert:
     name: str
     insight_name: str | None
     insight_short_id: str
+
+
+@frozen
+class AlertInternalEvent:
+    """One internal event that makes an alert's HogFunction destinations fire."""
+
+    event_name: str
+    properties: dict[str, Any]
+    timestamp: datetime
+    # Stable across attempts, so a receiver can drop an event a retry emits again.
+    uuid: str
+
+
+class AlertInternalEventsNotDelivered(Exception):
+    """The broker did not take every event, so the caller retries."""
