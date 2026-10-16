@@ -1323,7 +1323,7 @@ class TestTaskArtifactImageUnfurl(APIBaseTest):
             ("file_type_is_not_an_image", "report.md", "text/markdown", None, True, False),
         ]
     )
-    @override_settings(SITE_URL="https://app.example.com")
+    @override_settings(SITE_URL="https://app.example.com", OBJECT_STORAGE_ENABLED=False)
     @patch("products.slack_app.backend.tasks.add_slack_unfurl_artifact_image.delay")
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
