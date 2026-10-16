@@ -210,6 +210,7 @@
       const MAX_FEED = 600;
       const MAX_POLLS = 400;
       const MAX_REQUESTS = 2000;
+      const MAX_POLL_EVENTS = 500;
       const MAX_COMMITS = 400;
 
       const seen = new Set();
@@ -360,7 +361,8 @@
       function pollFor(id) {
         let p = polls[id];
         if (!p) {
-          p = { id, ts: null, messages: 0, partitions: [], spans: [], requests: [], committed: null, failed: null, events: [] };
+          p = { id, ts: null, messages: 0, partitions: [], assignment_epoch: null, spans: [], requests: [],
+                committed: null, failed: null, events: [] };
           polls[id] = p;
           pollOrder.push(id);
           while (pollOrder.length > MAX_POLLS) delete polls[pollOrder.shift()];
@@ -372,31 +374,62 @@
         let r = requests[id];
         if (!r) {
           r = { id, ts: null, worker: null, messages: 0, routing_keys: 0, bytes: 0, replay: false, budgeted: false,
-                spans: [], polls: [], resolved: null, failed: null, events: [] };
+                assignment_epoch: null, spans: [], polls: [], resolved: null, failed: null, events: [] };
           requests[id] = r;
           requestOrder.push(id);
-          while (requestOrder.length > MAX_REQUESTS) delete requests[requestOrder.shift()];
+          if (requestOrder.length > MAX_REQUESTS) evictRequest();
         }
         return r;
       }
 
-      const overlaps = (a, b) => a.some((x) => b.some((y) =>
-        x.topic === y.topic && x.partition === y.partition && x.first_offset <= y.last_offset && y.first_offset <= x.last_offset));
+      // Drop the oldest settled request, and only an unsettled one when
+      // nothing settled is left: its response is still to come, and the poll
+      // that carries it would otherwise lose the outcome.
+      function evictRequest() {
+        let index = requestOrder.findIndex((id) => { const r = requests[id]; return !r || r.resolved || r.failed; });
+        if (index < 0) index = 0;
+        const [id] = requestOrder.splice(index, 1);
+        const r = requests[id];
+        delete requests[id];
+        if (!r) return;
+        r.polls.forEach((pid) => {
+          const p = polls[pid];
+          if (!p) return;
+          p.requests = p.requests.filter((rid) => rid !== id);
+          p.events = p.events.filter((ev) => ev.request_id !== id);
+        });
+      }
 
-      // Attach a request to every poll whose offsets it carries.
+      const overlaps = (a, b) => a.some((x) => b.some((y) =>
+        x.topic === y.topic && x.partition === y.partition &&
+        x.ranges.some(([xf, xl]) => y.ranges.some(([yf, yl]) => xf <= yl && yf <= xl))));
+
+      // Attach a request to every poll whose offsets it carries. The epoch
+      // must match too: after a partition is revoked and read again, the new
+      // assignment's requests repeat offsets the old assignment's polls hold.
       function linkRequest(r) {
         for (let i = pollOrder.length - 1; i >= 0; i--) {
           const p = polls[pollOrder[i]];
-          if (!p || p.requests.includes(r.id) || !overlaps(r.spans, p.spans)) continue;
+          if (!p || p.assignment_epoch !== r.assignment_epoch || p.requests.includes(r.id) || !overlaps(r.spans, p.spans)) continue;
           p.requests.push(r.id);
           r.polls.push(p.id);
         }
       }
 
       // A request's events also go on the timeline of every poll it carries.
+      // A poll that retries for long keeps its own events and the newest
+      // request events only.
       function noteRequestEvent(r, ev) {
         r.events.push(ev);
-        r.polls.forEach((id) => { const p = polls[id]; if (p) p.events.push(ev); });
+        r.polls.forEach((id) => {
+          const p = polls[id];
+          if (!p) return;
+          p.events.push(ev);
+          if (p.events.length > MAX_POLL_EVENTS) {
+            const oldest = p.events.findIndex((e) => e.request_id !== undefined);
+            if (oldest >= 0) p.events.splice(oldest, 1);
+          }
+        });
       }
 
       function updateModel(ev) {
@@ -406,7 +439,8 @@
             break;
           case "BatchDispatched": {
             const p = pollFor(ev.batch_id);
-            p.ts = ev.ts_ms; p.messages = ev.messages; p.partitions = ev.partitions; p.spans = ev.spans || [];
+            p.ts = ev.ts_ms; p.messages = ev.messages; p.partitions = ev.partitions;
+            p.assignment_epoch = ev.assignment_epoch; p.spans = ev.spans || [];
             p.events.push(ev);
             break;
           }
@@ -428,7 +462,8 @@
           case "RequestSent": {
             const r = requestFor(ev.request_id);
             r.ts = ev.ts_ms; r.worker = ev.worker; r.messages = ev.messages; r.routing_keys = ev.routing_keys;
-            r.bytes = ev.bytes; r.replay = ev.replay; r.budgeted = ev.budgeted; r.spans = ev.spans || [];
+            r.bytes = ev.bytes; r.replay = ev.replay; r.budgeted = ev.budgeted;
+            r.assignment_epoch = ev.assignment_epoch; r.spans = ev.spans || [];
             linkRequest(r);
             noteRequestEvent(r, ev);
             break;

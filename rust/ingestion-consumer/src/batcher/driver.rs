@@ -20,7 +20,7 @@ use super::state_machine::{
 };
 use super::worker_pool::WorkerPoolSource;
 use super::{make_batch_id, BatcherOutputs};
-use crate::debug_recorder::{offset_ranges, record_if, DebugEventKind, DebugRecorder};
+use crate::debug_recorder::{partition_offsets, record_if, DebugEventKind, DebugRecorder};
 use crate::grpc_transport::{GrpcTransport, SendOptions};
 use crate::order_sentinel::{KeyOrderSentinel, SendKind, SentinelBatch};
 use crate::transport::{SendError, SendOutcome};
@@ -450,7 +450,8 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
             bytes: payload_bytes(&messages),
             replay: send.class.replay,
             budgeted: send.soft_budget.is_some(),
-            spans: offset_ranges(&messages),
+            assignment_epoch: send.class.assignment_epoch,
+            spans: partition_offsets(&messages),
         });
         let options = SendOptions {
             replay: send.class.replay,
@@ -1002,7 +1003,7 @@ mod tests {
                     "sent #{request_id} {worker} {messages} msgs {routing_keys} keys replay={replay} spans={:?}",
                     spans
                         .iter()
-                        .map(|span| (span.partition, span.first_offset, span.last_offset))
+                        .map(|span| (span.partition, span.ranges.clone()))
                         .collect::<Vec<_>>()
                 ),
                 DebugEventKind::RequestFailed {
@@ -1023,9 +1024,9 @@ mod tests {
         assert_eq!(
             events,
             vec![
-                "sent #0 w 1 msgs 1 keys replay=false spans=[(0, 1, 1)]",
+                "sent #0 w 1 msgs 1 keys replay=false spans=[(0, [(1, 1)])]",
                 "failed #0 w busy 1 msgs",
-                "sent #1 w 1 msgs 1 keys replay=true spans=[(0, 1, 1)]",
+                "sent #1 w 1 msgs 1 keys replay=true spans=[(0, [(1, 1)])]",
                 "resolved #1 w 1/0",
             ]
         );

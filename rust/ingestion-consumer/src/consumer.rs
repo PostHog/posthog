@@ -20,7 +20,7 @@ use crate::commit_pacer::ImmediateCommitPacer;
 use crate::commit_sentinel::{CommitSentinel, CommitViolation};
 use crate::config::Config;
 use crate::debug_recorder::{
-    record_if, DebugEventKind, DebugRecorder, OffsetRange, PartitionOffset,
+    record_if, DebugEventKind, DebugRecorder, PartitionOffset, PartitionOffsets,
 };
 use crate::discovery::DiscoveryMode;
 use crate::grpc_transport::GrpcTransport;
@@ -636,12 +636,6 @@ impl IngestionConsumer {
         } = collected;
         let message_count = accumulator.message_count();
         let poll_id = make_batch_id();
-        record_if(&self.debug_recorder, || DebugEventKind::BatchDispatched {
-            batch_id: poll_id.clone(),
-            messages: message_count,
-            partitions: debug_partition_offsets(&partitions),
-            spans: debug_partition_spans(&partitions),
-        });
         emit_poll_stats(
             &stats,
             &partitions,
@@ -652,6 +646,13 @@ impl IngestionConsumer {
         );
 
         let assignment_epoch = self.batcher.submit(accumulator);
+        record_if(&self.debug_recorder, || DebugEventKind::BatchDispatched {
+            batch_id: poll_id.clone(),
+            messages: message_count,
+            partitions: debug_partition_offsets(&partitions),
+            assignment_epoch,
+            spans: debug_partition_spans(&partitions),
+        });
 
         info!(
             batch_id = %poll_id,
@@ -1135,14 +1136,13 @@ fn debug_partition_offsets(
 /// Per-partition offset ranges, so the debug UI can match requests to polls.
 fn debug_partition_spans(
     partitions: &HashMap<TopicPartition, PartitionDeliveries>,
-) -> Vec<OffsetRange> {
+) -> Vec<PartitionOffsets> {
     partitions
         .iter()
-        .map(|(topic_partition, partition)| OffsetRange {
+        .map(|(topic_partition, partition)| PartitionOffsets {
             topic: topic_partition.topic.clone(),
             partition: topic_partition.partition,
-            first_offset: partition.span.first,
-            last_offset: partition.span.last,
+            ranges: vec![(partition.span.first, partition.span.last)],
         })
         .collect()
 }

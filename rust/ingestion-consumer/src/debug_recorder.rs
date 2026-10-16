@@ -13,7 +13,7 @@
 //! It is a pure observer: it never influences routing. When the feature is off,
 //! the recorder is `None` everywhere and nothing is constructed or recorded.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -32,37 +32,50 @@ pub struct PartitionOffset {
     pub lag_ms: i64,
 }
 
-/// The offsets a poll or a request carries on one topic-partition. The UI
-/// matches a request to the polls whose ranges it overlaps, because a
-/// request can merge messages from consecutive polls.
+/// The offsets a poll or a request carries on one topic-partition, as runs
+/// of consecutive offsets. A request's runs fall inside the polls it carries
+/// and nowhere else, so the UI matches the two exactly even when a key
+/// skipped a poll in between.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct OffsetRange {
+pub struct PartitionOffsets {
     pub topic: String,
     pub partition: i32,
-    pub first_offset: i64,
-    pub last_offset: i64,
+    /// Inclusive `(first, last)` pairs in offset order.
+    pub ranges: Vec<(i64, i64)>,
 }
 
-pub fn offset_ranges(messages: &[SerializedKafkaMessage]) -> Vec<OffsetRange> {
-    let mut ranges: Vec<OffsetRange> = Vec::new();
+pub fn partition_offsets(messages: &[SerializedKafkaMessage]) -> Vec<PartitionOffsets> {
+    let mut spans: Vec<PartitionOffsets> = Vec::new();
+    let mut index: HashMap<(&str, i32), usize> = HashMap::new();
     for message in messages {
-        match ranges
-            .iter_mut()
-            .find(|range| range.partition == message.partition && *range.topic == *message.topic)
-        {
-            Some(range) => {
-                range.first_offset = range.first_offset.min(message.offset);
-                range.last_offset = range.last_offset.max(message.offset);
-            }
-            None => ranges.push(OffsetRange {
-                topic: message.topic.to_string(),
-                partition: message.partition,
-                first_offset: message.offset,
-                last_offset: message.offset,
-            }),
-        }
+        let position = *index
+            .entry((message.topic.as_ref(), message.partition))
+            .or_insert_with(|| {
+                spans.push(PartitionOffsets {
+                    topic: message.topic.to_string(),
+                    partition: message.partition,
+                    ranges: Vec::new(),
+                });
+                spans.len() - 1
+            });
+        spans[position]
+            .ranges
+            .push((message.offset, message.offset));
     }
-    ranges
+    // A request's messages are grouped by key, so one partition's offsets
+    // arrive out of order and interleaved with other keys'.
+    for span in &mut spans {
+        span.ranges.sort_unstable();
+        let mut merged: Vec<(i64, i64)> = Vec::with_capacity(span.ranges.len());
+        for (first, last) in span.ranges.drain(..) {
+            match merged.last_mut() {
+                Some((_, previous)) if first <= *previous + 1 => *previous = (*previous).max(last),
+                _ => merged.push((first, last)),
+            }
+        }
+        span.ranges = merged;
+    }
+    spans
 }
 
 /// The distinct event kinds recorded across the consumer's lifecycle. Serialized
@@ -76,12 +89,15 @@ pub enum DebugEventKind {
         group_id: String,
         workers: Vec<String>,
     },
-    /// A Kafka poll was collected and submitted to the batcher.
+    /// A Kafka poll was collected and submitted to the batcher. The epoch
+    /// and the spans let the UI match requests to the polls they carry, and
+    /// keep a reassigned partition's replays off the old assignment's polls.
     BatchDispatched {
         batch_id: String,
         messages: usize,
         partitions: Vec<PartitionOffset>,
-        spans: Vec<OffsetRange>,
+        assignment_epoch: u64,
+        spans: Vec<PartitionOffsets>,
     },
     /// The batcher sent a request to a worker. `routing_keys` is a count:
     /// the keys themselves hold distinct ids and stay out of the payload.
@@ -93,7 +109,8 @@ pub enum DebugEventKind {
         bytes: usize,
         replay: bool,
         budgeted: bool,
-        spans: Vec<OffsetRange>,
+        assignment_epoch: u64,
+        spans: Vec<PartitionOffsets>,
     },
     /// A worker acked a request. `unfinished` above zero is a partial ack:
     /// those messages go out again at once.
