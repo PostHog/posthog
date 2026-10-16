@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconRefresh, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
@@ -25,7 +26,10 @@ export function SurveyHeadline(): JSX.Element | null {
             type="tertiary"
             size="xsmall"
             icon={<IconRefresh />}
-            onClick={() => loadSurveyHeadline(true)}
+            onClick={() => {
+                posthog.capture('survey headline summary regenerate clicked', { survey_id: survey.id })
+                loadSurveyHeadline(true)
+            }}
             tooltip={`Regenerate summary (last generated with ${survey.headline_response_count} responses)`}
         />
     )

@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 
@@ -96,8 +96,12 @@ describe('OpenQuestionSummaryV2', () => {
     it('shows nothing and requests no summary when the organization did not approve AI data processing', async () => {
         const container = renderSummary(false)
 
-        await expect(screen.findByText('Response summary', undefined, { timeout: 200 })).rejects.toThrow()
+        // The component renders nothing, so there is no element to wait for. The flush gives the
+        // auto-load effect the chance to start a request that it must not start.
+        await act(async () => undefined)
+
         expect(container.firstChild).toBeNull()
+        expect(screen.queryByText('Response summary')).toBeNull()
         expect(summarizeRequests).toBe(0)
     })
 })

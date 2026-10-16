@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useEffect, useState } from 'react'
 
 import {
@@ -71,7 +72,19 @@ export function OpenQuestionSummaryV2({
                     traceId: result.trace_id,
                     cached: result.cached,
                 })
+                posthog.capture('survey response summary generated', {
+                    survey_id: survey.id,
+                    question_index: questionIndex,
+                    forced_refresh: forceRefresh,
+                    cached: result.cached,
+                    response_count: result.response_count,
+                })
             } catch (e: any) {
+                posthog.capture('survey response summary failed', {
+                    survey_id: survey.id,
+                    question_index: questionIndex,
+                    forced_refresh: forceRefresh,
+                })
                 setError(e.message || 'Failed to generate summary')
             } finally {
                 setLoading(false)
