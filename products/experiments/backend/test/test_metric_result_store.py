@@ -419,7 +419,7 @@ class TestMetricResultStore(BaseTest):
         store.record_daily_point(
             "m1",
             calculation_config.calculation_key(),
-            display_key=calculation_config.legacy_key(),
+            calculation_config=calculation_config,
             window=_WINDOW,
             query_from=_START,
             result=_stored_result(3),
@@ -513,7 +513,7 @@ class TestMetricResultStore(BaseTest):
                 store.record_daily_point(
                     "m1",
                     key,
-                    display_key=calculation_config.legacy_key(),
+                    calculation_config=calculation_config,
                     window=_WINDOW,
                     query_from=_START,
                     result=_stored_result(9),
@@ -522,7 +522,7 @@ class TestMetricResultStore(BaseTest):
                 store.record_daily_failure(
                     "m1",
                     key,
-                    display_key=calculation_config.legacy_key(),
+                    calculation_config=calculation_config,
                     window=_WINDOW,
                     query_from=_START,
                     error_message="boom",

@@ -343,21 +343,21 @@ class MetricResultStore:
         metric_uuid: str,
         calculation_key: str,
         *,
-        display_key: str | None,
+        calculation_config: MetricCalculationConfig | None,
         window: datetime,
         query_from: datetime,
         result: dict[str, Any],
     ) -> None:
         """Store a completed daily point under the bare calculation key. The backfill stores its past days here too.
 
-        `display_key` is the legacy key of the config that `calculation_key` was derived from, or None when the
-        caller does not have that config.
+        `calculation_config` is the config that `calculation_key` was derived from, or None when the caller does not
+        have it.
         """
         self._upsert(
             metric_uuid,
             window,
             fingerprint=calculation_key,
-            display_key=display_key,
+            display_key=calculation_config.legacy_key() if calculation_config is not None else None,
             query_from=query_from,
             status=_COMPLETED,
             result=result,
@@ -371,13 +371,13 @@ class MetricResultStore:
         metric_uuid: str,
         calculation_key: str,
         *,
-        display_key: str | None,
+        calculation_config: MetricCalculationConfig | None,
         window: datetime,
         query_from: datetime,
         error_message: str,
     ) -> None:
         """Store a failed daily point under the bare calculation key, unless a completed row under another
-        fingerprint holds the window. `display_key` is as for `record_daily_point`.
+        fingerprint holds the window. `calculation_config` is as for `record_daily_point`.
 
         That row is usually a recalculation of a stopped experiment, because a late daily run and the recalculation
         both use `end_date`. The run finds its row only by the salted key, and a failure has no result to put in its
@@ -388,7 +388,7 @@ class MetricResultStore:
             metric_uuid,
             window,
             fingerprint=calculation_key,
-            display_key=display_key,
+            display_key=calculation_config.legacy_key() if calculation_config is not None else None,
             query_from=query_from,
             status=_FAILED,
             result=None,
@@ -604,7 +604,9 @@ def previous_completed_metric_result(
     return row.result if row is not None else None
 
 
-def _daily_display_key(experiment_id: int, *, team_id: int, metric_uuid: str, calculation_key: str) -> str | None:
+def _daily_calculation_config(
+    experiment_id: int, *, team_id: int, metric_uuid: str, calculation_key: str
+) -> MetricCalculationConfig | None:
     experiment = (
         Experiment.objects.select_related("team", "feature_flag").filter(id=experiment_id, team_id=team_id).first()
     )
@@ -617,8 +619,7 @@ def _daily_display_key(experiment_id: int, *, team_id: int, metric_uuid: str, ca
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
         )
-        return None
-    return calculation_config.legacy_key()
+    return calculation_config
 
 
 def record_daily_metric_result(
@@ -638,12 +639,13 @@ def record_daily_metric_result(
     configuration change since then leaves the row without a display key. So does an `experiment_id` that is not in
     the team.
     """
+    calculation_config = _daily_calculation_config(
+        experiment_id, team_id=team_id, metric_uuid=metric_uuid, calculation_key=calculation_key
+    )
     MetricResultStore(experiment_id=experiment_id).record_daily_point(
         metric_uuid,
         calculation_key,
-        display_key=_daily_display_key(
-            experiment_id, team_id=team_id, metric_uuid=metric_uuid, calculation_key=calculation_key
-        ),
+        calculation_config=calculation_config,
         window=window,
         query_from=query_from,
         result=result,
@@ -662,12 +664,13 @@ def record_daily_metric_failure(
 ) -> None:
     """Store a failed daily point, for the scheduled workflows outside the product. The row gets its display key
     as `record_daily_metric_result` describes."""
+    calculation_config = _daily_calculation_config(
+        experiment_id, team_id=team_id, metric_uuid=metric_uuid, calculation_key=calculation_key
+    )
     MetricResultStore(experiment_id=experiment_id).record_daily_failure(
         metric_uuid,
         calculation_key,
-        display_key=_daily_display_key(
-            experiment_id, team_id=team_id, metric_uuid=metric_uuid, calculation_key=calculation_key
-        ),
+        calculation_config=calculation_config,
         window=window,
         query_from=query_from,
         error_message=error_message,
