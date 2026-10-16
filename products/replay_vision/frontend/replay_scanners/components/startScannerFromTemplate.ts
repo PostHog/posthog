@@ -4,19 +4,14 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { urls } from 'scenes/urls'
 
 import { replayScannerLogic } from '../replayScannerLogic'
-import type { ScannerType } from '../types'
 import { scannerStartSearchParams } from './scannerStartParams'
 
 /** Starts a new scanner from a template, or from scratch when `templateKey` is null, and opens the
- * details step. A saved draft would be replaced, so the person confirms that first. A scratch start
- * can also preset the type. */
-export function startScannerFromTemplate(templateKey: string | null, scannerType?: ScannerType): void {
+ * details step. A saved draft would be replaced, so the person confirms that first. */
+export function startScannerFromTemplate(templateKey: string | null): void {
     const logic = replayScannerLogic({ id: 'new' })
     const start = (): void => {
         logic.actions.startFromTemplate(templateKey)
-        if (scannerType) {
-            logic.actions.setScannerType(scannerType)
-        }
         router.actions.push(
             combineUrl(
                 urls.replayVisionScannerDetails('new'),
