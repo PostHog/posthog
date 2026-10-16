@@ -12,7 +12,7 @@ BAD_METRIC = re.compile(
 )
 UNKNOWN_DIRECTION = re.compile(r"(?i)(share|split| vs\.? |(?<![a-z])ratios?(?![a-z])|%|percent|rate by)")
 UNCLEAR_LABEL = re.compile(
-    r"(?i)^(other|others|series \d+|null|none|unknown|\$.*|(sum|count|avg|unique|total)[ _].*)$|, series \d+$"
+    r"(?i)^(other|others|series \d+|null|none|unknown|\$.*|(sum|count|avg|unique|total)_.*)$|, series \d+$"
 )
 MONEY = re.compile(r"(?i)(revenue|\barr\b|\bmrr\b|\bnrr\b|spend|cost|usd|\$(?![a-z_])|invoice)")
 MAX_FILLED_DAYS = 120

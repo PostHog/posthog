@@ -166,6 +166,17 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
             ("day", ["Daily people"], "percentage", 9, {"Sign-ups": (56, 3.0), "Daily people": (56, 2.0)}),
         )
 
+    def test_a_smoothed_trend_returns_its_raw_daily_counts(self) -> None:
+        self._signups((9, "Chrome"), (10, "Chrome"), (11, "Chrome"))
+        insight = self._insight(
+            series=[{"kind": "EventsNode", "event": "signed up"}], trendsFilter={"smoothingIntervals": 7}
+        )
+
+        found = get_insight_series(team=self.team, user=self.user, short_id=insight.short_id)
+
+        assert found is not None
+        self.assertEqual(sum(v for _, v in found.series["signed up"]), 3.0)
+
     def test_a_dashboard_filter_replaces_the_insight_filter_and_the_interval(self) -> None:
         self._signups((9, "Safari"), (10, "Safari"), (11, "Chrome"))
         insight = self._insight(
@@ -192,6 +203,14 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
             (
                 "a SQL insight",
                 {"kind": "HogQLQuery", "query": "SELECT toDate(timestamp), count() FROM events GROUP BY 1"},
+            ),
+            (
+                "a slope graph",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "signed up"}],
+                    "trendsFilter": {"display": "SlopeGraph"},
+                },
             ),
             (
                 "a daily trend on weekdays only",

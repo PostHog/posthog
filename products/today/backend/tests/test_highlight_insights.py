@@ -17,7 +17,7 @@ from products.dashboards.backend.facade.api import HomeDashboardInsights, HomeDa
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
 from products.today.backend.logic.highlight_rules import human, short
 from products.today.backend.logic.highlight_sources import home, routine
-from products.today.backend.logic.highlight_trends import BAD_METRIC, MONEY, UNKNOWN_DIRECTION
+from products.today.backend.logic.highlight_trends import BAD_METRIC, MONEY, UNCLEAR_LABEL, UNKNOWN_DIRECTION
 from products.today.backend.logic.highlight_types import Context
 
 TODAY = date(2026, 10, 13)
@@ -205,6 +205,9 @@ class TestHomeTiles(SimpleTestCase):
             ("Rage clicks", BAD_METRIC, True),
             ("Registrations", UNKNOWN_DIRECTION, False),
             ("Conversion ratio", UNKNOWN_DIRECTION, True),
+            ("Total revenue", UNCLEAR_LABEL, False),
+            ("sum_amount", UNCLEAR_LABEL, True),
+            ("Series 2", UNCLEAR_LABEL, True),
         ]
     )
     def test_metric_names_match_whole_terms(self, label: str, pattern: re.Pattern[str], matches: bool) -> None:

@@ -25,6 +25,7 @@ UNCHARTED_DISPLAYS = {
     "WorldMap",
     "ActionsBarValue",
     "ActionsLineGraphCumulative",
+    "SlopeGraph",
 }
 LOOKBACK = {"day": "-56d", "week": "-16w", "month": "-24m"}
 DATE_FILTERS = ("date_from", "date_to", "explicitDate", "interval", "compareFilter")
@@ -110,7 +111,7 @@ def insight_series(
     bounded.update(
         interval=interval,
         dateRange={**kept, "date_from": LOOKBACK[interval], "excludeIncompletePeriods": True},
-        trendsFilter={**trends, "metricShowChange": False},
+        trendsFilter={**{k: v for k, v in trends.items() if k != "smoothingIntervals"}, "metricShowChange": False},
     )
     response = _run(team, user, bounded, filters, variables)
     formula = bool(trends.get("formula") or trends.get("formulas") or trends.get("formulaNodes"))

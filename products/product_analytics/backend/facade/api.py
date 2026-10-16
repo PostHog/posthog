@@ -23,7 +23,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.product_analytics.backend import insight_series, logic
+from products.product_analytics.backend import logic
 from products.product_analytics.backend.facade.contracts import (
     InsightDashboardContext,
     InsightSeries,
@@ -244,6 +244,10 @@ def get_insight_series(
     access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
     if not access_control.check_access_level_for_object(insight, "viewer"):
         return None
+    from products.product_analytics.backend import (  # noqa: PLC0415 -- insight_series imports the query runner, which imports this facade
+        insight_series,
+    )
+
     return insight_series.insight_series(
         team, user, short_id=insight.short_id, name=insight.name, query=insight.query or {}, dashboard=dashboard
     )
