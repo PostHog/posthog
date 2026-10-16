@@ -379,7 +379,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert run_after({"api": 600, "web": 550}) == {}
         assert run_after({"api": 600}) == {"sha256:": AlertEventKind.RESOLVED}
 
-    def test_a_grouped_alert_fires_per_group_resolves_a_vanished_one_and_reports_overflow(self) -> None:
+    def test_a_grouped_alert_overflows_at_its_cap_until_a_resolved_group_gives_up_its_slot(self) -> None:
         grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",), max_instances=2)
         configuration = self._configuration(grouping=grouping.to_stored())
 
@@ -404,6 +404,30 @@ class TestLogsAlertEvaluation(APIBaseTest):
             "api": AlertEventKind.CHECK,
             "worker": AlertEventKind.RESOLVED,
         }
+        self._record(second)
+
+        def run_after(counts: dict[str, int]) -> tuple[dict[str, AlertEventKind], int]:
+            with team_scope(self.team.id):
+                platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
+            evaluation = self._run_grouped(configuration, counts)
+            self._record(evaluation)
+            (outcome,) = evaluation.outcomes
+            return {group.labels["service_name"]: group.kind for group in outcome.groups}, outcome.overflowed
+
+        # The resolved group is in this check's results, so it keeps its slot and the new breach overflows.
+        assert run_after({"api": 500, "worker": 3, "cron": 300}) == (
+            {"api": AlertEventKind.CHECK, "worker": AlertEventKind.CHECK},
+            1,
+        )
+        assert run_after({"api": 500, "cron": 300}) == (
+            {"api": AlertEventKind.CHECK, "cron": AlertEventKind.FIRING},
+            0,
+        )
+        with team_scope(self.team.id):
+            evicted = platform_testing.alert_for(
+                configuration.id, grouping_key=grouping_key_of({"service_name": "worker"})
+            )
+        assert evicted is None
 
     def test_a_grouped_alert_switched_off_in_logs_keeps_its_open_groups(self) -> None:
         grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",))
