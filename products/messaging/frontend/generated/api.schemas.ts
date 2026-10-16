@@ -414,7 +414,7 @@ export interface MessageTemplateApi {
      */
     readonly transactional_hog_flow_id: string | null
     /**
-     * Stable identifier code uses to upload and send this template, unique within the project. Null for templates that have no key.
+     * Stable identifier code uses to upload and send this template, unique within the project. Null for templates that have no key. Set once, by the first upload or by a PATCH whose only field is `key`.
      * @nullable
      */
     readonly key: string | null
@@ -474,7 +474,7 @@ export interface TemplateErrorApi {
     docs_url?: string
 }
 
-export interface PatchedMessageTemplateApi {
+export interface PatchedMessageTemplateUpdateApi {
     readonly id?: string
     /**
      * Human-readable template name shown in the library.
@@ -506,10 +506,10 @@ export interface PatchedMessageTemplateApi {
      */
     readonly transactional_hog_flow_id?: string | null
     /**
-     * Stable identifier code uses to upload and send this template, unique within the project. Null for templates that have no key.
-     * @nullable
+     * Give a template that has no key one, so code can take it over: the next upload under this key updates this template and keeps its id, workflow and sender. Send it as the only field of the PATCH. Letters, digits, hyphens (-) and underscores (_). Set once: a template that has a key keeps it.
+     * @maxLength 400
      */
-    readonly key?: string | null
+    key?: string
     /** Who owns the content. `code` when it was uploaded from a repository: PostHog then refuses edits, and the template changes through its next upload. To edit it in PostHog, send a PATCH whose only field is `managed_by` set to `gui`. `gui` or null when it is edited in PostHog.
      *
      * * `gui` - GUI

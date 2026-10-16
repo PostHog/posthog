@@ -43,6 +43,7 @@ from products.messaging.backend.facade.api import (
 from products.messaging.backend.facade.contracts import (
     TEMPLATE_KEY_MAX_LENGTH,
     TEMPLATE_KEY_PATTERN,
+    TemplateKeyRefused,
     TemplateManagedBy,
     TemplateManagedByCode,
     TemplateSource,
@@ -55,9 +56,12 @@ from products.messaging.backend.facade.templates import (
     MessageTemplateMissing,
     MessageTemplateRow,
     UploadedTemplate,
+    adopt_template,
+    check_template_key_write,
     check_template_write,
     create_template,
     get_template,
+    is_adoption,
     is_release,
     list_templates,
     release_template,
@@ -226,7 +230,7 @@ class MessageTemplateSerializer(serializers.Serializer):
         read_only=True,
         allow_null=True,
         help_text="Stable identifier code uses to upload and send this template, unique within the project. Null "
-        "for templates that have no key.",
+        "for templates that have no key. Set once, by the first upload or by a PATCH whose only field is `key`.",
     )
     managed_by = serializers.ChoiceField(
         choices=TemplateManagedBy.choices,
@@ -287,6 +291,16 @@ class MessageTemplateSerializer(serializers.Serializer):
                     {"content": {"email": {"design": f"Rendering the design to HTML failed: {e}"}}}
                 )
         return data
+
+
+class MessageTemplateUpdateSerializer(MessageTemplateSerializer):
+    key = serializers.CharField(  # type: ignore[assignment]
+        required=False,
+        max_length=TEMPLATE_KEY_MAX_LENGTH,
+        help_text="Give a template that has no key one, so code can take it over: the next upload under this key "
+        "updates this template and keeps its id, workflow and sender. Send it as the only field of the PATCH. Letters, "
+        "digits, hyphens (-) and underscores (_). Set once: a template that has a key keeps it.",
+    )
 
 
 class DesignPatchSerializer(serializers.Serializer):
@@ -458,8 +472,8 @@ class FieldError:
     message: str
 
 
-def invalid_template_key(key: str) -> TemplateRefusal | None:
-    if len(key) <= TEMPLATE_KEY_MAX_LENGTH and re.match(TEMPLATE_KEY_PATTERN, key):
+def invalid_template_key(key: object) -> TemplateRefusal | None:
+    if isinstance(key, str) and len(key) <= TEMPLATE_KEY_MAX_LENGTH and re.match(TEMPLATE_KEY_PATTERN, key):
         return None
     return TemplateRefusal(
         code="invalid_template_key",
@@ -544,12 +558,25 @@ MANAGED_BY_CODE_RESPONSE = OpenApiResponse(
 TEMPLATE_UPDATE_SCHEMA = extend_schema(
     parameters=[TEMPLATE_ID_PARAMETER], responses={200: MessageTemplateSerializer, 403: MANAGED_BY_CODE_RESPONSE}
 )
+TEMPLATE_PARTIAL_UPDATE_SCHEMA = extend_schema(
+    parameters=[TEMPLATE_ID_PARAMETER],
+    request=MessageTemplateUpdateSerializer,
+    responses={
+        200: MessageTemplateSerializer,
+        400: OpenApiResponse(
+            response=TemplateErrorSerializer,
+            description="A field is invalid. For `key`: `invalid_template_key`, `key_already_set`, `key_in_use`, or "
+            "`invalid_request` when it is sent with other fields",
+        ),
+        403: MANAGED_BY_CODE_RESPONSE,
+    },
+)
 
 
 @extend_schema_view(
     retrieve=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
     update=TEMPLATE_UPDATE_SCHEMA,
-    partial_update=TEMPLATE_UPDATE_SCHEMA,
+    partial_update=TEMPLATE_PARTIAL_UPDATE_SCHEMA,
     destroy=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
 )
 class MessageTemplatesViewSet(
@@ -611,6 +638,9 @@ class MessageTemplatesViewSet(
         if isinstance(exc, TemplateManagedByCode):
             refusal = TemplateRefusal(code=exc.code, detail=exc.detail, attr=None, why=exc.why, fix=exc.fix)
             return Response(TemplateErrorSerializer(refusal).data, status=status.HTTP_403_FORBIDDEN)
+        if isinstance(exc, TemplateKeyRefused):
+            refusal = TemplateRefusal(code=exc.code, detail=exc.detail, attr="key", why=exc.why, fix=exc.fix)
+            return Response(TemplateErrorSerializer(refusal).data, status=status.HTTP_400_BAD_REQUEST)
         return super().handle_exception(exc)
 
     def _with_creators(self, templates: Sequence[MessageTemplateRow]) -> list[SimpleNamespace]:
@@ -642,25 +672,10 @@ class MessageTemplatesViewSet(
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         template = create_template(self.team_id, request.user.id, serializer.validated_data)
-        # report_user_action injects source and MCP-client properties from the request, so a create from the
-        # visual editor and one from the agent count in the same metric. Capture must never break the request.
-        try:
-            report_user_action(
-                self.request.user,
-                "message_template_created",
-                {
-                    "template_id": str(template.id),
-                    "team_id": str(self.team_id),
-                    "organization_id": str(self.organization_id),
-                },
-                team=self.team,
-                # Without this the event groups by the person's current organization, which can differ
-                # from the route's when they belong to more than one.
-                organization=self.organization,
-                request=self.request,
-            )
-        except Exception as e:
-            logger.warning("Failed to capture message template usage event", error=str(e))
+        self._report_user_action(
+            "message_template_created",
+            {"template_id": str(template.id), "organization_id": str(self.organization_id)},
+        )
         data = self._serialize(template)
         return Response(data, status=status.HTTP_201_CREATED, headers=self.get_success_headers(data))
 
@@ -674,6 +689,9 @@ class MessageTemplatesViewSet(
             )
             self._emit_resource_edited(released)
             return Response(self._serialize(released))
+        if is_adoption(intent):
+            return self._adopt(template, intent)
+        check_template_key_write(template, intent)
         serializer = self.get_serializer(self._with_creators([template])[0], data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         try:
@@ -689,6 +707,35 @@ class MessageTemplatesViewSet(
             raise TransactionalEmailRejected(e) from None
         self._emit_resource_edited(updated)
         return Response(self._serialize(updated))
+
+    def _adopt(self, template: MessageTemplateRow, intent: TemplateWriteIntent) -> Response:
+        key = intent.payload["key"]
+        refused = invalid_template_key(key)
+        if refused is not None:
+            return Response(TemplateErrorSerializer(refused).data, status=status.HTTP_400_BAD_REQUEST)
+        adopted = adopt_template(
+            self.team_id, template.id, key, intent=intent, require_workflow_editor=self._require_workflow_editor
+        )
+        self._emit_resource_edited(adopted)
+        self._report_user_action("message template adopted", {"template_id": str(adopted.id)})
+        return Response(self._serialize(adopted))
+
+    def _report_user_action(self, event: str, properties: dict[str, Any]) -> None:
+        # report_user_action injects source and MCP-client properties from the request, so a change from the
+        # visual editor and one from the agent count in the same metric. Capture must never break the request.
+        try:
+            report_user_action(
+                self.request.user,
+                event,
+                {"team_id": str(self.team_id), **properties},
+                team=self.team,
+                # Without this the event groups by the person's current organization, which can differ
+                # from the route's when they belong to more than one.
+                organization=self.organization,
+                request=self.request,
+            )
+        except Exception as e:
+            logger.warning("Failed to capture message template usage event", error=str(e))
 
     def _require_workflow_editor(self, hog_flow_id: Any) -> None:
         # A project secret API key has no user to check, and its scope already limits it to sending and uploads.
@@ -998,17 +1045,7 @@ class MessageTemplatesViewSet(
         updated = self.get_object()
         if not was_transactional:
             self._emit_resource_edited(updated)
-            try:
-                report_user_action(
-                    self.request.user,
-                    "message template made transactional",
-                    {"template_id": str(template.id), "team_id": str(self.team_id)},
-                    team=self.team,
-                    organization=self.organization,
-                    request=self.request,
-                )
-            except Exception as e:
-                logger.warning("Failed to capture message template usage event", error=str(e))
+            self._report_user_action("message template made transactional", {"template_id": str(template.id)})
         return Response(self._serialize(updated))
 
     def _report_transactional_email_send(

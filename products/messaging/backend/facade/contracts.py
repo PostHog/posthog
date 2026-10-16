@@ -113,6 +113,18 @@ class TemplateManagedByCode(Exception):
         self.fix = fix
 
 
+class TemplateKeyRefused(Exception):
+    """The template can't take this key. `code` is stable for API clients; `detail`, `why` and `fix` are written for
+    the caller."""
+
+    def __init__(self, *, code: str, detail: str, why: str, fix: str) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+        self.why = why
+        self.fix = fix
+
+
 @frozen
 class TemplateSource:
     """Where the uploaded file lives. A part that is None leaves the stored part as it is."""

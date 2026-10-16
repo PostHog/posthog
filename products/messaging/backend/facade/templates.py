@@ -18,6 +18,7 @@ from products.messaging.backend.facade.contracts import (
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.services import (
     message_templates as templates_service,
+    template_keys,
     template_ownership,
     template_saves,
     template_uploads,
@@ -179,6 +180,36 @@ def release_template(
     """Hand the template back to PostHog, so it takes edits again. It keeps its key, so the next upload claims it."""
     return _to_contract(
         template_saves.release_template(team_id, template_id, require_workflow_editor=require_workflow_editor)
+    )
+
+
+def is_adoption(intent: TemplateWriteIntent) -> bool:
+    """Whether `intent` gives a template its key: a PATCH whose only field is `key`."""
+    return template_keys.is_adoption(intent)
+
+
+def check_template_key_write(template: MessageTemplateRow, intent: TemplateWriteIntent) -> None:
+    """Raise TemplateKeyRefused when `intent` is not an adoption and sets or changes the template's key."""
+    template_keys.check_key_unchanged(template, intent)
+
+
+def adopt_template(
+    team_id: int,
+    template_id: UUID,
+    key: str,
+    *,
+    intent: TemplateWriteIntent,
+    require_workflow_editor: Callable[[UUID], None],
+) -> MessageTemplateRow:
+    """Give a template that has no key the key `key`, so the next upload under it takes the template over.
+
+    Raises TemplateKeyRefused when the template already has a key or another template has this one, and
+    TemplateManagedByCode when the template refuses `intent`.
+    """
+    return _to_contract(
+        template_keys.adopt_template(
+            team_id, template_id, key, intent=intent, require_workflow_editor=require_workflow_editor
+        )
     )
 
 

@@ -30,7 +30,7 @@ import type {
     PaginatedOptOutsApi,
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
-    PatchedMessageTemplateApi,
+    PatchedMessageTemplateUpdateApi,
     PreferencesLinkApi,
     RemoveOptOutRequestApi,
     SendTransactionalEmailApi,
@@ -680,14 +680,14 @@ export const getMessagingTemplatesPartialUpdateUrl = (projectId: string, id: str
 export const messagingTemplatesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedMessageTemplateApi?: NonReadonly<PatchedMessageTemplateApi>,
+    patchedMessageTemplateUpdateApi?: NonReadonly<PatchedMessageTemplateUpdateApi>,
     options?: RequestInit
 ): Promise<MessageTemplateApi> => {
     return apiMutator<MessageTemplateApi>(getMessagingTemplatesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedMessageTemplateApi),
+        body: JSON.stringify(patchedMessageTemplateUpdateApi),
     })
 }
 

@@ -150,29 +150,37 @@ class TestTemplateUpload(APIBaseTest):
         )
         assert self._workflow(hog_flow_id)["version"] == 2
 
-    def test_an_upload_claims_a_keyed_template_and_keeps_its_sender_and_paused_workflow(self, _post, _flag, _capture):
+    def test_an_upload_claims_an_adopted_template_and_keeps_its_id_sender_and_paused_workflow(
+        self, _post, _flag, _capture
+    ):
         other_sender = self._verified_sender("team@example.com")
-        adopted = MessageTemplate.objects.create(
+        made_in_posthog = MessageTemplate.objects.create(
             team=self.team,
             name="Welcome",
-            key="welcome",
             content={"email": {"subject": "Hello", "html": "<p>Hello</p>"}},
             type="email",
         )
         hog_flow_id = make_transactional(
-            self.team.id, adopted.id, user_id=self.user.id, from_integration_id=other_sender.id
+            self.team.id, made_in_posthog.id, user_id=self.user.id, from_integration_id=other_sender.id
         )
         paused = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{hog_flow_id}", {"status": "archived"})
         assert paused.status_code == status.HTTP_200_OK, paused.json()
 
-        response = self.client.put(self.url, WELCOME, format="json")
+        adopted = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{made_in_posthog.id}/", {"key": "welcome"}, format="json"
+        )
+        response = self.psak.put(self.url, WELCOME, format="json")
 
+        assert adopted.status_code == status.HTTP_200_OK, adopted.json()
+        assert (adopted.json()["key"], adopted.json()["managed_by"]) == ("welcome", None)
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert (response.json()["result"], response.json()["id"]) == ("updated", str(adopted.id))
+        assert (response.json()["result"], response.json()["id"]) == ("updated", str(made_in_posthog.id))
         assert response.json()["managed_by"] == "code"
+        assert response.json()["transactional_hog_flow_id"] == str(hog_flow_id)
         workflow = self._workflow(str(hog_flow_id))
         assert workflow["status"] == "archived"
-        assert self._sent_email(str(hog_flow_id))["from"]["integrationId"] == other_sender.id
+        email = self._sent_email(str(hog_flow_id))
+        assert (email["subject"], email["from"]["integrationId"]) == (WELCOME["subject"], other_sender.id)
 
     def test_without_a_verified_default_sender_an_upload_writes_nothing(self, _post, _flag, _capture):
         self.sender.config = {"verified": False}

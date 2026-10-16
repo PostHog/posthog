@@ -236,6 +236,9 @@ const workflowsUpdateEmailTemplate = (): ToolBase<
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
         }
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/`,

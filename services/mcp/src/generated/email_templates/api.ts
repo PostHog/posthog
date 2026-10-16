@@ -139,6 +139,8 @@ export const messagingTemplatesPartialUpdateBodyNameMax = 400
 export const messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesPartialUpdateBodyTypeMax = 24
 
+export const messagingTemplatesPartialUpdateBodyKeyMax = 400
+
 export const MessagingTemplatesPartialUpdateBody = () => zod.object({
     name: zod
         .string()
@@ -220,6 +222,13 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
         .nullish()
         .describe('Message category ID to file the template under. Must belong to the same project.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
+    key: zod
+        .string()
+        .max(messagingTemplatesPartialUpdateBodyKeyMax)
+        .optional()
+        .describe(
+            'Give a template that has no key one, so code can take it over: the next upload under this key updates this template and keeps its id, workflow and sender. Send it as the only field of the PATCH. Letters, digits, hyphens (-) and underscores (_). Set once: a template that has a key keeps it.'
+        ),
 })
 
 export const MessagingTemplatesDesignPartialUpdateParams = () => zod.object({
