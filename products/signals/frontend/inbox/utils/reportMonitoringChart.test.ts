@@ -35,6 +35,48 @@ describe('Monitoring chart context', () => {
         expect(monitoringChartQuery(query, { referencePeriodMinutes: minutes }, now).interval).toBe(interval)
     })
 
+    it('preserves weekday filtering when replacing the query boundaries', () => {
+        const filtered: TrendsQuery = { ...query, dateRange: { ...query.dateRange, daysOfWeek: [1, 2, 3, 4, 5] } }
+        const result = monitoringChartQuery(filtered, { referencePeriodMinutes: 10080 }, now)
+        expect(result.dateRange).toEqual({
+            date_from: '2026-08-22T12:00:00.000Z',
+            date_to: '2026-09-05T12:00:00.000Z',
+            daysOfWeek: [1, 2, 3, 4, 5],
+            explicitDate: true,
+        })
+        expect(filtered.dateRange?.date_from).toBe('-7d')
+    })
+
+    it.each([undefined, '2026-08-01T12:00:00.123Z'])(
+        'reuses query boundaries within a refresh minute for a start of %s',
+        (startedAt) => {
+            const monitoring = { referencePeriodMinutes: 30, startedAt }
+            const first = monitoringChartQuery(query, monitoring, now + 100)
+            expect(monitoringChartQuery(query, monitoring, now + 59000)).toEqual(first)
+            expect(monitoringChartQuery(query, monitoring, now + 60000).dateRange).not.toEqual(first.dateRange)
+            if (startedAt) {
+                expect(first.dateRange?.date_from).toBe('2026-08-01T11:30:00.123Z')
+            }
+        }
+    )
+
+    it.each([
+        [30, '2026-07-30T12:00:00Z', 'day', 1440],
+        [1440, '2026-08-20T12:00:00Z', 'day', 1440],
+        [527040, undefined, 'day', 1440],
+        [30, '2020-01-01T12:00:00Z', 'week', 10080],
+        [30, '2000-01-01T12:00:00Z', 'month', 40320],
+    ] as const)(
+        'bounds the full displayed range for a %s minute reference starting %s',
+        (minutes, startedAt, interval, bucketMinutes) => {
+            const result = monitoringChartQuery(query, { referencePeriodMinutes: minutes, startedAt }, now)
+            expect(result.interval).toBe(interval)
+            const from = Date.parse(result.dateRange!.date_from!)
+            const to = Date.parse(result.dateRange!.date_to!)
+            expect(Math.ceil((to - from) / (bucketMinutes * 60000)) + 2).toBeLessThanOrEqual(1000)
+        }
+    )
+
     it('keeps observed zeros and masks future buckets instead of implying success', () => {
         const points = { labels: ['2026-08-28', '2026-08-29', '2026-08-30'], values: [0, 3, 0] }
         expect(monitoringChartPoints(points, now, 'UTC')).toEqual({ labels: points.labels, values: [0, 3, NaN] })
@@ -105,33 +147,50 @@ describe('Monitoring chart context', () => {
     })
 
     it.each([
-        ['avg', 'fixed', true],
-        ['p95', 'fixed', true],
-        ['total', 'fixed', false],
-        ['sum', 'fixed', false],
-        ['dau', 'fixed', false],
-        ['hogql', 'fixed', false],
-        ['avg', 'linear', false],
-        [null, 'linear', true],
-    ] as const)('matches %s aggregation to a %s reference', (math, thresholdScaling, visible) => {
-        const result = monitoringChartTargetLines({
-            ...targetOptions,
-            monitoring: { ...targetOptions.monitoring, thresholdScaling },
-            metric: {
-                ...targetMetric,
-                kind: 'custom',
-                value_format: 'number',
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: { ...query, series: [{ kind: NodeKind.EventsNode, event: 'checkout_failed', math }] },
+        ['avg', 'fixed', true, 'amount', undefined],
+        ['p95', 'fixed', true, 'amount', undefined],
+        ['total', 'fixed', false, undefined, undefined],
+        ['sum', 'fixed', false, 'amount', undefined],
+        ['dau', 'fixed', false, undefined, undefined],
+        ['hogql', 'fixed', false, undefined, undefined],
+        ['avg', 'linear', false, 'amount', undefined],
+        [null, 'linear', true, undefined, undefined],
+        ['sum', 'linear', true, 'amount', undefined],
+        ['sum', 'linear', false, '$session_duration', undefined],
+        ['sum', 'linear', false, '$pageview_count', 'session_properties'],
+    ] as const)(
+        'matches %s aggregation to a %s reference (visible=%s, property=%s, type=%s)',
+        (math, thresholdScaling, visible, mathProperty, mathPropertyType) => {
+            const result = monitoringChartTargetLines({
+                ...targetOptions,
+                monitoring: { ...targetOptions.monitoring, thresholdScaling },
+                metric: {
+                    ...targetMetric,
+                    kind: 'custom',
+                    value_format: 'number',
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            ...query,
+                            series: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    event: 'checkout_failed',
+                                    math,
+                                    math_property: mathProperty,
+                                    math_property_type: mathPropertyType,
+                                },
+                            ],
+                        },
+                    },
                 },
-            },
-        })
-        expect(result).toHaveLength(visible ? 1 : 0)
-        if (visible) {
-            expect(result[0].value).toBe(thresholdScaling === 'linear' ? 10 : 70)
+            })
+            expect(result).toHaveLength(visible ? 1 : 0)
+            if (visible) {
+                expect(result[0].value).toBe(thresholdScaling === 'linear' ? 10 : 70)
+            }
         }
-    })
+    )
 
     it('keeps a fixed percentage target on the rate scale without inferring it from formatting', () => {
         const metric = { ...reportMetricsFixture[2], goal_value: 0.4, goal_direction: 'at_least' as const }

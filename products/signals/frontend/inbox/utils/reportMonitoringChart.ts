@@ -15,28 +15,56 @@ export interface ReportMonitoringChartWindow {
     startedAt?: string | null
 }
 
+const MINUTE_MS = 60_000
+const MAX_CHART_POINTS = 1000
+
+function monitoringChartDateRange(monitoring: ReportMonitoringChartWindow, now: number): { from: number; to: number } {
+    const startedAt = monitoring.startedAt ? Date.parse(monitoring.startedAt) : NaN
+    // Stable dynamic boundaries let repeated views share query-cache entries.
+    const refreshedAt = Math.floor(now / MINUTE_MS) * MINUTE_MS
+    const anchor = Number.isFinite(startedAt) ? startedAt : refreshedAt
+    const windowMs = monitoring.referencePeriodMinutes * MINUTE_MS
+    return { from: anchor - windowMs, to: Math.max(anchor + windowMs, refreshedAt) }
+}
+
+function monitoringChartInterval(from: number, to: number): NonNullable<TrendsQuery['interval']> {
+    const minutes = (to - from) / MINUTE_MS
+    if (minutes <= 120) {
+        return 'minute'
+    }
+    if (minutes <= 2880) {
+        return 'hour'
+    }
+    // Use the shortest calendar buckets, including DST, and allow for partial edge buckets.
+    const intervals = [
+        ['day', 23 * 60],
+        ['week', (7 * 24 - 1) * 60],
+        ['month', (28 * 24 - 1) * 60],
+        ['year', (365 * 24 - 1) * 60],
+    ] as const
+    const interval = intervals.find(([, bucketMinutes]) => Math.ceil(minutes / bucketMinutes) + 2 <= MAX_CHART_POINTS)
+    if (!interval) {
+        throw new Error('The Monitoring chart window exceeds the chart point budget.')
+    }
+    return interval[0]
+}
+
 export function monitoringChartQuery(
     query: TrendsQuery,
     monitoring: ReportMonitoringChartWindow,
     now: number
 ): TrendsQuery {
-    const startedAt = monitoring.startedAt ? Date.parse(monitoring.startedAt) : NaN
-    const anchor = Number.isFinite(startedAt) ? startedAt : now
-    const windowMs = monitoring.referencePeriodMinutes * 60_000
+    const { from, to } = monitoringChartDateRange(monitoring, now)
     return {
         ...query,
         dateRange: {
-            date_from: new Date(anchor - windowMs).toISOString(),
-            date_to: new Date(Math.max(anchor + windowMs, now)).toISOString(),
+            ...query.dateRange,
+            date_from: new Date(from).toISOString(),
+            date_to: new Date(to).toISOString(),
             explicitDate: true,
         },
         compareFilter: undefined,
-        interval:
-            monitoring.referencePeriodMinutes <= 60
-                ? 'minute'
-                : monitoring.referencePeriodMinutes <= 1440
-                  ? 'hour'
-                  : 'day',
+        interval: monitoringChartInterval(from, to),
     }
 }
 
@@ -140,6 +168,52 @@ function uniformBucketMinutes(labels: string[], interval: TrendsQuery['interval'
     return durations[0] > 0 && durations.every((minutes) => minutes === durations[0]) ? durations[0] : null
 }
 
+function singleMetricSeries(source: TrendsQuery): TrendsQuery['series'][number] | null {
+    const filter = source.trendsFilter
+    const hasFormula = !!(filter?.formula || filter?.formulas?.length || filter?.formulaNodes?.length)
+    return source.series.length === 1 && !hasFormula ? source.series[0] : null
+}
+
+function isAdditiveMetricSeries(series: TrendsQuery['series'][number]): boolean {
+    const math = 'math' in series ? series.math : null
+    if (math == null || math === 'total') {
+        return true
+    }
+    // A session can contribute once to each bucket, but only once to the full window.
+    return (
+        math === 'sum' &&
+        !('math_property' in series && series.math_property === '$session_duration') &&
+        !('math_property_type' in series && series.math_property_type === 'session_properties')
+    )
+}
+
+function monitoringTargetFactor(
+    metric: ReportMetricApi,
+    monitoring: ReportMonitoringChartWindow,
+    interval: TrendsQuery['interval'],
+    labels: string[],
+    timezone: string
+): number | null {
+    const source = asReportMetricTrendsQuery(metric.query)?.source
+    if (!source || !monitoring.thresholdScaling) {
+        return null
+    }
+    const onlySeries = singleMetricSeries(source)
+    const math = onlySeries && 'math' in onlySeries ? onlySeries.math : null
+    if (monitoring.thresholdScaling === 'fixed') {
+        return metric.kind === 'conversion_rate' ||
+            metric.kind === 'error_rate' ||
+            (onlySeries && typeof math === 'string' && LEVEL_MATHS.has(math))
+            ? 1
+            : null
+    }
+    if (!onlySeries || !isAdditiveMetricSeries(onlySeries)) {
+        return null
+    }
+    const minutes = uniformBucketMinutes(labels, interval, timezone)
+    return minutes != null && monitoring.referencePeriodMinutes > 0 ? minutes / monitoring.referencePeriodMinutes : null
+}
+
 export function monitoringChartTargetLines({
     metric,
     monitoring,
@@ -155,32 +229,11 @@ export function monitoringChartTargetLines({
     timezone: string
     bounds?: { lower: number; upper: number } | null
 }): GoalLineConfig[] {
-    const source = asReportMetricTrendsQuery(metric.query)?.source
-    if (!source || !monitoring.thresholdScaling) {
+    const factor = monitoringTargetFactor(metric, monitoring, interval, labels, timezone)
+    if (factor == null) {
         return []
     }
-    const filter = source.trendsFilter
-    const hasFormula = !!(filter?.formula || filter?.formulas?.length || filter?.formulaNodes?.length)
-    const onlySeries = source.series.length === 1 && !hasFormula ? source.series[0] : null
-    const math = onlySeries && 'math' in onlySeries ? onlySeries.math : null
     const linear = monitoring.thresholdScaling === 'linear'
-    let factor = 1
-    if (linear) {
-        if (!onlySeries || (math != null && math !== 'total' && math !== 'sum')) {
-            return []
-        }
-        const minutes = uniformBucketMinutes(labels, interval, timezone)
-        if (minutes == null || monitoring.referencePeriodMinutes <= 0) {
-            return []
-        }
-        factor = minutes / monitoring.referencePeriodMinutes
-    } else if (
-        metric.kind !== 'conversion_rate' &&
-        metric.kind !== 'error_rate' &&
-        !(onlySeries && typeof math === 'string' && LEVEL_MATHS.has(math))
-    ) {
-        return []
-    }
     const targets = bounds
         ? [
               { value: bounds.lower, sign: '≥' },

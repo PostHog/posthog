@@ -4,7 +4,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    MetricThresholdConfigApi,
+    MonitoringMetricConfigApi,
+    SignalReportCheckApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { makeReport } from '../../__mocks__/inboxMocks'
 import { reportMetricQueryHandler, reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
@@ -42,6 +46,65 @@ const check: SignalReportCheckApi = {
     updated_at: '2026-08-29T00:00:00Z',
 }
 
+const monitoringDefinition: MonitoringMetricConfigApi = {
+    reference_period_minutes: 10080,
+    threshold_scaling: 'linear',
+    baseline_period_minutes: 20160,
+}
+const monitoringConfig: MetricThresholdConfigApi = {
+    ...check.config,
+    metric_kind: 'occurrences',
+    value_format: 'count',
+    unit: 'errors',
+    comparison: { operator: 'lte', value: 70 },
+    baseline_value: 280,
+    query: {
+        kind: 'InsightVizNode',
+        source: {
+            kind: 'TrendsQuery',
+            dateRange: { date_from: '-7d', explicitDate: true },
+            series: [{ kind: 'EventsNode', event: 'checkout_failed', math: 'total' }],
+        },
+    },
+    monitoring: monitoringDefinition,
+}
+const monitoringCheck: SignalReportCheckApi = {
+    ...check,
+    title: 'Checkout errors stay low',
+    config: monitoringConfig,
+}
+const flagOffCheck: SignalReportCheckApi = {
+    ...monitoringCheck,
+    config: { ...monitoringConfig, monitoring: undefined },
+}
+const fixedTargetCheck: SignalReportCheckApi = {
+    ...monitoringCheck,
+    config: { ...monitoringConfig, monitoring: { ...monitoringDefinition, threshold_scaling: 'fixed' } },
+}
+const rateTargetCheck: SignalReportCheckApi = {
+    ...fixedTargetCheck,
+    title: 'Checkout conversion recovers',
+    config: {
+        ...fixedTargetCheck.config,
+        metric_kind: 'conversion_rate',
+        value_format: 'percentage_scaled',
+        unit: null,
+        comparison: { operator: 'gte', value: 0.4 },
+        baseline_value: 0.34,
+        query: reportMetricsFixture[2].query as Record<string, unknown>,
+    },
+}
+const failedCheck: SignalReportCheckApi = {
+    ...check,
+    status: 'failed',
+    last_run_at: '2026-08-29T00:00:00Z',
+    last_outcome: 'failed',
+}
+const rangeCheck: SignalReportCheckApi = {
+    ...check,
+    config: { ...check.config, comparison: { operator: 'between', bounds: { lower: 50, upper: 100 } } },
+}
+
 const meta: Meta<typeof ReportExpectedImpact> = {
     title: 'Scenes-App/Inbox/Detail/Expected impact',
     component: ReportExpectedImpact,
@@ -61,79 +124,7 @@ const meta: Meta<typeof ReportExpectedImpact> = {
                     '/api/projects/:id/signals/reports/:reportId/checks/': context.parameters.loadFailure
                         ? [500, {}]
                         : {
-                              results: [
-                                  context.parameters.monitoringDefinition
-                                      ? {
-                                            ...check,
-                                            title: context.parameters.rateTarget
-                                                ? 'Checkout conversion recovers'
-                                                : 'Checkout errors stay low',
-                                            config: {
-                                                ...check.config,
-                                                metric_kind: 'occurrences',
-                                                value_format: 'count',
-                                                unit: 'errors',
-                                                comparison: { operator: 'lte', value: 70 },
-                                                baseline_value: 280,
-                                                query: {
-                                                    kind: 'InsightVizNode',
-                                                    source: {
-                                                        kind: 'TrendsQuery',
-                                                        dateRange: { date_from: '-7d', explicitDate: true },
-                                                        series: [
-                                                            {
-                                                                kind: 'EventsNode',
-                                                                event: 'checkout_failed',
-                                                                math: 'total',
-                                                            },
-                                                        ],
-                                                    },
-                                                },
-                                                ...(context.parameters.rateTarget
-                                                    ? {
-                                                          metric_kind: 'conversion_rate',
-                                                          value_format: 'percentage_scaled',
-                                                          unit: null,
-                                                          comparison: { operator: 'gte', value: 0.4 },
-                                                          baseline_value: 0.34,
-                                                          query: reportMetricsFixture[2].query,
-                                                      }
-                                                    : {}),
-                                                ...(context.parameters.monitoringGateOff
-                                                    ? {}
-                                                    : {
-                                                          monitoring: {
-                                                              reference_period_minutes: 10080,
-                                                              threshold_scaling:
-                                                                  context.parameters.fixedTarget ||
-                                                                  context.parameters.rateTarget
-                                                                      ? 'fixed'
-                                                                      : 'linear',
-                                                              baseline_period_minutes: 20160,
-                                                          },
-                                                      }),
-                                            },
-                                        }
-                                      : context.parameters.failed
-                                        ? {
-                                              ...check,
-                                              status: 'failed',
-                                              last_run_at: '2026-08-29T00:00:00Z',
-                                              last_outcome: 'failed',
-                                          }
-                                        : context.parameters.rangeGoal
-                                          ? {
-                                                ...check,
-                                                config: {
-                                                    ...check.config,
-                                                    comparison: {
-                                                        operator: 'between',
-                                                        bounds: { lower: 50, upper: 100 },
-                                                    },
-                                                },
-                                            }
-                                          : check,
-                              ],
+                              results: [context.parameters.check ?? check],
                           },
                     '/api/projects/:id/signals/reports/available_reviewers/': [],
                 },
@@ -161,8 +152,7 @@ type Story = StoryObj<typeof ReportExpectedImpact>
 
 export const MonitoringDefinitionFlagOff: Story = {
     parameters: {
-        monitoringDefinition: true,
-        monitoringGateOff: true,
+        check: flagOffCheck,
         featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: true, 'signals-report-monitoring': false },
     },
 }
@@ -170,7 +160,7 @@ export const MonitoringDefinitionFlagOff: Story = {
 export const MonitoringDefinition: Story = {
     args: { report: { ...report, monitoring_started_at: '2026-08-27T12:00:00Z' } },
     parameters: {
-        monitoringDefinition: true,
+        check: monitoringCheck,
         featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
     },
 }
@@ -178,7 +168,7 @@ export const MonitoringDefinition: Story = {
 export const MonitoringDefinitionNarrow: Story = {
     args: MonitoringDefinition.args,
     parameters: {
-        monitoringDefinition: true,
+        check: monitoringCheck,
         narrow: true,
         featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
     },
@@ -187,16 +177,15 @@ export const MonitoringDefinitionNarrow: Story = {
 export const MonitoringFixedTarget: Story = {
     args: MonitoringDefinition.args,
     parameters: {
-        monitoringDefinition: true,
-        fixedTarget: true,
+        check: fixedTargetCheck,
         featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
     },
 }
 
 export const MetricCheck: Story = {}
-export const RangeGoal: Story = { parameters: { rangeGoal: true } }
+export const RangeGoal: Story = { parameters: { check: rangeCheck } }
 export const Narrow: Story = { parameters: { narrow: true } }
-export const Failed: Story = { parameters: { failed: true } }
+export const Failed: Story = { parameters: { check: failedCheck } }
 export const LoadFailure: Story = { parameters: { loadFailure: true } }
 
 export const ReplacementUnavailable: Story = {
@@ -206,8 +195,7 @@ export const ReplacementUnavailable: Story = {
 export const MonitoringRateTarget: Story = {
     args: MonitoringDefinition.args,
     parameters: {
-        monitoringDefinition: true,
-        rateTarget: true,
+        check: rateTargetCheck,
         featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
     },
 }

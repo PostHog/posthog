@@ -225,6 +225,9 @@ class TestCheckComparison(SimpleTestCase):
             ("count", "total", "linear", None, True),
             ("null_count", None, "linear", None, True),
             ("sum", "sum", "linear", None, True),
+            ("session_duration_sum", "sum", "linear", None, False, "$session_duration"),
+            ("session_property_sum", "sum", "linear", None, False, "$pageview_count", "session_properties"),
+            ("fixed_session_sum", "sum", "fixed", None, True, "$session_duration"),
             ("distinct", "dau", "linear", None, False),
             ("average", "avg", "linear", None, False),
             ("fixed_average", "avg", "fixed", None, True),
@@ -234,10 +237,25 @@ class TestCheckComparison(SimpleTestCase):
         ]
     )
     def test_monitoring_targets_require_explicit_supported_scaling(
-        self, name: str, math: str | None, scaling: str, trends_filter: dict | None, valid: bool
+        self,
+        name: str,
+        math: str | None,
+        scaling: str,
+        trends_filter: dict | None,
+        valid: bool,
+        math_property: str = "amount",
+        math_property_type: str | None = None,
     ) -> None:
         query = trends_metric_query(
-            series=[{"kind": "EventsNode", "event": "checkout_failed", "math": math, "math_property": "amount"}]
+            series=[
+                {
+                    "kind": "EventsNode",
+                    "event": "checkout_failed",
+                    "math": math,
+                    "math_property": math_property,
+                    "math_property_type": math_property_type,
+                }
+            ]
         )
         if trends_filter is not None:
             query["source"]["trendsFilter"] = trends_filter
