@@ -150,7 +150,6 @@ export type {
     CdpFunctionsCdpFunctionsInvocationsCreateResponseShape21,
     CdpFunctionsCdpFunctionsInvocationsCreateData,
     CdpFunctionsCdpFunctionsInvocationsCreateOutput,
-    CdpFunctionsCdpFunctionsListRequestSchema2,
     CdpFunctionsCdpFunctionsListInput,
     CdpFunctionsCdpFunctionsListResponseShape7,
     CdpFunctionsCdpFunctionsListDataResultsItemTemplate,

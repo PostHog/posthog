@@ -218,6 +218,7 @@ export type {
     FeatureFlagsUpdateFeatureFlagRequestSchema33,
     FeatureFlagsUpdateFeatureFlagRequestSchema35,
     FeatureFlagsUpdateFeatureFlagRequestSchema2,
+    FeatureFlagsUpdateFeatureFlagRequestSchema36,
     FeatureFlagsUpdateFeatureFlagRequestSchema37,
     FeatureFlagsUpdateFeatureFlagRequestSchema38,
     FeatureFlagsUpdateFeatureFlagRequestSchema39,

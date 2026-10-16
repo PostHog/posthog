@@ -5,6 +5,11 @@ import type {
     BusinessKnowledgeClient,
     BusinessKnowledgeBusinessKnowledgeDocumentsSearchOutput,
     BusinessKnowledgeBusinessKnowledgeDocumentWindowRetrieveOutput,
+    BusinessKnowledgeBusinessKnowledgeLibrariesCreateOutput,
+    BusinessKnowledgeBusinessKnowledgeLibrariesDestroyOutput,
+    BusinessKnowledgeBusinessKnowledgeLibrariesListOutput,
+    BusinessKnowledgeBusinessKnowledgeLibrariesPartialUpdateOutput,
+    BusinessKnowledgeBusinessKnowledgeLibrariesRetrieveOutput,
     BusinessKnowledgeBusinessKnowledgeRepositoriesFileRetrieveOutput,
     BusinessKnowledgeBusinessKnowledgeRepositoriesSearchOutput,
     BusinessKnowledgeBusinessKnowledgeSourcesListOutput,
@@ -25,6 +30,36 @@ export function createBusinessKnowledgeClient(runtime: Runtime): BusinessKnowled
         businessKnowledgeDocumentWindowRetrieve: (input, options) =>
             runtime.executeTool<BusinessKnowledgeBusinessKnowledgeDocumentWindowRetrieveOutput>(
                 'business-knowledge-document-window-retrieve',
+                input,
+                options
+            ),
+        businessKnowledgeLibrariesCreate: (input, options) =>
+            runtime.executeTool<BusinessKnowledgeBusinessKnowledgeLibrariesCreateOutput>(
+                'business-knowledge-libraries-create',
+                input,
+                options
+            ),
+        businessKnowledgeLibrariesDestroy: (input, options) =>
+            runtime.executeTool<BusinessKnowledgeBusinessKnowledgeLibrariesDestroyOutput>(
+                'business-knowledge-libraries-destroy',
+                input,
+                options
+            ),
+        businessKnowledgeLibrariesList: (input, options) =>
+            runtime.executeTool<BusinessKnowledgeBusinessKnowledgeLibrariesListOutput>(
+                'business-knowledge-libraries-list',
+                input,
+                options
+            ),
+        businessKnowledgeLibrariesPartialUpdate: (input, options) =>
+            runtime.executeTool<BusinessKnowledgeBusinessKnowledgeLibrariesPartialUpdateOutput>(
+                'business-knowledge-libraries-partial-update',
+                input,
+                options
+            ),
+        businessKnowledgeLibrariesRetrieve: (input, options) =>
+            runtime.executeTool<BusinessKnowledgeBusinessKnowledgeLibrariesRetrieveOutput>(
+                'business-knowledge-libraries-retrieve',
                 input,
                 options
             ),

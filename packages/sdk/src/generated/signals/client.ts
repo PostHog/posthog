@@ -14,6 +14,7 @@ import type {
     SignalsInboxReportChecksRetrieveOutput,
     SignalsInboxReportsBulkSetStateOutput,
     SignalsInboxReportsClaimOutput,
+    SignalsInboxReportsFeedbackCreateOutput,
     SignalsInboxReportsLeaveReviewersOutput,
     SignalsInboxReportsListOutput,
     SignalsInboxReportsMergeOutput,
@@ -131,6 +132,12 @@ export function createSignalsClient(runtime: Runtime): SignalsClient {
             runtime.executeTool<SignalsInboxReportsBulkSetStateOutput>('inbox-reports-bulk-set-state', input, options),
         inboxReportsClaim: (input, options) =>
             runtime.executeTool<SignalsInboxReportsClaimOutput>('inbox-reports-claim', input, options),
+        inboxReportsFeedbackCreate: (input, options) =>
+            runtime.executeTool<SignalsInboxReportsFeedbackCreateOutput>(
+                'inbox-reports-feedback-create',
+                input,
+                options
+            ),
         inboxReportsLeaveReviewers: (input, options) =>
             runtime.executeTool<SignalsInboxReportsLeaveReviewersOutput>(
                 'inbox-reports-leave-reviewers',

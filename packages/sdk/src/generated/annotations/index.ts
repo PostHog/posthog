@@ -6,6 +6,7 @@ export type {
     AnnotationsAnnotationCreateRequestSchema2,
     AnnotationsAnnotationCreateRequestSchema3,
     AnnotationsAnnotationCreateRequestSchema4,
+    AnnotationsAnnotationCreateRequestSchema5,
     AnnotationsAnnotationCreateInput,
     AnnotationsAnnotationCreateResponseShape3,
     AnnotationsAnnotationCreateResponseShape2,

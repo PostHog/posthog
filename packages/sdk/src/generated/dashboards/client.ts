@@ -9,6 +9,7 @@ import type {
     DashboardsDashboardDeleteTileOutput,
     DashboardsDashboardInsightsRunOutput,
     DashboardsDashboardReorderTilesOutput,
+    DashboardsDashboardsBulkDeleteOutput,
     DashboardsDashboardTemplatesListOutput,
     DashboardsDashboardTemplatesRetrieveOutput,
     DashboardsDashboardTileCopyOutput,
@@ -1068,6 +1069,8 @@ export function createDashboardsClient(runtime: Runtime): DashboardsClient {
             runtime.executeTool<DashboardsDashboardInsightsRunOutput>('dashboard-insights-run', input, options),
         dashboardReorderTiles: (input, options) =>
             runtime.executeTool<DashboardsDashboardReorderTilesOutput>('dashboard-reorder-tiles', input, options),
+        dashboardsBulkDelete: (input, options) =>
+            runtime.executeTool<DashboardsDashboardsBulkDeleteOutput>('dashboards-bulk-delete', input, options),
         dashboardTemplatesList: (input, options) =>
             runtime.executeTool<DashboardsDashboardTemplatesListOutput>('dashboard-templates-list', input, options),
         dashboardTemplatesRetrieve: (input, options) =>

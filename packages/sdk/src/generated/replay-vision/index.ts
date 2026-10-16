@@ -350,7 +350,6 @@ export type {
     ReplayVisionVisionScannersUpdateRequestSchema4,
     ReplayVisionVisionScannersUpdateRequestSchema5,
     ReplayVisionVisionScannersUpdateRequestSchema6,
-    ReplayVisionVisionScannersUpdateRequestSchema7,
     ReplayVisionVisionScannersUpdateRequestSchema9,
     ReplayVisionVisionScannersUpdateRequestSchema10,
     ReplayVisionVisionScannersUpdateRequestSchema11,

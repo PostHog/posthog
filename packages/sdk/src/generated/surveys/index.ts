@@ -167,6 +167,7 @@ export type {
     SurveysSurveyUpdateRequestSchema8,
     SurveysSurveyUpdateRequestSchema7Item,
     SurveysSurveyUpdateRequestSchema7,
+    SurveysSurveyUpdateRequestSchema35,
     SurveysSurveyUpdateRequestSchema34,
     SurveysSurveyUpdateRequestSchema33,
     SurveysSurveyUpdateRequestSchema33Variant1,

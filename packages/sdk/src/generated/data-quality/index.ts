@@ -50,6 +50,7 @@ export type {
     DataQualityDataQualityCheckUpdateRequestSchema5,
     DataQualityDataQualityCheckUpdateRequestSchema8,
     DataQualityDataQualityCheckUpdateRequestSchema9,
+    DataQualityDataQualityCheckUpdateRequestSchema10,
     DataQualityDataQualityCheckUpdateInput,
     DataQualityDataQualityCheckUpdateData,
     DataQualityDataQualityCheckUpdateOutput,

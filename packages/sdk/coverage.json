@@ -610,6 +610,31 @@
         "method": "businessKnowledge.businessKnowledgeDocumentsSearch"
     },
     {
+        "toolName": "business-knowledge-libraries-create",
+        "status": "exported",
+        "method": "businessKnowledge.businessKnowledgeLibrariesCreate"
+    },
+    {
+        "toolName": "business-knowledge-libraries-destroy",
+        "status": "exported",
+        "method": "businessKnowledge.businessKnowledgeLibrariesDestroy"
+    },
+    {
+        "toolName": "business-knowledge-libraries-list",
+        "status": "exported",
+        "method": "businessKnowledge.businessKnowledgeLibrariesList"
+    },
+    {
+        "toolName": "business-knowledge-libraries-partial-update",
+        "status": "exported",
+        "method": "businessKnowledge.businessKnowledgeLibrariesPartialUpdate"
+    },
+    {
+        "toolName": "business-knowledge-libraries-retrieve",
+        "status": "exported",
+        "method": "businessKnowledge.businessKnowledgeLibrariesRetrieve"
+    },
+    {
         "toolName": "business-knowledge-repositories-file-retrieve",
         "status": "exported",
         "method": "businessKnowledge.businessKnowledgeRepositoriesFileRetrieve"
@@ -1243,6 +1268,11 @@
         "toolName": "dashboard-widgets-run",
         "status": "exported",
         "method": "dashboards.dashboardWidgetsRun"
+    },
+    {
+        "toolName": "dashboards-bulk-delete",
+        "status": "exported",
+        "method": "dashboards.dashboardsBulkDelete"
     },
     {
         "toolName": "dashboards-get-all",
@@ -2510,6 +2540,11 @@
         "method": "signals.inboxReportsClaim"
     },
     {
+        "toolName": "inbox-reports-feedback-create",
+        "status": "exported",
+        "method": "signals.inboxReportsFeedbackCreate"
+    },
+    {
         "toolName": "inbox-reports-leave-reviewers",
         "status": "exported",
         "method": "signals.inboxReportsLeaveReviewers"
@@ -3553,6 +3588,11 @@
         "toolName": "notebooks-run",
         "status": "exported",
         "method": "notebooks.notebooksRun"
+    },
+    {
+        "toolName": "notebooks-run-cell",
+        "status": "exported",
+        "method": "notebooks.notebooksRunCell"
     },
     {
         "toolName": "notebooks-run-cell-interrupt",
@@ -4795,16 +4835,6 @@
         "method": "tasks.tasksRunsSessionLogsRetrieve"
     },
     {
-        "toolName": "today-briefing-get",
-        "status": "exported",
-        "method": "today.todayBriefingGet"
-    },
-    {
-        "toolName": "today-candidates-list",
-        "status": "exported",
-        "method": "today.todayCandidatesList"
-    },
-    {
         "toolName": "update-feature-flag",
         "status": "exported",
         "method": "featureFlags.updateFeatureFlag"
@@ -5388,6 +5418,21 @@
         "toolName": "workflows-create-email-template",
         "status": "exported",
         "method": "emailTemplates.workflowsCreateEmailTemplate"
+    },
+    {
+        "toolName": "workflows-data-suggestions-create",
+        "status": "exported",
+        "method": "workflows.workflowsDataSuggestionsCreate"
+    },
+    {
+        "toolName": "workflows-data-suggestions-get",
+        "status": "exported",
+        "method": "workflows.workflowsDataSuggestionsGet"
+    },
+    {
+        "toolName": "workflows-data-suggestions-list",
+        "status": "exported",
+        "method": "workflows.workflowsDataSuggestionsList"
     },
     {
         "toolName": "workflows-discard-draft",

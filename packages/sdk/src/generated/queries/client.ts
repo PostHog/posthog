@@ -2475,6 +2475,7 @@ const sqlDefinition: OperationDefinition = {
     path: '/api/projects/{project_id}/query/',
     bindings: [
         { name: 'connectionId', wireName: 'connectionId', location: 'body' },
+        { name: 'executionTarget', wireName: 'executionTarget', location: 'body' },
         { name: 'explain', wireName: 'explain', location: 'body' },
         { name: 'filters', wireName: 'filters', location: 'body' },
         { name: 'modifiers', wireName: 'modifiers', location: 'body' },
@@ -2496,6 +2497,7 @@ const sqlDefinition: OperationDefinition = {
                     additionalProperties: false,
                     properties: {
                         connectionId: { type: 'string' },
+                        executionTarget: { enum: ['default', 'managed_trino'], type: 'string' },
                         explain: { type: 'boolean' },
                         filters: { $ref: '#/components/schemas/QueriesSqlRequestHogQLFilters' },
                         modifiers: { $ref: '#/components/schemas/QueriesSqlRequestHogQLQueryModifiers' },
@@ -3123,6 +3125,7 @@ const sqlDefinition: OperationDefinition = {
                         },
                         materializedColumnsOptimizationMode: { enum: ['disabled', 'optimized'], type: 'string' },
                         mergeFederatedAggregateJoins: { type: 'boolean' },
+                        negatedPersonFiltersNotIn: { type: 'boolean' },
                         optimizeJoinedFilters: { type: 'boolean' },
                         optimizeProjections: { type: 'boolean' },
                         parserMode: {
@@ -3155,10 +3158,12 @@ const sqlDefinition: OperationDefinition = {
                         sessionIdPushdown: { type: 'boolean' },
                         sessionPropertyPreAggregation: { type: 'boolean' },
                         sessionTableVersion: { enum: ['auto', 'v1', 'v2', 'v3'], type: 'string' },
+                        sessionTimestampBufferMinutes: { $ref: '#/components/schemas/QueriesSqlRequestInteger' },
                         sessionsV2JoinMode: { enum: ['string', 'uuid'], type: 'string' },
                         timings: { type: 'boolean' },
                         typeAwareCastSimplification: { type: 'boolean' },
                         useMaterializedViews: { type: 'boolean' },
+                        useNewEventsCluster: { type: 'boolean' },
                         useNewEventsSchema: { type: 'boolean' },
                         usePreaggregatedIntermediateResults: { type: 'boolean' },
                         usePreaggregatedTableTransforms: { type: 'boolean' },

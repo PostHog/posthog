@@ -7,6 +7,9 @@ import type {
     WorkflowsWorkflowsArchiveOutput,
     WorkflowsWorkflowsBlastRadiusOutput,
     WorkflowsWorkflowsCreateOutput,
+    WorkflowsWorkflowsDataSuggestionsCreateOutput,
+    WorkflowsWorkflowsDataSuggestionsGetOutput,
+    WorkflowsWorkflowsDataSuggestionsListOutput,
     WorkflowsWorkflowsDiscardDraftOutput,
     WorkflowsWorkflowsEnableOutput,
     WorkflowsWorkflowsGetOutput,
@@ -44,6 +47,24 @@ export function createWorkflowsClient(runtime: Runtime): WorkflowsClient {
             runtime.executeTool<WorkflowsWorkflowsBlastRadiusOutput>('workflows-blast-radius', input, options),
         workflowsCreate: (input, options) =>
             runtime.executeTool<WorkflowsWorkflowsCreateOutput>('workflows-create', input, options),
+        workflowsDataSuggestionsCreate: (input, options) =>
+            runtime.executeTool<WorkflowsWorkflowsDataSuggestionsCreateOutput>(
+                'workflows-data-suggestions-create',
+                input,
+                options
+            ),
+        workflowsDataSuggestionsGet: (input, options) =>
+            runtime.executeTool<WorkflowsWorkflowsDataSuggestionsGetOutput>(
+                'workflows-data-suggestions-get',
+                input,
+                options
+            ),
+        workflowsDataSuggestionsList: (input, options) =>
+            runtime.executeTool<WorkflowsWorkflowsDataSuggestionsListOutput>(
+                'workflows-data-suggestions-list',
+                input,
+                options
+            ),
         workflowsDiscardDraft: (input, options) =>
             runtime.executeTool<WorkflowsWorkflowsDiscardDraftOutput>('workflows-discard-draft', input, options),
         workflowsEnable: (input, options) =>

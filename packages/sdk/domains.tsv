@@ -7,7 +7,7 @@ annotations	6	@posthog/sdk/annotations
 autoresearch	24	@posthog/sdk/autoresearch
 batchExports	9	@posthog/sdk/batch-exports
 billing	15	@posthog/sdk/billing
-businessKnowledge	9	@posthog/sdk/business-knowledge
+businessKnowledge	14	@posthog/sdk/business-knowledge
 canvas	21	@posthog/sdk/canvas
 cdpFunctions	14	@posthog/sdk/cdp-functions
 cdpFunctionTemplates	2	@posthog/sdk/cdp-function-templates
@@ -17,7 +17,7 @@ conversations	13	@posthog/sdk/conversations
 core	20	@posthog/sdk/core
 crossProjectDashboards	3	@posthog/sdk/cross-project-dashboards
 customerAnalytics	73	@posthog/sdk/customer-analytics
-dashboards	18	@posthog/sdk/dashboards
+dashboards	19	@posthog/sdk/dashboards
 dataCatalog	20	@posthog/sdk/data-catalog
 dataQuality	8	@posthog/sdk/data-quality
 dataSchema	1	@posthog/sdk/data-schema
@@ -49,7 +49,7 @@ mcpRegistry	2	@posthog/sdk/mcp-registry
 mcpStore	2	@posthog/sdk/mcp-store
 messaging	3	@posthog/sdk/messaging
 metrics	6	@posthog/sdk/metrics
-notebooks	25	@posthog/sdk/notebooks
+notebooks	26	@posthog/sdk/notebooks
 persons	7	@posthog/sdk/persons
 platformFeatures	26	@posthog/sdk/platform-features
 posthogAi	2	@posthog/sdk/posthog-ai
@@ -60,18 +60,17 @@ reminders	5	@posthog/sdk/reminders
 replay	8	@posthog/sdk/replay
 replayVision	52	@posthog/sdk/replay-vision
 reviewHog	4	@posthog/sdk/review-hog
-signals	86	@posthog/sdk/signals
+signals	87	@posthog/sdk/signals
 skills	22	@posthog/sdk/skills
 stamphog	9	@posthog/sdk/stamphog
 streamlitApps	12	@posthog/sdk/streamlit-apps
 subscriptions	9	@posthog/sdk/subscriptions
 surveys	11	@posthog/sdk/surveys
 tasks	23	@posthog/sdk/tasks
-today	2	@posthog/sdk/today
 tracing	12	@posthog/sdk/tracing
 visualReview	23	@posthog/sdk/visual-review
 warehouseSources	31	@posthog/sdk/warehouse-sources
 warehouseSuggestions	7	@posthog/sdk/warehouse-suggestions
 webAnalytics	17	@posthog/sdk/web-analytics
-workflows	29	@posthog/sdk/workflows
+workflows	32	@posthog/sdk/workflows
 workspace	4	@posthog/sdk/workspace

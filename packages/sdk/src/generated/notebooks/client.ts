@@ -17,6 +17,7 @@ import type {
     NotebooksNotebooksPartialUpdateOutput,
     NotebooksNotebooksRetrieveOutput,
     NotebooksNotebooksRunOutput,
+    NotebooksNotebooksRunCellOutput,
     NotebooksNotebooksRunCellInterruptOutput,
     NotebooksNotebooksRunCellResultOutput,
     NotebooksNotebooksRunStatusOutput,
@@ -64,6 +65,8 @@ export function createNotebooksClient(runtime: Runtime): NotebooksClient {
             runtime.executeTool<NotebooksNotebooksRetrieveOutput>('notebooks-retrieve', input, options),
         notebooksRun: (input, options) =>
             runtime.executeTool<NotebooksNotebooksRunOutput>('notebooks-run', input, options),
+        notebooksRunCell: (input, options) =>
+            runtime.executeTool<NotebooksNotebooksRunCellOutput>('notebooks-run-cell', input, options),
         notebooksRunCellInterrupt: (input, options) =>
             runtime.executeTool<NotebooksNotebooksRunCellInterruptOutput>(
                 'notebooks-run-cell-interrupt',

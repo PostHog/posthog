@@ -69,7 +69,6 @@ import type {
     SubscriptionsClient,
     SurveysClient,
     TasksClient,
-    TodayClient,
     TracingClient,
     VisualReviewClient,
     WarehouseSourcesClient,
@@ -872,6 +871,26 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).businessKnowledgeDocumentWindowRetrieve(input, { ...options, signal })
                 ),
+            businessKnowledgeLibrariesCreate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).businessKnowledgeLibrariesCreate(input, { ...options, signal })
+                ),
+            businessKnowledgeLibrariesDestroy: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).businessKnowledgeLibrariesDestroy(input, { ...options, signal })
+                ),
+            businessKnowledgeLibrariesList: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).businessKnowledgeLibrariesList(input, { ...options, signal })
+                ),
+            businessKnowledgeLibrariesPartialUpdate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).businessKnowledgeLibrariesPartialUpdate(input, { ...options, signal })
+                ),
+            businessKnowledgeLibrariesRetrieve: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).businessKnowledgeLibrariesRetrieve(input, { ...options, signal })
+                ),
             businessKnowledgeRepositoriesFileRetrieve: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).businessKnowledgeRepositoriesFileRetrieve(input, { ...options, signal })
@@ -1623,6 +1642,10 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
             dashboardReorderTiles: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).dashboardReorderTiles(input, { ...options, signal })
+                ),
+            dashboardsBulkDelete: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).dashboardsBulkDelete(input, { ...options, signal })
                 ),
             dashboardTemplatesList: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
@@ -3066,6 +3089,10 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).notebooksRun(input, { ...options, signal })
                 ),
+            notebooksRunCell: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).notebooksRunCell(input, { ...options, signal })
+                ),
             notebooksRunCellInterrupt: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).notebooksRunCellInterrupt(input, { ...options, signal })
@@ -3744,6 +3771,10 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
             inboxReportsClaim: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).inboxReportsClaim(input, { ...options, signal })
+                ),
+            inboxReportsFeedbackCreate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).inboxReportsFeedbackCreate(input, { ...options, signal })
                 ),
             inboxReportsLeaveReviewers: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
@@ -4427,19 +4458,6 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 ),
         })
     )
-    const today = new LazyClient<TodayClient>(
-        () => import('./today/client.js').then(({ createTodayClient }) => createTodayClient(runtime)),
-        (load) => ({
-            todayBriefingGet: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).todayBriefingGet(input, { ...options, signal })
-                ),
-            todayCandidatesList: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).todayCandidatesList(input, { ...options, signal })
-                ),
-        })
-    )
     const tracing = new LazyClient<TracingClient>(
         () => import('./tracing/client.js').then(({ createTracingClient }) => createTracingClient(runtime)),
         (load) => ({
@@ -4856,6 +4874,18 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).workflowsCreate(input, { ...options, signal })
                 ),
+            workflowsDataSuggestionsCreate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).workflowsDataSuggestionsCreate(input, { ...options, signal })
+                ),
+            workflowsDataSuggestionsGet: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).workflowsDataSuggestionsGet(input, { ...options, signal })
+                ),
+            workflowsDataSuggestionsList: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).workflowsDataSuggestionsList(input, { ...options, signal })
+                ),
             workflowsDiscardDraft: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).workflowsDiscardDraft(input, { ...options, signal })
@@ -5183,9 +5213,6 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
         },
         get tasks(): TasksClient {
             return tasks.client
-        },
-        get today(): TodayClient {
-            return today.client
         },
         get tracing(): TracingClient {
             return tracing.client
