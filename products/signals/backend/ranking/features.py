@@ -6,11 +6,11 @@ matrix. A model records the set it was fit on in its `metadata.json`, so a run c
 sets at once: the examples Parquet, the training matrix and the scoring matrix are all built per
 set, and a model whose declared set this build cannot produce is left unscored.
 
-The two sets are the report's combined-text embedding vector and its title-only vector, one
-rendering each. They are the served contract: training (`products/signals/dags/inbox_ranking/training/`)
-and serving (the scoring sweep in this package) build features through the same `build_matrix`, so
-the booster's `feature_names` match the serving matrix by construction. The sweep reads each
-vector at scoring time and needs nothing else from the report.
+The one set is the report's combined-text embedding vector. It is the served contract: training
+(`products/signals/dags/inbox_ranking/training/`) and serving (the scoring sweep in this package)
+build features through the same `build_matrix`, so the booster's `feature_names` match the serving
+matrix by construction. The sweep reads the vector at scoring time and needs nothing else from the
+report.
 """
 
 import abc
@@ -32,11 +32,6 @@ NO_EXTRAS: Extras = MappingProxyType({})
 # snapshot, indexed by report_id, with the vector in `EMBEDDING_COLUMN` and the moment that vector
 # landed in `EMBEDDING_INSERTED_AT_COLUMN`.
 REPORT_EMBEDDINGS_EXTRA = "report_embeddings"
-# The title-only vector, under its own key, from the dataset dag's own
-# `inbox_report_title_embeddings` snapshot. Two keys rather than one, because the two families
-# exist to be compared: a row that fell back to the combined-text vector would measure nothing, and
-# a summary-only edit re-embeds only the combined rendering, so the two landing times differ.
-TITLE_EMBEDDINGS_EXTRA = "title_embeddings"
 EMBEDDING_COLUMN = "embedding_small"
 EMBEDDING_INSERTED_AT_COLUMN = "embedding_inserted_at"
 # The width of text-embedding-3-small-1536, the model the report documents are embedded with. A
@@ -111,11 +106,9 @@ class FeatureSet(abc.ABC):
 class ReportEmbeddingsFeatureSet(FeatureSet):
     """One text rendering's embedding vector, and nothing else, at one example per report.
 
-    Parameterized by the `extras` key it reads, so a rendering is a second instance rather than a
-    second class: the combined-text rendering and the title-only rendering then share this width,
-    this grain and this row budget by construction, and a regularization change lands on both. That
-    is what makes the two families' grades a measurement of the text choice rather than of the
-    recipe. A set reads its own key only, and never falls back to another rendering's vector.
+    Parameterized by the `extras` key it reads, so another rendering is a second instance rather
+    than a second class, and shares this width, this grain and this row budget by construction. A
+    set reads its own key only, and never falls back to another rendering's vector.
 
     Two modelling calls this set records, both open questions on the issue that asked for it
     (posthog#98243):
@@ -204,17 +197,12 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
 
 
 REPORT_EMBEDDINGS_FEATURE_SET = ReportEmbeddingsFeatureSet(name="report_embeddings", extras_key=REPORT_EMBEDDINGS_EXTRA)
-# The title-only rendering of the same reports, so a family can measure the title against the
-# title-plus-summary vectors on identical rows. The inbox title is what a person reads before
-# opening a report; the summary is read after. Everything else matches the set above, deliberately.
-TITLE_EMBEDDINGS_FEATURE_SET = ReportEmbeddingsFeatureSet(name="title_embeddings", extras_key=TITLE_EMBEDDINGS_EXTRA)
 
 # Every set this build can produce, by name. A model that names a set absent from here cannot be
 # scored, the same way a model whose feature names have moved on cannot.
 FEATURE_SETS: Mapping[str, FeatureSet] = MappingProxyType(
     {
         REPORT_EMBEDDINGS_FEATURE_SET.name: REPORT_EMBEDDINGS_FEATURE_SET,
-        TITLE_EMBEDDINGS_FEATURE_SET.name: TITLE_EMBEDDINGS_FEATURE_SET,
     }
 )
 

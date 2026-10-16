@@ -1881,7 +1881,7 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
     displayType?: 'auto' | 'line' | 'bar' | 'area'
     /** Draw a linear trend line for this series. Only meaningful for line, bar, and area charts. */
     trendLine?: boolean
-    /** Custom label for this series, shown in the legend and tooltips instead of the column name. */
+    /** Series label in legends and tooltips; replaces the column name. */
     label?: string
     /** Custom color for this series as a hex string (e.g. `#1d4aff`). */
     color?: string
@@ -1890,14 +1890,11 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
 export interface AssistantDataVisualizationAxisFormatting {
     /** Text prepended to each value (e.g. `$`). */
     prefix?: string
-    /** Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign. */
+    /** Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`. */
     suffix?: string
     /**
-     * Number formatting style.
-     * - `none` — no formatting.
-     * - `number` — thousands separators (e.g. `1,234`).
-     * - `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).
-     * - `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.
+     * `none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M).
+     * `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.
      */
     style?: 'none' | 'number' | 'short' | 'percent'
     /** Number of decimal places to display. */
@@ -2072,10 +2069,20 @@ export interface AssistantDataTableNode {
     [key: string]: unknown
 }
 
+export interface AssistantBIVisualizationNode {
+    kind: NodeKind.BIVisualizationNode
+    source: AssistantBareHogQLQuery
+    /** Complete worksheet configuration, including shelves and filters. Validated by the insight API. */
+    config: Record<string, unknown>
+    // Preserve display settings without expanding recursive worksheet filters in the tool schema.
+    [key: string]: unknown
+}
+
 // Zod fills in omitted kinds and takes the first matching union branch. Match events sources
 // before the generic insight wrapper so inferred tables keep their kind and table settings.
 export type InsightQuery =
     | AssistantDataTableNode
+    | AssistantBIVisualizationNode
     | AssistantInsightVizNode
     | AssistantDataVisualizationNode
     | AssistantBareInsightQuery
