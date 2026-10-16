@@ -233,7 +233,8 @@ export async function trackToolCall(
                 ...(gatewayServer ? { mcp_gateway_server: gatewayServer } : {}),
                 ...noDataAnalyticsProperties(
                     state.projectHasData,
-                    state.toolFeatureFlags?.[MCP_NO_DATA_INSTALL_NOTICE_FLAG]
+                    state.toolFeatureFlags?.[MCP_NO_DATA_INSTALL_NOTICE_FLAG],
+                    state.noDataAction
                 ),
                 ...extraProperties,
                 is_impersonated: state.isImpersonated === true,

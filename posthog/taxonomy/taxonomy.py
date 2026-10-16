@@ -3219,15 +3219,15 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Whether the active project had received at least one event when the MCP request ran. Missing when the project could not be read.",
             "type": "Boolean",
         },
-        "mcp_no_data_blocked": {
-            "label": "MCP no-data blocked",
-            "description": "Whether the MCP server returned install guidance instead of running the tool, because the project has not received any events yet. Set only on tool calls for projects without events.",
-            "type": "Boolean",
+        "mcp_no_data_action": {
+            "label": "MCP no-data action",
+            "description": "What the MCP server did with a data tool call on a project that has not received any events yet. 'blocked' returned install guidance instead of running the tool, 'warned' ran the tool and put the guidance before its result, and 'none' left the call unchanged. Set only on tool calls for projects without events.",
+            "examples": ["none", "warned", "blocked"],
         },
         "mcp_no_data_install_notice_variant": {
             "label": "MCP no-data install notice variant",
             "description": "Variant of the mcp-no-data-install-notice feature flag for this tool call. Set only on tool calls for projects without events.",
-            "examples": ["control", "test"],
+            "examples": ["control", "warn", "block"],
         },
         "mcp_vendor_client": {
             "label": "MCP vendor client (legacy)",

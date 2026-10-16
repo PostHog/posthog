@@ -153,7 +153,7 @@ export type Context = {
      * session state to record for.
      */
     setSessionActiveContext?: (updates: { orgId?: string; projectId?: string }) => Promise<void>
-    /** Set by the request resolver when the `mcp-no-data-install-notice` flag is on its test arm. */
+    /** Set by the request resolver when the `mcp-no-data-install-notice` flag is on its `warn` or `block` arm. */
     noDataInstallNotice?: boolean
     /**
      * Which PostHog connection this context runs through, when it runs through one at all. Set only

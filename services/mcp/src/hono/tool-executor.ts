@@ -32,8 +32,10 @@ import {
     buildNoDataInstallNotice,
     canQueryWarehouse,
     isNoDataBlockedTool,
-    isNoDataNoticeActive,
     MCP_NO_DATA_INSTALL_NOTICE_FLAG,
+    type NoDataNoticeMode,
+    prependNoDataNotice,
+    resolveNoDataNoticeMode,
     WIZARD_INSTALL_START_TOOL,
 } from '@/lib/no-data-guard'
 import { getPostHogClient } from '@/lib/posthog'
@@ -305,12 +307,12 @@ export class ToolExecutor {
         }
 
         const noDataNotice = await this.noDataInstallNotice(toolName, state)
-        if (noDataNotice) {
-            return this.returnNoDataNotice(toolName, noDataNotice, state, {}, analyticsMeta)
+        if (noDataNotice?.mode === 'block') {
+            return this.returnNoDataNotice(toolName, noDataNotice.text, state, {}, analyticsMeta)
         }
 
         const tool = preBuilt.build()
-        return this.callTool(
+        const result = await this.callTool(
             {
                 name: toolName,
                 schema: tool.schema,
@@ -318,9 +320,10 @@ export class ToolExecutor {
                 _meta: tool._meta,
             },
             callParams,
-            state,
+            noDataNotice ? { ...state, noDataAction: 'warned' } : state,
             analyticsMeta
         )
+        return noDataNotice ? prependNoDataNotice(result, noDataNotice.text) : result
     }
 
     // execute-sql is the one tool whose advertised description is formatted per
@@ -587,6 +590,32 @@ export class ToolExecutor {
         state: ResolvedState,
         analyticsMeta?: ToolCallAnalyticsMeta
     ): Promise<unknown> {
+        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        const innerToolName =
+            typeof toolArgs.command === 'string' ? parseExecCallInnerToolName(toolArgs.command) : undefined
+        const noDataNotice = innerToolName ? await this.noDataInstallNotice(innerToolName, state) : undefined
+        if (!innerToolName || !noDataNotice) {
+            return this.runExecTool(params, state, analyticsMeta)
+        }
+        if (noDataNotice.mode === 'block') {
+            const execShape = execCommandAnalyticsProperties(toolArgs, state)
+            return this.returnNoDataNotice(
+                innerToolName,
+                noDataNotice.text,
+                state,
+                { ...execShape, ...execInputShapeAnalyticsProperties(toolArgs, execShape, state) },
+                analyticsMeta
+            )
+        }
+        const result = await this.runExecTool(params, { ...state, noDataAction: 'warned' }, analyticsMeta)
+        return prependNoDataNotice(result, noDataNotice.text)
+    }
+
+    private async runExecTool(
+        params: Record<string, unknown> | undefined,
+        state: ResolvedState,
+        analyticsMeta?: ToolCallAnalyticsMeta
+    ): Promise<unknown> {
         const execMetrics: ExecMetricState = {
             innerToolName: undefined,
             commandMeta: undefined,
@@ -635,18 +664,6 @@ export class ToolExecutor {
                 content: [{ type: 'text', text: message }],
                 isError: true,
             }
-        }
-
-        const innerToolName = parseExecCallInnerToolName(validation.data.command)
-        const noDataNotice = innerToolName ? await this.noDataInstallNotice(innerToolName, state) : undefined
-        if (innerToolName && noDataNotice) {
-            return this.returnNoDataNotice(
-                innerToolName,
-                noDataNotice,
-                state,
-                { ...execShape, ...execInputShape },
-                analyticsMeta
-            )
         }
 
         const startMs = Date.now()
@@ -753,20 +770,23 @@ export class ToolExecutor {
         }
     }
 
-    // Only roster tools are blocked, so an unknown or gated name keeps its usual error. Any unknown input runs the tool.
-    private async noDataInstallNotice(toolName: string, state: ResolvedState): Promise<string | undefined> {
-        if (
-            !isNoDataBlockedTool(toolName) ||
-            !isNoDataNoticeActive({
-                projectHasData: state.projectHasData,
-                variant: state.toolFeatureFlags?.[MCP_NO_DATA_INSTALL_NOTICE_FLAG],
-                isImpersonated: state.isImpersonated,
-                suppressAnalytics: state.suppressAnalytics,
-                apiKeyScopes: state.apiKeyScopes,
-                mcpConsumer: state.clientProfile.consumer,
-            }) ||
-            !state.allTools.some((tool) => tool.name === toolName)
-        ) {
+    // Only roster tools get the notice, so an unknown or gated name keeps its usual error. Any unknown input runs the tool as usual.
+    private async noDataInstallNotice(
+        toolName: string,
+        state: ResolvedState
+    ): Promise<{ mode: NoDataNoticeMode; text: string } | undefined> {
+        if (!isNoDataBlockedTool(toolName) || !state.allTools.some((tool) => tool.name === toolName)) {
+            return undefined
+        }
+        const mode = resolveNoDataNoticeMode({
+            projectHasData: state.projectHasData,
+            variant: state.toolFeatureFlags?.[MCP_NO_DATA_INSTALL_NOTICE_FLAG],
+            isImpersonated: state.isImpersonated,
+            suppressAnalytics: state.suppressAnalytics,
+            apiKeyScopes: state.apiKeyScopes,
+            mcpConsumer: state.clientProfile.consumer,
+        })
+        if (!mode) {
             return undefined
         }
         const projectId = await state.context.stateManager.getProjectId().catch(() => undefined)
@@ -781,10 +801,11 @@ export class ToolExecutor {
                 return undefined
             }
         }
-        return buildNoDataInstallNotice({
+        const text = buildNoDataInstallNotice({
             projectId,
             offerGitHubInstall: isCloudApi() && state.allTools.some((tool) => tool.name === WIZARD_INSTALL_START_TOOL),
         })
+        return { mode, text }
     }
 
     // A normal result, not an error, so the agent relays the guidance instead of retrying the call.
@@ -799,8 +820,8 @@ export class ToolExecutor {
             toolName,
             0,
             false,
-            state,
-            { ...extraProperties, mcp_no_data_blocked: true },
+            { ...state, noDataAction: 'blocked' },
+            extraProperties,
             analyticsMeta,
             this.servedToolDescription(toolName)
         )
