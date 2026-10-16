@@ -19,6 +19,7 @@ import type { SetupGuideStep } from '../setupGuideSteps'
 import { WorkflowsOnboardingPath, workflowsSetupGuideLogic } from '../workflowsSetupGuideLogic'
 import {
     BLANK_START_ID,
+    DATA_SUGGESTION_START_ID,
     ONBOARDING_WIZARD_TAB,
     WIZARD_STEP_COPY,
     WizardConnection,
@@ -46,6 +47,7 @@ export interface workflowsOnboardingWizardLogicValues {
     initialized: boolean
     isLastStep: boolean
     missingConnections: WizardConnection[]
+    offersSuggestions: boolean
     pushEnabled: boolean
     pushSetupStarted: boolean
     selectedTemplate: HogFlowTemplate | null
@@ -55,7 +57,9 @@ export interface workflowsOnboardingWizardLogicValues {
     stepDone: Partial<Record<WizardStepKey, boolean>> | null
     stepIndex: number
     stepKeys: readonly WizardStepKey[]
+    suggestionsFirst: boolean
     templates: HogFlowTemplate[]
+    templatesShown: boolean
     wizardPath: WorkflowsOnboardingPath
 }
 
@@ -94,6 +98,9 @@ export interface workflowsOnboardingWizardLogicActions {
     finish: () => {
         value: true
     }
+    finishWithSuggestion: () => {
+        value: true
+    }
     initWizard: (
         path: WorkflowsOnboardingPath,
         step: WizardStepKey | null,
@@ -120,6 +127,9 @@ export interface workflowsOnboardingWizardLogicActions {
     setStepIndex: (index: number) => {
         index: number
     }
+    setTemplatesShown: (shown: boolean) => {
+        shown: boolean
+    }
     startPushSetup: () => {
         value: true
     }
@@ -131,6 +141,8 @@ export interface workflowsOnboardingWizardLogicMeta {
         pushEnabled: (featureFlags: FeatureFlagsSet) => boolean
         stepKeys: (wizardPath: WorkflowsOnboardingPath, pushEnabled: boolean) => readonly WizardStepKey[]
         currentStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => WizardStepKey
+        offersSuggestions: (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet) => boolean
+        suggestionsFirst: (offersSuggestions: boolean, currentStep: WizardStepKey, templatesShown: boolean) => boolean
         isLastStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => boolean
         templates: (workflowTemplates: HogFlowTemplate[], wizardPath: WorkflowsOnboardingPath) => HogFlowTemplate[]
         selectedTemplate: (
@@ -208,6 +220,8 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
         positionAtFirstOpenStep: (index: number) => ({ index }),
         positionIfReady: true,
         startPushSetup: true,
+        setTemplatesShown: (shown: boolean) => ({ shown }),
+        finishWithSuggestion: true,
     }),
     reducers({
         wizardPath: [
@@ -249,6 +263,15 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 initWizard: () => true,
             },
         ],
+        // A person who comes back with a template picked, or picks one, stays on the template list.
+        templatesShown: [
+            false,
+            {
+                initWizard: (_, { templateId }) => templateId !== null,
+                selectTemplate: () => true,
+                setTemplatesShown: (_, { shown }) => shown,
+            },
+        ],
         pushSetupStarted: [
             false,
             {
@@ -278,6 +301,18 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             (s) => [s.stepKeys, s.stepIndex],
             (stepKeys: readonly WizardStepKey[], stepIndex: number): WizardStepKey =>
                 stepKeys[Math.min(stepIndex, stepKeys.length - 1)],
+        ],
+        // The suggestions logic starts an AI run when it mounts, so nothing mounts it without the flag. Suggestions are
+        // messages to users, so the automation path never offers them.
+        offersSuggestions: [
+            (s) => [s.wizardPath, s.featureFlags],
+            (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet): boolean =>
+                wizardPath === 'messaging' && !!featureFlags[FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS],
+        ],
+        suggestionsFirst: [
+            (s) => [s.offersSuggestions, s.currentStep, s.templatesShown],
+            (offersSuggestions: boolean, currentStep: WizardStepKey, templatesShown: boolean): boolean =>
+                offersSuggestions && currentStep === 'journey' && !templatesShown,
         ],
         isLastStep: [
             (s) => [s.stepKeys, s.stepIndex],
@@ -432,6 +467,20 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 template_scope: template.scope,
             })
             actions.createWorkflowFromTemplate(template)
+        },
+        // A suggestion card creates and opens the workflow itself, so it skips `next` and `finish`.
+        finishWithSuggestion: () => {
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('workflows onboarding wizard step completed', {
+                path: values.wizardPath,
+                step: values.currentStep,
+                skipped: false,
+            })
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('workflows onboarding wizard finished', {
+                path: values.wizardPath,
+                template_id: DATA_SUGGESTION_START_ID,
+            })
         },
         exit: () => {
             // pinned: analytics event name - renaming breaks dashboards

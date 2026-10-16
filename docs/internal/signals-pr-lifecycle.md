@@ -13,7 +13,7 @@ Disabled organizations treat stored Monitoring reports as Resolved across reads,
 
 Background check processing discovers rollout decisions only for Monitoring reports with candidate checks and reuses them through each coordinator tick, including pending-check arming. Arming still rechecks the report's stored status under its row lock. Reopened-check batches and briefing details share one decision per team. Plan rollups reuse one decision across their child statuses and ancestor walk.
 
-PR merges still resolve reports. A plan already in Monitoring waits for verification even after its steps close. Existing checks stay pending while Monitoring is enabled and start when the report resolves. If the rollout is disabled, existing Resolved check behavior applies to stored Monitoring reports; pending checks begin at the next coordinator tick, without using the Monitoring start as a measurement anchor. Expired checks stay expired. Monitoring entry, outcome checks, and automatic completion ship separately.
+PR merges still resolve reports. A plan already in Monitoring waits for verification even after its steps close. Entering Monitoring with the rollout enabled arms existing, unexpired pending checks from the recorded implementation-complete timestamp. Archive pauses active checks; restoring Monitoring re-arms them from the same period. A delayed callback cannot arm checks after reopening, archiving, or entering a newer period. Coordinator ticks retry missed arming from the stored Monitoring start, including after a failed flag lookup, and preserve armed Monitoring checks. Their execution and result handling are not enabled by this arming change. If the rollout is disabled, existing Resolved check behavior applies to stored Monitoring reports; pending checks begin at the next coordinator tick, without using the Monitoring start as a measurement anchor. Expired checks stay expired. Monitoring entry, check execution, and automatic completion ship separately.
 
 Attaching a new open, draft, or unknown PR to a resolved or Monitoring report returns it to ready.
 The shared PR-linking service applies this rule to task outputs and agent attachments.
@@ -54,6 +54,27 @@ Approval advances the check's update timestamp so older list responses cannot un
 Custom HogQL aggregations are parsed before a metric or check is authored. Invalid syntax returns a validation error; a rejected replacement keeps the original check and its activity history intact.
 
 Protected research runs require analytics access before a person can resume or warm a successor. The successor’s bound sandbox can read the verified source history through authenticated log routes, but cannot modify the source run.
+
+## Inbox value summary
+
+The `signals-inbox-value-summary` flag shows project-wide counts above the web
+inbox in both layouts. It is disabled by default. The rolling seven-day window
+uses GitHub merge time and includes only PRs verified as output from Self-driving
+implementation tasks. Manual attachments and research or discussion tasks do not
+count. Personal inbox filters do not change the totals.
+
+The people count deduplicates human GitHub IDs across mergers and non-dismissed
+approvals submitted before merge. Approvals can predate the seven-day window.
+Bots do not count. A missing participant snapshot leaves the people count unknown,
+not zero. The response includes the merged PR links and the GitHub logins stored in
+the participant snapshot. GitHub reads run in a background task; opening the inbox
+only reads the database.
+
+The panel stays hidden when there are no qualifying merges. Dismissal lasts seven
+days and is stored per user and project in that browser. On return, the client
+refreshes a result older than five minutes. Before rollout, apply the migrations,
+run `backfill_inbox_summary --team-id <id>` in bounded batches, and check the counts
+against the linked GitHub PRs. The flag does not enable this backfill itself.
 
 ## Follow-up measurement timing
 

@@ -32,9 +32,13 @@ Returning to a notebook can reuse completed query results from the last two minu
 
 **Business intelligence** lists saved worksheets at `/bi` when the `sql-editor-bi-mode` feature flag is enabled. Search all worksheets or switch to those viewed in the last 30 days. **New worksheet** opens `/bi/new`; selecting a saved worksheet opens `/bi/<short_id>` in edit mode. The project tree's **New → Worksheet** entry opens the same editor. Worksheets retain their insight identities and folder placements, but use their own file subtype and no longer appear in the Product analytics insights list. Legacy `/bi?open_insight=...` links and shared worksheet URLs still open the editor. Business intelligence and SQL keep separate unsaved working copies, and existing SQL editor links with `mode=bi` open in Business intelligence.
 
-Choose a connection in the **Data** panel, then select a table below it. **Run** is the first toolbar action, before **Swap rows and columns**.
+Choose a connection in the **Data** panel, then select a table below it. Certified sources have a checkmark beside their table icon and appear first within their folders, and folders containing certified sources are prioritized. Deprecated sources have a warning icon. Hover over either status icon for details. Deprecated and uncertified sources remain selectable; search preserves the same ordering. **Run** is the first toolbar action, before **Swap rows and columns**.
 
 **Charts** opens chart types and series controls in the right panel. **Analysis** and the visualization settings button replace that panel with their own controls. The panel starts closed. Close it after editing to return to the chart. The Series/Display settings use the same panel and scroll independently. Row filters appear once above the chart; click a filter to edit it. **AND / OR groups** opens the grouping dialog, and **Result filters** opens a popover. The left pane contains the selected source and its dimensions and measures; **Fields** hides or restores it. The toolbar wraps as the worksheet narrows, and the right panel overlays the chart when there is not enough space to dock it. These layout changes apply only to BI worksheets; SQL and other insights retain their existing settings layout.
+
+**Separate panes by** in the Series panel splits a bar, line, or area chart by one or more shelf dimensions. For example, put Year into panes, Quarter on the chart axis, and Region on Color. Drag the selected pane dimensions to change their heading order. Every pane uses the same color mapping and category positions. Missing combinations remain gaps unless **Show nulls as zero** is enabled.
+
+Panes share their value scale by default; **Independent value scales** lets each pane scale separately. Charts with a secondary value axis use independent scales. Reference lines can calculate **Within each pane** or **Across the worksheet**; worksheet calculations use all returned marks, including panes beyond the display cap. Panes support up to 24 charts, 1,000 axis values, and 50 measure/color series, with explicit messages when those limits apply. Narrow worksheets stack the panes. Saved worksheets, shared views, and dashboard tiles retain the layout and apply dashboard filters before splitting the result; each pane uses the same query response. Period comparison must be turned off to use panes.
 
 Single-value filters distinguish selecting **(empty string)** from clearing the input: the former matches an empty value, while the latter removes the condition.
 
@@ -57,6 +61,8 @@ BI usage keeps the existing `sql-editor-bi-mode-selected`, `sql-editor-bi-query-
 **Undo** and **Redo** restore shelves, filters, calculations, formatting, chart settings, and worksheet names. The editor keeps the last 100 changes during a visit; opening another worksheet or discarding changes starts a new history. Use Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z outside text inputs. Undo respects **Auto update**: with it off, click **Run** to refresh results. **Save a copy** creates a separate worksheet and opens it in the editor without changing the original or copying its dashboard placements. Copy failures leave the original and your edits in place. Usage tracking adds `undo`, `redo`, and `copied` actions.
 
 For older saves without worksheet configuration, discarding query edits preserves the current source and shelves.
+
+Choose **View SQL** from the worksheet actions menu to inspect and copy either the current worksheet query or its last-run query. Pending changes are labeled. The SQL includes the extra result group used to detect truncated results. **Open in SQL editor** opens an unsaved SQL tab with the selected query's connection, filters, variable values, and query options intact. It does not run the query or create a warehouse view. Copying SQL copies the text only; the preview lists its query parameters separately. Relative date ranges are evaluated again on the next run.
 
 SQL query-scan advisories are hidden in Business intelligence. Query errors and warnings about stale sources or restricted data remain visible.
 
@@ -328,7 +334,7 @@ When groups preserve ungrouped values, named groups and original members retain 
 
 Repeated dimension pills use distinct result columns so their chart and table bindings stay unambiguous. Generated dimension aliases avoid source identifiers used by measures and filters. Expressions containing percent signs or matching reserved names use supported generated aliases while keeping their original calculation.
 
-BI chart settings preserve custom scatter axes and implicit count formatting. Numeric date parts can be used as scatter axes. Switching to a box plot initializes statistic mappings from matching result column names. Generated axis labels follow field renames, while custom axis labels remain unchanged.
+BI chart settings preserve custom scatter axes and implicit count formatting. Numeric date parts can be used as scatter axes and remain numeric in **Keep only** and drill-down filters. Scatter selection shows a highlighted count with **Keep only** and **Clear selection** buttons. Switching between chart types reuses results when only their presentation changes, including with auto-update off; pending data changes still require a run. Switching to a box plot initializes statistic mappings from matching result column names. Generated axis labels follow field renames, while custom axis labels remain unchanged.
 
 ## Connected fields in BI mode
 
