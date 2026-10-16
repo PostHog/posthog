@@ -10,7 +10,6 @@ of frames to review, and a log with the cut list next to the `output` path in th
 
 import os
 import re
-import ssl
 import sys
 import json
 import time
@@ -20,20 +19,11 @@ import asyncio
 import hashlib
 import tempfile
 import subprocess
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
+import requests
 from playwright.async_api import BrowserContext, Locator, Page, async_playwright
-
-try:
-    import certifi
-
-    # Some Python builds ship without CA certificates, so HTTPS calls use certifi's bundle when it is there.
-    SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
-except ImportError:
-    SSL_CONTEXT = ssl.create_default_context()
 
 DEFAULT_VIEWPORT = {"width": 1440, "height": 900}
 FIRST_LOAD_TIMEOUT_MS = 300_000
@@ -295,16 +285,13 @@ def elevenlabs_post(url: str, body: dict[str, Any], timeout: int) -> bytes:
     api_key = os.environ.get("ELEVENLABS_API_KEY")
     if not api_key:
         raise SystemExit("Music and voiceover need ELEVENLABS_API_KEY in the environment.")
-    request = urllib.request.Request(
-        url, data=json.dumps(body).encode(), headers={"xi-api-key": api_key, "content-type": "application/json"}
-    )
     try:
-        with urllib.request.urlopen(request, timeout=timeout, context=SSL_CONTEXT) as response:
-            return response.read()
-    except urllib.error.HTTPError as error:
-        raise SystemExit(f"ElevenLabs returned {error.code}: {error.read().decode()[:400]}") from error
-    except urllib.error.URLError as error:
-        raise SystemExit(f"Could not reach ElevenLabs: {error.reason}") from error
+        response = requests.post(url, json=body, headers={"xi-api-key": api_key}, timeout=timeout)
+    except requests.RequestException as error:
+        raise SystemExit(f"Could not reach ElevenLabs: {error}") from error
+    if not response.ok:
+        raise SystemExit(f"ElevenLabs returned {response.status_code}: {response.text[:400]}")
+    return response.content
 
 
 class Voiceover:
@@ -532,15 +519,14 @@ class Recorder:
             command,
         )
         await asyncio.sleep(1)
-        data = json.dumps(self.vars.real(body)).encode() if body is not None else None
-        request = urllib.request.Request(real_url, data=data, method=method, headers=self.vars.real(headers))
-        if body is not None:
-            request.add_header("Content-Type", "application/json")
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                status, raw = response.status, response.read()
-        except urllib.error.HTTPError as error:
-            status, raw = error.code, error.read()
+        response = requests.request(
+            method,
+            real_url,
+            json=self.vars.real(body) if body is not None else None,
+            headers=self.vars.real(headers),
+            timeout=60,
+        )
+        status, raw = response.status_code, response.content
         try:
             text = json.dumps(json.loads(raw), indent=2)
         except ValueError:
