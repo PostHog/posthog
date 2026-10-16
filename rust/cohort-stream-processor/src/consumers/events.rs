@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use chrono::Utc;
 use cohort_core::seed::CoverageStartMs;
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
@@ -1062,12 +1063,25 @@ impl CohortStreamEventsConsumer {
     /// The restore commits the seek list before it finishes. Finishing deletes the restore marker,
     /// so without the commit a crash right after would reopen the restored store at the broker's
     /// old, higher offsets and skip the events between.
+    ///
+    /// Nothing folds while this host's clock reads before the checkpoint's capture. Every output
+    /// version the checkpoint's source pod emitted lies before it, so a fold then cannot emit a
+    /// lower one.
     fn rewind(
         &self,
         resume: ResumePoints,
         restore: Box<PendingRestore>,
         boot_started: Instant,
     ) -> BootPhase {
+        let captured_at = restore.captured_at();
+        if Utc::now() < captured_at {
+            warn!(
+                %captured_at,
+                "this host's clock reads before the restored checkpoint's capture; holding off \
+                 dispatch until it passes",
+            );
+            return BootPhase::Rewinding { resume, restore };
+        }
         let owned = self.dispatcher.owned_set();
         let seek_list = match resume.seek_list(&self.claimed.stamp(), &self.topic, &owned) {
             Ok(seek_list) => seek_list,
