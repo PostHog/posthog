@@ -1364,6 +1364,29 @@ class TestRepartitionActivity:
             mocked.assert_awaited_once()
             purge.assert_not_called()
 
+    def test_an_append_split_whose_temp_cannot_be_deleted_stays_queued_for_the_next_run(self, team):
+        schema = _make_schema(team, {})
+        schema.sync_type = ExternalDataSchema.SyncType.APPEND
+        schema.save()
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "proactive_threshold",
+            }
+        )
+        schema.set_repartition_rewrite({"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10})
+        mocked = AsyncMock()
+        with patch.object(repartition_table, "purge_abandoned_rewrite_temp", new=AsyncMock(side_effect=OSError("s3"))):
+            capture = self._run(self._inputs(team, schema), mocked)
+
+        schema.refresh_from_db()
+        mocked.assert_not_called()
+        assert schema.repartition_pending is not None
+        assert schema.repartition_rewrite == {"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10}
+        assert "warehouse_repartition_skipped" not in [c.args[0] for c in capture.call_args_list]
+
     def test_failure_increments_attempts_without_clearing(self, team):
         schema = _make_schema(team, {})
         schema.set_repartition_pending(

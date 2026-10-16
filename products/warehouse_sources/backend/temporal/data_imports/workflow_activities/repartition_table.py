@@ -840,15 +840,15 @@ def _purge_abandoned_temp(
     logger: FilteringBoundLogger,
     *,
     clear_checkpoint: bool = False,
-) -> None:
-    """Delete the temp table that the rewrite checkpoint names. Best effort.
+) -> bool:
+    """Delete the temp table that the rewrite checkpoint names. Best effort; returns whether it is gone.
 
     A failure leaves the checkpoint in place when this function owns its removal, so the next run
     tries the delete again. It must not block the sync.
     """
     temp_uri = _rewrite_checkpoint_id(schema)
     if not temp_uri:
-        return
+        return True
     try:
         # A large temp table takes longer to delete than the heartbeat timeout.
         with HeartbeaterSync(logger=logger):
@@ -857,6 +857,7 @@ def _purge_abandoned_temp(
             )
         if purged and clear_checkpoint:
             clear_repartition_checkpoint_if_claimed(schema, claim_token=claim_token, temp_uri=temp_uri)
+        return purged
     except RepartitionSupersededError:
         logger.info("repartition: temp cleanup superseded by a newer claim")
     except Exception as e:
@@ -865,6 +866,7 @@ def _purge_abandoned_temp(
         if not _is_transient_infra_error(e):
             capture_exception(e)
         logger.warning("repartition: could not delete the temp table of an abandoned rewrite", exc_info=True)
+    return False
 
 
 def _capture_stood_down(
@@ -1180,7 +1182,11 @@ def _drop_append_split(
         logger.info("repartition: a swap is staged, so the append split stays until it lands")
         return
     rewrite_rows = _rewrite_rows_written(schema)
-    _purge_abandoned_temp(schema, table_ref, claim_token, logger)
+    # The checkpoint is the only record of the temp table, and an append table never runs the fresh
+    # rebuild that sweeps orphans, so the markers stay until the delete succeeds and the next run retries.
+    if not _purge_abandoned_temp(schema, table_ref, claim_token, logger):
+        logger.info("repartition: append split drop waits for the temp table delete, retrying next run")
+        return
     if not schema.abandon_repartition_if_claimed(claim_token):
         logger.info("repartition: append split drop superseded by a newer claim")
         return
