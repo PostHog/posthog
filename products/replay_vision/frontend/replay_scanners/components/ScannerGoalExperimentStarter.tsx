@@ -2,9 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronRight, IconFlask } from '@posthog/icons'
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
+
+import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 
 import { experimentScannerPickerLogic } from '../experimentScannerPickerLogic'
 
@@ -17,11 +19,16 @@ export function ScannerGoalExperimentStarter({
     disabledReason,
     onDraft,
 }: ScannerGoalExperimentStarterProps): JSX.Element {
-    const { experimentOptions, experimentOptionsLoading, hasLoadedOptions } = useValues(experimentScannerPickerLogic)
-    const { ensureOptionsLoaded } = useActions(experimentScannerPickerLogic)
+    const { experimentOptions, experimentOptionsLoading, hasLoadedOptions, search } =
+        useValues(experimentScannerPickerLogic)
+    const { ensureOptionsLoaded, setSearch } = useActions(experimentScannerPickerLogic)
     const [open, setOpen] = useState(false)
-    const [experimentId, setExperimentId] = useState<number | null>(null)
-    const experiment = experimentOptions.find((option) => option.id === experimentId) ?? null
+    // Kept as the object because a later search can drop the picked experiment from the options.
+    const [experiment, setExperiment] = useState<ExperimentBasicApi | null>(null)
+    const options =
+        experiment && !experimentOptions.some((option) => option.id === experiment.id)
+            ? [experiment, ...experimentOptions]
+            : experimentOptions
 
     return (
         <div className="flex flex-col gap-2">
@@ -53,11 +60,31 @@ export function ScannerGoalExperimentStarter({
                         placeholder="Select a running experiment"
                         loading={experimentOptionsLoading}
                         disabledReason={
-                            hasLoadedOptions && experimentOptions.length === 0 ? 'No running experiments' : undefined
+                            hasLoadedOptions && !search && options.length === 0 ? 'No running experiments' : undefined
                         }
-                        value={experimentId ?? undefined}
-                        options={experimentOptions.map((option) => ({ value: option.id, label: option.name }))}
-                        onChange={setExperimentId}
+                        value={experiment?.id}
+                        options={[
+                            {
+                                title: (
+                                    <LemonInput
+                                        type="search"
+                                        size="small"
+                                        fullWidth
+                                        autoFocus
+                                        placeholder="Search experiments"
+                                        value={search}
+                                        onChange={setSearch}
+                                        data-attr="vision-goal-starter-experiment-search"
+                                    />
+                                ),
+                                options: options.map((option) => ({ value: option.id, label: option.name })),
+                                footer:
+                                    search && !experimentOptionsLoading && options.length === 0
+                                        ? 'No running experiments match your search'
+                                        : undefined,
+                            },
+                        ]}
+                        onChange={(id) => setExperiment(options.find((option) => option.id === id) ?? null)}
                         data-attr="vision-goal-starter-experiment-picker"
                     />
                     <div className="flex justify-end">
