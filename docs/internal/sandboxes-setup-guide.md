@@ -139,6 +139,14 @@ Codex's sessions and shell snapshots into that directory before starting a sessi
 Authentication and platform configuration stay outside these mappings. Pi restores
 its session history through the task-session API.
 
+The agent stores completed prompt acknowledgements in its persistent state directory,
+so a resumed server skips completed prompts even when clearing their API state failed.
+Creating a resume snapshot preserves pending user messages until delivery handles
+them. If capture exceeds the file limit, it reports failure and retains the previous
+checkpoint without pruning the live workspace. Directory names such as `.cache` or
+`.venv` do not establish that their contents can be rebuilt. The legacy
+`allow_pruning` activity field remains readable but no longer enables deletion.
+
 ## Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what
