@@ -1,11 +1,13 @@
 from datetime import timedelta
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+from django.db import transaction
 from django.utils import timezone
 
 from parameterized import parameterized
 from pydantic import JsonValue
+from redis.exceptions import RedisError
 
 from products.cdp.backend.api.test.mcp_event_test_utils import MCPEventServiceTestCase
 from products.cdp.backend.mcp_event_delivery import MCPCallbackError
@@ -49,7 +51,21 @@ class TestMCPEventLifecycle(MCPEventServiceTestCase):
         subscription = self.subscribe()
         function_id = subscription.hog_function_id
         assert function_id is not None
-        self.user.delete()
+        later_callback = Mock()
+        with (
+            patch(
+                "products.cdp.backend.tasks.mcp_events.reload_hog_functions_on_workers",
+                side_effect=RedisError("example publish failure"),
+            ),
+            patch("products.cdp.backend.tasks.mcp_events.retry_mcp_destination_reload.apply_async") as retry,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.user.delete()
+            transaction.on_commit(later_callback)
+        retry.assert_called_once_with(
+            kwargs={"team_id": self.team.pk, "hog_function_ids": [str(function_id)]}, countdown=1
+        )
+        later_callback.assert_called_once_with()
         function = HogFunction.objects.get(pk=function_id)
         self.assertFalse(function.enabled)
         self.assertFalse(function.encrypted_inputs)
