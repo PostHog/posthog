@@ -317,7 +317,7 @@ def _feature_flag_pre_restore(context: RestoreContext, feature_flag: Any) -> Non
         validate_flag_restorable,  # noqa: PLC0415 — keeps the heavy dep off the import path
     )
 
-    # The endpoint shows a ValidationError's message but replaces a ValueError with its generic refusal.
+    # The endpoint shows a ValidationError's message. It replaces a ValueError with its generic refusal.
     validate_flag_restorable(feature_flag.id, team_id=feature_flag.team_id)
 
 
