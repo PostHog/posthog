@@ -18,7 +18,7 @@ describe('telegram template', () => {
         const response = await tester.invoke(
             {
                 bot_token: '123456:test-token',
-                chat_id: '{{ person.properties.telegram_chat_id }}',
+                chat_id: '{person.properties.telegram_chat_id}',
             },
             {
                 event: { event: 'signed_up' },
@@ -57,7 +57,7 @@ describe('telegram template', () => {
             {
                 bot_token: '123456:test-token',
                 chat_id: '@mychannel',
-                text: '<b>{{ event.event }}</b>',
+                text: '<b>{event.event}</b>',
                 parse_mode: 'HTML',
                 message_thread_id: '42',
                 disable_notification: true,
