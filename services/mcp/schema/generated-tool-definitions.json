@@ -7469,6 +7469,21 @@
             "readOnlyHint": true
         }
     },
+    "integrations-github-connect-url": {
+        "description": "Check whether the current project has GitHub connected, and get the URL where the user connects it. When `connected` is true, GitHub is ready: use `integration_id`, and `account` and `repository_selection` tell you which GitHub account and repositories PostHog can reach. When `connected` is false, give the user the `url` as a link, ask them to open it in a browser where they are logged in to PostHog, and wait until they say they are done. Then call this tool again to confirm the connection before you continue. Do not open the URL yourself or retry in a loop while the user is still connecting.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Get GitHub connect URL",
+        "title": "Get GitHub connect URL",
+        "required_scopes": ["integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "wizard-mcp-install"
+    },
     "integrations-github-repos-retrieve": {
         "description": "List the repositories accessible to a GitHub integration (by integration ID). Serves the cached repository list from the GitHub App installation. Supports `search` (case-insensitive name match), `limit` (default 100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo), a has_more flag, a total count, and next_offset. When has_more is true, call again with `offset` set to next_offset to get the next page. Set `compact` to false only when you need the extra repository details. Use this to validate that a repository is accessible to the integration before referencing it (e.g. when creating a GitHub data warehouse source).",
         "category": "Integrations",
