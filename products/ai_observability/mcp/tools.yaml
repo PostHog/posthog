@@ -1206,9 +1206,9 @@ tools:
         description: >
             Read experiment summaries for a scorer definition UUID, grouped by experiment and exact scorer version.
             Defaults to completed experiments; select statuses explicitly to inspect partial runs. Filter by suite,
-            dataset/revision, execution dates, experiment tags (any/all), application/model/prompt revisions, or scorer-version UUIDs to compare
-            compatible cohorts. Never combine different versions merely because their names match. Returns count,
-            next_cursor, and results.
+            dataset/revision, execution dates, experiment tags (any/all), application/model/prompt revisions, or
+            scorer-version UUIDs to compare compatible cohorts. Never combine different versions merely because their
+            names match. Returns count, next_cursor, and results.
         param_overrides:
             limit:
                 description: Page size, from 1 to 100. Defaults to 20.
