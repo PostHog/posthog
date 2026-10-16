@@ -828,12 +828,16 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 return
             }
             captureBIEditorQueryRun({ editorView: BIEditorView.BI, config: values.config })
+            const dataLogic = dataNodeLogic.findMounted({ key: values.dataNodeKey })
             const unchanged =
                 !!values.lastRunQuery &&
                 equal(getBIVisualizationSource(values.lastRunQuery), getBIVisualizationSource(values.worksheet))
+            const waitingForFirstRun =
+                dataLogic?.props.autoLoad === false &&
+                equal(dataLogic.props.query, getBIVisualizationSource(values.worksheet))
             actions.setLastRunQuery(values.worksheet)
-            if (unchanged) {
-                dataNodeLogic.findMounted({ key: values.dataNodeKey })?.actions.loadData('force_async')
+            if (unchanged || waitingForFirstRun) {
+                dataLogic?.actions.loadData('force_async')
             }
         },
         cancelQuery: () => dataNodeLogic.findMounted({ key: values.dataNodeKey })?.actions.cancelQuery(),
