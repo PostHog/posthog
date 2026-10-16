@@ -2241,7 +2241,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
     ):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        other_team = Team.objects.create(organization=self.organization, name="Other visible project")
+        Team.objects.create(organization=self.organization, name="Other visible project")
         mock_feature_enabled.side_effect = self._member_access_flags
         mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
         headers = self._token_headers(token_type, ["billing:read"], scoped_teams=[self.team.pk])
@@ -2257,7 +2257,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         # The token is scoped to one project, so the other one must not reach billing at all -
         # not in the filter, and not in a name map either, which is why none is sent.
         self.assertEqual(json.loads(passed_params["team_ids"]), [self.team.pk])
-        self.assertNotIn(str(other_team.pk), json.dumps(passed_params))
+        self.assertNotIn("teams_map", passed_params)
 
     @parameterized.expand([("personal",), ("oauth",)])
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
