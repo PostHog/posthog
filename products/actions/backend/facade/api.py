@@ -48,12 +48,3 @@ def action_filter_conditions(*, team: Team, action_ids: Sequence[int]) -> dict[i
             # One action with an uncompilable step must not cost the caller the rest of them.
             continue
     return conditions
-
-
-def action_revisions(*, team: Team, action_ids: Sequence[int]) -> dict[int, str]:
-    return {
-        action_id: updated_at.isoformat()
-        for action_id, updated_at in Action.objects.filter(
-            team__project_id=team.project_id, id__in=action_ids, deleted=False
-        ).values_list("id", "updated_at")
-    }
