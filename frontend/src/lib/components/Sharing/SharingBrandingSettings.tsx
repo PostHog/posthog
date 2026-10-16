@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconTrash, IconUpload } from '@posthog/icons'
-import { LemonButton, LemonFileInput, LemonInput, lemonToast } from '@posthog/lemon-ui'
+import { LemonInput, LemonSwitch, Link } from '@posthog/lemon-ui'
 
-import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { backendAssetUrl } from 'lib/utils/apiHost'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
 
 import { SharingLogicProps, sharingLogic } from './sharingLogic'
 
@@ -26,17 +26,15 @@ export interface SharingBrandingSettingsProps {
 export function SharingBrandingSettings({ logicProps }: SharingBrandingSettingsProps): JSX.Element {
     const { sharingSettings, sharingConfigurationLoading } = useValues(sharingLogic(logicProps))
     const { setSharingSettingsValue } = useActions(sharingLogic(logicProps))
-    const { brandLogoMediaId, brandLinkUrl } = sharingSettings
+    const { currentOrganization } = useValues(organizationLogic)
+    const { showOrganizationLogo, brandLinkUrl } = sharingSettings
+    const logoMediaId = currentOrganization?.logo_media_id ?? null
+    const logoSettingsUrl = urls.settings('organization-details', 'organization-display-name')
 
     const [linkDraft, setLinkDraft] = useState(brandLinkUrl ?? '')
     useEffect(() => {
         setLinkDraft(brandLinkUrl ?? '')
     }, [brandLinkUrl])
-
-    const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
-        onUpload: (_, __, mediaId) => setSharingSettingsValue('brandLogoMediaId', mediaId),
-        onError: (detail) => lemonToast.error(`Couldn't upload the logo: ${detail}`),
-    })
 
     const trimmedLink = linkDraft.trim()
     const linkError =
@@ -53,57 +51,43 @@ export function SharingBrandingSettings({ logicProps }: SharingBrandingSettingsP
             <div>
                 <div className="text-sm font-semibold">Your branding</div>
                 <p className="mb-0 text-xs text-secondary">
-                    Show your logo in the header of the shared dashboard instead of the PostHog logo.
+                    Show your organization logo in the header of the shared dashboard.{' '}
+                    {logoMediaId ? (
+                        <>
+                            To change it, update the logo in <Link to={logoSettingsUrl}>organization settings</Link>.
+                        </>
+                    ) : (
+                        <>
+                            Your organization has no logo yet. Upload one in{' '}
+                            <Link to={logoSettingsUrl}>organization settings</Link>.
+                        </>
+                    )}
                 </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-                {brandLogoMediaId && (
+                {logoMediaId && (
                     <img
                         className="max-h-10 max-w-40 rounded border object-contain p-1"
-                        src={backendAssetUrl(`/uploaded_media/${brandLogoMediaId}`)}
-                        alt="Your logo"
+                        src={backendAssetUrl(`/uploaded_media/${logoMediaId}`)}
+                        alt="Your organization logo"
                     />
                 )}
-                <LemonFileInput
-                    accept="image/*"
-                    multiple={false}
-                    onChange={setFilesToUpload}
-                    value={filesToUpload}
-                    loading={uploading}
-                    showUploadedFiles={false}
-                    callToAction={
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconUpload />}
-                            loading={uploading}
-                            data-attr="sharing-brand-logo-upload"
-                        >
-                            {brandLogoMediaId ? 'Replace logo' : 'Upload logo'}
-                        </LemonButton>
+                <LemonSwitch
+                    bordered
+                    label="Show organization logo"
+                    checked={!!logoMediaId && showOrganizationLogo}
+                    onChange={(checked) => setSharingSettingsValue('showOrganizationLogo', checked)}
+                    disabledReason={
+                        !logoMediaId
+                            ? 'Upload a logo in organization settings first'
+                            : sharingConfigurationLoading
+                              ? 'Saving…'
+                              : undefined
                     }
+                    data-attr="sharing-show-organization-logo"
                 />
-                {brandLogoMediaId && (
-                    <LemonButton
-                        type="secondary"
-                        status="danger"
-                        size="small"
-                        icon={<IconTrash />}
-                        onClick={() => setSharingSettingsValue('brandLogoMediaId', null)}
-                        disabledReason={
-                            uploading
-                                ? 'Wait for the new logo to finish uploading'
-                                : sharingConfigurationLoading
-                                  ? 'Saving…'
-                                  : undefined
-                        }
-                        data-attr="sharing-brand-logo-remove"
-                    >
-                        Remove logo
-                    </LemonButton>
-                )}
             </div>
-            {brandLogoMediaId && (
+            {logoMediaId && showOrganizationLogo && (
                 <LemonField.Pure label="Logo link" help="Where viewers go when they click your logo" error={linkError}>
                     <LemonInput
                         value={linkDraft}

@@ -52936,9 +52936,6 @@
                 "brandLinkUrl": {
                     "type": "string"
                 },
-                "brandLogoMediaId": {
-                    "type": "string"
-                },
                 "detailed": {
                     "type": "boolean"
                 },
@@ -52952,6 +52949,9 @@
                     "type": "boolean"
                 },
                 "showInspector": {
+                    "type": "boolean"
+                },
+                "showOrganizationLogo": {
                     "type": "boolean"
                 },
                 "theme": {

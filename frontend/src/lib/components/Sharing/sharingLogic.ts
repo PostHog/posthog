@@ -40,7 +40,7 @@ const defaultSharingSettings = {
     showInspector: false,
     hideExtraDetails: false,
     theme: 'system',
-    brandLogoMediaId: null as string | null,
+    showOrganizationLogo: false,
     brandLinkUrl: null as string | null,
 }
 
@@ -85,11 +85,11 @@ export interface sharingLogicValues {
     sharingConfigurationLoading: boolean
     sharingSettings: {
         brandLinkUrl: string | null
-        brandLogoMediaId: string | null
         hideExtraDetails: boolean
         legend: boolean
         noHeader: boolean
         showInspector: boolean
+        showOrganizationLogo: boolean
         theme: string
         whitelabel: boolean
     }
@@ -98,11 +98,11 @@ export interface sharingLogicValues {
     sharingSettingsErrors: DeepPartialMap<
         {
             brandLinkUrl: string | null
-            brandLogoMediaId: string | null
             hideExtraDetails: boolean
             legend: boolean
             noHeader: boolean
             showInspector: boolean
+            showOrganizationLogo: boolean
             theme: string
             whitelabel: boolean
         },
@@ -115,11 +115,11 @@ export interface sharingLogicValues {
     sharingSettingsValidationErrors: DeepPartialMap<
         {
             brandLinkUrl: string | null
-            brandLogoMediaId: string | null
             hideExtraDetails: boolean
             legend: boolean
             noHeader: boolean
             showInspector: boolean
+            showOrganizationLogo: boolean
             theme: string
             whitelabel: boolean
         },
@@ -153,21 +153,21 @@ export interface sharingLogicActions {
     }
     resetSharingSettings: (values?: {
         brandLinkUrl: string | null
-        brandLogoMediaId: string | null
         hideExtraDetails: boolean
         legend: boolean
         noHeader: boolean
         showInspector: boolean
+        showOrganizationLogo: boolean
         theme: string
         whitelabel: boolean
     }) => {
         values?: {
             brandLinkUrl: string | null
-            brandLogoMediaId: string | null
             hideExtraDetails: boolean
             legend: boolean
             noHeader: boolean
             showInspector: boolean
+            showOrganizationLogo: boolean
             theme: string
             whitelabel: boolean
         }
@@ -215,22 +215,22 @@ export interface sharingLogicActions {
     setSharingSettingsValues: (
         values: DeepPartial<{
             brandLinkUrl: string | null
-            brandLogoMediaId: string | null
             hideExtraDetails: boolean
             legend: boolean
             noHeader: boolean
             showInspector: boolean
+            showOrganizationLogo: boolean
             theme: string
             whitelabel: boolean
         }>
     ) => {
         values: DeepPartial<{
             brandLinkUrl: string | null
-            brandLogoMediaId: string | null
             hideExtraDetails: boolean
             legend: boolean
             noHeader: boolean
             showInspector: boolean
+            showOrganizationLogo: boolean
             theme: string
             whitelabel: boolean
         }>
@@ -247,42 +247,42 @@ export interface sharingLogicActions {
     }
     submitSharingSettingsRequest: (sharingSettings: {
         brandLinkUrl: string | null
-        brandLogoMediaId: string | null
         hideExtraDetails: boolean
         legend: boolean
         noHeader: boolean
         showInspector: boolean
+        showOrganizationLogo: boolean
         theme: string
         whitelabel: boolean
     }) => {
         sharingSettings: {
             brandLinkUrl: string | null
-            brandLogoMediaId: string | null
             hideExtraDetails: boolean
             legend: boolean
             noHeader: boolean
             showInspector: boolean
+            showOrganizationLogo: boolean
             theme: string
             whitelabel: boolean
         }
     }
     submitSharingSettingsSuccess: (sharingSettings: {
         brandLinkUrl: string | null
-        brandLogoMediaId: string | null
         hideExtraDetails: boolean
         legend: boolean
         noHeader: boolean
         showInspector: boolean
+        showOrganizationLogo: boolean
         theme: string
         whitelabel: boolean
     }) => {
         sharingSettings: {
             brandLinkUrl: string | null
-            brandLogoMediaId: string | null
             hideExtraDetails: boolean
             legend: boolean
             noHeader: boolean
             showInspector: boolean
+            showOrganizationLogo: boolean
             theme: string
             whitelabel: boolean
         }
@@ -430,7 +430,7 @@ export const sharingLogic = kea<sharingLogicType>([
             if (name === 'whitelabel' && props.insightShortId) {
                 posthog.capture(`insight whitelabel toggled`, { is_whitelabelled: value })
             }
-            if ((name === 'brandLogoMediaId' || name === 'brandLinkUrl') && props.dashboardId) {
+            if ((name === 'showOrganizationLogo' || name === 'brandLinkUrl') && props.dashboardId) {
                 posthog.capture(`dashboard custom branding updated`, {
                     dashboard_id: props.dashboardId,
                     setting: name,

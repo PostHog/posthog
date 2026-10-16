@@ -3316,12 +3316,12 @@ class SharingConfigurationSettings(BaseModel):
         extra="forbid",
     )
     brandLinkUrl: str | None = None
-    brandLogoMediaId: str | None = None
     detailed: bool | None = None
     hideExtraDetails: bool | None = None
     legend: bool | None = None
     noHeader: bool | None = None
     showInspector: bool | None = None
+    showOrganizationLogo: bool | None = None
     theme: Theme | None = None
     whitelabel: bool | None = None
 

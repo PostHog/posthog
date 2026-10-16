@@ -1610,7 +1610,7 @@ export interface SharingConfigurationSettings {
     whitelabel?: boolean
     theme?: 'light' | 'dark' | 'system'
     // Dashboards, applied only with whitelabel and the white labelling feature
-    brandLogoMediaId?: string
+    showOrganizationLogo?: boolean
     brandLinkUrl?: string
     // Insights
     noHeader?: boolean

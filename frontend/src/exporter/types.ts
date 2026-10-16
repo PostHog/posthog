@@ -56,6 +56,8 @@ export interface ExportedData extends SharingConfigurationSettings {
     exportToken?: string
     heatmap_url?: string
     heatmap_context?: HeatmapExportContext
+    /** The organization logo, resolved by the backend when `showOrganizationLogo` applies. */
+    brandLogoMediaId?: string
     /** Cohort id+name inlined for shared views, which can't reach /api/cohorts. */
     cohorts?: Pick<CohortType, 'id' | 'name'>[]
 }

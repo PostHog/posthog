@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
@@ -6,13 +8,17 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { useAvailableFeatures } from '~/mocks/features'
+import { getAvailableProductFeatures, useAvailableFeatures } from '~/mocks/features'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { examples } from '~/queries/examples'
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import { AvailableFeature, InsightShortId, InsightModel } from '~/types'
 
 import { SharingModal, SharingModalProps } from './SharingModal'
+
+const MOCK_ORGANIZATION_LOGO_ID = '0190a3c2-0000-0000-0000-000000000001'
+const MOCK_ORGANIZATION_LOGO_SVG =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="32"><rect width="120" height="32" rx="4" fill="#1d4aff"/><text x="60" y="21" font-family="sans-serif" font-size="14" fill="#fff" text-anchor="middle">Acme</text></svg>'
 
 const fakeInsight: Partial<InsightModel> = {
     id: 123,
@@ -24,6 +30,7 @@ type StoryArgs = SharingModalProps & {
     licensed?: boolean
     passwordRequired?: boolean
     sharingSettings?: SharingConfigurationSettings
+    organizationHasLogo?: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -34,7 +41,7 @@ const meta: Meta<StoryArgs> = {
         viewMode: 'story',
     },
     render: (args) => {
-        const { licensed = false, passwordRequired = false, sharingSettings, ...props } = args
+        const { licensed = false, passwordRequired = false, sharingSettings, organizationHasLogo, ...props } = args
         const [modalOpen, setModalOpen] = useState(false)
 
         useAvailableFeatures(licensed ? [AvailableFeature.WHITE_LABELLING, AvailableFeature.ACCESS_CONTROL] : [])
@@ -59,6 +66,19 @@ const meta: Meta<StoryArgs> = {
                     {}
                 ),
                 '/api/environments/:id/insights/': { results: [fakeInsight] },
+                ...(organizationHasLogo
+                    ? {
+                          '/api/organizations/@current/': {
+                              ...MOCK_DEFAULT_ORGANIZATION,
+                              logo_media_id: MOCK_ORGANIZATION_LOGO_ID,
+                              available_product_features: getAvailableProductFeatures(),
+                          },
+                          '/uploaded_media/:id': () =>
+                              new Response(MOCK_ORGANIZATION_LOGO_SVG, {
+                                  headers: { 'Content-Type': 'image/svg+xml' },
+                              }),
+                      }
+                    : {}),
             },
             patch: [
                 '/api/environments/:id/insights/:insight_id/sharing/',
@@ -145,7 +165,8 @@ export const DashboardSharingCustomBranding: Story = {
         title: 'Dashboard permissions',
         licensed: true,
         dashboardId: 123,
-        sharingSettings: { whitelabel: true, brandLinkUrl: 'https://example.com' },
+        organizationHasLogo: true,
+        sharingSettings: { whitelabel: true, showOrganizationLogo: true, brandLinkUrl: 'https://example.com' },
     },
     decorators: [
         (Story) => (

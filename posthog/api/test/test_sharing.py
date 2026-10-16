@@ -1,5 +1,4 @@
 import json
-import uuid
 from datetime import timedelta
 from functools import wraps
 from typing import Any
@@ -34,7 +33,6 @@ from posthog.models import ActivityLog, OrganizationMembership
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
-from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.user import User
 from posthog.test.authentication_checks import covers_authentication
@@ -1175,30 +1173,18 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("own_project_logo", "own", None, status.HTTP_200_OK),
-            ("other_project_logo", "other_project", None, status.HTTP_400_BAD_REQUEST),
-            ("pending_logo", "pending", None, status.HTTP_400_BAD_REQUEST),
-            ("unknown_logo", "unknown", None, status.HTTP_400_BAD_REQUEST),
-            ("malformed_logo", "malformed", None, status.HTTP_400_BAD_REQUEST),
-            ("https_link", "own", "https://example.com", status.HTTP_200_OK),
-            ("javascript_link", "own", "javascript:alert(1)", status.HTTP_400_BAD_REQUEST),
-            ("malformed_ipv6_link", "own", "https://[", status.HTTP_400_BAD_REQUEST),
-            ("invalid_port_link", "own", "https://example.com:invalid", status.HTTP_400_BAD_REQUEST),
+            ("no_link", None, status.HTTP_200_OK),
+            ("https_link", "https://example.com", status.HTTP_200_OK),
+            ("javascript_link", "javascript:alert(1)", status.HTTP_400_BAD_REQUEST),
+            ("malformed_ipv6_link", "https://[", status.HTTP_400_BAD_REQUEST),
+            ("invalid_port_link", "https://example.com:invalid", status.HTTP_400_BAD_REQUEST),
         ]
     )
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_brand_settings_validation(
-        self, _name: str, logo: str, link: str | None, expected_status: int, _patched_exporter_task: Mock
+        self, _name: str, link: str | None, expected_status: int, _patched_exporter_task: Mock
     ) -> None:
-        other_team = Team.objects.create(organization=self.organization)
-        logo_ids = {
-            "own": str(UploadedMedia.objects.create(team=self.team, content_type="image/png").id),
-            "other_project": str(UploadedMedia.objects.create(team=other_team, content_type="image/png").id),
-            "pending": str(UploadedMedia.objects.create(team=self.team, content_type="image/png", pending=True).id),
-            "unknown": str(uuid.uuid4()),
-            "malformed": "not-a-uuid",
-        }
-        settings: dict[str, object] = {"whitelabel": True, "brandLogoMediaId": logo_ids[logo]}
+        settings: dict[str, object] = {"whitelabel": True, "showOrganizationLogo": True}
         if link is not None:
             settings["brandLinkUrl"] = link
 
@@ -1213,28 +1199,37 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("boost_with_whitelabel", True, True, True),
-            ("boost_without_whitelabel", True, False, False),
-            ("free_with_whitelabel", False, True, False),
+            ("boost_with_whitelabel", True, True, True, True, True),
+            ("boost_without_whitelabel", True, False, True, True, False),
+            ("free_with_whitelabel", False, True, True, True, False),
+            ("logo_toggle_off", True, True, False, True, False),
+            ("organization_without_logo", True, True, True, False, False),
         ]
     )
-    def test_shared_dashboard_includes_brand_only_with_white_labelling(
-        self, _name: str, feature_available: bool, whitelabel: bool, expect_brand: bool
+    def test_shared_dashboard_includes_organization_logo_only_when_enabled(
+        self,
+        _name: str,
+        feature_available: bool,
+        whitelabel: bool,
+        show_organization_logo: bool,
+        organization_has_logo: bool,
+        expect_brand: bool,
     ) -> None:
+        media = UploadedMedia.objects.create(team=self.team, content_type="image/png")
         self.organization.available_product_features = (
             [{"key": AvailableFeature.WHITE_LABELLING, "name": AvailableFeature.WHITE_LABELLING}]
             if feature_available
             else []
         )
+        self.organization.logo_media = media if organization_has_logo else None
         self.organization.save()
-        media = UploadedMedia.objects.create(team=self.team, content_type="image/png")
         config = SharingConfiguration.objects.create(
             team=self.team,
             dashboard=self.dashboard,
             enabled=True,
             settings={
                 "whitelabel": whitelabel,
-                "brandLogoMediaId": str(media.id),
+                "showOrganizationLogo": show_organization_logo,
                 "brandLinkUrl": "https://example.com",
             },
         )
