@@ -33,6 +33,16 @@ packages:
 
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
+# Skip registry re-verification of every locked entry, which costs a round trip per package
+# in CI jobs and Docker builds. Policies still apply to new resolutions.
+trustLockfile: true
+# `pnpm run` must not start an install, because Docker builds install a filtered subset.
+verifyDepsBeforeRun: false
+# Installs without a terminal (flox activation, agent hooks, CI) abort when pnpm asks before
+# it rebuilds node_modules after a store or layout change, so rebuild without asking.
+confirmModulesPurge: false
+# A cold install fetches every package, so retry past brief registry errors.
+fetchRetries: 3
 
 # Fix React versions across the monorepo.
 overrides:
@@ -113,28 +123,33 @@ patchedDependencies:
     kea@4.0.0-pre.6: patches/kea@4.0.0-pre.6.patch
 
 # Dependencies that require preinstall scripts. Add entries with caution.
-onlyBuiltDependencies:
-    - '@modelcontextprotocol/ext-apps'
-    - '@mongodb-js/zstd'
-    - '@parcel/watcher'
-    - chartjs-plugin-stacked100
-    - '@swc/core'
-    - core-js
-    - core-js-pure
-    - cpu-features
-    - esbuild
-    - lmdb
-    - lz4
-    - msgpackr-extract
-    - msw
-    - node-gyp
-    - node-rdkafka
-    - protobufjs
-    - re2
-    - sharp
-    - ssh2
-    - unrs-resolver
-    - workerd
+allowBuilds:
+    '@modelcontextprotocol/ext-apps': true
+    '@mongodb-js/zstd': true
+    '@parcel/watcher': true
+    chartjs-plugin-stacked100: true
+    '@swc/core': true
+    core-js: true
+    core-js-pure: true
+    cpu-features: true
+    esbuild: true
+    lmdb: true
+    lz4: true
+    msgpackr-extract: true
+    msw: true
+    node-gyp: true
+    node-rdkafka: true
+    protobufjs: true
+    re2: true
+    sharp: true
+    ssh2: true
+    unrs-resolver: true
+    workerd: true
+    # These install without their build scripts.
+    '@datadog/pprof': false
+    ffmpeg-static: false
+    free-email-domains: false
+    puppeteer: false
 
 catalog:
     # Kea ecosystem - state management
