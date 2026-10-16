@@ -38623,9 +38623,6 @@
                 "has_active_subscription": {
                     "type": "boolean"
                 },
-                "is_deactivated": {
-                    "type": "boolean"
-                },
                 "products": {
                     "items": {
                         "$ref": "#/definitions/MaxProductInfo"

@@ -3,7 +3,6 @@
         "plan": "dev"
     },
     "customer_id": "cus_Q2Ei7TeJ3Y0uuU",
-    "deactivated": false,
     "has_active_subscription": true,
     "billing_period": {
         "current_period_start": "2024-05-08T18:56:04Z",

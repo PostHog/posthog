@@ -6,7 +6,6 @@ import { defaultPlatformAddons } from './_billing_platform_addons'
 
 export const billingJson: BillingType = {
     customer_id: 'cus_Pg7PIL8MsKi6bx',
-    deactivated: false,
     has_active_subscription: true,
     billing_period: {
         current_period_start: dayjs('2024-03-07T22:54:32Z'),

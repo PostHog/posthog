@@ -18204,7 +18204,6 @@ export namespace Schemas {
       /** @nullable */
       subscription_level?: string | null;
       has_active_subscription?: boolean;
-      deactivated?: boolean;
       is_annual_plan_customer?: boolean;
       /** @nullable */
       free_trial_until?: string | null;
@@ -18459,7 +18458,6 @@ export namespace Schemas {
       /** @nullable */
       billing_plan: string | null;
       billing_provider: BillingProviderEnum | null;
-      deactivated: boolean;
       is_annual_plan_customer: boolean;
       billing_period: BillingPeriod | null;
       trial: Trial | null;
