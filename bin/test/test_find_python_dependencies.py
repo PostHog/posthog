@@ -59,7 +59,7 @@ class TestFindPythonDependencies(unittest.TestCase):
             ("The utils file (e.g. caching key)", "posthog/utils.py", True),
             ("The underlying query runner", "posthog/hogql_queries/query_runner.py", True),
             # Non-dependencies - should NOT be included
-            ("API endpoint that calls the worker", "ee/api/subscription.py", False),
+            ("API endpoint that calls the worker", "products/subscriptions/backend/presentation/views.py", False),
             ("Schedule config that starts workflows", "posthog/temporal/schedule.py", False),
             ("Unrelated admin module", "posthog/admin/__init__.py", False),
         ]
@@ -85,7 +85,7 @@ class TestFindPythonDependencies(unittest.TestCase):
             ("image_exporter", "products/exports/backend/tasks/image_exporter.py", True),
             ("subscription_utils", "products/subscriptions/backend/logic/subscription_utils.py", True),
             # Files that should NOT affect the worker
-            ("api_endpoint", "ee/api/subscription.py", False),
+            ("api_endpoint", "products/subscriptions/backend/presentation/views.py", False),
             ("schedule_config", "posthog/temporal/schedule.py", False),
             ("frontend_code", "frontend/src/test.tsx", False),
             ("rust_code", "rust/some_file.rs", False),
@@ -190,7 +190,7 @@ class TestFindPythonDependencies(unittest.TestCase):
             ("utils", "posthog/utils.py", True),
             ("query_runner", "posthog/hogql_queries/query_runner.py", True),
             # Non-dependencies - should NOT trigger rebuild
-            ("api_endpoint", "ee/api/subscription.py", False),
+            ("api_endpoint", "products/subscriptions/backend/presentation/views.py", False),
             ("schedule_config", "posthog/temporal/schedule.py", False),
             ("admin", "posthog/admin/admins/batch_imports.py", False),
             ("tests", "posthog/test/test_utils.py", False),

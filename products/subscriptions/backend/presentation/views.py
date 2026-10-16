@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 from collections.abc import Callable, Iterable
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar, Optional, cast
 
 from django.conf import settings
 from django.contrib.postgres.expressions import ArraySubquery
@@ -25,10 +25,8 @@ from django.db.models import (
     Value,
 )
 from django.db.models.functions import Cast, Concat
-from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404
 
-import jwt
 import posthoganalytics
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -42,7 +40,10 @@ from rest_framework import exceptions, filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import CursorPagination
+from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
+from rest_framework.views import APIView
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.schema import SubscriptionAIContextLimit
@@ -58,6 +59,8 @@ from posthog.event_usage import AnalyticsProps, get_request_analytics_properties
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.organization import Organization
+from posthog.models.user import User
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.scopes import APIScopeObject
@@ -75,7 +78,6 @@ from products.exports.backend.models.subscription import (
     Subscription,
     SubscriptionDelivery,
     attribute_subscription_saves,
-    unsubscribe_using_token,
 )
 from products.exports.backend.models.subscription_context import SubscriptionContext, context_ref
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
@@ -129,15 +131,15 @@ def _capture_post_write_failure(exc: Exception) -> None:
         pass
 
 
-def _summary_quota_cache_key(organization_id) -> str:
+def _summary_quota_cache_key(organization_id: uuid.UUID) -> str:
     return f"subscription:summary_quota:org:{organization_id}"
 
 
-def _summary_cap_hit_dedupe_key(organization_id) -> str:
+def _summary_cap_hit_dedupe_key(organization_id: uuid.UUID) -> str:
     return f"subscription:summary_cap_hit:org:{organization_id}"
 
 
-def _count_active_summaries(organization) -> int:
+def _count_active_summaries(organization: Organization) -> int:
     """Count subscriptions with summary_enabled=True (and not soft-deleted) across
     every team in this organization. Single source of truth for both the cap-check
     in the serializer and the `summary_quota` action endpoint."""
@@ -148,7 +150,7 @@ def _count_active_summaries(organization) -> int:
     ).count()
 
 
-def _invalidate_summary_quota_cache(organization_id) -> None:
+def _invalidate_summary_quota_cache(organization_id: uuid.UUID) -> None:
     cache.delete(_summary_quota_cache_key(organization_id))
 
 
@@ -216,7 +218,7 @@ def _viewable_queryset(
     return viewable.filter(Q(id__in=allowed_ids) | Q(created_by=user_access_control.user))
 
 
-def _ai_create_gate_reason(organization, distinct_id: str) -> Optional[str]:
+def _ai_create_gate_reason(organization: Organization, distinct_id: str) -> Optional[str]:
     if not settings.DEBUG and not is_cloud():
         return "AI subscriptions are only available in PostHog Cloud."
     if not organization.is_ai_data_processing_approved:
@@ -238,10 +240,10 @@ def _ai_create_gate_reason(organization, distinct_id: str) -> Optional[str]:
 class DashboardExportInsightsField(serializers.Field):
     """Custom field to handle ManyToMany dashboard_export_insights as a list of IDs."""
 
-    def to_representation(self, value):
+    def to_representation(self, value: Manager) -> list[int]:
         return [obj.id for obj in value.all()]
 
-    def to_internal_value(self, data):
+    def to_internal_value(self, data: object) -> list[int]:
         if not isinstance(data, list):
             raise serializers.ValidationError("Expected a list of insight IDs.")
         for item in data:
@@ -759,7 +761,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
 
         return validated_contexts
 
-    def validate(self, attrs):
+    def validate(self, attrs: dict) -> dict:
         request = self.context.get("request")
         # Re-run the free-tier cap on create AND on restore (deleted: true → false) —
         # a soft-deleted row frees its slot, so PATCHing one back to active re-occupies
@@ -1032,7 +1034,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                 "Increase the limits in Billing settings, or ask an org admin to do so."
             )
 
-    def _validate_summary_enabled_org_limit(self, organization) -> None:
+    def _validate_summary_enabled_org_limit(self, organization: Organization) -> None:
         # Already-on subscriptions stay on for grandfathered orgs already over
         # the cap; the becoming-active check in validate() ensures we only get
         # here when the row is transitioning into the active-summary state.
@@ -1057,7 +1059,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             return str(request.user.distinct_id)
         return f"team_{self.context.get('team_id')}"
 
-    def _capture_summary_cap_hit(self, organization, active_count: int, limit: int) -> None:
+    def _capture_summary_cap_hit(self, organization: Organization, active_count: int, limit: int) -> None:
         # Rate-limited to one event per org per 10 minutes so a misbehaving
         # client retrying in a loop doesn't spam the analytics stream. Within
         # that window the user-visible 402 still fires every time.
@@ -1083,7 +1085,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             # Telemetry must never poison the validation path.
             pass
 
-    def _validate_dashboard_export_subscription(self, attrs):
+    def _validate_dashboard_export_subscription(self, attrs: dict) -> None:
         dashboard = attrs.get("dashboard") or (self.instance.dashboard if self.instance else None)
         if dashboard is None:
             # Reject dashboard_export_insights on non dashboard subscriptions
@@ -1797,7 +1799,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     # token least-privileged, and the RBAC check in check_permissions enforces actual query access
     # for every write — a scope is only a capability flag, not proof of RBAC (personal keys can
     # carry query:read without it), and session auth has no scopes at all.
-    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return None
         scopes = [f"{self.scope_object}:write"]
@@ -1805,7 +1807,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             scopes.append("query:read")
         return scopes
 
-    def check_permissions(self, request) -> None:
+    def check_permissions(self, request: Request) -> None:
         super().check_permissions(request)
         # Enforce query-viewer RBAC for every AI-prompt write, regardless of auth: the query:read
         # scope above gates tokens but does not prove the owner has query access, and session auth
@@ -1817,14 +1819,14 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         ):
             raise exceptions.PermissionDenied("You need query access to create or deliver AI prompt subscriptions.")
 
-    def _write_touches_ai_subscription(self, request, view) -> bool:
+    def _write_touches_ai_subscription(self, request: Request, view: APIView) -> bool:
         if request.data.get("prompt"):  # create (or a body that sets a prompt)
             return True
         # Existing subscription (update / test-delivery): resolve its kind by pk, team-scoped.
         pk = view.kwargs.get("pk")
         return bool(pk) and _subscription_is_ai_prompt(pk, self.team_id)
 
-    def get_throttles(self):
+    def get_throttles(self) -> list[BaseThrottle]:
         throttles = super().get_throttles()
         # An update that requests send_test_now enqueues a real email/Slack delivery — the same
         # blast radius as the test-delivery action — so it shares that team-wide throttle.
@@ -1833,7 +1835,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             throttles.append(SubscriptionTestDeliveryThrottle())
         return throttles
 
-    def safely_get_queryset(self, queryset) -> QuerySet:
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         request_params = self.request.GET.dict()
 
         if self.action == "list":
@@ -1949,7 +1951,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         url_path="summary_quota",
         required_scopes=["subscription:read"],
     )
-    def summary_quota(self, request, **kwargs):
+    def summary_quota(self, request: Request, **kwargs) -> Response:
         organization = self.organization
         cache_key = _summary_quota_cache_key(organization.id)
         cached = cache.get(cache_key)
@@ -1987,7 +1989,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         pagination_class=SubscriptionSummaryCursorPagination,
         filter_backends=[],
     )
-    def summaries(self, request, **kwargs):
+    def summaries(self, request: Request, **kwargs) -> Response:
         query = SubscriptionSummariesQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         if "insight" in query.validated_data:
@@ -2059,7 +2061,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         # also require query:read (test-delivery runs the AI HogQL pipeline). A static
         # required_scopes here would short-circuit that check.
     )
-    def test_delivery(self, request, **kwargs):
+    def test_delivery(self, request: Request, **kwargs) -> Response:
         subscription = self.get_object()
         if subscription.deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -2104,7 +2106,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             )
 
         posthoganalytics.capture(
-            distinct_id=str(request.user.distinct_id),
+            distinct_id=str(cast(User, request.user).distinct_id),
             event="subscription_test_delivery_scheduled",
             properties={
                 **get_request_analytics_properties(request),
@@ -2291,7 +2293,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         status = snapshot.get(AI_REPORT_QUERY_PLAN_STATUS_KEY)
         return status if isinstance(status, str) and status in AIQueryPlanStatus.values else None
 
-    def to_representation(self, instance):
+    def to_representation(self, instance: SubscriptionDelivery) -> dict:
         data = super().to_representation(instance)
         # The viewset sets this flag when an AI prompt delivery is read by a caller without query
         # access; scrub the query-derived report so subscription:read (or a self-granted query:read
@@ -2394,16 +2396,3 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
                     )
                 queryset = queryset.filter(status=status_param)
         return queryset.filter(_viewable_delivery_filter(self.user_access_control, self.team_id)).distinct()
-
-
-def unsubscribe(request: HttpRequest):
-    token = request.GET.get("token")
-    if not token:
-        return JsonResponse({"success": False})
-
-    try:
-        unsubscribe_using_token(token)
-    except jwt.DecodeError:
-        return JsonResponse({"success": False})
-
-    return JsonResponse({"success": True})

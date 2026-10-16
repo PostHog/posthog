@@ -39,8 +39,7 @@ from products.subscriptions.backend.temporal.types import (
     TrackedSubscriptionInputs,
 )
 from products.subscriptions.backend.temporal.workflows import ProcessAISubscriptionWorkflow, ProcessSubscriptionWorkflow
-
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+from products.subscriptions.backend.tests.subscriptions_test_factory import create_subscription
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 

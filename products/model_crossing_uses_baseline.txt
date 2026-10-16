@@ -521,8 +521,6 @@ posthog.User web_analytics.WebAnalyticsFilterPreset.last_modified_by reverse-acc
 product_analytics.Insight alerts.AlertConfiguration.insight reverse-accessor(alertconfiguration_set) 1
 product_analytics.Insight dashboards.Dashboard.insights reverse-accessor(dashboards) 1
 product_analytics.Insight dashboards.DashboardTile.insight reverse-accessor(dashboard_tiles) 1
-product_analytics.Insight ee.api.subscription instance-many(filter) 2
-product_analytics.Insight ee.api.subscription instance-many(manager) 2
 product_analytics.Insight ee.hogai.artifacts.handlers.visualization instance-many(filter) 1
 product_analytics.Insight ee.hogai.artifacts.types in-collection 1
 product_analytics.Insight ee.hogai.chat_agent.insights.nodes instance-many(order_by) 1
@@ -592,6 +590,8 @@ product_analytics.Insight products.pulse.backend.sources.anchored_insights insta
 product_analytics.Insight products.pulse.backend.sources.resource_health instance-many(filter) 2
 product_analytics.Insight products.reminders.backend.constants in-collection 1
 product_analytics.Insight products.slack_app.backend.slack_link_unfurl instance-single 1
+product_analytics.Insight products.subscriptions.backend.presentation.views instance-many(filter) 2
+product_analytics.Insight products.subscriptions.backend.presentation.views instance-many(manager) 2
 product_analytics.Insight products.subscriptions.backend.temporal.snapshot_activities instance-many(only) 1
 product_analytics.Insight products.surveys.backend.api.survey instance-single 1
 product_analytics.Insight surveys.Survey.linked_insight reverse-accessor(surveys_linked_insight) 1

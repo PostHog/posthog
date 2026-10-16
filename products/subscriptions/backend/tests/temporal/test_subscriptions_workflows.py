@@ -92,8 +92,7 @@ from products.subscriptions.backend.temporal.workflows import (
     ScheduleAllSubscriptionsWorkflow,
     _summarize_export_failure_details,
 )
-
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+from products.subscriptions.backend.tests.subscriptions_test_factory import create_subscription
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
