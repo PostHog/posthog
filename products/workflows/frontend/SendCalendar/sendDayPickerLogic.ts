@@ -42,6 +42,7 @@ export interface sendDayPickerLogicValues {
     effectiveTimezone: string // broadcastWizardLogic
     emailSettings: BroadcastEmailSettings // broadcastWizardLogic
     sendAt: string | null // broadcastWizardLogic
+    loadFailed: boolean // sendCalendarLogic
     scheduledFlows: ScheduledEmailFlow[] | null // sendCalendarLogic
     scheduledFlowsLoading: boolean // sendCalendarLogic
     weekStartDay: number // sendCalendarLogic
@@ -69,6 +70,7 @@ export interface sendDayPickerLogicActions {
     setSendAt: (sendAt: string | null) => {
         sendAt: string | null
     } // broadcastWizardLogic
+    loadScheduledFlows: () => any // sendCalendarLogic
     applySuggestion: () => {
         value: true
     }
@@ -144,13 +146,13 @@ export const sendDayPickerLogic = kea<sendDayPickerLogicType>([
     connect((props: BroadcastWizardLogicProps) => ({
         values: [
             sendCalendarLogic,
-            ['scheduledFlows', 'scheduledFlowsLoading', 'weekStartDay'],
+            ['scheduledFlows', 'scheduledFlowsLoading', 'weekStartDay', 'loadFailed'],
             teamLogic,
             ['currentTeam'],
             broadcastWizardLogic(props),
             ['sendAt', 'effectiveTimezone', 'audienceProperties', 'emailSettings'],
         ],
-        actions: [broadcastWizardLogic(props), ['setSendAt']],
+        actions: [broadcastWizardLogic(props), ['setSendAt'], sendCalendarLogic, ['loadScheduledFlows']],
     })),
     actions({
         setAnchor: (anchor: string | null) => ({ anchor }),
@@ -208,12 +210,14 @@ export const sendDayPickerLogic = kea<sendDayPickerLogicType>([
             ): CalendarSend[] => {
                 const now = dayjs()
                 const grid = calendarRange(days, timezone)
-                // Past sends inside the cap window count too, and the suggestion looks ahead past the grid.
-                const earliest = now.subtract(rule.windowDays, 'day')
-                const latest = now.add(SUGGESTION_HORIZON_DAYS + 1, 'day')
+                // The suggestion looks ahead past the grid. Every day it checks counts the sends a full cap
+                // window either side of it, so the range reaches one window past both ends.
+                const firstChecked = grid.start.isBefore(now) ? grid.start : now
+                const horizonEnd = now.add(SUGGESTION_HORIZON_DAYS + 1, 'day')
+                const lastChecked = grid.end.isAfter(horizonEnd) ? grid.end : horizonEnd
                 const range = {
-                    start: grid.start.isBefore(earliest) ? grid.start : earliest,
-                    end: grid.end.isAfter(latest) ? grid.end : latest,
+                    start: firstChecked.subtract(rule.windowDays, 'day'),
+                    end: lastChecked.add(rule.windowDays, 'day'),
                 }
                 return (scheduledFlows ?? [])
                     .filter((item) => item.flow.id !== id)

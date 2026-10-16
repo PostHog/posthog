@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import type { SendAudience } from './sendCalendarUtils'
+import { type SendAudience, audienceFromProperties } from './sendCalendarUtils'
 import { SendingRule, mayShareRecipients, sendingRule, suggestSendTime } from './sendSpacing'
 
 const DEFAULT_RULE = sendingRule(null)
@@ -67,6 +67,16 @@ describe('sendSpacing', () => {
                 { key: 'plan', type: 'person', operator: 'exact', value: ['free'] },
             ] as SendAudience['filters']),
             audience([24]),
+            true,
+        ],
+        [
+            'two audiences that each leave out a different cohort',
+            audienceFromProperties([
+                { key: 'id', type: 'cohort', operator: 'not_in', value: 21 },
+            ] as SendAudience['filters']),
+            audienceFromProperties([
+                { key: 'id', type: 'cohort', operator: 'not_in', value: 24 },
+            ] as SendAudience['filters']),
             true,
         ],
     ])('decides whether %s can share people', (_, a, b, expected) => {

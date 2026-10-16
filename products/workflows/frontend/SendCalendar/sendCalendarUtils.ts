@@ -2,7 +2,7 @@ import { RRule } from 'rrule'
 
 import { dayjs } from 'lib/dayjs'
 
-import { AnyPropertyFilter, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type {
     HogFlowBatchJobApi,
@@ -105,9 +105,12 @@ export function sendAudience(flow: Pick<HogFlowMinimalApi, 'trigger' | 'actions'
 }
 
 export function audienceFromProperties(properties: AnyPropertyFilter[], accounts = false): SendAudience {
+    // An excluded cohort says nothing about who else the audience reaches, so it counts like any other filter.
+    const isCohortInclusion = (filter: AnyPropertyFilter): boolean =>
+        filter.type === PropertyFilterType.Cohort && filter.operator !== PropertyOperator.NotIn
     return {
-        cohortIds: audienceCohortIds(properties),
-        filters: properties.filter((filter) => filter.type !== PropertyFilterType.Cohort),
+        cohortIds: audienceCohortIds(properties.filter(isCohortInclusion)),
+        filters: properties.filter((filter) => !isCohortInclusion(filter)),
         accounts,
         address: null,
     }

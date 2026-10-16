@@ -9,10 +9,32 @@ import { SUGGESTION_HORIZON_DAYS, describeRule } from './sendSpacing'
 
 export function SendDayPickerStatus(): JSX.Element {
     const { props } = useMountedLogic(broadcastWizardLogic)
-    const { scheduledFlows, sendAt, selectedCrowding, suggestion, rule, isTransactional, effectiveTimezone } =
-        useValues(sendDayPickerLogic(props))
-    const { applySuggestion } = useActions(sendDayPickerLogic(props))
+    const {
+        scheduledFlows,
+        loadFailed,
+        sendAt,
+        selectedCrowding,
+        suggestion,
+        rule,
+        isTransactional,
+        effectiveTimezone,
+    } = useValues(sendDayPickerLogic(props))
+    const { applySuggestion, loadScheduledFlows } = useActions(sendDayPickerLogic(props))
 
+    if (loadFailed) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{
+                    children: 'Retry',
+                    onClick: loadScheduledFlows,
+                    'data-attr': 'send-day-picker-retry-load',
+                }}
+            >
+                Couldn't load your other sends, so we can't check this day against them. You can still pick a day.
+            </LemonBanner>
+        )
+    }
     if (!scheduledFlows) {
         return (
             <div className="flex items-center gap-2 text-sm text-secondary">
