@@ -17,6 +17,15 @@
 
 locals {
   mentions = join(" ", [for id in var.billing_alert_mention_slack_user_ids : "<@${id}>"])
+
+  # Anyone holding project 2's public key can send an event that passes the filter below.
+  # Escaping every event value stops such an event from adding links or mentions to the post.
+  escape = "replaceAll(replaceAll(replaceAll(toString(%s ?? ''), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')"
+
+  # Slack rejects a section over 3,000 characters, so the exception text is cut short.
+  message   = "substring(${format(local.escape, "event.properties.$exception_values[1]")}, 1, 2700)"
+  details   = "substring(${format(local.escape, "f'Kind: {event.properties.alert_kind}{notEmpty(event.properties.reason) ? f' | Reason: {event.properties.reason}' : ''}{notEmpty(event.properties.mismatch) ? f' | Mismatch: {event.properties.mismatch}' : ''}{event.properties.payer_id != null ? f' | Payer: {event.properties.payer_id}' : ''}{notEmpty(event.properties.organization_id) ? f' | Organization: {event.properties.organization_id}' : ''}{event.properties.customer_count != null ? f' | Customers: {event.properties.customer_count}' : ''}{notEmpty(event.properties.organization_ids) ? concat(' | Organizations: ', substring(arrayStringConcat(event.properties.organization_ids, ', '), 1, 2500)) : ''}'")}, 1, 3000)"
+  issue_url = "{project.url}/error_tracking/{encodeURLComponent(toString(event.properties.$exception_issue_id ?? ''))}"
 }
 
 resource "posthog_hog_function" "partner_billing_alert" {
@@ -28,30 +37,31 @@ resource "posthog_hog_function" "partner_billing_alert" {
 
   inputs_json = jsonencode({
     "text" = {
-      "value"      = "${local.mentions} {substring(event.properties.$exception_values[1], 1, 2700)} | Kind: {event.properties.alert_kind}{notEmpty(event.properties.reason) ? f' | Reason: {event.properties.reason}' : ''}{notEmpty(event.properties.mismatch) ? f' | Mismatch: {event.properties.mismatch}' : ''}{event.properties.payer_id != null ? f' | Payer: {event.properties.payer_id}' : ''}{notEmpty(event.properties.organization_id) ? f' | Organization: {event.properties.organization_id}' : ''}{event.properties.customer_count != null ? f' | Customers: {event.properties.customer_count}' : ''}{notEmpty(event.properties.organization_ids) ? concat(' | Organizations: ', substring(arrayStringConcat(event.properties.organization_ids, ', '), 1, 2500)) : ''} | Issue: {project.url}/error_tracking/{event.properties.$exception_issue_id}"
+      "value"      = "${local.mentions} {${local.message}} | {${local.details}} | Issue: ${local.issue_url}"
       "templating" = "hog"
     }
     "blocks" = {
       "value" = [
         {
           "text" = {
-            # Slack rejects a section over 3,000 characters, so the exception text is cut short.
-            "text" = "${local.mentions} {substring(event.properties.$exception_values[1], 1, 2700)}"
-            "type" = "mrkdwn"
+            "text"     = "${local.mentions} {${local.message}}"
+            "type"     = "mrkdwn"
+            "verbatim" = true
           }
           "type" = "section"
         },
         {
           "type" = "context"
           "elements" = [{
-            "text" = "{substring(f'Kind: {event.properties.alert_kind}{notEmpty(event.properties.reason) ? f' | Reason: {event.properties.reason}' : ''}{notEmpty(event.properties.mismatch) ? f' | Mismatch: {event.properties.mismatch}' : ''}{event.properties.payer_id != null ? f' | Payer: {event.properties.payer_id}' : ''}{notEmpty(event.properties.organization_id) ? f' | Organization: {event.properties.organization_id}' : ''}{event.properties.customer_count != null ? f' | Customers: {event.properties.customer_count}' : ''}{notEmpty(event.properties.organization_ids) ? concat(' | Organizations: ', substring(arrayStringConcat(event.properties.organization_ids, ', '), 1, 2500)) : ''}', 1, 3000)}"
-            "type" = "mrkdwn"
+            "text"     = "{${local.details}}"
+            "type"     = "mrkdwn"
+            "verbatim" = true
           }]
         },
         {
           "type" = "actions"
           "elements" = [{
-            "url"  = "{project.url}/error_tracking/{event.properties.$exception_issue_id}"
+            "url"  = local.issue_url
             "text" = { "text" = "View issue", "type" = "plain_text" }
             "type" = "button"
           }]
