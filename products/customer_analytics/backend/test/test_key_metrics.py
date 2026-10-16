@@ -1,23 +1,33 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import PropertyDefinition
 from posthog.test.persons import create_person
 
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
-from products.actions.backend.models.action import Action
-from products.customer_analytics.backend.facade.api import get_key_metrics, get_key_metrics_fingerprint
+from products.customer_analytics.backend.facade.api import get_key_metrics
+from products.customer_analytics.backend.logic import key_metrics as key_metrics_logic
 
 
 class TestKeyMetrics(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        blocking = patch.object(
+            key_metrics_logic, "EXECUTION_MODE", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        )
+        blocking.start()
+        self.addCleanup(blocking.stop)
+
     def _midnight(self) -> datetime:
         return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -87,42 +97,77 @@ class TestKeyMetrics(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         metrics = get_key_metrics(team=self.team, user=viewer)
+        cached = get_key_metrics(team=self.team, user=viewer)
+        assert metrics is not None
 
         self.assertEqual(
-            ({m.key: (m.this_week, m.last_week) for m in metrics}, {m.key: len(m.daily) for m in metrics}),
-            (expected, {"signup_event": 35, "activity_event": 35}),
+            (
+                {m.key: (m.this_week, m.last_week) for m in metrics},
+                {m.key: len(m.daily) for m in metrics},
+                cached,
+            ),
+            (expected, {"signup_event": 35, "activity_event": 35}, metrics),
         )
 
-    def test_the_fingerprint_changes_only_when_an_action_or_the_test_account_filters_change(self) -> None:
-        with time_machine.travel("2026-03-02T09:00:00Z", tick=False) as traveller:
-            action = Action.objects.create(
-                team=self.team,
-                name="Paid",
-                steps_json=[
-                    {
-                        "event": "paid",
-                        "properties": [
-                            {"key": "plan_started", "value": "-7d", "operator": "is_date_after", "type": "event"}
-                        ],
-                    }
-                ],
-            )
-            config = self.team.customer_analytics_config
-            config.payment_event = {"kind": "ActionsNode", "id": action.id}
-            config.save()
-            prints = [get_key_metrics_fingerprint(self.team)]
-            traveller.shift(timedelta(hours=1))
-            prints.append(get_key_metrics_fingerprint(self.team))
-            action.steps_json = [{"event": "checkout completed"}]
-            action.save()
-            prints.append(get_key_metrics_fingerprint(self.team))
-            action.deleted = True
-            action.save()
-            prints.append(get_key_metrics_fingerprint(self.team))
-            self.team.test_account_filters = [
-                {"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}
-            ]
-            self.team.save()
-            prints.append(get_key_metrics_fingerprint(self.team))
+    def test_days_follow_the_project_timezone(self) -> None:
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
+        config = self.team.customer_analytics_config
+        config.activity_event = {"kind": "EventsNode", "event": "opened_file"}
+        config.save()
+        with time_machine.travel("2026-03-02T12:00:00Z", tick=False):
+            for person, at in (("late-yesterday", "2026-03-01T14:00:00Z"), ("early-today", "2026-03-01T16:00:00Z")):
+                create_person(team=self.team, distinct_ids=[person])
+                _create_event(team=self.team, event="opened_file", distinct_id=person, timestamp=at)
+            flush_persons_and_events()
 
-        self.assertEqual((prints[0], len(set(prints[1:]))), (prints[1], 4))
+            metrics = get_key_metrics(team=self.team, user=self.user)
+
+        assert metrics is not None
+        activity = metrics[0]
+        self.assertEqual((activity.this_week, activity.daily[-1]), (1.0, (date(2026, 3, 1), 1.0)))
+
+    def test_an_uncached_query_returns_nothing_and_calculates_in_the_background(self) -> None:
+        config = self.team.customer_analytics_config
+        config.activity_event = {"kind": "EventsNode", "event": "opened_file"}
+        config.save()
+
+        with (
+            patch.object(key_metrics_logic, "EXECUTION_MODE", ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE),
+            patch("posthog.hogql_queries.query_runner.QueryRunner.enqueue_async_calculation") as enqueue,
+        ):
+            metrics = get_key_metrics(team=self.team, user=self.user)
+
+        self.assertEqual((metrics, enqueue.call_count), (None, 1))
+
+    @parameterized.expand(
+        [
+            ("a later minute reuses the result", timedelta(minutes=10), True),
+            ("a new day calculates again", timedelta(days=1), False),
+        ]
+    )
+    def test_a_relative_date_filter_keeps_the_cached_result_until_the_day_changes(
+        self, _name: str, later: timedelta, reused: bool
+    ) -> None:
+        self.team.test_account_filters = [
+            {"key": "signed_up_at", "value": "-30d", "operator": "is_date_after", "type": "person"}
+        ]
+        self.team.save()
+        config = self.team.customer_analytics_config
+        config.activity_event = {
+            "kind": "EventsNode",
+            "event": "opened_file",
+            "properties": [{"key": "opened_at", "value": "-7d", "operator": "is_date_after", "type": "event"}],
+        }
+        config.save()
+
+        with time_machine.travel("2026-03-02T12:00:00Z", tick=False) as traveller:
+            first = get_key_metrics(team=self.team, user=self.user)
+            traveller.shift(later)
+            with (
+                patch.object(key_metrics_logic, "EXECUTION_MODE", ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE),
+                patch("posthog.hogql_queries.query_runner.QueryRunner.enqueue_async_calculation"),
+            ):
+                second = get_key_metrics(team=self.team, user=self.user)
+
+        self.assertEqual((first is not None, second == first), (True, reused))

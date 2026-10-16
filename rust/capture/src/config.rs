@@ -11,13 +11,11 @@ pub enum CaptureMode {
     Events,
     Recordings,
     Ai,
-    /// Analytics ingestion dedicated to historical backfills (the
-    /// batch-import-worker). Like `Events` for the batch/event paths, but with
-    /// three differences: it never applies the global rate limiter, it drops any
-    /// batch not flagged `historical_migration: true`, and it does not register
-    /// the AI or OTEL routes (those handlers hardcode `historical_migration:
-    /// false` and would bypass both gates). See `applies_global_rate_limit`,
-    /// `requires_historical_migration`, and the router's per-mode arm.
+    /// Analytics ingestion for historical backfills (the batch-import-worker).
+    /// Unlike `Events`, it skips the global rate limiter, drops batches not
+    /// flagged `historical_migration: true`, serves no AI or OTEL routes (their
+    /// handlers hardcode `historical_migration: false`), and has no AI overflow
+    /// lane.
     Import,
 }
 
@@ -47,6 +45,11 @@ impl CaptureMode {
     /// true`. Only `Import` does — it exclusively ingests historical data.
     pub fn requires_historical_migration(&self) -> bool {
         matches!(self, CaptureMode::Import)
+    }
+
+    /// Import has no AI overflow lane: imports must never overflow.
+    pub fn has_ai_overflow_lane(&self) -> bool {
+        !matches!(self, CaptureMode::Import)
     }
 }
 
@@ -271,6 +274,11 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub overflow_enabled: bool,
 
+    /// Builds the AI lane's overflow limiter when `overflow_enabled` is also
+    /// set. Restriction overflow does not need it.
+    #[envconfig(default = "false")]
+    pub ai_events_overflow_enabled: bool,
+
     #[envconfig(default = "false")]
     pub overflow_preserve_partition_locality: bool,
 
@@ -310,7 +318,7 @@ pub struct Config {
     #[envconfig(default = "capture")]
     pub otel_service_name: String,
 
-    // Used for integration tests
+    /// Install the Prometheus recorder and the limiters' metric tasks.
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
     pub redis_key_prefix: Option<String>,
@@ -418,14 +426,10 @@ pub struct Config {
     pub capture_v1_scatter_gather_min_batch: usize,
 
     // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
-    // Warnings are emitted as `$$client_ingestion_warning` events onto the
-    // existing `client_ingestion_warning` topic, by default on the main event
-    // cluster: absent the warnings-cluster overrides below, the producer
-    // reuses the main cluster's hosts/TLS — but it gets its OWN dedicated
-    // `common_kafka::config::KafkaConfig` (below) with fire-and-forget
-    // acks/retries and a small queue, so a saturated or slow warnings topic
-    // can never behave like — or contend with — the main event producer.
-    // Defaults off (fail open).
+    // Warnings go out as `$$client_ingestion_warning` events through a
+    // dedicated `common_kafka::config::KafkaConfig` with fire-and-forget
+    // acks/retries and a small queue, so a slow warnings topic cannot contend
+    // with the main event producer. Defaults off (fail open).
     #[envconfig(default = "false")]
     pub capture_ingestion_warnings_enabled: bool,
 
@@ -586,12 +590,11 @@ pub struct OutputsConfig {
     pub ai_main_topic: String,
     #[envconfig(from = "CAPTURE_OUTPUT_AI_MAIN_PRODUCER", default = "INGESTION")]
     pub ai_main_producer: ProducerName,
-    /// Unset means AI events never overflow. When set, the AI lane uses the
-    /// analytics main lane's overflow limiter and restriction-driven
-    /// force_overflow, and reroutes here. Import mode refuses it at boot
-    /// because imports must never overflow.
-    #[envconfig(from = "CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC")]
-    pub ai_overflow_topic: Option<String>,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC",
+        default = "events_plugin_ingestion_ai_overflow"
+    )]
+    pub ai_overflow_topic: String,
     #[envconfig(from = "CAPTURE_OUTPUT_AI_OVERFLOW_PRODUCER", default = "INGESTION")]
     pub ai_overflow_producer: ProducerName,
     /// Carries event-restriction redirects to an admin-supplied topic.
@@ -683,7 +686,11 @@ mod tests {
         let config: Config =
             envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
         assert_eq!(config.outputs.ai_main_topic, "events_plugin_ingestion_ai");
-        assert_eq!(config.outputs.ai_overflow_topic, None);
+        assert_eq!(
+            config.outputs.ai_overflow_topic,
+            "events_plugin_ingestion_ai_overflow"
+        );
+        assert!(!config.ai_events_overflow_enabled);
         assert_eq!(
             config.outputs.session_replay_main_topic,
             "session_recording_snapshot_item_events"
@@ -705,7 +712,7 @@ mod tests {
     #[case("CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC", |c: &Config| c.outputs.error_tracking_topic.clone())]
     #[case("CAPTURE_OUTPUT_DLQ_TOPIC", |c: &Config| c.outputs.dlq_topic.clone())]
     #[case("CAPTURE_OUTPUT_AI_MAIN_TOPIC", |c: &Config| c.outputs.ai_main_topic.clone())]
-    #[case("CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC", |c: &Config| c.outputs.ai_overflow_topic.clone().unwrap_or_default())]
+    #[case("CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC", |c: &Config| c.outputs.ai_overflow_topic.clone())]
     fn topic_env_var_binds_to_its_field(
         #[case] env_var: &str,
         #[case] field: fn(&Config) -> String,
@@ -743,7 +750,7 @@ mod tests {
             outputs.error_tracking_topic.as_str(),
             outputs.dlq_topic.as_str(),
             outputs.ai_main_topic.as_str(),
-            outputs.ai_overflow_topic.as_deref().unwrap_or_default(),
+            outputs.ai_overflow_topic.as_str(),
         ];
         assert!(!topics.contains(&"legacy_topic"), "{env_var} is still read");
     }
