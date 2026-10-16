@@ -1,9 +1,9 @@
-"""Classify every person and mapping of one team, in ClickHouse primary key order, into resumable chunk files.
+"""Classify every person and mapping of one team, in ClickHouse primary key order, and write a resumable report.
 
-Each chunk reads persons by (team_id, id) and mappings by (team_id, distinct_id), compares them with Postgres,
-and writes a hash of every key it classified for a later Postgres pass. A page is recorded in the cursor only
-after its rows are written, so a stopped run resumes at the first unrecorded page. Rows hold raw keys, so the
-scan directory is private to its owner.
+Each chunk reads persons by (team_id, id) and mappings by (team_id, distinct_id) and compares them with Postgres.
+A Postgres pass then lists persons by id and reports only what ClickHouse has no row for, so it runs after every
+chunk. A page is recorded in the cursor only after its rows are written, so a stopped run resumes at the first
+unrecorded page. Rows hold raw keys, so the scan directory is private to its owner; the summary carries none.
 """
 
 from __future__ import annotations
@@ -14,22 +14,33 @@ import stat
 import time
 import hashlib
 import dataclasses
-from collections import Counter
-from collections.abc import Callable, Sequence
+from collections import Counter, defaultdict
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
+from uuid import UUID
 
 import numpy as np
 
 from posthog.dataclasses import frozen
 from posthog.models.person.divergence import lookups, observe
-from posthog.models.person.divergence.flavors import Verdict, classify_mapping, classify_person
+from posthog.models.person.divergence.flavors import (
+    PERSON_VERBS,
+    PgMapping,
+    PgPerson,
+    Verdict,
+    classify_mapping,
+    classify_person,
+)
 from posthog.models.person.divergence.inspection import ghost_era, hash_distinct_id
+from posthog.models.person.util import list_persons_for_team
 from posthog.models.team import Team
 
 PLAN_VERSION = 1
 PLAN_FILE = "plan.json"
+REPORT_FILE = "report.jsonl"
+SUMMARY_FILE = "summary.json"
 
 KeyKind = Literal["person", "mapping"]
 ChPhase = Literal["persons", "mappings"]
@@ -93,6 +104,13 @@ class KeyBounds:
     # Inclusive lower and exclusive upper bound; None is open.
     lower: str | None
     upper: str | None
+
+
+@frozen
+class IdRange:
+    # Postgres person ids in [start, end).
+    start: int
+    end: int
 
 
 @frozen
@@ -171,6 +189,16 @@ def chunk_files(scan_dir: Path, chunk: int) -> RunFiles:
         cursor=scan_dir / f"chunk-{chunk}.cursor.json",
         person_keys=scan_dir / f"chunk-{chunk}.person-keys.u64",
         mapping_keys=scan_dir / f"chunk-{chunk}.mapping-keys.u64",
+    )
+
+
+def postgres_files(scan_dir: Path, id_range: IdRange | None) -> RunFiles:
+    name = "postgres" if id_range is None else f"postgres-{id_range.start}-{id_range.end}"
+    return RunFiles(
+        rows=scan_dir / f"{name}.rows.jsonl",
+        cursor=scan_dir / f"{name}.cursor.json",
+        person_keys=None,
+        mapping_keys=None,
     )
 
 
@@ -528,3 +556,378 @@ def _first_key(phase: ChPhase) -> str:
 
 def _next_phase(phase: ChPhase) -> str:
     return "mappings" if phase == "persons" else DONE
+
+
+def _load_key_set(paths: Sequence[Path]) -> np.ndarray:
+    arrays = [np.fromfile(p, dtype="<u8") for p in paths if p.exists()]
+    return np.unique(np.concatenate(arrays)) if arrays else np.empty(0, dtype="<u8")
+
+
+def _contains(key_set: np.ndarray, keys: Sequence[int]) -> list[bool]:
+    """Membership in a sorted key set, in O(len(keys) log len(key_set))."""
+    if not keys or not len(key_set):
+        return [False] * len(keys)
+    wanted = np.asarray(keys, dtype="<u8")
+    positions = np.minimum(np.searchsorted(key_set, wanted), len(key_set) - 1)
+    return (key_set[positions] == wanted).tolist()
+
+
+def _require_chunks_done(scan_dir: Path, plan: ScanPlan) -> list[RunFiles]:
+    files = [chunk_files(scan_dir, i) for i in range(len(plan.chunks))]
+    unfinished = [i for i, f in enumerate(files) if (c := load_cursor(f.cursor)) is None or c.phase != DONE]
+    if unfinished:
+        raise ScanError(f"chunks {unfinished} have not finished their ClickHouse phases")
+    return files
+
+
+def run_postgres(
+    scan_dir: Path,
+    *,
+    resume: bool,
+    id_range: IdRange | None = None,
+    pause_seconds: float = 0.0,
+    log: Callable[[str], None] = lambda _: None,
+) -> Cursor:
+    """List Postgres persons by id and report the persons and mappings no ClickHouse phase saw.
+
+    `id_range` limits the run to Postgres person ids in [start, end), so several runs can split the team.
+    """
+    plan = load_plan(scan_dir)
+    if not plan.team_exists:
+        raise ScanError(f"team {plan.team_id} does not exist in Postgres; there is nothing to list")
+    chunks = _require_chunks_done(scan_dir, plan)
+    person_keys = _load_key_set([f.person_keys for f in chunks if f.person_keys is not None])
+    mapping_keys = _load_key_set([f.mapping_keys for f in chunks if f.mapping_keys is not None])
+    files = postgres_files(scan_dir, id_range)
+    cursor = load_cursor(files.cursor)
+    if cursor is not None and not resume:
+        raise ScanError(f"{files.cursor} exists; pass resume to continue it")
+    cursor = cursor or Cursor(phase="postgres", after=str(id_range.start - 1 if id_range else 0))
+    before = id_range.end if id_range else None
+    writer = _RunWriter(files, cursor)
+    try:
+        while cursor.phase != DONE:
+            persons, next_after = list_persons_for_team(
+                plan.team_id, int(cursor.after or 0), before_person_id=before, limit=plan.pg_page_size
+            )
+            if not persons:
+                writer.finish_phase(DONE)
+                break
+            rows, counts = _classify_postgres_page(plan, persons, person_keys, mapping_keys)
+            writer.commit(rows, counts=counts, after=str(persons[-1].id), phase="postgres")
+            log(f"postgres: page {cursor.pages}, {len(persons)} persons, {len(rows)} reported")
+            if next_after is None:
+                writer.finish_phase(DONE)
+            elif pause_seconds:
+                time.sleep(pause_seconds)
+    finally:
+        writer.close()
+    return cursor
+
+
+def _classify_postgres_page(
+    plan: ScanPlan, persons: Sequence[Any], person_keys: np.ndarray, mapping_keys: np.ndarray
+) -> tuple[list[dict[str, Any]], Counter[str]]:
+    observed_at = _now()
+    team_id = plan.team_id
+    rows: list[dict[str, Any]] = []
+    counts: Counter[str] = Counter()
+    uuids = [str(UUID(p.uuid)) for p in persons]
+    seen = _contains(person_keys, [key_hash(u) for u in uuids])
+
+    def pg_person(p: Any) -> PgPerson:
+        return PgPerson(
+            id=int(p.id), version=int(p.version), is_deleted=p.is_deleted, has_live_mappings=p.has_live_distinct_ids
+        )
+
+    unseen_live = [(p, u) for p, u, s in zip(persons, uuids, seen) if not s and not p.is_deleted]
+    # The key sets decide which keys to read; ClickHouse itself decides whether a row exists.
+    present = observe.ch_person_states(team_id, [u for _, u in unseen_live]) if unseen_live else {}
+    for p, person_uuid in unseen_live:
+        if person_uuid in present:
+            counts["postgres/key_set_miss/person"] += 1
+            continue
+        verdict = classify_person(pg_person(p), None)
+        counts[_count_key("person", verdict)] += 1
+        rows.append(
+            _row(
+                kind="person",
+                team_id=team_id,
+                key=person_uuid,
+                verdict=verdict,
+                phase="postgres",
+                observed_at=observed_at,
+                pg=pg_person(p),
+                ch=None,
+            )
+        )
+    for p, person_uuid, s in zip(persons, uuids, seen):
+        counts[f"postgres/person/{'deleted' if p.is_deleted else 'live'}"] += 1
+        if s and not p.is_deleted and not p.has_live_distinct_ids:
+            verdict = Verdict(flavor="no_live_mappings", sub_flavor=None, verb=PERSON_VERBS[("no_live_mappings", None)])
+            counts[_count_key("person", verdict)] += 1
+            rows.append(
+                _row(
+                    kind="person",
+                    team_id=team_id,
+                    key=person_uuid,
+                    verdict=verdict,
+                    phase="postgres",
+                    observed_at=observed_at,
+                    pg=pg_person(p),
+                    ch=None,
+                )
+            )
+
+    owners = {int(p.id): (p, u) for p, u in zip(persons, uuids) if p.has_live_distinct_ids}
+    by_person = lookups._live_distinct_ids_for_persons(team_id, sorted(owners))
+    mappings = [(owners[pid], did, version) for pid, dids in by_person.items() for did, version in dids]
+    counts["postgres/mapping/live"] += len(mappings)
+    mapping_seen = _contains(mapping_keys, [key_hash(did) for _, did, _ in mappings])
+    unseen = [m for m, s in zip(mappings, mapping_seen) if not s]
+    present_mappings = observe.ch_mapping_states(team_id, [did for _, did, _ in unseen]) if unseen else {}
+    for (p, person_uuid), distinct_id, version in unseen:
+        if distinct_id in present_mappings:
+            counts["postgres/key_set_miss/mapping"] += 1
+            continue
+        pg_row = PgMapping(
+            person_id=int(p.id),
+            person_uuid=person_uuid,
+            version=int(version),
+            is_deleted=False,
+            person_is_deleted=p.is_deleted,
+        )
+        verdict = classify_mapping(pg_row, None)
+        counts[_count_key("mapping", verdict)] += 1
+        rows.append(
+            _row(
+                kind="mapping",
+                team_id=team_id,
+                key=distinct_id,
+                verdict=verdict,
+                phase="postgres",
+                observed_at=observed_at,
+                pg=pg_row,
+                ch=None,
+            )
+        )
+    return rows, counts
+
+
+@frozen
+class ScanRuns:
+    chunks: list[RunFiles]
+    postgres: list[RunFiles]
+
+
+def _run_files(scan_dir: Path, plan: ScanPlan) -> ScanRuns:
+    chunks = [chunk_files(scan_dir, i) for i in range(len(plan.chunks))]
+    postgres = [
+        RunFiles(
+            rows=p.with_name(p.name.replace(".cursor.json", ".rows.jsonl")),
+            cursor=p,
+            person_keys=None,
+            mapping_keys=None,
+        )
+        for p in sorted(scan_dir.glob("postgres*.cursor.json"))
+    ]
+    return ScanRuns(chunks=chunks, postgres=postgres)
+
+
+def _iter_rows(runs: Sequence[RunFiles]) -> Iterator[dict[str, Any]]:
+    for run in runs:
+        if not run.rows.exists():
+            continue
+        with run.rows.open() as handle:
+            for line in handle:
+                yield json.loads(line)
+
+
+@frozen
+class _Pair:
+    old: str
+    new: str
+
+
+class _Groups:
+    """Repair groups that span keys: a diverged mapping names its old owner (the ClickHouse one) and its
+    new owner (the Postgres one). A pair is safe to repair as a unit only when neither person takes part
+    in any other pair."""
+
+    def __init__(self) -> None:
+        self.new_by_old: defaultdict[str, set[str]] = defaultdict(set)
+        self.old_by_new: defaultdict[str, set[str]] = defaultdict(set)
+        self.person_verbs: dict[str, str | None] = {}
+        self.primary_person_rows: set[str] = set()
+        self.no_live_mapping_persons: set[str] = set()
+        self.ghost_mapping_owners: set[str] = set()
+
+    def observe(self, row: dict[str, Any]) -> None:
+        if row["kind"] == "mapping" and row["flavor"] == "diverged" and row["sub_flavor"] in ("a_absent", "a_live"):
+            old = row["evidence"]["ch"]["winner_person_uuid"]
+            new = row["evidence"]["pg"]["person_uuid"]
+            self.new_by_old[old].add(new)
+            self.old_by_new[new].add(old)
+        elif row["kind"] == "mapping" and row["flavor"] == "ghost" and row["sub_flavor"] == "owner_ghost":
+            self.ghost_mapping_owners.add(row["evidence"]["ch"]["winner_person_uuid"])
+        elif row["kind"] == "person":
+            if row["flavor"] == "no_live_mappings":
+                self.no_live_mapping_persons.add(row["key"])
+            else:
+                self.primary_person_rows.add(row["key"])
+                if row["flavor"] == "ghost":
+                    self.person_verbs[row["key"]] = row["verb"]
+
+    def pair_for_old(self, old: str) -> _Pair | None:
+        news = self.new_by_old.get(old)
+        if not news or len(news) != 1:
+            return None
+        (new,) = news
+        return _Pair(old=old, new=new) if self.old_by_new[new] == {old} else None
+
+    def ambiguous(self, old: str) -> bool:
+        return old in self.new_by_old and self.pair_for_old(old) is None
+
+    def fold_mode(self, old: str) -> str:
+        # A full fold restores the old person with its ghost mappings, then merges it with an event.
+        # Without a ghost mapping there is no distinct id to merge from, so a light fold moves the data instead.
+        return "full" if old in self.ghost_mapping_owners else "light"
+
+
+def _regroup(row: dict[str, Any], groups: _Groups, plan: ScanPlan) -> dict[str, Any] | None:
+    """Apply the cross-key decisions to one row. Returns None for a row merged into another."""
+    kind, flavor, sub = row["kind"], row["flavor"], row["sub_flavor"]
+    if kind == "person":
+        key = row["key"]
+        if flavor == "no_live_mappings" and key in groups.primary_person_rows:
+            return None
+        if flavor != "no_live_mappings" and key in groups.no_live_mapping_persons:
+            row["also"] = ["no_live_mappings"]
+        if flavor == "ghost":
+            pair = groups.pair_for_old(key)
+            if pair is not None:
+                row["verb"], row["group"] = "fold", f"fold:{pair.old}>{pair.new}"
+                row["fold_mode"] = groups.fold_mode(pair.old)
+            elif groups.ambiguous(key):
+                row["verb"], row["group"] = None, f"ambiguous:{key}"
+            elif row["verb"] == "restore":
+                row["group"] = f"restore:{key}"
+        return row
+
+    if flavor == "diverged" and sub in ("a_absent", "a_live"):
+        old = row["evidence"]["ch"]["winner_person_uuid"]
+        pair = groups.pair_for_old(old)
+        if pair is None:
+            new = row["evidence"]["pg"]["person_uuid"]
+            row["sub_flavor"], row["verb"] = "ambiguous", None
+            row["group"] = f"ambiguous:{new}" if len(groups.old_by_new[new]) > 1 else f"ambiguous:{old}"
+        else:
+            row["group"] = f"{row['verb']}:{pair.old}>{pair.new}"
+            if row["verb"] == "fold":
+                row["fold_mode"] = groups.fold_mode(pair.old)
+    elif flavor == "ghost":
+        owner = row["evidence"]["ch"]["winner_person_uuid"]
+        if not plan.team_exists:
+            # Like their owners, ghosts of a deleted team are left as they are.
+            row["verb"] = None
+        elif sub == "owner_ghost":
+            pair = groups.pair_for_old(owner)
+            if pair is not None:
+                row["verb"], row["group"] = "fold", f"fold:{pair.old}>{pair.new}"
+                row["fold_mode"] = groups.fold_mode(pair.old)
+            elif groups.ambiguous(owner):
+                row["verb"], row["group"] = None, f"ambiguous:{owner}"
+            else:
+                # A ghost mapping follows its ghost owner: restored with it, or left with it.
+                row["verb"] = groups.person_verbs.get(owner, row["verb"])
+                if row["verb"] == "restore":
+                    row["group"] = f"restore:{owner}"
+    return row
+
+
+def _summary_group_name(team_id: int, group: str) -> str:
+    # Group names embed person uuids; the summary keeps the verb and a hash, which report rows can be matched by.
+    return f"{group.split(':', 1)[0]}:{hash_distinct_id(team_id, group)}"
+
+
+def finalize(scan_dir: Path, *, partial: bool = False) -> dict[str, Any]:
+    """Join every run's rows into the report, apply the cross-key groups, and write the summary."""
+    plan = load_plan(scan_dir)
+    runs_found = _run_files(scan_dir, plan)
+    chunks, postgres = runs_found.chunks, runs_found.postgres
+    cursors = {str(f.cursor.name): load_cursor(f.cursor) for f in [*chunks, *postgres]}
+    unfinished = sorted(name for name, c in cursors.items() if c is None or c.phase != DONE)
+    if plan.team_exists and not postgres:
+        unfinished.append("postgres.cursor.json")
+    complete = not unfinished
+    if not complete and not partial:
+        raise ScanError(f"unfinished runs: {unfinished}; finish them, or finalize a partial report")
+
+    runs = [*chunks, *postgres]
+    groups = _Groups()
+    for row in _iter_rows(runs):
+        groups.observe(row)
+
+    reported: Counter[tuple[str, str, str | None, str | None]] = Counter()
+    group_sizes: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    group_verbs: dict[str, str | None] = {}
+    fold_modes: dict[str, str] = {}
+    tmp = scan_dir / (REPORT_FILE + ".tmp")
+    with tmp.open("w") as out:
+        for row in _iter_rows(runs):
+            final = _regroup(row, groups, plan)
+            if final is None:
+                continue
+            out.write(json.dumps(final, sort_keys=True) + "\n")
+            reported[(final["kind"], final["flavor"], final["sub_flavor"], final["verb"])] += 1
+            if final["group"] is not None:
+                group_sizes[final["group"]][final["kind"]] += 1
+                group_verbs[final["group"]] = final["verb"]
+                if "fold_mode" in final:
+                    fold_modes[final["group"]] = final["fold_mode"]
+    os.replace(tmp, scan_dir / REPORT_FILE)
+
+    classified: Counter[str] = Counter()
+    for cursor in cursors.values():
+        if cursor is not None:
+            classified.update(cursor.counts)
+    verbs: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    for (kind, _, _, verb), n in reported.items():
+        verbs[verb or "none"][f"{kind}_rows"] += n
+    for verb in group_verbs.values():
+        verbs[verb or "none"]["groups"] += 1
+    largest = sorted(group_sizes.items(), key=lambda item: -sum(item[1].values()))[:25]
+    summary = {
+        "team_id": plan.team_id,
+        "team_exists": plan.team_exists,
+        "complete": complete,
+        "unfinished_runs": unfinished,
+        "finalized_at": _now(),
+        # Chunk bounds are sampled keys, so the summary keeps only how many chunks the plan has.
+        "plan": {**{k: v for k, v in plan.to_json().items() if k != "chunks"}, "chunks": len(plan.chunks)},
+        "report": REPORT_FILE,
+        # Postgres runs split by id range cover the team only if their ranges do; check them here.
+        "postgres_runs": [f.cursor.name.removesuffix(".cursor.json") for f in postgres],
+        "classified": dict(sorted(classified.items())),
+        "reported": [
+            {"kind": kind, "flavor": flavor, "sub_flavor": sub, "verb": verb, "rows": n}
+            for (kind, flavor, sub, verb), n in sorted(reported.items(), key=lambda item: (-item[1], str(item[0])))
+        ],
+        "verbs": {verb: dict(c) for verb, c in sorted(verbs.items())},
+        "groups": {
+            "count": len(group_sizes),
+            "fold_modes": dict(sorted(Counter(fold_modes.values()).items())),
+            "largest": [
+                {
+                    "group": _summary_group_name(plan.team_id, group),
+                    "verb": group_verbs[group],
+                    "fold_mode": fold_modes.get(group),
+                    "person_rows": c["person"],
+                    "mapping_rows": c["mapping"],
+                }
+                for group, c in largest
+            ],
+        },
+    }
+    _write_json_atomic(scan_dir / SUMMARY_FILE, summary)
+    return summary
