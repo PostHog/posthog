@@ -566,13 +566,7 @@ def apply_next_push_rule(
     if follow_up is not None and pr_lines is not None:
         probability = next_push_probability(follow_up=follow_up, pr_lines=pr_lines)
     if probability is not None and probability >= NEXT_PUSH_SKIP_AT and not decision.would_skip:
-        decision = _matched(
-            "next_push_likely",
-            own_commits=decision.own_commits,
-            probability=decision.probability,
-            model=decision.model,
-            own_code_lines=decision.own_code_lines,
-        )
+        decision = replace(decision, skip=_rule_enabled("next_push_likely"), would_skip=True, reason="next_push_likely")
     return replace(decision, next_push_probability=probability)
 
 

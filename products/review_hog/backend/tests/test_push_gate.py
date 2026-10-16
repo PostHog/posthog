@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -513,3 +514,10 @@ def test_push_gate_skips_follow_ups_that_rarely_surface_anything(
         decision, run_index=run_index, reviewable_lines=reviewable_lines, previous_findings=previous_findings
     )
     assert (result.skip, result.would_skip, result.reason) == expected
+
+
+def test_next_push_rule_keeps_the_value_rule_inputs() -> None:
+    decision = replace(_running(200), reviewable_lines=400, previous_findings=2)
+    with patch(f"{_MODULE}.NEXT_PUSH_SKIP_AT", 0.0):
+        result = apply_next_push_rule(decision, follow_up=4, pr_lines=400)
+    assert (result.reason, result.reviewable_lines, result.previous_findings) == ("next_push_likely", 400, 2)
