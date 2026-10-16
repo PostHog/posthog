@@ -711,6 +711,7 @@ the row lists both.
 | revenuecat                       | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | reverb                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | revolut_merchant                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| rewardful                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | rippling                         | HTTP                        | requests                                                        | ✅                          |
 | rki_covid                        | HTTP                        | requests                                                        | ✅                          |
 | roark                            | HTTP                        | requests                                                        | ✅                          |
@@ -1400,7 +1401,6 @@ doesn't conflict with concurrent PRs.
 - reply_io
 - retail_express
 - retently
-- rewardful
 - ringcentral
 - rocket_chat
 - rocket_matter
