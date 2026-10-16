@@ -31,6 +31,7 @@ import {
     captureBudgetSteerIfNeeded,
     captureProcessKilledIfNeeded,
     heartbeatWorkflowIfNeeded,
+    notifyPermissionRequestIfNeeded,
 } from '../lib/side-effects.js'
 import {
     ClientDisconnected,
@@ -268,6 +269,15 @@ async function ingestEventLines(
             result.accepted++
             result.last_accepted_seq = seq
             captureProcessKilledIfNeeded(claims.runId, seq, event, claims.taskId, claims.teamId, originalToken, config)
+            notifyPermissionRequestIfNeeded(
+                claims.runId,
+                seq,
+                event,
+                claims.taskId,
+                claims.teamId,
+                originalToken,
+                config
+            )
 
             await heartbeatWorkflowIfNeeded(
                 redisStream,
