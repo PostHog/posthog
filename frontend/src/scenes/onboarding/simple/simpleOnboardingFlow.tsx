@@ -4,6 +4,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { type BillingProductV2Type, OnboardingStepKey } from '~/types'
 
 import { OnboardingUpgradeStep } from '../billing/OnboardingUpgradeStep'
+import { OnboardingInviteTeammates } from '../OnboardingInviteTeammates'
 import { OnboardingInstallStep } from '../sdks/OnboardingInstallStep'
 import {
     ProductAnalyticsSDKInstructions,
@@ -40,7 +41,8 @@ function buildWizardInstallStep(productKey: ProductKey): OnboardingStepDescripto
 
 export function buildSimpleOnboardingFlow(
     billingProduct: BillingProductV2Type | null,
-    shouldShowBilling: boolean
+    shouldShowBilling: boolean,
+    canInviteTeammates: boolean
 ): OnboardingStepDescriptor[] {
     const steps: OnboardingStepDescriptor[] = [
         buildWizardInstallStep(SIMPLE_ONBOARDING_PRODUCT_KEY),
@@ -61,6 +63,16 @@ export function buildSimpleOnboardingFlow(
             label: 'Select a plan',
             role: 'primary',
             render: () => <OnboardingUpgradeStep product={billingProduct} />,
+        })
+    }
+    if (canInviteTeammates) {
+        steps.push({
+            id: `${OnboardingStepKey.INVITE_TEAMMATES}:${SIMPLE_ONBOARDING_PRODUCT_KEY}`,
+            productKey: SIMPLE_ONBOARDING_PRODUCT_KEY,
+            stepKey: OnboardingStepKey.INVITE_TEAMMATES,
+            label: 'Invite your team',
+            role: 'primary',
+            render: () => <OnboardingInviteTeammates />,
         })
     }
     return steps
