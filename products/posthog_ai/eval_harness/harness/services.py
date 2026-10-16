@@ -47,8 +47,9 @@ EVAL_AI_PRODUCT = "posthog_ai"
 """The gateway product eval tasks resolve to through their ``posthog_ai`` origin."""
 
 AI_GATEWAY_EVAL_DATABASE = "ai_gateway_evals"
-AI_GATEWAY_EVAL_ALLOWANCE_USD = "10000"
-"""The highest overspend allowance the gateway accepts. Each run token still caps one run."""
+AI_GATEWAY_EVAL_CREDITS_USD = "10000"
+_AI_GATEWAY_INTERNAL_TOKEN = secrets.token_urlsafe(32)
+_AI_GATEWAY_CREDIT_GRANT_ID = secrets.token_hex(16)
 
 
 def ai_gateway_repo() -> Path:
@@ -139,6 +140,7 @@ def start_ai_gateway() -> Callable[[], None]:
                 f"postgres://postgres:postgres@localhost:5435/{AI_GATEWAY_EVAL_DATABASE}?sslmode=disable"
             ),
             "AI_GATEWAY_REDIS_URL": AI_GATEWAY_REDIS_URL,
+            "AI_GATEWAY_INTERNAL_TOKEN": _AI_GATEWAY_INTERNAL_TOKEN,
             "AI_GATEWAY_ANTHROPIC_API_KEY": os.environ["LLM_GATEWAY_ANTHROPIC_API_KEY"],
             # The gateway refuses to boot without an OpenAI key, which only codex runs use.
             "AI_GATEWAY_OPENAI_API_KEY": os.environ.get("LLM_GATEWAY_OPENAI_API_KEY") or "unused",
@@ -193,17 +195,28 @@ def provision_ai_gateway_mint_key(team_id: int, *, agent_model: str) -> str:
     """Give the master demo team a ``phs_`` key the worker mints per-run tokens with.
 
     Each run's ``phe_`` token bills the minting team, so only the master team needs
-    admission and spend headroom, not the per-case teams. The overspend allowance
-    replaces a ledger top-up: the gateway admits a zero-balance team up to it.
+    admission and spend headroom, not the per-case teams. Scoped tokens cannot
+    use an overspend allowance, so the isolated eval ledger needs test credits.
     A model listing and one mint check the catalog and the credential, so a broken
     setup fails here and not as a model error in every case.
     """
     mint_key = f"phs_{secrets.token_hex(24)}"
-    call_command("llm_gateway_team", "set-allowance", str(team_id), AI_GATEWAY_EVAL_ALLOWANCE_USD, stdout=io.StringIO())
     call_command("setup_local_gateway_credential", "--phs", mint_key, "--team", str(team_id), stdout=io.StringIO())
     call_command("llm_gateway_team", "refresh", str(team_id), stdout=io.StringIO())
 
     base_url = f"http://localhost:{AI_GATEWAY_PORT}"
+    credits = requests.post(
+        f"{base_url}/internal/teams/{team_id}/credits",
+        json={"amount_usd": AI_GATEWAY_EVAL_CREDITS_USD, "reason": "Local eval test credits"},
+        headers={
+            "Authorization": f"Bearer {_AI_GATEWAY_INTERNAL_TOKEN}",
+            "Idempotency-Key": f"eval-{team_id}-{_AI_GATEWAY_CREDIT_GRANT_ID}",
+            "X-Internal-Actor": "eval-harness",
+        },
+        timeout=10,
+    )
+    if not 200 <= credits.status_code < 300:
+        raise SubprocessStartupError(f"ai-gateway refused eval test credits: HTTP {credits.status_code}")
     headers = {"Authorization": f"Bearer {mint_key}"}
     models = requests.get(f"{base_url}/v1/models", headers=headers, timeout=10)
     models.raise_for_status()
