@@ -190,11 +190,19 @@ Client names and consumer headers are self-reported; they do not prove a human i
 A third-party unattended agent using the same identity and capabilities as an interactive client
 cannot be distinguished by this feature.
 
-The invitation uses native URL elicitation on protocol revision `2026-07-28`, for clients advertising
-URL support. Legacy protocol connections and clients with only form support continue without an
-invitation. No MCP App, extra tool, or agent instruction is involved. The client displays the booking
-URL and asks permission to open it, using its own controls and labels. No questionnaire is displayed.
-The original tool runs after the client returns the invitation response, without waiting for a booking.
+The invitation uses native URL elicitation for clients advertising URL support. Clients with only
+form support continue without an invitation. No MCP App, extra tool, or agent instruction is involved.
+The client displays the booking URL and asks permission to open it, using its own controls and labels.
+No questionnaire is displayed.
+
+Protocol revision `2026-07-28` uses an `input_required` result. The original tool runs after the client
+returns the invitation response, without waiting for a booking. Earlier protocol connections remember
+URL support from initialization and receive an `elicitation/create` request alongside the completed
+tool result in a short SSE response. These clients must accept `text/event-stream`; JSON-only requests
+and batches skip recruitment. The tool completes once, without waiting for the invitation reply.
+Both paths include an `elicitationId` for clients that require it when parsing URL requests.
+Sessions initialized before capability persistence was deployed need to reconnect before they can recruit.
+
 Claude Code can keep its dialog open after opening the URL until the user chooses “I'm done.”
 The server cannot remove that client-controlled step. The `2026-07-28` protocol has no URL-elicitation
 completion notification; see the [SDK protocol notes](https://ts.sdk.modelcontextprotocol.io/v2/servers/elicitation).
@@ -215,8 +223,9 @@ Accepted-link and opted-out records have no TTL. They remain suppressed until re
 retains the records; this is not a separate durable database. Do not put these keys behind an
 expiring cache or delete them during cache maintenance. Cooldown records expire after seven days.
 Already-suppressed users skip progress writes and booking-link creation; the final reservation remains atomic.
-Redis failures skip new invitations. A response write must succeed before the original tool runs;
-the client can retry the continuation if that write fails.
+Redis failures skip new invitations. On `2026-07-28`, a response write must succeed before the
+original tool runs; the client can retry the continuation if that write fails. Earlier protocols
+already completed the tool, so an invitation reply only updates suppression and never reruns it.
 
 Recruitment analytics use the existing PostHog SDK and the MCP server's analytics project:
 
@@ -225,6 +234,34 @@ Recruitment analytics use the existing PostHog SDK and the MCP server's analytic
 | `mcp interview invitation sent`      | The server returns a native invitation after reserving it. This does not confirm that the client rendered the dialog. |
 | `mcp interview booking link opened`  | The invitation's redirect URL receives its first GET request. Repeated opens do not add events.                       |
 | `mcp interview invitation responded` | A valid response is saved, with `response` equal to `accept`, `decline`, or `cancel`.                                 |
+
+Tool-call events also carry recruitment diagnostics through the existing SDK capture path, without
+an extra event per eligibility check:
+
+| Property                                                                             | Meaning                                                                                                                                                                |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `interview_recruitment_reason`                                                       | The first gate that skipped recruitment, `eligible` for a legacy call ready before execution, or `continuation` when resuming an invitation.                           |
+| `interview_recruitment_url_supported`, `interview_recruitment_form_supported`        | Whether this request explicitly advertises each elicitation mode. `null` means the request carries no capability metadata; it does not prove the client lacks support. |
+| `interview_recruitment_campaign_id`                                                  | Selected campaign, when a valid recruitment configuration exists.                                                                                                      |
+| `interview_recruitment_completed_calls`, `interview_recruitment_session_age_seconds` | Progress before the current call, when the warmup check was reached.                                                                                                   |
+
+Reasons distinguish `legacy_protocol`, `url_unsupported`, `surface_excluded`, `internal_run`,
+`task_bound`, `flag_disabled`, `flag_unavailable`, `invalid_configuration`, `configuration_unavailable`,
+`not_product_call`, `missing_conversation`, `request_state_present`, `insufficient_tool_calls`,
+`session_too_young`, `suppressed`, `reservation_conflict`, and `redis_error`.
+`flag_unavailable` includes evaluation failures; it is not proof that the flag was evaluated as disabled.
+Only the first failing gate is recorded. A call with `flag_disabled` can also lack URL support; use the
+capability booleans to compare clients independently of the selected reason.
+
+Legacy SSE calls evaluate eligibility before execution without reserving or showing an invitation.
+Their tool-call diagnostics describe that check; `eligible` does not confirm an invitation. The server
+rechecks eligibility after successful execution, including any privacy suppression learned from the API.
+The existing `mcp interview invitation sent` event includes these diagnostics with reason `invited`.
+A paused invitation has not executed a tool, so do not expect a completed tool-call event until its
+continuation runs. Exec emits one tool-call event relabeled to the inner tool. Filter
+`$mcp_exec_verb = 'call'` to exclude exec discovery commands, and include direct-tool events
+separately. Private scout tools, impersonated requests, and analytics-suppressed calls do not expose
+these diagnostics. No raw capability objects, tool arguments, or invitation answers are added.
 
 Every event carries the authenticated user's distinct ID, `campaign_id`, `invitation_id`, and the `feature_flag`
 key. The campaign comes from the selected variant and is retained for link opens and responses. Count distinct people for reach and invitation IDs for attempts. Invitations without a response
@@ -244,7 +281,10 @@ resetting. Do not reset all users just to test a change. Pending continuations e
 and are bound to the original token, tool arguments, organization, and project. A changed context
 rejects the continuation before the tool runs. Consumed continuations retain a ten-minute marker
 and cannot run again. Expired or consumed errors require checking the original tool's outcome
-before retrying, because a write may already have succeeded.
+before retrying, because a write may already have succeeded. Replies on earlier protocols expire
+after ten minutes and are bound to the authenticated user, PostHog instance, invitation, and original
+token. They remain valid after project changes or flag changes because they cannot execute a tool.
+Duplicate, expired, and mismatched replies do not update suppression or emit response events.
 
 ## Claude web and desktop exec schema budget
 

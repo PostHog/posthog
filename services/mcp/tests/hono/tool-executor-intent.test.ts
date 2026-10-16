@@ -501,6 +501,11 @@ describe('ToolExecutor analytics capture', () => {
         const hooks = {
             beforeExecute: async (callState: ResolvedState): Promise<undefined> => {
                 observedHandles.push(callState.requestContext.mcpConversationId)
+                callState.interviewRecruitmentDiagnostics = {
+                    reason: 'url_unsupported',
+                    urlSupported: false,
+                    formSupported: true,
+                }
                 return undefined
             },
             afterExecute: async (): Promise<void> => {},
@@ -511,6 +516,12 @@ describe('ToolExecutor analytics capture', () => {
         expect(handle).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
         await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
         expect(captureSpy.mock.calls[0]![0].conversationId).toBe(handle)
+        expect(captureSpy.mock.calls[0]![0].properties).toMatchObject({
+            interview_recruitment_reason: 'url_unsupported',
+            interview_recruitment_url_supported: false,
+            interview_recruitment_form_supported: true,
+        })
+        expect(state.interviewRecruitmentDiagnostics).toBeUndefined()
 
         const secondState = statelessState()
         const second = await executor.handleToolCall(

@@ -545,6 +545,9 @@ describe('RequestStateResolver MCP client contexts', () => {
             expect(result.oauthClientId).toBe(input.oauthClientId)
         }
         expect(result.interviewRecruitmentConfig).toBeUndefined()
+        expect(result.interviewRecruitmentUnavailableReason).toBe(
+            input.oauthClientId || input.mcpConsumer ? 'surface_excluded' : input.scopes ? 'internal_run' : 'task_bound'
+        )
     })
 
     it.each([
@@ -597,8 +600,12 @@ describe('RequestStateResolver MCP client contexts', () => {
             const state = await makeResolver().resolve(makeProps())
             if (expected) {
                 expect(state.interviewRecruitmentConfig).toMatchObject(expected)
+                expect(state.interviewRecruitmentUnavailableReason).toBeUndefined()
             } else {
                 expect(state.interviewRecruitmentConfig).toBeUndefined()
+                expect(state.interviewRecruitmentUnavailableReason).toBe(
+                    value === false ? 'flag_disabled' : 'invalid_configuration'
+                )
             }
         }
     )

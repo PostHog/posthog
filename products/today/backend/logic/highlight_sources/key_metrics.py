@@ -1,3 +1,6 @@
+import json
+from urllib.parse import quote
+
 from products.customer_analytics.backend.facade.api import get_key_metrics
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 
@@ -13,6 +16,7 @@ KEY_METRIC_DAY = {
 }
 KEY_METRIC_DAY_DETAIL = "{now} yesterday · {usual} on an average {weekday}"
 KEY_METRIC_DAY_DETAIL_WEEK = "{now} yesterday · {usual} a day over the week before"
+PULSE_DAYS = 28
 
 
 def find(context: Context) -> Found:
@@ -31,8 +35,26 @@ def _tile(metric: KeyMetric) -> contracts.HighlightMetric:
         value=metric.this_week,
         unit=HighlightUnit.PEOPLE if metric.people else HighlightUnit.EVENTS,
         change_pct=round((metric.this_week / metric.last_week - 1) * 100, 1) if metric.last_week else None,
-        series=[v for _, v in metric.daily[-28:]],
+        series=[v for _, v in metric.daily[-PULSE_DAYS:]],
+        url=_url(metric),
     )
+
+
+def _url(metric: KeyMetric) -> str | None:
+    days = [day for day, _ in metric.daily[-PULSE_DAYS:]]
+    if not days:
+        return None
+    query = {
+        "kind": "InsightVizNode",
+        "source": {
+            "kind": "TrendsQuery",
+            "series": [{**metric.node, "math": "dau" if metric.people else "total"}],
+            "interval": "day",
+            "dateRange": {"date_from": days[0].isoformat(), "date_to": days[-1].isoformat()},
+            "filterTestAccounts": True,
+        },
+    }
+    return f"/insights/new#q={quote(json.dumps(query, separators=(',', ':')))}"
 
 
 def _same_weekday(context: Context, metric: KeyMetric) -> Candidate | None:
@@ -51,6 +73,7 @@ def _same_weekday(context: Context, metric: KeyMetric) -> Candidate | None:
         detail=(KEY_METRIC_DAY_DETAIL if found.same_weekday else KEY_METRIC_DAY_DETAIL_WEEK).format(
             now=exact(found.now or 0), usual=exact(found.usual or 0, 0), weekday=found.weekday
         ),
+        url=_url(metric),
         series=[v for _, v in metric.daily[-14:]],
     )
 

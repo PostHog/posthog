@@ -3788,6 +3788,20 @@ export const ScoutPrecheckQuerySourceEnumApi = {
 } as const
 
 /**
+ * * `run` - Run
+ * * `skip` - Skip
+ * * `error` - Error
+ */
+export type SignalScoutConfigPrecheckOutcomeEnumApi =
+    (typeof SignalScoutConfigPrecheckOutcomeEnumApi)[keyof typeof SignalScoutConfigPrecheckOutcomeEnumApi]
+
+export const SignalScoutConfigPrecheckOutcomeEnumApi = {
+    Run: 'run',
+    Skip: 'skip',
+    Error: 'error',
+} as const
+
+/**
  * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
  * @nullable
  */
@@ -3912,6 +3926,22 @@ export interface SignalScoutConfigApi {
     readonly effective_precheck_query: string | null
     /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). */
     readonly precheck_query_source: ScoutPrecheckQuerySourceEnumApi
+    /**
+     * When a scheduled run last evaluated this scout's pre-check. A skipped run writes no run row, so this stays recent while `last_run_at` ages. Null if no pre-check has run.
+     * @nullable
+     */
+    readonly last_precheck_at: string | null
+    /** The outcome of the latest scheduled pre-check: `run` (the query found something new), `skip` (nothing new, so the run did not start), or `error` (the query failed and the run started). Null if no pre-check has run.
+     *
+     * * `run` - Run
+     * * `skip` - Skip
+     * * `error` - Error */
+    readonly last_precheck_outcome: SignalScoutConfigPrecheckOutcomeEnumApi | null
+    /**
+     * How many rows the latest scheduled pre-check returned, at most 50. Null if no pre-check has run.
+     * @nullable
+     */
+    readonly last_precheck_row_count: number | null
     /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable
@@ -8313,6 +8343,12 @@ export type SignalsScoutRunsRecentPerScoutParams = {
      * @maximum 100
      */
     per_scout_limit?: number
+    /**
+     * Return only this scout's runs. Omit to cover every configured scout. A single-scout page passes it so it does not wait on the probes of the rest of the fleet.
+     * @minLength 1
+     * @maxLength 255
+     */
+    skill_name?: string
 }
 
 export type SignalsScoutReportCheckListParams = {

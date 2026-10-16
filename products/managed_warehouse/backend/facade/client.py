@@ -241,13 +241,13 @@ async def execute_trino_model(
     incremental: TrinoIncrementalWrite | None = None,
 ) -> DuckLakeTableResult:
     from products.managed_warehouse.backend.trino_execution import (  # noqa: PLC0415 -- keeps executor creation off startup paths
-        run_trino_model,
+        run_trino_model_with_retries,
     )
     from products.managed_warehouse.backend.trino_materialization import (  # noqa: PLC0415 -- keeps the optional Trino driver off startup paths
         execute_trino_shadow_materialization,
     )
 
-    return await run_trino_model(
+    return await run_trino_model_with_retries(
         lambda control: execute_trino_shadow_materialization(
             organization_id=organization_id,
             team_id=team_id,

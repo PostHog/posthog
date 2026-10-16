@@ -30,6 +30,8 @@ import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
     type InterviewRecruitmentConfig,
+    type InterviewRecruitmentDiagnostics,
+    type InterviewRecruitmentUnavailableReason,
     resolveInterviewRecruitmentConfig,
     MCP_INTERVIEW_RECRUITMENT_FLAG,
 } from './interview-recruitment'
@@ -52,6 +54,8 @@ export interface ResolvedState {
     toolFeatureFlags: EvaluatedFlags | undefined
     interviewRecruitmentConfig?: InterviewRecruitmentConfig
     intentPrompt?: string
+    interviewRecruitmentUnavailableReason?: InterviewRecruitmentUnavailableReason
+    interviewRecruitmentDiagnostics?: InterviewRecruitmentDiagnostics
     apiKeyScopes: string[]
     isImpersonated?: boolean
     suppressAnalytics?: boolean
@@ -213,13 +217,25 @@ export class RequestStateResolver {
                 // Local opt-in still requires explicit, valid invitation content.
             }
         }
-        const interviewRecruitmentConfig =
-            source === EVENT_SOURCE.MCP &&
-            !_apiKey?.scopes?.includes('internal_run:read') &&
-            !props.taskId &&
-            !props.taskOriginProduct
-                ? resolveInterviewRecruitmentConfig(mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG], recruitmentPayload)
-                : undefined
+        const recruitmentFlagValue = mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG]
+        let interviewRecruitmentUnavailableReason: InterviewRecruitmentUnavailableReason | undefined
+        if (source !== EVENT_SOURCE.MCP) {
+            interviewRecruitmentUnavailableReason = 'surface_excluded'
+        } else if (_apiKey?.scopes?.includes('internal_run:read')) {
+            interviewRecruitmentUnavailableReason = 'internal_run'
+        } else if (props.taskId || props.taskOriginProduct) {
+            interviewRecruitmentUnavailableReason = 'task_bound'
+        } else if (recruitmentFlagValue === undefined) {
+            interviewRecruitmentUnavailableReason = 'flag_unavailable'
+        } else if (recruitmentFlagValue === false) {
+            interviewRecruitmentUnavailableReason = 'flag_disabled'
+        }
+        const interviewRecruitmentConfig = interviewRecruitmentUnavailableReason
+            ? undefined
+            : resolveInterviewRecruitmentConfig(recruitmentFlagValue, recruitmentPayload)
+        if (!interviewRecruitmentUnavailableReason && !interviewRecruitmentConfig) {
+            interviewRecruitmentUnavailableReason = 'invalid_configuration'
+        }
         // Preserve variant strings (and `undefined` for unevaluated flags) — the
         // tool filter needs raw values to support `feature_flag_variant` matching.
         // Include override keys so a forced flag reaches the tool/instructions layer
@@ -297,6 +313,7 @@ export class RequestStateResolver {
             toolFeatureFlags,
             interviewRecruitmentConfig,
             intentPrompt,
+            interviewRecruitmentUnavailableReason,
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,
