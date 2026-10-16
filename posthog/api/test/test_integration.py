@@ -6975,6 +6975,67 @@ class TestGitHubIntegrationListStatusFields:
         mock_client_request.assert_called_once_with("installations/12345")
 
 
+class TestGitHubConnectUrl:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "test")
+        self.api_key = "connect_url_test_key"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(self.api_key),
+            scopes=["integration:read"],
+        )
+
+    @pytest.mark.parametrize(
+        "configs,expected_row",
+        [
+            ([], None),
+            ([{"account": {"name": "example-org"}, "repository_selection": "selected"}], 0),
+            (
+                [
+                    {"account": {"name": "removed-org"}, "installation_unavailable_since": 1704110400},
+                    {"account": {"name": "example-org"}, "repository_selection": "all"},
+                ],
+                1,
+            ),
+            ([{"account": {"name": "removed-org"}, "installation_unavailable_since": 1704110400}], None),
+        ],
+        ids=["not_connected", "connected", "skips_unavailable_installation", "only_unavailable_installation"],
+    )
+    @override_settings(SITE_URL="https://eu.posthog.com")
+    def test_connect_url_reports_usable_github_integration(
+        self, client: HttpClient, configs: list[dict[str, Any]], expected_row: int | None
+    ):
+        rows = [
+            Integration.objects.create(
+                team=self.team,
+                kind="github",
+                integration_id=str(index + 1),
+                config={"installation_id": str(index + 1), **config},
+                sensitive_config={"access_token": "ghs_token"},
+            )
+            for index, config in enumerate(configs)
+        ]
+
+        response = client.get(
+            f"/api/projects/{self.team.pk}/integrations/github/connect_url/",
+            HTTP_AUTHORIZATION=f"Bearer {self.api_key}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        usable = rows[expected_row] if expected_row is not None else None
+        assert response.json() == {
+            "connected": usable is not None,
+            "integration_id": usable.id if usable else None,
+            "account": usable.config["account"]["name"] if usable else None,
+            "repository_selection": usable.config["repository_selection"] if usable else None,
+            "url": f"https://eu.posthog.com/project/{self.team.project_id}/integrations/github/connect?connect_from=mcp",
+        }
+
+
 class TestGitHubIntegrationUninstall:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):

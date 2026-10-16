@@ -59,6 +59,22 @@ tools:
             to find a channel_id when wiring up Slack delivery for an alert — pass the channel id into the
             cdp-functions-create inputs.channel.value field. Requires the Slack integration's id; use integrations-list
             (filter by kind=slack) to find it.
+    integrations-github-connect-url:
+        operation: integrations_github_connect_url_retrieve
+        enabled: true
+        feature_flag: wizard-mcp-install
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get GitHub connect URL
+        description: >
+            Check whether the current project has GitHub connected, and get the URL where the user connects it. When
+            `connected` is true, GitHub is ready: use `integration_id`, and `account` and `repository_selection` tell
+            you which GitHub account and repositories PostHog can reach. When `connected` is false, give the user the
+            `url` as a link, ask them to open it in a browser where they are logged in to PostHog, and wait until they
+            say they are done. Then call this tool again to confirm the connection before you continue. Do not open the
+            URL yourself or retry in a loop while the user is still connecting.
     integrations-github-repos-retrieve:
         operation: integrations_github_repos_retrieve
         enabled: true

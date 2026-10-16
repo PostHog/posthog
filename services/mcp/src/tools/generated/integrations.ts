@@ -81,6 +81,24 @@ const integrationsChannelsRetrieve = (): ToolBase<
     },
 })
 
+const IntegrationsGithubConnectUrlSchema = () => z.object({})
+
+const integrationsGithubConnectUrl = (): ToolBase<
+    ReturnType<typeof IntegrationsGithubConnectUrlSchema>,
+    Schemas.GitHubConnectUrlResponse
+> => ({
+    name: 'integrations-github-connect-url',
+    schema: IntegrationsGithubConnectUrlSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof IntegrationsGithubConnectUrlSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.GitHubConnectUrlResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/github/connect_url/`,
+        })
+        return result
+    },
+})
+
 const IntegrationsGithubReposRetrieveSchema = () => {
     const IntegrationsGithubReposRetrieveParams = orvalSchemas.IntegrationsGithubReposRetrieveParams()
     const IntegrationsGithubReposRetrieveQueryParams = orvalSchemas.IntegrationsGithubReposRetrieveQueryParams()
@@ -256,6 +274,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integration-delete': integrationDelete,
     'integration-get': integrationGet,
     'integrations-channels-retrieve': integrationsChannelsRetrieve,
+    'integrations-github-connect-url': integrationsGithubConnectUrl,
     'integrations-github-repos-retrieve': integrationsGithubReposRetrieve,
     'integrations-jira-projects-retrieve': integrationsJiraProjectsRetrieve,
     'integrations-linear-teams-retrieve': integrationsLinearTeamsRetrieve,

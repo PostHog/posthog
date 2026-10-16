@@ -542,6 +542,40 @@ export interface GitHubAvailableInstallationsResponseApi {
     personal_github_connected: boolean
 }
 
+/**
+ * * `all` - All repositories
+ * * `selected` - Selected repositories
+ */
+export type GitHubRepositorySelectionEnumApi =
+    (typeof GitHubRepositorySelectionEnumApi)[keyof typeof GitHubRepositorySelectionEnumApi]
+
+export const GitHubRepositorySelectionEnumApi = {
+    All: 'all',
+    Selected: 'selected',
+} as const
+
+export interface GitHubConnectUrlResponseApi {
+    /** Whether this project has a working GitHub integration. When true, GitHub is ready to use and the user does not need to open the URL. */
+    connected: boolean
+    /**
+     * ID of the project's GitHub integration, for tools that take a GitHub integration ID. Null when GitHub is not connected.
+     * @nullable
+     */
+    integration_id: number | null
+    /**
+     * GitHub organization or user account the PostHog GitHub App is installed on. Null when GitHub is not connected.
+     * @nullable
+     */
+    account: string | null
+    /** Which repositories of the account the GitHub App can access: 'all' or only 'selected' ones. Null when GitHub is not connected or the value is unknown.
+     *
+     * * `all` - All repositories
+     * * `selected` - Selected repositories */
+    repository_selection: GitHubRepositorySelectionEnumApi | null
+    /** Absolute URL of the PostHog page where the user connects GitHub to this project. The user opens it in a browser where they are logged in to PostHog. */
+    url: string
+}
+
 export interface GitHubLinkExistingRequestApi {
     /**
      * Discovery response ID for diagnostics only; grants no authority.

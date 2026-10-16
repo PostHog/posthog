@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     GitHubAvailableInstallationsResponseApi,
     GitHubBranchesResponseApi,
+    GitHubConnectUrlResponseApi,
     GitHubLinkExistingRequestApi,
     GitHubOAuthAuthorizeRequestApi,
     GitHubOAuthAuthorizeResponseApi,
@@ -874,6 +875,23 @@ export const integrationsGithubAvailableInstallationsRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getIntegrationsGithubConnectUrlRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/connect_url/`
+}
+
+/**
+ * Get the URL where the user connects GitHub to this project, and whether GitHub is already connected.
+ */
+export const integrationsGithubConnectUrlRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<GitHubConnectUrlResponseApi> => {
+    return apiMutator<GitHubConnectUrlResponseApi>(getIntegrationsGithubConnectUrlRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) => {

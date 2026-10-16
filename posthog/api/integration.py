@@ -49,13 +49,14 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
+from posthog.dataclasses import frozen
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
-from posthog.models import OrganizationMembership, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
@@ -1385,6 +1386,79 @@ class GitHubAvailableInstallationsResponseSerializer(serializers.Serializer):
     )
 
 
+class GitHubRepositorySelection(models.TextChoices):
+    ALL = "all", "All repositories"
+    SELECTED = "selected", "Selected repositories"
+
+
+# pinned: the PostHog MCP hands this page to AI chat users, and the frontend route serves it.
+GITHUB_CONNECT_PAGE_PATH = "/project/{project_id}/integrations/github/connect?connect_from=mcp"
+
+
+@frozen
+class GitHubConnectState:
+    connected: bool
+    integration_id: int | None
+    account: str | None
+    repository_selection: str | None
+    url: str
+
+
+def github_connect_state(team: Team, integrations: Iterable[Integration]) -> GitHubConnectState:
+    url = absolute_uri(GITHUB_CONNECT_PAGE_PATH.format(project_id=team.project_id))
+    usable = next(
+        (
+            integration
+            for integration in integrations
+            if integration.kind == "github"
+            and not GitHubIntegration(
+                integration, source="integrations_api", priority=Priority.NORMAL
+            ).installation_unavailable()
+        ),
+        None,
+    )
+    if usable is None:
+        return GitHubConnectState(
+            connected=False, integration_id=None, account=None, repository_selection=None, url=url
+        )
+    account = usable.config.get("account")
+    repository_selection = usable.config.get("repository_selection")
+    return GitHubConnectState(
+        connected=True,
+        integration_id=usable.id,
+        account=account.get("name") if isinstance(account, dict) else None,
+        repository_selection=repository_selection if repository_selection in GitHubRepositorySelection.values else None,
+        url=url,
+    )
+
+
+class GitHubConnectUrlResponseSerializer(serializers.Serializer):
+    connected = serializers.BooleanField(
+        help_text="Whether this project has a working GitHub integration. When true, GitHub is ready to use and "
+        "the user does not need to open the URL."
+    )
+    integration_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="ID of the project's GitHub integration, for tools that take a GitHub integration ID. "
+        "Null when GitHub is not connected.",
+    )
+    account = serializers.CharField(
+        allow_null=True,
+        help_text="GitHub organization or user account the PostHog GitHub App is installed on. "
+        "Null when GitHub is not connected.",
+    )
+    repository_selection = serializers.ChoiceField(
+        choices=GitHubRepositorySelection.choices,
+        allow_null=True,
+        help_text="Which repositories of the account the GitHub App can access: 'all' or only 'selected' ones. "
+        "Null when GitHub is not connected or the value is unknown.",
+    )
+    url = serializers.CharField(
+        help_text="Absolute URL of the PostHog page where the user connects GitHub to this project. "
+        "The user opens it in a browser where they are logged in to PostHog."
+    )
+
+
 class GitHubOAuthAuthorizeRequestSerializer(serializers.Serializer):
     installation_id = serializers.CharField(
         required=False,
@@ -1477,6 +1551,7 @@ class IntegrationViewSet(
         "github_branches",
         "github_teams",
         "github_available_installations",
+        "github_connect_url",
         "jira_projects",
         "jira_assignable_users",
         "linear_teams",
@@ -2429,6 +2504,13 @@ class IntegrationViewSet(
         }
         discovery.audit.record("discovery_completed", discovery_id=discovery.discovery_id, response=payload)
         return Response(payload, headers={"Cache-Control": "private, no-store"})
+
+    @extend_schema(responses={200: GitHubConnectUrlResponseSerializer})
+    @action(methods=["GET"], detail=False, url_path="github/connect_url")
+    def github_connect_url(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Get the URL where the user connects GitHub to this project, and whether GitHub is already connected."""
+        state = github_connect_state(self.team, self.get_queryset().filter(kind="github"))
+        return Response(GitHubConnectUrlResponseSerializer(state).data)
 
     @extend_schema(
         request=GitHubLinkExistingRequestSerializer,
