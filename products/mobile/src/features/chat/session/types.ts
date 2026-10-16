@@ -124,6 +124,17 @@ export interface SessionDecision {
     toolCallId: string
 }
 
+/** How a message reaches the agent. */
+export interface SendOptions {
+    /**
+     * Joins the live turn instead of waiting for it to end (`params.steer` on `user_message`).
+     * Honored only while `canSteer`; otherwise the message goes as an ordinary follow-up.
+     */
+    steer?: boolean
+    /** How many staged messages this text carries, for analytics. 0 for a message typed and sent directly. */
+    queuedCount?: number
+}
+
 export interface Session {
     /** Null for a new chat until `start` creates its task. */
     taskId: string | null
@@ -155,7 +166,12 @@ export interface Session {
      * Sends to the live run after it applies the changed options, or starts a run that continues this task when the
      * run has ended. Without a task it starts one, as `start` does.
      */
-    send: (text: string, context: ChatContext, options?: ChatRunOptions) => Promise<boolean>
+    send: (text: string, context: ChatContext, options?: ChatRunOptions, sendOptions?: SendOptions) => Promise<boolean>
+    /**
+     * The live turn can take a steered message now: the run works, the stream showed the agent generating, no decision
+     * waits, and no send or stop is in flight.
+     */
+    canSteer: boolean
     answer: (input: DecisionAnswerInput) => Promise<void>
     /** Asks the agent to stop the current turn. Only while `phase` is not `idle`. */
     stop: () => void

@@ -37,6 +37,17 @@ export class SessionTurnTracker {
         }
     }
 
+    /**
+     * A steered message joins the turn it steers, so one `mobile_session_finished` covers both. `begin` would restart
+     * the open turn's clock and clear its `had_decision`.
+     */
+    join(state: RunStreamState | null): void {
+        if (this.turn && this.turn.runId === state?.runId) {
+            return
+        }
+        this.begin(state)
+    }
+
     observe(state: RunStreamState | null): void {
         const turn = this.turn
         if (!turn || !state || state.runId !== turn.runId) {

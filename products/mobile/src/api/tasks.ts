@@ -159,6 +159,8 @@ export interface PermissionResponseParams {
 
 export interface UserMessageParams {
     content: string
+    /** Joins the agent's live turn. The server queues the message as an ordinary follow-up when the agent declines. */
+    steer?: boolean
 }
 
 type SessionConfigId = 'model' | 'effort' | 'mode'

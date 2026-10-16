@@ -40,7 +40,20 @@ import {
 } from './chatRunOptions'
 import { type ChatSheetSource, useChatSheetEvents } from './chatSheetEvents'
 import { inboxContextItem, reportContextFromItem, reportContextFromView } from './contextPrompt'
+import type { ChatDraft } from './draftStore'
 import { MentionPopover } from './MentionPopover'
+import {
+    canDrain,
+    EMPTY_QUEUE,
+    joinQueue,
+    type QueueState,
+    queueActions,
+    queueReducer,
+    type SendGate,
+    sendNowState,
+    shouldQueue,
+} from './messageQueue'
+import { QueuedMessages } from './QueuedMessages'
 import { SessionDecisionPanel } from './session/SessionDecisionPanel'
 import { SessionThread } from './session/SessionThread'
 import { type SessionOptions, useSession } from './session/useSession'
@@ -111,6 +124,19 @@ export function ChatSheet({
             reportIds: typeof value === 'function' ? value(attached) : value,
         })
     }
+    const [queue, dispatchQueue] = useReducer(queueReducer, EMPTY_QUEUE)
+    const delivering = useRef(false)
+    const [isDelivering, setDelivering] = useState(false)
+    // Bumped by New chat and by closing, so a delivery that settles afterwards leaves the new queue alone.
+    const queueEpoch = useRef(0)
+    const latest = useRef<{ queue: QueueState; draft: ChatDraft; change: (draft: ChatDraft) => void }>({
+        queue,
+        draft: composerDraft.draft,
+        change: composerDraft.change,
+    })
+    useEffect(() => {
+        latest.current = { queue, draft: composerDraft.draft, change: composerDraft.change }
+    })
     const [reports, setReports] = useState<Record<string, ReportView>>({})
     const [mentionOpen, setMentionOpen] = useState(false)
     const mentionTrigger = useRef<'button' | 'typed'>('button')
@@ -198,8 +224,24 @@ export function ChatSheet({
     const bottomInset = insets.bottom
     const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, bottomInset) }))
     // A message sent before the stored history loads would land in a thread the person cannot see yet.
-    const ready = composerDraft.ready && !preparing && historyStatus === 'idle' && !session.isSending
-    const canSend = text.trim().length > 0 && ready
+    const composerReady = composerDraft.ready && historyStatus === 'idle'
+    const ready = composerReady && !preparing && !session.isSending
+    const gate: SendGate = {
+        phase: session.phase,
+        sending: session.isSending || preparing || isDelivering,
+        decisionPending: session.decision !== undefined,
+    }
+    const queueing = shouldQueue(gate, queue)
+    // Queueing needs no network, so only a direct send waits for the previous one.
+    const canSend = text.trim().length > 0 && (queueing ? composerReady : ready)
+    const sendNow = sendNowState({
+        ...gate,
+        // A direct send only starts while the run is idle. Its promise can outlast the start, such as a demo reply
+        // that resolves when the reply ends, and must not block steering the turn it started.
+        sending: session.isSending || isDelivering || (preparing && session.phase === 'idle'),
+        canSteer: session.canSteer,
+        stopping: session.isStopping,
+    })
     const showEmptyState = session.taskId === null && session.items.length === 0 && historyStatus === 'idle'
     const webUrl = (reportId: string): string | undefined => (scope ? reportWebUrl(scope, reportId) : undefined)
 
@@ -284,14 +326,101 @@ export function ChatSheet({
         })
         setAttached((previous) => previous.filter((id) => id !== reportId))
     }
+    // Queued messages go back into the composer draft, so closing the sheet or starting a new chat loses none.
+    const foldQueue = (): void => {
+        queueEpoch.current++
+        const { queue: current, draft, change } = latest.current
+        if (current.rows.length === 0) {
+            return
+        }
+        const next = { ...draft, text: [joinQueue(current.rows), draft.text.trim()].filter(Boolean).join('\n\n') }
+        latest.current = { queue: EMPTY_QUEUE, draft: next, change }
+        dispatchQueue(queueActions.clear())
+        change(next)
+    }
+    // biome-ignore lint/correctness/useExhaustiveDependencies: `foldQueue` reads only refs.
+    useEffect(() => {
+        if (!visible) {
+            foldQueue()
+        }
+    }, [visible])
+    // An Android back pops the route without the sheet's own close.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: `foldQueue` reads only refs.
+    useEffect(() => () => foldQueue(), [])
+    // The mode the chip shows, already mapped onto the harness the message runs on.
+    const sendOptions = (): ChatRunOptions => ({ ...runOptions, permissionMode })
+    const deliverQueue = (steer: boolean): void => {
+        const rows = queue.rows
+        if (rows.length === 0 || delivering.current) {
+            return
+        }
+        const epoch = queueEpoch.current
+        delivering.current = true
+        setDelivering(true)
+        // Cleared before the send, so a message queued while it is in flight waits for the next delivery.
+        dispatchQueue(queueActions.clear())
+        void session
+            .send(joinQueue(rows), buildContext(), sendOptions(), {
+                ...(steer ? { steer: true } : {}),
+                queuedCount: rows.length,
+            })
+            .catch(() => false)
+            .then((sent) => {
+                if (sent) {
+                    sheetEvents.countSent()
+                } else if (queueEpoch.current === epoch) {
+                    // Held, because the failed send may have reached the agent, and a second automatic try could
+                    // deliver it twice.
+                    dispatchQueue(queueActions.restore(rows))
+                }
+            })
+            .finally(() => {
+                delivering.current = false
+                setDelivering(false)
+            })
+    }
+    const drainable = composerReady && canDrain(gate, queue)
+    // biome-ignore lint/correctness/useExhaustiveDependencies: drains on the transition into a drainable state only.
+    useEffect(() => {
+        if (drainable) {
+            deliverQueue(false)
+        }
+    }, [drainable])
+    const sendQueueNow = (): void => {
+        if (queue.rows.length === 0 || sendNow.pending || sendNow.disabledReason) {
+            return
+        }
+        track('mobile_session_queue_sent_now', { queued_count: queue.rows.length, steer: session.canSteer })
+        deliverQueue(true)
+    }
+    const removeQueued = (id: string): void => {
+        dispatchQueue(queueActions.remove(id))
+        track('mobile_session_queue_removed', {
+            queue_length: queue.rows.filter((row) => row.id !== id).length,
+        })
+    }
+    const stop = (): void => {
+        // The stopped turn ends like any other, so without the hold the queue would go out right after the Stop.
+        dispatchQueue(queueActions.hold('cancelled'))
+        session.stop()
+    }
     const send = (): void => {
         const message = text.trim()
-        if (!message || !ready || preparingSend.current) {
+        if (!message || !composerReady) {
+            return
+        }
+        if (queueing || preparingSend.current) {
+            setMentionOpen(false)
+            dispatchQueue(queueActions.enqueue(message))
+            track('mobile_session_queued', { queue_length: queue.rows.length + 1 })
+            composerDraft.change({ text: '', reportIds: attached })
+            return
+        }
+        if (!ready) {
             return
         }
         setMentionOpen(false)
-        // The mode the chip shows, already mapped onto the harness the message runs on.
-        const options: ChatRunOptions = { ...runOptions, permissionMode }
+        const options = sendOptions()
         const context = buildContext()
         preparingSend.current = true
         setPreparing(true)
@@ -311,6 +440,7 @@ export function ChatSheet({
     }
     const startNewChat = (): void => {
         sheetEvents.countNewChat()
+        foldQueue()
         if (target.taskId) {
             // The session reloads as an empty new chat when its task option goes.
             setTarget({})
@@ -397,6 +527,14 @@ export function ChatSheet({
                             )}
                             <View style={styles.composerArea}>
                                 <ChatAccessGate onDecline={close}>
+                                    <QueuedMessages
+                                        rows={queue.rows}
+                                        held={queue.hold !== null}
+                                        onRemove={removeQueued}
+                                        onSendNow={sendQueueNow}
+                                        sendNowDisabledReason={sendNow.disabledReason}
+                                        sendNowPending={sendNow.pending}
+                                    />
                                     <SessionDecisionPanel
                                         decision={session.decision}
                                         notice={session.notice}
@@ -426,7 +564,7 @@ export function ChatSheet({
                                                 onSend={send}
                                                 canSend={canSend}
                                                 isStreaming={session.phase !== 'idle'}
-                                                onStop={session.stop}
+                                                onStop={stop}
                                             />
                                         </>
                                     )}
