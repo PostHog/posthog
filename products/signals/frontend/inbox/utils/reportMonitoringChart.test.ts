@@ -83,9 +83,9 @@ describe('Monitoring chart context', () => {
     }
 
     it.each([
-        [10080, 'day', 70, 10, 'Goal: ≤10/day (avg)'],
-        [1440, 'hour', 24, 1, 'Goal: ≤1/hour (avg)'],
-        [60, 'minute', 30, 0.5, 'Goal: ≤0.5/minute (avg)'],
+        [10080, 'day', 70, 10, 'Goal: ≤10/day'],
+        [1440, 'hour', 24, 1, 'Goal: ≤1/hour'],
+        [60, 'minute', 30, 0.5, 'Goal: ≤0.5/minute'],
     ] as const)('normalizes a %s minute additive target to full %s buckets', (period, interval, goal, value, label) => {
         expect(
             monitoringChartTargetLines({
@@ -99,8 +99,8 @@ describe('Monitoring chart context', () => {
 
     it('draws both inclusive bounds in the chart bucket units', () => {
         expect(monitoringChartTargetLines({ ...targetOptions, bounds: { lower: 70, upper: 140 } })).toEqual([
-            expect.objectContaining({ value: 10, label: 'Goal: ≥10/day (avg)' }),
-            expect.objectContaining({ value: 20, label: 'Goal: ≤20/day (avg)' }),
+            expect.objectContaining({ value: 10, label: 'Goal: ≥10/day' }),
+            expect.objectContaining({ value: 20, label: 'Goal: ≤20/day' }),
         ])
     })
 
