@@ -752,6 +752,7 @@ describe('infiniteListLogic', () => {
                     // hunting for a tracking bug instead of retrying.
                     showEmptyState: false,
                     showErrorState: true,
+                    remoteFetchForbidden: false,
                 })
 
             const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
@@ -759,6 +760,43 @@ describe('infiniteListLogic', () => {
             expect(failedCalls[0][1]).toMatchObject({
                 groupType: TaxonomicFilterGroupType.Events,
                 searchQuery: 'user_signed_up',
+                forbidden: false,
+            })
+        })
+
+        it.each([
+            { code: 'permission_denied', forbidden: true },
+            { code: 'feature_flag_required', forbidden: false },
+        ])('marks a 403 with code $code as forbidden: $forbidden', async ({ code, forbidden }) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/feature_flags': () => [403, { detail: 'denied', code }],
+                },
+            })
+            initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const forbiddenLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'forbiddenList',
+                listGroupType: TaxonomicFilterGroupType.FeatureFlags,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags],
+                showNumericalPropsOnly: false,
+            })
+            forbiddenLogic.mount()
+            await expectLogic(forbiddenLogic, () => {
+                forbiddenLogic.actions.setSearchQuery('my-flag')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    showErrorState: true,
+                    remoteFetchForbidden: forbidden,
+                })
+
+            const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
+            expect(failedCalls).toHaveLength(1)
+            expect(failedCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.FeatureFlags,
+                forbidden,
             })
         })
 

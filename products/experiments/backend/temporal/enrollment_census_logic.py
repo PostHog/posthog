@@ -181,7 +181,7 @@ def fetch_direct_scan_stats(window_days: int) -> list[TeamDirectScanStats]:
 def running_experiment_load(team_ids: list[int]) -> dict[int, TeamRunningLoad]:
     """Per team: running experiment count and scheduled metric count across them.
 
-    Mirrors discover_experiment_metrics (inline primary + secondary + saved-metric links, filtered by
+    Mirrors get_metrics_for_calculation (inline primary + secondary + saved-metric links, filtered by
     the shared is_scheduled_metric predicate) so the projected build load matches what
     nightly recalculation would actually schedule. Counts in two bulk queries instead of
     resolving the metrics of each experiment, so a team running thousands of experiments

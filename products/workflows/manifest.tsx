@@ -62,6 +62,7 @@ export const manifest: ProductManifest = {
         '/broadcasts/opt-outs': ['Broadcasts', 'broadcasts'],
         '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
         '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
+        '/broadcasts/settings': ['Broadcasts', 'broadcasts'],
         // kea-router matches in declaration order, so the literal 'new' comes before ':id'.
         '/broadcasts/new': ['Broadcast', 'broadcast'],
         '/broadcasts/:id': ['Broadcast', 'broadcast'],
@@ -100,6 +101,7 @@ export const manifest: ProductManifest = {
                 { name: 'Opt-outs', href: urls.workflows('opt-outs') },
                 { name: 'Suppression list', href: urls.workflows('suppression') },
                 { name: 'Reputation', href: urls.workflows('reputation') },
+                { name: 'Settings', href: urls.workflows('settings') },
             ],
             type: 'workflows',
             category: ProductItemCategory.MESSAGING,

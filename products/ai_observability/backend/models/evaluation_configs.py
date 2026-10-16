@@ -27,6 +27,9 @@ class LLMJudgeConfig(BaseModel):
     """Configuration for LLM judge evaluations"""
 
     prompt: str = Field(..., min_length=1, description="Evaluation criteria prompt")
+    judge_method: Literal["llm", "decision"] | None = Field(
+        default=None, description="Judge method. Omit to keep the saved method; null restores automatic routing."
+    )
 
     @field_validator("prompt")
     @classmethod

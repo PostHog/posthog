@@ -702,6 +702,11 @@ class PostHogTestCase(SimpleTestCase):
             raise ValueError("Test organization must be set before creating a user")
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
 
+    def create_sibling_environment(self, name: str = "Sibling env") -> Team:
+        # Same row shape as an environment added through the API: same project, no parent_team.
+        # It skips create_with_data, so the environment has no default dashboards or insights.
+        return Team.objects.create(organization=self.organization, project=self.project, name=name)
+
     @classmethod
     def setUpTestData(cls):
         if cls.CLASS_DATA_LEVEL_SETUP:
@@ -1808,7 +1813,7 @@ def _create_flag_evaluations(
     distinct_id: str = "evaluator",
     person_id: uuid.UUID | str | None = None,
     response: str | bool = True,
-    properties: dict[str, str] | None = None,
+    properties: dict[str, Any] | None = None,
 ) -> None:
     """Insert `count` $feature_flag_called rows for flag_key into flag_evaluations. Unlike _create_event, it writes
     the rows immediately. Each row gets a new random person_id unless the caller passes one."""

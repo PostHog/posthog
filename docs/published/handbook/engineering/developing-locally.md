@@ -132,11 +132,17 @@ Flox manages your development environment. The `manifest.toml` file declares all
 
 To get PostHog running in a dev environment:
 
-1. Once you have cloned the repo and installed OrbStack, install Flox:
+1. Once you have cloned the repo and installed OrbStack, install Flox. On a PostHog-managed Mac, open Fleet Desktop > My device > Self-service and select Flox. Fleet supplies the approved version and upgrades older installations.
+
+   If Flox is not listed, or you are using an unmanaged Mac, install it with Homebrew:
 
    ```bash
    brew install flox
    ```
+
+   Use Flox 1.18.2 or newer. To upgrade an existing Homebrew installation, run `brew update && brew upgrade flox`. For other installation methods, follow the [Flox upgrade instructions](https://flox.dev/docs/install-flox/install). Check the installed version with `flox --version`.
+
+   The repository's minimum CLI version only warns about older installations. Pulling the repository or running `flox activate` does not upgrade Flox itself or its Nix daemon.
 
 2. From the root of the repository, activate the environment. (On first activation, you'll be prompted if you'd like the environment to be activated automatically using `direnv`.)
 

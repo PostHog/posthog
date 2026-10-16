@@ -1,4 +1,7 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
 
 import * as queryRunner from '~/queries/query'
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -8,6 +11,44 @@ import { biFilterValuesLogic } from 'products/business_intelligence/frontend/biF
 
 describe('BI filter suggestions', () => {
     beforeEach(() => initKeaTests())
+
+    afterEach(() => jest.restoreAllMocks())
+
+    it('cancels a pending value lookup on replacement and unmount without cancelling completed queries', async () => {
+        const requests: AbortSignal[] = []
+        const performQuery = jest.spyOn(queryRunner, 'performQuery').mockImplementation(
+            (_query, options) =>
+                new Promise((_resolve, reject) => {
+                    const signal = options!.signal!
+                    requests.push(signal)
+                    signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+                })
+        )
+        const cancelQuery = jest.spyOn(api, 'cancelQuery').mockResolvedValue(undefined)
+        const logic = biFilterValuesLogic({
+            query: { kind: NodeKind.HogQLQuery, query: 'SELECT DISTINCT name AS value FROM accounts' },
+            active: true,
+        })
+        const unmount = logic.mount()
+        expect(requests).toHaveLength(1)
+        await expectLogic(logic, () => logic.actions.setSearch('new')).toDispatchActions(['loadOptions'])
+        expect(requests[0].aborted).toBe(true)
+        expect(cancelQuery).toHaveBeenCalledWith(performQuery.mock.calls[0][3])
+        await waitFor(() => expect(requests).toHaveLength(2))
+        unmount()
+        expect(requests.every((signal) => signal.aborted)).toBe(true)
+        expect(cancelQuery).toHaveBeenCalledTimes(requests.length)
+
+        performQuery.mockResolvedValue({ results: [['done']] } as never)
+        const completed = biFilterValuesLogic({
+            query: { kind: NodeKind.HogQLQuery, query: 'SELECT DISTINCT region AS value FROM accounts' },
+            active: true,
+        })
+        completed.mount()
+        await expectLogic(completed).toDispatchActions(['loadOptionsSuccess'])
+        completed.unmount()
+        expect(cancelQuery).toHaveBeenCalledTimes(requests.length)
+    })
 
     it('paginates beyond 100 values, searches on the server, and resets pagination for a new search', async () => {
         const performQuery = jest

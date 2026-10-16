@@ -51,7 +51,8 @@ tools:
 
             Put the insight definition in `query.source`, under the wrapper node that matches it. Use
 
-            `InsightVizNode` for a product analytics query and `DataVisualizationNode` for a SQL one:
+            `InsightVizNode` for a product analytics chart, `DataVisualizationNode` for a SQL visualization, and
+            `DataTableNode` with an `EventsQuery` source for a table of individual events:
 
 
             ```json
@@ -61,10 +62,8 @@ tools:
 
             ```
 
-
-            A bare query is accepted too. `{ "kind": "TrendsQuery", ... }` and `{ "kind": "HogQLQuery", ... }` are each
-
-            wrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.
+            Bare `TrendsQuery`, `HogQLQuery`, and `EventsQuery` definitions are accepted too. They are wrapped for you,
+            so a query you just ran through one of the `query-*` tools can be passed straight through.
 
 
             Choose the TrendsQuery `trendsFilter.display` from the question the insight answers:
@@ -223,7 +222,9 @@ tools:
         description: >
             Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited
             status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query
-            tool with the same identifier if you want to see the recomputed results.
+            tool with the same identifier if you want to see the recomputed results. Query uses the same format as
+            insight-create. Replacing query replaces the entire definition; include all filters and visualization
+            settings you want to retain.
         agent_note:
             If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a
             recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when

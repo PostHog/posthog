@@ -40,6 +40,10 @@ export const BatchResolverStateSchema = z.object({
     // mid-run flow edits can't flip dedup semantics between pages. Optional so
     // jobs written by older deploys keep parsing (they run un-deduped).
     dedupeKey: z.enum(['email']).optional(),
+    // Set by Django when the audience is exactly one realtime cohort. The resolver then pages that
+    // cohort's members from the realtime pipeline's Postgres table instead of the Django audience
+    // query. `teamId` is the cohort's own team, which owns its membership rows.
+    realtimeCohort: z.object({ id: z.number().int(), teamId: z.number().int() }).optional(),
     maxAudienceSize: z.number().int().nonnegative(),
     cursor: z.string().nullable(),
     totalEnqueued: z.number().int().nonnegative(),
