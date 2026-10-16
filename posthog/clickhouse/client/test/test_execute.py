@@ -196,14 +196,22 @@ def _proxy_client() -> ProxyClient:
     ],
 )
 def test_sync_execute_records_what_clickhouse_read(make_client, raises, tags, expected, expected_workload):
-    with patch("posthog.clickhouse.client.execute.get_client_from_pool") as pool, tags_context(**tags):
-        pool.return_value.__enter__.return_value = make_client()
+    client = make_client()
+    with (
+        patch("posthog.clickhouse.client.execute.get_client_from_pool") as pool,
+        patch.object(client, "execute", wraps=client.execute) as submit,
+        tags_context(**tags),
+    ):
+        pool.return_value.__enter__.return_value = client
         with query_stats_scope() as stats:
             if raises:
                 with pytest.raises(ValueError):
                     sync_execute("SELECT 1", flush=False)
             else:
                 sync_execute("SELECT 1", flush=False)
+
+        assert stats.query_ids == [submit.call_args.kwargs["query_id"]]
+        assert stats.query_ids_truncated is False
 
     assert (stats.rows_read, stats.duration_ms) == expected
     if expected_workload == "default":

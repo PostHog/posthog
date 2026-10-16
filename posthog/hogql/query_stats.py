@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING
 
 from posthog.dataclasses import frozen
 
+MAX_RECORDED_QUERY_IDS = 100
+
 if TYPE_CHECKING:
     from posthog.hogql import ast
     from posthog.hogql.constants import HogQLGlobalSettings
@@ -47,9 +49,11 @@ class QueryStats:
 
     rows_read: int = 0
     duration_ms: float = 0.0
-    # How many ClickHouse queries the request ran. Zero means it never reached ClickHouse, for
-    # example a warehouse query over a direct connection, so there is nothing to report.
+    # Executions with a driver summary. Submitted IDs can outnumber these when a query
+    # fails before returning progress.
     query_count: int = 0
+    query_ids: list[str] = field(default_factory=list, repr=False, compare=False)
+    query_ids_truncated: bool = field(default=False, repr=False, compare=False)
     # The part of the totals spent on lookups tagged ``QueryTags.lookup``, which run under a runner's
     # scope without being the query the person wrote, so a reader can judge the run without them.
     lookup_rows_read: int = 0
@@ -167,6 +171,18 @@ def record(*, rows_read: int, duration_ms: float, lookup: bool = False, workload
     if stats is None:
         return
     stats.add(rows_read=rows_read, duration_ms=duration_ms, lookup=lookup, workload=workload)
+
+
+def record_query_id(query_id: str | None) -> None:
+    """Keep the submitted ID even when ClickHouse returns no progress. An ID is not proof of server execution."""
+    stats = _accumulator.get()
+    if stats is None or not query_id:
+        return
+    with stats.lock:
+        if len(stats.query_ids) < MAX_RECORDED_QUERY_IDS:
+            stats.query_ids.append(query_id)
+        else:
+            stats.query_ids_truncated = True
 
 
 def reset_last_rows_read() -> None:

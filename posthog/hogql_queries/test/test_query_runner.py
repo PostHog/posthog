@@ -62,7 +62,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.query_stats import get_active, record
+from posthog.hogql.query_stats import get_active, record, record_query_id
 
 from posthog.api.services.query import _run_query_runner
 from posthog.clickhouse.client.connection import Workload
@@ -186,6 +186,7 @@ _QUERY_SCAN_FLAG_LOG_ONLY = QueryScanFlag(
 
 
 def _calculate_recording_clickhouse_stats(_self):
+    record_query_id("submitted-query")
     record(rows_read=12, duration_ms=34.0, workload="ONLINE")
     stats = get_active()
     assert stats is not None
@@ -952,11 +953,20 @@ class TestQueryRunner(BaseTest):
             mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report,
         ):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            props = report.call_args.args[1]
+            TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user).run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            )
+            hit_props = report.call_args.args[1]
 
-        props = report.call_args.args[1]
         assert props["cache_hit"] is False
+        assert hit_props["cache_hit"] is True
+        assert hit_props["clickhouse_query_ids"] == []
+        assert hit_props["clickhouse_query_ids_truncated"] is False
         assert props["clickhouse_rows_read"] == 12
         assert props["clickhouse_query_count"] == 1
+        assert props["clickhouse_query_ids"] == ["submitted-query"]
+        assert props["clickhouse_query_ids_truncated"] is False
         assert props["clickhouse_workload"] == "ONLINE"
         assert props["warehouse_tables_referenced"] == ["table-a", "table-b"]
         assert props["saved_queries_referenced"] == ["view-a"]
@@ -978,6 +988,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
 
         def calculate_until_clickhouse_gives_up(_self: QueryRunner) -> None:
+            record_query_id("failed-query")
             record(rows_read=90, duration_ms=400.0, workload="ONLINE")
             raise error_class()
 
@@ -1007,9 +1018,11 @@ class TestQueryRunner(BaseTest):
         assert props["query"]["some_attr"] == "bla"
         assert props["failed_after_ms"] >= 0
         if failed_in == "calculate":
+            assert props["clickhouse_query_ids"] == ["failed-query"]
             assert (props["clickhouse_rows_read"], props["clickhouse_workload"]) == (90, "ONLINE")
             assert props["query_duration_ms"] is None
         elif failed_in == "rate_limiters":
+            assert props["clickhouse_query_ids"] == []
             assert (props["clickhouse_query_count"], props["query_duration_ms"]) == (0, None)
         else:
             assert isinstance(props["query_duration_ms"], float)

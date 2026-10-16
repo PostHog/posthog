@@ -4,20 +4,33 @@ import pytest
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.query_stats import get_active, last_rows_read, query_stats_scope, record, reset_last_rows_read, use
+from posthog.hogql.query_stats import (
+    get_active,
+    last_rows_read,
+    query_stats_scope,
+    record,
+    record_query_id,
+    reset_last_rows_read,
+    use,
+)
 
 
 def test_scope_sums_nested_records_and_ignores_what_was_recorded_outside_it():
     record(rows_read=5, duration_ms=9.0)
+    record_query_id("outside")
 
     with query_stats_scope() as outer:
         record(rows_read=1, duration_ms=5.0)
+        record_query_id("outer")
         with query_stats_scope() as inner:
             assert inner is outer
             record(rows_read=2, duration_ms=7.0)
+            record_query_id("inner")
         record(rows_read=4, duration_ms=1.0)
 
     assert (outer.rows_read, outer.duration_ms) == (7, 13.0)
+    assert outer.query_ids == ["outer", "inner"]
+    assert outer.query_ids_truncated is False
 
 
 def test_use_installs_the_accumulator_in_another_thread():
@@ -27,12 +40,25 @@ def test_use_installs_the_accumulator_in_another_thread():
         def worker() -> None:
             with use(handed_over):
                 record(rows_read=3, duration_ms=2.0)
+                record_query_id("worker")
 
         thread = threading.Thread(target=worker)
         thread.start()
         thread.join()
 
     assert (stats.rows_read, stats.duration_ms) == (3, 2.0)
+    assert stats.query_ids == ["worker"]
+
+
+@pytest.mark.parametrize("count,truncated", [(100, False), (101, True)])
+def test_submitted_query_ids_are_bounded_without_changing_the_work_totals(count, truncated):
+    with query_stats_scope() as stats:
+        for index in range(count):
+            record_query_id(f"execution-{index}")
+
+    assert stats.query_ids == [f"execution-{index}" for index in range(100)]
+    assert stats.query_ids_truncated is truncated
+    assert (stats.query_count, stats.rows_read, stats.duration_ms) == (0, 0, 0.0)
 
 
 def test_the_last_rows_read_are_kept_per_thread():
