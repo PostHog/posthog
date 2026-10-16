@@ -153,8 +153,6 @@ def message_responder(chats: list[dict[str, Any]]) -> Any:
         chat_id = request.path.split("/")[3]
         if chat_id == "gone":
             return ScriptedResponse(status=404, json={"type": "notFoundError", "status": 404, "errors": []})
-        if request.param("from") is not None:
-            return page("messages", [{"id": f"{chat_id}-{request.param('from')}", "chatId": chat_id}])
         if request.param("cursor") is None:
             return page("messages", [{"id": f"{chat_id}-m1", "chatId": chat_id}], next_cursor="m2")
         return page("messages", [{"id": f"{chat_id}-m2", "chatId": chat_id}])
@@ -185,7 +183,8 @@ def test_messages_fan_out_per_chat_carry_the_chat_activity_time_and_skip_a_delet
     ]
 
 
-def test_incremental_messages_read_only_the_windows_since_the_watermark() -> None:
+def test_incremental_messages_read_the_whole_history_of_each_listed_chat() -> None:
+    # A chat seen for the first time can hold messages older than the watermark.
     result = driver().run(
         "messages",
         message_responder([{"id": "chat-1"}]),
@@ -195,8 +194,31 @@ def test_incremental_messages_read_only_the_windows_since_the_watermark() -> Non
 
     assert result.raised is None
     message_requests = [request for request in result.requests if request.path.endswith("/messages")]
-    assert [(int(r.param("from") or 0), int(r.param("to") or 0)) for r in message_requests] == WINDOWS
-    assert [row["id"] for row in result.rows] == [f"chat-1-{start}" for start, _ in WINDOWS]
+    assert [request.param("from") for request in message_requests] == [None, None]
+    assert [row["id"] for row in result.rows] == ["chat-1-m1", "chat-1-m2"]
+
+
+def test_a_full_refresh_reads_the_last_window_up_to_each_request_and_keeps_one_copy_per_chat() -> None:
+    with time_machine.travel(NOW, tick=False) as clock:
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/open/channel":
+                clock.shift(timedelta(minutes=5))
+                return channel_response()
+            first_window = int(request.param("from") or 0) == CHANNEL_CREATED_MS
+            if request.param("state") == "opened" and first_window:
+                return page("userChats", [{"id": "chat-1"}])
+            if request.param("state") == "closed" and not first_window:
+                # chat-1 closed after the run started, so it is listed a second time.
+                return page("userChats", [{"id": "chat-1"}, {"id": "chat-2"}])
+            return page("userChats", [])
+
+        result = driver().run("user_chats", respond)
+
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == ["chat-1", "chat-2"]
+    last_window = [r for r in result.requests if int(r.param("from") or 0) == WINDOWS[1][0]]
+    assert {int(r.param("to") or 0) for r in last_window} == {NOW_MS + 5 * 60 * 1000}
 
 
 def test_messages_resume_from_the_saved_chats_without_reading_their_page_again() -> None:

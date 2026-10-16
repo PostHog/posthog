@@ -49,7 +49,6 @@ class ChannelIOResumeConfig:
     # Messages: the chats of the current page whose messages are not all written, with the first one's next
     # message page. Kept by id, because a chat that changes state leaves the page and shifts the rest.
     pending_chats: list[dict[str, Any]] | None = None
-    message_window: int = 0
     message_cursor: str | None = None
     # The range the run reads, pinned so a resumed attempt reads the same segments.
     window_start_ms: int | None = None
@@ -66,6 +65,9 @@ class TimeRange:
 class UserChatSegment:
     state: str
     time_range: TimeRange
+    # A full refresh reads the last window up to the time of each request, so a chat active during the run
+    # is not left out of the replaced table.
+    open_ended: bool = False
 
 
 @frozen
@@ -260,13 +262,17 @@ def user_chat_pages(
 ) -> Iterator[UserChatPage]:
     for index in range(start_segment, len(segments)):
         segment = segments[index]
+        to_ms = segment.time_range.to_ms
+        if segment.open_ended:
+            window_ms = int(MAX_FILTER_RANGE.total_seconds() * 1000)
+            to_ms = max(to_ms, min(_to_ms(datetime.now(UTC)), segment.time_range.from_ms + window_ms))
         params: dict[str, Any] = {
             "state": segment.state,
             "sortOrder": "asc",
             "limit": PAGE_LIMIT,
             "dateTimeFieldName": "deskUpdatedAt",
             "from": segment.time_range.from_ms,
-            "to": segment.time_range.to_ms,
+            "to": to_ms,
         }
         for page in paginate_with_cursor(
             client,
@@ -278,12 +284,22 @@ def user_chat_pages(
             yield UserChatPage(segment=index, next_cursor=page.next_cursor, chats=page.rows)
 
 
-def user_chat_segments(run: TimeRange) -> list[UserChatSegment]:
+def user_chat_segments(run: TimeRange, open_ended: bool) -> list[UserChatSegment]:
+    ranges = time_ranges(run.from_ms, run.to_ms)
     return [
-        UserChatSegment(state=state, time_range=time_range)
-        for time_range in time_ranges(run.from_ms, run.to_ms)
+        UserChatSegment(state=state, time_range=time_range, open_ended=open_ended and index == len(ranges) - 1)
+        for index, time_range in enumerate(ranges)
         for state in USER_CHAT_STATES
     ]
+
+
+def first_reads(chats: Rows, seen: set[str] | None) -> Rows:
+    """Drop chats this attempt already read. Only an open-ended full refresh can list a chat twice."""
+    if seen is None:
+        return chats
+    fresh = [chat for chat in chats if chat.get("id") not in seen]
+    seen.update(str(chat["id"]) for chat in fresh if chat.get("id"))
+    return fresh
 
 
 def _after_page(page: UserChatPage, run: TimeRange) -> ChannelIOResumeConfig:
@@ -299,14 +315,17 @@ def user_chat_rows(
     watermark: datetime | None,
     resume: ChannelIOResumeConfig | None,
     manager: ResumableSourceManager[ChannelIOResumeConfig],
+    full_refresh: bool,
 ) -> Iterator[Rows]:
     run = run_range(client, watermark, resume)
     start_segment = resume.segment if resume is not None else 0
     start_cursor = resume.cursor if resume is not None else None
-    for page in user_chat_pages(client, user_chat_segments(run), start_segment, start_cursor):
+    seen: set[str] | None = set() if full_refresh else None
+    for page in user_chat_pages(client, user_chat_segments(run, full_refresh), start_segment, start_cursor):
         manager.save_state(_after_page(page, run))
-        if page.chats:
-            yield [normalize_row(chat) for chat in page.chats]
+        chats = first_reads(page.chats, seen)
+        if chats:
+            yield [normalize_row(chat) for chat in chats]
         else:
             manager.safe_point()
 
@@ -330,36 +349,31 @@ def message_rows(
     watermark: datetime | None,
     resume: ChannelIOResumeConfig | None,
     manager: ResumableSourceManager[ChannelIOResumeConfig],
+    full_refresh: bool,
 ) -> Iterator[Rows]:
-    """The messages of every user chat the run lists, one chat at a time.
+    """Every message of every user chat the run lists, one chat at a time.
 
-    An incremental run reads only messages created since the watermark, so a long chat with one new reply
-    costs one request, not its whole history. A chat deleted after it was listed answers 404 and is skipped.
+    Each chat's whole history is read: a chat seen for the first time may hold messages older than the
+    watermark. A chat deleted after it was listed answers 404 and is skipped.
     """
     skip_missing_chat = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name="messages")
     run = run_range(client, watermark, resume)
-    message_ranges: list[TimeRange | None] = (
-        list(time_ranges(run.from_ms, run.to_ms)) if watermark is not None else [None]
-    )
-    first_window = resume.message_window if resume is not None else 0
+    seen: set[str] | None = set() if full_refresh else None
     first_cursor = resume.message_cursor if resume is not None else None
 
-    for page in _message_pages_to_read(client, user_chat_segments(run), resume):
+    for page in _message_pages_to_read(client, user_chat_segments(run, full_refresh), resume):
         chats = [
             {"id": chat["id"], "deskUpdatedAt": chat.get("deskUpdatedAt") or chat.get("updatedAt")}
-            for chat in page.chats
+            for chat in first_reads(page.chats, seen)
             if chat.get("id")
         ]
 
-        def checkpoint(
-            index: int, window: int, cursor: str | None, page: UserChatPage = page, chats: Rows = chats
-        ) -> None:
+        def checkpoint(index: int, cursor: str | None, page: UserChatPage = page, chats: Rows = chats) -> None:
             manager.save_state(
                 ChannelIOResumeConfig(
                     segment=page.segment,
                     cursor=page.next_cursor,
                     pending_chats=chats[index:],
-                    message_window=window,
                     message_cursor=cursor,
                     window_start_ms=run.from_ms,
                     started_at_ms=run.to_ms,
@@ -367,44 +381,33 @@ def message_rows(
             )
 
         # Staged before this page's rows, so an empty page or a page of deleted chats still moves the cursor on.
-        checkpoint(0, first_window, first_cursor)
+        checkpoint(0, first_cursor)
         for index, chat in enumerate(chats):
             # Every chat before this one is written, including a deleted chat that answered 404 and yielded nothing.
             if index:
-                checkpoint(index, 0, None)
+                checkpoint(index, None)
             manager.safe_point()
             chat_desk_updated_at = to_datetime(chat["deskUpdatedAt"])
-            start_window = first_window if index == 0 else 0
-            for window in range(start_window, len(message_ranges)):
-                if window > start_window:
-                    checkpoint(index, window, None)
+            for message_page in paginate_with_cursor(
+                client,
+                f"/open/user-chats/{quote(str(chat['id']), safe='')}/messages",
+                {"sortOrder": "asc", "limit": PAGE_LIMIT},
+                "messages",
+                first_cursor if index == 0 else None,
+                hooks=skip_missing_chat,
+            ):
+                if message_page.next_cursor:
+                    checkpoint(index, message_page.next_cursor)
+                else:
+                    checkpoint(index + 1, None)
+                if message_page.rows:
+                    yield [
+                        {**normalize_row(message), "userChatDeskUpdatedAt": chat_desk_updated_at}
+                        for message in message_page.rows
+                    ]
+                else:
                     manager.safe_point()
-                time_range = message_ranges[window]
-                params: dict[str, Any] = {"sortOrder": "asc", "limit": PAGE_LIMIT}
-                if time_range is not None:
-                    params.update({"from": time_range.from_ms, "to": time_range.to_ms})
-                for message_page in paginate_with_cursor(
-                    client,
-                    f"/open/user-chats/{quote(str(chat['id']), safe='')}/messages",
-                    params,
-                    "messages",
-                    first_cursor if index == 0 and window == start_window else None,
-                    hooks=skip_missing_chat,
-                ):
-                    if message_page.next_cursor:
-                        checkpoint(index, window, message_page.next_cursor)
-                    elif window + 1 < len(message_ranges):
-                        checkpoint(index, window + 1, None)
-                    else:
-                        checkpoint(index + 1, 0, None)
-                    if message_page.rows:
-                        yield [
-                            {**normalize_row(message), "userChatDeskUpdatedAt": chat_desk_updated_at}
-                            for message in message_page.rows
-                        ]
-                    else:
-                        manager.safe_point()
-        first_window, first_cursor = 0, None
+        first_cursor = None
         manager.safe_point()
 
 
@@ -440,7 +443,7 @@ def channel_io_source(
 
     return SourceResponse(
         name=endpoint.name,
-        items=lambda: read(client, watermark, resume, manager),
+        items=lambda: read(client, watermark, resume, manager, not inputs.should_use_incremental_field),
         primary_keys=list(endpoint.primary_keys),
         # Chats come back state by state, so rows are not in watermark order across a run. "desc" holds the
         # watermark until the run ends.
