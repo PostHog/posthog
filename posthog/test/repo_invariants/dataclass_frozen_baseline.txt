@@ -1172,7 +1172,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/twelve_data/twelve_data.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/twelve_labs/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/twelve_labs/twelve_labs.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/twilio/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/twilio/twilio.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/typeform/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/ubidots/settings.py
