@@ -48,6 +48,7 @@ def mark_starred_products_setup_completed(user: User) -> None:
 
 def _project_shortcuts(user: User, team: "Team") -> QuerySet[FileSystemShortcut]:
     # The sidebar lists the shortcuts of every environment in the project, so checks span them all.
+    # nosemgrep: environment-model-scoped-by-project -- the shortcut API lists a user's own stars project-wide
     return FileSystemShortcut.objects.filter(surface_q(DEFAULT_SURFACE), team__project_id=team.project_id, user=user)
 
 
