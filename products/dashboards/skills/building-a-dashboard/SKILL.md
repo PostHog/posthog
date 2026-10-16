@@ -52,12 +52,9 @@ Prefer reusing existing insights over recreating them.
 - Search with `insights-list` and read promising ones with `insight-get` to check they match the user's intent and
   actually have data. Full-text search misses things named differently, so list broadly before concluding an insight
   doesn't exist.
-- For anything missing, read `querying-posthog-data` before choosing its query method. After Data Catalog routing,
-  default to typed runners for each supported product-analytics tile: trends (including simple counts, unique users,
-  sums, and breakdowns), funnels, retention, stickiness, paths, and lifecycle. Run the query to verify it, then save its
-  native query node with `insight-create`. Use SQL-backed insights for explicit SQL requests or calculations the typed
-  schemas cannot express, such as custom joins. SQL used to discover events or existing insights does not determine
-  the query type of new tiles. Keep valid existing insights rather than rebuilding them.
+- For anything missing, build the insight with the `creating-insights` skill. It covers which typed runner fits each
+  tile, when a tile needs SQL, and how to save it with `insight-create`. Keep valid existing insights rather than
+  rebuilding them.
 - Follow `querying-posthog-data` for presenting verified query results: some harnesses show charts inline, while
   others need a separate top-level `render-ui` call with the same query tool and input. Rendering support does not
   determine the saved insight's query type.
@@ -124,6 +121,7 @@ Use `dashboard-create-tile` with `type: text` when a dashboard needs a heading, 
 
 ## Related skills
 
+- **`creating-insights`** — build each insight on the dashboard with a typed runner
 - **`setting-up-data-catalog`** — create or maintain canonical metrics in PostHog's semantic layer
 - **`managing-subscriptions`** — deliver the finished dashboard to email or Slack on a schedule
 - **`creating-ai-subscription`** — a recurring AI-written report, when prose beats a wall of charts
