@@ -13,6 +13,7 @@ import {
     LifecycleDataWarehouseNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { isAnyDataWarehouseNode } from '~/queries/utils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     AnyPropertyFilter,
@@ -56,14 +57,34 @@ export const FLAG_CALLS_UNSUPPORTED_MATH_TYPES: ReadonlySet<string> = new Set<st
     GroupMathType.FirstMatchingEventForGroup,
 ])
 
+type SeriesOrRetentionEntity = { kind?: string; type?: string; table_name?: string } | null | undefined
+
+function seriesNodes(query: InsightQueryNode): SeriesOrRetentionEntity[] {
+    return query.kind === NodeKind.RetentionQuery
+        ? [query.retentionFilter?.targetEntity, query.retentionFilter?.returningEntity]
+        : 'series' in query
+          ? (query.series ?? [])
+          : []
+}
+
+function readsFlagCallsTable(node: SeriesOrRetentionEntity): boolean {
+    return node?.table_name === FLAG_EVALUATIONS_TABLE
+}
+
 export function readsFlagCalls(query: InsightQueryNode): boolean {
-    const nodes: unknown[] =
-        query.kind === NodeKind.RetentionQuery
-            ? [query.retentionFilter?.targetEntity, query.retentionFilter?.returningEntity]
-            : 'series' in query
-              ? (query.series ?? [])
-              : []
-    return nodes.some((node) => (node as { table_name?: string } | undefined)?.table_name === FLAG_EVALUATIONS_TABLE)
+    return seriesNodes(query).some(readsFlagCallsTable)
+}
+
+export function dataWarehouseSeriesNodes(query: InsightQueryNode): SeriesOrRetentionEntity[] {
+    return seriesNodes(query).filter((node) => isAnyDataWarehouseNode(node) || node?.type === 'data_warehouse')
+}
+
+/**
+ * Whether each data warehouse series in the query reads flag calls. True when there is none.
+ * Mirrors every_warehouse_series_reads_flag_calls in posthog/hogql_queries/utils/entities.py.
+ */
+export function everyWarehouseSeriesReadsFlagCalls(query: InsightQueryNode): boolean {
+    return dataWarehouseSeriesNodes(query).every(readsFlagCallsTable)
 }
 
 /** Sets the actor columns of each flag calls series to the query's aggregation.
