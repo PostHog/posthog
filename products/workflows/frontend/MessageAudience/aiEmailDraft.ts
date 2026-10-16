@@ -80,6 +80,8 @@ export function aiEmailDraftFailureMessage(result: AiEmailDraftResult | null): s
     switch (result.templateReason) {
         case 'rate_limited':
             return "This project used its AI drafts for the hour, so the email wasn't changed."
+        case 'ai_credits_exhausted':
+            return "Your organization used its PostHog AI credits for this month, so the email wasn't changed."
         case 'timeout':
         case 'model_error':
         case 'invalid_output':
