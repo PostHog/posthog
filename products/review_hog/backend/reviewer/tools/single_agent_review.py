@@ -345,13 +345,26 @@ class FlashTurnStats:
     # A dedup call failed and fell back to the positional pre-filter alone.
     dedup_fell_back: bool
     budget_left: int | None = None
+    # A shadow measure for diff-only follow-ups, None without an earlier reviewed head: the lines that
+    # changed since that head, and the kept must-fix findings on and off them. A review that sees only the
+    # change would put the findings off it at risk.
+    changed_lines: int | None = None
+    must_fix_on_change: int | None = None
+    must_fix_off_change: int | None = None
 
 
-def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, reviewable_lines: int) -> FlashTurnStats:
+def flash_turn_stats(
+    candidates: list[Issue],
+    selection: FlashSelection,
+    *,
+    reviewable_lines: int,
+    changed_since: "ChangedSinceReview | None" = None,
+) -> FlashTurnStats:
     """Count a turn's findings per session and per drop reason.
 
     Must-fix counts read `reported_priority`, because a dedup survivor can be raised above what its
-    session reported.
+    session reported. The on and off change split reads the stored priority instead, because it counts
+    what the turn posts.
     """
     per_session = dict.fromkeys(_SESSION_NAMES.values(), 0)
     must_fix = dict(per_session)
@@ -361,6 +374,14 @@ def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, revi
         if issue.reported_priority in ("P0", "P1"):
             must_fix[session] = must_fix.get(session, 0) + 1
     cut = sum(1 for drop in selection.dropped if drop.disposition in ("cap", "budget"))
+    changed_lines: int | None = None
+    must_fix_on_change: int | None = None
+    must_fix_off_change: int | None = None
+    if changed_since is not None:
+        kept_must_fix = [issue for issue in selection.kept if issue.priority == IssuePriority.MUST_FIX]
+        changed_lines = changed_since.reviewable_line_count()
+        must_fix_on_change = sum(1 for issue in kept_must_fix if changed_since.touches(issue))
+        must_fix_off_change = len(kept_must_fix) - must_fix_on_change
     return FlashTurnStats(
         cap=selection.cap,
         lens_part_count=selection.lens_part_count,
@@ -372,6 +393,9 @@ def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, revi
         kept=len(selection.kept),
         dedup_fell_back=selection.dedup_fell_back,
         budget_left=selection.budget_left,
+        changed_lines=changed_lines,
+        must_fix_on_change=must_fix_on_change,
+        must_fix_off_change=must_fix_off_change,
     )
 
 
@@ -590,6 +614,10 @@ class ChangedSinceReview:
             else:
                 lines[pr_file.filename] = _lines_new_since(pr_file, earlier)
         return cls(lines=lines, files_without_patch=files_without_patch)
+
+    def reviewable_line_count(self) -> int:
+        """How many head lines of reviewable files changed, comparable with `flash_reviewable_lines`."""
+        return sum(len(lines) for filename, lines in self.lines.items() if is_reviewable_path(filename))
 
     def touches(self, issue: Issue) -> bool:
         """Whether the finding sits on or near a changed line, or in a file whose lines cannot be compared."""

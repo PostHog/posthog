@@ -660,3 +660,38 @@ def test_turn_stats_count_every_candidate_once_per_session() -> None:
     assert stats.must_fix == {"main": 0, "performance_reliability": 0, "contracts_security": 1}
     assert (stats.after_dedup, stats.kept, stats.dropped) == (2, 1, {"dedup_anchor": 1, "cap": 1})
     assert sum(stats.candidates.values()) == stats.kept + sum(stats.dropped.values())
+
+
+def test_turn_stats_split_posted_must_fix_by_whether_the_push_changed_its_code() -> None:
+    # The diff-only shadow reads these counts: a must-fix off the change is one a review of the change alone
+    # would put at risk. Only posted must-fix count, and lock file lines do not count toward the change size.
+    earlier = [_patched("a.py", ("addition", 10, ["x = 1"])), _patched("uv.lock", ("addition", 1, ["a"]))]
+    current = [
+        _patched("a.py", ("addition", 10, ["x = 1", "y = 2"])),
+        _patched("uv.lock", ("addition", 1, ["a", "b", "c"])),
+    ]
+    on_change = _issue("2000-1-1", IssuePriority.MUST_FIX).model_copy(update={"lines": [LineRange(start=11)]})
+    off_change = _issue("2000-1-2", IssuePriority.MUST_FIX).model_copy(update={"lines": [LineRange(start=40)]})
+    should_fix = _issue("2000-1-3", IssuePriority.SHOULD_FIX).model_copy(update={"lines": [LineRange(start=40)]})
+    cut = _issue("2000-1-4", IssuePriority.MUST_FIX).model_copy(update={"lines": [LineRange(start=60)]})
+    selection = FlashSelection(
+        kept=[on_change, off_change, should_fix],
+        dropped=[DroppedIssue(issue=cut, disposition="cap", rank=4)],
+        cap=4,
+        lens_part_count=1,
+    )
+
+    stats = flash_turn_stats(
+        [on_change, off_change, should_fix, cut],
+        selection,
+        reviewable_lines=120,
+        changed_since=ChangedSinceReview.between(earlier, current),
+    )
+    first_review = flash_turn_stats([on_change], selection, reviewable_lines=120)
+
+    assert (stats.changed_lines, stats.must_fix_on_change, stats.must_fix_off_change) == (1, 1, 1)
+    assert (first_review.changed_lines, first_review.must_fix_on_change, first_review.must_fix_off_change) == (
+        None,
+        None,
+        None,
+    )
