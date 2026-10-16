@@ -11,6 +11,8 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena.athena import (
     ERROR_PREFIX,
     QUERY_ERROR_PREFIX,
+    TABLE_NOT_FOUND,
+    TABLE_NOT_FOUND_MESSAGE,
     THROTTLING_ERROR_CODES,
     VALIDATION_ERROR_MESSAGES,
     AthenaImplementation,
@@ -70,6 +72,7 @@ class AwsAthenaSource(SQLSource[AwsAthenaSourceConfig]):
         errors[f"{ERROR_PREFIX}: InvalidRequestException"] = (
             "Athena rejected the request. Check the workgroup, the output location and the table's columns, then retry."
         )
+        errors[f"{ERROR_PREFIX}: {TABLE_NOT_FOUND}"] = TABLE_NOT_FOUND_MESSAGE
         errors[f"{QUERY_ERROR_PREFIX}: USER_ERROR"] = (
             "Athena could not run the query for this table. A column may have been renamed or dropped, or the "
             "credentials cannot read the table's S3 data. Fix that, then retry the sync."
@@ -90,7 +93,7 @@ class AwsAthenaSource(SQLSource[AwsAthenaSourceConfig]):
             label="Amazon Athena",
             caption="""Sync tables from an AWS Glue database through Amazon Athena into the PostHog Data warehouse.
 
-Create an IAM user or role with `glue:GetDatabase`, `glue:GetTables`, `glue:GetTable`, `athena:GetWorkGroup`, `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults` and `athena:StopQueryExecution`, plus read access to the tables' S3 data and read and write access to the query result location. Paste its access key ID and secret access key.
+Create an IAM user or role with `glue:GetDatabase`, `glue:GetTables`, `glue:GetTable`, `glue:GetPartitions`, `glue:GetPartition`, `glue:BatchGetPartition`, `athena:GetWorkGroup`, `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults` and `athena:StopQueryExecution`, plus read access to the tables' S3 data and read and write access to the query result location. Paste its access key ID and secret access key.
 
 Each sync runs one Athena query per table, which Athena bills by the data it scans. An incremental sync filters on the chosen column, so a partitioned table keyed on that column scans less.""",
             iconPath="/static/services/aws_athena.png",

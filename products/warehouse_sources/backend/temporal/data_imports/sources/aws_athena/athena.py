@@ -25,7 +25,7 @@ from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
-    stop_after_delay,
+    stop_before_delay,
     wait_exponential_jitter,
 )
 
@@ -89,6 +89,10 @@ RETRY_BUDGET_SECONDS = 180
 RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
 ERROR_PREFIX = "AWS Athena request failed"
 QUERY_ERROR_PREFIX = "AWS Athena query failed"
+TABLE_NOT_FOUND = "TableNotFound"
+TABLE_NOT_FOUND_MESSAGE = (
+    "This table no longer exists in Glue, or it has no columns. Refresh the schemas, then turn the table back on."
+)
 
 # AWS answers these as HTTP 400 with the code in the body, so the transport cannot see them.
 THROTTLING_ERROR_CODES = frozenset({"ThrottlingException", "TooManyRequestsException", "ThrottlingError"})
@@ -169,7 +173,9 @@ def send_once(
     body = serialized["body"]
     if isinstance(body, str):
         body = body.encode()
-    suffix = aws_dns_suffix(region) or "amazonaws.com"
+    suffix = aws_dns_suffix(region)
+    if suffix is None:
+        raise ValueError(f"Unknown AWS region: {region}")
     url = f"https://{model.endpoint_prefix}.{region}.{suffix}{serialized['url_path']}"
 
     aws_request = AWSRequest(method="POST", url=url, data=body, headers=dict(serialized["headers"]))
@@ -192,7 +198,7 @@ def send_once(
 # The only retry layer: the session sends each try once, so tries and waits do not multiply.
 @retry(
     retry=retry_if_exception_type((AwsAthenaTransientError, requests.ConnectionError, requests.Timeout)),
-    stop=stop_after_attempt(MAX_ATTEMPTS) | stop_after_delay(RETRY_BUDGET_SECONDS),
+    stop=stop_after_attempt(MAX_ATTEMPTS) | stop_before_delay(RETRY_BUDGET_SECONDS),
     wait=wait_exponential_jitter(initial=2, max=30),
     sleep=_retry_wait,
     before_sleep=_before_retry_wait,
@@ -218,12 +224,15 @@ class AthenaClient:
         aws_region: str,
     ) -> None:
         redact = tuple(value for value in (aws_secret_access_key, aws_session_token) if value)
-        self._session = make_tracked_session(retry=NO_RETRY, redact_values=redact)
+        self._session = make_tracked_session(retry=NO_RETRY, redact_values=redact, allow_redirects=False)
         self._credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
         self._region = aws_region.strip()
 
     def call(self, service: AwsService, operation: str, params: dict[str, Any]) -> dict[str, Any]:
         return send_operation(self._session, self._credentials, self._region, service, operation, params)
+
+    def close(self) -> None:
+        self._session.close()
 
     def stop_query(self, execution_id: str) -> None:
         """One try with no retry wait, because the caller is often on its way out of the run."""
@@ -286,20 +295,26 @@ def list_glue_tables(client: AthenaClient, database: str, names: Optional[list[s
         body = client.call(GLUE_SERVICE, "GetTables", params)
         for table in body.get("TableList") or []:
             name = str(table.get("Name") or "")
-            if name and (names is None or name in names):
-                tables[name] = _glue_columns(table)
+            columns = _glue_columns(table)
+            # A table Glue lists with no columns (a Spark-registered Delta table, for one) can never be queried.
+            if name and columns and (names is None or name in names):
+                tables[name] = columns
         next_token = body.get("NextToken")
         if not next_token:
             return tables
 
 
 def get_glue_table(client: AthenaClient, database: str, table_name: str) -> Table[AthenaColumn]:
-    body = client.call(GLUE_SERVICE, "GetTable", {"DatabaseName": database, "Name": table_name})
+    missing = AwsAthenaError(f"{ERROR_PREFIX}: {TABLE_NOT_FOUND} - table {table_name}", TABLE_NOT_FOUND)
+    try:
+        body = client.call(GLUE_SERVICE, "GetTable", {"DatabaseName": database, "Name": table_name})
+    except AwsAthenaError as error:
+        if error.code == "EntityNotFoundException":
+            raise missing from error
+        raise
     columns = _glue_columns(body.get("Table") or {})
     if not columns:
-        raise AwsAthenaError(
-            f"{ERROR_PREFIX}: EntityNotFoundException - table {table_name} has no columns", "EntityNotFoundException"
-        )
+        raise missing
     return Table(name=table_name, parents=(database,), columns=columns)
 
 
@@ -329,16 +344,24 @@ def athena_literal(value: Any) -> str:
 
 
 def _parse_timestamp(text: str, with_zone: bool) -> dt.datetime:
+    # A zoned value prints as `2024-01-15 10:30:00.123 UTC` or `... +05:30`, and fromisoformat takes
+    # neither tail. Glue declares an Iceberg `timestamptz` as plain `timestamp`, so a naive column can
+    # carry one too.
     value = text.strip()
     zone: dt.tzinfo | None = None
-    if with_zone and " " in value:
-        head, _, tail = value.rpartition(" ")
-        if tail and not tail[0].isdigit() and tail[0] not in "+-":
+    head, separator, tail = value.rpartition(" ")
+    if separator and " " in head and tail:
+        if tail[0] in "+-":
+            value = head + tail
+        elif tail[0].isalpha():
             value, zone = head, dt.UTC if tail.upper() == "UTC" else ZoneInfo(tail)
     parsed = dt.datetime.fromisoformat(value)
     if zone is not None and parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=zone)
-    return parsed.astimezone(dt.UTC) if parsed.tzinfo is not None else parsed
+    if parsed.tzinfo is None:
+        return parsed
+    in_utc = parsed.astimezone(dt.UTC)
+    return in_utc if with_zone else in_utc.replace(tzinfo=None)
 
 
 def value_parser(arrow_type: pa.DataType) -> Optional[Callable[[str], Any]]:
@@ -468,7 +491,11 @@ class AthenaImplementation(SQLSourceImplementation[AwsAthenaSourceConfig, Athena
     @contextmanager
     def connect(self, config: AwsAthenaSourceConfig, *, team_id: int | None = None) -> Iterator[AthenaClient]:
         # Every request goes to an AWS endpoint picked from the region, so there is no host to check.
-        yield make_client(config)
+        client = make_client(config)
+        try:
+            yield client
+        finally:
+            client.close()
 
     def get_columns(
         self,
@@ -505,59 +532,64 @@ class AthenaImplementation(SQLSourceImplementation[AwsAthenaSourceConfig, Athena
         primary_keys = resolve_merge_keys(inputs.primary_keys, None, [column.name for column in full_table.columns])
 
         def get_rows() -> Iterator[pa.Table]:
-            projection = resolve_table_projection(
-                full_table,
-                enabled_columns=inputs.enabled_columns,
-                primary_keys=primary_keys,
-                incremental_field=incremental_field,
-            )
-            query = build_athena_select(
-                database=database,
-                table=full_table,
-                incremental_field=incremental_field,
-                incremental_field_type=incremental_field_type,
-                incremental_last_value=inputs.db_incremental_field_last_value,
-                enabled_columns=projection.enabled_columns,
-                primary_keys=primary_keys,
-                row_filters=inputs.row_filters,
-            )
-            arrow_schema = projection.table.to_arrow_schema()
-            logger.debug(f"Athena query: {query.sql}")
-
-            execution_id = start_query(client, query, location)
             try:
-                wait_for_query(client, execution_id)
-            except AwsAthenaQueryEndedError:
-                raise
-            except BaseException:
-                # The next attempt starts a new query, so this one would only use capacity and bill scans.
-                try:
-                    client.stop_query(execution_id)
-                except Exception as stop_error:
-                    logger.warning("Could not stop Athena query", execution_id=execution_id, error=str(stop_error))
-                raise
-
-            binary_reporter = BinaryColumnReporter(logger)
-            for names, rows in iter_result_pages(client, execution_id):
-                if not rows:
-                    reach_safe_point()
-                    continue
-                page_schema = restrict_schema_to_columns(arrow_schema, names)
-                parsers = [
-                    value_parser(page_schema.field(name).type) if name in page_schema.names else None for name in names
-                ]
-                yield table_from_iterator(
-                    (
-                        {
-                            name: parser(value) if parser is not None and value is not None else value
-                            for name, parser, value in zip(names, parsers, row)
-                        }
-                        for row in rows
-                    ),
-                    page_schema,
+                projection = resolve_table_projection(
+                    full_table,
+                    enabled_columns=inputs.enabled_columns,
                     primary_keys=primary_keys,
-                    binary_reporter=binary_reporter,
+                    incremental_field=incremental_field,
                 )
+                query = build_athena_select(
+                    database=database,
+                    table=full_table,
+                    incremental_field=incremental_field,
+                    incremental_field_type=incremental_field_type,
+                    incremental_last_value=inputs.db_incremental_field_last_value,
+                    enabled_columns=projection.enabled_columns,
+                    primary_keys=primary_keys,
+                    row_filters=inputs.row_filters,
+                )
+                arrow_schema = projection.table.to_arrow_schema()
+                logger.debug(f"Athena query: {query.sql}")
+
+                execution_id = start_query(client, query, location)
+                try:
+                    wait_for_query(client, execution_id)
+                except AwsAthenaQueryEndedError:
+                    raise
+                except BaseException:
+                    # The next attempt starts a new query, so this one would only use capacity and bill scans.
+                    try:
+                        client.stop_query(execution_id)
+                    except Exception as stop_error:
+                        logger.warning("Could not stop Athena query", execution_id=execution_id, error=str(stop_error))
+                    raise
+
+                binary_reporter = BinaryColumnReporter(logger)
+                for names, rows in iter_result_pages(client, execution_id):
+                    if not rows:
+                        reach_safe_point()
+                        continue
+                    page_schema = restrict_schema_to_columns(arrow_schema, names)
+                    parsers = [
+                        value_parser(page_schema.field(name).type) if name in page_schema.names else None
+                        for name in names
+                    ]
+                    yield table_from_iterator(
+                        (
+                            {
+                                name: parser(value) if parser is not None and value is not None else value
+                                for name, parser, value in zip(names, parsers, row)
+                            }
+                            for row in rows
+                        ),
+                        page_schema,
+                        primary_keys=primary_keys,
+                        binary_reporter=binary_reporter,
+                    )
+
+            finally:
+                client.close()
 
         return SourceResponse(
             name=source_location.response_name,
@@ -571,7 +603,7 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
     "InvalidClientTokenId": "AWS rejected the access key. Check the access key ID and secret access key, and that the key is still active.",
     "InvalidSignatureException": "AWS rejected the request signature. Re-enter the secret access key.",
     "ExpiredTokenException": "The AWS session token has expired. Reconnect with fresh credentials.",
-    "AccessDeniedException": "These AWS credentials cannot read the catalog or run queries. Grant glue:GetDatabase, glue:GetTables, glue:GetTable, athena:GetWorkGroup, athena:StartQueryExecution, athena:GetQueryExecution, athena:GetQueryResults and athena:StopQueryExecution, plus read access to the tables' S3 data and read and write access to the query result location.",
+    "AccessDeniedException": "These AWS credentials cannot read the catalog or run queries. Grant glue:GetDatabase, glue:GetTables, glue:GetTable, glue:GetPartitions, glue:GetPartition, glue:BatchGetPartition, athena:GetWorkGroup, athena:StartQueryExecution, athena:GetQueryExecution, athena:GetQueryResults and athena:StopQueryExecution, plus read access to the tables' S3 data and read and write access to the query result location.",
     "EntityNotFoundException": "The Glue database does not exist in this region. Check the database name and region.",
 }
 

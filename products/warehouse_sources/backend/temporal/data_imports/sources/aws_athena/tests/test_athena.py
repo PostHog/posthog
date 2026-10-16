@@ -5,6 +5,8 @@ from typing import Any
 
 import pytest
 
+import pyarrow as pa
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena.athena import (
     NO_RESULT_LOCATION_MESSAGE,
     VALIDATION_ERROR_MESSAGES,
@@ -12,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena
     WORKGROUP_NOT_FOUND_MESSAGE,
     athena_literal,
     validate_credentials,
+    value_parser,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena.source import AwsAthenaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -315,6 +318,27 @@ class TestAthenaLiteral:
     def test_an_unsupported_value_is_refused_rather_than_stringified(self) -> None:
         with pytest.raises(TypeError):
             athena_literal(["a"])
+
+
+class TestValueParser:
+    @pytest.mark.parametrize(
+        "arrow_type, text, expected",
+        [
+            # Glue declares an Iceberg timestamptz as `timestamp`, and Athena prints it with its zone.
+            (pa.timestamp("us"), "2024-01-15 10:30:00.123456 UTC", dt.datetime(2024, 1, 15, 10, 30, 0, 123456)),
+            (pa.timestamp("us"), "2024-01-15 10:30:00.123 +05:30", dt.datetime(2024, 1, 15, 5, 0, 0, 123000)),
+            (
+                pa.timestamp("us", tz="UTC"),
+                "2024-01-15 10:30:00 America/New_York",
+                dt.datetime(2024, 1, 15, 15, 30, tzinfo=dt.UTC),
+            ),
+            (pa.timestamp("us"), "2024-01-15 10:30:00", dt.datetime(2024, 1, 15, 10, 30)),
+        ],
+    )
+    def test_a_zoned_timestamp_lands_in_utc(self, arrow_type: pa.DataType, text: str, expected: dt.datetime) -> None:
+        parser = value_parser(arrow_type)
+        assert parser is not None
+        assert parser(text) == expected
 
 
 class TestValidateCredentials:
