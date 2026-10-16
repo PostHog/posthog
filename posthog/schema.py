@@ -804,20 +804,6 @@ class AssistantHogQLQuery(BaseModel):
     )
 
 
-class AssistantInsightVizNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["InsightVizNode"] = "InsightVizNode"
-    source: dict[str, Any] = Field(
-        ...,
-        description=(
-            "Product analtycs query objects like TrendsQuery, FunnelsQuery,"
-            " RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery"
-        ),
-    )
-
-
 class AssistantPathCleaningFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4411,6 +4397,26 @@ class AssistantGroupPropertyFilter5(BaseModel):
         ),
     )
     type: Literal["group"] = "group"
+
+
+class AssistantInsightVizNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["InsightVizNode"] = "InsightVizNode"
+    source: dict[str, Any] = Field(
+        ...,
+        description=(
+            "Product analtycs query objects like TrendsQuery, FunnelsQuery,"
+            " RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery"
+        ),
+    )
+    vizSpecificOptions: VizSpecificOptions | None = Field(
+        default=None,
+        description=(
+            "Chart rendering options. Set `ActionsPie.hideAggregation` to `true` to hide the total on a pie chart."
+        ),
+    )
 
 
 class AssistantLifecycleFilter(BaseModel):

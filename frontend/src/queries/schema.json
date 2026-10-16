@@ -3782,6 +3782,10 @@
                 "source": {
                     "description": "Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery",
                     "type": "object"
+                },
+                "vizSpecificOptions": {
+                    "$ref": "#/definitions/VizSpecificOptions",
+                    "description": "Chart rendering options. Set `ActionsPie.hideAggregation` to `true` to hide the total on a pie chart."
                 }
             },
             "required": ["kind", "source"],
