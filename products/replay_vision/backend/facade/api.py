@@ -45,6 +45,10 @@ class StartedObservationRequest:
 
 # An experiment scan needs a saved scanner, so a workflow step can't run one inline.
 INLINE_SCAN_TYPES = (ScannerType.MONITOR, ScannerType.CLASSIFIER, ScannerType.SCORER, ScannerType.SUMMARIZER)
+# An experiment scanner samples the experiment's variants evenly, which one session from a workflow trigger can't do.
+WORKFLOW_EXPERIMENT_SCANNER_ERROR = (
+    "Experiment scanners can't run from a workflow. Choose another scanner or set up the scan in the step."
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -232,6 +236,8 @@ def start_workflow_observation_request(
         scanner = ReplayScanner.objects.filter(team_id=team.id, id=scanner_id).first()
         if scanner is None:
             raise ObservationRequestRejected("No scanner with this ID exists in this project.", "not_found")
+        if scanner.scanner_type == ScannerType.EXPERIMENT:
+            raise ObservationRequestRejected(WORKFLOW_EXPERIMENT_SCANNER_ERROR, "invalid")
         if not _can_scan_with(access, team.id, scanner):
             raise ObservationRequestRejected("The workflow's owner can't scan with this scanner.", "forbidden")
     elif inline is not None:
@@ -304,6 +310,8 @@ def workflow_scan_editor_error(*, user: User, team: "Team", scanner_id: UUID | N
     scanner = ReplayScanner.objects.filter(team_id=team.id, id=scanner_id).first()
     if scanner is None:
         return "No scanner with this ID exists in this project."
+    if scanner.scanner_type == ScannerType.EXPERIMENT:
+        return WORKFLOW_EXPERIMENT_SCANNER_ERROR
     if not _can_scan_with(access, team.id, scanner):
         return "You need edit access to this scanner to use it in a workflow."
     return None

@@ -190,7 +190,7 @@ A `function` node with `template_id: "template-posthog-replay-vision"` scans the
   | `summarizer` | `prompt`                                        | A title, a summary, and chapters.                         |
   | `scanner`    | `scanner_id` (a saved scanner's UUID)           | The saved scanner's answer, with its own type and prompt. |
 
-- The inline types take the same optional settings as a saved scanner of that type. See the `creating-replay-vision-scanners` skill. Find saved scanners with the `vision-scanners` tools.
+- The inline types take the same optional settings as a saved scanner of that type. See the `creating-replay-vision-scanners` skill. Find saved scanners with the `vision-scanners` tools. The step refuses an experiment scanner, because it samples the experiment's variants evenly, which one triggered session can't do.
 - `session_id` defaults to `{event.properties.$session_id}`. Leave it unset unless the session ID is in another property.
 - `wait_for_session_end` defaults to `true`, which scans the recording after the session has been quiet for 35 minutes. Set it to `false` only when the trigger event comes after the session ended.
 - The step result is `{"state", "output", "warnings"}`. `state` is `succeeded`, `failed`, `skipped`, `ineligible` or `lost`. `output` is the scanner's answer: `verdict`, `tags` or `score` with `reasoning` for a monitor, classifier or scorer, and `title`, `summary` and `chapters` for a summarizer. Every type also returns `confidence`. Use `output_variable` to keep the result, then branch on it.

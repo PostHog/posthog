@@ -7639,6 +7639,19 @@ class TestReplayVisionActionValidation(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    def test_the_step_refuses_an_experiment_scanner(self) -> None:
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="experiment",
+            scanner_type="experiment",
+            scanner_config={"prompt": "p", "experiment_id": 1},
+        )
+
+        response = self._save_step({"type": "scanner", "scanner_id": str(scanner.id)})
+
+        assert response.status_code == 400, response.json()
+        assert "Experiment scanners can't run from a workflow" in str(response.json())
+
     @parameterized.expand(
         [
             ("recording_and_scanner_scopes", ["hog_flow:write", "session_recording:read", "replay_scanner:write"], 201),
