@@ -75,7 +75,7 @@ def get_audience_size(
         blast_radius = get_person_audience_count_v2(team, filters)
 
     mixed_realtime_cohort = (
-        find_realtime_behavioral_cohort(team.project_id, filter_cohort_ids(filters))
+        find_realtime_behavioral_cohort(team.project_id, [*filter_cohort_ids(filters)])
         if group_type_index is None
         else None
     )
