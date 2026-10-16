@@ -6,7 +6,6 @@ use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, ConsistencyLevel, CountGroupTypeMappingsRequest,
     DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest, DeletePersonsMode,
     DeletePersonsRequest, DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
-    DistinctIdWrite, DistinctIdWriteAction, DistinctIdWriteOutcome,
     EnsurePersonVersionFloorsRequest, GetDistinctIdRowsRequest, GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
@@ -14,12 +13,10 @@ use personhog_proto::personhog::types::v1::{
     GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
     GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
     GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
-    ListPersonsForTeamRequest, PersonVersionFloor, PersonVersionFloorResult,
-    RaisePersonVersionFloorsRequest, ReadOptions, RestoreOutcome, RestorePersonsRequest,
-    RestoredDistinctId, RestoredPerson, SetPersonDistinctIdVersionFloorRequest,
+    ListPersonsForTeamRequest, PersonVersionFloor, PersonVersionFloorResult, RaiseOutcome,
+    RaisePersonVersionFloorsRequest, ReadOptions, SetPersonDistinctIdVersionFloorRequest,
     SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
     UpsertHashKeyOverridesRequest, VersionBoundedPerson, VersionFloorOutcome,
-    WriteDistinctIdsRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -1985,68 +1982,23 @@ async fn test_list_persons_for_team_rejects_bad_requests(
 async fn test_repair_writes_round_trip_through_the_service() {
     let ctx = ServiceTestContext::new().await;
     let person = ctx.insert_person("svc_repair", None).await.unwrap();
-    let absent = Uuid::new_v4();
 
-    let restored = ctx
+    let raised = ctx
         .service
-        .restore_persons(Request::new(RestorePersonsRequest {
+        .raise_person_version_floors(Request::new(RaisePersonVersionFloorsRequest {
             team_id: ctx.team_id,
-            persons: vec![RestoredPerson {
-                person_uuid: absent.to_string(),
-                properties: br#"{"plan": "free"}"#.to_vec(),
-                created_at_ms: 1_600_000_000_000,
-                is_identified: false,
-                version: 4,
-                distinct_ids: vec![RestoredDistinctId {
-                    distinct_id: "svc_repair_restored".to_string(),
-                    version: 3,
-                }],
-            }],
-        }))
-        .await
-        .expect("restore")
-        .into_inner()
-        .results;
-    assert_eq!(restored[0].outcome, RestoreOutcome::Inserted as i32);
-    assert_eq!(restored[0].version, 4);
-    assert_eq!(
-        restored[0].restored_distinct_ids,
-        vec!["svc_repair_restored"]
-    );
-
-    let written = ctx
-        .service
-        .write_distinct_ids(Request::new(WriteDistinctIdsRequest {
-            team_id: ctx.team_id,
-            writes: vec![DistinctIdWrite {
-                distinct_id: "svc_repair_new".to_string(),
-                action: DistinctIdWriteAction::Insert as i32,
+            floors: vec![PersonVersionFloor {
                 person_uuid: person.uuid.to_string(),
-                min_version: 6,
-                expected_version: None,
+                min_version: 5,
             }],
         }))
         .await
-        .expect("write")
+        .expect("raise")
         .into_inner()
         .results;
-    assert_eq!(written[0].outcome, DistinctIdWriteOutcome::Applied as i32);
-    let row = written[0].row.as_ref().expect("row after the write");
     assert_eq!(
-        (
-            row.person_id,
-            row.person_uuid.clone(),
-            row.version,
-            row.is_deleted,
-            row.person_is_deleted
-        ),
-        (
-            person.id,
-            Some(person.uuid.to_string()),
-            6,
-            false,
-            Some(false)
-        )
+        (raised[0].outcome, raised[0].version),
+        (RaiseOutcome::Raised as i32, 5)
     );
 
     ctx.cleanup().await.ok();
@@ -2056,19 +2008,11 @@ async fn test_repair_writes_round_trip_through_the_service() {
 enum BadRepairRequest {
     TooManyFloors,
     DuplicateFloorUuid,
-    PropertiesNotJson,
-    PropertiesNotAnObject,
-    DuplicateRestoredDistinctId,
-    UnknownWriteAction,
 }
 
 #[rstest]
 #[case::too_many_floors(BadRepairRequest::TooManyFloors)]
 #[case::duplicate_floor_uuid(BadRepairRequest::DuplicateFloorUuid)]
-#[case::properties_not_json(BadRepairRequest::PropertiesNotJson)]
-#[case::properties_not_an_object(BadRepairRequest::PropertiesNotAnObject)]
-#[case::duplicate_restored_distinct_id(BadRepairRequest::DuplicateRestoredDistinctId)]
-#[case::unknown_write_action(BadRepairRequest::UnknownWriteAction)]
 #[tokio::test]
 async fn test_repair_writes_reject_bad_requests(#[case] bad: BadRepairRequest) {
     let ctx = ServiceTestContext::new().await;
@@ -2076,17 +2020,6 @@ async fn test_repair_writes_reject_bad_requests(#[case] bad: BadRepairRequest) {
     let floor = |u: String| PersonVersionFloor {
         person_uuid: u,
         min_version: 1,
-    };
-    let restore = |properties: &[u8]| RestorePersonsRequest {
-        team_id: ctx.team_id,
-        persons: vec![RestoredPerson {
-            person_uuid: uuid.clone(),
-            properties: properties.to_vec(),
-            created_at_ms: 0,
-            is_identified: false,
-            version: 1,
-            distinct_ids: vec![],
-        }],
     };
     let status = match bad {
         BadRepairRequest::TooManyFloors => ctx
@@ -2104,42 +2037,6 @@ async fn test_repair_writes_reject_bad_requests(#[case] bad: BadRepairRequest) {
             .raise_person_version_floors(Request::new(RaisePersonVersionFloorsRequest {
                 team_id: ctx.team_id,
                 floors: vec![floor(uuid.clone()), floor(uuid.to_uppercase())],
-            }))
-            .await
-            .map(|_| ()),
-        BadRepairRequest::PropertiesNotJson => ctx
-            .service
-            .restore_persons(Request::new(restore(b"not json")))
-            .await
-            .map(|_| ()),
-        BadRepairRequest::PropertiesNotAnObject => ctx
-            .service
-            .restore_persons(Request::new(restore(b"[1, 2]")))
-            .await
-            .map(|_| ()),
-        BadRepairRequest::DuplicateRestoredDistinctId => {
-            let mut request = restore(b"{}");
-            let id = || RestoredDistinctId {
-                distinct_id: "svc_dup".to_string(),
-                version: 0,
-            };
-            request.persons[0].distinct_ids = vec![id(), id()];
-            ctx.service
-                .restore_persons(Request::new(request))
-                .await
-                .map(|_| ())
-        }
-        BadRepairRequest::UnknownWriteAction => ctx
-            .service
-            .write_distinct_ids(Request::new(WriteDistinctIdsRequest {
-                team_id: ctx.team_id,
-                writes: vec![DistinctIdWrite {
-                    distinct_id: "svc_bad_action".to_string(),
-                    action: DistinctIdWriteAction::Unspecified as i32,
-                    person_uuid: uuid.clone(),
-                    min_version: 1,
-                    expected_version: None,
-                }],
             }))
             .await
             .map(|_| ()),

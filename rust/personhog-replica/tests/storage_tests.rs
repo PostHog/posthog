@@ -3,10 +3,7 @@ mod common;
 use common::TestContext;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use personhog_replica::storage::postgres::ConsistencyLevel;
-use personhog_replica::storage::types::{
-    DistinctIdWrite, DistinctIdWriteAction, DistinctIdWriteOutcome, RaiseOutcome, RestoreOutcome,
-    RestoredPerson,
-};
+use personhog_replica::storage::types::RaiseOutcome;
 use personhog_replica::storage::{
     GroupKey, PersonVersionFloorResult, StorageError, TimeoutKind, TombstoneTarget,
     TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
@@ -4250,14 +4247,12 @@ enum HeldRowWrite {
     DeleteTombstoned,
     EnsurePersonFloor,
     RaisePersonFloor,
-    WriteDistinctId,
 }
 
 #[rstest]
 #[case::delete_tombstoned(HeldRowWrite::DeleteTombstoned)]
 #[case::ensure_person_floor(HeldRowWrite::EnsurePersonFloor)]
 #[case::raise_person_floor(HeldRowWrite::RaisePersonFloor)]
-#[case::write_distinct_id(HeldRowWrite::WriteDistinctId)]
 #[tokio::test]
 async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: HeldRowWrite) {
     // lock_timeout makes the request fail fast behind a held row; without it this call would
@@ -4288,20 +4283,6 @@ async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: 
             .raise_person_version_floors(ctx.team_id, &[(person.uuid, 5)])
             .await
             .map(|_| ()),
-        HeldRowWrite::WriteDistinctId => ctx
-            .storage
-            .write_distinct_ids(
-                ctx.team_id,
-                &[DistinctIdWrite {
-                    distinct_id: "held_row_absent".to_string(),
-                    action: DistinctIdWriteAction::Insert,
-                    person_uuid: person.uuid,
-                    min_version: 5,
-                    expected_version: None,
-                }],
-            )
-            .await
-            .map(|_| ()),
     };
 
     assert!(
@@ -4321,7 +4302,6 @@ async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: 
         distinct_id_state(&ctx, "held_row").await,
         distinct_id_before
     );
-    assert_eq!(distinct_id_state(&ctx, "held_row_absent").await, None);
 
     ctx.cleanup().await.ok();
 }
@@ -4880,307 +4860,17 @@ async fn test_raise_person_version_floors_raises_only_live_persons() {
 }
 
 #[tokio::test]
-async fn test_restore_persons_inserts_only_absent_uuids() {
-    let ctx = TestContext::new().await;
-    let live = ctx
-        .insert_person("restore_live", Some(serde_json::json!({"kept": true})))
-        .await
-        .unwrap();
-    let tombstoned = ctx.insert_person("restore_tombstoned", None).await.unwrap();
-    ctx.tombstone_person(tombstoned.id, None).await.unwrap();
-    let created_at = chrono::DateTime::parse_from_rfc3339("2021-02-03T04:05:06Z")
-        .unwrap()
-        .with_timezone(&chrono::Utc);
-    let restored = |uuid: Uuid| RestoredPerson {
-        uuid,
-        properties: serde_json::json!({"email": "restored@example.com"}),
-        created_at,
-        is_identified: true,
-        version: 7,
-        distinct_ids: Vec::new(),
-    };
-    let absent = Uuid::new_v4();
-
-    let results = ctx
-        .storage
-        .restore_persons(
-            ctx.team_id,
-            &[
-                restored(absent),
-                restored(live.uuid),
-                restored(tombstoned.uuid),
-            ],
-        )
-        .await
-        .expect("restore");
-
-    let outcomes: Vec<(Uuid, RestoreOutcome)> =
-        results.iter().map(|r| (r.uuid, r.outcome)).collect();
-    assert_eq!(
-        outcomes,
-        vec![
-            (absent, RestoreOutcome::Inserted),
-            (live.uuid, RestoreOutcome::ExistsLive),
-            (tombstoned.uuid, RestoreOutcome::ExistsTombstoned),
-        ]
-    );
-    assert_eq!((results[1].person_id, results[1].version), (live.id, 0));
-    assert_eq!(
-        (results[2].person_id, results[2].version),
-        (tombstoned.id, 1)
-    );
-
-    let inserted = ctx
-        .storage
-        .get_person_by_uuid(ctx.team_id, absent)
-        .await
-        .unwrap()
-        .expect("restored person reads as live");
-    assert_eq!(inserted.id, results[0].person_id);
-    assert_eq!(inserted.version, Some(7));
-    assert!(inserted.is_identified);
-    assert_eq!(inserted.created_at, created_at);
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(inserted.properties.as_deref().unwrap()).unwrap(),
-        serde_json::json!({"email": "restored@example.com"})
-    );
-    let untouched = ctx
-        .storage
-        .get_person_by_uuid(ctx.team_id, live.uuid)
-        .await
-        .unwrap()
-        .expect("live");
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(untouched.properties.as_deref().unwrap())
-            .unwrap(),
-        serde_json::json!({"kept": true})
-    );
-    let (still_deleted, _, _, _) = tombstone_state(&ctx.pool, ctx.team_id, tombstoned.id).await;
-    assert!(still_deleted);
-
-    ctx.cleanup().await.ok();
-}
-
-#[tokio::test]
-async fn test_restore_persons_inserts_the_listed_distinct_ids_or_not_the_person() {
-    let ctx = TestContext::new().await;
-    let holder = ctx.insert_person("rd_holder", None).await.unwrap();
-    for distinct_id in ["rdx_taken", "rdx_only_taken"] {
-        ctx.add_distinct_id_to_person(holder.id, distinct_id)
-            .await
-            .unwrap();
-    }
-    let live = ctx.insert_person("rd_live", None).await.unwrap();
-    let restored = |uuid: Uuid, ids: &[&str]| RestoredPerson {
-        uuid,
-        properties: serde_json::json!({}),
-        created_at: chrono::Utc::now(),
-        is_identified: false,
-        version: 4,
-        distinct_ids: ids.iter().map(|d| (d.to_string(), 6)).collect(),
-    };
-    let (partly, unreachable, without_ids) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
-
-    let results = ctx
-        .storage
-        .restore_persons(
-            ctx.team_id,
-            &[
-                restored(partly, &["rdx_new", "rdx_taken"]),
-                restored(unreachable, &["rdx_only_taken"]),
-                restored(without_ids, &[]),
-                restored(live.uuid, &["rdx_for_live"]),
-            ],
-        )
-        .await
-        .expect("restore");
-
-    let summary: Vec<(Uuid, RestoreOutcome, Vec<String>)> = results
-        .iter()
-        .map(|r| (r.uuid, r.outcome, r.restored_distinct_ids.clone()))
-        .collect();
-    assert_eq!(
-        summary,
-        vec![
-            (
-                partly,
-                RestoreOutcome::Inserted,
-                vec!["rdx_new".to_string()]
-            ),
-            (unreachable, RestoreOutcome::NoDistinctId, vec![]),
-            (without_ids, RestoreOutcome::Inserted, vec![]),
-            (live.uuid, RestoreOutcome::ExistsLive, vec![]),
-        ]
-    );
-    let owners: Vec<(String, Uuid, i64)> = sqlx::query_as(
-        "SELECT d.distinct_id, p.uuid, d.version FROM posthog_persondistinctid d
-         JOIN posthog_person p ON p.id = d.person_id
-         WHERE d.team_id = $1 AND d.distinct_id LIKE 'rdx\\_%' ORDER BY d.distinct_id",
-    )
-    .bind(ctx.team_id)
-    .fetch_all(&ctx.pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        owners,
-        vec![
-            ("rdx_new".to_string(), partly, 6),
-            ("rdx_only_taken".to_string(), holder.uuid, 0),
-            ("rdx_taken".to_string(), holder.uuid, 0),
-        ]
-    );
-    assert!(ctx
-        .storage
-        .get_person_by_uuid(ctx.team_id, unreachable)
-        .await
-        .unwrap()
-        .is_none());
-    let absent_rows: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM posthog_person WHERE team_id = $1 AND uuid = $2")
-            .bind(ctx.team_id)
-            .bind(unreachable)
-            .fetch_one(&ctx.pool)
-            .await
-            .unwrap();
-    assert_eq!(absent_rows, 0);
-
-    ctx.cleanup().await.ok();
-}
-
-/// (distinct id, outcome, (person id, version, is_deleted) of the row after the write).
-type WriteSummary<'a> = (&'a str, DistinctIdWriteOutcome, Option<(i64, i64, bool)>);
-
-#[tokio::test]
-async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state() {
-    let ctx = TestContext::new().await;
-    let p = ctx.insert_person("w_p", None).await.unwrap();
-    ctx.add_distinct_id_to_person(p.id, "w_p_expect")
-        .await
-        .unwrap();
-    let q = ctx.insert_person("w_q", None).await.unwrap();
-    ctx.add_distinct_id_to_person(q.id, "w_q_owner")
-        .await
-        .unwrap();
-    ctx.add_distinct_id_to_person(q.id, "w_q_same")
-        .await
-        .unwrap();
-    ctx.add_distinct_id_to_person(p.id, "w_p_gone")
-        .await
-        .unwrap();
-    sqlx::query("UPDATE posthog_persondistinctid SET is_deleted = true, version = 2 WHERE team_id = $1 AND distinct_id = 'w_p_gone'")
-        .bind(ctx.team_id)
-        .execute(&ctx.pool)
-        .await
-        .unwrap();
-    let ghost = common::TestPerson {
-        id: 0,
-        uuid: Uuid::new_v4(),
-    };
-    let s = ctx.insert_person("w_s", None).await.unwrap();
-    ctx.tombstone_person(s.id, None).await.unwrap();
-
-    let write =
-        |distinct_id: &str, action, person: &common::TestPerson, min_version, expected_version| {
-            DistinctIdWrite {
-                distinct_id: distinct_id.to_string(),
-                action,
-                person_uuid: person.uuid,
-                min_version,
-                expected_version,
-            }
-        };
-    use DistinctIdWriteAction::{Insert, Raise};
-    use DistinctIdWriteOutcome::{Applied, PersonNotLive, PreconditionFailed, Unchanged};
-    let writes = vec![
-        write("w_new", Insert, &p, 5, None),
-        write("w_q", Insert, &p, 5, None),
-        write("w_on_deleted", Insert, &s, 5, None),
-        write("w_raise_on_deleted", Raise, &s, 5, None),
-        write("w_p", Raise, &p, 3, None),
-        write("w_q_same", Raise, &q, 0, None),
-        write("w_q_owner", Raise, &p, 3, None),
-        write("w_p_expect", Raise, &p, 3, Some(9)),
-        write("w_on_missing", Insert, &ghost, 5, None),
-        write("w_s", Insert, &p, 5, None),
-        write("w_p_gone", Raise, &p, 5, None),
-    ];
-
-    let results = ctx
-        .storage
-        .write_distinct_ids(ctx.team_id, &writes)
-        .await
-        .expect("write");
-
-    let summary: Vec<WriteSummary> = results
-        .iter()
-        .map(|r| {
-            (
-                r.distinct_id.as_str(),
-                r.outcome,
-                r.row
-                    .as_ref()
-                    .map(|row| (row.person_id, row.version, row.is_deleted)),
-            )
-        })
-        .collect();
-    assert_eq!(
-        summary,
-        vec![
-            ("w_new", Applied, Some((p.id, 5, false))),
-            ("w_q", PreconditionFailed, Some((q.id, 0, false))),
-            ("w_on_deleted", PersonNotLive, None),
-            ("w_raise_on_deleted", PersonNotLive, None),
-            ("w_p", Applied, Some((p.id, 3, false))),
-            ("w_q_same", Unchanged, Some((q.id, 0, false))),
-            ("w_q_owner", PreconditionFailed, Some((q.id, 0, false))),
-            ("w_p_expect", PreconditionFailed, Some((p.id, 0, false))),
-            ("w_on_missing", PersonNotLive, None),
-            ("w_s", PreconditionFailed, Some((s.id, 1, true))),
-            ("w_p_gone", PreconditionFailed, Some((p.id, 2, true))),
-        ]
-    );
-    let marks_left: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM lifecycle_op WHERE team_id = $1")
-            .bind(ctx.team_id as i32)
-            .fetch_one(&ctx.pool)
-            .await
-            .unwrap();
-    assert_eq!(marks_left, 0);
-
-    ctx.cleanup().await.ok();
-}
-
-#[rstest]
-#[case::write_distinct_ids(false)]
-#[case::raise_person_version_floors(true)]
-#[tokio::test]
-async fn test_repair_writes_fail_when_another_operation_holds_the_person(#[case] raise: bool) {
+async fn test_raise_person_version_floors_fails_when_another_operation_holds_the_person() {
     let ctx = TestContext::new().await;
     let person = ctx.insert_person("w_marked", None).await.unwrap();
     let mut conn = ctx.pool.acquire().await.unwrap();
     let op_id = claim_merge_mark(&mut conn, ctx.team_id, &person).await;
 
-    let result = if raise {
-        ctx.storage
-            .raise_person_version_floors(ctx.team_id, &[(person.uuid, 9)])
-            .await
-            .map(|_| ())
-    } else {
-        ctx.storage
-            .write_distinct_ids(
-                ctx.team_id,
-                &[DistinctIdWrite {
-                    distinct_id: "w_blocked".to_string(),
-                    action: DistinctIdWriteAction::Insert,
-                    person_uuid: person.uuid,
-                    min_version: 1,
-                    expected_version: None,
-                }],
-            )
-            .await
-            .map(|_| ())
-    };
-    let err = result.expect_err("a held mark fails the call");
+    let err = ctx
+        .storage
+        .raise_person_version_floors(ctx.team_id, &[(person.uuid, 9)])
+        .await
+        .expect_err("a held mark fails the call");
     assert!(
         err.to_string()
             .contains("claimed by another lifecycle operation"),
@@ -5195,15 +4885,6 @@ async fn test_repair_writes_fail_when_another_operation_holds_the_person(#[case]
     .await
     .unwrap();
     assert_eq!(version, 0);
-
-    let inserted: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = 'w_blocked'",
-    )
-    .bind(ctx.team_id)
-    .fetch_one(&ctx.pool)
-    .await
-    .unwrap();
-    assert_eq!(inserted, 0);
 
     sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
         .bind(op_id)
