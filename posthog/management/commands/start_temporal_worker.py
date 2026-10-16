@@ -460,8 +460,8 @@ _task_queue_specs = [
         EXPERIMENTS_RECALCULATION_WORKFLOWS,
         EXPERIMENTS_RECALCULATION_ACTIVITIES,
     ),
-    # Activities-only queue for the metric calc activity, served by a fixed-size worker so the
-    # number of concurrent recalculation ClickHouse queries has a hard cap.
+    # The calc activity gets its own queue so that a worker with a fixed slot count caps how many
+    # recalculation ClickHouse queries run at the same time.
     (
         settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
         [],
