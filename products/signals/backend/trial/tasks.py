@@ -1,15 +1,12 @@
-from uuid import UUID
-
 from django.utils import timezone
 
 import structlog
 from celery import shared_task
 
-from posthog.models import Organization, Team
+from posthog.models import Team
 
 from products.signals.backend.spend import complete_task_spend, refresh_task_spend
-from products.signals.backend.trial.billing import TrialBilling
-from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialOperation, SignalTrialOrganization
+from products.signals.backend.trial.models import SignalTrialOperation
 from products.signals.backend.trial.policy import TrialPolicy
 from products.tasks.backend.facade.api import get_task_run
 from products.tasks.backend.facade.billing import process_pending_gateway_usage
@@ -79,9 +76,6 @@ def reconcile_trial_operation(team_id: int, operation_id: str) -> None:
 
 @shared_task(ignore_result=True)
 def reconcile_trials() -> None:
-    # nosemgrep: celery-task-team-scope-audit -- This backstop intentionally visits all organization allocations.
-    for allocation in SignalTrialOrganization.objects.filter(grants_claimed__gt=0, billing_migrated_at__isnull=True):
-        retry_pending_trial_billing.delay(str(allocation.organization_id))
     # Only active work needs a quota backstop; late receipts use shared cost reconciliation.
     for operation in (
         SignalTrialOperation.objects.unscoped()
@@ -94,24 +88,3 @@ def reconcile_trials() -> None:
         .iterator(chunk_size=500)
     ):
         reconcile_trial_operation.apply_async(args=(operation.team_id, str(operation.id)), expires=60)
-
-
-@shared_task(ignore_result=True)
-def retry_pending_trial_billing(organization_id: str) -> None:
-    # nosemgrep: celery-task-team-scope-audit -- Organization is the scope identity, selected by the task's organization ID.
-    organization = Organization.objects.filter(id=organization_id).first()
-    grant = (
-        SignalTrialGrant.objects.unscoped().filter(organization_id=UUID(organization_id)).order_by("claimed_at").first()
-    )
-    if organization is None or grant is None:
-        return
-    try:
-        status = TrialBilling(organization).status(grant_id=grant.id)
-    except Exception:
-        logger.warning("signals_trial_billing_retry_pending", organization_id=organization_id, exc_info=True)
-        return
-    if status.migrated:
-        # nosemgrep: celery-task-team-scope-audit -- Allocation history is organization-scoped, with an explicit ID filter.
-        SignalTrialOrganization.objects.filter(
-            organization_id=organization_id, billing_migrated_at__isnull=True
-        ).update(billing_migrated_at=timezone.now())

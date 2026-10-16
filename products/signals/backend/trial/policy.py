@@ -3,7 +3,6 @@ from contextlib import contextmanager
 from datetime import timedelta
 from uuid import UUID
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -22,7 +21,7 @@ from products.signals.backend.trial.models import (
     SignalTrialReportReservation,
 )
 
-TRIAL_FLAG = "self-driving-free-tier-v2"
+TRIAL_FLAG = "self-driving-ubp"
 POLICY_VERSION = 1
 logger = structlog.get_logger(__name__)
 
@@ -83,8 +82,6 @@ class TrialPolicy:
                 Q(flag_checked_at__isnull=True) | Q(flag_checked_at__lt=checked_at)
             ).update(flag_enabled=decision, flag_checked_at=checked_at)
             allocation.refresh_from_db(fields=["flag_enabled"])
-        if allocation.flag_enabled and not settings.SELF_DRIVING_TRIAL_V2_BILLING_READY:
-            logger.info("signals_trial_shadow_decision", organization_id=org_id, confirmed=confirmed)
         return TrialFlagDecision(enabled=allocation.flag_enabled, confirmed=confirmed)
 
     def grant(self) -> SignalTrialGrant | None:
@@ -103,8 +100,6 @@ class TrialPolicy:
         decision = self.flag_decision()
         if not decision.confirmed or decision.enabled is not True:
             raise TrialRefused("flag_unavailable" if not decision.confirmed else "not_enabled")
-        if not getattr(settings, "SELF_DRIVING_TRIAL_V2_BILLING_READY", False):
-            raise TrialRefused("billing_not_ready")
         with transaction.atomic():
             # Scout writers lock their config before the quiet organization allocation row.
             # Recount after that allocation lock, so a concurrent new config is included too.
@@ -182,14 +177,11 @@ class TrialPolicy:
             defaults={"grant": grant, "status": SignalTrialReportReservation.Status.RESERVED},
         )
 
-    def admit(
-        self, admission: OperationAdmission, *, paid_authorized: bool, decision: TrialFlagDecision | None = None
-    ) -> SignalTrialOperation:
+    def admit(self, admission: OperationAdmission, *, paid_authorized: bool) -> SignalTrialOperation:
         operations = SignalTrialOperation.objects.for_team(self.team_id, canonical=True)
         existing = operations.filter(operation_key=admission.operation_key).first()
         if existing is not None:
             return existing
-        decision = decision if decision is not None else self.flag_decision()
         grant = self.grant()
         funding: str = SignalTrialOperation.Funding.EXISTING
         parent = (
@@ -202,10 +194,10 @@ class TrialPolicy:
         if parent is not None:
             funding = parent.funding
             grant = self.grant() if parent.grant_id else None
-        elif decision.enabled is True:
-            if grant is None or grant.exhausted_at is not None:
+        elif grant is not None:
+            if grant.exhausted_at is not None:
                 if not paid_authorized:
-                    raise TrialRefused("start_trial" if grant is None else grant.exhaustion_reason)
+                    raise TrialRefused(grant.exhaustion_reason)
                 funding = SignalTrialOperation.Funding.PAID
             else:
                 funding = SignalTrialOperation.Funding.TRIAL
@@ -226,10 +218,6 @@ class TrialPolicy:
                 parent and (grant.exhaustion_reason == "report_limit" or finishing_research)
             ):
                 raise TrialRefused(grant.exhaustion_reason)
-            if not SignalTrialOrganization.objects.filter(
-                organization_id=self.organization_id, billing_migrated_at__isnull=False
-            ).exists():
-                raise TrialRefused("billing_pending")
             if not finishing_research:
                 self._check_accounting(grant)
             if admission.report_id is not None and admission.stage in {

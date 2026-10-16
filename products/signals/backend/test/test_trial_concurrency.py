@@ -6,8 +6,6 @@ from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.db import close_old_connections, transaction
-from django.test import override_settings
-from django.utils import timezone
 
 from posthog.models import Team
 
@@ -29,13 +27,9 @@ from products.tasks.backend.models import Task
 class TestTrialConcurrency(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    @override_settings(SELF_DRIVING_TRIAL_V2_BILLING_READY=True)
     def test_admission_and_cost_settlement_do_not_invert_locks(self) -> None:
         with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
             grant = TrialPolicy(self.team).claim(user_id=self.user.pk)
-            SignalTrialOrganization.objects.filter(organization_id=self.organization.pk).update(
-                billing_migrated_at=timezone.now()
-            )
             signal_id = str(uuid4())
             report = SignalReport.objects.create(team=self.team, triggering_signal_id=signal_id)
             task = Task.objects.create(
@@ -112,14 +106,10 @@ class TestTrialConcurrency(NonAtomicBaseTest):
             assert grant.settled_microusd == 3
             assert task.runs.count() == 1
 
-    @override_settings(SELF_DRIVING_TRIAL_V2_BILLING_READY=True)
     def test_concurrent_plans_reserve_all_layers_or_publish_only_parent(self) -> None:
         with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
             policy = TrialPolicy(self.team)
             policy.claim(user_id=self.user.pk)
-            SignalTrialOrganization.objects.filter(organization_id=self.organization.pk).update(
-                billing_migrated_at=timezone.now()
-            )
             parents = [
                 SignalReport.objects.create(team=self.team, status=SignalReport.Status.IN_PROGRESS) for _ in range(2)
             ]
@@ -158,7 +148,6 @@ class TestTrialConcurrency(NonAtomicBaseTest):
             assert SignalTrialReportReservation.objects.for_team(self.team.id).filter(status="consumed").count() == 4
             assert not SignalTrialReportReservation.objects.for_team(self.team.id).filter(status="reserved").exists()
 
-    @override_settings(SELF_DRIVING_TRIAL_V2_BILLING_READY=True)
     def test_final_organization_slot_and_report_slot_are_atomic(self) -> None:
         with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
             TrialPolicy(self.team).claim(user_id=self.user.pk)
@@ -182,8 +171,6 @@ class TestTrialConcurrency(NonAtomicBaseTest):
                 assert sorted(pool.map(claim, contenders)) == [False, True]
             allocation = SignalTrialOrganization.objects.get(organization_id=self.organization.id)
             assert allocation.grants_claimed == 3
-            allocation.billing_migrated_at = timezone.now()
-            allocation.save(update_fields=["billing_migrated_at"])
             policy = TrialPolicy(self.team)
 
             def publish() -> bool:

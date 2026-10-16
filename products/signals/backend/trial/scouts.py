@@ -4,10 +4,7 @@ from typing import TYPE_CHECKING
 
 from django.db import transaction
 
-from posthog.models import Team
-
 from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialOrganization
-from products.signals.backend.trial.policy import TrialPolicy
 
 if TYPE_CHECKING:
     from products.signals.backend.models import SignalScoutConfig
@@ -30,9 +27,9 @@ def scout_capacity(config: "SignalScoutConfig") -> Iterator[None]:
             yield
             return
         allocation, _ = SignalTrialOrganization.objects.get_or_create(organization_id=team.organization_id)
-        allocation = SignalTrialOrganization.objects.select_for_update().get(organization_id=allocation.pk)
+        SignalTrialOrganization.objects.select_for_update().get(organization_id=allocation.pk)
         grant = SignalTrialGrant.objects.for_team(team_id, canonical=True).filter(exhausted_at__isnull=True).first()
-        if allocation.flag_enabled is True and grant is not None:
+        if grant is not None:
             count = (
                 SignalScoutConfig.objects.for_team(team_id, canonical=True)
                 .filter(enabled=True)
@@ -56,7 +53,4 @@ def scout_capacity(config: "SignalScoutConfig") -> Iterator[None]:
 
 def trial_scout_limit(team_id: int) -> int | None:
     grant = SignalTrialGrant.objects.for_team(team_id).filter(exhausted_at__isnull=True).first()
-    if grant is None:
-        return None
-    policy = TrialPolicy(Team.objects.get(id=team_id))
-    return grant.scout_limit if policy.flag_decision().enabled is True else None
+    return grant.scout_limit if grant is not None else None

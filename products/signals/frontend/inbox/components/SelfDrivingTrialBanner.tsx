@@ -34,7 +34,6 @@ export function SelfDrivingTrialBanner(): JSX.Element | null {
 
     const offered = trial.grant_status === 'not_claimed'
     const exhausted = trial.grant_status === 'exhausted'
-    const pending = trial.grant_status === 'pending'
     const continuation = {
         continue_paid: 'After the trial, new work continues under your existing paid Self-driving limit.',
         add_payment_method:
@@ -54,9 +53,7 @@ export function SelfDrivingTrialBanner(): JSX.Element | null {
                             ? 'Try Self-driving for free'
                             : exhausted
                               ? 'Your free trial is complete'
-                              : pending
-                                ? 'Your trial activation is pending'
-                                : 'Your Self-driving free trial'}
+                              : 'Your Self-driving free trial'}
                     </strong>
                     {offered ? (
                         <>
@@ -122,18 +119,6 @@ export function SelfDrivingTrialBanner(): JSX.Element | null {
                                         : 'The trial allowance is exhausted.'}{' '}
                                     Research already running can finish and publish its report. {continuation}
                                 </p>
-                            )}
-                            {pending && (
-                                <LemonButton
-                                    className="self-start"
-                                    loading={trialLoading}
-                                    disabledReason={
-                                        !trial.can_activate ? 'Project management permission is required.' : undefined
-                                    }
-                                    onClick={activateTrial}
-                                >
-                                    Retry activation
-                                </LemonButton>
                             )}
                             {exhausted && trial.paid_continuation !== 'continue_paid' && (
                                 <LemonButton className="self-start" type="primary" to={urls.organizationBilling()}>

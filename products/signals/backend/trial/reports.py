@@ -4,8 +4,6 @@ from functools import wraps
 from typing import Any, Protocol, TypeVar
 from uuid import UUID
 
-from django.conf import settings
-
 from posthog.models import Team
 
 from products.signals.backend.trial.billing import paid_trial_continuation_authorized
@@ -67,11 +65,9 @@ def requires_trial_accounting(team_id: int) -> bool:
         return parent is not None and parent.funding == SignalTrialOperation.Funding.TRIAL
     policy = TrialPolicy(team)
     grant = policy.grant()
-    if policy.flag_decision().enabled is not True:
-        return False
     if grant is not None and grant.exhausted_at is None:
         return True
-    if grant is not None or settings.SELF_DRIVING_TRIAL_V2_BILLING_READY:
+    if grant is not None:
         # Refused work must reach accounted admission, even when a System One experiment is enabled.
         return not paid_trial_continuation_authorized(team)
     return False
@@ -98,5 +94,4 @@ def prepare_report_pass(*, team: Team, report_id: str, operation_key: str) -> No
             report_id=UUID(report_id),
         ),
         paid_authorized=admission.paid_authorized,
-        decision=admission.decision,
     )

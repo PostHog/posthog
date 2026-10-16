@@ -1,7 +1,5 @@
 from uuid import uuid4
 
-from django.conf import settings
-
 from posthog.llm.gateway_client import AIGatewayConfig, GatewayNotConfiguredError
 from posthog.models import Team
 
@@ -38,11 +36,8 @@ class TrialLLMExecution:
             parent = active_report_pass(team, context[1])
             if parent is None:
                 return None
-        decision = policy.flag_decision()
-        if decision.enabled is not True and parent is None:
-            return None
         grant = policy.grant()
-        if parent is None and grant is None and not settings.SELF_DRIVING_TRIAL_V2_BILLING_READY:
+        if parent is None and grant is None:
             return None
         paid_authorized = False
         if parent is None and (grant is None or grant.exhausted_at is not None):
@@ -50,7 +45,6 @@ class TrialLLMExecution:
         operation = parent or policy.admit(
             OperationAdmission(operation_key=f"llm:{uuid4()}", stage=SignalTrialOperation.Stage.SHORT),
             paid_authorized=paid_authorized,
-            decision=decision,
         )
         if operation.grant_id is None:
             if parent is None:

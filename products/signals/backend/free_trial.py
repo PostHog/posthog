@@ -1,6 +1,6 @@
 """Legacy reports-only trial gate, shared by automatic and explicit implementation.
 
-Claimed projects use the enabled one-time policy instead, so this gate must not prevent
+Claimed projects use the one-time policy instead, so this gate must not prevent
 their opt-in implementation or subsequent paid continuation. Unclaimed projects retain
 the legacy reports-only restriction and its fail-open flag behavior.
 """
@@ -47,9 +47,11 @@ def self_driving_free_trial_enabled(team: "Team") -> bool:
     flag-read error: a flag outage must not stop every org's pull requests. Blocking network
     I/O; wrap in `sync_to_async` from async code.
     """
+    if TrialPolicy(team).grant() is not None:
+        return False
     try:
         org_id = str(team.organization_id)
-        legacy_enabled = (
+        return (
             posthoganalytics.feature_enabled(
                 SELF_DRIVING_FREE_TRIAL_FLAG,
                 org_id,
@@ -58,10 +60,6 @@ def self_driving_free_trial_enabled(team: "Team") -> bool:
             )
             is True
         )
-        if not legacy_enabled:
-            return False
-        policy = TrialPolicy(team)
-        return not (policy.grant() is not None and policy.flag_decision().enabled is True)
     except Exception:
         logger.warning("self_driving_free_trial_flag_check_failed", exc_info=True)
         return False

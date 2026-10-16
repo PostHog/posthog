@@ -133,6 +133,7 @@ class CustomerProduct(TypedDict):
     price_description: Optional[str]
     image_url: Optional[str]
     type: str
+    subscribed: NotRequired[Optional[bool]]
     free_allocation: int
     tiers: list[Tier]
     tiered: bool

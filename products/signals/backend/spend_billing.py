@@ -35,7 +35,10 @@ def scout_spend_exempt(scout: SignalScoutRun) -> bool:
 
 def usage_billing_enabled(team_id: int) -> bool | None:
     try:
-        organization_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
+        team = Team.objects.get(id=team_id)
+        if TrialPolicy(team).grant() is not None:
+            return True
+        organization_id = str(team.organization_id)
 
         def enabled(key: str) -> bool | None:
             return posthoganalytics.feature_enabled(
@@ -55,10 +58,6 @@ def usage_billing_enabled(team_id: int) -> bool | None:
                 logger.warning("signals.spend.billing_mode_unknown", team_id=team_id)
             return usage
         trial = enabled(SELF_DRIVING_FREE_TRIAL_FLAG)
-        if trial is True:
-            policy = TrialPolicy(Team.objects.get(id=team_id))
-            if policy.grant() is not None and policy.flag_decision().enabled is True:
-                return True
         if trial is None:
             logger.warning("signals.spend.billing_trial_status_unknown", team_id=team_id)
         return not trial if trial is not None else None

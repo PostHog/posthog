@@ -21,21 +21,22 @@ from products.signals.backend.trial.service import TrialService
 
 class TrialGrantStatus(models.TextChoices):
     NOT_CLAIMED = "not_claimed", "Not claimed"
-    PENDING = "pending", "Billing activation pending"
     ACTIVE = "active", "Active"
     EXHAUSTED = "exhausted", "Exhausted"
 
 
 @extend_schema_serializer(many=False)
 class SelfDrivingTrialStatusSerializer(serializers.Serializer):
-    enabled = serializers.BooleanField(help_text="The organization's last confirmed trial rollout decision.")
+    enabled = serializers.BooleanField(
+        help_text="Whether the trial offer is enabled or this project has claimed a grant."
+    )
     flag_confirmed = serializers.BooleanField(help_text="Whether the current rollout check succeeded.")
     policy_version = serializers.IntegerField(help_text="Effective trial policy version.")
     legacy_pr_restricted = serializers.BooleanField(
         help_text="Whether the legacy reports-only trial still prevents implementation for this project."
     )
     billing_ready = serializers.BooleanField(
-        help_text="Whether billing supports immutable trial funding and the one-time allocation."
+        help_text="Whether the current Self-driving plan has no recurring free allowance."
     )
     eligible = serializers.BooleanField(help_text="Whether this project can explicitly claim its lifetime grant.")
     can_activate = serializers.BooleanField(

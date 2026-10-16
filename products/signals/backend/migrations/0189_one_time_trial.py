@@ -45,7 +45,6 @@ class Migration(migrations.Migration):
                 ("grants_claimed", models.PositiveSmallIntegerField(default=0)),
                 ("flag_enabled", models.BooleanField(null=True)),
                 ("flag_checked_at", models.DateTimeField(null=True)),
-                ("billing_migrated_at", models.DateTimeField(null=True)),
             ],
             options={
                 "constraints": [

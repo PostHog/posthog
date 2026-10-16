@@ -7,8 +7,6 @@ Lives in its own module (not `billing.py`) to avoid a circular import: `billing.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from django.conf import settings
-
 import structlog
 import posthoganalytics
 from temporalio import activity
@@ -99,9 +97,9 @@ def trial_quota_gate(team: "Team") -> SelfDrivingQuotaGate | None:
     from products.signals.backend.trial.policy import TrialPolicy  # noqa: PLC0415 -- avoid model registration cycle
 
     policy = TrialPolicy(team)
-    if policy.flag_decision().enabled is True and (settings.SELF_DRIVING_TRIAL_V2_BILLING_READY or policy.grant()):
-        grant = policy.grant()
-        if grant is not None and grant.exhausted_at is None:
+    grant = policy.grant()
+    if grant is not None:
+        if grant.exhausted_at is None:
             return SelfDrivingQuotaGate(limited=False, enforced=False)
         limited = not paid_trial_continuation_authorized(team)
         return SelfDrivingQuotaGate(limited=limited, enforced=limited)

@@ -1,5 +1,4 @@
-from django.conf import settings
-from django.utils import timezone
+from dataclasses import replace
 
 import structlog
 
@@ -28,31 +27,20 @@ class TrialService:
             if status.paid_authorized and is_team_limited(
                 self.team.api_token, QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
             ):
-                return TrialBillingStatus(
-                    ready=status.ready, migrated=status.migrated, continuation=TrialContinuation.LIMIT
-                )
+                return replace(status, continuation=TrialContinuation.LIMIT)
             return status
         except Exception:
             logger.warning(
                 "signals_trial_billing_unavailable", organization_id=str(self.team.organization_id), exc_info=True
             )
-            return TrialBillingStatus(ready=False, migrated=False, continuation=TrialContinuation.UNAVAILABLE)
+            return TrialBillingStatus(ready=False, continuation=TrialContinuation.UNAVAILABLE)
 
     def activate(self, *, user_id: int) -> None:
-        billing = self.billing_status()
-        if not billing.ready and not (billing.migrated and self.policy.grant() is not None):
+        if self.policy.grant() is not None:
+            return
+        if not self.billing_status().ready:
             raise TrialRefused("billing_not_ready")
-        grant = self.policy.claim(user_id=user_id)
-        # The grant is the durable retry key. A network failure leaves it pending, never reusable.
-        try:
-            acknowledged = self.billing.status(grant_id=grant.id)
-        except Exception as error:
-            raise TrialRefused("billing_pending") from error
-        if not acknowledged.migrated:
-            raise TrialRefused("billing_pending")
-        SignalTrialOrganization.objects.filter(
-            organization_id=self.team.organization_id, billing_migrated_at__isnull=True
-        ).update(billing_migrated_at=timezone.now())
+        self.policy.claim(user_id=user_id)
 
     def status(self) -> dict[str, object]:
         decision = self.policy.flag_decision()
@@ -61,7 +49,7 @@ class TrialService:
         billing = (
             self.billing_status()
             if decision.enabled or grant
-            else TrialBillingStatus(ready=False, migrated=False, continuation=TrialContinuation.UNAVAILABLE)
+            else TrialBillingStatus(ready=False, continuation=TrialContinuation.UNAVAILABLE)
         )
         slots = SignalTrialReportReservation.objects.for_team(self.policy.team_id, canonical=True)
         consumed = slots.filter(status=SignalTrialReportReservation.Status.CONSUMED).count()
@@ -69,7 +57,7 @@ class TrialService:
         enabled_scouts = (
             SignalScoutConfig.objects.for_team(self.policy.team_id, canonical=True).filter(enabled=True).count()
         )
-        ready = bool(settings.SELF_DRIVING_TRIAL_V2_BILLING_READY and billing.ready)
+        ready = billing.ready
         eligible = bool(
             decision.enabled
             and decision.confirmed
@@ -79,15 +67,9 @@ class TrialService:
         )
         grant_status = "not_claimed"
         if grant is not None:
-            grant_status = (
-                "exhausted"
-                if grant.exhausted_at
-                else "active"
-                if organization and organization.billing_migrated_at
-                else "pending"
-            )
+            grant_status = "exhausted" if grant.exhausted_at else "active"
         return {
-            "enabled": decision.enabled is True,
+            "enabled": decision.enabled is True or grant is not None,
             "flag_confirmed": decision.confirmed,
             "policy_version": POLICY_VERSION,
             "legacy_pr_restricted": self_driving_free_trial_enabled(self.team),

@@ -4,13 +4,11 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.conf import settings
-
 from posthog.dataclasses import frozen
 
 from products.signals.backend.trial.billing import paid_trial_continuation_authorized
 from products.signals.backend.trial.models import SignalTrialOperation
-from products.signals.backend.trial.policy import OperationAdmission, TrialFlagDecision, TrialPolicy, TrialRefused
+from products.signals.backend.trial.policy import OperationAdmission, TrialPolicy, TrialRefused
 from products.signals.backend.trial.reports import active_report_pass, report_trial_context, task_trial_context
 
 if TYPE_CHECKING:
@@ -23,7 +21,6 @@ SELF_DRIVING_ORIGINS = frozenset({"signal_report", "signals_scout", "scout_sugge
 @frozen
 class TaskTrialAdmission:
     team: "Team"
-    decision: TrialFlagDecision
     paid_authorized: bool
     report_pass_id: UUID | None = None
 
@@ -48,7 +45,6 @@ class TaskTrialAdmission:
                 runtime=runtime,
             ),
             paid_authorized=self.paid_authorized,
-            decision=self.decision,
         )
         operation.task_run_id = run_id
         operation.save(update_fields=["task_run_id"])
@@ -115,23 +111,19 @@ def prepare_task_trial(*, team: "Team", origin: str, report_id: UUID | None = No
     if parent is not None:
         return TaskTrialAdmission(
             team=team,
-            decision=TrialFlagDecision(enabled=True, confirmed=True),
             paid_authorized=parent.funding == SignalTrialOperation.Funding.PAID,
             report_pass_id=parent.id,
         )
-    decision = policy.flag_decision()
-    if decision.enabled is not True:
-        return None
     grant = policy.grant()
-    if grant is None and not settings.SELF_DRIVING_TRIAL_V2_BILLING_READY:
+    if grant is None:
         return None
     paid_authorized = False
-    if grant is None or grant.exhausted_at is not None:
+    if grant.exhausted_at is not None:
         try:
             paid_authorized = paid_trial_continuation_authorized(team)
         except Exception as error:
             raise TrialRefused("billing_unavailable") from error
-    return TaskTrialAdmission(team=team, decision=decision, paid_authorized=paid_authorized)
+    return TaskTrialAdmission(team=team, paid_authorized=paid_authorized)
 
 
 def start_task_trial(*, team: "Team", run_id: UUID) -> bool:

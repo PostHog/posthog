@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, patch
 
 from django.core.management import call_command
 from django.db import connection
-from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -20,8 +19,11 @@ from posthog.llm.gateway_client import AIGatewayConfig
 from posthog.llm.gateway_usage import GatewayRequestCost
 from posthog.models import Team
 
+from products.signals.backend.facade.trial import prepare_task_trial
+from products.signals.backend.free_trial import self_driving_free_trial_enabled
 from products.signals.backend.llm_spend import generate_with_spend
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalSpend
+from products.signals.backend.quota import trial_quota_gate
 from products.signals.backend.spend import complete_signal_pipeline, record_llm_spend, record_task_spend
 from products.signals.backend.spend_billing import spend_billing_credits_by_team, usage_billing_enabled
 from products.signals.backend.spend_recovery import recover_spend
@@ -32,13 +34,13 @@ from products.signals.backend.trial.models import (
     SignalTrialReportReservation,
 )
 from products.signals.backend.trial.policy import OperationAdmission, TrialPolicy, TrialRefused
+from products.signals.backend.trial.reports import requires_trial_accounting
 from products.signals.backend.trial.tasks import cancel_trial_grant, reconcile_trial_operation
 from products.tasks.backend.facade.billing import get_task_run_actual_cost
 from products.tasks.backend.facade.contracts import TaskRunActualCost
 from products.tasks.backend.models import Task, TaskRun
 
 
-@override_settings(SELF_DRIVING_TRIAL_V2_BILLING_READY=True)
 class TestTrialPolicy(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -48,11 +50,7 @@ class TestTrialPolicy(BaseTest):
         self.policy = TrialPolicy(self.team)
 
     def claim(self) -> SignalTrialGrant:
-        grant = self.policy.claim(user_id=self.user.pk)
-        SignalTrialOrganization.objects.filter(organization_id=self.organization.pk).update(
-            billing_migrated_at=timezone.now()
-        )
-        return grant
+        return self.policy.claim(user_id=self.user.pk)
 
     def admit(
         self, *, stage: SignalTrialOperation.Stage = SignalTrialOperation.Stage.SCOUT, report_id: UUID | None = None
@@ -168,6 +166,8 @@ class TestTrialPolicy(BaseTest):
 
     def test_scout_cap_is_shared_with_environments_and_supports_swapping(self) -> None:
         self.claim()
+        self.flag_mock.return_value = False
+        self.policy.flag_decision()
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
         scouts = [SignalScoutConfig.objects.create(team=child, skill_name=f"scout-{i}") for i in range(4)]
         assert [scout.enabled for scout in scouts] == [True, True, True, False]
@@ -201,6 +201,7 @@ class TestTrialPolicy(BaseTest):
     @parameterized.expand([(True, True), (True, False), (False, True), (False, False)])
     def test_paid_handoff_requires_exhaustion_and_authorization(self, exhausted: bool, authorized: bool) -> None:
         grant = self.claim()
+        self.flag_mock.return_value = False
         record_llm_spend(
             "cost",
             team_id=self.team.id,
@@ -536,8 +537,26 @@ class TestTrialPolicy(BaseTest):
 
     def test_claimed_one_time_trial_uses_new_pricing_without_changing_legacy_flag(self) -> None:
         assert usage_billing_enabled(self.team.id) is False
-        self.claim()
+        grant = self.claim()
+        self.flag_mock.return_value = False
+        self.policy.flag_decision()
         assert usage_billing_enabled(self.team.id) is True
+        assert requires_trial_accounting(self.team.id)
+        assert not self_driving_free_trial_enabled(self.team)
+        quota = trial_quota_gate(self.team)
+        assert quota is not None and not quota.enforced
+        admission = prepare_task_trial(team=self.team, origin="signals_scout")
+        assert admission is not None
+        funding = admission.bind(
+            run_id=uuid4(),
+            origin="signals_scout",
+            stage="scout",
+            report_id=None,
+            model="regular-model",
+            runtime="claude",
+        )
+        assert funding["funding"] == "trial"
+        assert funding["grant_id"] == str(grant.id)
 
     def test_lost_response_can_recover_from_verified_gateway_receipt(self) -> None:
         grant = self.claim()

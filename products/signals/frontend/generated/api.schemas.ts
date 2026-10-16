@@ -7724,7 +7724,6 @@ export interface PatchedSignalSourceConfigApi {
 
 /**
  * * `not_claimed` - Not claimed
- * * `pending` - Billing activation pending
  * * `active` - Active
  * * `exhausted` - Exhausted
  */
@@ -7732,7 +7731,6 @@ export type TrialGrantStatusEnumApi = (typeof TrialGrantStatusEnumApi)[keyof typ
 
 export const TrialGrantStatusEnumApi = {
     NotClaimed: 'not_claimed',
-    Pending: 'pending',
     Active: 'active',
     Exhausted: 'exhausted',
 } as const
@@ -7755,7 +7753,7 @@ export const TrialContinuationEnumApi = {
 } as const
 
 export interface SelfDrivingTrialStatusApi {
-    /** The organization's last confirmed trial rollout decision. */
+    /** Whether the trial offer is enabled or this project has claimed a grant. */
     enabled: boolean
     /** Whether the current rollout check succeeded. */
     flag_confirmed: boolean
@@ -7763,7 +7761,7 @@ export interface SelfDrivingTrialStatusApi {
     policy_version: number
     /** Whether the legacy reports-only trial still prevents implementation for this project. */
     legacy_pr_restricted: boolean
-    /** Whether billing supports immutable trial funding and the one-time allocation. */
+    /** Whether the current Self-driving plan has no recurring free allowance. */
     billing_ready: boolean
     /** Whether this project can explicitly claim its lifetime grant. */
     eligible: boolean
@@ -7779,7 +7777,6 @@ export interface SelfDrivingTrialStatusApi {
     /** The project's lifetime trial state.
      *
      * * `not_claimed` - Not claimed
-     * * `pending` - Billing activation pending
      * * `active` - Active
      * * `exhausted` - Exhausted */
     grant_status: TrialGrantStatusEnumApi
