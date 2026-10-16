@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 import structlog
 from requests import Response
+from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
 
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.everflow.s
 logger = structlog.get_logger(__name__)
 
 REQUEST_TIMEOUT = (10, 120)
+# Setup waits on the probe, so it gets one short attempt.
+PROBE_TIMEOUT = (10, 30)
 API_KEY_HEADER = "X-Eflow-API-Key"
 
 
@@ -285,12 +288,12 @@ def everflow_source(
 
 def validate_credentials(api_key: str, region: str) -> tuple[bool, str | None]:
     try:
-        response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).post(
+        response = make_tracked_session(redact_values=(api_key,), allow_redirects=False, retry=Retry(total=0)).post(
             f"{BASE_URLS[region]}/networks/offerstable",
             params={"page": 1, "page_size": 1},
             json={},
             headers={API_KEY_HEADER: api_key},
-            timeout=REQUEST_TIMEOUT,
+            timeout=PROBE_TIMEOUT,
         )
     except Exception:  # noqa: BLE001 — a credential probe must never raise; any failure means "not validated"
         return False, "Could not connect to Everflow. Check the region and try again."
