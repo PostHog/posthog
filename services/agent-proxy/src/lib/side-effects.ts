@@ -466,7 +466,7 @@ export async function heartbeatWorkflowIfNeeded(
 
     let agentActive: boolean
     let activityStarted = false
-    if (isSessionUpdate(event) || isAgentGenerationEvent(event)) {
+    if (isAgentGenerationEvent(event)) {
         activityStarted = !(await redisStream.setAgentActive(true))
         agentActive = true
     } else {
