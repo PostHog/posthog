@@ -1,6 +1,11 @@
+import { KeyObject, generateKeyPairSync, verify } from 'crypto'
+import { Redis } from 'ioredis'
+
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { RedisClient, RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { createRedisFromConfig } from '~/common/utils/db/redis'
 import * as requestModule from '~/common/utils/request'
 import { FetchOptions, FetchResponse } from '~/common/utils/request'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -15,6 +20,7 @@ import { HogExecutorService } from '../../services/hog-executor.service'
 import { HogInputsService } from '../../services/hog-inputs.service'
 import { EmailService } from '../../services/messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../services/messaging/helpers/tracking-code'
+import { PushNotificationService } from '../../services/messaging/push-notification.service'
 import { RecipientTokensService } from '../../services/messaging/recipient-tokens.service'
 import {
     CyclotronJobInvocationHogFunction,
@@ -25,8 +31,10 @@ import {
     HogFunctionTemplate,
     HogFunctionType,
 } from '../../types'
+import { MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from '../../utils/cdp-fetch'
 import { buildHogFunctionInvocations } from '../../utils/invocation-utils'
 import { PosthogJwtAudience } from '../../utils/jwt-utils'
+import { deviceSubscriptionKey } from '../../utils/push-subscription-utils'
 import { ScopedServiceJwt } from '../../utils/scoped-service-jwt'
 import { compileHog, compileHogTemplate } from '../compiler'
 
@@ -63,10 +71,24 @@ export type PipelineRun = {
     requests: OutgoingRequest[]
     printedOutput: string[]
     sensitiveValues: string[]
-    integrationCredentials: string[]
+    connections: Connection[]
+}
+
+export type Connection = {
+    kind: string
+    credentialIn: (requestText: string) => string | undefined
+}
+
+type FakeConnection = Connection & {
+    config: Record<string, unknown>
+    secrets: Record<string, string>
+    pushDevice?: { app: string; token: string }
 }
 
 const EXECUTION_BUDGET_MS = 5000
+const FETCH_RETRIES = 3
+const FETCH_BACKOFF_BASE_MS = 100
+const FETCH_BACKOFF_MAX_MS = 1000
 // Django compiles filters to bytecode. The event name already targets the mapping, so matching everything is safe.
 const MATCH_ALL_FILTERS = { bytecode: ['_h', 29] }
 const MAX_ASYNC_FUNCTIONS = 10
@@ -103,6 +125,7 @@ export class TemplatePipeline {
 
     private constructor(
         private hub: Hub,
+        private redis: Redis,
         private team: Team,
         private executor: HogExecutorAsyncService,
         private hogInputsService: HogInputsService,
@@ -118,13 +141,29 @@ export class TemplatePipeline {
             recipientTokensService,
             hub.encryptedFields
         )
+        const redis = await createRedisFromConfig({
+            url: hub.CDP_REDIS_HOST,
+            options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+        })
+        const pushNotificationService = new PushNotificationService(
+            hub.integrationManager,
+            hub.encryptedFields,
+            {
+                trackedFetch: cdpTrackedFetch,
+                maxFetchTimeoutMs: MAX_FETCH_TIMEOUT_MS,
+                maxRetries: FETCH_RETRIES,
+                backoffBaseMs: FETCH_BACKOFF_BASE_MS,
+                backoffMaxMs: FETCH_BACKOFF_MAX_MS,
+            },
+            singleClientRedisV2(redis)
+        )
         const executor = new HogExecutorAsyncService(
             new HogExecutorService({ executionTimeoutMs: EXECUTION_BUDGET_MS }, hogInputsService),
             {
                 googleAdwordsDeveloperToken: 'fake-developer-token',
-                fetchRetries: 3,
-                fetchBackoffBaseMs: 100,
-                fetchBackoffMaxMs: 1000,
+                fetchRetries: FETCH_RETRIES,
+                fetchBackoffBaseMs: FETCH_BACKOFF_BASE_MS,
+                fetchBackoffMaxMs: FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,
                 internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
             },
@@ -157,20 +196,21 @@ export class TemplatePipeline {
                     undefined as any
                 ),
                 recipientTokensService,
-                pushNotificationService: undefined as any,
+                pushNotificationService,
             }
         )
         const transformer = createHogTransformerService(
             { ...hub, TRANSFORMATIONS_HOG_TIMEOUT_MS: EXECUTION_BUDGET_MS, CDP_HOG_RUST_VM_EXECUTION_ENABLED: false },
             { ...hub, monitoringOutputs: createTestMonitoringOutputs(undefined as unknown as KafkaProducerWrapper) }
         )
-        const pipeline = new TemplatePipeline(hub, team, executor, hogInputsService, transformer)
+        const pipeline = new TemplatePipeline(hub, redis, team, executor, hogInputsService, transformer)
         pipeline.interceptNetwork()
         return pipeline
     }
 
     async stop(): Promise<void> {
         jest.restoreAllMocks()
+        await this.redis.quit()
         await closeHub(this.hub)
     }
 
@@ -178,9 +218,12 @@ export class TemplatePipeline {
         this.requests = []
         this.response = response
 
-        const { hogFunction, integrationCredentials } = await this.createHogFunction(templateCase, options)
-        const globals = this.representativeGlobals(templateCase)
-        const sensitiveValues = [...this.sensitiveInputValues(hogFunction), ...integrationCredentials]
+        const { hogFunction, connections } = await this.createHogFunction(templateCase, options)
+        const globals = this.representativeGlobals(templateCase, connections)
+        const sensitiveValues = [
+            ...this.sensitiveInputValues(hogFunction),
+            ...connections.flatMap((connection) => Object.values(connection.secrets)),
+        ]
 
         if (hogFunction.type === 'transformation') {
             const { invocationResults } = await this.transformer.transformEvent(pluginEventFrom(globals), [hogFunction])
@@ -191,7 +234,7 @@ export class TemplatePipeline {
                 requests: this.requests,
                 printedOutput: result?.logs.map((log) => log.message) ?? [],
                 sensitiveValues,
-                integrationCredentials,
+                connections,
             }
         }
 
@@ -214,7 +257,7 @@ export class TemplatePipeline {
             requests: this.requests,
             printedOutput: result?.logs.map((log) => log.message) ?? [],
             sensitiveValues,
-            integrationCredentials,
+            connections,
         }
     }
 
@@ -258,16 +301,20 @@ export class TemplatePipeline {
     private async createHogFunction(
         templateCase: TemplateCase,
         options: RunOptions
-    ): Promise<{ hogFunction: HogFunctionType; integrationCredentials: string[] }> {
+    ): Promise<{ hogFunction: HogFunctionType; connections: FakeConnection[] }> {
         const { template, mapping } = templateCase
-        const integrationCredentials: string[] = []
+        const connections: FakeConnection[] = []
         const values: Record<string, unknown> = {}
 
         for (const schema of template.inputs_schema) {
             if (schema.type === 'integration') {
-                const credentials = fakeIntegrationCredentials(schema.key)
-                integrationCredentials.push(...Object.values(credentials))
-                values[schema.key] = await this.insertIntegration(schema, credentials)
+                const connection = fakeConnection(schema.integration ?? '', schema.key)
+                connections.push(connection)
+                values[schema.key] = await this.insertIntegration(connection)
+            } else if (schema.type === 'integration_multi') {
+                const kindConnections = (schema.integration ?? '').split(',').map((kind) => fakeConnection(kind, kind))
+                connections.push(...kindConnections)
+                values[schema.key] = await Promise.all(kindConnections.map((c) => this.insertIntegration(c)))
             } else {
                 values[schema.key] =
                     options.debug && schema.type === 'boolean' && /debug/i.test(schema.key)
@@ -315,21 +362,27 @@ export class TemplatePipeline {
             updated_at: '2025-01-01T00:00:00Z',
         }
 
-        return { hogFunction, integrationCredentials }
+        return { hogFunction, connections }
     }
 
-    private async insertIntegration(
-        schema: HogFunctionInputSchemaType,
-        credentials: Record<string, string>
-    ): Promise<number> {
+    private async insertIntegration({ kind, config, secrets }: FakeConnection): Promise<number> {
         const integration = await insertIntegration(this.hub.postgres, this.team.id, {
-            kind: schema.integration as any,
-            config: INTEGRATION_CONFIGS[schema.integration ?? ''] ?? {},
+            kind: kind as any,
+            config,
             sensitive_config: Object.fromEntries(
-                Object.entries(credentials).map(([key, value]) => [key, this.hub.encryptedFields.encrypt(value)])
+                Object.entries(secrets).map(([key, value]) => [key, this.hub.encryptedFields.encrypt(value)])
             ),
         })
         return integration.id
+    }
+
+    // The subscription endpoint stores each device token encrypted on the person it registers for.
+    private pushSubscriptions(connections: FakeConnection[]): Record<string, string> {
+        return Object.fromEntries(
+            connections
+                .flatMap((connection) => (connection.pushDevice ? [connection.pushDevice] : []))
+                .map(({ app, token }) => [deviceSubscriptionKey(app, token), this.hub.encryptedFields.encrypt(token)])
+        )
     }
 
     private sensitiveInputValues(hogFunction: HogFunctionType): string[] {
@@ -338,7 +391,10 @@ export class TemplatePipeline {
             .filter((value): value is string => typeof value === 'string')
     }
 
-    private representativeGlobals(templateCase: TemplateCase): HogFunctionInvocationGlobals {
+    private representativeGlobals(
+        templateCase: TemplateCase,
+        connections: FakeConnection[]
+    ): HogFunctionInvocationGlobals {
         const projectUrl = `https://us.posthog.com/project/${this.team.id}`
         const eventName = eventNameFor(templateCase)
         return {
@@ -381,6 +437,7 @@ export class TemplatePipeline {
                     phone: '+15555550100',
                     $geoip_country_code: 'US',
                     $geoip_city_name: 'Springfield',
+                    ...this.pushSubscriptions(connections),
                 },
             },
             groups: {
@@ -403,6 +460,77 @@ const INTEGRATION_CONFIGS: Record<string, Record<string, unknown>> = {
     slack: { scope: 'chat:write,chat:write.customize', team: { id: 'T0000EXAMPLE', name: 'Example workspace' } },
     twilio: { account_sid: 'ACexample0000' },
 }
+
+const APNS_SIGNING_KEY = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
+
+const fakeConnection = (kind: string, key: string): FakeConnection => {
+    switch (kind) {
+        case 'firebase':
+            return {
+                ...tokenConnection(
+                    kind,
+                    { project_id: 'example-firebase-project' },
+                    {
+                        access_token: `fake-access-token-${key}-0000`,
+                    }
+                ),
+                pushDevice: { app: 'example-firebase-project', token: 'fake-fcm-device-token-0000' },
+            }
+        case 'apns':
+            return {
+                kind,
+                config: {
+                    team_id: 'EXAMPLETM1',
+                    key_id: 'EXAMPLEKY1',
+                    bundle_id: 'com.example.app',
+                    environment: 'production',
+                },
+                secrets: {
+                    signing_key: APNS_SIGNING_KEY.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+                },
+                credentialIn: jwtSignedBy(APNS_SIGNING_KEY.publicKey),
+                pushDevice: { app: 'com.example.app', token: '0123456789abcdef'.repeat(4) },
+            }
+        default:
+            return tokenConnection(kind, INTEGRATION_CONFIGS[kind] ?? {}, fakeIntegrationCredentials(key))
+    }
+}
+
+const tokenConnection = (
+    kind: string,
+    config: Record<string, unknown>,
+    secrets: Record<string, string>
+): FakeConnection => ({
+    kind,
+    config,
+    secrets,
+    credentialIn: (requestText) => Object.values(secrets).find((secret) => requestText.includes(secret)),
+})
+
+const BEARER_JWT = /\bbearer (([\w-]+\.[\w-]+)\.([\w-]+))/gi
+
+// The signing key never leaves the pod, so the request carries a token signed with it instead.
+const jwtSignedBy =
+    (publicKey: KeyObject) =>
+    (requestText: string): string | undefined =>
+        [...requestText.matchAll(BEARER_JWT)].find(([, , signingInput, signature]) =>
+            verify(
+                'SHA256',
+                Buffer.from(signingInput),
+                { key: publicKey, dsaEncoding: 'ieee-p1363' },
+                Buffer.from(signature, 'base64url')
+            )
+        )?.[1]
+
+// A pool would keep its idle connection open after the suite, and hold the jest process alive with it.
+const singleClientRedisV2 = (redis: Redis): RedisV2 => ({
+    useClient: (_options, callback) => callback(redis as unknown as RedisClient),
+    usePipeline: (_options, callback) => {
+        const pipeline = redis.pipeline()
+        callback(pipeline as unknown as RedisClientPipeline)
+        return pipeline.exec()
+    },
+})
 
 const pluginEventFrom = (globals: HogFunctionInvocationGlobals): PluginEvent => ({
     uuid: globals.event.uuid,

@@ -5,6 +5,7 @@ import '~/cdp/async-functions'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { HogFunctionInputSchemaType } from '../types'
 import { OutgoingRequest, PipelineRun, TemplateCase, TemplatePipeline, casesFor } from './test/template-pipeline'
 
 type Exemptions = Record<string, string>
@@ -13,7 +14,6 @@ const WORKFLOW_ONLY = 'workflow action, needs a workflow invocation to run'
 
 const RUNS_EXEMPTIONS: Exemptions = {
     'template-email': 'needs an email sender integration in its email input',
-    'template-native-push': 'needs a push notification service, and the harness builds no integration_multi input',
     'template-posthog-classify': WORKFLOW_ONLY,
     'template-posthog-create-customer-task': WORKFLOW_ONLY,
     'template-posthog-create-task': WORKFLOW_ONLY,
@@ -69,10 +69,10 @@ const integrationCredentialsReachTheWire = (run: PipelineRun): string[] => {
     const leakedPlaceholders = wire
         .filter((text) => text.includes(ACCESS_TOKEN_PLACEHOLDER))
         .map(() => 'a request still carries the access token placeholder')
-    const carriesCredential = wire.some((text) =>
-        run.integrationCredentials.some((credential) => text.includes(credential))
-    )
-    return [...leakedPlaceholders, ...(carriesCredential ? [] : ['no request carries the integration credential'])]
+    const unusedConnections = run.connections
+        .filter((connection) => !wire.some((text) => connection.credentialIn(text)))
+        .map((connection) => `no request carries the ${connection.kind} integration credential`)
+    return [...leakedPlaceholders, ...unusedConnections]
 }
 
 const HTTP_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']
@@ -163,17 +163,23 @@ const BASE64_RUN = /[A-Za-z0-9+/]{12,}={0,2}/g
 const withDecodedBase64 = (text: string): string =>
     [text, ...(text.match(BASE64_RUN) ?? []).map((run) => Buffer.from(run, 'base64').toString('utf-8'))].join('\n')
 
+const sentCredentials = (run: PipelineRun): string[] =>
+    run.connections.flatMap((connection) =>
+        run.requests.map((request) => connection.credentialIn(wireText(request))).filter((c) => c !== undefined)
+    )
+
 const secretsStayOutOfOutput = (run: PipelineRun): string[] => {
     if (run.sensitiveValues.length === 0) {
         return ['the run configured no sensitive value to look for']
     }
+    const sensitiveValues = [...new Set([...run.sensitiveValues, ...sentCredentials(run)])]
     const output = [
         ...run.printedOutput,
         ...run.invocationErrors,
         run.thrown ?? '',
         String(run.result?.error ?? ''),
     ].map(withDecodedBase64)
-    return run.sensitiveValues
+    return sensitiveValues
         .filter((secret) => output.some((text) => text.includes(secret)))
         .map((secret) => `output shows the sensitive value ${secret}`)
 }
@@ -187,18 +193,21 @@ const failureIsVisible = (run: PipelineRun): string[] => {
     return failed || retrying ? [] : ['the invocation ended as a success']
 }
 
+const INTEGRATION_INPUT_TYPES = new Set(['integration', 'integration_multi'])
+
+const isIntegrationInput = (schema: HogFunctionInputSchemaType): boolean => INTEGRATION_INPUT_TYPES.has(schema.type)
+
 const hasSensitiveValues = ({ template }: TemplateCase): boolean =>
-    template.inputs_schema.some((schema) => schema.secret || schema.type === 'integration')
+    template.inputs_schema.some((schema) => schema.secret || isIntegrationInput(schema))
 
 // Every other async function reaches the network, including the helpers that call PostHog's internal API.
-const ASYNC_FUNCTIONS_WITHOUT_HTTP = new Set(['sendEmail', 'sendPushNotification', 'produceToWarehouseWebhooks'])
+const ASYNC_FUNCTIONS_WITHOUT_HTTP = new Set(['sendEmail', 'produceToWarehouseWebhooks'])
 const HTTP_ASYNC_FUNCTIONS = getRegisteredAsyncFunctionNames().filter((name) => !ASYNC_FUNCTIONS_WITHOUT_HTTP.has(name))
 
 const sendsHttpRequests = ({ template }: TemplateCase): boolean =>
     HTTP_ASYNC_FUNCTIONS.some((name) => new RegExp(`\\b${name}\\s*\\(`).test(template.code))
 
-const hasIntegrationInput = ({ template }: TemplateCase): boolean =>
-    template.inputs_schema.some((schema) => schema.type === 'integration')
+const hasIntegrationInput = ({ template }: TemplateCase): boolean => template.inputs_schema.some(isIntegrationInput)
 
 const ALL_CASES = [...DESTINATION_CASES, ...TRANSFORMATION_CASES]
 const isRunnable = (templateCase: TemplateCase): boolean => !(templateCase.name in RUNS_EXEMPTIONS)
