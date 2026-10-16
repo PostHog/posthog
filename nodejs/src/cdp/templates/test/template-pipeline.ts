@@ -228,23 +228,28 @@ export class TemplatePipeline {
 
     async matchRealFilters(templateCase: TemplateCase): Promise<FilterMatch[]> {
         const { hogFunction } = await this.createHogFunction(templateCase, {})
-        const filterGlobals = convertToHogFunctionFilterGlobal(this.representativeGlobals(templateCase))
-        const scopes: [FilterMatch['scope'], HogFunctionFilters][] = [
+        const globals = this.representativeGlobals(templateCase)
+        // Ingestion runs transformations before the event has a person or groups.
+        const filterGlobals = convertToHogFunctionFilterGlobal(
+            hogFunction.type === 'transformation' ? { event: globals.event } : globals
+        )
+        const scopes: [FilterMatch['scope'], HogFunctionFilters | null | undefined][] = [
             ['function', functionFilters(templateCase.template)],
         ]
         if (templateCase.mapping) {
-            scopes.push(['mapping', templateCase.mapping.filters ?? {}])
+            scopes.push(['mapping', templateCase.mapping.filters])
         }
         return await Promise.all(
             scopes.map(async ([scope, filters]): Promise<FilterMatch> => {
-                const compiled = await compileHogFilters(filters, hogFunction.type)
+                const compiled = filters ? await compileHogFilters(filters, hogFunction.type) : filters
                 const result = await filterFunctionInstrumented({
                     fn: hogFunction,
                     filters: compiled,
                     filterGlobals,
                     caller: hogFunction.type === 'transformation' ? 'transformation' : 'build_hog_function_invocations',
                 })
-                const error = compiled.bytecode_error ?? (result.error === undefined ? undefined : String(result.error))
+                const error =
+                    compiled?.bytecode_error ?? (result.error === undefined ? undefined : String(result.error))
                 return { scope, match: result.match, ...(error === undefined ? {} : { error }) }
             })
         )

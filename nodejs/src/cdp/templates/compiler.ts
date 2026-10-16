@@ -43,6 +43,13 @@ from django.db import connections
 from posthog.models.team.team import Team
 from products.cdp.backend.validation import HogFunctionFiltersSerializer
 
+def messages(errors):
+    if isinstance(errors, dict):
+        return [message for value in errors.values() for message in messages(value)]
+    if isinstance(errors, list):
+        return [message for value in errors for message in messages(value)]
+    return [str(errors)]
+
 def refuse_query(*args, **kwargs):
     raise RuntimeError("compiling these filters needs the database, which the template contract tests do not provide")
 
@@ -55,7 +62,7 @@ with ExitStack() as stack:
     for alias in connections:
         stack.enter_context(connections[alias].execute_wrapper(refuse_query))
     valid = serializer.is_valid()
-errors = "; ".join(str(message) for messages in serializer.errors.values() for message in messages)
+errors = "; ".join(messages(serializer.errors))
 with open(sys.argv[2], "w") as target:
     json.dump(serializer.validated_data if valid else {"bytecode": None, "bytecode_error": errors}, target)
 `
