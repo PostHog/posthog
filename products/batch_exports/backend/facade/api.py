@@ -624,86 +624,58 @@ def get_file_download_url(team_id: int, run_id: UUID, part: str | None) -> str:
 def list_batch_export_runs(
     team_id: int, export_id: UUID, *, filters: contracts.BatchExportRunFilters, page: contracts.ListPage
 ) -> list[contracts.BatchExportRunDetail]:
-    """Return one page of the runs of a batch export that match ``filters``.
-
-    The page can order by ``created_at`` and ``data_interval_start``. A batch export the team
-    does not have has no runs.
-    """
+    """Return one page of an export's runs that match ``filters``, ordered by ``created_at`` or ``data_interval_start``."""
     return _import_runs().list_runs(team_id, export_id, filters, page)
 
 
 def get_batch_export_run(
     team_id: int, export_id: UUID, run_id: UUID, *, filters: contracts.BatchExportRunFilters
 ) -> contracts.BatchExportRunDetail:
-    """Return a run of a batch export, if it matches ``filters``.
-
-    Raises ``contracts.BatchExportRunNotFoundError`` when the team has no such run.
-    """
+    """Raises ``contracts.BatchExportRunNotFoundError`` unless the team has this run and it matches ``filters``."""
     return _import_runs().get_run(team_id, export_id, run_id, filters)
 
 
 def retry_batch_export_run(
     team_id: int, export_id: UUID, run_id: UUID, *, filters: contracts.BatchExportRunFilters
 ) -> str:
-    """Backfill the data interval of a run again, and return the backfill id.
-
-    Raises ``contracts.BatchExportRunNotFoundError`` when the team has no such run that matches ``filters``.
-    """
+    """Backfill a run's data interval again and return the backfill id. Raises as ``get_batch_export_run`` does."""
     return _import_runs().retry_run(team_id, export_id, run_id, filters)
 
 
 def cancel_batch_export_run(
     team_id: int, export_id: UUID, run_id: UUID, *, filters: contracts.BatchExportRunFilters
 ) -> None:
-    """Cancel a run that is starting or running.
-
-    Raises ``contracts.InvalidBatchExportRunRequestError`` when the run is in another status, and
-    ``contracts.BatchExportRunNotFoundError`` when the team has no such run that matches ``filters``.
-    """
+    """Cancel a starting or running run. Raises ``contracts.InvalidBatchExportRunRequestError`` in any other status."""
     _import_runs().cancel_run(team_id, export_id, run_id, filters)
 
 
 def list_batch_export_backfills(
     team_id: int, export_id: UUID, *, page: contracts.ListPage
 ) -> list[contracts.BatchExportBackfillDetail]:
-    """Return one page of the backfills of a batch export.
-
-    The page can order by ``created_at`` and ``start_at``. A batch export the team does not have
-    has no backfills.
-    """
+    """Return one page of an export's backfills, ordered by ``created_at`` or ``start_at``."""
     return _import_backfills().list_backfills(team_id, export_id, page)
 
 
 def get_batch_export_backfill(team_id: int, export_id: UUID, backfill_id: UUID) -> contracts.BatchExportBackfillDetail:
-    """Return a backfill of a batch export.
-
-    Raises ``contracts.BatchExportBackfillNotFoundError`` when the team has no such backfill.
-    """
+    """Raises ``contracts.BatchExportBackfillNotFoundError`` unless the team has this backfill."""
     return _import_backfills().get_backfill(team_id, export_id, backfill_id)
 
 
 def create_batch_export_backfill(
     team_id: int, export_id: UUID, *, start_at: object, end_at: object
 ) -> contracts.BatchExportBackfillStart:
-    """Start a backfill of a batch export over a range of time.
+    """Start a backfill. ``start_at`` and ``end_at`` arrive as the request sent them.
 
-    ``start_at`` and ``end_at`` are the bounds as a request carries them. A daily or weekly
-    batch export takes ISO 8601 dates, and every other interval takes ISO 8601 datetimes with a
-    time zone. Without ``start_at`` the backfill starts at the earliest data, which a feature
-    flag gates. Without ``end_at`` it runs until it catches up with realtime.
-
-    Raises ``contracts.BatchExportNotFoundError`` when the team has no such batch export,
-    ``contracts.InvalidBackfillRequestError`` when the range is not valid, and
-    ``contracts.TooManyConcurrentBackfillsError`` when the team has
-    ``BATCH_EXPORT_MAX_CONCURRENT_BACKFILLS_PER_TEAM`` backfills starting or running.
+    Daily and weekly exports take ISO 8601 dates, other intervals ISO 8601 datetimes with a time zone.
+    Raises ``contracts.BatchExportNotFoundError``, ``contracts.InvalidBackfillRequestError`` or
+    ``contracts.TooManyConcurrentBackfillsError``.
     """
     return _import_backfills().create_backfill(team_id, export_id, start_at, end_at)
 
 
 def cancel_batch_export_backfill(team_id: int, export_id: UUID, backfill_id: UUID) -> None:
-    """Cancel a backfill that is starting or running, and the runs it has in progress.
+    """Cancel a starting or running backfill and its runs in progress.
 
-    Raises ``contracts.InvalidBackfillRequestError`` when the backfill is in another status, and
-    ``contracts.BatchExportBackfillNotFoundError`` when the team has no such backfill.
+    Raises ``contracts.InvalidBackfillRequestError`` in any other status.
     """
     _import_backfills().cancel_backfill(team_id, export_id, backfill_id)
