@@ -133,6 +133,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             friendly_name="User-provided name identifying the API key.",
         ),
     },
+    "accounts": {
+        "description": "A Twilio account: the main account the credential belongs to, or one of its subaccounts.",
+        "docs_url": "https://www.twilio.com/docs/iam/api/account",
+        "columns": {
+            "sid": "Unique 34-character identifier for the account, starting with AC.",
+            "owner_account_sid": "SID of the parent account. Equals `sid` on the main account itself.",
+            "friendly_name": "Human-readable name for the account, up to 64 characters.",
+            "status": "Status of the account (active, suspended, or closed).",
+            "type": "Account type (Trial or Full).",
+            "date_created": "Time at which the account was created (RFC 2822 format).",
+            "date_updated": "Time at which the account was last updated (RFC 2822 format).",
+            "subresource_uris": "URIs of the related resources of the account, relative to the API base.",
+            "uri": "URI of the resource relative to the API base.",
+        },
+    },
     "outgoing_caller_ids": {
         "description": "A phone number verified for use as an outbound caller ID on the account.",
         "docs_url": "https://www.twilio.com/docs/voice/api/outgoing-caller-ids",

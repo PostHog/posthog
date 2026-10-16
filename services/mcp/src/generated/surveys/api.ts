@@ -28,6 +28,10 @@ export const SurveysListQueryParams = () => zod.object({
     created_by: zod.number().optional().describe('Filter surveys by the ID of the user who created them.'),
     ids: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
+    linked_flag_id: zod
+        .number()
+        .optional()
+        .describe('Filter surveys by the ID of the feature flag they are linked to.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod
         .string()

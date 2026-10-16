@@ -7,9 +7,11 @@ from typing import Any, Literal
 import pytest
 
 from temporalio import activity
+from temporalio.api.enums.v1 import EventType
+from temporalio.client import WorkflowHistory
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.temporal import derive_mention_workflow_id, slack_app_mention
@@ -503,6 +505,42 @@ async def test_untagged_followup_forwards_without_task_creation_or_reactions():
     # Untagged followups were never addressed to the bot: no reactions.
     assert rec.queued_marked == []
     assert rec.processing_marked == []
+
+
+def _child_workflow_types(history: WorkflowHistory) -> list[str]:
+    return [
+        event.start_child_workflow_execution_initiated_event_attributes.workflow_type.name
+        for event in history.events
+        if event.event_type == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
+    ]
+
+
+@pytest.mark.asyncio
+async def test_child_type_rename_replays_runs_started_before_the_patch(monkeypatch):
+    original_patched = slack_app_mention.workflow.patched
+
+    def legacy_patched(patch_id: str) -> bool:
+        if patch_id == slack_app_mention._PATCH_ID_MENTION_PROCESSING_RENAME:
+            return False
+        return original_patched(patch_id)
+
+    rec = _Recorder()
+    async with _Harness(rec) as h:
+        monkeypatch.setattr(slack_app_mention.workflow, "patched", legacy_patched)
+        legacy_handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(legacy_handle.result(), timeout=30)
+        legacy_history = await legacy_handle.fetch_history()
+
+        monkeypatch.setattr(slack_app_mention.workflow, "patched", original_patched)
+        new_handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.2"))
+        await asyncio.wait_for(new_handle.result(), timeout=30)
+        new_history = await new_handle.fetch_history()
+
+    assert _child_workflow_types(legacy_history) == ["posthog-code-slack-mention-processing"]
+    assert _child_workflow_types(new_history) == ["slack-app-mention-processing"]
+    replayer = Replayer(workflows=[SlackAppMentionWorkflow], workflow_runner=UnsandboxedWorkflowRunner())
+    await replayer.replay_workflow(legacy_history)
+    await replayer.replay_workflow(new_history)
 
 
 @pytest.mark.asyncio
