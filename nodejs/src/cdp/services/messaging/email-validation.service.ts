@@ -5,6 +5,7 @@ import { Counter } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { RedisV2 } from '~/common/redis/redis-v2'
+import { noteOobDomain } from '~/common/utils/oob-domains'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
 
@@ -187,6 +188,10 @@ export class EmailValidationService {
     }
 
     private async dnsLookup(domain: string): Promise<'valid' | 'invalid' | 'transient'> {
+        // The invocation's team id does not reach this layer, and one verdict is cached and shared
+        // across teams, so the log line names the domain alone.
+        noteOobDomain(domain, 'node_email_validation')
+
         let mxRecords: MxRecord[]
         try {
             mxRecords = await this.resolver.resolveMx(domain)

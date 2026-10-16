@@ -159,6 +159,7 @@ jobs:
                         # readFileSync, so jest cannot reach the parity test through --findRelatedTests.
                         - 'products/cdp/backend/filter_globals.json'
                         - 'common/hogvm/typescript/src/**'
+                        - '**/crosslang/**'
                         - '.github/scripts/jest-retries.cjs'
                         - 'patches/jest-junit@16.0.0.patch'
                         - 'nodejs/jest*.config.js'
