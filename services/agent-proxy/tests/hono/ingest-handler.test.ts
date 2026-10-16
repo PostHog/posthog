@@ -419,6 +419,35 @@ describe('ingest-handler', () => {
         mockValidate.mockResolvedValue(makeClaims())
     })
 
+    it.each([
+        { line: { seq: 1, event: { type: 'notification', notification: { method: 'late' } } }, legacy: false },
+        { line: { type: '_posthog/stream_complete', final_seq: 0 }, legacy: false },
+        { line: { seq: 1, event: { type: 'notification', notification: { method: 'late' } } }, legacy: true },
+        { line: { type: '_posthog/stream_complete', final_seq: 0 }, legacy: true },
+    ])('rejects an old sender after the stream resumes: %j', async ({ line, legacy }) => {
+        mockValidate.mockResolvedValue({ ...makeClaims(), ...(legacy ? {} : { streamGeneration: 'initial' }) })
+        await fakeRedis.set(`${getStreamKey(RUN_ID)}:generation`, 'initial')
+        const initial = await handleIngest(
+            makeContext({ body: makeStringBody(JSON.stringify(line) + '\n') }),
+            fakeRedis as unknown as Redis,
+            makeConfig(),
+            []
+        )
+        expect(initial.status).toBe(200)
+        await redisStream.deleteStream()
+        await fakeRedis.set(`${getStreamKey(RUN_ID)}:generation`, 'replacement')
+        const response = await handleIngest(
+            makeContext({ body: makeStringBody(JSON.stringify(line) + '\n') }),
+            fakeRedis as unknown as Redis,
+            makeConfig(),
+            []
+        )
+        expect(response.status).toBe(403)
+        expect(await response.json()).not.toHaveProperty('last_accepted_seq')
+        expect(await redisStream.getLastSequence()).toBe(0)
+        expect(await redisStream.isComplete()).toBe(false)
+    })
+
     // -----------------------------------------------------------------------
     // Auth / routing guards
     // -----------------------------------------------------------------------
