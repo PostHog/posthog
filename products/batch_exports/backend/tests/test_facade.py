@@ -291,7 +291,7 @@ def test_runs_and_backfills_are_scoped_to_the_team_and_export(team, organization
     # A leaked run or backfill would get past the lookup and reach Temporal instead of raising.
     for read_run in (api.get_batch_export_run, api.retry_batch_export_run, api.cancel_batch_export_run):
         with pytest.raises(contracts.BatchExportRunNotFoundError):
-            read_run(team_id, scoped_export_id, run_id, filters=every_run)
+            read_run(team_id, scoped_export_id, run_id)
     for read_backfill in (api.get_batch_export_backfill, api.cancel_batch_export_backfill):
         with pytest.raises(contracts.BatchExportBackfillNotFoundError):
             read_backfill(team_id, scoped_export_id, backfill_id)

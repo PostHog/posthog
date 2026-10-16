@@ -227,10 +227,9 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
         # run is read through the facade instead. That skips the mixin's team filter and object
         # permission check, so both happen here: the facade filters by team and export, and
         # check_object_permissions runs on the contract. `logs` reads the run through here too.
-        # Like the list, a lookup only finds a run that matches the list filters.
         try:
             run = batch_exports_api.get_batch_export_run(
-                self.team_id, self._get_export_id(), parse_path_uuid(self.kwargs["pk"]), filters=self._get_run_filters()
+                self.team_id, self._get_export_id(), parse_path_uuid(self.kwargs["pk"])
             )
         except contracts.BatchExportRunNotFoundError as e:
             raise NotFound(*e.args) from e
@@ -257,9 +256,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
         run = self.get_object()
 
         try:
-            backfill_id = batch_exports_api.retry_batch_export_run(
-                self.team_id, self._get_export_id(), run.id, filters=self._get_run_filters()
-            )
+            backfill_id = batch_exports_api.retry_batch_export_run(self.team_id, self._get_export_id(), run.id)
         except contracts.BatchExportRunNotFoundError as e:
             raise NotFound(*e.args) from e
 
@@ -272,9 +269,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
         run = self.get_object()
 
         try:
-            batch_exports_api.cancel_batch_export_run(
-                self.team_id, self._get_export_id(), run.id, filters=self._get_run_filters()
-            )
+            batch_exports_api.cancel_batch_export_run(self.team_id, self._get_export_id(), run.id)
         except contracts.InvalidBatchExportRunRequestError as e:
             raise ValidationError(str(e)) from e
         except contracts.BatchExportRunNotFoundError as e:
