@@ -129,7 +129,8 @@ class ExperimentHealthInputsTrafficStatus(LabeledStrEnum):
     # The reader is denied a flag call property that the scan reads.
     DENIED_PROPERTIES = "denied_properties"
     NO_FLAG_VERSION = "no_flag_version"
-    # The query failed, or was too expensive. Either is cached, so it is not asked again on every load.
+    # The scan failed or was too expensive, which is cached so that it does not run again on every load. Or another
+    # request's scan was still running and did not answer in time.
     UNKNOWN = "unknown"
 
 
