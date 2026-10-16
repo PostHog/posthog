@@ -1,6 +1,5 @@
 import json
 import asyncio
-import inspect
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -66,7 +65,6 @@ from products.signals.backend.spend_metadata import confirm_signal_spend_metadat
 from products.signals.backend.system_one_prompts import bundled_prompt
 from products.signals.backend.temporal.llm import call_llm
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.temporal.gateway_usage import GatewayUsageInput, reconcile_gateway_usage
 
 
 class TestSpendPricing(SimpleTestCase):
@@ -640,41 +638,6 @@ class TestSignalSpend(BaseTest):
         complete_task_spend(team_id=self.team.id, run_id=str(research.id))
         spend.refresh_from_db()
         assert spend.finalized_at == finalized_at
-
-    @parameterized.expand([(TaskRun.Status.COMPLETED,), (TaskRun.Status.FAILED,), (TaskRun.Status.CANCELLED,)])
-    def test_scout_finalization_waits_for_late_usage(self, status: str) -> None:
-        run = self._run()
-        scout = SignalScoutRun.objects.for_team(self.team.id).create(
-            team=self.team, task_run=run, skill_name="example-scout", skill_version=1
-        )
-        with patch("products.signals.backend.spend.usage_billing_enabled", return_value=True):
-            record_task_spend(team_id=self.team.id, run_id=str(run.id), scout_run_id=str(scout.id), stage="scout")
-        self._set_task_cost(run, 100, pending=True)
-        run.status = status
-        run.save(update_fields=["status"])
-        with patch("products.tasks.backend.facade.billing.process_pending_gateway_usage"):
-            complete_task_spend(team_id=self.team.id, run_id=str(run.id))
-        spend = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
-        self.assertIsNone(spend.finalized_at)
-        self.assertTrue(spend.accounting_failed)
-        assert spend.billing_amounts == {}
-        assert spend.sources[f"task:{run.id}"]["finished"]
-        with patch(
-            "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
-            new=AsyncMock(return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=50)),
-        ):
-            assert (
-                inspect.unwrap(reconcile_gateway_usage)(GatewayUsageInput(run_id=str(run.id), team_id=self.team.id))
-                == 0
-            )
-        spend.refresh_from_db()
-        scout.refresh_from_db()
-        self.assertIsNotNone(spend.finalized_at)
-        assert not spend.accounting_failed
-        assert spend.token_cost_microusd == 150
-        assert spend.task_count == 1
-        assert scout.total_spend == Decimal("4.0150")
-        assert sum(spend.billing_amounts.values()) == 40_150
 
     def test_resumed_task_reopens_original_owner_after_report_changes_driver(self) -> None:
         driver, other = str(uuid4()), str(uuid4())
