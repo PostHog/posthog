@@ -22,6 +22,9 @@ export function SdkVersionWarnings({ warnings }: { warnings: SurveyFeatureWarnin
         for (const sdk of warning.unsupportedSdks) {
             relevantSdks.add(sdk.sdk)
         }
+        for (const sdk of warning.skippingSdks) {
+            relevantSdks.add(sdk)
+        }
     }
 
     const sdkVersionsDisplay = Array.from(relevantSdks)
@@ -42,6 +45,13 @@ export function SdkVersionWarnings({ warnings }: { warnings: SurveyFeatureWarnin
                             <li key={warning.feature}>
                                 <strong>{warning.feature}</strong>
                                 <ul className="list-none pl-2 mt-0.5 space-y-0.5">
+                                    {warning.skippingSdks.length > 0 && (
+                                        <li className="text-secondary">
+                                            This survey doesn't show in apps that use {warning.skippingSdks.join(', ')}.
+                                            Mobile SDKs skip surveys with URL or CSS selector conditions, so their other
+                                            warnings are hidden.
+                                        </li>
+                                    )}
                                     {warning.versionIssues.map((issue, idx) => (
                                         <li key={`version-${idx}`} className="text-secondary">
                                             Requires {issue.sdkType} v{issue.minVersion}+
