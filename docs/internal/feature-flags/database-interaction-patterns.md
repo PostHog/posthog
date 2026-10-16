@@ -89,8 +89,8 @@ Its persons DB calls fail without taking a connection.
 Those flags report `timeout:persons_db_deadline` even when the persons DB is healthy.
 The canonical log line shows the wait in `concurrency_limit_wait_ms`.
 Startup clamps the reserve to between 100ms and 2000ms.
-Startup logs a warning when `REQUEST_TIMEOUT_MS` is not more than the reserve, because every persons DB call then fails.
-It also logs a warning when `PERSONS_DB_DEADLINE_MS` plus the reserve is at least `REQUEST_TIMEOUT_MS`, because the budget then has no effect.
+Startup logs a warning when `REQUEST_TIMEOUT_MS` is not more than the reserve, because every `/flags` persons DB call then fails.
+It also logs a warning when `PERSONS_DB_DEADLINE_MS` plus the reserve is at least `REQUEST_TIMEOUT_MS`, because the budget then has no effect on `/flags`.
 Postgres `statement_timeout` cannot cancel a query on a database that has stopped answering, so once a query is in flight this client-side timer is the only bound.
 When the pool has no free connection, the pool acquire timeout (`ACQUIRE_TIMEOUT_SECS`) can fire first, and the call fails with `timeout:pool_timeout` instead.
 
@@ -117,6 +117,7 @@ The canonical log line records the first stopped call in `persons_db_deadline_ex
 The internal batch evaluation endpoint applies the deadline to each person's evaluation.
 A person that fails at the deadline is evaluated once more with a fresh deadline, up to `MAX_PERSON_RETRIES_PER_PAGE` retries per page.
 The deadline bounds each person, not the page.
+`REQUEST_TIMEOUT_MS` does not cover this endpoint, so its deadline is the budget alone, with no reserve.
 A persons database that stays unresponsive still ends the page at `BATCH_FLAG_EVAL_TIMEOUT_MS`.
 When a person's evaluation still returns an error, Django leaves that person out of the static cohort, keeps the persons that matched, and records the run as failed.
 Set `PERSONS_DB_DEADLINE_MS=0` to disable the deadline.

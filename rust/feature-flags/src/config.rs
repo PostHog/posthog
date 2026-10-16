@@ -1165,18 +1165,18 @@ impl Config {
         }
     }
 
-    /// Why the persons DB deadline settings defeat the deadline, or `None` when they do not.
+    /// Why the persons DB deadline settings defeat the /flags deadline, or `None` when they do not.
     fn persons_db_deadline_misconfiguration(&self) -> Option<&'static str> {
         if self.persons_db_deadline_ms == 0 {
             None
         } else if self.request_timeout_ms <= self.persons_db_deadline_reserve_ms {
-            Some("REQUEST_TIMEOUT_MS is not more than PERSONS_DB_DEADLINE_RESERVE_MS, so every persons DB call fails without running")
+            Some("REQUEST_TIMEOUT_MS is not more than PERSONS_DB_DEADLINE_RESERVE_MS, so every /flags persons DB call fails without running")
         } else if self
             .persons_db_deadline_ms
             .saturating_add(self.persons_db_deadline_reserve_ms)
             >= self.request_timeout_ms
         {
-            Some("PERSONS_DB_DEADLINE_MS plus PERSONS_DB_DEADLINE_RESERVE_MS is at least REQUEST_TIMEOUT_MS, so the request timeout always sets the persons DB deadline and PERSONS_DB_DEADLINE_MS has no effect")
+            Some("PERSONS_DB_DEADLINE_MS plus PERSONS_DB_DEADLINE_RESERVE_MS is at least REQUEST_TIMEOUT_MS, so the request timeout always sets the /flags persons DB deadline and PERSONS_DB_DEADLINE_MS has no effect on /flags")
         } else {
             None
         }
@@ -1416,14 +1416,19 @@ impl Config {
     /// `request_entered_at`, before the wait for a concurrency permit. The deadline is never later
     /// than `persons_db_deadline_reserve_ms` before the request timeout ends, so the rest of the
     /// request has that long to finish. When `request_timeout_ms` is not more than the reserve,
-    /// the deadline is the arrival time and every persons DB call fails.
+    /// the deadline is the arrival time and every persons DB call fails. `request_entered_at` is
+    /// `None` for a caller that `request_timeout_ms` does not cover, such as batch evaluation.
+    /// The deadline is then the budget's end.
     pub fn persons_db_deadline(
         &self,
-        request_entered_at: tokio::time::Instant,
+        request_entered_at: Option<tokio::time::Instant>,
     ) -> Option<tokio::time::Instant> {
         (self.persons_db_deadline_ms > 0).then(|| {
             let budget_end = tokio::time::Instant::now()
                 + std::time::Duration::from_millis(self.persons_db_deadline_ms);
+            let Some(request_entered_at) = request_entered_at else {
+                return budget_end;
+            };
             let request_cap = request_entered_at
                 + std::time::Duration::from_millis(
                     self.request_timeout_ms
@@ -1832,17 +1837,19 @@ mod tests {
 
     // The cap is the request timeout minus the reserve, counted from arrival.
     #[rstest::rstest]
-    #[case::short_permit_wait(2500, 500, 4500, 1000, Some(3500))]
-    #[case::long_permit_wait(2500, 500, 4500, 3000, Some(4000))]
-    #[case::larger_reserve(2500, 1000, 4500, 3000, Some(3500))]
-    #[case::waited_past_the_cap(2500, 500, 4500, 4200, Some(4000))]
-    #[case::request_timeout_within_the_reserve(2500, 500, 400, 0, Some(0))]
-    #[case::disabled(0, 500, 4500, 0, None)]
+    #[case::short_permit_wait(2500, 500, 4500, true, 1000, Some(3500))]
+    #[case::long_permit_wait(2500, 500, 4500, true, 3000, Some(4000))]
+    #[case::larger_reserve(2500, 1000, 4500, true, 3000, Some(3500))]
+    #[case::waited_past_the_cap(2500, 500, 4500, true, 4200, Some(4000))]
+    #[case::request_timeout_within_the_reserve(2500, 500, 400, true, 0, Some(0))]
+    #[case::no_request_timeout(2500, 500, 400, false, 0, Some(2500))]
+    #[case::disabled(0, 500, 4500, true, 0, None)]
     #[tokio::test(start_paused = true)]
     async fn test_persons_db_deadline_is_capped_by_the_request_timeout(
         #[case] persons_db_deadline_ms: u64,
         #[case] reserve_ms: u64,
         #[case] request_timeout_ms: u64,
+        #[case] request_timeout_applies: bool,
         #[case] permit_wait_ms: u64,
         #[case] expected_ms_after_arrival: Option<u64>,
     ) {
@@ -1856,7 +1863,7 @@ mod tests {
         tokio::time::advance(Duration::from_millis(permit_wait_ms)).await;
 
         assert_eq!(
-            config.persons_db_deadline(arrival),
+            config.persons_db_deadline(request_timeout_applies.then_some(arrival)),
             expected_ms_after_arrival.map(|ms| arrival + Duration::from_millis(ms))
         );
     }
