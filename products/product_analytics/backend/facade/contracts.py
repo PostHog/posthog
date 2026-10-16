@@ -114,9 +114,16 @@ class InsightSeries:
     name: str | None
     series: dict[str, list[tuple[date, float]]]
     period: str
-    averaged: bool
+    averaged_series: list[str]
     event_name: str
     value_format: str | None = None
     value_prefix: str | None = None
     value_postfix: str | None = None
     decimal_places: int | None = None
+
+
+@dataclass(frozen=True)
+class InsightDashboardContext:
+    filters: dict[str, Any]
+    tile_filters: dict[str, Any] | None = None
+    variables: dict[str, Any] | None = None

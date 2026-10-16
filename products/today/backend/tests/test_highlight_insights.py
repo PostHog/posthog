@@ -12,11 +12,12 @@ from parameterized import parameterized
 
 from posthog.models import FileSystemViewLog
 
-from products.dashboards.backend.facade.api import HomeDashboardInsights
+from products.dashboards.backend.facade.api import HomeDashboardInsights, HomeDashboardTile
 from products.product_analytics.backend.facade.contracts import InsightSeries
 from products.today.backend.logic.highlight_registry import load_sources
 from products.today.backend.logic.highlight_rules import human, short
 from products.today.backend.logic.highlight_sources import home, routine
+from products.today.backend.logic.highlight_trends import MONEY
 from products.today.backend.logic.highlight_types import Context
 
 TODAY = date(2026, 10, 13)
@@ -29,7 +30,7 @@ def days(values: list[float]) -> list[tuple[date, float]]:
 
 def insight(series: dict[str, list[tuple[date, float]]], **fields: Any) -> InsightSeries:
     return InsightSeries(
-        **{"short_id": "abc", "name": "By browser", "period": "day", "averaged": False, "event_name": "", **fields},
+        **{"short_id": "abc", "name": "By browser", "period": "day", "averaged_series": [], "event_name": "", **fields},
         series=series,
     )
 
@@ -70,12 +71,17 @@ class TestInsightRules(SimpleTestCase):
         self.assertEqual(human(value), expected)
 
 
+DROP = days([1000.0] * 49 + [550.0] * 7)
+ALTERNATING = days([v for week in range(8) for v in [1000.0 if week % 2 == 0 else 800.0] * 7])
+
+
 class TestHomeTiles(SimpleTestCase):
     @parameterized.expand(
         [
-            ("fewer failures is good news", "payment failed", False, ["Chrome"], None),
+            ("fewer failures is good news", DROP, "payment failed", False, ["Chrome"], None),
             (
                 "fewer sign-ups is bad news",
+                DROP,
                 "signed up",
                 False,
                 ["Chrome"],
@@ -83,6 +89,7 @@ class TestHomeTiles(SimpleTestCase):
             ),
             (
                 "daily users compare daily averages",
+                DROP,
                 "signed up",
                 True,
                 ["Chrome"],
@@ -90,20 +97,34 @@ class TestHomeTiles(SimpleTestCase):
             ),
             (
                 "several series name the series measured",
+                DROP,
                 "",
                 False,
                 ["signed up · Chrome", "logged in · Chrome"],
                 ("‘By browser’ (signed up · Chrome) decreased by 45% last week", "7,000 → 3,850"),
             ),
+            (
+                "a drop that no detector flags still counts",
+                ALTERNATING,
+                "signed up",
+                False,
+                ["Chrome"],
+                ("‘By browser’ decreased by 20% last week", "7,000 → 5,600"),
+            ),
         ]
     )
     def test_a_home_tile_shows_when_it_moves_the_wrong_way(
-        self, _name: str, event_name: str, averaged: bool, labels: list[str], expected: tuple[str, str] | None
+        self,
+        _name: str,
+        points: list[tuple[date, float]],
+        event_name: str,
+        averaged: bool,
+        labels: list[str],
+        expected: tuple[str, str] | None,
     ) -> None:
-        points = days([1000.0] * 49 + [550.0] * 7)
         found_insight = insight(
             {name: [(day, value / (index + 1)) for day, value in points] for index, name in enumerate(labels)},
-            averaged=averaged,
+            averaged_series=labels if averaged else [],
             event_name=event_name,
         )
         context = cast(
@@ -116,18 +137,31 @@ class TestHomeTiles(SimpleTestCase):
             ),
         )
         registered = next(s for s in load_sources() if s.name == "home")
+        home_tiles = HomeDashboardInsights(
+            dashboard_id=1,
+            filters={},
+            variables=None,
+            tiles=(HomeDashboardTile(insight_short_id="abc", filters_overrides=None),),
+        )
 
         with (
-            patch.object(
-                home,
-                "home_dashboard_insights",
-                return_value=HomeDashboardInsights(dashboard_id=1, filters={}, insight_short_ids=("abc",)),
-            ),
+            patch.object(home, "home_dashboard_insights", return_value=home_tiles),
             patch.object(home, "get_insight_series", return_value=found_insight),
         ):
             found = registered.find(context).items
 
         self.assertEqual([(c.title, c.detail) for c in found], [expected] if expected else [])
+
+    @parameterized.expand(
+        [
+            ("$pageview", False),
+            ("Revenue by plan", True),
+            ("Spend in $", True),
+            ("$5 orders", True),
+        ]
+    )
+    def test_money_names_do_not_include_built_in_events(self, label: str, money: bool) -> None:
+        self.assertEqual(bool(MONEY.search(label)), money)
 
 
 class TestRoutineInsights(BaseTest):

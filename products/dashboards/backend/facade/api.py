@@ -13,6 +13,7 @@ response they become.
 
 import re
 import json
+import math
 from collections.abc import Collection, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -97,10 +98,17 @@ def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ..
 
 
 @dataclass(frozen=True)
+class HomeDashboardTile:
+    insight_short_id: str
+    filters_overrides: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
 class HomeDashboardInsights:
     dashboard_id: int
     filters: dict[str, Any]
-    insight_short_ids: tuple[str, ...]
+    variables: dict[str, Any] | None
+    tiles: tuple[HomeDashboardTile, ...]
 
 
 def home_dashboard_insights(*, team: "Team", user: User, limit: int) -> HomeDashboardInsights | None:
@@ -109,13 +117,28 @@ def home_dashboard_insights(*, team: "Team", user: User, limit: int) -> HomeDash
     dashboard_id = int(match.group(1)) if match else team.primary_dashboard_id
     if dashboard_id is None or viewable_dashboard_ref(dashboard_id, team=team, user=user) is None:
         return None
-    filters = Dashboard.objects.filter(team_id=team.id, pk=dashboard_id).values_list("filters", flat=True).first()
-    short_ids = (
-        DashboardTile.objects.filter(dashboard_id=dashboard_id, insight__isnull=False, insight__deleted=False)
-        .order_by("id")
-        .values_list("insight__short_id", flat=True)[:limit]
+    dashboard = Dashboard.objects.filter(team_id=team.id, pk=dashboard_id).values("filters", "variables").first()
+    if dashboard is None:
+        return None
+    tiles = sorted(
+        DashboardTile.objects.filter(
+            dashboard_id=dashboard_id, insight__isnull=False, insight__deleted=False
+        ).values_list("id", "insight__short_id", "filters_overrides", "layouts"),
+        key=lambda tile: (_sm_layout(tile[3]).get("y", math.inf), _sm_layout(tile[3]).get("x", math.inf), tile[0]),
     )
-    return HomeDashboardInsights(dashboard_id=dashboard_id, filters=filters or {}, insight_short_ids=tuple(short_ids))
+    return HomeDashboardInsights(
+        dashboard_id=dashboard_id,
+        filters=dashboard["filters"] or {},
+        variables=dashboard["variables"] or None,
+        tiles=tuple(
+            HomeDashboardTile(insight_short_id=short_id, filters_overrides=overrides or None)
+            for _id, short_id, overrides, _layouts in tiles[:limit]
+        ),
+    )
+
+
+def _sm_layout(layouts: Any) -> dict[str, Any]:
+    return (layouts or {}).get("sm") or {}
 
 
 def viewable_dashboard_ref(dashboard_id: int, *, team: "Team", user: User) -> DashboardRef | None:

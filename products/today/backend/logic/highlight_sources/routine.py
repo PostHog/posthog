@@ -61,7 +61,7 @@ def _metric(context: Context, short_id: str) -> contracts.HighlightMetric | None
         return None
     name, points = max(series.items(), key=lambda item: sum(abs(v) for _, v in item[1]))
     period = insight.period
-    _, values = detect(points, period, context.today, period == "day" and insight.averaged)
+    _, values = detect(points, period, context.today, period == "day" and name in insight.averaged_series)
     if len(values) < 2:
         return None
     if period == "day":

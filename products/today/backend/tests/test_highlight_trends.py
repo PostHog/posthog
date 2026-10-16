@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.today.backend.logic.highlight_trends import detect, stale
+from products.today.backend.logic.highlight_trends import MAX_FILLED_DAYS, detect, fill_days, stale
 
 TODAY = date(2026, 10, 13)
 
@@ -68,3 +68,12 @@ class TestHighlightTrends(SimpleTestCase):
     )
     def test_stale(self, _name: str, points: list[tuple[date, float]], period: str, expected: bool) -> None:
         self.assertEqual(stale(points, period, TODAY), expected)
+
+    def test_filling_missing_days_stops_at_the_supported_lookback(self) -> None:
+        points = [(date(1, 1, 1), 1.0), (TODAY - timedelta(days=2), 1.0), (TODAY - timedelta(days=1), 1.0)]
+
+        filled = fill_days(points)
+
+        self.assertEqual(
+            (len(filled), filled[0][0]), (MAX_FILLED_DAYS + 1, TODAY - timedelta(days=1 + MAX_FILLED_DAYS))
+        )

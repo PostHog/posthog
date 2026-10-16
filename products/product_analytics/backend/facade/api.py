@@ -25,6 +25,7 @@ from posthog.models import Team, User
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import insight_series, logic
 from products.product_analytics.backend.facade.contracts import (
+    InsightDashboardContext,
     InsightSeries,
     InsightVariableDefinition,
     SavedInsightDefinition,
@@ -235,7 +236,7 @@ def save_saved_insight_query(
 
 
 def get_insight_series(
-    *, team: Team, user: User, short_id: str, dashboard_filters: dict[str, Any] | None = None
+    *, team: Team, user: User, short_id: str, dashboard: InsightDashboardContext | None = None
 ) -> InsightSeries | None:
     insight = Insight.objects.filter(team__project_id=team.project_id, short_id=short_id, deleted=False).first()
     if insight is None:
@@ -244,10 +245,5 @@ def get_insight_series(
     if not access_control.check_access_level_for_object(insight, "viewer"):
         return None
     return insight_series.insight_series(
-        team,
-        user,
-        short_id=insight.short_id,
-        name=insight.name,
-        query=insight.query or {},
-        dashboard_filters=dashboard_filters,
+        team, user, short_id=insight.short_id, name=insight.name, query=insight.query or {}, dashboard=dashboard
     )

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 from dataclasses import is_dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Optional, cast
 from zoneinfo import ZoneInfo
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import IntegrityError, models
+from django.db import IntegrityError, models, transaction
 from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
@@ -96,26 +96,29 @@ def log_file_system_view(
         "ref": str(representation.ref),
     }
     surface = getattr(representation, "surface", DEFAULT_SURFACE)
-    known = FileSystemViewLog.objects.filter(**update_kwargs).values_list("view_days", "team__timezone").first()
-    known_days, team_timezone = known or (
-        None,
-        Team.objects.filter(id=resolved_team_id).values_list("timezone", flat=True).first(),
-    )
+    team_timezone = Team.objects.filter(id=resolved_team_id).values_list("timezone", flat=True).first()
     day = now.astimezone(ZoneInfo(team_timezone or "UTC")).date()
-    view_days = sorted({d for d in [*(known_days or []), day] if d > day - timedelta(days=VIEW_DAYS_KEPT)})
 
-    updated = FileSystemViewLog.objects.filter(**update_kwargs).update(
-        viewed_at=now, surface=surface, view_days=view_days
-    )
-
-    if updated:
+    if _record_view(update_kwargs, viewed_at=now, surface=surface, day=day):
         return
 
     try:
-        FileSystemViewLog.objects.create(viewed_at=now, surface=surface, view_days=view_days, **update_kwargs)
+        with transaction.atomic():
+            FileSystemViewLog.objects.create(viewed_at=now, surface=surface, view_days=[day], **update_kwargs)
     except IntegrityError:
         # Another request may have created the row after our update attempt.
-        FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface, view_days=view_days)
+        _record_view(update_kwargs, viewed_at=now, surface=surface, day=day)
+
+
+def _record_view(lookup: dict[str, object], *, viewed_at: datetime, surface: str, day: date) -> bool:
+    with transaction.atomic():
+        row = FileSystemViewLog.objects.select_for_update().filter(**lookup).values_list("id", "view_days").first()
+        if row is None:
+            return False
+        log_id, known_days = row
+        view_days = sorted({d for d in [*(known_days or []), day] if d > day - timedelta(days=VIEW_DAYS_KEPT)})
+        FileSystemViewLog.objects.filter(id=log_id).update(viewed_at=viewed_at, surface=surface, view_days=view_days)
+        return True
 
 
 def recent_view_logs(

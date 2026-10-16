@@ -14,7 +14,8 @@ UNKNOWN_DIRECTION = re.compile(r"(?i)(share|split| vs\.? |ratio|%|percent|rate b
 UNCLEAR_LABEL = re.compile(
     r"(?i)^(other|others|series \d+|null|none|unknown|\$.*|(sum|count|avg|unique|total)[ _].*)$|, series \d+$"
 )
-MONEY = re.compile(r"(?i)(revenue|\barr\b|\bmrr\b|\bnrr\b|spend|cost|usd|\$|invoice)")
+MONEY = re.compile(r"(?i)(revenue|\barr\b|\bmrr\b|\bnrr\b|spend|cost|usd|\$(?![a-z_])|invoice)")
+MAX_FILLED_DAYS = 120
 
 
 @frozen
@@ -51,7 +52,8 @@ def fill_days(points: list[tuple[date, float]]) -> list[tuple[date, float]]:
     if not points:
         return points
     known = dict(points)
-    day, end, out = points[0][0], points[-1][0], []
+    end = points[-1][0]
+    day, out = max(points[0][0], end - timedelta(days=MAX_FILLED_DAYS)), []
     while day <= end:
         out.append((day, known.get(day, 0.0)))
         day += timedelta(days=1)

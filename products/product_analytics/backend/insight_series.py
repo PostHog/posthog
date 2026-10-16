@@ -6,9 +6,12 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from posthog.dataclasses import frozen
+from posthog.hogql_queries.apply_dashboard_filters import resolve_effective_dashboard_filters
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 
-from products.product_analytics.backend.facade.contracts import InsightSeries
+from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
 
 ADDITIVE_MATH = {"total", "sum", "first_time_for_user", "first_matching_event_for_user"}
 UNCHARTED_DISPLAYS = {
@@ -20,6 +23,15 @@ UNCHARTED_DISPLAYS = {
     "ActionsLineGraphCumulative",
 }
 LOOKBACK = {"day": "-56d", "week": "-16w", "month": "-24m"}
+DATE_FILTERS = ("date_from", "date_to", "explicitDate", "interval", "compareFilter")
+EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+
+
+@frozen
+class TrendSeries:
+    series: dict[str, list[tuple[date, float]]]
+    averaged: list[str]
+    period: str
 
 
 def insight_series(
@@ -29,17 +41,24 @@ def insight_series(
     short_id: str,
     name: str | None,
     query: dict[str, Any],
-    dashboard_filters: dict[str, Any] | None,
+    dashboard: InsightDashboardContext | None,
 ) -> InsightSeries | None:
+    filters: dict[str, Any] | None = None
+    if dashboard is not None:
+        effective = resolve_effective_dashboard_filters(query, dashboard.filters, dashboard.tile_filters)
+        query = effective.query
+        filters = {key: value for key, value in (effective.filters or {}).items() if key not in DATE_FILTERS}
+    variables = dashboard.variables if dashboard is not None else None
     source = query.get("source", query)
     kind = source.get("kind")
     if kind == "TrendsQuery":
-        series, period = _trends_series(team, user, source, dashboard_filters)
-    elif kind == "HogQLQuery":
-        if "{filters}" in (source.get("query") or ""):
-            source = {**source, "filters": {**(source.get("filters") or {}), "dateRange": {"date_from": "-56d"}}}
-        response = _run(team, user, source, dashboard_filters)
+        trend = _trends_series(team, user, source, filters, variables)
+        series, averaged, period = trend.series, trend.averaged, trend.period
+    elif kind == "HogQLQuery" and "{filters}" in (source.get("query") or ""):
+        source = {**source, "filters": {**(source.get("filters") or {}), "dateRange": {"date_from": LOOKBACK["day"]}}}
+        response = _run(team, user, source, filters, variables)
         series, period = _table_series(response.get("columns") or [], response.get("results") or [])
+        averaged = []
     else:
         return None
     if not series:
@@ -50,7 +69,7 @@ def insight_series(
         name=name,
         series=series,
         period=period,
-        averaged=_averaged(source),
+        averaged_series=averaged,
         event_name=_event_name(source),
         value_format=display.get("aggregationAxisFormat"),
         value_prefix=display.get("aggregationAxisPrefix"),
@@ -60,22 +79,30 @@ def insight_series(
 
 
 def _trends_series(
-    team: Team, user: User, source: dict[str, Any], dashboard_filters: dict[str, Any] | None
-) -> tuple[dict[str, list[tuple[date, float]]], str]:
+    team: Team,
+    user: User,
+    source: dict[str, Any],
+    filters: dict[str, Any] | None,
+    variables: dict[str, Any] | None,
+) -> TrendSeries:
     if ((source.get("trendsFilter") or {}).get("display") or "") in UNCHARTED_DISPLAYS:
-        return {}, "day"
+        return TrendSeries(series={}, averaged=[], period="day")
     interval = source.get("interval") or "day"
     if interval not in LOOKBACK:
         interval = "day"
     source = {**source, "interval": interval, "dateRange": {"date_from": LOOKBACK[interval]}}
     source.pop("compareFilter", None)
-    response = _run(team, user, source, dashboard_filters)
+    response = _run(team, user, source, filters, variables)
+    trends = source.get("trendsFilter") or {}
+    formula = bool(trends.get("formula") or trends.get("formulas") or trends.get("formulaNodes"))
     series: dict[str, list[tuple[date, float]]] = {}
+    averaged: list[str] = []
     several = len(source.get("series") or []) > 1
     for result in response.get("results") or []:
         if not result.get("days") or result.get("compare_label") == "previous":
             continue
-        label = str((result.get("action") or {}).get("custom_name") or result.get("label") or "Series")
+        action = result.get("action") or {}
+        label = str(action.get("custom_name") or result.get("label") or "Series")
         breakdown = result.get("breakdown_value")
         if breakdown not in (None, ""):
             value = ", ".join(str(b) for b in breakdown) if isinstance(breakdown, list) else str(breakdown)
@@ -85,7 +112,9 @@ def _trends_series(
         series[label] = [
             (date.fromisoformat(str(d)[:10]), float(v or 0)) for d, v in zip(result["days"], result["data"])
         ]
-    return series, interval
+        if formula or (action.get("math") or "total") not in ADDITIVE_MATH:
+            averaged.append(label)
+    return TrendSeries(series=series, averaged=averaged, period=interval)
 
 
 def _table_series(columns: list[str], rows: list[list[Any]]) -> tuple[dict[str, list[tuple[date, float]]], str]:
@@ -129,15 +158,6 @@ def _table_series(columns: list[str], rows: list[list[Any]]) -> tuple[dict[str, 
     return {name: sorted(values.items()) for name, values in sums.items() if name and name != "None"}, period
 
 
-def _averaged(source: dict[str, Any]) -> bool:
-    if source.get("kind") != "TrendsQuery":
-        return False
-    trends = source.get("trendsFilter") or {}
-    if trends.get("formula") or trends.get("formulas") or trends.get("formulaNodes"):
-        return True
-    return any((node.get("math") or "total") not in ADDITIVE_MATH for node in source.get("series") or [])
-
-
 def _event_name(source: dict[str, Any]) -> str:
     nodes = source.get("series") or []
     if source.get("kind") != "TrendsQuery" or len(nodes) != 1:
@@ -145,10 +165,25 @@ def _event_name(source: dict[str, Any]) -> str:
     return str(nodes[0].get("custom_name") or nodes[0].get("event") or nodes[0].get("name") or "")
 
 
-def _run(team: Team, user: User, source: dict[str, Any], dashboard_filters: dict[str, Any] | None) -> dict[str, Any]:
+def _run(
+    team: Team,
+    user: User,
+    source: dict[str, Any],
+    filters: dict[str, Any] | None,
+    variables: dict[str, Any] | None,
+) -> dict[str, Any]:
     from posthog.api.services.query import process_query_dict  # noqa: PLC0415
 
-    return _as_dict(process_query_dict(team, source, dashboard_filters_json=dashboard_filters, user=user))
+    return _as_dict(
+        process_query_dict(
+            team,
+            source,
+            dashboard_filters_json=filters,
+            variables_override_json=variables,
+            execution_mode=EXECUTION_MODE,
+            user=user,
+        )
+    )
 
 
 def _as_dict(response: Any) -> dict[str, Any]:
