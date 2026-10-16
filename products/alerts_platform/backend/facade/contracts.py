@@ -349,6 +349,29 @@ class PlatformAlertRuntime:
     next_check_at: datetime | None
 
 
+@frozen
+class PlatformStateChange:
+    """One check that moved an alert the platform owns from one state to another."""
+
+    occurred_at: datetime
+    previous_state: PlatformAlertState
+    state: PlatformAlertState
+
+
+@frozen
+class PlatformAlertHistory:
+    """What the platform's check history says about an alert it owns, over one window.
+
+    An alert the platform did not check in the window has no history at all, so a source can
+    tell "not checked here" from "checked and succeeded".
+    """
+
+    state_changes: tuple[PlatformStateChange, ...]
+    last_checked_at: datetime
+    # None when the last check in the window succeeded.
+    last_error_message: str | None
+
+
 class SkipReason(StrEnum):
     """Why a check reached an outcome without a query answering it.
 

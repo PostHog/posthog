@@ -16,6 +16,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertCheckInput,
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
+    PlatformAlertHistory,
     PlatformAlertOutcome,
     PlatformAlertRuntime,
     PlatformAlertUpsert,
@@ -117,3 +118,15 @@ def runtime_by_legacy_id(
 ) -> dict[UUID, PlatformAlertRuntime]:
     """The runtime state of each named alert the platform owns, keyed by the source's id."""
     return platform_reads.runtime_by_legacy_id(team_id=team_id, legacy_configuration_ids=legacy_configuration_ids)
+
+
+def history_by_legacy_id(
+    *, team_id: int, legacy_configuration_ids: Collection[UUID], since: datetime, until: datetime
+) -> dict[UUID, PlatformAlertHistory]:
+    """The check history in a window of each named alert the platform owns, keyed by the source's id.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.history_by_legacy_id(
+        team_id=team_id, legacy_configuration_ids=legacy_configuration_ids, since=since, until=until
+    )

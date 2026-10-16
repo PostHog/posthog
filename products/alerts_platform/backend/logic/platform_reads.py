@@ -5,6 +5,7 @@ outside the product, so they return views rather than rows and never change one.
 """
 
 from collections.abc import Collection, Sequence
+from datetime import datetime
 from uuid import UUID
 
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
@@ -13,10 +14,12 @@ from products.alerts_platform.backend.facade.contracts import (
     InstanceCheckState,
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
+    PlatformAlertHistory,
     PlatformAlertRuntime,
     PlatformAlertSnapshot,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.logic import platform_alert_events
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 
@@ -162,3 +165,25 @@ def runtime_by_legacy_id(
         for legacy_id, state, check_status, last_notified_at, consecutive_failures, next_check_at in rows
         if legacy_id is not None
     }
+
+
+def history_by_legacy_id(
+    *, team_id: int, legacy_configuration_ids: Collection[UUID], since: datetime, until: datetime
+) -> dict[UUID, PlatformAlertHistory]:
+    """The check history in `[since, until)` of each named alert the platform owns, keyed by the
+    source's id.
+
+    One Postgres query finds the platform's ids and one ClickHouse query reads the history. An
+    alert the platform does not own is left out, as in `runtime_by_legacy_id`.
+    """
+    if not legacy_configuration_ids:
+        return {}
+    legacy_by_platform_id = {
+        platform_id: legacy_id
+        for platform_id, legacy_id in PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(legacy_configuration_id__in=list(legacy_configuration_ids), owner=PlatformAlertOwner.PLATFORM)
+        .values_list("id", "legacy_configuration_id")
+        if legacy_id is not None
+    }
+    histories = platform_alert_events.history(team_id, legacy_by_platform_id, since=since, until=until)
+    return {legacy_by_platform_id[platform_id]: history for platform_id, history in histories.items()}
