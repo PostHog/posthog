@@ -738,6 +738,38 @@ def write_edit(
     configuration.save(update_fields=update_fields)
 
 
+def end_firing_instances(configuration: PlatformAlertConfiguration, *, now: datetime) -> list[PlatformAlert]:
+    """Moves every firing instance of a configuration locked by the caller to not firing, and returns
+    them as they were.
+
+    The next check moves past a fence, so a check already running finds the row no longer due and
+    records nothing. Otherwise it would write back the firing this just ended, with no incident open.
+    """
+    instances = PlatformAlert.objects.for_team(configuration.team_id, canonical=True).filter(
+        configuration=configuration, state=PlatformAlertState.FIRING
+    )
+    firing = list(instances)
+    if firing:
+        instances.update(state=PlatformAlertState.NOT_FIRING, firing_started_at=None)
+        configuration.next_check_at = max(configuration.next_check_at or now, now + _REVIVE_FENCE)
+        configuration.save(update_fields=["next_check_at"])
+    return firing
+
+
+def write_snooze(configuration: PlatformAlertConfiguration, snooze_until: datetime | None, *, now: datetime) -> None:
+    """Sets or clears a configuration's mute from a source's API.
+
+    A snooze defers the next check to its end, as the logs stack runs no check while snoozed. A mute
+    alone holds only messages, and a breach that went on would open a new incident during the snooze.
+    """
+    configuration.snooze_until = snooze_until
+    if snooze_until is not None and snooze_until > now:
+        configuration.next_check_at = max(configuration.next_check_at or now, snooze_until)
+    else:
+        configuration.next_check_at = min(configuration.next_check_at or now, now)
+    configuration.save(update_fields=["snooze_until", "next_check_at", "updated_at"])
+
+
 def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
     """Copies one configuration in when its team already runs that source here.
 
