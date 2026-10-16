@@ -25,6 +25,7 @@ from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMe
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import (
+    finalize_review_report,
     persist_findings,
     persist_pr_snapshot,
     persist_verdicts,
@@ -383,12 +384,18 @@ class TestTrackReviewCompleted(BaseTest):
 
     @parameterized.expand(
         [
-            ("quiet_previous_review", False, (True, "quiet_small_push", 0)),
-            ("previous_review_found_a_bug", True, (False, "system_one_above_threshold", 1)),
+            ("quiet_previous_review", False, False, (True, "quiet_small_push", 0, 400)),
+            ("previous_review_found_a_bug", True, False, (False, "system_one_above_threshold", 1, 400)),
+            # A retry after a failed publish runs one run_index higher at the head its first attempt finalized.
+            ("retry_of_a_finalized_head", False, True, (False, "system_one_above_threshold", None, None)),
         ]
     )
     def test_the_gate_reads_the_previous_turns_findings_and_the_pr_size(
-        self, _name: str, previous_finding: bool, expected: tuple[bool, str, int]
+        self,
+        _name: str,
+        previous_finding: bool,
+        head_finalized: bool,
+        expected: tuple[bool, str, int | None, int | None],
     ) -> None:
         report_id = self._review_report()
         persist_pr_snapshot(
@@ -411,6 +418,10 @@ class TestTrackReviewCompleted(BaseTest):
                 issues=issues,
                 run_index=1,
                 validations={"1-1-1": IssueValidation(is_valid=True, argumentation="real")},
+            )
+        if head_finalized:
+            finalize_review_report(
+                team_id=self.team.id, report_id=report_id, body_markdown="# r", run_index=1, head_sha="sha1"
             )
         decision = PushGateDecision(
             skip=False, would_skip=False, reason="system_one_above_threshold", probability=0.8, own_code_lines=12
@@ -436,8 +447,7 @@ class TestTrackReviewCompleted(BaseTest):
             )
 
         props = capture.call_args.kwargs["properties"]
-        assert (result.skip, result.reason, props["previous_findings"]) == expected
-        assert props["reviewable_lines"] == 400
+        assert (result.skip, result.reason, props["previous_findings"], props["reviewable_lines"]) == expected
 
     def _gate_draft_push(self, report_id: str, live_pr: dict[str, object] | Exception) -> tuple[PushGateDecision, Any]:
         live = MagicMock(side_effect=live_pr) if isinstance(live_pr, Exception) else MagicMock()

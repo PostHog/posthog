@@ -209,11 +209,11 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   the previous review predict what a follow-up surfaces better than the PR size does: inside each PR size band, a
   follow-up after a review with two or more findings surfaced three to five times the must-fix findings of a follow-up
   after a review that kept none.
-- **Evidence.** Model cost per turn joined to 1,236 automatic follow-ups under the current posting rules (Oct 14 to 16),
-  review-eval `experiments/2026-10-16-follow-up-value`:
-  - The three rules match 41% of those follow-ups and 36% of their cost.
-  - They hold back 15% of the follow-up must-fix labels and 18% of the follow-up findings. The labels are the model's
-    own, and a skipped push stays in the next review's scope, so both numbers are upper bounds.
+- **Evidence.** A replay of automatic follow-ups under the current posting rules, with model cost joined per turn
+  (review-eval `experiments/2026-10-16-follow-up-value`):
+  - The three rules match about two in five of those follow-ups and about a third of their cost.
+  - They hold back about one in six follow-up must-fix labels and follow-up findings. The labels are the model's own,
+    and a skipped push stays in the next review's scope, so both shares are upper bounds.
   - Follow-ups after a push the gate expects another push for surfaced the most per review, so `next_push_likely`
     stays a shadow rule.
 - **Not chosen.**

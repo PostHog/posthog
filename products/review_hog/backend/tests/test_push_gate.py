@@ -484,6 +484,14 @@ def _running(own_code_lines: int | None) -> PushGateDecision:
             (True, True, "quiet_small_push"),
         ),
         (
+            "gate_failure_keeps_running",
+            PushGateDecision(skip=False, would_skip=False, reason="compare_unavailable"),
+            12,
+            50,
+            0,
+            (False, False, "compare_unavailable"),
+        ),
+        (
             "earlier_skip_keeps_its_reason",
             PushGateDecision(skip=True, would_skip=True, reason="merge_only"),
             12,

@@ -24,7 +24,8 @@ The rules, in order. The first rule that matches gives the reason:
    own code lines over the limit runs the review.
    Rules 7 to 9 match the follow-ups that surfaced the least per review in production. A skipped push
    does not move the baseline, so the next review covers its changes. These rules take over a shadow
-   match of the rules above, so a push that only a shadow rule matched can still skip.
+   match of the rules above, so a push that only a shadow rule matched can still skip. They never take
+   over a gate failure, and they do not run on a retry of a turn that already finalized its head.
 10. `next_push_likely`: on a PR that is not a draft, when no rule above matched, another automatic
    follow-up is likely to come. Skipped changes add up and the next review covers them. The chance
    comes from a table fitted offline on the follow-up number and the PR size. Every decision on a
@@ -515,6 +516,12 @@ def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDeci
     )
 
 
+# A decision that runs the review because the gate could not judge the push. Rules 7 to 9 keep it.
+_FAIL_OPEN_REASONS: frozenset[RunReason] = frozenset(
+    {"commits_removed", "system_one_unavailable", "interdiff_too_large", "compare_unavailable", "snapshot_unavailable"}
+)
+
+
 def _low_value_reason(
     decision: PushGateDecision, *, run_index: int, reviewable_lines: int | None, previous_findings: int | None
 ) -> SkipReason | None:
@@ -537,7 +544,7 @@ def apply_follow_up_value_rules(
     turn kept.
     """
     decision = replace(decision, reviewable_lines=reviewable_lines, previous_findings=previous_findings)
-    if decision.skip:
+    if decision.skip or decision.reason in _FAIL_OPEN_REASONS:
         return decision
     reason = _low_value_reason(
         decision, run_index=run_index, reviewable_lines=reviewable_lines, previous_findings=previous_findings

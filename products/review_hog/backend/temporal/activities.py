@@ -2353,6 +2353,17 @@ def _previous_turn_findings(input: GatePushInput) -> int | None:
         return None
 
 
+def _head_already_finalized(input: GatePushInput) -> bool:
+    """Whether a finished turn already reviewed this head, as on a retry after a failed publish."""
+    completed_head_sha = (
+        ReviewReport.objects.for_team(input.team_id)
+        .filter(id=input.report_id)
+        .values_list("completed_head_sha", flat=True)
+        .first()
+    )
+    return completed_head_sha == input.head_sha
+
+
 def _gate_push(input: GatePushInput) -> PushGateDecision:
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     draft = _pr_draft(current)
@@ -2378,12 +2389,15 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
         ):
             draft = False
             decision = push_decision
-        decision = apply_follow_up_value_rules(
-            decision,
-            run_index=input.run_index,
-            reviewable_lines=plan_lens_chunks(current.pr_files).reviewable_lines if current.pr_files else None,
-            previous_findings=_previous_turn_findings(input),
-        )
+        # A retry of a finalized turn has a run_index one higher than the turn it retries, and its own
+        # findings count as the previous turn's, so rules 7 to 9 would drop findings nobody saw yet.
+        if not _head_already_finalized(input):
+            decision = apply_follow_up_value_rules(
+                decision,
+                run_index=input.run_index,
+                reviewable_lines=plan_lens_chunks(current.pr_files).reviewable_lines if current.pr_files else None,
+                previous_findings=_previous_turn_findings(input),
+            )
         if not draft:
             # The offline fit counted only automatic follow-ups. No turn stores its trigger, so this
             # count is the completed turns after the first review, which also includes label, UI,
