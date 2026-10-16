@@ -17,7 +17,7 @@ import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { TeamPublicType, TeamType, UserType } from '~/types'
 
-import { signalsReportsForYouRetrieve, signalsReportsRetrieve } from 'products/signals/frontend/generated/api'
+import { signalsReportsList, signalsReportsRetrieve } from 'products/signals/frontend/generated/api'
 import {
     TodayReportList,
     TodayReportSnapshot,
@@ -48,6 +48,7 @@ import { todayVerdictLogic } from './todayVerdictLogic'
 
 export const TOP_REPORT_COUNT = 5
 export const MORE_REPORTS_PAGE_SIZE = 20
+export const TODAY_REPORT_LIST_PARAMS = { view: 'for_you', sort: 'priority' } as const
 export const RECENT_OBJECT_COUNT = 4
 const RECENT_OBJECT_MORE_COUNT = 8
 const CLOCK_MS = 30_000
@@ -67,7 +68,7 @@ export interface TodayReports {
 }
 
 export interface TodayMoreReports {
-    exclude: string[]
+    shownReportIds: string[]
     results: SignalReport[]
     count: number
     hasMore: boolean
@@ -407,12 +408,11 @@ export const todayLogic = kea<todayLogicType>([
                         return { results: [], count: 0 }
                     }
                     // The person's own reports, ranked and counted.
-                    // A P0 nobody owns belongs to the project, so Today leaves it to the Inbox.
                     let response
                     try {
-                        response = await signalsReportsForYouRetrieve(String(values.currentProjectId), {
+                        response = await signalsReportsList(String(values.currentProjectId), {
+                            ...TODAY_REPORT_LIST_PARAMS,
                             limit: TOP_REPORT_COUNT,
-                            include_unowned: false,
                         })
                     } catch (error) {
                         if (error instanceof ApiError && error.status === 403) {
@@ -434,20 +434,20 @@ export const todayLogic = kea<todayLogicType>([
                     if (values.currentProjectId === null) {
                         return null
                     }
-                    const exclude = values.shownReportIds
+                    const shownReportIds = values.shownReportIds
                     const loaded = values.loadedMoreReports
-                    const response = await signalsReportsForYouRetrieve(String(values.currentProjectId), {
+                    const response = await signalsReportsList(String(values.currentProjectId), {
+                        ...TODAY_REPORT_LIST_PARAMS,
                         limit: MORE_REPORTS_PAGE_SIZE,
-                        offset: loaded.length,
-                        exclude: exclude.length > 0 ? exclude : undefined,
-                        include_unowned: false,
+                        offset: shownReportIds.length + loaded.length,
                     })
                     const results = [...loaded, ...(response.results as unknown as SignalReport[])]
+                    const count = Math.max(response.count - shownReportIds.length, 0)
                     return {
-                        exclude,
+                        shownReportIds,
                         results,
-                        count: response.count,
-                        hasMore: response.results.length === MORE_REPORTS_PAGE_SIZE && results.length < response.count,
+                        count,
+                        hasMore: response.results.length === MORE_REPORTS_PAGE_SIZE && results.length < count,
                     }
                 },
             },
@@ -534,7 +534,9 @@ export const todayLogic = kea<todayLogicType>([
                 shownReportIds: string[],
                 useSampleData: boolean
             ): TodayMoreReports | null =>
-                moreReports && !useSampleData && objectsEqual(moreReports.exclude, shownReportIds) ? moreReports : null,
+                moreReports && !useSampleData && objectsEqual(moreReports.shownReportIds, shownReportIds)
+                    ? moreReports
+                    : null,
         ],
         loadedMoreReports: [
             (s) => [s.currentMoreReports],

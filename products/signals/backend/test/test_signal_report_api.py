@@ -1605,110 +1605,34 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is True
 
-    def test_for_you_ranks_the_reports_naming_the_user_and_counts_only_theirs(self):
-        def report_naming_me(title: str, report_status: str) -> SignalReport:
-            report = self._create_report(title=title, status=report_status)
+    def test_for_you_view_lists_only_the_open_actionable_reports_for_the_user(self):
+        def report_naming_me(title: str, priority: str, **fields) -> SignalReport:
+            report = self._create_report(title=title, **fields)
             SignalReportArtefact.objects.create(
                 team=self.team,
                 report=report,
                 type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
                 content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
             )
+            self._priority_artefact(report, priority=priority)
             return report
 
-        report_naming_me("Waits for my input", SignalReport.Status.PENDING_INPUT)
-        reviewing = report_naming_me("Names me as reviewer", SignalReport.Status.READY)
-        self._create_report(title="Someone else's report")
+        waiting = report_naming_me("Waits for my input", "P2", status=SignalReport.Status.PENDING_INPUT)
+        reviewing = report_naming_me("Names me as reviewer", "P1")
+        report_naming_me("Not actionable", "P0", latest_actionability="not_actionable")
+        report_naming_me("Resolved", "P0", status=SignalReport.Status.RESOLVED)
+        unowned = self._create_report(title="Nobody owns it", latest_actionability="immediately_actionable")
+        self._priority_artefact(unowned, priority="P0")
 
-        response = self.client.get(f"{self._list_url()}for_you/?limit=1")
+        response = self.client.get(self._list_url(view="for_you", sort="priority", limit=1))
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert [row["id"] for row in body["results"]] == [str(reviewing.id)]
         assert body["count"] == 2
-
-    def test_for_you_excludes_unowned_p0_reports_when_asked(self):
-        mine = self._create_report(title="Names me as reviewer")
-        SignalReportArtefact.objects.create(
-            team=self.team,
-            report=mine,
-            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-            content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
-        )
-        unowned = self._create_report(title="Nobody owns it", latest_actionability="immediately_actionable")
-        self._priority_artefact(unowned, priority="P0")
-
-        with_unowned = self.client.get(f"{self._list_url()}for_you/")
-        without_unowned = self.client.get(f"{self._list_url()}for_you/?include_unowned=false")
-
-        assert with_unowned.status_code == status.HTTP_200_OK
-        assert without_unowned.status_code == status.HTTP_200_OK
-        # The P0 leads by default, because priority is the first ranking key.
-        assert [row["id"] for row in with_unowned.json()["results"]] == [str(unowned.id), str(mine.id)]
-        assert with_unowned.json()["count"] == 2
-        assert [row["id"] for row in without_unowned.json()["results"]] == [str(mine.id)]
-        assert without_unowned.json()["count"] == 1
-
-    def test_for_you_pages_the_ranked_list_without_the_excluded_reports(self):
-        by_priority: dict[str | None, str] = {}
-        for priority in ["P3", None, "P1", "P2"]:
-            report = self._create_report(title=f"Priority {priority}")
-            SignalReportArtefact.objects.create(
-                team=self.team,
-                report=report,
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
-            )
-            self._priority_artefact(report, priority=priority)
-            by_priority[priority] = str(report.id)
-
-        def for_you(**query: object) -> dict:
-            response = self.client.get(f"{self._list_url()}for_you/?{urlencode(query)}")
-            assert response.status_code == status.HTTP_200_OK
-            return response.json()
-
-        everything = for_you(limit=20)
-        page = for_you(limit=1, offset=1, exclude=f"{by_priority['P1']},{by_priority['P2']}")
-
-        assert [row["id"] for row in everything["results"]] == [by_priority[p] for p in ["P1", "P2", "P3", None]]
-        assert everything["count"] == 4
-        assert [row["id"] for row in page["results"]] == [by_priority[None]]
-        assert page["count"] == 2
-
-    def test_for_you_uses_the_inbox_control_order_without_joining_the_sort_experiment(self):
-        titles: dict[str, str] = {}
-        for title, priority, open_score in [
-            ("P0 low score", "P0", 0.15),
-            ("P2 high score", "P2", 0.85),
-            ("P1 unscored", "P1", None),
-        ]:
-            report = self._create_report(title=title)
-            SignalReportArtefact.objects.create(
-                team=self.team,
-                report=report,
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
-            )
-            self._priority_artefact(report, priority=priority)
-            if open_score is not None:
-                self._ranking_score_artefact(report, scores={"open": open_score})
-            titles[str(report.id)] = title
-        flag = "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag"
-
-        with patch(flag, return_value="control"):
-            inbox = self.client.get(self._list_url(sort="recommended", suggested_reviewers=str(self.user.uuid)))
-        with patch(flag, return_value="open") as get_flag:
-            for_you = self.client.get(f"{self._list_url()}for_you/?limit=20")
-
-        assert inbox.status_code == status.HTTP_200_OK
-        assert for_you.status_code == status.HTTP_200_OK
-        get_flag.assert_not_called()
-        assert [titles[row["id"]] for row in for_you.json()["results"]] == [
-            "P0 low score",
-            "P1 unscored",
-            "P2 high score",
-        ]
-        assert for_you.json()["results"] == inbox.json()["results"]
+        assert body["next"] is not None
+        next_page = self.client.get(body["next"]).json()
+        assert [row["id"] for row in next_page["results"]] == [str(waiting.id)]
 
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
         # suggested_reviewers is append-only: an older row listing the user must not keep them

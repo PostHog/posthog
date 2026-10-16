@@ -14,7 +14,6 @@ from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_fiel
 from rest_framework import serializers
 from rest_framework.request import Request
 
-from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -1906,65 +1905,6 @@ class SignalReportListQuerySerializer(serializers.Serializer):
             "false to skip that lookup and get the page from Postgres only: rows then carry an empty "
             "`source_products` and a null `scout_name`. Load them after with `source_metadata`. "
             "Defaults to true."
-        ),
-    )
-
-
-MAX_FOR_YOU_REPORTS = 20
-
-
-class SignalReportsForYouQuerySerializer(serializers.Serializer):
-    limit = serializers.IntegerField(
-        required=False,
-        default=5,
-        min_value=1,
-        max_value=MAX_FOR_YOU_REPORTS,
-        help_text=f"How many of the top reports to return, 1 to {MAX_FOR_YOU_REPORTS}. Defaults to 5.",
-    )
-    offset = serializers.IntegerField(
-        required=False,
-        default=0,
-        min_value=0,
-        help_text=(
-            "How many reports of the ranked list to skip, after `exclude` is applied. Pages of the same "
-            "query are slices of one ranked list. Defaults to 0."
-        ),
-    )
-    exclude = RepeatedOrCommaSeparatedListField(
-        child=serializers.UUIDField(),
-        required=False,
-        default=list,
-        max_length=MAX_FOR_YOU_REPORTS,
-        help_text=(
-            "Report ids to leave out of `results` and `count`, for example the reports a briefing already "
-            "shows, as repeated parameters or comma-separated. The other reports keep their order."
-        ),
-    )
-    include_unowned = serializers.BooleanField(
-        required=False,
-        default=True,
-        help_text=(
-            "Whether to include P0 reports that nobody owns. These belong to the project rather than to "
-            "one person, so a surface that only shows a person's own work passes false. Defaults to true."
-        ),
-    )
-
-
-class SignalReportsForYouResponseSerializer(serializers.Serializer):
-    results = SignalReportListSerializer(
-        many=True,
-        help_text=(
-            "One page of the open, actionable reports that matter most to the current user, in the inbox "
-            "priority order: priority, then status, then most recently updated. They are reports waiting for their input, reports they claimed, "
-            "reports naming them as a reviewer, and P0 reports that nobody owns unless `include_unowned` "
-            "is false. The Today briefing ranks reports the same way."
-        ),
-    )
-    count = serializers.IntegerField(
-        help_text=(
-            "How many open, actionable reports are for the current user, on every page together, "
-            "without the `exclude` ids. Counted over the same set as `results`, so it follows "
-            "`include_unowned` too."
         ),
     )
 

@@ -689,20 +689,14 @@ const meta: Meta = {
         clearTodayStorage,
         mswDecorator({
             get: {
-                '/api/projects/:team_id/signals/reports/': { results: REPORTS, count: 7 },
-                '/api/projects/:team_id/signals/reports/for_you/': ({ request }) => {
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
                     const params = new URL(request.url).searchParams
+                    if (params.get('view') !== 'for_you') {
+                        return [200, { results: REPORTS, count: 7 }]
+                    }
                     const limit = Number(params.get('limit') ?? REPORTS.length)
                     const offset = Number(params.get('offset') ?? 0)
-                    const excluded = new Set(params.get('exclude')?.split(',') ?? [])
-                    const ranked = ALL_REPORTS.filter((report) => !excluded.has(report.id))
-                    return [
-                        200,
-                        {
-                            results: ranked.slice(offset, offset + limit),
-                            count: OPEN_REPORT_COUNT - (ALL_REPORTS.length - ranked.length),
-                        },
-                    ]
+                    return [200, { results: ALL_REPORTS.slice(offset, offset + limit), count: OPEN_REPORT_COUNT }]
                 },
                 '/api/projects/:team_id/signals/reports/available_reviewers/': {},
                 '/api/projects/:team_id/signals/reports/:id/pr_checks/': { checks: [] },
@@ -852,7 +846,7 @@ export const HomeWithReportsOnly: Story = {
 export const HomeWithNoReports: Story = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 } },
+            get: { '/api/projects/:team_id/signals/reports/': { results: [], count: 0 } },
         }),
     ],
 }
@@ -861,7 +855,7 @@ export const HomeWithoutAiAndNothingNew: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 },
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
                 '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] },
             },
         }),
@@ -871,7 +865,7 @@ export const HomeWithoutAiAndNothingNew: Story = {
 export const HomeWhenReportsFailToLoad: Story = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/signals/reports/for_you/': () => [500, { detail: 'Server error' }] },
+            get: { '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'Server error' }] },
         }),
     ],
 }
@@ -880,7 +874,7 @@ export const HomeWithoutReportsWhenHighlightsFailToLoad: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 },
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
                 '/api/projects/:team_id/today/highlights/': () => [500, { detail: 'Server error' }],
             },
         }),
