@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -36,9 +37,12 @@ if TYPE_CHECKING:
 _MAX_ALT_TEXT_CHARS = 2000
 # A local render has a localhost URL that Slack cannot fetch, and Slack then rejects the whole
 # unfurl with cannot_parse_attachment. The same placeholder as subscriptions use in DEBUG.
-DEBUG_PLACEHOLDER_IMAGE_URL = (
+_DEBUG_PLACEHOLDER_IMAGE_URL = (
     "https://raw.githubusercontent.com/PostHog/posthog/master/frontend/public/icons/android-chrome-512x512.png"
 )
+# Slack fetches image_url again after the unfurl is posted, so the token must outlive the post.
+UNFURL_IMAGE_URL_TTL = timedelta(days=30)
+UNFURL_IMAGE_ASSET_TTL = timedelta(days=31)
 # Slack errors that a later attempt can fix. Any other error means Slack rejects the payload itself.
 _TRANSIENT_SLACK_ERRORS = frozenset(
     {"ratelimited", "internal_error", "fatal_error", "service_unavailable", "request_timeout"}
@@ -56,6 +60,11 @@ def chat_unfurl_kwargs(
     if source:
         kwargs["source"] = source
     return kwargs
+
+
+def slack_fetchable_image_url(url: str) -> str:
+    local = settings.DEBUG and urlparse(url).hostname in ("localhost", "127.0.0.1")
+    return _DEBUG_PLACEHOLDER_IMAGE_URL if local else url
 
 
 def _has_project_access(user: User, team: Team) -> bool:
@@ -144,7 +153,7 @@ def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput, *, image_urls_by_key
             if key not in allowed:
                 allowed[key] = _can_view_chart(team, user, chart, access)
             if allowed[key]:
-                image_urls[chart.url] = DEBUG_PLACEHOLDER_IMAGE_URL if settings.DEBUG else image_urls_by_key[key]
+                image_urls[chart.url] = slack_fetchable_image_url(image_urls_by_key[key])
 
     adhoc_urls = {chart.url for chart in request.charts if chart.query is not None}
     if image_urls:

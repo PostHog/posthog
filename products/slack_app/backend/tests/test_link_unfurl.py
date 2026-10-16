@@ -91,6 +91,18 @@ class TestParsePosthogResourceLink:
                 "task_artifact",
                 "file-1",
             ),
+            (
+                "task_artifacts_tab",
+                f"https://us.posthog.com/project/42/ai?task={_TASK_ID}&artifact=report.md",
+                "task_artifact",
+                "report.md",
+            ),
+            (
+                "task_artifacts_tab_version",
+                f"https://us.posthog.com/project/42/ai?task={_TASK_ID}&artifact=report.md&artifact_version=file-1",
+                "task_artifact",
+                "file-1",
+            ),
             ("canvas", f"https://us.posthog.com/project/42/canvases/{_CANVAS_ID}", "canvas", _CANVAS_ID),
             ("desktop_canvas", f"https://us.posthog.com/code/canvas/{_CHANNEL_ID}/{_CANVAS_ID}", "canvas", _CANVAS_ID),
             ("notebook", "https://us.posthog.com/project/42/notebooks/Xy12", "notebook", "Xy12"),
@@ -816,8 +828,22 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                     "*Completed*",
                     "View pull request",
                 ]
+            case "task_artifacts_tab":
+                return self._create_task_artifact(artifacts_tab_link=True), [
+                    "report.md",
+                    "Task: Fix checkout",
+                    "artifact_version=file-1",
+                    "Download",
+                ]
             case "task_artifact":
-                return self._create_task_artifact(), ["report.md", "2.0 KB", "Task: Fix checkout", "View task"]
+                return self._create_task_artifact(), [
+                    "report.md",
+                    "2.0 KB",
+                    "Task: Fix checkout",
+                    "/ai?task=",
+                    "artifact=report.md",
+                    "Download",
+                ]
             case "report":
                 report = SignalReport.objects.create(
                     team=self.team,
@@ -839,6 +865,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         project_id: int | None = None,
         name: str = "report.md",
         content_type: str = "text/markdown",
+        artifacts_tab_link: bool = False,
     ) -> str:
         task = Task.objects.create(
             team=self.team,
@@ -864,6 +891,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             ],
         )
         project = project_id or self.team.pk
+        if artifacts_tab_link:
+            return f"http://testserver/project/{project}/ai?task={task.id}&artifact={name}"
         return f"http://testserver/api/projects/{project}/tasks/{task.id}/runs/{run.id}/artifacts/file-1/download/"
 
     @parameterized.expand(
@@ -975,6 +1004,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 "report",
                 "task",
                 "task_artifact",
+                "task_artifacts_tab",
             )
         ]
     )

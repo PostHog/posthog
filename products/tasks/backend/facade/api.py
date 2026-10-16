@@ -767,33 +767,62 @@ def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -
     )
 
 
+@frozen
+class _SlackUnfurlArtifact:
+    task: Task
+    run_id: UUID
+    entry: dict[str, Any]
+
+
 def _slack_unfurl_artifact_entry(
-    *, task_id: str | UUID, run_id: str | UUID, artifact_id: str, team_id: int, user_id: int
-) -> tuple[Task, dict[str, Any]] | None:
-    """The task and the downloadable run artifact the user may see, or ``None``.
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    run_id: str | UUID | None,
+    artifact_id: str | None,
+    name: str | None,
+) -> _SlackUnfurlArtifact | None:
+    """The downloadable artifact the user may see, by its id or by its file name (newest upload wins).
 
     A run with analytics context is refused. The download endpoint checks the caller's access to
     that context against the request, and an unfurl has no request, so it fails closed.
     """
     task = _visible_task_qs(team_id, user_id).filter(id=task_id, internal=False).only("id", "title").first()
-    if task is None:
+    if task is None or (artifact_id is None and name is None):
         return None
-    run = _get_visible_run(run_id, task.id, team_id)
-    if run is None or "analytics_query_context" in (run.state or {}):
+    runs = TaskRun.objects.filter(team_id=team_id, task_id=task.id)
+    if run_id is not None:
+        runs = runs.filter(pk=run_id)
+    if runs.filter(state__has_key="analytics_query_context").exists():
         return None
-    entry = next((a for a in run.artifacts or [] if a.get("id") == artifact_id and a.get("storage_path")), None)
-    return (task, entry) if entry is not None else None
+    matches = [
+        (run_pk, entry)
+        for run_pk, artifacts in runs.values_list("id", "artifacts")
+        for entry in artifacts or []
+        if entry.get("storage_path") and (entry.get("id") == artifact_id if artifact_id else entry.get("name") == name)
+    ]
+    if not matches:
+        return None
+    run_pk, entry = max(matches, key=lambda match: str(match[1].get("uploaded_at") or ""))
+    return _SlackUnfurlArtifact(task=task, run_id=run_pk, entry=entry)
 
 
 def get_task_artifact_for_slack_unfurl(
-    *, task_id: str | UUID, run_id: str | UUID, artifact_id: str, team_id: int, user_id: int
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    run_id: str | UUID | None = None,
+    artifact_id: str | None = None,
+    name: str | None = None,
 ) -> contracts.TaskArtifactSlackUnfurlDTO | None:
     found = _slack_unfurl_artifact_entry(
-        task_id=task_id, run_id=run_id, artifact_id=artifact_id, team_id=team_id, user_id=user_id
+        task_id=task_id, team_id=team_id, user_id=user_id, run_id=run_id, artifact_id=artifact_id, name=name
     )
     if found is None:
         return None
-    task, entry = found
+    entry = found.entry
     size = entry.get("size")
     uploaded_at = entry.get("uploaded_at")
     try:
@@ -805,31 +834,36 @@ def get_task_artifact_for_slack_unfurl(
         content_type=str(entry.get("content_type") or ""),
         size=size if isinstance(size, int) else None,
         uploaded_at=uploaded,
-        task_id=task.id,
-        task_title=task.title,
+        task_id=found.task.id,
+        task_title=found.task.title,
+        run_id=found.run_id,
+        artifact_id=str(entry["id"]),
+        download_path=_artifact_download_path(team_id, found.task.id, found.run_id, str(entry["id"])),
     )
 
 
 def read_task_artifact_for_slack_unfurl(
-    *, task_id: str | UUID, run_id: str | UUID, artifact_id: str, team_id: int, user_id: int, max_bytes: int
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    max_bytes: int,
+    run_id: str | UUID | None = None,
+    artifact_id: str | None = None,
+    name: str | None = None,
 ) -> bytes | None:
-    """The artifact's bytes, with the same access checks as ``get_task_artifact_for_slack_unfurl``.
-
-    Returns ``None`` when the file is larger than ``max_bytes``.
-    """
+    """The artifact's bytes, with the same access checks as ``get_task_artifact_for_slack_unfurl``."""
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
     found = _slack_unfurl_artifact_entry(
-        task_id=task_id, run_id=run_id, artifact_id=artifact_id, team_id=team_id, user_id=user_id
+        task_id=task_id, team_id=team_id, user_id=user_id, run_id=run_id, artifact_id=artifact_id, name=name
     )
     if found is None:
         return None
-    _task, entry = found
-    size = entry.get("size")
+    size = found.entry.get("size")
     if not isinstance(size, int) or size > max_bytes:
         return None
-    content = object_storage.read_bytes(entry["storage_path"], missing_ok=True)
-    return content if content is not None and len(content) <= max_bytes else None
+    return object_storage.read_bytes(found.entry["storage_path"], missing_ok=True)
 
 
 _StateEntryResult = TypeVar("_StateEntryResult")
@@ -4206,8 +4240,18 @@ def _build_artifact_storage_path(run: TaskRun, artifact_id: str, name: str) -> t
     return safe_name, f"{prefix}/{artifact_id[:8]}_{safe_name}"
 
 
+def _downloadable_artifact_entry(artifacts: list[dict[str, Any]] | None, artifact_id: str) -> dict[str, Any] | None:
+    entry = next((a for a in artifacts or [] if a.get("id") == artifact_id), None)
+    # Reference entries carry no file, so there is nothing to download for them.
+    return entry if entry is not None and entry.get("storage_path") else None
+
+
+def _artifact_download_path(team_id: int, task_id: UUID, run_id: UUID, artifact_id: str) -> str:
+    return f"/api/projects/{team_id}/tasks/{task_id}/runs/{run_id}/artifacts/{artifact_id}/download/"
+
+
 def _build_artifact_download_path(run: TaskRun, artifact_id: str) -> str:
-    return f"/api/projects/{run.team_id}/tasks/{run.task_id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+    return _artifact_download_path(run.team_id, run.task_id, run.id, artifact_id)
 
 
 def _tag_artifact_object(run: TaskRun, storage_path: str) -> None:
@@ -4986,9 +5030,8 @@ def presign_task_run_artifact_download(
     if run is None:
         return None, None
 
-    entry = next((a for a in run.artifacts or [] if a.get("id") == artifact_id), None)
-    # Reference entries carry no file, so there is nothing to download for them.
-    if entry is None or not entry.get("storage_path"):
+    entry = _downloadable_artifact_entry(run.artifacts, artifact_id)
+    if entry is None:
         return None, "not_found"
 
     filename = str(entry.get("name") or "artifact")

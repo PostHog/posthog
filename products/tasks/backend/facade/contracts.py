@@ -234,7 +234,7 @@ class TaskSlackUnfurlDTO:
 
 @dataclass(frozen=True)
 class TaskArtifactSlackUnfurlDTO:
-    """The task run artifact metadata needed to build a Slack unfurl. It never carries the file contents."""
+    """The task run artifact metadata needed to build a Slack unfurl."""
 
     name: str
     content_type: str
@@ -242,6 +242,9 @@ class TaskArtifactSlackUnfurlDTO:
     uploaded_at: datetime | None
     task_id: UUID
     task_title: str
+    run_id: UUID
+    artifact_id: str
+    download_path: str
 
 
 @dataclass(frozen=True)

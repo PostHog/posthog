@@ -18,11 +18,7 @@ from products.slack_app.backend.api import (
     does_other_region_claim_workspace,
     send_region_proxy_request,
 )
-from products.slack_app.backend.slack_link_unfurl import (
-    ArtifactImageRequest,
-    add_artifact_image_to_unfurl,
-    start_unfurl_charts,
-)
+from products.slack_app.backend.slack_link_unfurl import add_artifact_image_to_unfurl, start_unfurl_charts
 from products.slack_app.backend.temporal.types import SlackUnfurlChartRequest
 
 
@@ -101,7 +97,7 @@ def add_slack_unfurl_artifact_image(
     event: dict[str, Any],
     unfurls: dict[str, Any],
     url: str,
-    image: dict[str, str],
+    title: str,
 ) -> None:
     integration = (
         Integration.objects.select_related("team__organization").filter(id=integration_id, team_id=team_id).first()
@@ -115,5 +111,5 @@ def add_slack_unfurl_artifact_image(
         event=event,
         unfurls=unfurls,
         url=url,
-        image=ArtifactImageRequest(**image),
+        title=title,
     )
