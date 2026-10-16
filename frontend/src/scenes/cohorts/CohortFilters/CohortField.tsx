@@ -197,8 +197,14 @@ export function CohortTaxonomicField({
                     ? PropertyDefinitionType.PersonMetadata
                     : PropertyDefinitionType.Person
             const definition = getPropertyDefinition(key, definitionType)
+            if (!definition) {
+                return !(
+                    allowedRecentOperators.date.has(filter.operator) &&
+                    allowedRecentOperators.other.has(filter.operator)
+                )
+            }
             const operators =
-                definition?.property_type === PropertyType.DateTime
+                definition.property_type === PropertyType.DateTime
                     ? allowedRecentOperators.date
                     : allowedRecentOperators.other
             return !operators.has(filter.operator)
