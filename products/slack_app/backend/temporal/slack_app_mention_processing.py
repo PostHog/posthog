@@ -51,8 +51,7 @@ POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 # branch. Standard two-step Temporal patch lifecycle: the call comes out once the
 # histories that recorded a plain marker have drained as well.
 _PATCH_ID_MODEL_ROUTER = "slack-app-model-router-v1"
-# Runs the independent steps before repo selection at the same time. Histories recorded
-# without this marker replay the sequential order in `_prework_in_sequence`.
+# Histories recorded without this marker replay `_prework_in_sequence`.
 _PATCH_ID_PARALLEL_PREWORK = "slack-app-parallel-prework-v1"
 
 
@@ -432,9 +431,7 @@ async def _prework_in_parallel(
     )
 
     if inputs.untagged_followup:
-        # Untagged replies never open a thread, so they skip the new-thread steps. The
-        # model override runs next to the agent-directed classifier because both read only
-        # the reply text. The override is wasted on a reply the classifier drops.
+        # Untagged replies never open a thread. The override is wasted on a dropped reply.
         unconfirmed_followup = not inputs.untagged_followup_confirmed
         if unconfirmed_followup and not _is_file_only_followup(event):
             should_forward, model_override = await asyncio.gather(
@@ -474,8 +471,7 @@ async def _prework_in_parallel(
         if await _forward_followup(inputs, channel, thread_ts, slack_user_id, model_override):
             return None
 
-    # The thread is read with the project routing resolved, not the one the message may
-    # name. Both are installs in the same Slack workspace, so the bot reads the same thread.
+    # A routed project is an install in the same Slack workspace, so the bot reads the same thread.
     context_channel = inputs.fork_source_channel or channel
     context_thread_ts = inputs.fork_source_thread_ts or thread_ts
     project_route, thread_messages, model_override = await asyncio.gather(
