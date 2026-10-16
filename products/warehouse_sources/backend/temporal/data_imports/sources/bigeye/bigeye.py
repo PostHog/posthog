@@ -1,4 +1,5 @@
 import re
+from bisect import bisect_left
 from collections.abc import Iterator
 from typing import Any, Optional, cast
 
@@ -186,9 +187,11 @@ def _iter_per_metric(
     start_index = 0
     resume_cursor: Optional[str] = None
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None and resume.metric_id in metric_ids:
-        start_index = metric_ids.index(resume.metric_id)
-        resume_cursor = resume.next_cursor or None
+    if resume is not None and resume.metric_id is not None:
+        # A saved metric deleted since the checkpoint resumes at the next metric id, not at the start.
+        start_index = bisect_left(metric_ids, resume.metric_id)
+        if start_index < len(metric_ids) and metric_ids[start_index] == resume.metric_id:
+            resume_cursor = resume.next_cursor or None
 
     hooks = create_response_hooks(_PER_METRIC_RESPONSE_ACTIONS, resource_name=endpoint_config.name)
     row_map = _flatten_revision if endpoint_config.name == "MetricRevisions" else None
@@ -240,6 +243,8 @@ def bigeye_source(
         client = RESTClient(
             base_url=_base_url(host),
             auth=APIKeyAuth(api_key=_auth_header_value(api_key), name="Authorization", location="header"),
+            # The per-metric requests take no `workspaceId` parameter, so scope them with Bigeye's header.
+            headers={"X-Bigeye-Workspace-Id": str(workspace_id)} if workspace_id is not None else None,
             request_timeout=REQUEST_TIMEOUT_SECONDS,
             allow_redirects=False,
         )

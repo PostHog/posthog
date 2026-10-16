@@ -210,7 +210,7 @@ class TestCursorPagination:
 
 class TestPerMetricEndpoints:
     def test_metric_runs_walk_each_metric_and_stage_the_next_position(self) -> None:
-        result = _driver().run(
+        result = _driver(workspace_id=7).run(
             "MetricRuns",
             [
                 ScriptedResponse(json={"metrics": [{"id": 2}, {"id": 1}]}),
@@ -223,6 +223,7 @@ class TestPerMetricEndpoints:
         assert result.raised is None
         assert [(row["metric_id"], row["id"]) for row in result.rows] == [(1, 10), (1, 11), (2, 20)]
         assert result.paths == ["/api/v1/metrics"] + ["/api/v1/metrics/runs"] * 3
+        assert all(request.headers.get("x-bigeye-workspace-id") == "7" for request in result.requests)
         assert [request.json() for request in result.requests[1:]] == [
             {"metricIdentifier": {"metricId": 1}, "pageSize": 100},
             {"metricIdentifier": {"metricId": 1}, "pageSize": 100, "pageCursor": "c1"},
@@ -233,19 +234,29 @@ class TestPerMetricEndpoints:
             BigeyeResumeConfig(next_cursor="", metric_id=2),
         ]
 
-    def test_metric_runs_resume_from_saved_metric_and_cursor(self) -> None:
+    @pytest.mark.parametrize(
+        ("listed_metric_ids", "expected_body"),
+        [
+            ([1, 2, 3], {"metricIdentifier": {"metricId": 2}, "pageSize": 100, "pageCursor": "r"}),
+            # The saved metric was deleted: resume at the next id, without its stale cursor.
+            ([1, 3], {"metricIdentifier": {"metricId": 3}, "pageSize": 100}),
+        ],
+    )
+    def test_metric_runs_resume_from_saved_metric(
+        self, listed_metric_ids: list[int], expected_body: dict[str, Any]
+    ) -> None:
         result = _driver().run(
             "MetricRuns",
             [
-                ScriptedResponse(json={"metrics": [{"id": 1}, {"id": 2}]}),
+                ScriptedResponse(json={"metrics": [{"id": metric_id} for metric_id in listed_metric_ids]}),
                 ScriptedResponse(json={"metricRuns": [{"id": 21}], "paginationInfo": {"nextCursor": ""}}),
+                ScriptedResponse(json={"metricRuns": [], "paginationInfo": {"nextCursor": ""}}),
             ],
             resume_state=BigeyeResumeConfig(next_cursor="r", metric_id=2),
         )
 
         assert result.raised is None
-        assert [row["id"] for row in result.rows] == [21]
-        assert result.requests[1].json() == {"metricIdentifier": {"metricId": 2}, "pageSize": 100, "pageCursor": "r"}
+        assert result.requests[1].json() == expected_body
 
     def test_metric_revisions_flatten_revision_info_and_skip_deleted_metrics(self) -> None:
         result = _driver().run(
