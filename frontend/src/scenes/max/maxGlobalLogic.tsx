@@ -39,6 +39,10 @@ export type PhaiViewMode = 'new' | 'legacy'
 // Keep this stored across all projects, only display this once per device
 const AI_LIABILITY_NOTICE_STORAGE_KEY = 'posthog_ai_liability_notice_dismissed'
 
+// A string key, not `tasksLogic.actionTypes.deleteTaskSuccess`: that read connects tasksLogic when this
+// logic builds, so every page would mount it and fetch tasks, and it throws if tasksLogic cannot build.
+const TASK_DELETED_ACTION_TYPE = 'delete task success (products.posthog_ai.frontend.logics.tasksLogic)'
+
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
     {
@@ -399,6 +403,11 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             if (mode === 'new' && tasks) {
                 tasks.actions.loadTasks(tasks.values.taskListParams)
             }
+        },
+        // A chat and its task are deleted together on the server, so removing a task from the merged
+        // list must drop the chat row too, or the chat resurfaces as a row of its own.
+        [TASK_DELETED_ACTION_TYPE]: () => {
+            actions.loadConversationHistory()
         },
         askSidePanelMax: ({ prompt }) => {
             newInternalTab(urls.ai(undefined, prompt))
