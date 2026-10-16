@@ -17,7 +17,7 @@ def _datetime_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class SprigEndpointConfig:
     name: str
     path: str
