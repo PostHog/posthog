@@ -119,6 +119,7 @@
         "@posthog/products-games": "workspace:*",
         "@posthog/products-groups": "workspace:*",
         "@posthog/products-growth": "workspace:*",
+        "@posthog/products-integrations": "workspace:*",
         "@posthog/products-legal-documents": "workspace:*",
         "@posthog/products-logs": "workspace:*",
         "@posthog/products-managed-migrations": "workspace:*",
