@@ -6,12 +6,11 @@ import { BrandMark } from '../components/BrandMark'
 import { harnessMark } from '../dashboard/harnessRegistry'
 import type { MCPActivityRecentCallApi } from '../generated/api.schemas'
 import { formatDuration } from '../sessions/utils'
-
-const UNIDENTIFIED_CLIENT = 'Unidentified client'
+import { callClientLabel } from './callClient'
 
 /** One tool call shown in full: who called which tool, why, and how it went. */
 export function ToolCallRevealCard({ call }: { call: MCPActivityRecentCallApi }): JSX.Element {
-    const client = call.client_name || UNIDENTIFIED_CLIENT
+    const client = callClientLabel(call)
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4" data-attr="mcp-analytics-setup-mode-call">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
