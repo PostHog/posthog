@@ -4131,6 +4131,9 @@ class TestHogFlowAPI(APIBaseTest):
             ("test_account_filter", "batch", "ready", "test_accounts", True, 400, "only be the people in it"),
             ("flag_off", "batch", "ready", None, False, 400, "can't evaluate"),
             ("behavioral_not_realtime", "batch", "not_realtime", None, True, 400, "can't evaluate"),
+            # The realtime pipeline has no filter of its own to key this cohort's membership on, so it never
+            # becomes ready.
+            ("realtime_reference_only", "batch", "reference_only", None, True, 400, "can't evaluate"),
         ]
     )
     @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
@@ -4141,6 +4144,16 @@ class TestHogFlowAPI(APIBaseTest):
         mock_flag.return_value = flag_on
         if cohort_kind == "not_realtime":
             cohort = self._make_cohort(behavioral=True)
+        elif cohort_kind == "reference_only":
+            referenced = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="refers to power-users",
+                cohort_type=CohortType.REALTIME,
+                filters={
+                    "properties": {"type": "AND", "values": [{"key": "id", "type": "cohort", "value": referenced.pk}]}
+                },
+            )
         else:
             cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=cohort_kind == "ready")
         condition: dict[str, Any] = {"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}
@@ -4404,6 +4417,28 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json()["limit"] == 50000
+
+    @parameterized.expand(
+        [
+            ("with_cohort_read", ["hog_flow:read", "person:read", "cohort:read"], True),
+            ("without_cohort_read", ["hog_flow:read", "person:read"], False),
+        ]
+    )
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
+    def test_user_blast_radius_shows_the_realtime_cohort_only_to_cohort_readers(self, _name, scopes, shows_cohort):
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=False)
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="sizing", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]}},
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == 200, response.json()
+        realtime_cohort = response.json()["realtime_cohort"]
+        assert (realtime_cohort or {}).get("id") == (cohort.pk if shows_cohort else None)
 
     def test_user_blast_radius_personal_api_key_requires_person_read_scope(self):
         # Sizing an audience queries person data, so a hog_flow:read-only token must NOT be able to use

@@ -6050,6 +6050,11 @@ class HogFlowViewSet(
             dedupe_key=dedupe_key,
             sends_email=params["sends_email"],
         )
+        # The cohort API denies a scoped token without cohort:read, so this response withholds the
+        # cohort's name and build state from it too.
+        token_scopes = get_authenticator_scopes(request.successful_authenticator)
+        reads_cohorts = token_scopes is None or bool({"*", "cohort:read", "cohort:write"} & set(token_scopes))
+        realtime_cohort = size.realtime_cohort if reads_cohorts else None
         return Response(
             BlastRadiusSerializer(
                 {
@@ -6062,12 +6067,12 @@ class HogFlowViewSet(
                     ),
                     "realtime_cohort": (
                         {
-                            "id": size.realtime_cohort.id,
-                            "name": size.realtime_cohort.name,
-                            "state": size.realtime_cohort.state,
-                            "percent_complete": size.realtime_cohort.percent_complete,
+                            "id": realtime_cohort.id,
+                            "name": realtime_cohort.name,
+                            "state": realtime_cohort.state,
+                            "percent_complete": realtime_cohort.percent_complete,
                         }
-                        if size.realtime_cohort
+                        if realtime_cohort
                         else None
                     ),
                 }

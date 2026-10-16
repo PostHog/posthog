@@ -2,7 +2,7 @@ from contextlib import nullcontext
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db.models.signals import post_save
 from django.test import TestCase, override_settings
@@ -235,6 +235,38 @@ class TestHogFlowBatchJob(TestCase):
                 "hog_flow_id": str(self.hog_flow.id),
                 "batch_job_id": str(job.id),
             }
+
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
+    @patch("products.workflows.backend.services.batch_jobs.resume_hog_flow_batch_job")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_cohort_edited_mid_resume_leaves_the_remaining_runs_waiting(self, _mock_create_invocation, mock_resume):
+        cohort = self._realtime_cohort(ready=False)
+        jobs = [
+            HogFlowBatchJob.objects.create(
+                team=self.team, hog_flow=self.hog_flow, filters=self._realtime_audience(cohort)
+            )
+            for _ in range(2)
+        ]
+        Cohort.objects.filter(pk=cohort.pk).update(
+            last_backfill_events_at=datetime(2026, 1, 1, tzinfo=UTC),
+            last_backfill_person_properties_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        def resume_then_edit(**kwargs):
+            Cohort.objects.filter(pk=cohort.pk).update(last_backfill_events_at=None)
+            response = MagicMock(status_code=200)
+            response.json.return_value = {"outcome": "resumed"}
+            return response
+
+        mock_resume.side_effect = resume_then_edit
+
+        realtime_cohort_ready.send(sender=Cohort, team_id=self.team.pk, cohort_id=cohort.pk)
+
+        statuses = sorted(HogFlowBatchJob.objects.filter(pk__in=[j.pk for j in jobs]).values_list("status", flat=True))
+        assert statuses == ["queued", "waiting"]
+        assert mock_resume.call_count == 1
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"

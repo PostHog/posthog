@@ -31,8 +31,14 @@ def _filters_on_behavior(cohort: Cohort) -> bool:
     return False
 
 
+# The filter kinds the realtime pipeline keys a cohort's membership on. A cohort with none of its own,
+# such as one that only references other cohorts, never gets a membership or a readiness stamp.
+_REALTIME_LEAF_TYPES = {"behavioral", "person", "person_metadata"}
+
+
 def find_realtime_behavioral_cohort(project_id: int, cohort_ids: list[int | str]) -> Cohort | None:
-    """The first realtime cohort among `cohort_ids` that filters on event behavior."""
+    """The first realtime cohort among `cohort_ids` that filters on event behavior and that the realtime
+    pipeline can calculate."""
     for cohort_id in cohort_ids:
         try:
             cohort = Cohort.objects.get(
@@ -40,7 +46,8 @@ def find_realtime_behavioral_cohort(project_id: int, cohort_ids: list[int | str]
             )
         except (Cohort.DoesNotExist, ValueError, TypeError):
             continue
-        if _filters_on_behavior(cohort):
+        has_own_leaf = any(p.type in _REALTIME_LEAF_TYPES for p in cohort.properties.flat)
+        if has_own_leaf and _filters_on_behavior(cohort):
             return cohort
     return None
 

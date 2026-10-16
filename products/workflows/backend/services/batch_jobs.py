@@ -163,8 +163,9 @@ def resume_batch_jobs_waiting_for_cohort(*, team_id: int, cohort_id: int) -> Non
         filters = batch_job_audience_filters(job)
         if str(sole_audience_cohort_id(filters)) != str(cohort_id):
             continue
+        # A cohort edit during this loop clears the readiness stamps, so each run checks a fresh load.
         audience_cohort = realtime_audience_cohort(job.team.project_id, filters)
-        if audience_cohort is None or audience_cohort.pk != cohort_id:
+        if audience_cohort is None or audience_cohort.pk != cohort_id or not realtime_cohort_is_ready(audience_cohort):
             continue
         try:
             response = resume_hog_flow_batch_job(
