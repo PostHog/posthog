@@ -36,7 +36,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
 from posthog.exceptions import Conflict
-from posthog.models.file_system.constants import RETIRED_FILE_SYSTEM_TYPES
+from posthog.models.file_system.constants import NON_FILE_SYSTEM_VIEW_TYPES, RETIRED_FILE_SYSTEM_TYPES
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
@@ -711,8 +711,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         limit = max(1, min(limit, 1000))
 
         not_type_param = request.query_params.get("not_type")
-        # Drop retired types before the view-log limit, or their views take slots that hydration then empties.
-        exclude_types = [*RETIRED_FILE_SYSTEM_TYPES, *([not_type_param] if not_type_param else [])]
+        # Drop types with no FileSystem row before the view-log limit, or their views take slots that hydration then empties.
+        exclude_types = [
+            *RETIRED_FILE_SYSTEM_TYPES,
+            *NON_FILE_SYSTEM_VIEW_TYPES,
+            *([not_type_param] if not_type_param else []),
+        ]
         search_param = request.query_params.get("search")
 
         base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id).exclude(

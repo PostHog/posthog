@@ -8,6 +8,10 @@ DEFAULT_SURFACE = "web"
 # registration and no page to open. The tree hides them, and a delete removes only the row.
 RETIRED_FILE_SYSTEM_TYPES: frozenset[str] = frozenset({"link"})
 
+# Types the view log records that have no FileSystem row: page visits and canvases.
+# Keep in sync with NON_FILE_SYSTEM_VIEW_TYPES in frontend/src/models/recentItemsModel.ts.
+NON_FILE_SYSTEM_VIEW_TYPES: frozenset[str] = frozenset({"scene", "canvas"})
+
 
 def surface_q(surface: str) -> Q:
     """Build the read filter for a surface. The default surface also matches legacy NULL rows."""
