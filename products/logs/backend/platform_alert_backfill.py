@@ -19,10 +19,11 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
-from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, PlatformAlertUpsert, SourceKind
+from products.alerts_platform.backend.facade.contracts import PlatformAlertUpsert, SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.logs.backend.alert_state_machine import AlertState
 from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.platform_source_config import logs_source_config
 
 logger = structlog.get_logger(__name__)
 
@@ -47,14 +48,14 @@ def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
         name=alert.name,
         enabled=alert.enabled,
         source_kind=SourceKind.LOGS,
-        source_config={
-            **alert.filters,
-            SOURCE_CONDITION_KEY: {
+        source_config=logs_source_config(
+            alert.filters,
+            {
                 "threshold_count": alert.threshold_count,
                 "threshold_operator": alert.threshold_operator,
                 "window_minutes": alert.window_minutes,
             },
-        },
+        ),
         check_interval_minutes=alert.check_interval_minutes,
         evaluation_periods=alert.evaluation_periods,
         datapoints_to_alarm=alert.datapoints_to_alarm,
