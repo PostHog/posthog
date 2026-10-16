@@ -89,7 +89,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": _INSIGHTS_DOCS,
         "columns": {
             "instagram_account_id": "Instagram account the metric belongs to.",
-            "metric": "Metric name, for example reach or views.",
+            "metric": "Metric name, for example reach, views, accounts_engaged, likes or follows_and_unfollows.",
             "period": "Aggregation period. Always day for this table.",
             "date": "ISO 8601 end time of the day the metric covers, in UTC.",
             "value": "The metric's value for that day.",

@@ -12,6 +12,7 @@ import structlog
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
+    RecordedRequest,
     Script,
     ScriptedResponse,
     SourceDriver,
@@ -45,7 +46,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.settings import (
-    ACCOUNT_INSIGHT_METRICS,
+    ACCOUNT_INSIGHT_TIME_SERIES_METRICS,
+    ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS,
     ACCOUNT_INSIGHTS_WINDOW_DAYS,
     INSTAGRAM_ENDPOINTS,
     MAX_INSIGHTS_LOOKBACK_DAYS,
@@ -108,6 +110,13 @@ def _page(rows: Iterable[dict[str, Any]], after: Optional[str] = None) -> dict[s
     if after is not None:
         body["paging"] = {"cursors": {"after": after}, "next": "https://graph.facebook.com/next"}
     return body
+
+
+def _by_metric(answers: dict[str, ScriptedResponse]) -> Script:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        return answers.get(request.param("metric") or "", ScriptedResponse(json={"data": []}))
+
+    return respond
 
 
 def _drive(
@@ -557,11 +566,15 @@ class TestInstagramRequestBudget:
         assert len(result.requests) == 1
 
     def test_account_insight_windows_stop_when_the_budget_runs_out(self) -> None:
+        views = ScriptedResponse(json={"data": [{"name": "views", "period": "day", "total_value": {"value": 9}}]})
         with mock.patch(f"{MODULE}.MAX_REQUESTS_PER_SYNC", 2):
-            result = _drive("account_insights", always(ScriptedResponse(json={"data": []})))
+            result = _drive("account_insights", _by_metric({"views": views}))
 
+        # The budget runs out inside the first window. Its partial rows would move the
+        # watermark past days that miss other metrics, so none are emitted.
         assert result.raised is None
         assert len(result.requests) == 2
+        assert result.rows == []
 
     def test_the_client_refuses_a_request_once_the_budget_is_spent(self) -> None:
         with scripted_network([ScriptedResponse(json={"data": []})]) as network:
@@ -582,68 +595,82 @@ class TestInstagramAccountInsights:
         with scripted_network([]):
             client = InstagramClient("tok", "v23.0", LOGGER)
 
-        plan = _account_insight_plan(client, ACCOUNT_ID, 0, 45 * 86400)
+        plan = _account_insight_plan(client, ACCOUNT_ID, 0, 45 * 86400 + 3600)
 
-        # 45 days is two windows; each carries the full metric set so the window's rows
-        # can be emitted in date order.
-        assert [[metric for metric, _ in window] for window in plan] == [
-            list(ACCOUNT_INSIGHT_METRICS),
-            list(ACCOUNT_INSIGHT_METRICS),
-        ]
-        urls = [url for window in plan for _, url in window]
-        assert all("metric_type=time_series" in url and "period=day" in url for url in urls)
-        assert [parse_qs(urlparse(url).query)["since"][0] for url in urls[:2]] == ["0", "0"]
-        assert parse_qs(urlparse(urls[-1]).query)["since"][0] == str(30 * 86400)
+        # 45 days is two windows. Each opens with the time series over the whole window,
+        # then asks for every total_value metric once per complete day. The partial
+        # 46th day is left for the next sync.
+        assert len(plan) == 2
+        for window, days in zip(plan, (30, 15)):
+            queries = [{key: values[0] for key, values in parse_qs(urlparse(r.url).query).items()} for r in window]
+            assert [q["metric"] for q in queries[: len(ACCOUNT_INSIGHT_TIME_SERIES_METRICS)]] == list(
+                ACCOUNT_INSIGHT_TIME_SERIES_METRICS
+            )
+            assert all(q["metric_type"] == "time_series" for q in queries[: len(ACCOUNT_INSIGHT_TIME_SERIES_METRICS)])
+            totals = queries[len(ACCOUNT_INSIGHT_TIME_SERIES_METRICS) :]
+            assert len(totals) == days * len(ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS)
+            assert {q["metric"] for q in totals} == set(ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS)
+            assert all(q["metric_type"] == "total_value" and q["period"] == "day" for q in totals)
+            assert all(int(q["until"]) - int(q["since"]) == 86400 for q in totals)
+        assert parse_qs(urlparse(plan[1][0].url).query)["since"][0] == str(30 * 86400)
 
     def test_a_window_is_emitted_as_one_batch_in_date_order(self) -> None:
-        def _series(name: str, values: list[tuple[int, str]]) -> dict[str, Any]:
-            return {
-                "data": [
-                    {
-                        "name": name,
-                        "period": "day",
-                        "time_series": [{"value": value, "end_time": end_time} for value, end_time in values],
-                    }
-                ]
-            }
-
+        # The total_value body carries no end_time, so its row takes the end of the
+        # one-day span the request asked for.
+        today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         result = _drive(
             "account_insights",
-            [
-                ScriptedResponse(json=_series("reach", [(5, "2024-03-02T07:00:00+0000")])),
-                ScriptedResponse(json=_series("views", [(9, "2024-03-01T07:00:00+0000")])),
-            ],
+            _by_metric(
+                {
+                    "reach": ScriptedResponse(
+                        json={
+                            "data": [
+                                {
+                                    "name": "reach",
+                                    "period": "day",
+                                    "time_series": [{"value": 5, "end_time": "2024-03-02T07:00:00+0000"}],
+                                }
+                            ]
+                        }
+                    ),
+                    "views": ScriptedResponse(
+                        json={"data": [{"name": "views", "period": "day", "total_value": {"value": 9}}]}
+                    ),
+                }
+            ),
             should_use_incremental_field=True,
             db_incremental_field_last_value=(datetime.now(UTC) - timedelta(days=1)).isoformat(),
         )
 
         assert result.raised is None
         assert len(result.items) == 1
-        assert [row["date"] for row in result.items[0]] == [
-            "2024-03-01T07:00:00+00:00",
-            "2024-03-02T07:00:00+00:00",
+        assert [(row["metric"], row["date"], row["value"]) for row in result.items[0]] == [
+            ("reach", "2024-03-02T07:00:00+00:00", 5),
+            ("views", (today - timedelta(days=1)).isoformat(), 9),
+            ("views", today.isoformat(), 9),
         ]
 
     def test_daily_points_become_one_row_per_metric_and_day(self) -> None:
         result = _drive(
             "account_insights",
-            [
-                ScriptedResponse(
-                    json={
-                        "data": [
-                            {
-                                "name": "reach",
-                                "period": "day",
-                                "time_series": [
-                                    {"value": 5, "end_time": "2024-03-01T07:00:00+0000"},
-                                    {"value": 7, "end_time": "2024-03-02T07:00:00+0000"},
-                                ],
-                            }
-                        ]
-                    }
-                ),
-                ScriptedResponse(json={"data": []}),
-            ],
+            _by_metric(
+                {
+                    "reach": ScriptedResponse(
+                        json={
+                            "data": [
+                                {
+                                    "name": "reach",
+                                    "period": "day",
+                                    "time_series": [
+                                        {"value": 5, "end_time": "2024-03-01T07:00:00+0000"},
+                                        {"value": 7, "end_time": "2024-03-02T07:00:00+0000"},
+                                    ],
+                                }
+                            ]
+                        }
+                    )
+                }
+            ),
             should_use_incremental_field=True,
             db_incremental_field_last_value=(datetime.now(UTC) - timedelta(days=1)).isoformat(),
         )
@@ -656,32 +683,31 @@ class TestInstagramAccountInsights:
         ]
         assert {row["instagram_account_id"] for row in reach_rows} == {ACCOUNT_ID}
 
-    def test_a_metric_meta_has_retired_is_dropped_without_failing_the_table(self) -> None:
+    def test_a_metric_meta_rejects_is_dropped_for_the_rest_of_the_sync(self) -> None:
         result = _drive(
             "account_insights",
-            [
-                ScriptedResponse(status=400, json={"error": {"code": 100, "message": "metric deprecated"}}),
-                ScriptedResponse(
-                    json={
-                        "data": [
-                            {
-                                "name": "views",
-                                "period": "day",
-                                "time_series": [{"value": 9, "end_time": "2024-03-01T07:00:00+0000"}],
-                            }
-                        ]
-                    }
-                ),
-            ],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=(datetime.now(UTC) - timedelta(days=1)).isoformat(),
+            _by_metric(
+                {
+                    "follows_and_unfollows": ScriptedResponse(
+                        status=400, json={"error": {"code": 100, "message": "metric not available"}}
+                    ),
+                    "views": ScriptedResponse(
+                        json={"data": [{"name": "views", "period": "day", "total_value": {"value": 9}}]}
+                    ),
+                }
+            ),
+            start_date=(datetime.now(UTC) - timedelta(days=35)).date().isoformat(),
         )
 
         assert result.raised is None
-        assert [row["metric"] for row in result.rows] == ["views"]
+        assert {row["metric"] for row in result.rows} == {"views"}
+        # Meta rejects the metric for every day, so asking again on each of the other days
+        # only spends the account's quota.
+        assert [request.param("metric") for request in result.requests].count("follows_and_unfollows") == 1
 
     def test_each_finished_window_checkpoints_the_start_of_the_next(self) -> None:
-        result = _drive("account_insights", always(ScriptedResponse(json={"data": []})), start_date="2024-01-01")
+        start_date = (datetime.now(UTC) - timedelta(days=75)).date().isoformat()
+        result = _drive("account_insights", always(ScriptedResponse(json={"data": []})), start_date=start_date)
 
         assert result.raised is None
         assert result.saved_states
@@ -707,7 +733,9 @@ class TestInstagramAccountInsights:
     def test_an_ancient_start_date_is_clamped_to_the_retention_horizon(self) -> None:
         # Without the clamp a start date like this fans out into tens of thousands of
         # empty 30-day windows; Meta only retains ~2 years anyway.
-        result = _drive("account_insights", always(ScriptedResponse(json={"data": []})), start_date="0001-01-01")
+        # Only the windows matter here, so drop the per-day requests that would fill them.
+        with mock.patch(f"{MODULE}.ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS", ()):
+            result = _drive("account_insights", always(ScriptedResponse(json={"data": []})), start_date="0001-01-01")
 
         assert result.raised is None
         windows = [url for url in result.urls if "metric=reach" in url]

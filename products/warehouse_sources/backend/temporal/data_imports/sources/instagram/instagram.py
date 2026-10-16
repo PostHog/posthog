@@ -16,7 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.settings import (
-    ACCOUNT_INSIGHT_METRICS,
+    ACCOUNT_INSIGHT_TIME_SERIES_METRICS,
+    ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS,
     ACCOUNT_INSIGHTS_WINDOW_DAYS,
     DEFAULT_INSIGHTS_LOOKBACK_DAYS,
     DEFAULT_MEDIA_INSIGHT_METRICS,
@@ -31,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
+DAY_SECONDS = 24 * 60 * 60
 MAX_RETRY_ATTEMPTS = 5
 
 # Instagram account node IDs are plain integers. Anything else spliced into the Graph path
@@ -103,6 +105,15 @@ class InstagramResumeConfig:
     # fan-out, and the per-metric insight windows — checkpoints as a URL, so one field
     # covers all of them.
     next_url: str
+
+
+@dataclasses.dataclass(frozen=True)
+class _InsightRequest:
+    metric: str
+    url: str
+    # End of the one-day span for a `total_value` request, which carries no `end_time` of
+    # its own. None for a time series, whose points each name their day.
+    day_end: Optional[int] = None
 
 
 def _is_permission_code(code: Any) -> bool:
@@ -506,7 +517,7 @@ def _insight_windows(since: int, until: int, window_days: int = ACCOUNT_INSIGHTS
     if until <= since:
         return []
 
-    step = window_days * 24 * 60 * 60
+    step = window_days * DAY_SECONDS
     windows: list[tuple[int, int]] = []
     start = since
     while start < until:
@@ -521,35 +532,59 @@ def _account_insight_plan(
     instagram_account_id: str,
     since: int,
     until: int,
-) -> list[list[tuple[str, str]]]:
-    """Build the request plan as one `(metric, url)` group per time window.
+) -> list[list[_InsightRequest]]:
+    """Build the request plan as one group of requests per time window.
 
     Window-major, not metric-major: every metric for a window is fetched together so the
     rows for that window can be emitted in date order. Walking metric by metric instead
     would rewind the stream to the start of the range on each new metric, which breaks
     the ascending watermark the pipeline checkpoints after every batch.
+
+    A window opens with its time series requests, then one `total_value` request per
+    metric for each complete day in the window. A day that has not ended yet is left
+    for the next sync.
     """
     path = _account_path(instagram_account_id, "insights")
-    plan: list[list[tuple[str, str]]] = []
+    plan: list[list[_InsightRequest]] = []
     for window_since, window_until in _insight_windows(since, until):
-        plan.append(
-            [
-                (
-                    metric,
-                    client.build_url(
+        window = [
+            _InsightRequest(
+                metric=metric,
+                url=client.build_url(
+                    path,
+                    {
+                        "metric": metric,
+                        "period": "day",
+                        "metric_type": "time_series",
+                        "since": str(window_since),
+                        "until": str(window_until),
+                    },
+                ),
+            )
+            for metric in ACCOUNT_INSIGHT_TIME_SERIES_METRICS
+        ]
+        day_start = window_since
+        while day_start + DAY_SECONDS <= window_until:
+            day_end = day_start + DAY_SECONDS
+            window.extend(
+                _InsightRequest(
+                    metric=metric,
+                    url=client.build_url(
                         path,
                         {
                             "metric": metric,
                             "period": "day",
-                            "metric_type": "time_series",
-                            "since": str(window_since),
-                            "until": str(window_until),
+                            "metric_type": "total_value",
+                            "since": str(day_start),
+                            "until": str(day_end),
                         },
                     ),
+                    day_end=day_end,
                 )
-                for metric in ACCOUNT_INSIGHT_METRICS
-            ]
-        )
+                for metric in ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS
+            )
+            day_start = day_end
+        plan.append(window)
     return plan
 
 
@@ -571,32 +606,43 @@ def _account_insight_rows(
         if since is not None
         else int((now - timedelta(days=DEFAULT_INSIGHTS_LOOKBACK_DAYS)).timestamp())
     )
+    # Start on a UTC day boundary so each `total_value` request covers one whole day. Step
+    # back one more day: a `reach` point can move the watermark into a day whose totals
+    # this table does not have yet.
+    start = start - start % DAY_SECONDS - DAY_SECONDS
 
     plan = _account_insight_plan(client, instagram_account_id, start, until)
 
     resume_url = _resume_url(resumable_source_manager, logger, config.name)
     if resume_url is not None:
-        # A window is identified by the URL of its first metric.
-        heads = [window[0][1] for window in plan]
+        # A window is identified by the URL of its first request.
+        heads = [window[0].url for window in plan]
         if resume_url in heads:
             plan = plan[heads.index(resume_url) :]
         else:
             logger.warning("Instagram: saved account_insights checkpoint is outside this run's window, restarting")
 
-    for index, window in enumerate(plan):
-        if not client.has_request_budget():
-            # The checkpoint saved by the previous window already points here, so a resumed
-            # attempt carries on from this window rather than replaying the whole range.
-            return
+    # A metric Meta rejects once is rejected for every day, so stop asking for it.
+    rejected_metrics: set[str] = set()
 
+    for index, window in enumerate(plan):
         rows: list[dict[str, Any]] = []
-        for metric, url in window:
+        for request in window:
+            if request.metric in rejected_metrics:
+                continue
+            if not client.has_request_budget():
+                # Drop the part of the window fetched so far: emitting it would move the
+                # watermark past days that are missing other metrics. The checkpoint saved
+                # by the previous window already points here, so a resumed attempt fetches
+                # this window again.
+                return
             try:
-                body = client.get(url)
+                body = client.get(request.url)
             except (InstagramBadRequestError, InstagramPermissionError) as error:
                 # `impressions` was retired in v22.0 and Meta rejects the whole request
                 # for a metric the account can't serve. Drop the metric, keep the window.
-                logger.warning(f"Instagram: skipping account insight metric '{metric}': {error}")
+                logger.warning(f"Instagram: skipping account insight metric '{request.metric}': {error}")
+                rejected_metrics.add(request.metric)
                 continue
 
             entries = body.get("data")
@@ -605,14 +651,18 @@ def _account_insight_rows(
             for entry in entries:
                 for point in _insight_points(entry):
                     end_time = point.get("end_time")
-                    if end_time is None:
+                    if end_time is not None:
+                        day = _normalize_timestamp(end_time)
+                    elif request.day_end is not None:
+                        day = datetime.fromtimestamp(request.day_end, UTC).isoformat()
+                    else:
                         continue
                     rows.append(
                         {
                             "instagram_account_id": instagram_account_id,
-                            "metric": entry.get("name") or metric,
+                            "metric": entry.get("name") or request.metric,
                             "period": entry.get("period"),
-                            "date": _normalize_timestamp(end_time),
+                            "date": day,
                             "value": point.get("value"),
                             "title": entry.get("title"),
                             "description": entry.get("description"),
@@ -627,7 +677,7 @@ def _account_insight_rows(
 
         next_index = index + 1
         if next_index < len(plan):
-            resumable_source_manager.save_state(InstagramResumeConfig(next_url=plan[next_index][0][1]))
+            resumable_source_manager.save_state(InstagramResumeConfig(next_url=plan[next_index][0].url))
 
 
 def _resume_url(
