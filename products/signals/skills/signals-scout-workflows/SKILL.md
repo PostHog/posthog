@@ -88,6 +88,10 @@ So end the read before now, and check the version's age before you trust it:
   `updated_at` on the workflow is not this: any draft edit bumps it.
   Write `immature:<workflow>:<step>` to the scratchpad with the version and move on; a later run reads the same version with its feedback in.
 - If a version's sends sit almost entirely in the last day of the window, treat the rate as immature for the same reason, even when the version itself is older.
+- A workflow that sends in batches, such as a weekly digest, keeps one version across many batches, so a version read mixes the newest batch with the earlier ones.
+  Read it by day and judge one batch at a time: take the latest batch that is at least 48 hours old, and read from its send day up to the day before the next batch went out.
+  Opens of earlier batches that arrive inside that window are a small share once those batches are a week old, so the rate is readable.
+  Do not wait for the newest batch to settle when an older one already has.
 
 Per-version reads are what make this checkable: `workflows-version-stats` with `version=<n>` returns only what that version sent, so a version published two weeks ago is a settled cohort even though the workflow as a whole is still sending.
 
