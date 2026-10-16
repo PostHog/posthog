@@ -1,4 +1,4 @@
-"""Rewrite the stored `fingerprint` of inline metrics to the current calculation key.
+"""Rewrite the stored `fingerprint` of inline metrics and of metric results to the current calculation key.
 
 Create, update and launch stamp each inline metric in `Experiment.metrics` and `Experiment.metrics_secondary` with its
 calculation key. After a change of the key version, the stored values hold the old version until the next save of
@@ -7,6 +7,10 @@ The rewrite here writes the values in place with a queryset update, so it logs n
 `updated_at` alone.
 
 Saved metrics store no fingerprint: the experiment API stamps theirs into each response.
+
+The same run converts the experiment's metric results stored under key version 1, as
+`MetricResultStore.convert_version_1_rows` describes. Until then the readers fall back to version 1, so a settings
+edit can still reuse a result of the earlier settings.
 """
 
 from collections.abc import Callable, Sequence
@@ -20,9 +24,11 @@ from posthog.dataclasses import frozen
 
 from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
+    build_calculation_configs,
     stamp_calculation_keys,
     team_experiments_configs,
 )
+from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -37,6 +43,7 @@ class FingerprintRewriteReport:
     experiments_scanned: int
     experiments_to_rewrite: int
     metrics_to_rewrite: int
+    results_to_convert: int
     # Experiments whose rewrite raised. A later run retries them.
     experiments_failed: int
 
@@ -87,12 +94,12 @@ def rewrite_stored_fingerprints(
     batch_size: int = 500,
     on_batch: Callable[[FingerprintRewriteReport], None] | None = None,
 ) -> FingerprintRewriteReport:
-    """Find the non-deleted experiments whose stored inline fingerprints differ from the current keys, and rewrite
-    them when `apply` is set. Experiments are read in id order, `batch_size` at a time. A second run finds nothing
-    to rewrite."""
+    """Find the non-deleted experiments whose stored inline fingerprints differ from the current keys, and the
+    metric results they hold under key version 1, and rewrite both when `apply` is set. Experiments are read in id
+    order, `batch_size` at a time. A second run finds nothing to rewrite."""
     # Read without creating a missing row: a team without one resolves to the model defaults, as a new row would.
     team_configs: dict[int, TeamExperimentsConfig] = {}
-    scanned = to_rewrite = metrics_to_rewrite = failed = 0
+    scanned = to_rewrite = metrics_to_rewrite = results_to_convert = failed = 0
     last_id = 0
     while True:
         experiments = Experiment.objects.filter(deleted=False, id__gt=last_id)
@@ -110,25 +117,31 @@ def rewrite_stored_fingerprints(
             team_config = team_configs[experiment.team_id]
             try:
                 fields, changed_metrics = _rewritten_fields(experiment, team_config)
-                if not fields:
-                    continue
-                if apply:
+                if fields and apply:
                     _write(experiment.id, experiment.team_id, team_config)
+                converted_results = MetricResultStore(experiment_id=experiment.id).convert_version_1_rows(
+                    build_calculation_configs(experiment, team_config=team_config), apply=apply
+                )
             except Exception:
                 failed += 1
                 logger.exception("experiment_fingerprint_rewrite_failed", experiment_id=experiment.id)
                 continue
-            to_rewrite += 1
-            metrics_to_rewrite += changed_metrics
+            if fields:
+                to_rewrite += 1
+                metrics_to_rewrite += changed_metrics
+            results_to_convert += converted_results
         if on_batch is not None:
-            on_batch(_report(scanned, to_rewrite, metrics_to_rewrite, failed))
-    return _report(scanned, to_rewrite, metrics_to_rewrite, failed)
+            on_batch(_report(scanned, to_rewrite, metrics_to_rewrite, results_to_convert, failed))
+    return _report(scanned, to_rewrite, metrics_to_rewrite, results_to_convert, failed)
 
 
-def _report(scanned: int, to_rewrite: int, metrics_to_rewrite: int, failed: int) -> FingerprintRewriteReport:
+def _report(
+    scanned: int, to_rewrite: int, metrics_to_rewrite: int, results_to_convert: int, failed: int
+) -> FingerprintRewriteReport:
     return FingerprintRewriteReport(
         experiments_scanned=scanned,
         experiments_to_rewrite=to_rewrite,
         metrics_to_rewrite=metrics_to_rewrite,
+        results_to_convert=results_to_convert,
         experiments_failed=failed,
     )

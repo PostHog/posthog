@@ -1,8 +1,11 @@
-"""Rewrite the stored `fingerprint` of every inline experiment metric to the current calculation key.
+"""Rewrite the stored `fingerprint` of every inline experiment metric, and of every metric result under key version 1,
+to the current calculation key.
 
-Run it once after a deploy that changes the calculation key version, first as a dry run. Without the rewrite, the
-first save of each experiment after the deploy changes every fingerprint, and the activity log describes every
-metric as changed. `metric_calculation/stored_fingerprints.py` says what it writes.
+Run it once after a deploy that changes the calculation key version, when every web pod and experiments worker runs
+the new code, first as a dry run. Without the rewrite, the first save of each experiment after the deploy changes
+every fingerprint, and the activity log describes every metric as changed. Until the result rows are converted, a
+settings edit can still reuse a result of the earlier settings. `metric_calculation/stored_fingerprints.py` says
+what it writes.
 """
 
 from typing import Any
@@ -16,7 +19,10 @@ from products.experiments.backend.metric_calculation.stored_fingerprints import 
 
 
 class Command(BaseCommand):
-    help = "Rewrite stored inline metric fingerprints to the current calculation key. Dry run unless --apply."
+    help = (
+        "Rewrite stored inline metric fingerprints, and metric results under key version 1, to the current "
+        "calculation key. Dry run unless --apply."
+    )
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--apply", action="store_true", help="Write the new fingerprints.")
@@ -49,5 +55,6 @@ class Command(BaseCommand):
         verb = "Rewrote" if apply else "Would rewrite"
         return (
             f"Scanned {report.experiments_scanned} experiments. {verb} {report.metrics_to_rewrite} metric "
-            f"fingerprints on {report.experiments_to_rewrite} experiments. {report.experiments_failed} failed."
+            f"fingerprints on {report.experiments_to_rewrite} experiments, and {report.results_to_convert} metric "
+            f"results. {report.experiments_failed} failed."
         )
