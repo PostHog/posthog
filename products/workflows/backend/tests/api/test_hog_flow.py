@@ -7526,6 +7526,7 @@ class TestExtractActionValidation(APIBaseTest):
         [
             ("number_variable", [{"key": "pr_url", "type": "number"}], None),
             ("whole_result", None, [{"key": "pr_url", "result_path": None}]),
+            ("whole_result_from_the_editor", None, [{"key": "pr_url", "result_path": ""}]),
         ]
     )
     def test_accepts_named_fields_mapped_into_typed_variables(self, _name, variables, mappings):
@@ -7537,6 +7538,7 @@ class TestExtractActionValidation(APIBaseTest):
         [
             ("result_path_that_is_a_list", [{"key": "pr_url", "result_path": ["pr_url"]}]),
             ("spread_into_prefixed_variables", [{"key": "pr", "result_path": None, "spread": True}]),
+            ("result_path_that_names_no_field", [{"key": "pr_url", "result_path": "pull_request_url"}]),
         ]
     )
     def test_rejects_a_mapping_that_does_not_name_a_field(self, _name, mappings):
