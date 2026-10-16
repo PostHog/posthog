@@ -31,6 +31,12 @@ class EasypostEndpointConfig:
     returns_bare_list: bool = False
     # Top-level keys dropped from every row before it reaches the warehouse.
     redacted_fields: tuple[str, ...] = ()
+    # Collection key of the list response when it differs from the endpoint name.
+    response_key: Optional[str] = None
+    # /users/children pages oldest-first with `after_id` and documents no `before_id`.
+    ascending: bool = False
+    # Values substituted for `{}` in `path`. Each value is walked in turn into the same table.
+    path_values: tuple[str, ...] = ()
 
 
 def _created_at_fields() -> list[IncrementalField]:
@@ -46,8 +52,8 @@ def _created_at_fields() -> list[IncrementalField]:
 
 # Cursor-paginated list endpoints (before_id/after_id + has_more) that all share the EasyPost
 # object shape: a globally-unique prefixed `id`, plus `created_at` / `updated_at` ISO-8601
-# timestamps. `start_datetime` filters server-side on `created_at`. `/carrier_accounts` and
-# `/metadata/carriers` are lookups answered in a single unpaginated response. `/parcels` has no
+# timestamps. `start_datetime` filters server-side on `created_at`. `/carrier_accounts`,
+# `/carrier_types` and `/metadata/carriers` are lookups answered in a single unpaginated response. `/parcels` has no
 # list endpoint and `/webhooks` is unpaginated, so neither is exposed as a sync table here.
 EASYPOST_ENDPOINTS: dict[str, EasypostEndpointConfig] = {
     "addresses": EasypostEndpointConfig(
@@ -88,6 +94,31 @@ EASYPOST_ENDPOINTS: dict[str, EasypostEndpointConfig] = {
         paginated=False,
         supports_start_datetime=False,
     ),
+    "carrier_types": EasypostEndpointConfig(
+        name="carrier_types",
+        path="/carrier_types",
+        # The credential fields each carrier account type needs. Labels and visibility only, no
+        # values. Like /carrier_accounts it is production-key only and unpaginated.
+        incremental_fields=[],
+        partition_key=None,
+        primary_keys=["type"],
+        should_sync_default=False,
+        paginated=False,
+        supports_start_datetime=False,
+        returns_bare_list=True,
+    ),
+    "child_users": EasypostEndpointConfig(
+        name="child_users",
+        path="/users/children",
+        # No time filter, so full refresh only. Production-key only.
+        incremental_fields=[],
+        should_sync_default=False,
+        supports_start_datetime=False,
+        response_key="children",
+        ascending=True,
+        # A User object can carry its API keys.
+        redacted_fields=("api_keys",),
+    ),
     "claims": EasypostEndpointConfig(
         name="claims",
         path="/claims",
@@ -123,6 +154,18 @@ EASYPOST_ENDPOINTS: dict[str, EasypostEndpointConfig] = {
         name="refunds",
         path="/refunds",
         incremental_fields=_created_at_fields(),
+    ),
+    "reports": EasypostEndpointConfig(
+        name="reports",
+        path="/reports/{}",
+        # Reports change status after creation (new -> available) and the list takes no time
+        # filter, so full refresh only. Ids carry a per-type prefix, so `id` stays unique.
+        incremental_fields=[],
+        should_sync_default=False,
+        supports_start_datetime=False,
+        path_values=("cash_flow", "insurance", "payment_log", "refund", "shipment", "shipment_invoice", "tracker"),
+        # Signed download link to the report CSV.
+        redacted_fields=("url",),
     ),
     "scan_forms": EasypostEndpointConfig(
         name="scan_forms",

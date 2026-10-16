@@ -10,7 +10,6 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import type { SelfDrivingOnboardingStepId } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -442,25 +441,14 @@ export type SDKSetupInstructionsSurface =
     | 'settings_reverse_proxy_setup'
     | 'onboarding_ai_observability'
 
-// GROW-89: both onboarding flows fire the same funnel event names during the transition, told apart
-// by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Stamping properties
-// instead of renaming keeps every existing dashboard and alert on the v1 events working. The
-// redesign's v2 events live in `scenes/onboarding/onboardingEventUsageLogic`.
-// `entry_point` names the surface the flow starts on. It rides along with every funnel event, not
-// only `started`, so a breakdown by entry point stays populated for the whole funnel.
-export type OnboardingEntryPoint = 'product_selection' | 'welcome'
-
-export type OnboardingEventProperties = {
-    entry_point: OnboardingEntryPoint
-    flow_variant: 'context_first' | 'legacy'
-    version: 1 | 2
-}
-
-const LEGACY_ONBOARDING_EVENT_PROPS: OnboardingEventProperties = {
+// pinned: event property values. Onboarding funnel insights filter and break down on these, so
+// they keep the values the flow sent while it was one of two experiment arms. `entry_point` rides
+// along with every funnel event, not only `started`, so a breakdown by it stays populated.
+const ONBOARDING_EVENT_PROPS = {
     version: 1,
     flow_variant: 'legacy',
     entry_point: 'product_selection',
-}
+} as const
 
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
@@ -550,18 +538,8 @@ export function getEventPropertiesForMetric(
         }
 
         return base
-    } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
-        return {
-            kind: NodeKind.ExperimentFunnelsQuery,
-            steps_count: metric.funnels_query?.series?.length,
-            filter_test_accounts: metric.funnels_query?.filterTestAccounts,
-        }
     }
-    return {
-        kind: NodeKind.ExperimentTrendsQuery,
-        series_kind: metric.count_query?.series?.[0]?.kind,
-        filter_test_accounts: metric.count_query?.filterTestAccounts,
-    }
+    return { kind: metric.kind }
 }
 
 /**
@@ -1138,39 +1116,6 @@ export interface eventUsageLogicActions {
         isPrimary: boolean
         metricUuid: string
     }
-    reportExperimentMetricFinished: (
-        experimentId: ExperimentIdType,
-        metric: ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery,
-        teamId?: number | null,
-        queryId?: string | null,
-        context?: {
-            duration_ms: number
-            execution_mode: 'async' | 'sync'
-            is_cached: boolean
-            is_primary: boolean
-            is_retry: boolean
-            metric_index: number
-            metric_kind: string
-            refresh_id: string
-        }
-    ) => {
-        context:
-            | {
-                  duration_ms: number
-                  execution_mode: 'async' | 'sync'
-                  is_cached: boolean
-                  is_primary: boolean
-                  is_retry: boolean
-                  metric_index: number
-                  metric_kind: string
-                  refresh_id: string
-              }
-            | undefined
-        experimentId: ExperimentIdType
-        metric: ExperimentFunnelsQuery | ExperimentMetricUnion | ExperimentTrendsQuery
-        queryId: string | null | undefined
-        teamId: number | null | undefined
-    }
     reportExperimentRecordingOpened: (
         experimentId: ExperimentIdType,
         context: ExperimentRecordingsFilterContext
@@ -1299,6 +1244,16 @@ export interface eventUsageLogicActions {
         hasSearch: boolean
         page: number
         statusFilter: string
+    }
+    reportExperimentsSettingChanged: (
+        setting: string,
+        value: unknown
+    ) => {
+        setting: string
+        value: unknown
+    }
+    reportExperimentsSettingsViewed: () => {
+        value: true
     }
     reportFeatureFlagBulkCopy: (
         flagCount: number,
@@ -1448,12 +1403,8 @@ export interface eventUsageLogicActions {
         itemType: string | null | undefined
         section: string
     }
-    reportOnboardingCompleted: (
-        productKey: string,
-        properties?: OnboardingEventProperties
-    ) => {
+    reportOnboardingCompleted: (productKey: string) => {
         productKey: string
-        properties: OnboardingEventProperties | undefined
     }
     reportOnboardingProductToggled: (
         productKey: string,
@@ -1464,26 +1415,22 @@ export interface eventUsageLogicActions {
         recommendationSource: string
         selected: boolean
     }
-    reportOnboardingStarted: (properties?: OnboardingEventProperties) => {
-        properties: OnboardingEventProperties | undefined
+    reportOnboardingStarted: () => {
+        value: true
     }
     reportOnboardingStepCompleted: (
-        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
-        productKey?: string,
-        properties?: OnboardingEventProperties
+        stepKey: OnboardingStepKey,
+        productKey?: string
     ) => {
         productKey: string | undefined
-        properties: OnboardingEventProperties | undefined
-        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId
+        stepKey: OnboardingStepKey
     }
     reportOnboardingStepSkipped: (
-        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
-        productKey?: string,
-        properties?: OnboardingEventProperties
+        stepKey: OnboardingStepKey,
+        productKey?: string
     ) => {
         productKey: string | undefined
-        properties: OnboardingEventProperties | undefined
-        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId
+        stepKey: OnboardingStepKey
     }
     reportOnboardingUseCaseSelected: (
         useCase: string,
@@ -1616,8 +1563,10 @@ export interface eventUsageLogicActions {
     reportSurveyCreated: (
         survey: Survey,
         isDuplicate?: boolean,
-        creationSource?: 'form_builder' | 'full_editor' | 'llm_analytics' | 'quick_create' | 'template' | 'wizard'
+        creationSource?: 'form_builder' | 'full_editor' | 'llm_analytics' | 'quick_create' | 'template' | 'wizard',
+        createdFrom?: SURVEY_CREATED_SOURCE
     ) => {
+        createdFrom: SURVEY_CREATED_SOURCE | undefined
         creationSource:
             | 'form_builder'
             | 'full_editor'
@@ -1950,6 +1899,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             hasSearch: boolean
             archived: boolean
         }) => listView,
+        reportExperimentsSettingsViewed: true,
+        reportExperimentsSettingChanged: (setting: string, value: unknown) => ({ setting, value }),
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
@@ -1998,28 +1949,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentDashboardCreated: (experiment: Experiment, dashboardId: number) => ({
             experiment,
             dashboardId,
-        }),
-        reportExperimentMetricFinished: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-            teamId?: number | null,
-            queryId?: string | null,
-            context?: {
-                duration_ms: number
-                is_cached: boolean
-                metric_index: number
-                is_primary: boolean
-                is_retry: boolean
-                refresh_id: string
-                metric_kind: string
-                execution_mode: 'sync' | 'async'
-            }
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-            context,
         }),
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentTimeseriesViewed: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
@@ -2126,8 +2055,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyCreated: (
             survey: Survey,
             isDuplicate?: boolean,
-            creationSource?: 'wizard' | 'full_editor' | 'quick_create' | 'template' | 'llm_analytics' | 'form_builder'
-        ) => ({ survey, isDuplicate, creationSource }),
+            creationSource?: 'wizard' | 'full_editor' | 'quick_create' | 'template' | 'llm_analytics' | 'form_builder',
+            createdFrom?: SURVEY_CREATED_SOURCE
+        ) => ({ survey, isDuplicate, creationSource, createdFrom }),
         reportUserFeedbackButtonClicked: (source: SURVEY_CREATED_SOURCE, meta: Record<string, any>) => ({
             source,
             meta,
@@ -2148,31 +2078,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
-        reportOnboardingStarted: (properties?: OnboardingEventProperties) => ({
-            properties,
-        }),
-        reportOnboardingStepCompleted: (
-            stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
-            productKey?: string,
-            properties?: OnboardingEventProperties
-        ) => ({
+        reportOnboardingStarted: true,
+        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey, productKey?: string) => ({
             stepKey,
             productKey,
-            properties,
         }),
-        reportOnboardingStepSkipped: (
-            stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
-            productKey?: string,
-            properties?: OnboardingEventProperties
-        ) => ({
+        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey, productKey?: string) => ({
             stepKey,
             productKey,
-            properties,
         }),
-        reportOnboardingCompleted: (productKey: string, properties?: OnboardingEventProperties) => ({
-            productKey,
-            properties,
-        }),
+        reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
             useCase,
             recommendedProducts,
@@ -2599,6 +2514,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 archived,
             })
         },
+        reportExperimentsSettingsViewed: () => {
+            posthog.capture('experiments settings viewed')
+        },
+        reportExperimentsSettingChanged: ({ setting, value }) => {
+            posthog.capture('experiments setting changed', { setting, value })
+        },
         reportExperimentViewed: ({ experiment, duration }) => {
             posthog.capture('experiment viewed', {
                 ...getEventPropertiesForExperiment(experiment),
@@ -2666,7 +2587,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment shared metric created', {
                 name: sharedMetric.name,
                 id: sharedMetric.id,
-                ...getEventPropertiesForMetric(sharedMetric.query as ExperimentTrendsQuery | ExperimentFunnelsQuery),
+                ...getEventPropertiesForMetric(sharedMetric.query as ExperimentMetric),
             })
         },
         reportExperimentSharedMetricAssigned: ({ experimentId, sharedMetric }) => {
@@ -2674,7 +2595,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_id: experimentId,
                 name: sharedMetric.name,
                 id: sharedMetric.id,
-                ...getEventPropertiesForMetric(sharedMetric.query as ExperimentTrendsQuery | ExperimentFunnelsQuery),
+                ...getEventPropertiesForMetric(sharedMetric.query as ExperimentMetric),
             })
         },
         reportExperimentDashboardCreated: ({ experiment, dashboardId }) => {
@@ -2682,16 +2603,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_name: experiment.name,
                 experiment_id: experiment.id,
                 dashboard_id: dashboardId,
-            })
-        },
-        reportExperimentMetricFinished: ({ experimentId, metric, teamId, queryId, context }) => {
-            posthog.capture('experiment metric finished', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                ...getEventPropertiesForMetric(metric),
-                metric,
-                ...context,
             })
         },
         reportExperimentFeatureFlagModalOpened: () => {
@@ -2889,7 +2800,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 language,
             })
         },
-        reportSurveyCreated: ({ survey, isDuplicate, creationSource }) => {
+        reportSurveyCreated: ({ survey, isDuplicate, creationSource, createdFrom }) => {
             const questionsWithShuffledOptions = survey.questions.filter((question) => {
                 return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
             })
@@ -2906,6 +2817,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 question_types: survey.questions.map((question) => question.type),
                 is_duplicate: isDuplicate ?? false,
                 creation_source: creationSource ?? 'full_editor',
+                created_from: createdFrom,
                 linked_insight_id: survey.linked_insight_id,
                 events_count: survey.conditions?.events?.values.length,
                 recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
@@ -3034,42 +2946,36 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         // onboarding
-        reportOnboardingStarted: ({ properties }) => {
-            posthog.capture('onboarding started', {
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-                ...properties,
-            })
+        reportOnboardingStarted: () => {
+            posthog.capture('onboarding started', ONBOARDING_EVENT_PROPS)
         },
-        reportOnboardingStepCompleted: ({ stepKey, productKey, properties }) => {
+        reportOnboardingStepCompleted: ({ stepKey, productKey }) => {
             posthog.capture('onboarding step completed', {
                 step_key: stepKey,
                 // Optional — only set when the caller knows which product owns the step.
                 // Lets dashboards split step funnels by product without joining elsewhere.
                 ...(productKey ? { product_key: productKey } : {}),
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-                ...properties,
+                ...ONBOARDING_EVENT_PROPS,
             })
         },
-        reportOnboardingStepSkipped: ({ stepKey, productKey, properties }) => {
+        reportOnboardingStepSkipped: ({ stepKey, productKey }) => {
             posthog.capture('onboarding step skipped', {
                 step_key: stepKey,
                 ...(productKey ? { product_key: productKey } : {}),
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-                ...properties,
+                ...ONBOARDING_EVENT_PROPS,
             })
         },
-        reportOnboardingCompleted: ({ productKey, properties }) => {
+        reportOnboardingCompleted: ({ productKey }) => {
             posthog.capture('onboarding completed', {
                 product_key: productKey,
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-                ...properties,
+                ...ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {
             posthog.capture('onboarding use case selected', {
                 use_case: useCase,
                 recommended_products: recommendedProducts,
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
+                ...ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingProductToggled: ({ productKey, selected, recommendationSource }) => {
@@ -3077,7 +2983,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
                 selected,
                 recommendation_source: recommendationSource,
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
+                ...ONBOARDING_EVENT_PROPS,
             })
         },
         reportSDKSelected: ({ sdk }) => {

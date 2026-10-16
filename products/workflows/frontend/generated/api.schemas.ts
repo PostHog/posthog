@@ -329,12 +329,14 @@ export const HogFlowStateEnumApi = {
 /**
  * * `loops` - Loops
  * * `broadcasts` - Broadcasts
+ * * `transactional_emails` - Transactional emails
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
 export const HogFlowOriginProductEnumApi = {
     Loops: 'loops',
     Broadcasts: 'broadcasts',
+    TransactionalEmails: 'transactional_emails',
 } as const
 
 /**
@@ -676,7 +678,8 @@ export interface HogFlowApi {
     /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -777,7 +780,8 @@ export interface HogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -878,7 +882,8 @@ export interface PatchedHogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1149,6 +1154,30 @@ export interface PatchedHogFlowGraphUpdateApi {
     base_updated_at?: string
     /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
     operations?: HogFlowGraphOperationApi[]
+}
+
+/**
+ * In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.
+ * @nullable
+ */
+export type HogFlowInFlightApiByAction = { [key: string]: number } | null
+
+export interface HogFlowInFlightApi {
+    /**
+     * About how many runs are in flight (parked on a delay or wait, or executing). Null when the count is unavailable.
+     * @nullable
+     */
+    count: number | null
+    /**
+     * In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.
+     * @nullable
+     */
+    by_action: HogFlowInFlightApiByAction
+    /**
+     * In-flight runs whose current step could not be read. Null when the count is unavailable.
+     * @nullable
+     */
+    position_unknown: number | null
 }
 
 export interface HogInvocationResultApi {
@@ -2070,6 +2099,172 @@ export interface BlastRadiusApi {
     confirm_token: string
 }
 
+export interface DataSuggestionBuildRequestApi {
+    /** The id of a suggestion from the list endpoint. */
+    suggestion_id: string
+    /** Start a new build when the last one failed. Leave it false when asking for a running build's status. */
+    retry?: boolean
+    /** Save the built draft in the project and return its workflow_id. Blank settings, like a webhook URL, stay blank and are listed in missing_inputs. Leave it false to get the workflow back without saving. */
+    save_draft?: boolean
+}
+
+/**
+ * * `ready` - Ready
+ * * `building` - Building
+ * * `failed` - Failed
+ */
+export type DataSuggestionBuildStatusEnumApi =
+    (typeof DataSuggestionBuildStatusEnumApi)[keyof typeof DataSuggestionBuildStatusEnumApi]
+
+export const DataSuggestionBuildStatusEnumApi = {
+    Ready: 'ready',
+    Building: 'building',
+    Failed: 'failed',
+} as const
+
+export interface DataSuggestionMissingInputApi {
+    /** The id of the workflow step (action) the setting belongs to. */
+    step_id: string
+    /** The step's name, as the editor shows it. */
+    step_name: string
+    /** The setting to fill, like 'Webhook URL', 'Email sender' or 'Condition: Is on a paid plan'. */
+    field: string
+}
+
+export interface DataSuggestionBuildResponseApi {
+    /** ready when the draft is built, building while a background build runs (call build again to check), failed when the plan did not produce a valid workflow. A failed result stays until a call sends retry.
+     *
+     * * `ready` - Ready
+     * * `building` - Building
+     * * `failed` - Failed */
+    status: DataSuggestionBuildStatusEnumApi
+    /** With status ready: a validated draft workflow (name, description, trigger, actions, edges, conversion, exit_condition) that the workflow create endpoint accepts from this caller. Saved only with save_draft. Null otherwise. */
+    workflow: unknown
+    /** Whether an email step reuses a saved email template. */
+    uses_saved_template: boolean
+    /**
+     * With status ready and save_draft: the id of the saved draft workflow. Null otherwise.
+     * @nullable
+     */
+    workflow_id: string | null
+    /** With status ready: the settings the draft leaves blank, which must be filled before it is enabled. */
+    missing_inputs: DataSuggestionMissingInputApi[]
+}
+
+/**
+ * * `ready` - Ready
+ * * `generating` - Generating
+ * * `ai_not_approved` - Ai Not Approved
+ * * `unavailable` - Unavailable
+ */
+export type DataSuggestionsStatusEnumApi =
+    (typeof DataSuggestionsStatusEnumApi)[keyof typeof DataSuggestionsStatusEnumApi]
+
+export const DataSuggestionsStatusEnumApi = {
+    Ready: 'ready',
+    Generating: 'generating',
+    AiNotApproved: 'ai_not_approved',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * * `signup` - Signup
+ * * `onboarding` - Onboarding
+ * * `trial` - Trial
+ * * `purchase` - Purchase
+ * * `churn_risk` - Churn Risk
+ * * `failure` - Failure
+ * * `support` - Support
+ * * `other` - Other
+ */
+export type DataSuggestionStageEnumApi = (typeof DataSuggestionStageEnumApi)[keyof typeof DataSuggestionStageEnumApi]
+
+export const DataSuggestionStageEnumApi = {
+    Signup: 'signup',
+    Onboarding: 'onboarding',
+    Trial: 'trial',
+    Purchase: 'purchase',
+    ChurnRisk: 'churn_risk',
+    Failure: 'failure',
+    Support: 'support',
+    Other: 'other',
+} as const
+
+/**
+ * * `email` - Email
+ * * `sms` - Sms
+ * * `push` - Push
+ * * `slack` - Slack
+ * * `webhook` - Webhook
+ * * `delay` - Delay
+ * * `wait_until` - Wait Until
+ * * `branch` - Branch
+ * * `split` - Split
+ * * `action` - Action
+ */
+export type DataSuggestionStepKindEnumApi =
+    (typeof DataSuggestionStepKindEnumApi)[keyof typeof DataSuggestionStepKindEnumApi]
+
+export const DataSuggestionStepKindEnumApi = {
+    Email: 'email',
+    Sms: 'sms',
+    Push: 'push',
+    Slack: 'slack',
+    Webhook: 'webhook',
+    Delay: 'delay',
+    WaitUntil: 'wait_until',
+    Branch: 'branch',
+    Split: 'split',
+    Action: 'action',
+} as const
+
+export interface DataSuggestionApi {
+    /** Opaque id of this suggestion, valid while the suggestions stay cached. */
+    id: string
+    /** Suggested workflow name, written by AI from the project's events. */
+    name: string
+    /** One sentence on what the workflow does. */
+    description: string
+    /** One sentence on why the workflow fits this project. */
+    reason: string
+    /** The project event that starts the workflow. */
+    trigger_event: string
+    /** How often the trigger event fired in the last 7 days. */
+    weekly_count: number
+    /** The customer lifecycle stage the trigger event marks. Suggestions are ranked by stage first, so welcome and onboarding flows come before busier events.
+     *
+     * * `signup` - Signup
+     * * `onboarding` - Onboarding
+     * * `trial` - Trial
+     * * `purchase` - Purchase
+     * * `churn_risk` - Churn Risk
+     * * `failure` - Failure
+     * * `support` - Support
+     * * `other` - Other */
+    stage: DataSuggestionStageEnumApi
+    /** The main planned step kinds after the trigger, in order. */
+    step_outline: DataSuggestionStepKindEnumApi[]
+}
+
+export interface DataSuggestionsResponseApi {
+    /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
+     *
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `ai_not_approved` - Ai Not Approved
+     * * `unavailable` - Unavailable */
+    status: DataSuggestionsStatusEnumApi
+    /** Up to 3 suggested workflows, ranked by lifecycle stage and then by weekly volume. */
+    suggestions: DataSuggestionApi[]
+    /** Whether the project has a verified email sender. Without one, an email workflow can be saved as a draft but cannot send until a sending domain is added and verified. */
+    readonly email_sender_ready: boolean
+}
+
+export interface DataSuggestionGenerateRequestApi {
+    /** Make new suggestions even when the cached ones are still valid. */
+    refresh?: boolean
+}
+
 /**
  * * `error_tracking` - Error tracking issue
  * * `early_access` - Early access feature
@@ -2294,6 +2489,7 @@ export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof
 export const HogFlowsListOriginProduct = {
     Broadcasts: 'broadcasts',
     Loops: 'loops',
+    TransactionalEmails: 'transactional_emails',
 } as const
 
 export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]

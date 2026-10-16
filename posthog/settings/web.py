@@ -129,6 +129,7 @@ PRODUCTS_APPS = [
     "products.webmcp.backend.apps.WebmcpConfig",
     "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
     "products.groups.backend.apps.GroupsConfig",
+    "products.subscriptions.backend.apps.SubscriptionsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -668,10 +669,6 @@ SPECTACULAR_SETTINGS = {
             "ErrorTrackingIssueWritableStatusEnum": ["active", "resolved", "suppressed"],
             # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
             # class carries them. The lists are derived from those literals.
-            # today facade enums are StrEnums on generic field names (`group`, `source`, `reason`).
-            "TodayItemGroupEnum": "products.today.backend.facade.enums.ItemGroup",
-            "TodayItemSourceEnum": "products.today.backend.facade.enums.ItemSource",
-            "TodayItemReasonEnum": "products.today.backend.facade.enums.ItemReason",
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",
@@ -1391,10 +1388,8 @@ DESKTOP_GATEWAY_TOKEN_CAP_USD = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD", "2
 DESKTOP_GATEWAY_TOKEN_CAP_USD_OVERRIDES = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
 # A plan, access or membership change outlives a token by at most this long. All mints share the
 # gateway's relay-key mint ceiling, so a shorter TTL supports fewer concurrent sessions; past it the
-# gateway answers 429 and the app stays on the legacy gateway.
+# gateway answers 429 and the mint fails.
 DESKTOP_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DESKTOP_GATEWAY_TOKEN_TTL_SECONDS", 300, type_cast=int)
-# Org-targeted; gates the desktop mint and the sandbox worker's posthog_code mint alike.
-DESKTOP_GATEWAY_ROLLOUT_FLAG = get_from_env("DESKTOP_GATEWAY_ROLLOUT_FLAG", "posthog-desktop-ai-gateway")
 # Per-user mint ceiling because OAuth callers skip DRF's default throttles. At the default TTL each
 # open project on each device mints about 13 times an hour.
 DESKTOP_GATEWAY_MINTS_PER_HOUR = get_from_env("DESKTOP_GATEWAY_MINTS_PER_HOUR", 120, type_cast=int)

@@ -35,3 +35,13 @@ export function traceLookupDateRange(ts: string): { date_from: string; date_to: 
         date_to: dayjs(ts).add(TRACE_LOOKUP_WINDOW_HOURS, 'hour').toISOString(),
     }
 }
+
+// A ts hint (from a shared/cold link) bounds the lookup tightly around the trace. Without one, the
+// lookup sends no date range, so the backend finds the trace by id in all retained spans instead of
+// only in the scene's current window. Guard validity: a hand-edited/corrupted ts would otherwise make
+// dayjs throw on toISOString().
+export function resolveTraceLookupRange(
+    ts: string | null | undefined
+): { date_from: string; date_to: string } | undefined {
+    return ts && dayjs(ts).isValid() ? traceLookupDateRange(ts) : undefined
+}

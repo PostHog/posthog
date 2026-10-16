@@ -52,6 +52,8 @@ _TIMESTAMP_FIELDS = {
     "TrainingEndTime",
     "ProcessingStartTime",
     "ProcessingEndTime",
+    "HyperParameterTuningEndTime",
+    "EndTime",
 }
 
 
@@ -182,7 +184,12 @@ def get_rows(
     client = AwsSagemakerClient(config, api_version)
     try:
         while True:
-            payload: dict[str, Any] = {"MaxResults": MAX_RESULTS, "SortBy": "CreationTime", "SortOrder": "Ascending"}
+            payload: dict[str, Any] = {
+                "MaxResults": MAX_RESULTS,
+                "SortBy": "CreationTime",
+                "SortOrder": "Ascending",
+                **dict(settings.list_filters),
+            }
             if watermark is not None and incremental and settings.incremental:
                 payload["CreationTimeAfter"] = watermark
             if token:
@@ -192,9 +199,7 @@ def get_rows(
             if next_token == token and next_token is not None:
                 raise ValueError("AWS SageMaker returned a repeated pagination token.")
             rows = [
-                normalize_row(
-                    client.request(settings.describe_operation, {settings.name_field: item[settings.name_field]})
-                )
+                normalize_row(client.request(settings.describe_operation, settings.describe_payload(item)))
                 for item in page[settings.result_key]
             ]
             for row in rows:
@@ -224,10 +229,9 @@ def validate_credentials(
     except ValueError as error:
         return False, str(error)
     try:
-        page = client.request(settings.list_operation, {"MaxResults": 1})
+        page = client.request(settings.list_operation, {"MaxResults": 1, **dict(settings.list_filters)})
         if schema_name and page.get(settings.result_key):
-            item = page[settings.result_key][0]
-            client.request(settings.describe_operation, {settings.name_field: item[settings.name_field]})
+            client.request(settings.describe_operation, settings.describe_payload(page[settings.result_key][0]))
     except AwsSagemakerError as error:
         if error.code in {"AccessDenied", "AccessDeniedException"}:
             if schema_name is None:

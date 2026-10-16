@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_securi
     ERROR_MESSAGES,
     SECURITY_HUB_API_VERSION,
     SUBSCRIPTION_MESSAGE,
+    SecurityHubEndpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -47,19 +48,23 @@ class AwsSecurityHubResumeConfig:
     next_token: str | None = None
     updated_after: str | None = None
     finished: bool = False
+    parent_id: str | None = None
 
 
 class AwsSecurityHubError(Exception):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, operation: str = "") -> None:
         self.code = code
         self.message = message
+        self.operation = operation
         super().__init__(f"AWS Security Hub request failed: {code} - {message}")
 
-    def user_message(self, operation: str) -> str:
+    def user_message(self) -> str:
         if "not subscribed" in self.message.lower() or self.code == "SubscriptionRequiredException":
             return SUBSCRIPTION_MESSAGE
         if self.code in ACCESS_DENIED_CODES:
-            return f"Grant securityhub:{operation} to this IAM user or role. Check that Security Hub CSPM is enabled."
+            return (
+                f"Grant securityhub:{self.operation} to this IAM user or role. Check that Security Hub CSPM is enabled."
+            )
         return ERROR_MESSAGES.get(self.code, "AWS Security Hub rejected the request. Check the connection settings.")
 
 
@@ -111,14 +116,22 @@ class AwsSecurityHubClient:
             message = str(error.get("message") or error.get("Message") or response.reason)[:500]
             if "not subscribed" in message.lower():
                 code = "SubscriptionRequiredException"
-            raise AwsSecurityHubError(code, message)
+            raise AwsSecurityHubError(code, message, operation)
         response.raise_for_status()
         return response.json()
 
 
 def normalize_row(item: dict[str, Any]) -> dict[str, Any]:
     row = {_CAMEL_BOUNDARY.sub("_", key).lower(): value for key, value in item.items()}
-    for key in ("created_at", "updated_at", "first_observed_at", "last_observed_at", "processed_at"):
+    for key in (
+        "created_at",
+        "updated_at",
+        "first_observed_at",
+        "last_observed_at",
+        "processed_at",
+        "invited_at",
+        "control_status_updated_at",
+    ):
         if isinstance(row.get(key), str):
             timestamp = dt.datetime.fromisoformat(row[key].replace("Z", "+00:00"))
             row[key] = timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=dt.UTC)
@@ -146,30 +159,71 @@ def get_rows(
         updated_after = (timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=dt.UTC)).isoformat()
     if state:
         updated_after = state.updated_after
-    token = state.next_token if state else None
     client = AwsSecurityHubClient(config, api_version)
     try:
-        while True:
-            payload: dict[str, Any] = {"MaxResults": 100}
-            if endpoint == "findings":
-                payload["SortCriteria"] = [{"Field": "UpdatedAt", "SortOrder": "asc"}]
-                if updated_after:
-                    payload["Filters"] = {"UpdatedAt": [{"Start": updated_after}]}
-            if token:
-                payload["NextToken"] = token
-            result = client.request(endpoint_config.operation, payload)
-            rows = [normalize_row(item) for item in result.get(endpoint_config.result_key) or []]
-            token = result.get("NextToken") or None
-            manager.save_state(
-                AwsSecurityHubResumeConfig(next_token=token, updated_after=updated_after, finished=token is None)
-            )
-            if rows:
-                yield rows
-            manager.safe_point()
-            if token is None:
-                return
+        filters: dict[str, Any] = {}
+        if endpoint == "findings":
+            filters["SortCriteria"] = [{"Field": "UpdatedAt", "SortOrder": "asc"}]
+            if updated_after:
+                filters["Filters"] = {"UpdatedAt": [{"Start": updated_after}]}
+        parent_ids: list[str | None] = [None]
+        parent_field = None
+        if endpoint_config.parent:
+            parent_name, parent_field = endpoint_config.parent
+            found: set[str] = set()
+            for items, _ in _pages(client, ENDPOINTS[parent_name], None, {}):
+                found.update(item[parent_field] for item in items if item.get(parent_field))
+                manager.safe_point()
+            resume_from = state.parent_id if state and state.parent_id else ""
+            # Sorted so a resumed run can skip the parents an earlier attempt finished.
+            parent_ids = [parent_id for parent_id in sorted(found) if parent_id >= resume_from]
+        start_token = state.next_token if state and parent_ids and parent_ids[0] == state.parent_id else None
+        for index, parent_id in enumerate(parent_ids):
+            path_params = {parent_field: parent_id} if parent_field else {}
+            next_parent = parent_ids[index + 1] if index + 1 < len(parent_ids) else None
+            pages = _pages(client, endpoint_config, start_token, {**filters, **path_params})
+            start_token = None
+            for items, token in pages:
+                rows = [normalize_row({**path_params, **item}) for item in items]
+                manager.save_state(
+                    AwsSecurityHubResumeConfig(
+                        next_token=token,
+                        updated_after=updated_after,
+                        finished=token is None and next_parent is None,
+                        parent_id=parent_id if token else next_parent,
+                    )
+                )
+                if rows:
+                    yield rows
+                manager.safe_point()
     finally:
         client.session.close()
+
+
+def _pages(
+    client: AwsSecurityHubClient, endpoint: SecurityHubEndpoint, token: str | None, extra: dict[str, Any]
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    while True:
+        payload: dict[str, Any] = {"MaxResults": endpoint.page_size, **dict(endpoint.params), **extra}
+        if token:
+            payload["NextToken"] = token
+        result = client.request(endpoint.operation, payload)
+        token = result.get("NextToken") or None
+        yield result.get(endpoint.result_key) or [], token
+        if token is None:
+            return
+
+
+def _probe(client: AwsSecurityHubClient, endpoint: SecurityHubEndpoint) -> None:
+    path_params: dict[str, Any] = {}
+    if endpoint.parent:
+        parent_name, parent_field = endpoint.parent
+        parent = ENDPOINTS[parent_name]
+        items = client.request(parent.operation, {"MaxResults": 1}).get(parent.result_key) or []
+        if not items:
+            return
+        path_params[parent_field] = items[0][parent_field]
+    client.request(endpoint.operation, {"MaxResults": 1, **path_params})
 
 
 def validate_credentials(
@@ -183,13 +237,13 @@ def validate_credentials(
     try:
         client = AwsSecurityHubClient(config, api_version)
         try:
-            client.request(endpoint.operation, {"MaxResults": 1})
+            _probe(client, endpoint)
         finally:
             client.session.close()
     except AwsSecurityHubError as error:
         if schema_name is None and error.code in ACCESS_DENIED_CODES and "not subscribed" not in error.message.lower():
             return True, None
-        return False, error.user_message(endpoint.operation)
+        return False, error.user_message()
     except ValueError as error:
         return False, str(error)
     except requests.RequestException:
@@ -208,10 +262,10 @@ def probe_endpoint_permissions(
             if endpoint is None:
                 continue
             try:
-                client.request(endpoint.operation, {"MaxResults": 1})
+                _probe(client, endpoint)
             except AwsSecurityHubError as error:
                 if error.code in ERROR_MESSAGES:
-                    permissions[name] = error.user_message(endpoint.operation)
+                    permissions[name] = error.user_message()
             except requests.RequestException:
                 continue
     finally:

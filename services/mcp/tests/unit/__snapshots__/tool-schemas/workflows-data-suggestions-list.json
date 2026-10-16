@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "refresh": {
+            "default": false,
+            "description": "Make new suggestions even when the cached ones are still valid.",
+            "type": "boolean"
+        }
+    },
+    "type": "object"
+}

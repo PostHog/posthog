@@ -5,55 +5,21 @@ import {
     REPORT_DISCUSSION_STATE_INSTRUCTIONS,
 } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
-import type { BriefingApi } from 'products/today/frontend/generated/api.schemas'
 
-import { isExternalHref, itemHref } from './todayBriefingItems'
-
-export const WALK_THROUGH_QUESTION = 'Walk me through my Today briefing and tell me what to do first.'
-
-/** What the Today page showed when the person asked, so PostHog AI can read the same briefing and reports. */
+/** What the Today page showed when the person asked, so PostHog AI can read the same reports. */
 export type TodayAskContext =
-    | { kind: 'briefing'; briefing: BriefingApi }
     | { kind: 'reports'; reports: SignalReport[] }
     /** `canAct` comes from the report's current server state. It is false when that state is unknown. */
     | { kind: 'report'; report: SignalReport; canAct: boolean }
     | { kind: 'none' }
 
-// Briefing item URLs from the API already start with `/project/<id>`, but Today's own report pages do not.
-function absoluteHref(href: string): string {
-    if (isExternalHref(href)) {
-        return href
-    }
-    return urls.absolute(href.startsWith('/project/') ? href : urls.currentProject(href))
-}
-
 function markdownLink(text: string, href: string): string {
-    return `[${text.replace(/[[\]]/g, '\\$&')}](${absoluteHref(href)})`
-}
-
-function briefingContext(briefing: BriefingApi): string[] {
-    const items = briefing.items.map(
-        (item) => `${item.rank}. ${markdownLink(item.label, itemHref(item))} (${item.signal}; state: ${item.state})`
-    )
-    return [
-        `- Briefing id: \`${briefing.id}\`, for ${briefing.local_day}`,
-        ...(items.length ? ['- Items, most urgent first:', ...items.map((line) => `  ${line}`)] : []),
-        ...(briefing.more_reports_count > 0
-            ? [
-                  `- ${briefing.more_reports_count} more open reports for me are in the ${markdownLink('Inbox', urls.inbox())}.`,
-              ]
-            : []),
-        '',
-        `Use the \`today-briefing-get\` tool to read this briefing and check that its id is \`${briefing.id}\`. ` +
-            'If the id is different, a newer briefing replaced it: tell me, and use the newer one. ' +
-            'Use `today-candidates-list` for the facts behind each item. A report link ends with the report id: use it ' +
-            'with `inbox-reports-retrieve` to read the report in full before you follow up on it.',
-    ]
+    return `[${text.replace(/[[\]]/g, '\\$&')}](${urls.absolute(urls.currentProject(href))})`
 }
 
 function reportsContext(reports: SignalReport[]): string[] {
     return [
-        '- My briefing is not written yet. The page shows these reports, most urgent first:',
+        '- The page shows these reports, most urgent first:',
         ...reports.map(
             (report, index) =>
                 `  ${index + 1}. ${markdownLink(report.title ?? 'Untitled report', urls.todayReport(report.id))}` +
@@ -96,8 +62,6 @@ function contextHeading(context: Exclude<TodayAskContext, { kind: 'none' }>): st
 
 function contextLines(context: Exclude<TodayAskContext, { kind: 'none' }>): string[] {
     switch (context.kind) {
-        case 'briefing':
-            return briefingContext(context.briefing)
         case 'reports':
             return reportsContext(context.reports)
         case 'report':
@@ -106,7 +70,7 @@ function contextLines(context: Exclude<TodayAskContext, { kind: 'none' }>): stri
 }
 
 /**
- * The question with the Today page's context under it, as Markdown. PostHog AI reads the briefing and reports
+ * The question with the Today page's context under it, as Markdown. PostHog AI reads the reports
  * through the MCP tools the context names, so the context holds ids rather than the full report text.
  *
  * The context goes in a `<posthog_context>` block. The chat hides that block from the person's message
