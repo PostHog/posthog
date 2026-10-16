@@ -1,3 +1,4 @@
+import base64
 import dataclasses
 from dataclasses import field
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
@@ -32,6 +33,19 @@ def parse_direct_source_config(source_impl: _ParseableSource[_ConfigT_co], sourc
         return source_impl.parse_config(source.job_inputs or {})
     except (TypeError, ValueError) as error:
         raise ExposedHogQLError("This source is missing its connection configuration.") from error
+
+
+def json_safe_direct_value(value: Any) -> Any:
+    """Binary column values arrive as `bytes` or `bytearray`, which the response serializer rejects.
+    Base64 is the encoding the warehouses' own JSON output uses. Lists and dicts are nested
+    fields, which can carry binary values inside."""
+    if isinstance(value, bytes | bytearray):
+        return base64.b64encode(value).decode("ascii")
+    if isinstance(value, list):
+        return [json_safe_direct_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: json_safe_direct_value(item) for key, item in value.items()}
+    return value
 
 
 @frozen
