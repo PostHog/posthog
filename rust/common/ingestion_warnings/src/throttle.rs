@@ -55,12 +55,12 @@ impl TypeBudget {
         }
     }
 
-    fn has_permit(&self, warning: crate::registry::WarningType) -> bool {
-        self.with_permits(warning, |permits| *permits >= 1.0)
+    fn has_permit(&self, warning: crate::registry::WarningType, now: Instant) -> bool {
+        self.with_permits(warning, now, |permits| *permits >= 1.0)
     }
 
-    fn take_permit(&self, warning: crate::registry::WarningType) -> bool {
-        self.with_permits(warning, |permits| {
+    fn take_permit(&self, warning: crate::registry::WarningType, now: Instant) -> bool {
+        self.with_permits(warning, now, |permits| {
             if *permits < 1.0 {
                 return false;
             }
@@ -72,9 +72,9 @@ impl TypeBudget {
     fn with_permits<T>(
         &self,
         warning: crate::registry::WarningType,
+        now: Instant,
         f: impl FnOnce(&mut f64) -> T,
     ) -> T {
-        let now = Instant::now();
         let mut buckets = self.buckets.lock().unwrap_or_else(PoisonError::into_inner);
         let bucket = buckets.entry(warning).or_insert(Bucket {
             permits: self.burst,
@@ -157,6 +157,17 @@ impl WarningThrottle {
     /// Anything but [`ThrottleDecision::Emit`] means the caller should drop the
     /// warning.
     pub fn check(&self, token: &str, warning: crate::registry::WarningType) -> ThrottleDecision {
+        self.check_at(token, warning, Instant::now())
+    }
+
+    /// [`Self::check`] as of `now`, so a test can advance the type budget
+    /// without sleeping. The per-key limiter keeps its own clock.
+    pub fn check_at(
+        &self,
+        token: &str,
+        warning: crate::registry::WarningType,
+        now: Instant,
+    ) -> ThrottleDecision {
         // Governor's keyed limiter inserts on lookup, so the cap must gate
         // every check — including keys already tracked — to stay O(1).
         if self.limiter.len() >= self.max_tracked_keys {
@@ -169,7 +180,7 @@ impl WarningThrottle {
         if self
             .type_budget
             .as_ref()
-            .is_some_and(|budget| !budget.has_permit(warning))
+            .is_some_and(|budget| !budget.has_permit(warning, now))
         {
             return ThrottleDecision::TypeBudgetExhausted;
         }
@@ -181,7 +192,9 @@ impl WarningThrottle {
             return ThrottleDecision::Throttled;
         }
         match &self.type_budget {
-            Some(budget) if !budget.take_permit(warning) => ThrottleDecision::TypeBudgetExhausted,
+            Some(budget) if !budget.take_permit(warning, now) => {
+                ThrottleDecision::TypeBudgetExhausted
+            }
             _ => ThrottleDecision::Emit,
         }
     }
@@ -350,9 +363,9 @@ mod tests {
             throttle.check("tok_b", WarningType::InvalidOptions),
             ThrottleDecision::TypeBudgetExhausted
         );
-        std::thread::sleep(Duration::from_millis(80));
+        let later = Instant::now() + Duration::from_millis(80);
         assert_eq!(
-            throttle.check("tok_c", WarningType::InvalidOptions),
+            throttle.check_at("tok_c", WarningType::InvalidOptions, later),
             ThrottleDecision::Emit
         );
     }

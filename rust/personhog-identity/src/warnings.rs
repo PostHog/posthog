@@ -51,7 +51,6 @@ const THROTTLE_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 /// The distinct id column's own limit: a legal id is never cut, and an
 /// oversized one is cut before it is copied into details.
 const MAX_DETAIL_ID_CHARS: usize = 400;
-const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 const SHUTDOWN_FLUSH: Duration = Duration::from_secs(2);
 
 fn bounded(id: &str) -> &str {
@@ -305,13 +304,13 @@ pub fn install(settings: &WarningsSettings, handle: Option<lifecycle::Handle>) -
         throttle(settings),
     ));
 
+    // Liveness comes from the producer's stats callback alone, so a wedged
+    // poll thread trips the deadline; a heartbeat here would mask it.
     let background = emitter.clone();
     tokio::spawn(async move {
-        let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
         let mut sweep = tokio::time::interval(THROTTLE_SWEEP_INTERVAL);
         loop {
             tokio::select! {
-                _ = heartbeat.tick() => handle.report_healthy(),
                 _ = sweep.tick() => background.sweep_throttle(),
                 _ = handle.shutdown_recv() => break,
             }
@@ -328,6 +327,8 @@ pub fn install(settings: &WarningsSettings, handle: Option<lifecycle::Handle>) -
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use common_ingestion_warnings::row::throttle_key;
     use common_ingestion_warnings::test_support::CollectingRowEmitter;
     use common_ingestion_warnings::throttle::ThrottleDecision;
@@ -653,9 +654,9 @@ mod tests {
             throttle.check(&throttle_key(7, "c"), warning),
             ThrottleDecision::TypeBudgetExhausted
         );
-        std::thread::sleep(Duration::from_millis(600));
+        let later = Instant::now() + Duration::from_millis(600);
         assert_eq!(
-            throttle.check(&throttle_key(7, "c"), warning),
+            throttle.check_at(&throttle_key(7, "c"), warning, later),
             ThrottleDecision::Emit
         );
         assert_eq!(
@@ -679,10 +680,10 @@ mod tests {
             throttle.check(&throttle_key(7, "over"), warning),
             ThrottleDecision::TypeBudgetExhausted
         );
-        std::thread::sleep(Duration::from_millis(100));
         // A budget that refilled one permit a second would still refuse.
+        let later = Instant::now() + Duration::from_millis(100);
         assert_eq!(
-            throttle.check(&throttle_key(7, "later"), warning),
+            throttle.check_at(&throttle_key(7, "later"), warning, later),
             ThrottleDecision::Emit
         );
     }
