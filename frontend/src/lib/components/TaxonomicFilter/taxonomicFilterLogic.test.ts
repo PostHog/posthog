@@ -1049,6 +1049,46 @@ describe('taxonomicFilterLogic', () => {
 
     describe('SuggestedFilters presence', () => {
         it.each([
+            { restriction: 'none', props: {}, expected: true },
+            {
+                restriction: 'exclusion',
+                props: { excludedProperties: { [TaxonomicFilterGroupType.EventProperties]: ['$pathname'] } },
+                expected: false,
+            },
+            {
+                restriction: 'allowlist mismatch',
+                props: { propertyAllowList: { [TaxonomicFilterGroupType.EventProperties]: ['$host'] } },
+                expected: false,
+            },
+            {
+                restriction: 'empty allowlist',
+                props: { propertyAllowList: { [TaxonomicFilterGroupType.EventProperties]: [] } },
+                expected: false,
+            },
+            {
+                restriction: 'allowlist match',
+                props: { propertyAllowList: { [TaxonomicFilterGroupType.EventProperties]: ['$pathname'] } },
+                expected: true,
+            },
+            { restriction: 'numeric properties only', props: { showNumericalPropsOnly: true }, expected: false },
+        ])('offers a primary property in Suggested with $restriction', ({ restriction, props, expected }) => {
+            const testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: `testPrimary-${restriction}`,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                eventNames: ['$pageview'],
+                ...props,
+            })
+            testLogic.mount()
+
+            const suggested = testLogic.values.taxonomicGroups.find(
+                (group) => group.type === TaxonomicFilterGroupType.SuggestedFilters
+            )
+            expect(suggested?.options?.some((option) => option.name === '$pathname')).toBe(expected)
+
+            testLogic.unmount()
+        })
+
+        it.each([
             {
                 description: 'keeps SuggestedFilters when explicitly listed in a multi-group picker',
                 groupTypes: [
@@ -1066,15 +1106,15 @@ describe('taxonomicFilterLogic', () => {
                 expectDefault: true,
             },
             {
-                description: 'does not add SuggestedFilters for a single substantive group',
+                description: 'adds SuggestedFilters after a single substantive group without making it the default',
                 groupTypes: [TaxonomicFilterGroupType.Events],
-                expectPresent: false,
+                expectPresent: true,
                 expectDefault: false,
             },
             {
-                description: 'strips explicitly listed SuggestedFilters for a single substantive group',
+                description: 'moves explicitly listed SuggestedFilters after a single substantive group',
                 groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
-                expectPresent: false,
+                expectPresent: true,
                 expectDefault: false,
             },
         ])('$description', ({ groupTypes, expectPresent, expectDefault }) => {
@@ -1201,19 +1241,21 @@ describe('taxonomicFilterLogic', () => {
                 ],
             },
             {
-                description: 'single substantive group leads, with Recent/Pinned after it (no All)',
+                description: 'single substantive group leads, with Suggested then Recent/Pinned after it',
                 groupTypes: [TaxonomicFilterGroupType.Events],
                 expected: [
                     TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.RecentFilters,
                     TaxonomicFilterGroupType.PinnedFilters,
                 ],
             },
             {
-                description: 'single substantive group drops an explicitly-prepended All and still leads',
+                description: 'single substantive group moves an explicitly-prepended All after it',
                 groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
                 expected: [
                     TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.RecentFilters,
                     TaxonomicFilterGroupType.PinnedFilters,
                 ],

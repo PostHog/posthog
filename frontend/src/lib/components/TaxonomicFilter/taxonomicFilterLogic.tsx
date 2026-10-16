@@ -575,6 +575,7 @@ export interface taxonomicFilterLogicValues {
         excludedProperties: TaxonomicFilterGroupValueMap
         includeHiddenEvents: boolean | undefined
         propertyAllowList: TaxonomicFilterGroupValueMap | undefined
+        showNumericalPropsOnly: boolean | undefined
     }
     redistributedTopMatchItems: TopMatchItem[]
     revealBarrierOpen: boolean
@@ -698,11 +699,13 @@ export interface taxonomicFilterLogicMeta {
         propertyFilters: (
             excludedProperties: TaxonomicFilterGroupValueMap,
             propertyAllowList: TaxonomicFilterGroupValueMap | undefined,
-            arg: any
+            arg: any,
+            arg2: any
         ) => {
             excludedProperties: TaxonomicFilterGroupValueMap
             includeHiddenEvents: boolean | undefined
             propertyAllowList: TaxonomicFilterGroupValueMap | undefined
+            showNumericalPropsOnly: boolean | undefined
         }
         allowNonCapturedEvents: (arg: any) => boolean
         hideBehavioralCohorts: (arg: any) => boolean
@@ -1087,14 +1090,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         // Combined so `taxonomicGroups` stays under kea's 16-dep tuple type limit.
         propertyFilters: [
-            (s) => [s.excludedProperties, s.propertyAllowList, (_, props) => props.includeHiddenEvents],
+            (s) => [
+                s.excludedProperties,
+                s.propertyAllowList,
+                (_, props) => props.includeHiddenEvents,
+                (_, props) => props.showNumericalPropsOnly,
+            ],
             (
                 excludedProperties: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap,
                 propertyAllowList:
                     | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
                     | undefined,
-                includeHiddenEvents: boolean | undefined
-            ) => ({ excludedProperties, propertyAllowList, includeHiddenEvents }),
+                includeHiddenEvents: boolean | undefined,
+                showNumericalPropsOnly: boolean | undefined
+            ) => ({ excludedProperties, propertyAllowList, includeHiddenEvents, showNumericalPropsOnly }),
             { resultEqualityCheck: objectsEqual },
         ],
         allowNonCapturedEvents: [
@@ -1182,6 +1191,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
                         | undefined
                     includeHiddenEvents: boolean | undefined
+                    showNumericalPropsOnly: boolean | undefined
                 },
                 {
                     event: eventMetadataPropertyDefinitions,
@@ -1208,7 +1218,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const { eventNames, primaryPropertiesForContextEvents, mcpExcludedEventProperties } =
                     eventNamesWithPrimaryProperties
                 const { id: teamId } = currentTeam
-                const { excludedProperties, propertyAllowList, includeHiddenEvents } = propertyFilters
+                const { excludedProperties, propertyAllowList, includeHiddenEvents, showNumericalPropsOnly } =
+                    propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
                     {
                         name: 'Events',
@@ -2208,10 +2219,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             // Promoted properties for any event in context come first — if a team
                             // has marked a property as the one that summarises this event, it's
                             // the property they almost certainly want to filter or break down by.
-                            ...primaryPropertiesForContextEvents.map((name) => ({
-                                name,
-                                group: TaxonomicFilterGroupType.EventProperties,
-                            })),
+                            ...primaryPropertiesForContextEvents
+                                .filter(
+                                    (name) =>
+                                        !showNumericalPropsOnly &&
+                                        !excludedProperties[TaxonomicFilterGroupType.EventProperties]?.includes(name) &&
+                                        (propertyAllowList?.[TaxonomicFilterGroupType.EventProperties] === undefined ||
+                                            propertyAllowList[TaxonomicFilterGroupType.EventProperties]?.includes(name))
+                                )
+                                .map((name) => ({
+                                    name,
+                                    group: TaxonomicFilterGroupType.EventProperties,
+                                })),
                             ...(eventNames.includes('$autocapture')
                                 ? (['text', 'selector'] as const)
                                       .filter(

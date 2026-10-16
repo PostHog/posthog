@@ -167,6 +167,7 @@ export interface BuildTaxonomicGroupsContext {
     propertyFilters: {
         excludedProperties: Partial<Record<TaxonomicFilterGroupType, (string | number | null)[]>>
         propertyAllowList?: Partial<Record<TaxonomicFilterGroupType, (string | number | null)[]>>
+        showNumericalPropsOnly?: boolean
     }
     eventMetadataPropertyDefinitions: PropertyDefinition[]
     personMetadataPropertyDefinitions: PropertyDefinition[]
@@ -208,7 +209,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         includeHiddenEvents,
     } = ctx
     const { id: teamId } = currentTeam
-    const { excludedProperties, propertyAllowList } = propertyFilters
+    const { excludedProperties, propertyAllowList, showNumericalPropsOnly } = propertyFilters
     // Opt the cohort picker into the trimmed `?basic=true` payload (drops the
     // query/groups/last_error_message/experiment_set fields the picker never reads;
     // `filters` is kept). Gated by a flag so the smaller response shape can be rolled
@@ -1165,10 +1166,18 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 // Promoted properties for any event in context come first — if a team
                 // has marked a property as the one that summarises this event, it's
                 // the property they almost certainly want to filter or break down by.
-                ...promotedPropertiesForContextEvents.map((name) => ({
-                    name,
-                    group: TaxonomicFilterGroupType.EventProperties,
-                })),
+                ...promotedPropertiesForContextEvents
+                    .filter(
+                        (name) =>
+                            !showNumericalPropsOnly &&
+                            !excludedProperties[TaxonomicFilterGroupType.EventProperties]?.includes(name) &&
+                            (propertyAllowList?.[TaxonomicFilterGroupType.EventProperties] === undefined ||
+                                propertyAllowList[TaxonomicFilterGroupType.EventProperties]?.includes(name))
+                    )
+                    .map((name) => ({
+                        name,
+                        group: TaxonomicFilterGroupType.EventProperties,
+                    })),
                 ...(eventNames.includes('$autocapture')
                     ? (['text', 'selector'] as const)
                           .filter((name) => !excludedProperties[TaxonomicFilterGroupType.Elements]?.includes(name))
