@@ -117,6 +117,13 @@ class Command(BaseCommand):
         repair.add_argument("--verb", choices=sorted(VERBS), required=True, help="The repair to run.")
         repair.add_argument("--group", action="append", default=[], help="Only rows of this group. Repeatable.")
         repair.add_argument("--key", action="append", default=[], help="Only rows with this key. Repeatable.")
+        repair.add_argument(
+            "--pair",
+            action="append",
+            default=[],
+            metavar="OLD>NEW",
+            help="fold or merge: repair an ambiguous old person into this survivor. Repeatable.",
+        )
         repair.add_argument("--limit", type=_positive_int, default=None, help="At most this many rows, for a canary.")
         repair.add_argument("--apply", action="store_true", help="Write. Without it the repair only reports.")
         repair.add_argument(
@@ -265,6 +272,7 @@ class Command(BaseCommand):
             limit=options["limit"],
             max_calls_per_second=options["max_calls_per_second"],
             force=options["force"],
+            pairs=options["pair"],
             log=self._log,
         )
         outcomes = ", ".join(f"{outcome}={n}" for outcome, n in sorted(counts.items())) or "nothing to do"

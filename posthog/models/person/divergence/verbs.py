@@ -36,6 +36,7 @@ DONE_OUTCOMES = frozenset(
         "already_restored",
         "moved",
         "already_moved",
+        "folded",
         "merged",
     }
 )
@@ -107,17 +108,31 @@ def load_rows(
     keys: Sequence[str] = (),
     limit: int | None = None,
     skip: Iterable[RowKey] = (),
+    pairs: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
-    """The report rows that name `verb`, optionally only those in `groups` or with `keys`, at most `limit`."""
+    """The report rows that name `verb`, optionally only those in `groups` or with `keys`, at most `limit`.
+
+    Each of `pairs` ("A>B") names an old person A and the live person B to fold or merge it into, which the scan
+    leaves ambiguous when A's distinct ids went to more than one person. It selects A's person row, A's ghost
+    mappings and the mappings that moved from A to B, whatever their verb, as one group of `verb`.
+    """
     path = scan_dir / team_scan.REPORT_FILE
     if not path.exists():
         raise VerbError(f"{path} does not exist; finalize the scan first")
     wanted_groups, wanted_keys, skipped = set(groups), set(keys), set(skip)
+    chosen = _parse_pairs(verb, pairs)
     rows: list[dict[str, Any]] = []
     with path.open() as handle:
         for line in handle:
             row = json.loads(line)
-            if row["verb"] != verb or RowKey(kind=row["kind"], key=row["key"]) in skipped:
+            if RowKey(kind=row["kind"], key=row["key"]) in skipped:
+                continue
+            if chosen:
+                group = _pair_group(row, chosen, verb)
+                if group is None:
+                    continue
+                row = {**row, "verb": verb, "group": group}
+            elif row["verb"] != verb:
                 continue
             if wanted_groups and row["group"] not in wanted_groups:
                 continue
@@ -127,6 +142,31 @@ def load_rows(
             if limit is not None and len(rows) >= limit:
                 break
     return rows
+
+
+def _parse_pairs(verb: str, pairs: Sequence[str]) -> dict[str, str]:
+    if pairs and verb not in ("fold", "merge"):
+        raise VerbError("--pair applies to fold and merge only")
+    chosen: dict[str, str] = {}
+    for pair in pairs:
+        old, sep, new = pair.partition(">")
+        if not sep or not old or not new or old == new:
+            raise VerbError(f"--pair {pair!r} must be OLD_UUID>NEW_UUID")
+        if old in chosen:
+            raise VerbError(f"--pair names {old} twice; fold or merge a person into one survivor")
+        chosen[old] = new
+    return chosen
+
+
+def _pair_group(row: dict[str, Any], chosen: dict[str, str], verb: str) -> str | None:
+    if row["kind"] == "person":
+        old = row["key"] if row["key"] in chosen else None
+    else:
+        ch_owner = ((row.get("evidence") or {}).get("ch") or {}).get("winner_person_uuid")
+        pg_owner = ((row.get("evidence") or {}).get("pg") or {}).get("person_uuid")
+        moved = row["flavor"] == "diverged" and ch_owner in chosen and pg_owner == chosen[ch_owner]
+        old = ch_owner if moved or (row["flavor"] == "ghost" and ch_owner in chosen) else None
+    return None if old is None else f"{verb}:{old}>{chosen[old]}"
 
 
 def done_keys(actions_path: Path) -> set[RowKey]:
@@ -152,6 +192,7 @@ def run_verb(
     limit: int | None = None,
     max_calls_per_second: float | None = None,
     force: bool = False,
+    pairs: Sequence[str] = (),
     log: Callable[[str], None] = lambda _: None,
 ) -> Counter[str]:
     """Run one verb over the scan's report rows and append one action per key to `actions_path`.
@@ -165,7 +206,7 @@ def run_verb(
     plan = team_scan.load_plan(scan_dir)
     if not plan.team_exists:
         raise VerbError(f"team {plan.team_id} does not exist; there is nothing to repair")
-    rows = load_rows(scan_dir, verb, groups=groups, keys=keys, limit=limit, skip=done_keys(actions_path))
+    rows = load_rows(scan_dir, verb, groups=groups, keys=keys, limit=limit, skip=done_keys(actions_path), pairs=pairs)
     counts: Counter[str] = Counter()
     with actions_path.open("a") as out:
 
@@ -378,5 +419,6 @@ VERBS: dict[str, VerbFn] = {
     "merge_stale": merge_stale,
     "bury": bury,
     "restore": restore_verbs.restore,
+    "fold": restore_verbs.fold,
     "merge": restore_verbs.merge,
 }
