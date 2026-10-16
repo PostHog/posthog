@@ -42,7 +42,7 @@ export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps
                     action={
                         <WaysToUseSurfaceLink
                             surface="slack"
-                            to={urls.settings('environment-integrations', 'integration-slack')}
+                            to={urls.settings('environment-integrations')}
                             onClick={onSurfaceLinkClick}
                         >
                             Connect Slack
