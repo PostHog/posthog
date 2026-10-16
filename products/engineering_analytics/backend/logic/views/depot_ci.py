@@ -116,17 +116,25 @@ def _conclusion(status: str) -> str:
 def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
     # Depot reports no branch, so a PR run takes its head branch from the PR snapshot, and branch
     # filters then match it like a GitHub run of the same PR.
+    # Depot reports no actor either, so the run takes the PR's author. A merge-queue gate run's PR is
+    # the gate PR the queue bot opened, so its author is the identity `logic.merge_queue` requires
+    # before it re-keys the run to the PR being landed.
     pr_number = "ifNull(toInt(extract(a.ref, '^refs/pull/([0-9]+)/')), 0)"
     if pull_requests_table:
         head_branch = "nullIf(pr.head_branch, '')"
+        actor = "nullIf(pr.author, '')"
         branch_join = f"""
             LEFT JOIN (
-                SELECT number, any(JSONExtractString(ifNull(head, '{{}}'), 'ref')) AS head_branch
+                SELECT
+                    number,
+                    any(JSONExtractString(ifNull(head, '{{}}'), 'ref')) AS head_branch,
+                    any(user) AS author
                 FROM {pull_requests_table}
                 GROUP BY number
             ) AS pr ON {pr_number} = pr.number"""
     else:
         head_branch = "NULL"
+        actor = "NULL"
         branch_join = ""
     # A push run's id carries a prefix outside the alphabet, and such a run holds no workflows.
     return f"""(
@@ -136,6 +144,7 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
             {pr_number} AS pr_number,
             coalesce(nullIf(extract(ifNull(a.ref, ''), '^refs/heads/(.+)$'), ''), {head_branch}) AS head_branch,
             a.repo AS repo,
+            {actor} AS actor,
             coalesce(nullIf(a.head_sha, ''), a.sha) AS head_sha,
             a.run_id AS native_run_id,
             a.workflow_id AS native_workflow_run_id,
@@ -181,7 +190,7 @@ def _runs(attempts: str) -> str:
             ) AS pull_requests,
             concat('{{"id":{_REPOSITORY_ID},"full_name":"', any(repo), '"}}') AS repository,
             NULL AS head_commit,
-            NULL AS actor,
+            any(actor) AS actor,
             {OPTIONAL_WORKFLOW_RUNS_COLUMNS["workflow_id"]} AS workflow_id,
             {OPTIONAL_WORKFLOW_RUNS_COLUMNS["event"]} AS event,
             'depot_ci' AS ci_engine,
