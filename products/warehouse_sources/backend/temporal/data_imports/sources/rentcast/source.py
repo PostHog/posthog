@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.r
 from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MARKETS_ENDPOINT,
     RENTCAST_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -116,7 +117,17 @@ To sync the **markets** table, enter the ZIP codes you want market statistics fo
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — RentCast's list endpoints expose no reliably
         # ordered server-side timestamp filter, so there is no incremental cursor to advance.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # `markets` needs ZIP codes to sync, so it stays off by default until some are configured.
+        try:
+            has_zip_codes = bool(parse_zip_codes(config.zip_codes))
+        except ValueError:
+            has_zip_codes = False
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default={MARKETS_ENDPOINT: has_zip_codes},
+        )
 
     def validate_credentials(
         self,

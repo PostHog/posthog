@@ -44,12 +44,14 @@ MISSING_ZIP_CODES_ERROR = "The RentCast markets table needs at least one ZIP cod
 INVALID_ZIP_CODES_ERROR = "RentCast ZIP codes must be 5-digit US ZIP codes"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class RentCastResumeConfig:
     # Offset of the next page to fetch. Offset pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `id`.
-    # For `markets`, the position of the next ZIP code in the configured list.
     offset: int = 0
+    # For `markets`, the next ZIP code to fetch. Tracked by value rather than position so that editing
+    # the configured ZIP code list between runs never skips or repeats ZIP codes.
+    next_zip_code: Optional[str] = None
 
 
 def parse_zip_codes(value: Optional[str]) -> list[str]:
@@ -76,8 +78,8 @@ def _market_pages(
     start = 0
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
-            start = resume.offset
+        if resume is not None and resume.next_zip_code in zip_codes:
+            start = zip_codes.index(resume.next_zip_code)
 
     for index in range(start, len(zip_codes)):
         rows = [
@@ -91,7 +93,7 @@ def _market_pages(
             for row in page
         ]
         if index + 1 < len(zip_codes):
-            resumable_source_manager.save_state(RentCastResumeConfig(offset=index + 1))
+            resumable_source_manager.save_state(RentCastResumeConfig(next_zip_code=zip_codes[index + 1]))
         if rows:
             yield rows
         resumable_source_manager.safe_point()

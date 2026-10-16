@@ -88,16 +88,35 @@ class TestMarkets:
         assert result.params("zipCode") == ["10001", "20002", "30003"]
         assert [row["id"] for row in result.rows] == ["10001", "30003"]
         assert result.rows[0]["rentalData"] == {"averageRent": 1850, "history": {}}
-        assert result.saved_states == [RentCastResumeConfig(offset=1), RentCastResumeConfig(offset=2)]
-        assert result.committed_states[-1] == RentCastResumeConfig(offset=2)
+        assert result.saved_states == [
+            RentCastResumeConfig(next_zip_code="20002"),
+            RentCastResumeConfig(next_zip_code="30003"),
+        ]
+        assert result.committed_states[-1] == RentCastResumeConfig(next_zip_code="30003")
 
     def test_resumes_from_saved_zip_code_position(self) -> None:
         result = _driver(zip_codes="10001,20002,30003").run(
-            "markets", [_page(_market("30003"))], resume_state=RentCastResumeConfig(offset=2)
+            "markets", [_page(_market("30003"))], resume_state=RentCastResumeConfig(next_zip_code="30003")
         )
 
         assert result.params("zipCode") == ["30003"]
         assert [row["id"] for row in result.rows] == ["30003"]
+
+    def test_resume_follows_the_zip_code_when_the_list_was_edited(self) -> None:
+        result = _driver(zip_codes="40004,30003").run(
+            "markets", [_page(_market("30003"))], resume_state=RentCastResumeConfig(next_zip_code="30003")
+        )
+
+        assert result.params("zipCode") == ["30003"]
+
+    def test_resume_restarts_when_the_saved_zip_code_was_removed(self) -> None:
+        result = _driver(zip_codes="10001,20002").run(
+            "markets",
+            [_page(_market("10001")), _page(_market("20002"))],
+            resume_state=RentCastResumeConfig(next_zip_code="30003"),
+        )
+
+        assert result.params("zipCode") == ["10001", "20002"]
 
     @parameterized.expand(
         [
