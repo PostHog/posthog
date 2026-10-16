@@ -370,7 +370,7 @@ class TestCertificationAPI(APIBaseTest):
             team=self.team, table=_table(self.team, "proposed_source"), status=CertificationStatus.PROPOSED
         )
 
-        response = self.client.get(self.url, {"status": "certified", "limit": 1})
+        response = self.client.get(self.url, {"status": "certified", "limit": "1"})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["count"] == 1

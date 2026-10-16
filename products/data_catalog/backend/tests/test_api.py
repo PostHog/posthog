@@ -63,7 +63,7 @@ class TestMetricAPI(APIBaseTest):
             Metric.objects.for_team(self.team.id).create(
                 team=self.team, name=name, status=metric_status, definition=definition
             )
-        response = self.client.get(self.url, {"status": "approved", "definition_kind": "HogQLQuery", "limit": 1})
+        response = self.client.get(self.url, {"status": "approved", "definition_kind": "HogQLQuery", "limit": "1"})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["count"] == 1

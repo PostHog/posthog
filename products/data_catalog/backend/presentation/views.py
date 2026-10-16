@@ -324,6 +324,20 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(envelope)
 
 
+class CertificationSearchFilter(CatalogSearchFilter):
+    def get_schema_operation_parameters(self, view: APIView) -> list[dict[str, object]]:
+        return [
+            *super().get_schema_operation_parameters(view),
+            {
+                "name": "status",
+                "required": False,
+                "in": "query",
+                "description": "Only certifications with this review status.",
+                "schema": {"type": "string"},
+            },
+        ]
+
+
 class CertificationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -335,7 +349,7 @@ class CertificationViewSet(
     """Trust marks on warehouse tables and views. Reads exclude soft-deleted targets."""
 
     scope_object = "data_catalog"
-    filter_backends = [CatalogSearchFilter]
+    filter_backends = [CertificationSearchFilter]
     search_fields = ["table__name", "saved_query__name", "notes"]
     serializer_class = CertificationSerializer
     queryset = TableCertification.objects.unscoped()
@@ -345,14 +359,6 @@ class CertificationViewSet(
         if status_filter := self.request.query_params.get("status"):
             certifications = certifications.filter(status=status_filter)
         return certifications
-
-    @extend_schema(
-        parameters=[
-            OpenApiParameter("status", OpenApiTypes.STR, description="Only certifications with this review status.")
-        ]
-    )
-    def list(self, request: Request, *args, **kwargs) -> Response:
-        return super().list(request, *args, **kwargs)
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
         action = getattr(view, "action", None)
