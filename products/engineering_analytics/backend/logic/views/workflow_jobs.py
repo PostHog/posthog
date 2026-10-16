@@ -90,6 +90,34 @@ class JobsTable:
         return cls(rows=table, duplicates=table)
 
 
+COLUMNS = (
+    "id",
+    "run_id",
+    "run_attempt",
+    "name",
+    "workflow_name",
+    "head_sha",
+    "head_branch",
+    "status",
+    "conclusion",
+    "labels",
+    "runner_name",
+    "created_at",
+    "created_at_raw",
+    "started_at",
+    "completed_at",
+    "duration_seconds",
+    "queue_seconds",
+    "provisioning_seconds",
+    "is_rerun_copy",
+    "ci_engine",
+    "native_run_id",
+    "native_workflow_run_id",
+    "native_job_id",
+    "native_attempt_id",
+)
+
+
 def build_query(table: JobsTable, *, created_floor: bool = False, include_steps: bool = False) -> str:
     """``include_steps`` appends the raw ``steps`` JSON as the last column. It is the widest column of
     the table, so only a read bounded to one run asks for it."""
@@ -149,11 +177,11 @@ def build_query(table: JobsTable, *, created_floor: bool = False, include_steps:
                 ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id,
                 run_id,
                 run_attempt,
-                name,
+                ifNull(name, '') AS name,
                 ifNull(workflow_name, '') AS workflow_name,
                 ifNull(head_sha, '') AS head_sha,
                 ifNull(head_branch, '') AS head_branch,
-                status,
+                ifNull(status, '') AS status,
                 conclusion,
                 ifNull(labels, '[]') AS labels,
                 ifNull(runner_name, '') AS runner_name,
