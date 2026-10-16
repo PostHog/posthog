@@ -62,6 +62,7 @@ describe("DesktopAccessScreen", () => {
   it.each([
     ["startup_plan", "Organizations in the Startup or YC program"],
     ["prepaid_credits", "sales@posthog.com"],
+    [null, "hasn't been invited yet"],
   ] as const)("renders the %s reason", (reason, expectedCopy) => {
     renderScreen({ projectId: 1, status: "blocked", reason });
 
