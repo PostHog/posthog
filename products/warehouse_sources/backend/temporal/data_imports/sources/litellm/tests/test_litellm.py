@@ -116,6 +116,22 @@ class TestSpendLogs:
         ][:expected_requests]
         assert [row["request_id"] for row in result.rows] == (["late"] if next_log else [])
 
+    def test_next_log_before_the_empty_window_still_moves_the_walk_forward(self) -> None:
+        stale = datetime(2025, 1, 1, tzinfo=UTC)
+        result = _run(
+            "spend_logs",
+            [_logs([]), _logs([_log("stale", stale)]), _logs([])],
+            incremental_field="startTime",
+            db_incremental_field_last_value="2026-01-01T00:00:00Z",
+        )
+
+        assert result.raised is None
+        assert [_request(request)[:2] for request in result.requests] == [
+            ("2026-01-01 00:00:00", "2026-01-02 00:00:00"),
+            ("2026-01-02 00:00:00", RUN_END),
+            ("2026-01-02 00:00:00", RUN_END),
+        ]
+
     def test_newest_first_proxy_is_caught_before_a_full_refresh_starts(self) -> None:
         result = _run(
             "spend_logs",

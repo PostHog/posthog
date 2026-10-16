@@ -214,9 +214,9 @@ def spend_log_pages(
             # An empty day: jump to the next log instead of walking an idle proxy one day at a time.
             next_log = _first_log_time(session, base_url, end, run_end)
             if next_log is not None:
-                next_state = LiteLLMResumeConfig(
-                    cursor=next_log.replace(microsecond=0).isoformat(), run_end=run_end.isoformat(), page=1
-                )
+                # Never land before the empty window's end, so a nonconforming response cannot stall the walk.
+                jump = max(next_log.replace(microsecond=0), end)
+                next_state = LiteLLMResumeConfig(cursor=jump.isoformat(), run_end=run_end.isoformat(), page=1)
 
         if next_state is not None:
             resumable_source_manager.save_state(next_state)
