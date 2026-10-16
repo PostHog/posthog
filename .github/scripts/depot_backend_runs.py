@@ -49,7 +49,7 @@ PARALLEL_CLI_CALLS = 8
 MAX_LISTED = 200
 TRIGGERS = ("push", "schedule")
 MASTER_REF = "refs/heads/master"
-# GitHub compares master as the base, so these statuses mean master contains the head commit.
+# Master is the compare base, so these statuses mean master contains the commit.
 ON_MASTER_STATUSES = frozenset({"BEHIND", "IDENTICAL"})
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 GITHUB_TIMEOUT_SECONDS = 30
@@ -98,16 +98,12 @@ def depot(*args: str, timeout: int = CLI_TIMEOUT_SECONDS) -> str:
 
 
 def commits_on_master(shas: Iterable[str], repo: str = REPO) -> frozenset[str]:
-    """The given commits that master contains, from one GitHub GraphQL query for all of them.
-
-    A commit GitHub cannot resolve fails the whole query, so callers fail closed.
-    """
+    """A commit GitHub cannot resolve fails the whole query."""
     candidates = sorted({sha for sha in shas if COMMIT_SHA.fullmatch(sha)})
     if not candidates:
         return frozenset()
     owner, name = repo.split("/")
-    # Without headTarget in the selection, GitHub answered IDENTICAL for a commit it does not
-    # have. Each comparison must also name the commit asked about before it counts.
+    # Without headTarget, GitHub answers IDENTICAL for a commit it does not have.
     fields = " ".join(
         f'c{i}: compare(headRef: "{sha}") {{ status headTarget {{ oid }} }}' for i, sha in enumerate(candidates)
     )
@@ -133,7 +129,6 @@ def commits_on_master(shas: Iterable[str], repo: str = REPO) -> frozenset[str]:
 
 
 def listed_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str = REPO) -> list[ListedWorkflow]:
-    """The Backend CI workflows of one trigger in the given states on any branch, newest first."""
     args = ["workflow", "list", "--repo", repo, "--name", WORKFLOW_NAME, "--trigger", trigger, "-n", str(limit)]
     for status in statuses:
         args += ["--status", status]
@@ -147,9 +142,8 @@ def listed_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str
 
 
 def master_only(workflows: list[ListedWorkflow], *, trigger: str, repo: str = REPO) -> list[ListedWorkflow]:
-    """The schedule fires only on the default branch. A branch can add itself to the push trigger
-    in its own copy of the workflow, and Depot records a push run's ref as its commit sha, so a
-    push workflow counts only when GitHub says master contains its commit.
+    """A branch can add itself to the push trigger in its own copy of the workflow, and Depot
+    records a push run's ref as its sha, so only GitHub can say a push ran on master.
     """
     if trigger == "schedule":
         return workflows

@@ -89,8 +89,7 @@ jobs:
             - name: Emit master run traces
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-                  # gh reads GH_TOKEN first. The master check on Depot push runs compares commits,
-                  # which needs the contents read this workflow grants github.token.
+                  # The commit comparison needs contents read, which github.token has.
                   GH_TOKEN: ${{ github.token }}
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
                   SINCE: ${{ inputs.since }}
