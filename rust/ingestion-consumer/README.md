@@ -70,6 +70,7 @@ The batcher state machine in `src/batcher/` orders runs and places them on worke
 
 Metrics:
 
+- `ingestion_consumer_batcher_requests_sent_total{worker}` and `ingestion_consumer_batcher_messages_sent_total{worker}` count what each worker was sent, replays included.
 - `ingestion_consumer_request_events` and `ingestion_consumer_request_bytes` record each request as sent. They show whether requests reach the pack target.
 - `ingestion_consumer_request_queue_wait_seconds{kind=fresh|replay}` records how long a request's oldest message waited, including the pack budget.
 - `ingestion_consumer_batcher_packed_requests_total{reason=target|deadline|replay|shutdown}` counts why the packer built each request: at the target, at the budget deadline, as a replay, or at shutdown.
