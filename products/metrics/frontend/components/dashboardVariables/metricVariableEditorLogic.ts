@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -9,6 +9,11 @@ import { metricsVariableOptionsCreate } from 'products/metrics/frontend/generate
 
 import { VARIABLE_NAME, applyVariableRegex, orderVariables, selectionsForRequest } from './metricVariables'
 
+export interface MetricVariableError {
+    field: 'name' | 'values' | 'query'
+    message: string
+}
+
 export interface MetricVariableEditorLogicProps {
     dashboardId: number | string
     variables: MetricsDashboardVariable[]
@@ -18,8 +23,13 @@ export interface MetricVariableEditorLogicProps {
 export interface metricVariableEditorLogicValues {
     currentTeamId: number | null // teamLogic
     draft: MetricsDashboardVariable[]
-    errors: Record<string, string>
+    errors: Record<string, MetricVariableError>
+    /** Errors to show in the form: of the variables the user changed, or of all after an apply attempt. */
+    shownErrors: Record<string, MetricVariableError>
+    showAllErrors: boolean
+    touchedIndexes: number[]
     preview: string[] | null
+    previewError: string | null
     previewLoading: boolean
     selectedIndex: number
     selectedVariable: MetricsDashboardVariable | null
@@ -30,7 +40,12 @@ export interface metricVariableEditorLogicActions {
     addVariable: () => {
         value: true
     }
-    loadPreview: () => void
+    apply: (onSave: (variables: MetricsDashboardVariable[]) => void) => {
+        onSave: (variables: MetricsDashboardVariable[]) => void
+    }
+    loadPreview: () => {
+        value: true
+    }
     loadPreviewFailure: (
         error: string,
         errorObject?: any
@@ -73,6 +88,9 @@ export type metricVariableEditorLogicType = MakeLogicType<
     MetricVariableEditorLogicProps
 >
 
+// A change to one of these fields changes the values, so the preview loads again.
+const PREVIEW_FIELDS = new Set(['source', 'query', 'regex', 'customValues'])
+
 function newVariableName(variables: MetricsDashboardVariable[]): string {
     const names = new Set(variables.map((variable) => variable.name))
     let index = variables.length + 1
@@ -83,23 +101,26 @@ function newVariableName(variables: MetricsDashboardVariable[]): string {
 }
 
 /** Problems that stop the variables from being saved, by variable name. */
-export function variableErrors(variables: MetricsDashboardVariable[]): Record<string, string> {
-    const errors: Record<string, string> = {}
+export function variableErrors(variables: MetricsDashboardVariable[]): Record<string, MetricVariableError> {
+    const errors: Record<string, MetricVariableError> = {}
     const seen = new Set<string>()
     for (const variable of variables) {
         if (!VARIABLE_NAME.test(variable.name)) {
-            errors[variable.name] = 'Use letters, digits and underscores in the name. Do not start it with a digit.'
+            errors[variable.name] = {
+                field: 'name',
+                message: 'Use letters, digits and underscores. Do not start with a digit.',
+            }
         } else if (seen.has(variable.name)) {
-            errors[variable.name] = 'Another variable has the same name.'
+            errors[variable.name] = { field: 'name', message: 'Another variable has this name.' }
         } else if ((variable.source === 'promql' || variable.source === 'sql') && !variable.query?.trim()) {
-            errors[variable.name] = 'Write a query that gives the options.'
+            errors[variable.name] = { field: 'query', message: 'Write a query that gives the values.' }
         } else if (variable.source === 'custom' && !variable.customValues?.length) {
-            errors[variable.name] = 'Add at least one value.'
+            errors[variable.name] = { field: 'values', message: 'Add at least one value.' }
         }
         seen.add(variable.name)
     }
     for (const name of orderVariables(variables).cycle) {
-        errors[name] ??= 'The variable queries refer to each other in a loop.'
+        errors[name] ??= { field: 'query', message: 'The variable queries refer to each other in a loop.' }
     }
     return errors
 }
@@ -111,10 +132,14 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
     connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
     actions({
         addVariable: true,
+        apply: (onSave: (variables: MetricsDashboardVariable[]) => void) => ({ onSave }),
         removeVariable: (index: number) => ({ index }),
         moveVariable: (index: number, offset: -1 | 1) => ({ index, offset }),
         updateVariable: (index: number, patch: Partial<MetricsDashboardVariable>) => ({ index, patch }),
         selectVariable: (index: number) => ({ index }),
+    }),
+    afterMount(({ actions }) => {
+        actions.loadPreview()
     }),
     reducers(({ props }) => ({
         draft: [
@@ -150,7 +175,27 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
             null as string[] | null,
             {
                 selectVariable: () => null,
-                updateVariable: () => null,
+                addVariable: () => null,
+            },
+        ],
+        showAllErrors: [false, { apply: () => true }],
+        touchedIndexes: [
+            [] as number[],
+            {
+                updateVariable: (state, { index }) => (state.includes(index) ? state : [...state, index]),
+                removeVariable: (state, { index }) =>
+                    state.filter((other) => other !== index).map((other) => (other > index ? other - 1 : other)),
+                moveVariable: (state, { index, offset }) =>
+                    state.map((other) => (other === index ? index + offset : other === index + offset ? index : other)),
+            },
+        ],
+        previewError: [
+            null as string | null,
+            {
+                loadPreview: () => null,
+                loadPreviewSuccess: () => null,
+                loadPreviewFailure: (_, { error }) => error,
+                selectVariable: () => null,
             },
         ],
     })),
@@ -159,28 +204,65 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
             (s) => [s.draft, s.selectedIndex],
             (draft, selectedIndex): MetricsDashboardVariable | null => draft[selectedIndex] ?? null,
         ],
-        errors: [(s) => [s.draft], (draft): Record<string, string> => variableErrors(draft)],
+        errors: [(s) => [s.draft], (draft): Record<string, MetricVariableError> => variableErrors(draft)],
+        shownErrors: [
+            (s) => [s.errors, s.draft, s.touchedIndexes, s.showAllErrors],
+            (
+                errors: Record<string, MetricVariableError>,
+                draft: MetricsDashboardVariable[],
+                touchedIndexes: number[],
+                showAllErrors: boolean
+            ): Record<string, MetricVariableError> =>
+                showAllErrors
+                    ? errors
+                    : Object.fromEntries(
+                          touchedIndexes
+                              .map((index: number) => draft[index]?.name)
+                              .filter((name: string | undefined): name is string => !!name && !!errors[name])
+                              .map((name) => [name, errors[name]])
+                      ),
+        ],
     }),
     listeners(({ actions, values }) => ({
         addVariable: () => {
             actions.selectVariable(values.draft.length - 1)
         },
+        selectVariable: () => {
+            actions.loadPreview()
+        },
+        apply: ({ onSave }) => {
+            const firstError = values.draft.findIndex((variable) => values.errors[variable.name])
+            if (firstError === -1) {
+                onSave(values.draft)
+            } else {
+                actions.selectVariable(firstError)
+            }
+        },
+        updateVariable: async ({ patch }, breakpoint) => {
+            if (Object.keys(patch).some((field) => PREVIEW_FIELDS.has(field))) {
+                await breakpoint(600)
+                actions.loadPreview()
+            }
+        },
     })),
     loaders(({ values }) => ({
         preview: {
-            loadPreview: async (): Promise<string[] | null> => {
+            loadPreview: async (_, breakpoint): Promise<string[] | null> => {
                 const variable = values.selectedVariable
-                if (!variable) {
+                if (
+                    !variable ||
+                    variable.source === 'textbox' ||
+                    variable.source === 'custom' ||
+                    !variable.query?.trim()
+                ) {
                     return null
-                }
-                if (variable.source === 'custom' || variable.source === 'textbox') {
-                    return variable.customValues ?? []
                 }
                 const response = await metricsVariableOptionsCreate(String(values.currentTeamId), {
                     source: variable.source,
                     query: variable.query ?? null,
                     variables: selectionsForRequest(values.draft.filter((other) => other.name !== variable.name)),
                 })
+                breakpoint()
                 return applyVariableRegex(response.results, variable.regex)
             },
         },

@@ -1,6 +1,13 @@
 import type { MetricsDashboardVariable } from '~/queries/schema/schema-general'
 
-import { applyVariableRegex, orderVariables, reconcileSelection, variablesToReload } from './metricVariables'
+import {
+    ALL_OPTION,
+    applyVariableRegex,
+    orderVariables,
+    reconcileSelection,
+    selectionFromValues,
+    variablesToReload,
+} from './metricVariables'
 
 const custom = (name: string, values: string[]): MetricsDashboardVariable => ({
     name,
@@ -44,6 +51,17 @@ describe('metricVariables', () => {
         ['makes All follow the options', { values: ['x'], all: true }, ['a', 'b'], { values: ['a', 'b'], all: true }],
     ])('%s', (_name, current, options, expected) => {
         expect(reconcileSelection({ ...custom('v', []), includeAll: true, current }, options)).toEqual(expected)
+    })
+
+    it.each([
+        ['picking every option means All', true, ['a', 'b'], { values: ['a', 'b'], all: true }],
+        ['picking the All option means All', false, [ALL_OPTION], { values: ['a', 'b'], all: true }],
+        ['picking some options keeps them', true, ['b'], { values: ['b'] }],
+        ['picking nothing clears the selection', true, [], null],
+    ])('%s', (_name, multi, values, expected) => {
+        expect(selectionFromValues({ ...custom('v', []), includeAll: true, multi }, values, ['a', 'b'])).toEqual(
+            expected
+        )
     })
 
     it.each([

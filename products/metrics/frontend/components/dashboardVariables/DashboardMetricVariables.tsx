@@ -59,11 +59,11 @@ export function DashboardMetricVariables(): JSX.Element | null {
                 size="small"
                 type="tertiary"
                 icon={<IconGear />}
-                tooltip="Add and edit the variables that metrics tiles refer to as $name"
+                tooltip={variables.length ? 'Edit variables' : 'Add a variable that metrics tiles refer to as $name'}
                 onClick={() => setEditorOpen(true)}
                 data-attr="dashboard-metric-variables-edit"
             >
-                {variables.length ? null : 'Metric variables'}
+                {variables.length ? null : 'Add variable'}
             </LemonButton>
             {editorOpen && (
                 <MetricVariablesModal

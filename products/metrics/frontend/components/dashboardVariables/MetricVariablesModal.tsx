@@ -1,14 +1,19 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
+import { IconPlus, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
-
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 
 import type { MetricsDashboardVariable } from '~/queries/schema/schema-general'
 
 import { metricVariableEditorLogic } from './metricVariableEditorLogic'
 import { MetricVariableForm } from './MetricVariableForm'
+
+const SOURCE_LABELS: Record<MetricsDashboardVariable['source'], string> = {
+    custom: 'List',
+    promql: 'PromQL',
+    sql: 'SQL',
+    textbox: 'Text input',
+}
 
 /** Adds, changes, orders and removes the metric variables of a dashboard. */
 export function MetricVariablesModal({
@@ -23,9 +28,8 @@ export function MetricVariablesModal({
     onSave: (variables: MetricsDashboardVariable[]) => void
 }): JSX.Element {
     const logic = metricVariableEditorLogic({ dashboardId, variables })
-    const { draft, selectedIndex, selectedVariable, errors } = useValues(logic)
-    const { addVariable, removeVariable, moveVariable, selectVariable } = useActions(logic)
-    const hasErrors = Object.keys(errors).length > 0
+    const { draft, selectedIndex, selectedVariable, shownErrors } = useValues(logic)
+    const { addVariable, selectVariable, apply } = useActions(logic)
 
     return (
         <BindLogic logic={metricVariableEditorLogic} props={{ dashboardId, variables }}>
@@ -34,7 +38,7 @@ export function MetricVariablesModal({
                 onClose={onClose}
                 title="Metric variables"
                 description="Metrics tiles refer to a variable as $name in PromQL, SQL and filter values."
-                width={800}
+                width={860}
                 footer={
                     <>
                         <LemonButton type="secondary" onClick={onClose}>
@@ -42,8 +46,7 @@ export function MetricVariablesModal({
                         </LemonButton>
                         <LemonButton
                             type="primary"
-                            disabledReason={hasErrors ? 'Fix the variable settings first' : undefined}
-                            onClick={() => onSave(draft)}
+                            onClick={() => apply(onSave)}
                             data-attr="dashboard-metric-variables-save"
                         >
                             Apply
@@ -51,60 +54,50 @@ export function MetricVariablesModal({
                     </>
                 }
             >
-                <div className="flex gap-4 min-h-80 @container">
-                    <div className="flex flex-col gap-1 w-48 shrink-0">
+                <div className="flex gap-4 min-h-96">
+                    <div className="flex flex-col gap-0.5 w-48 shrink-0 border-r border-primary pr-3">
                         {draft.map((variable, index) => (
                             <LemonButton
                                 key={index}
                                 size="small"
                                 fullWidth
                                 active={index === selectedIndex}
-                                status={errors[variable.name] ? 'danger' : 'default'}
                                 onClick={() => selectVariable(index)}
-                                sideAction={{
-                                    icon: <IconTrash />,
-                                    tooltip: 'Remove',
-                                    onClick: () => removeVariable(index),
-                                }}
+                                sideIcon={
+                                    shownErrors[variable.name] ? <IconWarning className="text-warning" /> : undefined
+                                }
                             >
-                                ${variable.name}
+                                <span className="flex flex-col items-start min-w-0">
+                                    <span className="font-mono truncate max-w-full">${variable.name}</span>
+                                    <span className="text-xs text-secondary font-normal">
+                                        {SOURCE_LABELS[variable.source]}
+                                    </span>
+                                </span>
                             </LemonButton>
                         ))}
                         <LemonButton
                             size="small"
+                            type="tertiary"
                             icon={<IconPlus />}
                             onClick={addVariable}
+                            className="mt-1"
                             data-attr="dashboard-metric-variable-add"
                         >
                             Add variable
                         </LemonButton>
-                        {selectedVariable && draft.length > 1 && (
-                            <div className="flex gap-1">
-                                <LemonButton
-                                    size="small"
-                                    icon={<IconArrowUp />}
-                                    tooltip="Move up"
-                                    disabledReason={selectedIndex === 0 ? 'This is the first variable' : undefined}
-                                    onClick={() => moveVariable(selectedIndex, -1)}
-                                />
-                                <LemonButton
-                                    size="small"
-                                    icon={<IconArrowDown />}
-                                    tooltip="Move down"
-                                    disabledReason={
-                                        selectedIndex === draft.length - 1 ? 'This is the last variable' : undefined
-                                    }
-                                    onClick={() => moveVariable(selectedIndex, 1)}
-                                />
-                            </div>
-                        )}
                     </div>
                     {selectedVariable ? (
                         <MetricVariableForm variable={selectedVariable} />
                     ) : (
-                        <p className="text-secondary flex-1">
-                            Add a variable. Then refer to it as $name in the PromQL, SQL or filters of a metrics tile.
-                        </p>
+                        <div className="flex flex-col items-center justify-center gap-2 flex-1 text-center">
+                            <p className="text-secondary max-w-100 m-0">
+                                A variable lets the people who view this dashboard pick a value, such as a service or an
+                                environment. Every metrics tile that refers to it updates.
+                            </p>
+                            <LemonButton type="primary" icon={<IconPlus />} onClick={addVariable}>
+                                Add variable
+                            </LemonButton>
+                        </div>
                     )}
                 </div>
             </LemonModal>

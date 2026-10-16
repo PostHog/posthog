@@ -125,6 +125,22 @@ export function reconcileSelection(
     return options.length ? { values: [options[0]] } : null
 }
 
+/** The selection for the values picked in a select. Picking every option of a variable with All means All. */
+export function selectionFromValues(
+    variable: MetricsDashboardVariable,
+    values: string[],
+    options: string[]
+): MetricsDashboardVariableSelection | null {
+    if (variable.includeAll) {
+        const everyOption = variable.multi && options.length > 0 && options.every((option) => values.includes(option))
+        if (values.includes(ALL_OPTION) || everyOption) {
+            return { values: options, all: true }
+        }
+    }
+    const picked = values.filter((value) => value !== ALL_OPTION)
+    return picked.length ? { values: picked } : null
+}
+
 export function selectionsForRequest(variables: MetricsDashboardVariable[]): _MetricVariableSelectionApi[] {
     return variables
         .filter((variable) => variable.current && (variable.current.values.length || variable.current.all))
