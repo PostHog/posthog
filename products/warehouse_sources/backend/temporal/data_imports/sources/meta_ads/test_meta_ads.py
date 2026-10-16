@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_AUTH_ERROR_MESSAGE,
     META_INVALID_CURSOR_ERROR_MESSAGE,
     META_RATE_LIMIT_ERROR_MESSAGE,
+    META_TOKEN_REFRESH_ERROR_MESSAGE,
     META_TRANSIENT_ERROR_MAX_ATTEMPTS,
     PAGE_LIMIT_FALLBACK_SIZES,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
@@ -1401,7 +1402,7 @@ class TestNonRetryableErrors:
         "error_message",
         [
             # Token refresh failure raised by get_integration.
-            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.",
+            META_TOKEN_REFRESH_ERROR_MESSAGE,
             # Integration row deleted/de-authorized while the source still references it —
             # get_integration raises Django's Integration.DoesNotExist with this message.
             "Integration matching query does not exist.",

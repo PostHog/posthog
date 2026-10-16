@@ -6,7 +6,10 @@ import type { ExperimentHealthApi, ExperimentHealthFindingApi } from '../generat
 import type { ExperimentHealthFindingActionKind, ExperimentHealthFindingCode } from './experimentHealthFindingEvents'
 
 /** A finding of the health panel, from the experiment read or from the exposure answer. */
-export type HealthPanelFinding = Pick<ExperimentHealthFindingApi, 'subcode' | 'severity' | 'title' | 'detail'> & {
+export type HealthPanelFinding = Pick<
+    ExperimentHealthFindingApi,
+    'subcode' | 'severity' | 'title' | 'detail' | 'evidence'
+> & {
     code: ExperimentHealthFindingCode
     actions: ExperimentHealthFindingActionKind[]
 }

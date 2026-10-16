@@ -14,6 +14,7 @@ from products.workflows.backend.presentation.views import (
     workflow_data_suggestions,
     workflow_scout_runs,
     workflow_tasks,
+    workflow_vision_requests,
 )
 
 # AWS SES tenant reputation events, delivered EventBridge -> SNS HTTPS subscription. Workflows owns
@@ -59,6 +60,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"workflow_people_imports",
         people_imports.WorkflowPeopleImportViewSet,
         "project_workflow_people_imports",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_vision_requests",
+        workflow_vision_requests.WorkflowVisionRequestViewSet,
+        "project_workflow_vision_requests",
         ["team_id"],
     )
     routers.projects.register(

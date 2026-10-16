@@ -476,6 +476,9 @@ def _get_sla_properties(ticket: Ticket, now: datetime) -> dict:
 def capture_ticket_created(ticket: Ticket) -> None:
     properties = _get_ticket_base_properties(ticket)
     properties.update(_get_customer_properties(ticket))
+    # Only the customer's own event joins their session; later ticket events come from staff, hours after it.
+    if ticket.session_id:
+        properties["$session_id"] = ticket.session_id
 
     team = ticket.team
     team_id = team.id

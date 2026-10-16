@@ -125,6 +125,7 @@ import type {
     TaskSearchResultApi,
     TaskSessionResponseApi,
     TaskSessionSyncResponseApi,
+    TaskSourcesResponseApi,
     TaskStagedArtifactsFinalizeUploadRequestApi,
     TaskStagedArtifactsFinalizeUploadResponseApi,
     TaskStagedArtifactsPrepareUploadRequestApi,
@@ -3146,6 +3147,24 @@ export const tasksSlackThreadContextRetrieve = async (
     options?: RequestInit
 ): Promise<SlackThreadContextResponseApi> => {
     return apiMutator<SlackThreadContextResponseApi>(getTasksSlackThreadContextRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksSourcesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/sources/`
+}
+
+/**
+ * Return the distinct sources of the requester's own non-archived tasks, in the words of the task list `sources` filter. Used to populate a source filter picker without being constrained by task list pagination.
+ * @summary List task sources
+ */
+export const tasksSourcesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TaskSourcesResponseApi> => {
+    return apiMutator<TaskSourcesResponseApi>(getTasksSourcesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

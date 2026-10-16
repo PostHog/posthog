@@ -4,12 +4,11 @@ from typing import Any, cast
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
+from posthog.auth import InternalAPIUser
 from posthog.models.team.team import Team
 
 from products.tasks.backend.facade.workflow_tasks import (
@@ -34,23 +33,13 @@ from products.workflows.backend.facade.api import (
     get_workflow_task_daily_limits,
 )
 from products.workflows.backend.facade.service_jwt import TASKS_CREATE_PURPOSE
+from products.workflows.backend.presentation.views.workflow_step_auth import WorkflowStepJWTAuthentication
 
 logger = structlog.get_logger(__name__)
 
 
-class WorkflowTasksJWTAuthentication(ScopedServiceJWTAuthentication):
+class WorkflowTasksJWTAuthentication(WorkflowStepJWTAuthentication):
     purpose = TASKS_CREATE_PURPOSE
-
-    # nosemgrep: tuple-return-prefer-dataclass -- DRF's (user, auth) authentication contract
-    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, Any]:
-        user, _ = super()._authenticate_claims(request, claims)
-        # The workflow is identified by the verified token, never by the request body, so a
-        # token minted for one workflow can't create tasks attributed to another.
-        try:
-            hog_flow_id = uuid.UUID(str(claims.get("hog_flow_id")))
-        except ValueError:
-            raise AuthenticationFailed("Service token is missing its workflow claim.")
-        return user, hog_flow_id
 
 
 class WorkflowTaskSlackContextSerializer(serializers.Serializer):

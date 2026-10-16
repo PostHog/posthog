@@ -318,6 +318,25 @@ def dry_run_scout_precheck(
     )
 
 
+def run_precheck_query(
+    team: Team,
+    user: User,
+    query: str,
+    *,
+    since: datetime,
+    now: datetime,
+    interval_minutes: int,
+    timeout_s: int = PRECHECK_TIMEOUT_S,
+) -> PrecheckResult:
+    """Run a pre-check query as `user` and classify its rows like a scheduled run does.
+
+    Raises on a query error, so the caller decides what an error means.
+    """
+    return _result_from_rows(
+        _run_query(team, user, query, since=since, now=now, interval_minutes=interval_minutes, timeout_s=timeout_s)
+    )
+
+
 def precheck_since(config: SignalScoutConfig) -> datetime:
     """The `{since}` bound: the last run that actually ran, or the config's creation."""
     last_run_at = (
@@ -340,7 +359,14 @@ def _result_from_rows(found: _PrecheckRows) -> PrecheckResult:
 
 
 def _run_query(
-    team: Team, user: User, query: str, *, since: datetime, now: datetime, interval_minutes: int
+    team: Team,
+    user: User,
+    query: str,
+    *,
+    since: datetime,
+    now: datetime,
+    interval_minutes: int,
+    timeout_s: int = PRECHECK_TIMEOUT_S,
 ) -> _PrecheckRows:
     parsed = parse_select(query, placeholders=_placeholders(since=since, now=now, interval_minutes=interval_minutes))
     capped = _cap_rows(parsed)
@@ -351,7 +377,7 @@ def _run_query(
             team=team,
             user=user,
             workload=Workload.OFFLINE,
-            settings=HogQLGlobalSettings(max_execution_time=PRECHECK_TIMEOUT_S),
+            settings=HogQLGlobalSettings(max_execution_time=timeout_s),
         )
     return _PrecheckRows(columns=response.columns or [], rows=(response.results or [])[:PRECHECK_MAX_ROWS])
 
