@@ -154,7 +154,6 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     listPersonsForTeam: () => ({ persons: [] }),
     raisePersonVersionFloors: () => ({ results: [] }),
     restorePersons: () => ({ results: [] }),
-    writeDistinctIds: () => ({ results: [] }),
     fencePerson: () => ({}),
     fencePersons: () => ({}),
     releaseFence: () => ({}),
