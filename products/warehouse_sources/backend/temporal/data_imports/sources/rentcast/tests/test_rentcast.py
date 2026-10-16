@@ -15,6 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     RentCastSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.rentcast import (
+    INVALID_ZIP_CODES_ERROR,
+    MISSING_ZIP_CODES_ERROR,
     PAGE_SIZE,
     RentCastResumeConfig,
     validate_credentials,
@@ -26,8 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.source import RentCastSource
 
 
-def _driver() -> SourceDriver:
-    return SourceDriver(RentCastSource(), RentCastSourceConfig(api_key="rc-key"))
+def _driver(zip_codes: str | None = "10001") -> SourceDriver:
+    return SourceDriver(RentCastSource(), RentCastSourceConfig(api_key="rc-key", zip_codes=zip_codes))
 
 
 def _page(body: Any) -> ScriptedResponse:
@@ -37,6 +39,10 @@ def _page(body: Any) -> ScriptedResponse:
 
 def _full_page(start_id: int) -> list[dict]:
     return [{"id": start_id + i} for i in range(PAGE_SIZE)]
+
+
+def _market(zip_code: str) -> dict[str, Any]:
+    return {"id": zip_code, "zipCode": zip_code, "rentalData": {"averageRent": 1850, "history": {}}}
 
 
 class TestPagination:
@@ -64,6 +70,86 @@ class TestPagination:
 
         assert isinstance(result.raised, RESTClientRetryableError)
         assert "Unexpected 200 response body shape" in str(result.raised)
+
+
+class TestMarkets:
+    def test_requests_each_zip_code_and_skips_zip_codes_without_data(self) -> None:
+        result = _driver(zip_codes=" 10001, 20002\n10001 30003 ").run(
+            "markets",
+            [
+                _page(_market("10001")),
+                ScriptedResponse(status=404, json={"status": 404, "error": "resource/not-found"}),
+                _page(_market("30003")),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/markets"] * 3
+        assert result.params("zipCode") == ["10001", "20002", "30003"]
+        assert [row["id"] for row in result.rows] == ["10001", "30003"]
+        assert result.rows[0]["rentalData"] == {"averageRent": 1850, "history": {}}
+        assert result.saved_states == [
+            RentCastResumeConfig(next_zip_code="20002"),
+            RentCastResumeConfig(next_zip_code="30003"),
+        ]
+        assert result.committed_states[-1] == RentCastResumeConfig(next_zip_code="30003")
+
+    def test_resumes_from_saved_zip_code_position(self) -> None:
+        result = _driver(zip_codes="10001,20002,30003").run(
+            "markets", [_page(_market("30003"))], resume_state=RentCastResumeConfig(next_zip_code="30003")
+        )
+
+        assert result.params("zipCode") == ["30003"]
+        assert [row["id"] for row in result.rows] == ["30003"]
+
+    def test_resume_follows_the_zip_code_when_the_list_was_edited(self) -> None:
+        result = _driver(zip_codes="40004,30003").run(
+            "markets", [_page(_market("30003"))], resume_state=RentCastResumeConfig(next_zip_code="30003")
+        )
+
+        assert result.params("zipCode") == ["30003"]
+
+    def test_resume_restarts_when_the_saved_zip_code_was_removed(self) -> None:
+        result = _driver(zip_codes="10001,20002").run(
+            "markets",
+            [_page(_market("10001")), _page(_market("20002"))],
+            resume_state=RentCastResumeConfig(next_zip_code="30003"),
+        )
+
+        assert result.params("zipCode") == ["10001", "20002"]
+
+    @parameterized.expand(
+        [
+            ("not_set", None, MISSING_ZIP_CODES_ERROR),
+            ("empty", "", MISSING_ZIP_CODES_ERROR),
+            ("only_separators", " , ,", MISSING_ZIP_CODES_ERROR),
+            ("too_short", "10001, 2002", INVALID_ZIP_CODES_ERROR),
+            ("zip_plus_four", "10001-1234", INVALID_ZIP_CODES_ERROR),
+            ("not_digits", "abcde", INVALID_ZIP_CODES_ERROR),
+        ]
+    )
+    def test_bad_zip_codes_fail_before_any_request_with_a_non_retryable_error(
+        self, _name: str, zip_codes: str | None, expected_error: str
+    ) -> None:
+        result = _driver(zip_codes=zip_codes).run("markets", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert expected_error in str(result.raised)
+        assert result.requests == []
+        assert any(key in str(result.raised) for key in RentCastSource().get_non_retryable_errors())
+
+    def test_bad_zip_codes_do_not_block_other_tables(self) -> None:
+        result = _driver(zip_codes="abcde").run("properties", [_page([{"id": 1}])])
+
+        assert result.raised is None
+        assert result.rows == [{"id": 1}]
+
+    @parameterized.expand([(401,), (403,)])
+    def test_auth_failures_map_to_non_retryable_errors(self, status: int) -> None:
+        result = _driver().run("markets", always(ScriptedResponse(status=status, json={"status": status})))
+
+        assert result.raised is not None
+        assert any(key in str(result.raised) for key in RentCastSource().get_non_retryable_errors())
 
 
 class TestValidateCredentials:

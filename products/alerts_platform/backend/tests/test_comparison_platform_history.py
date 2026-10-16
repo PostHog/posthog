@@ -19,6 +19,7 @@ from products.alerts_platform.backend.comparison.platform_history import (
 )
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
+from products.alerts_platform.backend.logic.platform_lifecycle import CONFIGURATION_ROW_ALERT_ID
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
@@ -123,6 +124,17 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
 
         assert len(checks) == 2
         assert len({check.evaluation_key for check in checks}) == 2
+
+    def test_failed_checks_of_two_configurations_in_one_slot_both_read(self) -> None:
+        first, second = (self._configuration(legacy_configuration_id=uuid4()) for _ in range(2))
+        key = _key("2026-09-30T11:59:00+00:00")
+        for configuration in (first, second):
+            self._record(configuration, evaluation_key=key, alert_id=CONFIGURATION_ROW_ALERT_ID)
+
+        checks = self._read()
+
+        assert {check.configuration_id for check in checks} == {first.id, second.id}
+        assert len({check.ref for check in checks}) == 2
 
     def test_a_source_the_configuration_model_does_not_accept_is_an_error(self) -> None:
         # Without this an unregistered source reads as one that made no checks, and whoever runs

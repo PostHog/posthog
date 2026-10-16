@@ -41,6 +41,7 @@ from products.review_hog.backend.temporal.activities import (
     TrackReviewFailedInput,
     TrackReviewStartedInput,
     _gate_push,
+    _notify_review_finished,
     _track_review_completed,
     _track_review_completed_safe,
     _track_review_failed,
@@ -211,6 +212,21 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["reviewhog_version"] == "reviewhog-full-9-9"
         assert props["reviewhog_fingerprint"] == "abc1234"
 
+        hooks = (MagicMock(side_effect=RuntimeError("callback down")), MagicMock())
+        with patch("products.review_hog.backend.temporal.activities.get_finished_review_hooks", return_value=hooks):
+            _notify_review_finished(
+                team_id=self.team.id,
+                report_id=report_id,
+                run_index=1,
+                review_mode="full",
+                failed=False,
+                published=published,
+            )
+        finished = hooks[1].call_args.args[0]
+        assert (finished.repository, finished.pr_number, finished.findings_count) == ("o/r", 7, 1)
+        assert (finished.failed, finished.published) == (False, published)
+        assert finished.review_url.endswith(f"/project/{self.team.id}/code-review?review={report_id}")
+
     def test_single_agent_turn_reports_its_finding_funnel_and_sessions(self) -> None:
         # The cap, the dedup calls, and the lens sessions are only measurable through these
         # properties, the must-fix share is how priority inflation shows up before the must-fix
@@ -350,6 +366,7 @@ class TestTrackReviewCompleted(BaseTest):
             patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
         ):
             gate.return_value.decide.return_value = decision
+            gate.return_value.record_small_change_streak.side_effect = lambda decision, **_: decision
             results = [
                 _gate_push(
                     GatePushInput(
@@ -367,6 +384,8 @@ class TestTrackReviewCompleted(BaseTest):
 
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.IDLE
         assert [(result.skip, result.reason) for result in results] == [(True, "system_one_below_threshold")] * 2
+        recorded = gate.return_value.record_small_change_streak.call_args_list
+        assert [call.args[0] for call in recorded] == results
         first, second = capture.call_args_list
         assert first.kwargs["event"] == "reviewhog_push_gate_decided"
         props = first.kwargs["properties"]

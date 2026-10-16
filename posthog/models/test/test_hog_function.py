@@ -8,6 +8,7 @@ from django.db import transaction
 from django.test import TestCase
 
 from parameterized import parameterized
+from redis.exceptions import RedisError
 
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.team.team import Team
@@ -17,6 +18,7 @@ from products.actions.backend.models.action import Action
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
+from products.cdp.backend.tasks.mcp_events import retry_mcp_destination_reload
 from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
@@ -71,6 +73,7 @@ class TestHogFunction(TestCase):
         input_key = "mcp_credential" if managed else "credential"
         with (
             patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers") as reload,
+            patch("products.cdp.backend.tasks.mcp_events.reload_hog_functions_on_workers", new=reload),
             self.captureOnCommitCallbacks(execute=True),
         ):
             with transaction.atomic():
@@ -87,6 +90,35 @@ class TestHogFunction(TestCase):
             reload.assert_not_called()
         else:
             reload.assert_called_once_with(team_id=self.team.pk, hog_function_ids=[str(function.pk)])
+
+    def test_failed_managed_reload_retries_without_blocking_later_callbacks(self) -> None:
+        later_callback = Mock()
+        with (
+            patch(
+                "products.cdp.backend.tasks.mcp_events.reload_hog_functions_on_workers",
+                side_effect=[RedisError("example publish failure"), None],
+            ) as publish,
+            patch("products.cdp.backend.tasks.mcp_events.retry_mcp_destination_reload.apply_async") as retry,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            functions = [
+                HogFunction.objects.create(
+                    team=self.team,
+                    type="destination",
+                    inputs_schema=[{"key": "mcp_credential", "type": "string", "secret": True}],
+                    inputs={"mcp_credential": {"value": "example-credential"}},
+                )
+                for _ in range(2)
+            ]
+            transaction.on_commit(later_callback)
+        self.assertEqual(publish.call_count, 2)
+        later_callback.assert_called_once_with()
+        retry.assert_called_once_with(
+            kwargs={"team_id": self.team.pk, "hog_function_ids": [str(functions[0].pk)]}, countdown=1
+        )
+        with patch("products.cdp.backend.tasks.mcp_events.reload_hog_functions_on_workers") as publish:
+            retry_mcp_destination_reload.run(team_id=self.team.pk, hog_function_ids=[str(functions[0].pk)])
+            publish.assert_called_once_with(team_id=self.team.pk, hog_function_ids=[str(functions[0].pk)])
 
     def test_hog_function_team_no_filters_compilation(self):
         item = HogFunction.objects.create(name="Test", team=self.team, type="destination")

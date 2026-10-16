@@ -21,10 +21,12 @@ from products.alerts_platform.backend.facade.contracts import (
     Grouping,
     GroupingMode,
     GroupOutcome,
+    HandbackRefusal,
     InstanceCheckState,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
+    PlatformHandback,
     PlatformOwnershipHandover,
     source_condition,
 )
@@ -128,6 +130,11 @@ def _alerts_for_write(
     return loaded
 
 
+def _at_rest(now: datetime) -> Q:
+    """Rows that hold a slot and nothing else, as `InstanceCheckState.at_rest` reads an instance."""
+    return Q(state=PlatformAlert.State.NOT_FIRING) & (Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
+
+
 # Long enough that a group which resolves and fires again inside a day keeps its cooldown.
 REAP_AFTER: Final = timedelta(hours=24)
 
@@ -152,10 +159,7 @@ def _reap(
         return
     candidates = (
         PlatformAlert.objects.for_team(team_id)
-        .filter(
-            configuration_id__in=list(healthy), state=PlatformAlert.State.NOT_FIRING, last_seen_at__lt=now - REAP_AFTER
-        )
-        .filter(Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
+        .filter(_at_rest(now), configuration_id__in=list(healthy), last_seen_at__lt=now - REAP_AFTER)
         .values_list("id", "configuration_id", "grouping_key", "last_seen_at")
     )
     reaped: dict[str, list[UUID]] = {}
@@ -171,6 +175,33 @@ def _reap(
     for source_kind, ids in reaped.items():
         PlatformAlert.objects.for_team(team_id).filter(id__in=ids).delete()
         safe_record(increment_instances_reaped, source_kind, len(ids))
+
+
+def _evict(
+    team_id: int,
+    configurations: Sequence[PlatformAlertConfiguration],
+    by_id: dict[str, PlatformAlertOutcome],
+    now: datetime,
+) -> None:
+    """Deletes the resting instances a check evicted, so the groups that took their slots pass the cap.
+
+    The filter repeats the check's notion of at rest, because the row may have changed since the
+    check read it, and deleting a firing or muted instance would lose its state.
+    """
+    doomed: dict[str, Q] = {}
+    for configuration in configurations:
+        evicted = by_id[str(configuration.id)].evicted
+        if not evicted or Grouping.from_stored(configuration.grouping).mode == GroupingMode.SINGLE:
+            continue
+        if configuration.snooze_until is not None and configuration.snooze_until > now:
+            continue
+        doomed[configuration.source_kind] = doomed.get(configuration.source_kind, Q()) | Q(
+            configuration_id=configuration.id, grouping_key__in=evicted
+        )
+    for source_kind, rows in doomed.items():
+        deleted, _ = PlatformAlert.objects.for_team(team_id).filter(rows, _at_rest(now)).delete()
+        if deleted:
+            safe_record(increment_instances_reaped, source_kind, deleted)
 
 
 def suppressed() -> Q:
@@ -271,6 +302,7 @@ def _composed(configuration: PlatformAlertConfiguration, alert: PlatformAlert | 
         snooze_until=alert.snooze_until if alert else None,
         last_notified_at=alert.last_notified_at if alert else None,
         firing_started_at=alert.firing_started_at if alert else None,
+        last_seen_at=alert.last_seen_at if alert else None,
     )
 
 
@@ -428,18 +460,14 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
             for configuration in configurations
             for group in by_id[str(configuration.id)].groups
         ]
-        # Before the cap is counted, so a slot a stale group held is free for a new one this check.
-        _reap(
-            team_id,
-            [
-                configuration
-                for configuration in configurations
-                if _check_status(configuration, by_id[str(configuration.id)])
-                == PlatformAlertConfiguration.CheckStatus.OK
-            ],
-            now,
-            returned=frozenset(returned),
-        )
+        healthy = [
+            configuration
+            for configuration in configurations
+            if _check_status(configuration, by_id[str(configuration.id)]) == PlatformAlertConfiguration.CheckStatus.OK
+        ]
+        # Before the cap is counted, so a slot a stale or evicted group held is free for a new one this check.
+        _reap(team_id, healthy, now, returned=frozenset(returned))
+        _evict(team_id, healthy, by_id, now)
         alerts = _alerts_for_write(team_id, configurations, returned)
         touched: list[PlatformAlert] = []
         # One read for the batch. Every configuration in it belongs to this team, and a
@@ -606,23 +634,23 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
 def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
     """Copies one configuration in when its team already runs that source here.
 
-    A team runs a source here while any of its copies of that source is enabled. A team the backfill
-    left out of its sample, or one `disable_configurations` switched off, gets nothing, and neither
-    does a copy an operator switched off by name, so a write in the source never widens a sample or
-    undoes an operator's switch-off.
+    A copy the platform owns is the production alert, so it always follows its source, including
+    back on after the source turns it off. Otherwise a team runs a source here while any of its
+    parallel-run copies of that source is enabled. A team the backfill left out of its sample, or one
+    `disable_configurations` switched off, gets nothing, and neither does a copy an operator switched
+    off by name, so a write in the source never widens a sample or undoes an operator's switch-off.
     """
     with transaction.atomic():
         _hold_admission(upsert.source_kind.value, exclusive=False)
-        running = (
-            PlatformAlertConfiguration.objects.for_team(upsert.team_id)
-            .filter(source_kind=upsert.source_kind.value, enabled=True)
-            .exists()
+        team_copies = PlatformAlertConfiguration.objects.for_team(upsert.team_id).filter(
+            source_kind=upsert.source_kind.value
         )
-        switched_off = (
-            PlatformAlertConfiguration.objects.for_team(upsert.team_id)
-            .filter(legacy_configuration_id=upsert.legacy_configuration_id, switched_off_at__isnull=False)
-            .exists()
-        )
+        existing = team_copies.filter(legacy_configuration_id=upsert.legacy_configuration_id).first()
+        if existing is not None and existing.owner == PlatformAlertOwner.PLATFORM:
+            upsert_configuration(upsert, revive=revive)
+            return
+        running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists()
+        switched_off = existing is not None and existing.switched_off_at is not None
         if running and not switched_off:
             upsert_configuration(upsert, revive=revive)
 
@@ -682,7 +710,9 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
         )
         key = _InstanceKey(configuration_id=str(configuration.id), grouping_key="")
         alert = _alerts_for_write(handover.team_id, [configuration], [key])[key]
-        if alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None:
+        # A failing check status means the machine already ended the firing the row still holds.
+        live_firing = alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None
+        if live_firing and configuration.check_status == PlatformAlertConfiguration.CheckStatus.OK:
             return False
         # ERRORED and BROKEN are the configuration's check status, so the instance starts at rest.
         failing = handover.state in (PlatformAlertState.ERRORED, PlatformAlertState.BROKEN)
@@ -700,9 +730,80 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
         )
 
         alert.state = PlatformAlertState.NOT_FIRING if failing else handover.state
+        alert.firing_started_at = None
         alert.last_notified_at = handover.last_notified_at
-        alert.save(update_fields=["state", "last_notified_at"])
+        alert.save(update_fields=["state", "firing_started_at", "last_notified_at"])
     return True
+
+
+def give_back_ownership(
+    *, team_id: int, legacy_configuration_id: UUID, at: datetime
+) -> PlatformHandback | HandbackRefusal:
+    """Hands a copied alert back to its source, or says why the platform keeps it.
+
+    The caller holds the source's row lock and writes the source's owner and state in the same
+    transaction. Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied,
+    and `ValueError` when the platform does not own it, because both owners change together.
+    """
+    with transaction.atomic():
+        configurations = PlatformAlertConfiguration.objects.for_team(team_id).select_for_update()
+        configuration = configurations.get(legacy_configuration_id=legacy_configuration_id)
+        if configuration.owner != PlatformAlertOwner.PLATFORM:
+            raise ValueError("the platform does not own this alert, so its owner disagrees with its source's")
+        alerts = list(PlatformAlert.objects.for_team(team_id).filter(configuration=configuration))
+        if configuration.recurrence_unit is not None or any(alert.grouping_key for alert in alerts):
+            return HandbackRefusal.NOT_PORTABLE
+        alert = alerts[0] if alerts else None
+        if alert is not None and (alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None):
+            return HandbackRefusal.FIRING
+        # The same rule discovery reads, so an alert discovery skips is never waited on. A check
+        # advances `next_check_at` when it records, so a row not due under this lock has no
+        # platform check between reading the alert and recording it.
+        if configurations.filter(pk=configuration.pk, enabled=True).filter(due_q(at)).exclude(suppressed()).exists():
+            return HandbackRefusal.CHECK_DUE
+
+        handback = PlatformHandback(
+            state=PlatformAlertState(_composed(configuration, alert).state),
+            last_notified_at=alert.last_notified_at if alert is not None else None,
+            consecutive_failures=configuration.consecutive_failures,
+            next_check_at=configuration.next_check_at,
+        )
+        configuration.owner = PlatformAlertOwner.SOURCE
+        configuration.owner_changed_at = at
+        # A check can still be running for a copy that is disabled or not due, and it records only
+        # rows still due, so this keeps it from recording and delivering after the handback.
+        configuration.next_check_at = max(configuration.next_check_at or at, at + _HANDOVER_FENCE)
+        configuration.save(update_fields=["owner", "owner_changed_at", "next_check_at"])
+        return handback
+
+
+def reset_broken(*, team_id: int, legacy_configuration_id: UUID, at: datetime) -> int | None:
+    """Clears a broken alert the platform owns so the next tick checks it again, from rest.
+
+    Returns the failure count it cleared, or None when the alert is not broken. Discovery skips a
+    broken alert, so without this it never runs again. The caller holds the source's row lock.
+    """
+    with transaction.atomic():
+        configuration = (
+            PlatformAlertConfiguration.objects.for_team(team_id)
+            .select_for_update()
+            .get(legacy_configuration_id=legacy_configuration_id)
+        )
+        if configuration.owner != PlatformAlertOwner.PLATFORM:
+            raise ValueError("the platform does not own this alert, so its source resets it")
+        if configuration.check_status != PlatformAlertConfiguration.CheckStatus.BROKEN:
+            return None
+        cleared = configuration.consecutive_failures
+        configuration.check_status = PlatformAlertConfiguration.CheckStatus.OK
+        configuration.consecutive_failures = 0
+        configuration.next_check_at = at
+        configuration.save(update_fields=["check_status", "consecutive_failures", "next_check_at"])
+        # A failed check keeps a firing so a recovery continues it. A reset starts clean instead, or
+        # the next breach would find the old episode open and announce nothing.
+        PlatformAlert.objects.for_team(team_id).filter(configuration=configuration).update(
+            state=PlatformAlertState.NOT_FIRING.value, firing_started_at=None
+        )
+    return cleared
 
 
 def disable_configurations(

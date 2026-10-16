@@ -25,7 +25,6 @@ import { Experiment } from '~/types'
 export const EXPOSURE_DEFAULT_EVENT = '$feature_flag_called'
 export const EXPERIMENT_EXPOSURE_EVENT = '$experiment_exposure'
 export const EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY = '$feature_flag_response'
-export const EXPOSURE_FEATURE_FLAG_PROPERTY = '$feature_flag'
 
 /**
  * The event an experiment's default exposure is actually counted on, as resolved by the backend

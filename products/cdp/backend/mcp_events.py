@@ -2,7 +2,6 @@ import json
 import hashlib
 from dataclasses import replace
 from datetime import datetime, timedelta
-from functools import partial
 from typing import Final, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -15,6 +14,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from posthog.schema import CachedHogQLQueryResponse, HogQLQuery, HogQLQueryResponse
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.printer import to_printed_hogql
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -22,7 +22,6 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.models.utils import uuid7
-from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
 from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
@@ -36,7 +35,7 @@ from products.cdp.backend.mcp_event_filters import MCPEventFilterAccessValidator
 from products.cdp.backend.mcp_event_properties import MCPEventPropertyAccess
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.mcp_event_subscription import MCPEventSubscription
-from products.cdp.backend.tasks.mcp_events import expire_mcp_event_subscriptions
+from products.cdp.backend.tasks.mcp_events import expire_mcp_event_subscriptions, reload_mcp_destinations_after_commit
 from products.cdp.backend.validation import HogFunctionFiltersSerializer
 
 EXPIRY_BATCH_SIZE: Final = 500
@@ -60,6 +59,7 @@ class MCPEventSubscriptions:
             raise ValidationError({"filters": "MCP subscriptions support captured events. Use source 'events'."})
         if _DERIVED_FILTER_KEYS.intersection(raw_filters):
             raise ValidationError({"filters": "Send event filters without compiled bytecode."})
+        MCPEventFilterAccessValidator.validate_actions(raw_filters, team=self.team, user=self.user)
         serializer = HogFunctionFiltersSerializer(
             data=raw_filters,
             context={
@@ -73,10 +73,26 @@ class MCPEventSubscriptions:
         MCPEventFilterAccessValidator.validate_snapshot(
             serializer.validated_data["mcp_property_dependencies"], team=self.team, user=self.user
         )
-        return cast(
+        filters = cast(
             dict[str, JsonValue],
             {key: value for key, value in serializer.validated_data.items() if key not in _DERIVED_FILTER_KEYS},
         )
+        try:
+            to_printed_hogql(
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    where=compile_filters_expr(filters, self.team),
+                ),
+                self.team,
+            )
+        except QueryError as error:
+            raise ValidationError(
+                {
+                    "filters": "This filter cannot be previewed. Use functions supported by HogQL queries and real-time destinations."
+                }
+            ) from error
+        return filters
 
     def identity(self, filters: dict[str, JsonValue], url: str) -> UUID:
         arguments = json.dumps({"project_id": self.team.pk, "filters": filters}, sort_keys=True, separators=(",", ":"))
@@ -248,12 +264,8 @@ class MCPEventSubscriptions:
         HogFunction.objects.filter(team_id=subscription.team_id, id=subscription.hog_function_id).update(
             enabled=False, updated_at=timezone.now()
         )
-        transaction.on_commit(
-            partial(
-                reload_hog_functions_on_workers,
-                team_id=subscription.team_id,
-                hog_function_ids=[str(subscription.hog_function_id)],
-            )
+        reload_mcp_destinations_after_commit(
+            team_id=subscription.team_id, hog_function_ids=[str(subscription.hog_function_id)]
         )
 
     @classmethod
@@ -309,6 +321,9 @@ class MCPEventSubscriptions:
         dependencies = compiled_filters.get("mcp_property_dependencies")
         if not isinstance(dependencies, dict):
             raise PermissionDenied("Renew the subscription before delivering events.")
+        MCPEventFilterAccessValidator.validate_actions(
+            subscription.arguments["filters"], team=self.team, user=self.user
+        )
         MCPEventFilterAccessValidator.validate_snapshot(dependencies, team=self.team, user=self.user)
         if len(body.encode()) > MCP_EVENT_MAX_BYTES:
             raise ValidationError("The event exceeds the 256 KiB delivery limit.")
