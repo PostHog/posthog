@@ -356,7 +356,7 @@ An account created while the cookie is present skips in-app onboarding. Signup s
 
 While the cookie is present, the signup form pins the data region to the region the form is served from. An OAuth client is registered in one region only, so an account created in the other region could not finish the connection.
 
-Analytics: the frontend captures `oauth pending connection viewed` with a `screen` property (`login`, `signup`, or `verify_email`). `user signed up` carries `signup_oauth_client_name` and `signup_oauth_client_id`, which are also set as person properties, so a signup can be traced back to the application that started it.
+Analytics: the frontend captures `oauth pending connection viewed` with a `screen` property (`login`, `signup`, or `verify_email`). `user signed up` carries `signup_oauth_client_name` and `signup_oauth_client_id`, which are also set as person properties, so a signup can be traced back to the application that started it. When the signup creates a new organization, the project group also gets `created_via_oauth_client` and `created_via_oauth_client_id`.
 
 ## Endpoints
 
