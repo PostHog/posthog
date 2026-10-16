@@ -336,6 +336,16 @@ Repeated dimension pills use distinct result columns so their chart and table bi
 
 BI chart settings preserve custom scatter axes and implicit count formatting. Numeric date parts can be used as scatter axes and remain numeric in **Keep only** and drill-down filters. Scatter selection shows a highlighted count with **Keep only** and **Clear selection** buttons. Switching between chart types reuses results when only their presentation changes, including with auto-update off; pending data changes still require a run. Switching to a box plot initializes statistic mappings from matching result column names. Generated axis labels follow field renames, while custom axis labels remain unchanged.
 
+## Catalog metrics in BI mode
+
+Catalog SQL metrics can open as BI query snapshots. Their dates, grouping, and bound values come from the metric definition; shelf edits, worksheet date filters, pivots, and result drilling are unavailable. Changing the chart changes the presentation of those results. Saved snapshots do not follow later catalog edits.
+
+After running a worksheet, **Propose as catalog metric** sends its resolved SQL and date window through catalog review. A pending or failed query cannot be proposed. Proposing an existing metric name updates its definition for review. Direct-connection worksheets cannot be proposed as catalog metrics.
+
+The worksheet library suggests approved, non-drifted SQL metrics and certified sources. Each list requests at most three eligible candidates; drifted metrics are omitted without scanning more pages. Source context shows certification, descriptions, and relationship review status. Relationship proposals open the catalog with the source prefilled; they become usable joins only after approval. Optional catalog suggestions do not prevent opening the worksheet library when the catalog is unavailable.
+
+The BI assistant receives the current worksheet draft, including its unsaved name, and shared catalog capabilities. Worksheet and catalog content remain untrusted context. Dismissing the saved worksheet attachment also removes its hidden draft and metric reference. Completed foreground insight tools refresh the worksheet library. Updates to the open worksheet refresh its saved version while preserving local edits. If both changed the query or name differently, saving over the worksheet is blocked until the local draft is discarded or saved as a copy. This conflict protection survives reloading a worksheet link. A failed refresh can be retried before saving.
+
 ## Connected fields in BI mode
 
 Below Dimensions and Measures, **Connections** lists the selected table's linked tables and views.
