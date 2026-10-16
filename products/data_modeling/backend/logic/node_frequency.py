@@ -9,7 +9,7 @@ typed column.
 
 import uuid
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from datetime import timedelta
 
 from django.db.models import Q, QuerySet
@@ -23,11 +23,12 @@ from products.data_modeling.backend.logic.freshness import (
     ancestors_of,
     compute_target_bounds,
     intersect_target_bounds,
+    max_data_age,
     normalize_seed_target,
 )
 from products.data_modeling.backend.logic.node_suspension import merged_suspension_state
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.edge import Edge
+from products.data_modeling.backend.models.edge import NON_SCHEDULING_EDGES, Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
@@ -259,7 +260,9 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     nodes = list(Node.objects.filter(dag=dag).exclude(saved_query__deleted=True))
     edges = [
         (str(source_id), str(target_id))
-        for source_id, target_id in Edge.objects.filter(dag=dag).values_list("source_id", "target_id")
+        for source_id, target_id in Edge.objects.filter(dag=dag)
+        .exclude(NON_SCHEDULING_EDGES)
+        .values_list("source_id", "target_id")
     ]
 
     schedulable = {str(node.id) for node in nodes if node.type in SAVED_QUERY_NODE_TYPES}
@@ -296,6 +299,7 @@ class SavedQueryFrequencyBounds:
     names: dict[str, str]  # node id -> display name, covering every blocker the bounds reference
     identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
     best_effort_source_ids: set[str]  # upstream sources with no schedule, so the floor is a guess
+    max_data_age: timedelta
 
 
 def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryFrequencyBounds | None:
@@ -315,6 +319,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
     names: dict[str, str] = {}
     identities: dict[str, NodeIdentity] = {}
     best_effort: set[str] = set()
+    data_ages: list[timedelta] = []
     graphs: dict[str, FrequencyGraph] = {}
     for node in nodes:
         # a saved query can hold two nodes in one DAG, and that DAG's graph is the same for both
@@ -334,12 +339,14 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         identities.update(graph.identities)
         # a best-effort source elsewhere in the DAG says nothing about this node's freshness
         best_effort |= graph.best_effort_source_ids & ancestors_of(str(node.id), graph.edges)
+        data_ages.append(max_data_age(str(node.id), graph.edges, graph.source_intervals, graph.declared_targets))
 
     return SavedQueryFrequencyBounds(
         bounds=intersect_target_bounds(per_dag),
         names=names,
         identities=identities,
         best_effort_source_ids=best_effort,
+        max_data_age=max(data_ages),
     )
 
 
@@ -349,11 +356,13 @@ def schedulable_nodes(dag: DAG) -> QuerySet[Node]:
     return Node.objects.filter(dag=dag, type__in=SAVED_QUERY_NODE_TYPES).exclude(saved_query__deleted=True)
 
 
-def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
+def persist_seed_targets(
+    dag: DAG, default: timedelta | None = None, only_node_ids: Collection[str] | None = None
+) -> int:
     """Persist a seed target on every schedulable node lacking one; never overwrites. Each seed is
     normalized (see `normalize_seed_target`) so the persisted target equals what the scheduler will
     run. `default` is the operator escape hatch for scheduled DAGs with no interval metadata
-    anywhere. Returns how many targets were written.
+    anywhere. `only_node_ids` limits the seeding to those nodes. Returns how many targets were written.
     """
     graph = build_frequency_graph(dag)
     floors = all_source_floors(graph.edges, graph.source_intervals)
@@ -361,6 +370,8 @@ def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
     written = 0
     for node in schedulable_nodes(dag):
         node_id = str(node.id)
+        if only_node_ids is not None and node_id not in only_node_ids:
+            continue
         if get_declared_target(node) is not None:
             continue
         raw = seeds.get(node_id, default)

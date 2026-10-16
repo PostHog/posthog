@@ -187,7 +187,9 @@ def _integration(
         integration is None
         or not integration.integration_id
         or (installation_id is not None and integration.integration_id != installation_id)
-        or GitHubIntegration(integration).installation_unavailable()
+        or GitHubIntegration(
+            integration, source="customer_analytics", priority=Priority.CRITICAL
+        ).installation_unavailable()
     ):
         raise FeatureRequestValidationError(
             "integration_id", "Select an available GitHub integration for this project."

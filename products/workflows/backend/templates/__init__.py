@@ -9,24 +9,18 @@ logger = structlog.get_logger(__name__)
 
 # List of all template JSON files - update this when adding new templates
 TEMPLATE_FILES = [
-    "announce_a_new_feature_template.json",
-    "onboarding_started_but_not_completed_template.json",
-    "trial_started_upgrade_nudge_template.json",
     "welcome_email_sequence_template.json",
-    "celebrate-milestone.json",
-    "feature-adoption-tips.json",
-    "heavy-usage-detected.json",
-    "high-intent-notification.json",
-    "negative-survey-response.json",
-    "re-engagement-workflow.json",
-    "repeated-failure-alert.json",
     "support-ticket-notification.json",
-    "ticket-unresolved-alert.json",
-    "trial-ending-reminder.json",
-    "unlocking_advanced_features.json",
-    "unused-features-education.json",
-    "user-stuck-onboarding.json",
-    "user-upgrade-webhook.json",
+    "negative-survey-response.json",
+    "convert-trials-to-paid.json",
+    "abandoned-checkout-recovery.json",
+    "payment-failed-alert.json",
+    "ai-support-first-responder.json",
+    "ai-scheduled-report.json",
+    "ai-slack-alert-responder.json",
+    "replay-vision-survey-context.json",
+    "replay-vision-support-ticket-context.json",
+    "replay-vision-onboarding-friction.json",
 ]
 
 _TEMPLATE_CACHE: Optional[list[dict]] = None
@@ -56,7 +50,7 @@ class SimpleHogFlowTemplateActionSerializer(serializers.Serializer):
         if data.get("type") == "trigger":
             config = data.get("config", {})
             trigger_type = config.get("type")
-            if trigger_type not in ["webhook", "manual", "tracking_pixel", "schedule", "event"]:
+            if trigger_type not in ["webhook", "manual", "tracking_pixel", "schedule", "event", "internal-event"]:
                 raise serializers.ValidationError({"config": f"Invalid trigger type: {trigger_type}"})
 
         # Validate that conditions don't have both 'conditions' and 'condition'

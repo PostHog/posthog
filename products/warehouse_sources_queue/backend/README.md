@@ -170,6 +170,18 @@ For ad-hoc inspection (state summaries, active runs, leases, force-release), use
 
 Followers returned by a successful handler (`sdk.Success(followers=...)`) are enqueued in the same transaction as the terminal status write. Dedup of live `(kind, dedup_key)` pairs is enforced by the insert statement's `NOT EXISTS` guard rather than a unique index — a partitioned table cannot carry a unique index that omits the partition key.
 
+An enqueuer can pass an `OverlapPolicy` to `JobsTable.insert`.
+The policy decides if a new job can join a group that has live jobs of the same kind and lane:
+
+- `SKIP` refuses the job while the group has a pending or running job.
+- `BUFFER_ONE` refuses the job only while the group has a pending job. A running job does not block, because the new job waits behind it.
+
+A job is pending when it is in `pending` state and no consumer has claimed it.
+A job is running when it is `executing`, or `waiting_retry` for its next attempt.
+Pending and `waiting_retry` jobs older than the claim eligibility window, terminal jobs, and superseded jobs are not live.
+The policy guard is a `NOT EXISTS` in the insert statement, like the dedup guard, so it is atomic under one enqueuer.
+`JobsTable.get_group_job_states` reads the same live state for many groups in one query, and `overlap_allows` applies a policy to it.
+
 SQL lives in `core/generic_jobs.py`; the SDK wiring (`JobHandler`, `Outcome`, `GenericJobAdapter`, `JobConsumer`) in `sdk/jobs.py`. Nothing produces or consumes these tables yet; the run orchestrator lands on them in later phases.
 
 ## Scheduler state (phase 2, shadow mode)
@@ -180,6 +192,9 @@ The warehouse scheduler uses `sync.extract` as its kind and the schema ID as its
 SQL lives in `core/scheduler_state.py`.
 The tick loop, scope predicate, and due-time math live in `products/warehouse_sources/backend/scheduling/`.
 The `run_warehouse_scheduler` command runs the tick loop.
+Each scheduled kind declares its queue lane and its overlap policy; `sync.extract` uses `SKIP` on lane `extract`.
+The scheduler decides overlap from the live jobs in `queuejob`, never from `ExternalDataJob` rows.
 The scheduler uses sentinel rows in `queuejoblease` (lane `scheduler`) to select one leader across the fleet.
 It starts no syncs.
 The `report_warehouse_scheduler_shadow` command compares decisions with the `ExternalDataJob` rows that Temporal schedules created.
+It counts an unmatched decision as `temporal_overlap_skip`, not `shadow_only`, when a job for that schema was in progress at the due time and was created at most 7 days before it.

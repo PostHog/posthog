@@ -1,50 +1,52 @@
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.source import BabelforceSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.babelforce import (
     BabelforceSourceConfig,
 )
 
 
 class TestBabelforceSource:
-    def setup_method(self):
+    def setup_method(self) -> None:
         self.source = BabelforceSource()
         self.team_id = 123
         self.config = BabelforceSourceConfig(environment="services", access_id="access-id", access_token="token")
 
-    def test_environment_is_a_connection_host_field(self):
+    def test_environment_is_a_connection_host_field(self) -> None:
         # `environment` decides which host receives the stored token; changing it must force
         # the editor to re-enter the token or the credential could be exfiltrated.
         assert self.source.connection_host_fields == ["environment"]
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "status, expected_valid, expected_message",
         [
-            (True, True, None),
-            (False, False, "Invalid Babelforce API credentials"),
+            (200, True, None),
+            (401, False, "Invalid Babelforce API credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.source.validate_babelforce_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(self, status: int, expected_valid: bool, expected_message: str | None) -> None:
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with(self.config.environment, self.config.access_id, self.config.access_token)
+        assert len(network.requests_log) == 1
+        request = network.requests_log[0]
+        assert request.path == "/api/v2/agents"
+        assert request.origin == "https://services.babelforce.com"
+        assert request.headers["x-auth-access-id"] == self.config.access_id
+        assert request.headers["x-auth-access-token"] == self.config.access_token
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.source.validate_babelforce_credentials"
-    )
-    def test_validate_credentials_rejects_bad_environment_without_probing(self, mock_validate):
+    def test_validate_credentials_rejects_bad_environment_without_probing(self) -> None:
         config = BabelforceSourceConfig(environment="evil.example.com", access_id="id", access_token="token")
 
-        is_valid, error_message = self.source.validate_credentials(config, self.team_id)
+        with scripted_network([]) as network:
+            is_valid, error_message = self.source.validate_credentials(config, self.team_id)
 
         assert is_valid is False
         assert error_message is not None
-        mock_validate.assert_not_called()
+        assert network.requests_log == []

@@ -19,13 +19,13 @@ from django.db.models import QuerySet
 
 import structlog
 
-from posthog.cdp.validation import generate_template_bytecode
 from posthog.dataclasses import frozen
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.tasks.alerts.utils import INSIGHT_ALERT_FIRING_EVENT
 
 from products.alerts.backend.logic.insight_alert_destinations import INSIGHT_CHART_BLOCK, SLACK_TEMPLATE_ID
 from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.validation import generate_template_bytecode
 
 logger = structlog.get_logger(__name__)
 

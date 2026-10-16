@@ -65,12 +65,14 @@ class AwsCostExplorerThrottledError(AwsCostExplorerError):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class AwsCostExplorerResumeConfig:
     """Where a previous attempt stopped: the request window plus its page token."""
 
     window_start: str
     next_page_token: Optional[str] = None
+    # The dimension or service the saved page belongs to, for operations that slice by one.
+    slice_key: Optional[str] = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -130,6 +132,9 @@ def resolve_start_date(
     periods until the bill finalizes, but never before the user's configured start date.
     """
     floor = coerce_date(configured_start_date) or (end - dt.timedelta(days=DEFAULT_LOOKBACK_DAYS))
+    if endpoint_config.max_lookback_days is not None:
+        today = end - dt.timedelta(days=1) if endpoint_config.includes_current_day else end
+        floor = max(floor, today - dt.timedelta(days=endpoint_config.max_lookback_days))
 
     start = floor
     if should_use_incremental_field:
@@ -152,12 +157,24 @@ def build_windows(start: dt.date, end: dt.date, window_days: int) -> list[TimeWi
 
 
 def build_payload(
-    endpoint_config: CostExplorerEndpointConfig, window: TimeWindow, page_token: Optional[str]
+    endpoint_config: CostExplorerEndpointConfig,
+    window: TimeWindow,
+    page_token: Optional[str],
+    slice_key: Optional[str] = None,
+    window_services: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "TimePeriod": {"Start": window.start.isoformat(), "End": window.end.isoformat()},
-        "Granularity": endpoint_config.granularity,
     }
+    if endpoint_config.granularity:
+        payload["Granularity"] = endpoint_config.granularity
+    if endpoint_config.dimensions and slice_key:
+        payload["Dimension"] = slice_key
+        payload["Context"] = "COST_AND_USAGE"
+    if endpoint_config.services and slice_key:
+        payload["Filter"] = {"Dimensions": {"Key": "SERVICE", "Values": [slice_key]}}
+    if window_services is not None:
+        payload["Filter"] = {"Dimensions": {"Key": "SERVICE", "Values": window_services}}
     if endpoint_config.metrics:
         payload["Metrics"] = list(endpoint_config.metrics)
     if endpoint_config.group_by:
@@ -212,7 +229,23 @@ def _cost_rows(
     return rows
 
 
-def normalize_results(endpoint_config: CostExplorerEndpointConfig, body: dict[str, Any]) -> list[dict[str, Any]]:
+def _dimension_rows(dimension: str, body: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in body.get("DimensionValues") or []:
+        # LINKED_ACCOUNT values carry the account name as a `description` attribute. Attributes are
+        # labels, so they skip the numeric coercion a name like `0010` would not survive.
+        row: dict[str, Any] = {"dimension": dimension, "value": item.get("Value")}
+        row.update({_snake(key): value for key, value in (item.get("Attributes") or {}).items()})
+        rows.append(row)
+    return rows
+
+
+def normalize_results(
+    endpoint_config: CostExplorerEndpointConfig, body: dict[str, Any], slice_key: Optional[str] = None
+) -> list[dict[str, Any]]:
+    if endpoint_config.dimensions and slice_key is not None:
+        return _dimension_rows(slice_key, body)
+
     rows: list[dict[str, Any]] = []
 
     for result in body.get(endpoint_config.result_key) or []:
@@ -223,7 +256,7 @@ def normalize_results(endpoint_config: CostExplorerEndpointConfig, body: dict[st
             "granularity": endpoint_config.granularity,
         }
 
-        if endpoint_config.metrics:
+        if not endpoint_config.nested_keys:
             # Recent periods come back estimated and are restated later; the lookback rewind
             # re-merges them once finalized. Only the cost operations report it.
             base["estimated"] = result.get("Estimated")
@@ -231,6 +264,8 @@ def normalize_results(endpoint_config: CostExplorerEndpointConfig, body: dict[st
             continue
 
         row = dict(base)
+        if endpoint_config.services:
+            row["service"] = slice_key
         for member, prefix in endpoint_config.nested_keys:
             row.update(_flatten(prefix, result.get(member) or {}))
         rows.append(row)
@@ -322,7 +357,7 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
     "SignatureDoesNotMatch": "AWS rejected the request signature. Please re-enter the secret access key.",
     "InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
     "ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
-    "AccessDeniedException": "These AWS credentials are missing Cost Explorer permissions. Grant ce:GetCostAndUsage, ce:GetReservationUtilization and ce:GetSavingsPlansUtilization to the IAM user or role.",
+    "AccessDeniedException": "These AWS credentials are missing Cost Explorer permissions. Grant ce:GetCostAndUsage, ce:GetCostAndUsageWithResources, ce:GetDimensionValues, ce:GetReservationUtilization, ce:GetReservationCoverage, ce:GetSavingsPlansUtilization and ce:GetSavingsPlansCoverage to the IAM user or role.",
     "DataUnavailableException": "AWS has no Cost Explorer data for the requested dates. Cost Explorer has to be enabled on the account, and it can take up to 24 hours to prepare data.",
     "BillExpirationException": "The requested dates are older than the data AWS keeps. Move the start date forward and try again.",
 }
@@ -374,17 +409,35 @@ def validate_credentials(
 
 
 def _resume_index(
-    windows: list[TimeWindow], resume: Optional[AwsCostExplorerResumeConfig]
+    slices: list[tuple[TimeWindow, Optional[str]]], resume: Optional[AwsCostExplorerResumeConfig]
 ) -> tuple[int, Optional[str]]:
-    """Where to pick up. A saved window that no longer exists (the range moved) restarts the run."""
+    """Where to pick up. A saved slice that no longer exists (the range moved) restarts the run."""
     if resume is None:
         return 0, None
 
-    for index, window in enumerate(windows):
-        if window.start.isoformat() == resume.window_start:
+    for index, (window, slice_key) in enumerate(slices):
+        if window.start.isoformat() == resume.window_start and slice_key == resume.slice_key:
             return index, resume.next_page_token
 
     return 0, None
+
+
+def list_window_services(session: requests.Session, credentials: Credentials, window: TimeWindow) -> list[str]:
+    services: list[str] = []
+    page_token: Optional[str] = None
+    while True:
+        payload: dict[str, Any] = {
+            "TimePeriod": {"Start": window.start.isoformat(), "End": window.end.isoformat()},
+            "Dimension": "SERVICE",
+            "Context": "COST_AND_USAGE",
+        }
+        if page_token:
+            payload["NextPageToken"] = page_token
+        body = send_operation(session, credentials, "GetDimensionValues", payload)
+        services.extend(item["Value"] for item in body.get("DimensionValues") or [] if item.get("Value"))
+        page_token = body.get("NextPageToken")
+        if not page_token:
+            return services
 
 
 def get_rows(
@@ -416,17 +469,30 @@ def get_rows(
         resumable_source_manager.clear_state()
         return
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    index, page_token = _resume_index(windows, resume)
-    if resume is not None:
-        logger.debug(f"Resuming AWS Cost Explorer sync. endpoint={endpoint}, window={windows[index].start}")
+    slice_keys: tuple[Optional[str], ...] = endpoint_config.dimensions or endpoint_config.services or (None,)
+    slices = [(window, slice_key) for window in windows for slice_key in slice_keys]
 
-    for window in windows[index:]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    index, page_token = _resume_index(slices, resume)
+    if resume is not None:
+        logger.debug(f"Resuming AWS Cost Explorer sync. endpoint={endpoint}, window={slices[index][0].start}")
+
+    for window, slice_key in slices[index:]:
+        window_services: Optional[list[str]] = None
+        if endpoint_config.filter_by_window_services:
+            window_services = list_window_services(session, credentials, window)
+            if not window_services:
+                page_token = None
+                continue
+
         while True:
             body = send_operation(
-                session, credentials, endpoint_config.operation, build_payload(endpoint_config, window, page_token)
+                session,
+                credentials,
+                endpoint_config.operation,
+                build_payload(endpoint_config, window, page_token, slice_key, window_services),
             )
-            rows = normalize_results(endpoint_config, body)
+            rows = normalize_results(endpoint_config, body, slice_key)
             if rows:
                 yield rows
 
@@ -434,7 +500,9 @@ def get_rows(
             # Saved after yielding: a crash re-yields the last batch, which merges away on the
             # primary key, rather than skipping it.
             resumable_source_manager.save_state(
-                AwsCostExplorerResumeConfig(window_start=window.start.isoformat(), next_page_token=page_token)
+                AwsCostExplorerResumeConfig(
+                    window_start=window.start.isoformat(), next_page_token=page_token, slice_key=slice_key
+                )
             )
 
             if not page_token:
@@ -472,8 +540,8 @@ def aws_cost_explorer_source(
             logger=logger,
         ),
         primary_keys=endpoint_config.primary_key,
-        partition_keys=["period_start"],
-        partition_mode="datetime",
-        partition_format="month",
+        partition_keys=None if endpoint_config.dimensions else ["period_start"],
+        partition_mode=None if endpoint_config.dimensions else "datetime",
+        partition_format=None if endpoint_config.dimensions else "month",
         sort_mode="asc",
     )

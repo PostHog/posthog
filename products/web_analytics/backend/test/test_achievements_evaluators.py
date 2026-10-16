@@ -1,7 +1,8 @@
+from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.utils import timezone
 
@@ -13,12 +14,14 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.models import Element, Team, User
+from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, filter_through_warehouse_join
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_DAILY, STREAK_ARM_WEEKLY
 from products.web_analytics.backend.achievements.evaluators import (
     EvalContext,
     PriorProgress,
+    TrackEvaluation,
     _action_fingerprints,
     _add_conversion_counts,
     evaluate_conversions,
@@ -156,6 +159,29 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
     def test_conversions_falls_back_to_goal_count_without_conversions(self) -> None:
         self._pay_action("$autocapture")
         self.assertEqual(evaluate_conversions(self._ctx(), EMPTY_PRIOR).value, 1)
+
+    @parameterized.expand(
+        [
+            ("pageviews", evaluate_cumulative_pageviews, [(7,)], 7),
+            ("conversions", evaluate_conversions, [(date.today(), 4)], 4),
+        ]
+    )
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, new=Mock(return_value=True))
+    def test_team_tracks_read_a_test_account_filter_through_a_warehouse_join(
+        self,
+        _name: str,
+        evaluate: Callable[[EvalContext, PriorProgress], TrackEvaluation],
+        rows: list[tuple[object, ...]],
+        expected: int,
+    ) -> None:
+        self.team.test_account_filters = [filter_through_warehouse_join(self.team)]
+        self.team.save()
+        self._pay_action("$autocapture")
+
+        with patch("posthog.hogql.query.sync_execute", return_value=(rows, [])):
+            evaluation = evaluate(self._ctx(), EMPTY_PRIOR)
+
+        self.assertEqual(evaluation.value, expected)
 
     @parameterized.expand(
         [

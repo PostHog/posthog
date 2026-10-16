@@ -2,6 +2,7 @@ import { MOCK_USER_UUID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -34,7 +35,6 @@ const MOCK_INSIGHT: InsightModel = {
             series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: 'total' }],
         },
     },
-    dashboards: [1, 2],
     dashboard_tiles: [{ dashboard_id: 1 }, { dashboard_id: 2 }] as any,
     result: ['result'],
     saved: true,
@@ -143,10 +143,42 @@ describe('addToDashboardModalLogic', () => {
             .toFinishAllListeners()
     })
 
+    it.each([
+        {
+            name: 'adding keeps the dashboards the insight already sits on',
+            change: (modal: ReturnType<typeof addToDashboardModalLogic.build>) => modal.actions.addToDashboard(4),
+            expectedDashboards: [1, 2, 4],
+        },
+        {
+            name: 'removing keeps the other dashboards',
+            change: (modal: ReturnType<typeof addToDashboardModalLogic.build>) => modal.actions.removeFromDashboard(2),
+            expectedDashboards: [1],
+        },
+    ])('$name', async ({ change, expectedDashboards }) => {
+        const updateSpy = jest.spyOn(api.insights, 'update')
+        const insightProps = { dashboardItemId: Insight1 }
+        const insightLog = insightLogic(insightProps)
+        insightLog.mount()
+        insightLog.actions.loadInsightSuccess({
+            ...MOCK_INSIGHT,
+            dashboard_tiles: [
+                { id: 11, dashboard_id: 1 },
+                { id: 12, dashboard_id: 2 },
+                { id: 13, dashboard_id: 3, deleted: true },
+            ],
+        })
+
+        logic = addToDashboardModalLogic(insightProps)
+        logic.mount()
+
+        await expectLogic(logic, () => change(logic)).toFinishAllListeners()
+
+        expect(updateSpy.mock.calls[0][1].dashboards).toEqual(expectedDashboards)
+    })
+
     it('orders dashboards: on insight first, then mine, then others pinned, then the rest', async () => {
         const insightOnlyOnDash2: InsightModel = {
             ...MOCK_INSIGHT,
-            dashboards: [2],
             dashboard_tiles: [{ dashboard_id: 2 }] as any,
         }
         useMocks({
@@ -200,7 +232,6 @@ describe('addToDashboardModalLogic', () => {
         window.POSTHOG_APP_CONTEXT = { current_user: null } as unknown as AppContext
         const insightOnlyOnDash2: InsightModel = {
             ...MOCK_INSIGHT,
-            dashboards: [2],
             dashboard_tiles: [{ dashboard_id: 2 }] as any,
         }
         useMocks({
@@ -251,7 +282,6 @@ describe('addToDashboardModalLogic', () => {
     it('places mine pinned in the mine bucket before others pinned', async () => {
         const insightOnlyOnDash2: InsightModel = {
             ...MOCK_INSIGHT,
-            dashboards: [2],
             dashboard_tiles: [{ dashboard_id: 2 }] as any,
         }
         useMocks({

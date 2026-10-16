@@ -1,7 +1,7 @@
 from typing import cast
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
-
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,6 +48,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BrowseAISource(ResumableSource[BrowseAISourceConfig, BrowseAIResumeConfig], WebhookSource[BrowseAISourceConfig]):
+    codebase_detection = detect(env=("^(BROWSE_AI|BROWSEAI)_",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"

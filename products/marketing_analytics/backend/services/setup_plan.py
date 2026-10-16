@@ -19,6 +19,7 @@ there's nothing to say), everything else degrades to a missing section recorded 
 
 import asyncio
 from typing import Any, cast
+from urllib.parse import urlencode
 
 from django.utils import timezone
 
@@ -113,6 +114,7 @@ async def get_setup_plan(
     *,
     date_from: str = "-30d",
     user: User | None = None,
+    refresh_source_scan: bool = False,
 ) -> SetupPlan:
     """Build the ranked setup plan for a team."""
     date_range = QueryDateRange(
@@ -123,8 +125,16 @@ async def get_setup_plan(
     )
 
     results = await asyncio.gather(
-        get_marketing_diagnostic(team, include_conversion_goals=True, user=user),
-        get_attribution_health(team, lookback_days=ATTRIBUTION_LOOKBACK_DAYS),
+        get_marketing_diagnostic(
+            team,
+            include_conversion_goals=True,
+            user=user,
+            cache_source_scan=True,
+            refresh_source_scan=refresh_source_scan,
+        ),
+        get_attribution_health(
+            team, lookback_days=ATTRIBUTION_LOOKBACK_DAYS, cache_scan=True, refresh_scan=refresh_source_scan
+        ),
         suggest_conversion_goals(team),
         get_campaigns_with_spend_async(team, date_range, user=user),
         get_utm_campaign_catalogue_async(team, date_range, user=user),
@@ -158,7 +168,7 @@ async def get_setup_plan(
     goal_flags = _or_degraded(goal_flags_result, "goal_flags", degraded, team) or {}
 
     suggestions: list[Suggestion] = []
-    suggestions.extend(_integration_suggestions(diagnostic))
+    suggestions.extend(_integration_suggestions(diagnostic, team_id=team.pk))
 
     # Ahead of the mapping suggester so its proposals can be injected there.
     campaign_mappings: CampaignMappingSuggestions | None = None
@@ -258,10 +268,10 @@ def _load_goal_flags(team: Team) -> dict[str, dict[str, Any]]:
 # --- Suggestion builders ---------------------------------------------------
 
 
-def _integration_suggestions(diagnostic: MarketingDiagnosticResponse) -> list[Suggestion]:
+def _integration_suggestions(diagnostic: MarketingDiagnosticResponse, *, team_id: int) -> list[Suggestion]:
     suggestions: list[Suggestion] = []
     for integration in diagnostic.integrations:
-        suggestion = _integration_suggestion(integration)
+        suggestion = _integration_suggestion(integration, team_id=team_id)
         if suggestion is not None:
             suggestions.append(suggestion)
     return suggestions
@@ -274,7 +284,7 @@ def _looks_like_auth_failure(last_error: str | None) -> bool:
     return any(token in lowered for token in ("token", "unauthor", "auth", "credential", "expired", "401", "403"))
 
 
-def _integration_suggestion(integration: IntegrationDiagnostic) -> Suggestion | None:
+def _integration_suggestion(integration: IntegrationDiagnostic, *, team_id: int) -> Suggestion | None:
     key: NativeIntegration = integration.integration_key
     native = KEY_TO_NATIVE.get(key)
     display = integration.display_name
@@ -303,6 +313,15 @@ def _integration_suggestion(integration: IntegrationDiagnostic) -> Suggestion | 
             unlocks=[Capability.COST, Capability.ROAS, Capability.CAC],
             apply=OpenSourceWizard(kind=source_type),
             integration=source_type,
+            deep_link=f"/project/{team_id}/data-warehouse/new-source?"
+            + urlencode(
+                {
+                    "kind": source_type,
+                    "returnUrl": f"/project/{team_id}/marketing",
+                    "returnLabel": "Marketing analytics",
+                    "entry_point": "marketing_analytics_mcp",
+                }
+            ),
             event_volume=paid_volume,
         )
 

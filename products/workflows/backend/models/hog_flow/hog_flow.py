@@ -52,6 +52,8 @@ SUPPORTED_ACTION_TYPES: Final[list[str]] = [
 TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
     {
         "event",
+        # A transactional email: one authenticated API call runs the workflow once.
+        "api",
         "schedule",
         "manual",
         "batch",
@@ -60,8 +62,12 @@ TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
         "data-warehouse-table",
         "data-warehouse-view",
         "internal-event",
+        "cohort",
     }
 )
+
+# Membership changes a cohort trigger can start a run on.
+COHORT_TRIGGER_TRANSITIONS: Final[tuple[str, ...]] = ("entered", "left")
 
 # The internal events a workflow may subscribe to. The internal-events stream carries payloads
 # that each owning product gates behind its own scopes — recording content, exception detail,
@@ -82,8 +88,8 @@ BILLABLE_ACTION_TYPES: Final[set[str]] = {
 
 # Action types that send a message to a person. A workflow containing at least one of these is a
 # "messaging" workflow; everything else is an "automation". Keep in sync with the frontend's
-# WorkflowTypeTag (products/workflows/frontend/Workflows/WorkflowsTable.tsx), which renders the
-# same split, and the list API's `type` filter, which queries on it.
+# MESSAGING_ACTION_TYPES (products/workflows/frontend/Workflows/workflowTypeFilters.ts), which the list's
+# type tag and the template type filter use, and the list API's `type` filter, which queries on it.
 MESSAGING_ACTION_TYPES: Final[list[str]] = [
     "function_email",
     "function_sms",

@@ -132,7 +132,7 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
             } else {
                 searchParams.tab = values.activeTab
             }
-            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            return [router.values.location.pathname, searchParams, router.values.hashParams]
         },
     })),
 

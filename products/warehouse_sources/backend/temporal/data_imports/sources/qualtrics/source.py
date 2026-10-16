@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -53,6 +54,13 @@ def _credentials_from_config(config: QualtricsSourceConfig) -> QualtricsCredenti
 
 @SourceRegistry.register
 class QualtricsSource(ResumableSource[QualtricsSourceConfig, QualtricsResumeConfig]):
+    codebase_detection = detect(
+        env=("^QUALTRICS_",),
+        script_hosts=("siteintercept.qualtrics.com",),
+        npm=("react-native-qualtrics",),
+        cocoapods=("Qualtrics", "QualtricsDXA", "QualtricsExperience"),
+    )
+
     supported_versions = (QUALTRICS_API_VERSION,)
     default_version = QUALTRICS_API_VERSION
     api_docs_url = "https://api.qualtrics.com/"

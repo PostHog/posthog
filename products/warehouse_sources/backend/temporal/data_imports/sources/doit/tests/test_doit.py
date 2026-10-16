@@ -4,6 +4,11 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit import (
     LIST_REPORTS_TIMEOUT_SECONDS,
     REPORT_TIMEOUT_SECONDS,
@@ -29,33 +34,33 @@ def _response(payload: Any, status_code: int = 200) -> MagicMock:
 class TestResolveReportId:
     @pytest.mark.parametrize("schema_metadata", [None, {}, {"report_id": None}])
     def test_falls_back_to_name_lookup(self, schema_metadata: dict | None) -> None:
-        with patch(f"{_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(
-                {"reports": [{"id": "r7", "reportName": "Cost by product"}]}
-            )
+        with scripted_network(
+            [ScriptedResponse(json={"reports": [{"id": "r7", "reportName": "Cost by product"}]})]
+        ) as network:
             assert resolve_report_id(CONFIG, "cost_by_product", schema_metadata) == "r7"
+        assert [request.path for request in network.requests_log] == ["/analytics/v1/reports"]
 
     def test_raises_when_no_report_matches_the_name(self) -> None:
-        with patch(f"{_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(
-                {"reports": [{"id": "r7", "reportName": "Cost by product"}]}
-            )
+        with scripted_network([ScriptedResponse(json={"reports": [{"id": "r7", "reportName": "Cost by product"}]})]):
             with pytest.raises(Exception, match="Report no longer exists"):
                 resolve_report_id(CONFIG, "deleted_report", None)
 
 
 class TestDoitListReports:
     def test_returns_raw_and_normalized_names(self) -> None:
-        with patch(f"{_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(
-                {
-                    "reports": [
-                        {"id": "r1", "reportName": "Cost by product"},
-                        {"id": "r2", "reportName": "   "},
-                        {"id": "r3"},
-                    ]
-                }
-            )
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json={
+                        "reports": [
+                            {"id": "r1", "reportName": "Cost by product"},
+                            {"id": "r2", "reportName": "   "},
+                            {"id": "r3"},
+                        ]
+                    }
+                )
+            ]
+        ):
             reports = doit_list_reports(CONFIG)
 
         assert [(r.id, r.name, r.report_name) for r in reports] == [("r1", "cost_by_product", "Cost by product")]
@@ -63,8 +68,7 @@ class TestDoitListReports:
     def test_non_200_surfaces_the_status_code(self) -> None:
         # `DOIT_RETRY` sets raise_on_status=False, so an exhausted 5xx lands here as a response;
         # without the guard it became a JSON/key error with the status lost.
-        with patch(f"{_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response({}, status_code=500)
+        with scripted_network(always(ScriptedResponse(status=500, body=b"body"))):
             with pytest.raises(Exception, match="failed with status: 500"):
                 doit_list_reports(CONFIG)
 

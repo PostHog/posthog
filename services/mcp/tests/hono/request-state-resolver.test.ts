@@ -7,7 +7,10 @@ const {
     mockSessionScopedStores,
     mockRefreshTtlCalls,
     mockRedisFailures,
+    mockPinned,
+    mockGetApiKey,
 } = vi.hoisted(() => ({
+    mockGetApiKey: vi.fn(),
     mockSessionStore: new Map<string, unknown>(),
     mockTokenStore: new Map<string, unknown>(),
     mockApiKey: {
@@ -23,12 +26,15 @@ const {
     mockRedisFailures: {
         contextError: undefined as Error | undefined,
         pinWriteGate: undefined as Promise<void> | undefined,
+        legacyReadError: undefined as Error | undefined,
         contextReads: 0,
     },
+    // The request-scoped context the last resolve handed to RequestContext.
+    mockPinned: { last: undefined as { orgId?: string; projectId?: string; sessionScoped: boolean } | undefined },
 }))
 
 vi.mock('@/lib/posthog/flags', () => ({
-    evaluateFeatureFlags: vi.fn(async () => ({})),
+    evaluateFeatureFlags: vi.fn(async () => ({ flags: {}, payloads: {} })),
     resolveFeatureFlagOverrides: vi.fn(() => ({})),
 }))
 
@@ -65,7 +71,7 @@ vi.mock('@/hono/request-context', () => {
             store.set(key, value)
         }),
         setMany: vi.fn(async (entries: Record<string, unknown>) => {
-            if (store === mockTokenStore) {
+            if (store !== mockTokenStore) {
                 await mockRedisFailures.pinWriteGate
             }
             for (const [key, value] of Object.entries(entries)) {
@@ -100,6 +106,16 @@ vi.mock('@/hono/request-context', () => {
             return {
                 tokenCache: makeCache(mockTokenStore),
                 sessionScopedCache: props.mcpSessionId ? makeCache(sessionScopedStore(props.mcpSessionId)) : undefined,
+                legacySessionScopedCache: props.mcpSessionId
+                    ? {
+                          get: vi.fn(async () => {
+                              if (mockRedisFailures.legacyReadError) {
+                                  throw mockRedisFailures.legacyReadError
+                              }
+                              return undefined
+                          }),
+                      }
+                    : undefined,
                 getContext: vi.fn(async () => {
                     mockRedisFailures.contextReads += 1
                     if (mockRedisFailures.contextError) {
@@ -108,7 +124,7 @@ vi.mock('@/hono/request-context', () => {
                     return {
                         stateManager: {
                             setDefaultOrganizationAndProject: vi.fn(async () => {}),
-                            getApiKey: vi.fn(async () => mockApiKey),
+                            getApiKey: mockGetApiKey,
                             getAiConsentGiven: vi.fn(async () => undefined),
                             getAvailableFeatures: vi.fn(async () => undefined),
                         },
@@ -117,6 +133,9 @@ vi.mock('@/hono/request-context', () => {
                 safelyGetAnalyticsContext: vi.fn(async () => undefined),
                 getDistinctId: vi.fn(async () => 'distinct-id'),
                 setMcpContexts: vi.fn(),
+                setPinnedContext: vi.fn((pinned: typeof mockPinned.last) => {
+                    mockPinned.last = pinned
+                }),
             }
         }),
     }
@@ -124,6 +143,8 @@ vi.mock('@/hono/request-context', () => {
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
+import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
@@ -172,7 +193,10 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockRefreshTtlCalls.length = 0
         mockRedisFailures.contextError = undefined
         mockRedisFailures.pinWriteGate = undefined
+        mockRedisFailures.legacyReadError = undefined
         mockRedisFailures.contextReads = 0
+        mockPinned.last = undefined
+        mockGetApiKey.mockReset().mockImplementation(async () => mockApiKey)
         mockApiKey.scopes = ['*']
         mockApiKey.is_impersonated = undefined
         mockApiKey.suppress_analytics = undefined
@@ -230,6 +254,17 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     it.each([
+        ['a pinned request', { projectId: '1' }],
+        ['a request without a pin', { projectId: undefined }],
+    ])('fails %s when the legacy session store cannot be read', async (_label, pin) => {
+        // Skipping the check would let a pre-upgrade session run tools against a silently reset selection.
+        mockRedisFailures.legacyReadError = new Error('Command timed out')
+
+        await expect(makeResolver().resolve(makeProps(pin))).rejects.toThrow('Command timed out')
+        expect(mockRedisFailures.contextReads).toBe(0)
+    })
+
+    it.each([
         ['cli', false],
         ['cli', true],
         ['tools', false],
@@ -238,7 +273,10 @@ describe('RequestStateResolver MCP client contexts', () => {
         if (sandbox) {
             mockApiKey.scopes.push('internal_run:read')
         }
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'tasks-mcp-agent-run-start': true, tasks: true })
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
+            flags: { 'tasks-mcp-agent-run-start': true, tasks: true },
+            payloads: {},
+        })
         const catalog = new ToolCatalog()
         await catalog.warmup()
         const resolver = new RequestStateResolver(catalog, {} as RedisLike, {} as Env)
@@ -453,17 +491,152 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
-    it('evaluates the exec skills flag even though no generated tool declares it', async () => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ [MCP_EXEC_SKILLS_FEATURE_FLAG]: true })
+    it.each([MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INTERVIEW_RECRUITMENT_FLAG, MCP_INTENT_PROMPT_FLAG])(
+        'evaluates %s even though no generated tool declares it',
+        async (flag) => {
+            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ flags: { [flag]: true }, payloads: {} })
 
-        const result = await makeResolver().resolve(makeProps())
+            const result = await makeResolver().resolve(makeProps())
 
-        expect(evaluateFeatureFlags).toHaveBeenCalledWith(
-            expect.arrayContaining([MCP_EXEC_SKILLS_FEATURE_FLAG]),
-            'distinct-id',
-            undefined
+            expect(evaluateFeatureFlags).toHaveBeenCalledWith(expect.arrayContaining([flag]), 'distinct-id', undefined)
+            expect(result.toolFeatureFlags?.[flag]).toBe(true)
+        }
+    )
+
+    it.each([
+        { taskId: 'test-task' },
+        { taskOriginProduct: 'signals_scout' },
+        { taskOriginProduct: 'research' },
+        { scopes: ['internal_run:read'] },
+        { oauthClientId: 'jpSRPhGBBbDGpKprit9bgJEuo6oUTa8ULymqf8PE' },
+        { oauthClientId: 'N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu' },
+        { oauthClientId: 'jpSRPhGBBbDGpKprit9bgJEuo6oUTa8ULymqf8PE', cold: true },
+        { oauthClientId: 'N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu', cold: true },
+        { oauthClientId: 'https://posthog.com/.well-known/oauth/webmcp/client-metadata.json' },
+        { mcpConsumer: 'posthog-cli' },
+    ])('enforces recruitment eligibility even when the flag is forced on: %j', async (input) => {
+        if (input.scopes) {
+            mockApiKey.scopes = input.scopes
+        }
+        if (input.oauthClientId) {
+            if (input.cold) {
+                mockGetApiKey.mockImplementationOnce(async () => {
+                    await new Promise<void>((resolve) => setImmediate(resolve))
+                    mockTokenStore.set('oauthClientId', input.oauthClientId)
+                    mockTokenStore.set('clientName', 'Synthetic first-party application')
+                    return mockApiKey
+                })
+            } else {
+                mockTokenStore.set('oauthClientId', input.oauthClientId)
+            }
+        }
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
+            flags: {},
+            payloads: {
+                [MCP_INTERVIEW_RECRUITMENT_FLAG]: {
+                    message: 'Synthetic interview',
+                    booking_url: 'https://example.com/book',
+                },
+            },
+        })
+        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ [MCP_INTERVIEW_RECRUITMENT_FLAG]: true })
+        const result = await makeResolver().resolve(makeProps(input))
+        if (input.oauthClientId) {
+            expect(result.oauthClientId).toBe(input.oauthClientId)
+        }
+        expect(result.interviewRecruitmentConfig).toBeUndefined()
+        expect(result.interviewRecruitmentUnavailableReason).toBe(
+            input.oauthClientId || input.mcpConsumer ? 'surface_excluded' : input.scopes ? 'internal_run' : 'task_bound'
         )
-        expect(result.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG]).toBe(true)
+    })
+
+    it.each([
+        {
+            payload: { message: 'Synthetic interview', booking_url: 'https://example.com/book' },
+            expected: {
+                campaign_id: 'mcp-research',
+                booking_url: 'https://example.com/book',
+                min_completed_tool_calls: 3,
+                min_session_age_seconds: 120,
+            },
+        },
+        {
+            payload: { message: 'A new invitation', booking_url: 'https://example.com/book' },
+            expected: { message: 'A new invitation', booking_url: 'https://example.com/book' },
+        },
+        { payload: { message: '' }, expected: undefined },
+        { payload: { booking_url: 'javascript:alert(1)' }, expected: undefined },
+        { payload: { booking_url: 'http://example.com/book' }, expected: undefined },
+        { payload: { booking_url: 'not a URL' }, expected: undefined },
+        { payload: 'invalid', expected: undefined },
+        { payload: undefined, expected: undefined },
+        { payload: null, expected: undefined },
+        { payload: {}, expected: undefined },
+        { payload: { message: 'Synthetic interview' }, expected: undefined },
+        { payload: { booking_url: 'https://example.com/book' }, expected: undefined },
+        {
+            value: 'other-study',
+            payload: { message: 'Another interview', booking_url: 'https://example.com/other' },
+            expected: {
+                campaign_id: 'other-study',
+                booking_url: 'https://example.com/other',
+                min_completed_tool_calls: 3,
+                min_session_age_seconds: 120,
+            },
+        },
+        { value: 'other-study', payload: undefined, expected: undefined },
+        { value: 'other-study', payload: {}, expected: undefined },
+        { value: 'other-study', payload: { message: 'Another interview' }, expected: undefined },
+        { value: 'other-study', payload: { booking_url: 'https://example.com/other' }, expected: undefined },
+        { value: '', payload: {}, expected: undefined },
+        { value: false, payload: {}, expected: undefined },
+    ])(
+        'validates recruitment configuration from the flag payload: $payload',
+        async ({ value = true, payload, expected }) => {
+            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
+                flags: { [MCP_INTERVIEW_RECRUITMENT_FLAG]: value },
+                payloads: { [MCP_INTERVIEW_RECRUITMENT_FLAG]: payload },
+            })
+            const state = await makeResolver().resolve(makeProps())
+            if (expected) {
+                expect(state.interviewRecruitmentConfig).toMatchObject(expected)
+                expect(state.interviewRecruitmentUnavailableReason).toBeUndefined()
+            } else {
+                expect(state.interviewRecruitmentConfig).toBeUndefined()
+                expect(state.interviewRecruitmentUnavailableReason).toBe(
+                    value === false ? 'flag_disabled' : 'invalid_configuration'
+                )
+            }
+        }
+    )
+
+    it.each([
+        { value: true, enabled: true },
+        { value: 'test-1', enabled: true },
+        { value: false, enabled: false },
+        { value: undefined, enabled: false },
+        { value: '', enabled: false },
+        { value: true, missingPayload: true, enabled: false },
+        { value: true, payload: { prompt: ' ' }, enabled: false },
+        { value: true, payload: { prompt: 'x'.repeat(2001) }, enabled: false },
+        { value: true, impersonated: true, enabled: false },
+        { value: true, suppressed: true, enabled: false },
+        { value: true, consumer: 'posthog-cli', enabled: false },
+    ])('resolves the intent prompt only for an eligible configured request: %j', async (input) => {
+        const prompt = {
+            prompt: 'State the task objective before the tool action. Omit identifying details.',
+        }
+        mockApiKey.is_impersonated = input.impersonated
+        mockApiKey.suppress_analytics = input.suppressed
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
+            flags: { [MCP_INTENT_PROMPT_FLAG]: input.value },
+            payloads: {
+                [MCP_INTENT_PROMPT_FLAG]: input.missingPayload ? undefined : { ...prompt, ...input.payload },
+            },
+        })
+        const state = await makeResolver().resolve(makeProps({ mcpConsumer: input.consumer }))
+
+        expect(state.intentPrompt).toEqual(input.enabled ? prompt.prompt : undefined)
     })
 
     it('honors a dev/test flag override even when evaluation returns nothing', async () => {
@@ -476,12 +649,53 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.toolFeatureFlags?.['dev-forced-flag']).toBe(true)
     })
 
+    it.each([
+        { mode: 'development', override: undefined, payload: 'valid', enabled: false },
+        { mode: 'development', override: true, payload: undefined, enabled: false },
+        { mode: 'development', override: true, payload: '{', enabled: false },
+        { mode: 'development', override: true, payload: '{}', enabled: false },
+        { mode: 'development', override: true, payload: 'valid', enabled: true },
+        { mode: 'development', override: 'other-study', payload: 'valid', enabled: true },
+        { mode: 'test', override: true, payload: 'valid', enabled: true },
+        { mode: 'production', override: true, payload: 'valid', enabled: false },
+    ])('requires explicit local recruitment opt-in and payload: %j', async ({ mode, override, payload, enabled }) => {
+        vi.stubEnv('POSTHOG_API_BASE_URL', 'http://localhost:8000')
+        vi.stubEnv('NODE_ENV', mode)
+        vi.stubEnv(
+            'MCP_INTERVIEW_RECRUITMENT_PAYLOAD',
+            payload === 'valid'
+                ? JSON.stringify({ message: 'Synthetic local interview', booking_url: 'https://example.com/book' })
+                : payload
+        )
+        try {
+            if (override) {
+                vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({
+                    [MCP_INTERVIEW_RECRUITMENT_FLAG]: override,
+                })
+            }
+            const result = await makeResolver().resolve(makeProps())
+            if (enabled) {
+                expect(result.interviewRecruitmentConfig).toMatchObject({
+                    campaign_id: typeof override === 'string' ? override : 'mcp-research',
+                    message: 'Synthetic local interview',
+                    booking_url: 'https://example.com/book',
+                })
+            } else {
+                expect(result.interviewRecruitmentConfig).toBeUndefined()
+            }
+        } finally {
+            vi.unstubAllEnvs()
+        }
+    })
+
     describe('pinned project/org context', () => {
-        // What the switch-project handler does: write the token cache and record
-        // the switch on the session (Context.setSessionActiveContext).
-        const simulateSwitch = (mcpSessionId: string, projectId: string): void => {
-            mockTokenStore.set('projectId', projectId)
-            mockSessionScopedStores.get(mcpSessionId)?.set('activeProjectId', projectId)
+        // What the switch-project handler records on the session (Context.setSessionActiveContext).
+        const simulateSwitch = (mcpSessionId: string, projectId: string, orgId?: string): void => {
+            const store = mockSessionScopedStores.get(mcpSessionId)
+            store?.set('activeProjectId', projectId)
+            if (orgId) {
+                store?.set('activeOrgId', orgId)
+            }
         }
 
         it('does not revert an in-session switch-project when the same pin is resent', async () => {
@@ -489,12 +703,12 @@ describe('RequestStateResolver MCP client contexts', () => {
             // request establishes the pin; a later switch-project selects a new
             // active project that the resent pin must not clobber.
             await makeResolver().resolve(makeProps({ projectId: '1' }))
-            expect(mockTokenStore.get('projectId')).toBe('1')
+            expect(mockPinned.last?.projectId).toBe('1')
 
             simulateSwitch('mcp-session-1', '2')
 
             await makeResolver().resolve(makeProps({ projectId: '1' }))
-            expect(mockTokenStore.get('projectId')).toBe('2')
+            expect(mockPinned.last?.projectId).toBe('2')
         })
 
         it('re-applies a changed pin and discards the recorded switch', async () => {
@@ -502,7 +716,7 @@ describe('RequestStateResolver MCP client contexts', () => {
             simulateSwitch('mcp-session-1', '2')
 
             await makeResolver().resolve(makeProps({ projectId: '9' }))
-            expect(mockTokenStore.get('projectId')).toBe('9')
+            expect(mockPinned.last?.projectId).toBe('9')
             expect(mockSessionScopedStores.get('mcp-session-1')?.get('activeProjectId')).toBeUndefined()
         })
 
@@ -512,38 +726,42 @@ describe('RequestStateResolver MCP client contexts', () => {
             // any changed pin value reverts both fields. Otherwise org-scoped tools
             // stay on the switched org while project-scoped tools use the new pin.
             await makeResolver().resolve(makeProps({ organizationId: 'org-1', projectId: '1' }))
-
-            // A cross-org switch-project records both fields on the session and the token cache.
-            mockTokenStore.set('orgId', 'org-2')
-            mockTokenStore.set('projectId', '2')
-            mockSessionScopedStores.get('mcp-session-1')?.set('activeOrgId', 'org-2')
-            mockSessionScopedStores.get('mcp-session-1')?.set('activeProjectId', '2')
+            simulateSwitch('mcp-session-1', '2', 'org-2')
 
             await makeResolver().resolve(makeProps({ organizationId: 'org-1', projectId: '9' }))
-            expect(mockTokenStore.get('orgId')).toBe('org-1')
-            expect(mockTokenStore.get('projectId')).toBe('9')
+            expect(mockPinned.last).toMatchObject({ orgId: 'org-1', projectId: '9' })
         })
 
         it('applies the pin on every request without an MCP session id', async () => {
-            // No session means no cross-request continuity to protect, so the pin
-            // must keep winning each request (single-exec CLI stands alone).
+            // No session means no cross-request continuity, so the pin wins each
+            // request and the switch tools must refuse instead of reporting success.
             await makeResolver().resolve(makeProps({ projectId: '1', mcpSessionId: undefined }))
-            mockTokenStore.set('projectId', '2')
+            expect(mockPinned.last).toMatchObject({ projectId: '1', sessionScoped: false })
+        })
 
-            await makeResolver().resolve(makeProps({ projectId: '1', mcpSessionId: undefined }))
-            expect(mockTokenStore.get('projectId')).toBe('1')
+        it.each([
+            ['with an MCP session', 'mcp-session-1'],
+            ['without an MCP session', undefined],
+        ])('never writes the pin into the shared token cache %s', async (_label, mcpSessionId) => {
+            // The token cache is shared by every session on the credential. A pin
+            // written there reverts a switch-project and leaks into other sessions.
+            mockTokenStore.set('projectId', '2')
+            mockTokenStore.set('orgId', 'org-2')
+
+            await makeResolver().resolve(makeProps({ organizationId: 'org-1', projectId: '1', mcpSessionId }))
+
+            expect(mockTokenStore.get('projectId')).toBe('2')
+            expect(mockTokenStore.get('orgId')).toBe('org-2')
+            expect(mockPinned.last).toMatchObject({ orgId: 'org-1', projectId: '1' })
         })
 
         it('keeps concurrent sessions with different pins on one token isolated', async () => {
-            // The token cache is shared by every session on the same credential.
-            // Each request must re-assert its own session's context, or one
-            // session's pin leaks into the other's queries.
             await makeResolver().resolve(makeProps({ projectId: '1', mcpSessionId: 'session-a' }))
             await makeResolver().resolve(makeProps({ projectId: '2', mcpSessionId: 'session-b' }))
-            expect(mockTokenStore.get('projectId')).toBe('2')
+            expect(mockPinned.last?.projectId).toBe('2')
 
             await makeResolver().resolve(makeProps({ projectId: '1', mcpSessionId: 'session-a' }))
-            expect(mockTokenStore.get('projectId')).toBe('1')
+            expect(mockPinned.last?.projectId).toBe('1')
         })
 
         it('renews the session-scoped keys TTL on every pinned request', async () => {

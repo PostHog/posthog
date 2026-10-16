@@ -1785,7 +1785,10 @@ export function defineStatelessProtocolTests(
             // conforming modern client would select one via `_meta` and be
             // served a dialect we can't speak statelessly.
             expect(result.supportedVersions).toEqual([STATELESS_VERSION])
-            expect(result.capabilities).toMatchObject({ tools: { listChanged: false } })
+            expect(result.capabilities).toMatchObject({
+                tools: { listChanged: false },
+                extensions: { 'io.modelcontextprotocol/enterprise-managed-authorization': {} },
+            })
             // DiscoverResult requires top-level serverInfo (not just result _meta).
             expect(result.serverInfo).toMatchObject({ name: 'PostHog' })
             expect(typeof result.instructions).toBe('string')

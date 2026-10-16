@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from posthog.tasks.team_access_cache_tasks import (
     AUTH_TOKEN_INVALIDATION_FAILURE_COUNTER,
@@ -39,7 +39,7 @@ class TestInvalidateTokenCacheTask(TestCase):
         mock_retry.assert_called_once_with(exc=error)
 
 
-class TestInvalidateUserTokensTask(TestCase):
+class TestInvalidateUserTokensTask(SimpleTestCase):
     @patch("posthog.tasks.team_access_cache_tasks.token_auth_cache")
     def test_invalidate_user_tokens_task_success(self, mock_cache: MagicMock) -> None:
         result = invalidate_user_tokens_task(user_id=42)
@@ -67,7 +67,7 @@ class TestInvalidateUserTokensTask(TestCase):
         mock_retry.assert_called_once_with(exc=error)
 
 
-class TestInvalidateTokenSync(TestCase):
+class TestInvalidateTokenSync(SimpleTestCase):
     @patch("posthog.tasks.team_access_cache_tasks.token_auth_cache")
     def test_invalidate_token_sync_success(self, mock_cache: MagicMock) -> None:
         result = invalidate_token_sync(token_hash="sha256$abc123")
@@ -99,7 +99,7 @@ class TestInvalidateTokenSync(TestCase):
         self.assertEqual(result["status"], "failure")
 
 
-class TestInvalidateUserTokensSync(TestCase):
+class TestInvalidateUserTokensSync(SimpleTestCase):
     @patch("posthog.tasks.team_access_cache_tasks.token_auth_cache")
     def test_invalidate_user_tokens_sync_success(self, mock_cache: MagicMock) -> None:
         result = invalidate_user_tokens_sync(user_id=42)
@@ -133,7 +133,7 @@ class TestInvalidateUserTokensSync(TestCase):
         self.assertEqual(result["status"], "failure")
 
 
-class TestInvalidationFailureMetrics(TestCase):
+class TestInvalidationFailureMetrics(SimpleTestCase):
     def _get_counter_value(self, invalidation_type: str) -> float:
         for metric in AUTH_TOKEN_INVALIDATION_FAILURE_COUNTER.collect():
             for sample in metric.samples:

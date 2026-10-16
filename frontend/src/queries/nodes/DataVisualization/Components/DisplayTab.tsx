@@ -64,7 +64,7 @@ const LINE_STYLE_OPTIONS: { value: 'smooth' | 'linear'; label: string }[] = [
 export const DisplayTab = (): JSX.Element => {
     const { effectiveVisualizationType, xData, yData, dataVisualizationProps } = useValues(dataVisualizationLogic)
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
-    const { goalLines, chartSettings } = useValues(displayLogic)
+    const { goalLines, chartSettings, query } = useValues(displayLogic)
     const { addGoalLine, updateGoalLine, removeGoalLine, updateChartSettings } = useActions(displayLogic)
 
     const isStackedBarChart = effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
@@ -527,7 +527,9 @@ export const DisplayTab = (): JSX.Element => {
                               key: 'goals',
                               header: (
                                   <div className="flex items-center gap-1 flex-1">
-                                      <span className="flex-1">Goals</span>
+                                      <span className="flex-1">
+                                          {query.kind === 'BIVisualizationNode' ? 'Reference lines' : 'Goals'}
+                                      </span>
                                       {goalLines.length > 0 && (
                                           <LemonBadge.Number status="muted" size="small" count={goalLines.length} />
                                       )}
@@ -537,6 +539,12 @@ export const DisplayTab = (): JSX.Element => {
                               content: (
                                   <>
                                       <GoalLinesList
+                                          allowCalculations={query.kind === 'BIVisualizationNode'}
+                                          calculationDisabledReason={
+                                              isStackedBarChart && chartSettings.stackBars100
+                                                  ? 'Calculated lines are hidden on 100% stacked charts. Use a constant or turn off percentage stacking.'
+                                                  : undefined
+                                          }
                                           goalLines={goalLines}
                                           removeGoalLine={removeGoalLine}
                                           updateGoalLine={updateGoalLine}
@@ -547,8 +555,20 @@ export const DisplayTab = (): JSX.Element => {
                                           icon={<IconPlusSmall />}
                                           fullWidth
                                       >
-                                          Add goal line
+                                          {query.kind === 'BIVisualizationNode'
+                                              ? 'Add reference line'
+                                              : 'Add goal line'}
                                       </LemonButton>
+                                      {query.kind === 'BIVisualizationNode' && (
+                                          <p className="text-xs text-secondary mt-2 mb-0">
+                                              Calculations use returned marks on the left axis after aggregation and
+                                              table calculations. Per series adds a line for each color group or
+                                              measure. Result limits apply.
+                                              {isStackedBarChart && chartSettings.stackBars100 && (
+                                                  <span> Calculated lines are hidden on 100% stacked charts.</span>
+                                              )}
+                                          </p>
+                                      )}
                                   </>
                               ),
                           }

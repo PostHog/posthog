@@ -16,7 +16,7 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -3758,7 +3758,7 @@ class TestClickhousePathsFunnelSource(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(self._run_paths_query(funnel_source, funnel_path_type, funnel_step), expected)
 
 
-class TestClickhousePathsEdgeValidation(TestCase):
+class TestClickhousePathsEdgeValidation(SimpleTestCase):
     BASIC_PATH = [("1_a", "2_b"), ("2_b", "3_c"), ("3_c", "4_d")]  # a->b->c->d
     BASIC_PATH_2 = [("1_x", "2_y"), ("2_y", "3_z")]  # x->y->z
 

@@ -8,6 +8,7 @@ import { isMobile } from 'lib/utils/dom'
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { WorkflowTemplateChooser } from './templates/WorkflowTemplateChooser'
 import { workflowTemplatesLogic } from './templates/workflowTemplatesLogic'
+import { WorkflowTemplateTypePicker } from './templates/WorkflowTemplateTypePicker'
 
 export function NewWorkflowModal(): JSX.Element {
     const { hideNewWorkflowModal } = useActions(newWorkflowLogic)
@@ -41,6 +42,7 @@ export function NewWorkflowModal(): JSX.Element {
                             // A focused input makes iOS pan the viewport on swipe instead of scrolling the list.
                             autoFocus={!isMobile()}
                         />
+                        <WorkflowTemplateTypePicker />
                         {availableTags.length > 0 && (
                             <LemonSelect
                                 className="shrink-0 min-w-56 whitespace-nowrap"

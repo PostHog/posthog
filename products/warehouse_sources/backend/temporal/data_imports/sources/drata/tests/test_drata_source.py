@@ -1,8 +1,8 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.drata.source import DrataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drata import DrataSourceConfig
 
@@ -70,7 +70,6 @@ class TestDrataSource:
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Drata schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Drata schema 'not_a_table'" in str(result.raised)

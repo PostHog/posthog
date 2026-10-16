@@ -1,6 +1,7 @@
-from collections.abc import Iterable
+import contextlib
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import time_machine
@@ -9,100 +10,87 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.youtubeanalytics import (
+    YouTubeAnalyticsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.settings import (
+    AUDIENCE_RETENTION,
     CHANNEL_DAILY,
     DEMOGRAPHICS,
     GEOGRAPHY,
     MAX_RESULTS_PER_PAGE,
     TOP_VIDEOS,
+    TRAFFIC_SOURCE_DETAILS,
+    VIDEOS,
+    YOUTUBE_ANALYTICS_REPORTS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.source import (
+    YouTubeAnalyticsSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.youtube_analytics import (
     YouTubeAnalyticsClient,
     YouTubeAnalyticsResumeConfig,
     channel_ids_param,
     coerce_day,
-    get_rows,
     list_channels,
     resolve_start_day,
     rows_from_result,
     validate_credentials,
-    youtube_analytics_source,
 )
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.youtube_analytics"
+SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.source"
 FROZEN_NOW = "2026-07-26"
 
 
-class FakeResumeManager(ResumableSourceManager[YouTubeAnalyticsResumeConfig]):
-    """In-memory stand-in for the Redis-backed manager."""
-
-    def __init__(self, state: YouTubeAnalyticsResumeConfig | None = None) -> None:
-        self.state = state
-        self.saved: list[YouTubeAnalyticsResumeConfig] = []
-        self.cleared = False
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> YouTubeAnalyticsResumeConfig | None:
-        return self.state
-
-    def save_state(self, data: YouTubeAnalyticsResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self.cleared = True
+@contextlib.contextmanager
+def _connected_account() -> Iterator[None]:
+    """Stand in for the DB-backed integration that holds the Google access token."""
+    integration = mock.MagicMock()
+    integration.access_token = "access-token"
+    integration.errors = ""
+    oauth = mock.MagicMock()
+    oauth.access_token_expired.return_value = False
+    with (
+        mock.patch.object(YouTubeAnalyticsSource, "get_oauth_integration", return_value=integration),
+        mock.patch(f"{SOURCE_MODULE}.OauthIntegration", return_value=oauth),
+    ):
+        yield
 
 
-def _response(status: int = 200, json_body: Any = None, text: str = "") -> mock.MagicMock:
-    response = mock.MagicMock(spec=requests.Response)
-    response.status_code = status
-    response.ok = 200 <= status < 300
-    response.text = text
-    response.json.return_value = json_body if json_body is not None else {}
-    response.raise_for_status.side_effect = (
-        None if response.ok else requests.HTTPError(f"{status} Client Error", response=response)
+def _driver(start_date: str | None = None, channel_id: str = "") -> SourceDriver:
+    config = YouTubeAnalyticsSourceConfig(
+        channel_id=channel_id, youtube_analytics_integration_id=1, start_date=start_date
     )
-    return response
+    return SourceDriver(YouTubeAnalyticsSource(), config)
 
 
 def _result(headers: list[str], rows: list[list[Any]]) -> dict[str, Any]:
     return {"columnHeaders": [{"name": name} for name in headers], "rows": rows}
 
 
-def _run_get_rows(
-    endpoint: str,
-    query_results: list[dict[str, Any]],
-    manager: FakeResumeManager,
-    **overrides: Any,
-) -> tuple[list[list[dict[str, Any]]], list[dict[str, str]]]:
-    """Drive `get_rows` with a stubbed report client, returning yielded batches and sent params."""
-    sent: list[dict[str, str]] = []
+def _channel(uploads: str | None = "UU123") -> ScriptedResponse:
+    items = [{"id": "UC123", "contentDetails": {"relatedPlaylists": {"uploads": uploads}}}] if uploads else []
+    return ScriptedResponse(json={"items": items})
 
-    def _query(params: dict[str, str]) -> dict[str, Any]:
-        sent.append(params)
-        return query_results[min(len(sent) - 1, len(query_results) - 1)]
 
-    kwargs: dict[str, Any] = {
-        "access_token": "access-token",
-        "refresh_access_token": None,
-        "channel_id": None,
-        "start_date": None,
-        "endpoint": endpoint,
-        "api_version": "v2",
-        "logger": mock.MagicMock(),
-        "resumable_source_manager": manager,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-    }
-    kwargs.update(overrides)
+def _playlist_page(video_ids: list[str], next_page_token: str | None = None) -> ScriptedResponse:
+    body: dict[str, Any] = {"items": [{"contentDetails": {"videoId": video_id}} for video_id in video_ids]}
+    if next_page_token:
+        body["nextPageToken"] = next_page_token
+    return ScriptedResponse(json=body)
 
-    with mock.patch.object(YouTubeAnalyticsClient, "query", side_effect=_query):
-        with mock.patch(f"{MODULE}.make_tracked_session"):
-            batches = list(get_rows(**kwargs))
 
-    return batches, sent
+def _videos(video_ids: list[str]) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"items": [{"id": video_id, "snippet": {"title": f"Video {video_id}"}} for video_id in video_ids]}
+    )
 
 
 class TestChannelIdsParam:
@@ -150,60 +138,51 @@ class TestRowsFromResult:
 
 
 class TestYouTubeAnalyticsClient:
-    def _client(self, session: mock.MagicMock, **kwargs: Any) -> YouTubeAnalyticsClient:
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            return YouTubeAnalyticsClient("tok-1", logger=mock.MagicMock(), **kwargs)
-
     def test_rejected_token_is_refreshed_once_and_the_request_retried(self) -> None:
         # A backfill can outlive Google's ~1h access token, so a mid-sync 401 must not fail the job.
-        session = mock.MagicMock()
-        session.get.side_effect = [_response(status=401), _response(json_body=_result(["views"], [[7]]))]
         refresh = mock.MagicMock(return_value="tok-2")
+        script = [ScriptedResponse(status=401), ScriptedResponse(json=_result(["views"], [[7]]))]
 
-        body = self._client(session, refresh_access_token=refresh).query({"ids": "channel==MINE"})
+        with scripted_network(script) as network:
+            client = YouTubeAnalyticsClient("tok-1", logger=mock.MagicMock(), refresh_access_token=refresh)
+            body = client.query({"ids": "channel==MINE"})
 
         assert rows_from_result(body) == [{"views": 7}]
         assert refresh.call_count == 1
-        assert session.get.call_args.kwargs["headers"] == {"Authorization": "Bearer tok-2"}
+        assert [request.headers["authorization"] for request in network.requests_log] == [
+            "Bearer tok-1",
+            "Bearer tok-2",
+        ]
 
     def test_a_second_rejection_is_raised_rather_than_refreshed_again(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = [_response(status=401), _response(status=401)]
         refresh = mock.MagicMock(return_value="tok-2")
 
-        with pytest.raises(requests.HTTPError):
-            self._client(session, refresh_access_token=refresh).query({"ids": "channel==MINE"})
+        with scripted_network([ScriptedResponse(status=401), ScriptedResponse(status=401)]):
+            client = YouTubeAnalyticsClient("tok-1", logger=mock.MagicMock(), refresh_access_token=refresh)
+            with pytest.raises(requests.HTTPError):
+                client.query({"ids": "channel==MINE"})
 
         assert refresh.call_count == 1
 
     def test_rejected_token_without_a_refresher_raises(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(status=401)
-
-        with pytest.raises(requests.HTTPError):
-            self._client(session).query({"ids": "channel==MINE"})
+        with scripted_network(always(ScriptedResponse(status=401))):
+            client = YouTubeAnalyticsClient("tok-1", logger=mock.MagicMock())
+            with pytest.raises(requests.HTTPError):
+                client.query({"ids": "channel==MINE"})
 
     @parameterized.expand([("forbidden", 403), ("bad_request", 400), ("server_error", 500)])
     def test_failed_report_request_raises(self, _name: str, status: int) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(status=status, text="nope")
-
-        with pytest.raises(requests.HTTPError):
-            self._client(session).query({"ids": "channel==MINE"})
+        with scripted_network(always(ScriptedResponse(status=status, body=b"nope"))):
+            client = YouTubeAnalyticsClient("tok-1", logger=mock.MagicMock())
+            with pytest.raises(requests.HTTPError):
+                client.query({"ids": "channel==MINE"})
 
 
 class TestListChannels:
-    def _call(self, body: Any) -> tuple[list[dict[str, Any]], mock.MagicMock]:
-        session = mock.MagicMock()
-        session.get.return_value = _response(json_body=body)
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            return list_channels("tok"), session
-
     @parameterized.expand([("no_items", {}), ("null_items", {"items": None}), ("empty_items", {"items": []})])
     def test_returns_empty_when_the_account_owns_no_channel(self, _name: str, body: Any) -> None:
-        channels, _ = self._call(body)
-
-        assert channels == []
+        with scripted_network([ScriptedResponse(json=body)]):
+            assert list_channels("tok") == []
 
 
 class TestResolveStartDay:
@@ -235,39 +214,163 @@ class TestGetRows:
         with time_machine.travel(FROZEN_NOW, tick=False):
             yield
 
-    def test_day_dimension_report_covers_a_multi_day_window_per_request(self) -> None:
-        manager = FakeResumeManager()
-        result = _result(["day", "views"], [["2026-07-20", 5], ["2026-07-21", 6]])
+    @pytest.fixture(autouse=True)
+    def _account(self):
+        with _connected_account():
+            yield
 
-        batches, sent = _run_get_rows(CHANNEL_DAILY, [result], manager, start_date="2026-01-01")
+    def test_day_dimension_report_covers_a_multi_day_window_per_request(self) -> None:
+        result = _driver(start_date="2026-01-01").run(
+            CHANNEL_DAILY,
+            always(ScriptedResponse(json=_result(["day", "views"], [["2026-07-20", 5], ["2026-07-21", 6]]))),
+        )
 
         # 2026-01-01 → 2026-07-25 is three 90-day windows.
-        assert [(p["startDate"], p["endDate"]) for p in sent] == [
+        assert [(r.param("startDate"), r.param("endDate")) for r in result.requests] == [
             ("2026-01-01", "2026-03-31"),
             ("2026-04-01", "2026-06-29"),
             ("2026-06-30", "2026-07-25"),
         ]
-        assert sent[0]["dimensions"] == "day"
-        assert sent[0]["sort"] == "day"
+        assert result.requests[0].param("dimensions") == "day"
+        assert result.requests[0].param("sort") == "day"
         # The report's own `day` column is parsed rather than stamped from the window start.
-        assert batches[0][0]["day"] == datetime(2026, 7, 20, tzinfo=UTC)
+        assert result.items[0][0]["day"] == datetime(2026, 7, 20, tzinfo=UTC)
 
     def test_paginates_a_full_page_with_start_index(self) -> None:
-        manager = FakeResumeManager()
         full_page = _result(["country", "views"], [["US", 1]] * MAX_RESULTS_PER_PAGE)
         short_page = _result(["country", "views"], [["FR", 2]])
 
-        batches, sent = _run_get_rows(GEOGRAPHY, [full_page, short_page], manager, start_date="2026-07-25")
+        result = _driver(start_date="2026-07-25").run(
+            GEOGRAPHY, [ScriptedResponse(json=full_page), ScriptedResponse(json=short_page)]
+        )
 
-        assert [p["startIndex"] for p in sent] == ["1", str(MAX_RESULTS_PER_PAGE + 1)]
-        assert len(batches[0]) == MAX_RESULTS_PER_PAGE + 1
+        assert result.params("startIndex") == ["1", str(MAX_RESULTS_PER_PAGE + 1)]
+        assert len(result.items[0]) == MAX_RESULTS_PER_PAGE + 1
+
+    @parameterized.expand(
+        [
+            ("with_referrers", [["example.com", 4]], 9),
+            ("no_referrers", [], 0),
+        ]
+    )
+    def test_traffic_source_details_queries_each_traffic_source_type_per_day(
+        self, _name: str, rows: list[list[Any]], expected_batches: int
+    ) -> None:
+        report = YOUTUBE_ANALYTICS_REPORTS[TRAFFIC_SOURCE_DETAILS]
+
+        result = _driver(start_date="2026-07-24").run(
+            TRAFFIC_SOURCE_DETAILS,
+            always(ScriptedResponse(json=_result(["insightTrafficSourceDetail", "views"], rows))),
+        )
+
+        assert result.raised is None
+        # The report rejects a request without exactly one traffic source type, a sort, or a cap of 25.
+        assert result.params("filters") == [f"insightTrafficSourceType=={value}" for value in report.filter_values] * 2
+        assert result.params("startDate") == ["2026-07-24"] * 9 + ["2026-07-25"] * 9
+        assert set(result.params("sort")) == {"-views"}
+        assert set(result.params("maxResults")) == {"25"}
+        assert set(result.params("dimensions")) == {"insightTrafficSourceDetail"}
+        assert len(result.items) == expected_batches * 2
+        if rows:
+            assert result.items[0] == [
+                {
+                    "insightTrafficSourceDetail": "example.com",
+                    "views": 4,
+                    "insightTrafficSourceType": "ADVERTISING",
+                    "day": datetime(2026, 7, 24, tzinfo=UTC),
+                }
+            ]
+
+    @parameterized.expand([("pinned_channel", "UC123", "id", "UC123"), ("blank_channel", "", "mine", "true")])
+    def test_videos_walks_the_uploads_playlist_and_resolves_each_page(
+        self, _name: str, channel_id: str, channel_param: str, channel_value: str
+    ) -> None:
+        script = route(
+            {
+                "/channels": [_channel()],
+                "/playlistItems": [
+                    _playlist_page(["vid-a", "vid-b"], next_page_token="page-2"),
+                    # A video uploaded mid-walk pushes vid-b onto the next page as well.
+                    _playlist_page(["vid-b", "vid-c"]),
+                ],
+                "/videos": [_videos(["vid-a", "vid-b"]), _videos(["vid-c"])],
+            }
+        )
+
+        result = _driver(channel_id=channel_id).run(VIDEOS, script)
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["vid-a", "vid-b", "vid-c"]
+        channel_request, *rest = result.requests
+        assert channel_request.param(channel_param) == channel_value
+        assert [(r.path.rsplit("/", 1)[-1], r.param("pageToken"), r.param("id")) for r in rest] == [
+            ("playlistItems", None, None),
+            ("videos", None, "vid-a,vid-b"),
+            ("playlistItems", "page-2", None),
+            ("videos", None, "vid-c"),
+        ]
+        assert {r.param("playlistId") for r in rest if r.path.endswith("playlistItems")} == {"UU123"}
+
+    @parameterized.expand(
+        [
+            ("channel_not_found", {"/channels": [_channel(uploads=None)]}, 1),
+            ("never_uploaded", {"/channels": [_channel()], "/playlistItems": [ScriptedResponse(status=404)]}, 2),
+            ("empty_playlist", {"/channels": [_channel()], "/playlistItems": [_playlist_page([])]}, 2),
+        ]
+    )
+    def test_videos_syncs_nothing_for_a_channel_without_uploads(
+        self, _name: str, table: dict[str, list[ScriptedResponse]], expected_requests: int
+    ) -> None:
+        result = _driver().run(VIDEOS, route(table))
+
+        assert result.raised is None
+        assert result.rows == []
+        assert len(result.requests) == expected_requests
+
+    def test_videos_raises_when_a_later_playlist_page_is_missing(self) -> None:
+        # Only a first-page 404 means "no uploads"; a later one would silently truncate the table.
+        script = route(
+            {
+                "/channels": [_channel()],
+                "/playlistItems": [_playlist_page(["vid-a"], next_page_token="page-2"), ScriptedResponse(status=404)],
+                "/videos": [_videos(["vid-a"])],
+            }
+        )
+
+        result = _driver().run(VIDEOS, script)
+
+        assert isinstance(result.raised, requests.HTTPError)
+
+    def test_audience_retention_fetches_one_curve_per_top_video(self) -> None:
+        script = [
+            ScriptedResponse(json=_result(["video", "views"], [["vid-a", 10], ["vid-b", 5]])),
+            ScriptedResponse(json=_result(["elapsedVideoTimeRatio", "audienceWatchRatio"], [[0.01, 1.2], [0.02, 0.9]])),
+            ScriptedResponse(json=_result(["elapsedVideoTimeRatio", "audienceWatchRatio"], [])),
+        ]
+
+        result = _driver(start_date="2026-07-01").run(
+            AUDIENCE_RETENTION, script, should_use_incremental_field=True, db_incremental_field_last_value="2026-07-20"
+        )
+
+        assert result.raised is None
+        assert result.params("filters") == [None, "video==vid-a", "video==vid-b"]
+        assert result.params("dimensions") == ["video", "elapsedVideoTimeRatio", "elapsedVideoTimeRatio"]
+        # Retention covers the whole sync window, never a watermark slice of it.
+        assert set(result.params("startDate")) == {"2026-07-01"}
+        assert set(result.params("endDate")) == {"2026-07-25"}
+        assert result.rows == [
+            {"elapsedVideoTimeRatio": 0.01, "audienceWatchRatio": 1.2, "video": "vid-a"},
+            {"elapsedVideoTimeRatio": 0.02, "audienceWatchRatio": 0.9, "video": "vid-a"},
+        ]
 
     def test_resumes_from_saved_state_instead_of_the_configured_start(self) -> None:
-        manager = FakeResumeManager(YouTubeAnalyticsResumeConfig(next_start_date="2026-07-25"))
+        result = _driver(start_date="2026-01-01").run(
+            GEOGRAPHY,
+            always(ScriptedResponse(json=_result(["country"], []))),
+            resume_state=YouTubeAnalyticsResumeConfig(next_start_date="2026-07-25"),
+        )
 
-        _, sent = _run_get_rows(GEOGRAPHY, [_result(["country"], [])], manager, start_date="2026-01-01")
-
-        assert [p["startDate"] for p in sent] == ["2026-07-25"]
+        assert result.params("startDate") == ["2026-07-25"]
 
 
 class TestValidateCredentials:
@@ -276,13 +379,8 @@ class TestValidateCredentials:
         with time_machine.travel(FROZEN_NOW, tick=False):
             yield
 
-    def _patch_client(self, query: Any) -> Any:
-        client = mock.MagicMock(spec=YouTubeAnalyticsClient)
-        client.query.side_effect = query
-        return mock.patch(f"{MODULE}.YouTubeAnalyticsClient", return_value=client)
-
     def test_valid_credentials(self) -> None:
-        with self._patch_client(query=[{"columnHeaders": [], "rows": []}]):
+        with scripted_network([ScriptedResponse(json={"columnHeaders": [], "rows": []})]):
             assert validate_credentials("access-token", "UC123") == (True, None)
 
     @parameterized.expand(
@@ -294,16 +392,14 @@ class TestValidateCredentials:
         ]
     )
     def test_report_errors_map_to_actionable_messages(self, _name: str, status: int, fragment: str) -> None:
-        error = requests.HTTPError("boom", response=_response(status=status))
-
-        with self._patch_client(query=error):
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
             is_valid, message = validate_credentials("access-token", "UC123")
 
         assert is_valid is False
         assert message is not None and fragment in message
 
     def test_network_failure_is_reported_not_raised(self) -> None:
-        with self._patch_client(query=requests.ConnectionError("no route")):
+        with scripted_network(always(requests.ConnectionError("no route"))):
             is_valid, message = validate_credentials("access-token", "UC123")
 
         assert is_valid is False
@@ -319,9 +415,10 @@ class TestValidateCredentials:
     def test_out_of_range_start_date_is_rejected_before_any_request(
         self, _name: str, start_date: str, fragment: str
     ) -> None:
-        # A bad start date is caught before any API call, so no request is made.
-        is_valid, message = validate_credentials("access-token", "UC123", start_date=start_date)
+        with scripted_network([]) as network:
+            is_valid, message = validate_credentials("access-token", "UC123", start_date=start_date)
 
+        assert network.requests_log == []
         assert is_valid is False
         assert message is not None and fragment in message
 
@@ -332,41 +429,24 @@ class TestYouTubeAnalyticsSourceResponse:
             (CHANNEL_DAILY, ["day"]),
             (TOP_VIDEOS, ["day", "video"]),
             (DEMOGRAPHICS, ["day", "ageGroup", "gender"]),
+            (TRAFFIC_SOURCE_DETAILS, ["day", "insightTrafficSourceType", "insightTrafficSourceDetail"]),
+            (VIDEOS, ["id"]),
+            (AUDIENCE_RETENTION, ["video", "elapsedVideoTimeRatio"]),
         ]
     )
     def test_primary_keys_are_unique_table_wide(self, endpoint: str, expected: list[str]) -> None:
-        response = youtube_analytics_source(
-            access_token="access-token",
-            refresh_access_token=None,
-            channel_id=None,
-            start_date=None,
-            endpoint=endpoint,
-            api_version="v2",
-            logger=mock.MagicMock(),
-            resumable_source_manager=FakeResumeManager(),
-        )
+        with _connected_account():
+            response = _driver().run(endpoint, []).response
 
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected
 
     @time_machine.travel(FROZEN_NOW, tick=False)
     def test_items_is_lazy_until_iterated(self) -> None:
-        manager = FakeResumeManager()
-        response = youtube_analytics_source(
-            access_token="access-token",
-            refresh_access_token=None,
-            channel_id=None,
-            start_date="2026-07-25",
-            endpoint=GEOGRAPHY,
-            api_version="v2",
-            logger=mock.MagicMock(),
-            resumable_source_manager=manager,
-        )
+        with _connected_account():
+            result = _driver(start_date="2026-07-25").run(
+                GEOGRAPHY, [ScriptedResponse(json=_result(["country", "views"], [["US", 3]]))]
+            )
 
-        with mock.patch.object(
-            YouTubeAnalyticsClient, "query", return_value=_result(["country", "views"], [["US", 3]])
-        ):
-            with mock.patch(f"{MODULE}.make_tracked_session"):
-                batches = list(cast("Iterable[Any]", response.items()))
-
-        assert batches == [[{"country": "US", "views": 3, "day": datetime(2026, 7, 25, tzinfo=UTC)}]]
+        assert result.items == [[{"country": "US", "views": 3, "day": datetime(2026, 7, 25, tzinfo=UTC)}]]

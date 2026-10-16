@@ -19,7 +19,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils/arrays'
@@ -83,7 +82,6 @@ export function Playlist({
     selectInitialItem,
     listEmptyState,
 }: PlaylistProps): JSX.Element {
-    const consolidatedControls = useFeatureFlag('REPLAY_CONSOLIDATED_CONTROLS')
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
     const collapseButton = (
@@ -332,25 +330,15 @@ export function Playlist({
                             <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
                                 <div className="shrink-0 bg-bg-3000 flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
                                     {title && <TitleWithCount title={title} count={itemsCount} />}
-                                    <div
-                                        className={clsx(
-                                            'flex items-center gap-0.5',
-                                            consolidatedControls && 'flex-1 min-w-0'
-                                        )}
-                                    >
-                                        {!consolidatedControls && collapseButton}
+                                    <div className="flex items-center gap-0.5 flex-1 min-w-0">
                                         <SessionRecordingsPlaylistTopSettings
                                             filters={filters}
                                             setFilters={setFilters}
                                             type={type}
                                             shortId={type === 'collection' ? logicKey : undefined}
                                         />
-                                        {consolidatedControls && (
-                                            <>
-                                                <LemonDivider vertical className="my-1 mx-0.5" />
-                                                {collapseButton}
-                                            </>
-                                        )}
+                                        <LemonDivider vertical className="my-1 mx-0.5" />
+                                        {collapseButton}
                                     </div>
                                 </div>
                             </DraggableToNotebook>

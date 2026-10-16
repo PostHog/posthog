@@ -10,12 +10,9 @@ from django.db import connection
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.cdp.filters import RUNTIME_CONTRACT
-from posthog.cdp.templates.fixtures import template_slack
-from posthog.cdp.templates.helpers import mock_transpile
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.integration import Integration
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.hog_function import (
     MAX_HOG_CODE_SIZE_BYTES,
@@ -24,8 +21,12 @@ from products.cdp.backend.api.hog_function import (
     comparable_content,
 )
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
+from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.helpers import mock_transpile
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
@@ -1165,25 +1166,47 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "attr": "inputs_schema__0__type",
         }
 
-    def test_secret_inputs_not_returned(self, *args):
+    @parameterized.expand(
+        [
+            (
+                "string",
+                {"key": "url", "type": "string", "label": "Webhook URL", "secret": True, "required": True},
+                "I AM SECRET",
+                {
+                    "bytecode": ["_H", 1, 32, "I AM SECRET"],
+                    "bytecode_contract": RUNTIME_CONTRACT,
+                    "value": "I AM SECRET",
+                    "order": 0,
+                },
+                "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopwQKcL10Y5Yg8s8Gswibi1pCMfjwSnKwod91SMtLKgNfAU4EPZ6GxA77xCHIjaTLueR3qx-hy2Pu3W0r5Rh1hWy0bq01uIdulQ_LhxkQgpj",
+            ),
+            (
+                "dictionary_without_templating",
+                {
+                    "key": "secret_headers",
+                    "type": "dictionary",
+                    "label": "Secret headers",
+                    "secret": True,
+                    "required": False,
+                    "templating": False,
+                },
+                {"Authorization": "Bearer I AM SECRET"},
+                {"value": {"Authorization": "Bearer I AM SECRET"}, "order": 0},
+                None,
+            ),
+        ]
+    )
+    def test_secret_inputs_not_returned(
+        self, _name, schema, secret_value, expected_encrypted_input, expected_ciphertext, *args
+    ):
         payload = {
             "name": "Fetch URL",
             "hog": "fetch(inputs.url);",
-            "inputs_schema": [
-                {"key": "url", "type": "string", "label": "Webhook URL", "secret": True, "required": True},
-            ],
-            "inputs": {
-                "url": {
-                    "value": "I AM SECRET",
-                },
-            },
+            "inputs_schema": [schema],
+            "inputs": {schema["key"]: {"value": secret_value}},
             "type": "destination",
         }
-        expectation = {
-            "url": {
-                "secret": True,
-            }
-        }
+        expectation = {schema["key"]: {"secret": True}}
         # Fernet encryption is deterministic, but has a temporal component and utilizes os.urandom() for the IV
         with time_machine.travel("2024-01-01T00:01:00Z", tick=False):
             with patch("os.urandom", return_value=b"\x00" * 16):
@@ -1192,30 +1215,17 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert res.json()["inputs"] == expectation
         res = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}")
         assert res.json()["inputs"] == expectation
+        assert "I AM SECRET" not in res.content.decode()
 
         # Finally check the DB has the real value
         obj = HogFunction.objects.get(id=res.json()["id"])
         assert obj.inputs == {}
-        assert obj.encrypted_inputs == {
-            "url": {
-                "bytecode": [
-                    "_H",
-                    1,
-                    32,
-                    "I AM SECRET",
-                ],
-                "bytecode_contract": RUNTIME_CONTRACT,
-                "value": "I AM SECRET",
-                "order": 0,
-            },
-        }
+        assert obj.encrypted_inputs == {schema["key"]: expected_encrypted_input}
 
         raw_encrypted_inputs = get_db_field_value("encrypted_inputs", obj.id)
-
-        assert (
-            raw_encrypted_inputs
-            == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopwQKcL10Y5Yg8s8Gswibi1pCMfjwSnKwod91SMtLKgNfAU4EPZ6GxA77xCHIjaTLueR3qx-hy2Pu3W0r5Rh1hWy0bq01uIdulQ_LhxkQgpj"
-        )
+        assert "I AM SECRET" not in raw_encrypted_inputs
+        if expected_ciphertext is not None:
+            assert raw_encrypted_inputs == expected_ciphertext
 
     def test_masked_secrets_lists_only_functions_storing_the_mask(self, *args):
         secret_schema = [{"key": "api_key", "type": "string", "label": "API key", "secret": True, "required": True}]
@@ -1297,6 +1307,161 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         obj = HogFunction.objects.get(id=res.json()["id"])
         assert obj.encrypted_inputs["secret1"]["value"] == "I AM SECRET"
         assert obj.encrypted_inputs["secret2"]["value"] == "I AM ALSO SECRET"
+
+    def test_secret_input_turned_public_keeps_a_new_value(self, *args):
+        payload = {
+            "type": "destination",
+            "name": "Fetch URL",
+            "hog": "fetch(inputs.url);",
+            "inputs_schema": [{"key": "token", "type": "string", "label": "Token", "secret": True, "required": True}],
+            "inputs": {"token": {"value": "I AM SECRET"}},
+        }
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        function_id = res.json()["id"]
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}",
+            data={
+                "inputs_schema": [{"key": "token", "type": "string", "label": "Token", "required": True}],
+                "inputs": {"token": {"value": "I AM PUBLIC NOW"}},
+            },
+        )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["inputs"]["token"]["value"] == "I AM PUBLIC NOW"
+        obj = HogFunction.objects.get(id=function_id)
+        assert (obj.inputs or {})["token"]["value"] == "I AM PUBLIC NOW"
+        assert (obj.encrypted_inputs or {}) == {}
+
+    @parameterized.expand(
+        [("disable", {"enabled": False}), ("delete", {"deleted": True}), ("rename", {"name": "Renamed"})]
+    )
+    def test_stored_duplicate_input_keys_do_not_block_updates(self, _name: str, payload: dict) -> None:
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy duplicates",
+            type="destination",
+            enabled=True,
+            hog="print(inputs.message)",
+            inputs_schema=[{"key": "message", "type": "string"}, {"key": "message", "type": "string"}],
+            inputs={"message": {"value": "hello"}},
+        )
+
+        res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}", data=payload)
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+    @parameterized.expand(
+        [
+            ("resend_stored_mapping", [], False, status.HTTP_200_OK),
+            ("add_duplicate_to_mapping", [{"key": "added", "type": "string"}] * 2, False, status.HTTP_400_BAD_REQUEST),
+            ("add_third_copy", [{"key": "click_id", "type": "string"}], False, status.HTTP_400_BAD_REQUEST),
+            ("new_mapping_repeats_key", [], True, status.HTTP_400_BAD_REQUEST),
+            ("new_mapping_in_the_stored_position", [], "replace", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_stored_duplicate_mapping_keys_do_not_block_full_saves(
+        self, _name: str, extra_schema: list[dict], add_mapping: bool | str, expected_status: int
+    ) -> None:
+        mapping = {
+            "name": "Signed up",
+            "inputs_schema": [{"key": "click_id", "type": "string"}, {"key": "click_id", "type": "string"}],
+            "inputs": {"click_id": {"value": "{event.properties.click_id}"}},
+        }
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy mapping duplicates",
+            type="destination",
+            hog="print(inputs.click_id)",
+            inputs_schema=[],
+            inputs={},
+            mappings=[mapping],
+        )
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}",
+            data={
+                "name": "Renamed",
+                "mappings": (
+                    [{**mapping, "name": "Logged in"}]
+                    if add_mapping == "replace"
+                    else [
+                        {**mapping, "inputs_schema": [*mapping["inputs_schema"], *extra_schema]},
+                        *([{**mapping, "name": "Logged in"}] if add_mapping else []),
+                    ]
+                ),
+            },
+        )
+
+        assert res.status_code == expected_status, res.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert res.json()["attr"] == f"mappings__{1 if add_mapping is True else 0}__inputs_schema"
+
+    @parameterized.expand(
+        [
+            ("clean", ["message"], ["added", "added"]),
+            ("already_duplicated", ["message", "message"], ["added", "added"]),
+            ("third_copy", ["message", "message"], ["message"]),
+        ]
+    )
+    def test_newly_duplicated_input_key_is_rejected(
+        self, _name: str, stored_keys: list[str], added_keys: list[str]
+    ) -> None:
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy duplicates",
+            type="destination",
+            hog="print(inputs.message)",
+            inputs_schema=[{"key": key, "type": "string"} for key in stored_keys],
+            inputs={"message": {"value": "hello"}},
+        )
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}",
+            data={
+                "inputs_schema": [
+                    *({"key": key, "type": "string"} for key in [*stored_keys, *added_keys]),
+                ]
+            },
+        )
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert res.json()["detail"] == "Each input key must be unique. Remove duplicate keys."
+
+    @parameterized.expand(
+        [("rename", {"name": "Renamed"}), ("disable", {"enabled": False}), ("delete", {"deleted": True})]
+    )
+    def test_stored_secret_mapping_does_not_block_updates(self, _name: str, payload: dict) -> None:
+        mappings = [
+            {
+                "name": "Secret mapping",
+                "inputs_schema": [{"key": "token", "type": "string", "label": "Token", "secret": True}],
+                "inputs": {"token": {"value": "legacy-plaintext-value"}},
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            }
+        ]
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy secret mapping",
+            type="destination",
+            enabled=True,
+            hog="print(inputs.token)",
+            inputs_schema=[],
+            mappings=mappings,
+        )
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}",
+            data={"mappings": mappings},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}",
+            data=payload,
+        )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
 
     def test_secret_inputs_updated_if_changed(self, *args):
         payload = {
@@ -1474,6 +1639,34 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "order": 3,
             },
         }
+
+    @parameterized.expand([("actions", str), ("events", str), ("actions", float)])
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_filter_action_needs_viewer_access_unless_already_used(self, filter_list: str, id_type: type):
+        action = Action.objects.create(
+            team=self.team, name="restricted", steps_json=[{"event": "$pageview"}], created_by=self.user
+        )
+        AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
+        filters = {filter_list: [{"id": id_type(action.id), "name": "restricted", "type": "actions", "order": 0}]}
+        stored = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/", data={**EXAMPLE_FULL, "filters": filters}
+        )
+        assert stored.status_code == status.HTTP_201_CREATED, stored.json()
+        self.client.force_login(self._create_user("destination-member@example.com"))
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/", data={**EXAMPLE_FULL, "filters": filters}
+        )
+        edited = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{stored.json()['id']}/",
+            data={"name": "Renamed", "filters": filters},
+        )
+
+        assert created.status_code == status.HTTP_400_BAD_REQUEST, created.json()
+        assert HogFunction.objects.filter(team=self.team).count() == 1
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
 
     def test_generates_filters_bytecode(self, *args):
         action = Action.objects.create(
@@ -2022,7 +2215,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["filters"]["source"] == "data-warehouse-view"
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_create_hog_function_with_site_app_type(self, mock_transpile_fn):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -2037,7 +2230,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["bytecode"] is None
         assert "Hello, site_app" in response.json()["transpiled"]
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_create_hog_function_with_site_destination_type(self, mock_transpile_fn):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -2176,7 +2369,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "detail" in response.json()
         assert "Error in TypeScript code" in response.json()["detail"]
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_create_typescript_destination_with_inputs(self, mock_transpile_fn):
         payload = {
             "name": "TypeScript Destination Function",
@@ -2215,7 +2408,25 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         }
 
-    def test_validates_mappings(self):
+    @parameterized.expand(
+        [
+            ("required", {"required": True}, "inputs__required_field", "This field is required."),
+            ("duplicate", {"key": "message"}, "inputs_schema", "Each input key must be unique. Remove duplicate keys."),
+            (
+                "secret",
+                {"secret": True},
+                "inputs_schema",
+                "Mappings do not support secret inputs. Set secrets in the destination inputs instead.",
+            ),
+            (
+                "secret_string",
+                {"secret": "true"},
+                "inputs_schema",
+                "Mappings do not support secret inputs. Set secrets in the destination inputs instead.",
+            ),
+        ]
+    )
+    def test_validates_mappings(self, _name: str, schema_options: dict, error_attr: str, error_detail: str) -> None:
         payload = {
             "name": "TypeScript Destination Function",
             "hog": "export function onLoad() { console.log(inputs.message); }",
@@ -2225,7 +2436,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "inputs": {"message": {"value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!"}},
                     "inputs_schema": [
                         {"key": "message", "type": "string", "label": "Message", "required": True},
-                        {"key": "required_field", "type": "string", "label": "Required", "required": True},
+                        {"key": "required_field", "type": "string", "label": "Required", **schema_options},
                     ],
                 },
             ],
@@ -2243,11 +2454,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json() == {
             "type": "validation_error",
             "code": "invalid_input",
-            "detail": "This field is required.",
-            "attr": "mappings__0__inputs__required_field",
+            "detail": error_detail,
+            "attr": f"mappings__0__{error_attr}",
         }
 
-    def test_compiles_valid_mappings(self):
+    @parameterized.expand([("default", {}), ("false", {"secret": False}), ("string_false", {"secret": "false"})])
+    def test_compiles_valid_mappings(self, _name: str, schema_options: dict) -> None:
         payload = {
             "name": "TypeScript Destination Function",
             "hog": "print(inputs.message)",
@@ -2256,7 +2468,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {
                     "inputs": {"message": {"value": "Hello, {arrayMap(a -> a, [1, 2, 3])}!"}},
                     "inputs_schema": [
-                        {"key": "message", "type": "string", "label": "Message", "required": True},
+                        {"key": "message", "type": "string", "label": "Message", "required": True, **schema_options},
                     ],
                     "filters": {
                         "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],

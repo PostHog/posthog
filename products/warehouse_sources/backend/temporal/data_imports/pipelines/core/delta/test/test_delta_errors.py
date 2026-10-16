@@ -60,6 +60,15 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             (
+                # A read timeout never gets s3fs's OSError translation (there's no response to
+                # translate), so it reaches here as the raw botocore `HTTPClientError` subclass once
+                # s3fs's own retries are exhausted - the same blip `s3/writer.py` already retries on
+                # the write path.
+                "bare_read_timeout_error",
+                botocore.exceptions.ReadTimeoutError(endpoint_url="https://example.com/part-0000.parquet"),
+                True,
+            ),
+            (
                 # aiobotocore's session bootstrap (e.g. inside `aget_s3_client`) opens botocore's own
                 # bundled endpoints.json before any network call is made - a full fd table fails that
                 # local open the same way it fails a socket connect, so it needs the same transient
@@ -71,6 +80,11 @@ class TestIsTransientObjectStoreError:
             (
                 "fd_table_full_enfile",
                 OSError(errno.ENFILE, "Too many open files in system"),
+                True,
+            ),
+            (
+                "s3_service_unavailable_ebusy",
+                OSError(errno.EBUSY, "Service Unavailable"),
                 True,
             ),
             (
@@ -201,6 +215,18 @@ class TestIsTransientDeltaMaintenanceError:
             # "not found" outside the log directory must not match, because a data file missing for some
             # other reason is a real failure to capture, not this specific log-commit race.
             ("file_not_found_outside_delta_log", deltalake.exceptions.DeltaError("File not found: some/file"), False),
+            # A reset or repartition swap replaced `_delta_log` under a handle that a prior write (or
+            # note_deltalite_commit) had already advanced further: `update_incremental` refuses to apply
+            # the now-lower-numbered log as an increment. Same reset-vs-stale-handle race as the missing
+            # log file cases above, just surfaced by the kernel's monotonic-version check instead.
+            (
+                "snapshot_ahead_of_reset_log",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Generic delta kernel error: Unexpected state: the newest version in the "
+                    "log 11 is older than the existing snapshot version 15"
+                ),
+                True,
+            ),
             # Other DeltaErrors are real failures (e.g. a genuinely corrupt log) and must still be captured.
             ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
             # Same message shape but not the DeltaError type delta-rs actually raises for it.

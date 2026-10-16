@@ -6,7 +6,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.team import TEAM_CONFIG_FIELDS
+from posthog.api.team.team_config import TEAM_CONFIG_FIELDS
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team.team import Team

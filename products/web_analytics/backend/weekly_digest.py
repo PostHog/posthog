@@ -94,6 +94,7 @@ def get_overview_for_team(
     execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
     user: User | None = None,
     date_range: DateRange | None = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> dict:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:web_overview")
     result = _default_overview()
@@ -104,7 +105,9 @@ def get_overview_for_team(
         filterTestAccounts=True,
         properties=[],
     )
-    runner = WebOverviewQueryRunner(team=team, query=query)
+    runner = WebOverviewQueryRunner(
+        team=team, query=query, bypass_warehouse_access_control=bypass_warehouse_access_control
+    )
     response = _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
     if response.dateFrom and response.dateTo:
         # A cached response can come from an earlier day, so keep the period that the numbers cover.
@@ -183,6 +186,7 @@ def _run_stats_table_query(
     execution_mode: ExecutionMode,
     user: User | None,
     date_range: DateRange | None = None,
+    bypass_warehouse_access_control: bool,
 ) -> WebStatsTableQueryResponse:
     query = WebStatsTableQuery(
         breakdownBy=breakdown_by,
@@ -193,7 +197,9 @@ def _run_stats_table_query(
         filterTestAccounts=True,
         properties=[],
     )
-    runner = WebStatsTableQueryRunner(team=team, query=query)
+    runner = WebStatsTableQueryRunner(
+        team=team, query=query, bypass_warehouse_access_control=bypass_warehouse_access_control
+    )
     return _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
 
 
@@ -206,6 +212,7 @@ def get_top_pages(
     execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
     user: User | None = None,
     date_range: DateRange | None = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_pages")
     response = _run_stats_table_query(
@@ -217,6 +224,7 @@ def get_top_pages(
         execution_mode=execution_mode,
         user=user,
         date_range=date_range,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
     )
 
     return [
@@ -239,6 +247,7 @@ def get_top_sources(
     execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
     user: User | None = None,
     date_range: DateRange | None = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_sources")
     response = _run_stats_table_query(
@@ -250,6 +259,7 @@ def get_top_sources(
         execution_mode=execution_mode,
         user=user,
         date_range=date_range,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
     )
 
     return [
@@ -272,6 +282,7 @@ def get_goals_for_team(
     execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
     user: User | None = None,
     date_range: DateRange | None = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:goals")
 
@@ -281,7 +292,9 @@ def get_goals_for_team(
             compareFilter=CompareFilter(compare=compare),
             properties=[],
         )
-        runner = WebGoalsQueryRunner(team=team, query=query)
+        runner = WebGoalsQueryRunner(
+            team=team, query=query, bypass_warehouse_access_control=bypass_warehouse_access_control
+        )
         response = _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
     except NoActionsError:
         return []
@@ -376,19 +389,44 @@ def build_team_digest(
     user: User | None = None,
     date_range: DateRange | None = None,
     include_goals: bool = True,
+    bypass_warehouse_access_control: bool = False,
 ) -> dict:
     overview = get_overview_for_team(
-        team, days=days, compare=compare, execution_mode=execution_mode, user=user, date_range=date_range
+        team,
+        days=days,
+        compare=compare,
+        execution_mode=execution_mode,
+        user=user,
+        date_range=date_range,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
     )
     top_pages = get_top_pages(
-        team, days=days, compare=compare, execution_mode=execution_mode, user=user, date_range=date_range
+        team,
+        days=days,
+        compare=compare,
+        execution_mode=execution_mode,
+        user=user,
+        date_range=date_range,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
     )
     top_sources = get_top_sources(
-        team, days=days, compare=compare, execution_mode=execution_mode, user=user, date_range=date_range
+        team,
+        days=days,
+        compare=compare,
+        execution_mode=execution_mode,
+        user=user,
+        date_range=date_range,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
     )
     goals = (
         get_goals_for_team(
-            team, days=days, compare=compare, execution_mode=execution_mode, user=user, date_range=date_range
+            team,
+            days=days,
+            compare=compare,
+            execution_mode=execution_mode,
+            user=user,
+            date_range=date_range,
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
         )
         if include_goals
         else []
@@ -418,15 +456,24 @@ def build_team_digests(
     failed_teams: list[Team] = []
     for team in teams:
         try:
+            # The scheduled digest has no acting user, and it emits team-wide aggregates that recipients
+            # only receive for projects they can access. Without the bypass, a test-account or action
+            # filter that reads a warehouse join fails closed and the team section is lost.
             if build_retry is None:
-                digests[team.id] = build_team_digest(team, include_goals=include_goals)
+                digests[team.id] = build_team_digest(
+                    team, include_goals=include_goals, bypass_warehouse_access_control=True
+                )
             else:
                 period = _digest_date_range(team, days=7)
                 date_range = DateRange(
                     date_from=period.date_from().isoformat(), date_to=period.date_to().isoformat(), explicitDate=True
                 )
                 digests[team.id] = build_retry(
-                    build_team_digest, team, date_range=date_range, include_goals=include_goals
+                    build_team_digest,
+                    team,
+                    date_range=date_range,
+                    include_goals=include_goals,
+                    bypass_warehouse_access_control=True,
                 )
         except Exception as e:
             logger.warning("WA digest could not build a team section", team_id=team.id, error=str(e))

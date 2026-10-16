@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -19,8 +19,11 @@ from posthog.schema import (
     WebStatsTableQueryResponse,
 )
 
+from posthog.hogql.errors import TableAccessDeniedError
+
 from posthog.models import Team
 from posthog.models.utils import uuid7
+from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, filter_through_warehouse_join
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.web_goals import NoActionsError
@@ -29,6 +32,7 @@ from products.web_analytics.backend.weekly_digest import (
     _format_duration,
     auto_select_project_for_user,
     build_team_digest,
+    build_team_digests,
     get_goals_for_team,
     get_overview_for_team,
     get_top_pages,
@@ -431,6 +435,23 @@ class TestGetGoalsForTeam(ClickhouseTestMixin, APIBaseTest):
         goal = next(g for g in result if g["name"] == "Signed Up")
         assert goal["conversions"] >= 1
 
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, new=Mock(return_value=True))
+    def test_userless_job_reads_an_action_filter_through_a_warehouse_join(self):
+        Action.objects.create(
+            team=self.team,
+            name="Signed Up",
+            steps_json=[{"event": "signed_up", "properties": [filter_through_warehouse_join(self.team)]}],
+            last_calculated_at=timezone.now(),
+        )
+        goal_row = (5, 0, "Signed Up", (3, 0), (2, 0))
+
+        with patch("posthog.hogql.query.sync_execute", return_value=([goal_row], [])):
+            with self.assertRaises(TableAccessDeniedError):
+                get_goals_for_team(self.team)
+            result = get_goals_for_team(self.team, bypass_warehouse_access_control=True)
+
+        assert [(goal["name"], goal["conversions"]) for goal in result] == [("Signed Up", 3)]
+
 
 class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
     def test_returns_all_expected_keys(self):
@@ -500,3 +521,16 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
 
         assert result["metadata"]["date_from"].date().isoformat() == "2025-01-21"
         assert result["metadata"]["date_to"].date().isoformat() == "2025-01-28"
+
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, new=Mock(return_value=True))
+    def test_scheduled_digest_reads_a_test_account_filter_through_a_warehouse_join(self):
+        self.team.test_account_filters = [filter_through_warehouse_join(self.team)]
+        self.team.save()
+
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [])):
+            with self.assertRaises(TableAccessDeniedError):
+                build_team_digest(self.team)
+            build = build_team_digests([self.team])
+
+        assert list(build.digests) == [self.team.id]
+        assert build.failed_teams == []

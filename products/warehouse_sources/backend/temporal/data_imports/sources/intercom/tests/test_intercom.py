@@ -1,5 +1,4 @@
 import json
-from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -14,6 +13,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponsePaginator,
     PageNumberPaginator,
     SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.driver import DriveResult
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.responders import Script
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
+    IntercomSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom import intercom as intercom_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.intercom import (
@@ -32,10 +43,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.i
     _substream_items,
     _to_unix_seconds,
     get_resource,
-    intercom_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
 
 
 def _make_response(json_body: Any, status_code: int = 200, text: str = "") -> Response:
@@ -57,15 +68,13 @@ SCROLL_EXISTS_BODY = {
 }
 
 
-def _manager(state: IntercomResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = state is not None
-    manager.load_state.return_value = state
-    return manager
-
-
-def _staged(manager: mock.MagicMock) -> list[IntercomResumeConfig]:
-    return [call.args[0] for call in manager.save_state.call_args_list]
+def _drive(
+    endpoint: str, script: Script, *, resume_state: IntercomResumeConfig | None = None, **inputs: Any
+) -> DriveResult:
+    source = IntercomSource()
+    config = IntercomSourceConfig(intercom_integration_id=456)
+    with mock.patch.object(source, "get_oauth_integration", return_value=mock.MagicMock(access_token="token")):
+        return SourceDriver(source, config).run(endpoint, script, resume_state=resume_state, **inputs)
 
 
 def _http_error(json_body: Any, status_code: int = 400, text: str = "") -> HTTPError:
@@ -88,17 +97,17 @@ class TestValidateCredentials:
         ],
     )
     def test_status_mapping(self, status_code: int, schema_name: str | None, expected_valid: bool):
-        mock_session = mock.MagicMock()
-        mock_session.get.return_value = _make_response({"type": "admin"}, status_code=status_code, text="boom")
-
-        with mock.patch.object(intercom_module, "make_tracked_session", return_value=mock_session):
+        with scripted_network(always(ScriptedResponse(status=status_code, json={"type": "admin"}))) as network:
             is_valid, error = validate_credentials("token", schema_name=schema_name)
 
+        assert {request.path for request in network.requests_log} == {"/me"}
         assert is_valid is expected_valid
         if expected_valid:
             assert error is None
         else:
             assert error is not None
+            if status_code == 500:
+                assert "HTTP 500" in error
 
     def test_missing_token(self):
         is_valid, error = validate_credentials("")
@@ -106,10 +115,7 @@ class TestValidateCredentials:
         assert error is not None and "Missing" in error
 
     def test_request_exception_returns_invalid(self):
-        mock_session = mock.MagicMock()
-        mock_session.get.side_effect = Exception("connection reset")
-
-        with mock.patch.object(intercom_module, "make_tracked_session", return_value=mock_session):
+        with scripted_network(always(ConnectionResetError("connection reset"))):
             is_valid, error = validate_credentials("token")
 
         assert is_valid is False
@@ -431,21 +437,10 @@ class TestIntercomSource:
     @pytest.mark.parametrize("endpoint", list(INTERCOM_ENDPOINTS.keys()))
     def test_source_response_metadata(self, endpoint: str):
         cfg = INTERCOM_ENDPOINTS[endpoint]
-        sentinel = object()
+        result = _drive(endpoint, [], api_version="2.16")
+        response = result.response
 
-        with (
-            mock.patch.object(intercom_module, "rest_api_resource", return_value=sentinel),
-            mock.patch.object(intercom_module, "make_tracked_session", return_value=mock.MagicMock()),
-        ):
-            response = intercom_source(
-                access_token="token",
-                endpoint=endpoint,
-                team_id=1,
-                job_id="job-1",
-                api_version="2.16",
-                resumable_source_manager=_manager(),
-            )
-
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == cfg.primary_keys
         assert response.partition_keys == [cfg.partition_key]
@@ -457,62 +452,18 @@ class TestIntercomSource:
         "endpoint", [name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.api_versions is not None]
     )
     def test_endpoint_unavailable_on_the_pinned_version_raises(self, endpoint: str):
-        with pytest.raises(ValueError, match="requires Intercom API version"):
-            intercom_source(
-                access_token="token",
-                endpoint=endpoint,
-                team_id=1,
-                job_id="job-1",
-                api_version="2.13",
-                resumable_source_manager=_manager(),
-            )
+        result = _drive(endpoint, [], api_version="2.13")
+
+        assert isinstance(result.raised, ValueError)
+        assert "requires Intercom API version" in str(result.raised)
 
 
-REST_CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 NEXT_URL = f"{INTERCOM_API_BASE}/admins/activity_logs?created_at_after=0&page=2"
 SECOND_URL = f"{INTERCOM_API_BASE}/news/news_items?page=3"
 
 
-def _wire_rest_session(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    # The client mutates one Request across pages, so copy what each send carries.
-    session.headers = {}
-    sent: list[dict[str, Any]] = []
-
-    def prepare(request: Any) -> mock.MagicMock:
-        sent.append(
-            {
-                "url": request.url,
-                "params": dict(request.params or {}),
-                "json": json.loads(json.dumps(request.json)) if request.json is not None else None,
-            }
-        )
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = prepare
-    session.send.side_effect = responses
-    return sent
-
-
-def _run_rest(
-    endpoint: str, manager: mock.MagicMock, responses: list[Response], **kwargs: Any
-) -> tuple[list[Any], list[dict[str, Any]]]:
-    with mock.patch(REST_CLIENT_SESSION_PATCH) as make_session:
-        sent = _wire_rest_session(make_session.return_value, responses)
-        response = intercom_source(
-            access_token="token",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            api_version="2.16",
-            resumable_source_manager=manager,
-            **kwargs,
-        )
-        rows = [row["id"] for page in cast(Iterable[list[dict[str, Any]]], response.items()) for row in page]
-    return rows, sent
-
-
-def _page(selector: str, ids: list[int], next_block: Any) -> Response:
-    return _make_response({selector: [{"id": i} for i in ids], "pages": {"next": next_block}})
+def _page(selector: str, ids: list[int], next_block: Any) -> ScriptedResponse:
+    return ScriptedResponse(json={selector: [{"id": i} for i in ids], "pages": {"next": next_block}})
 
 
 class TestResumableRestEndpoints:
@@ -551,33 +502,32 @@ class TestResumableRestEndpoints:
     def test_fresh_run_stages_the_next_page_after_each_page(
         self, endpoint: str, selector: str, next_blocks: list[Any], expected_staged: list[IntercomResumeConfig]
     ):
-        manager = _manager()
         responses = [_page(selector, [i], block) for i, block in enumerate(next_blocks)]
 
-        rows, _ = _run_rest(endpoint, manager, responses)
+        result = _drive(endpoint, responses)
 
-        assert rows == [0, 1, 2]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [0, 1, 2]
         # The last page has no next page, so nothing is staged for it.
-        assert _staged(manager) == expected_staged
+        assert result.saved_states == expected_staged
 
     def test_expired_search_cursor_is_cleared_before_retry(self):
-        manager = _manager(IntercomResumeConfig(cursor="expired", query_value=1600000000))
-        rejected = _make_response(
-            {"type": "error.list", "errors": [{"code": "parameter_invalid", "message": "cursor expired"}]},
-            status_code=400,
+        rejected = ScriptedResponse(
+            status=400,
+            json={"type": "error.list", "errors": [{"code": "parameter_invalid", "message": "cursor expired"}]},
         )
 
-        with pytest.raises(HTTPError):
-            _run_rest(
-                "contacts",
-                manager,
-                [rejected],
-                should_use_incremental_field=True,
-                incremental_field="updated_at",
-                db_incremental_field_last_value="1700000000",
-            )
+        result = _drive(
+            "contacts",
+            [rejected],
+            resume_state=IntercomResumeConfig(cursor="expired", query_value=1600000000),
+            should_use_incremental_field=True,
+            incremental_field="updated_at",
+            db_incremental_field_last_value="1700000000",
+        )
 
-        manager.clear_state.assert_called_once_with()
+        assert isinstance(result.raised, HTTPError)
+        assert result.final_state is None
 
     @pytest.mark.parametrize(
         "state",
@@ -587,19 +537,18 @@ class TestResumableRestEndpoints:
         ],
     )
     def test_search_ignores_state_it_cannot_replay(self, state: IntercomResumeConfig):
-        manager = _manager(state)
-
-        _, sent = _run_rest(
+        result = _drive(
             "contacts",
-            manager,
             [_page("data", [1], None)],
+            resume_state=state,
             should_use_incremental_field=True,
             incremental_field="updated_at",
             db_incremental_field_last_value="1700000000",
         )
 
-        assert "starting_after" not in sent[0]["json"]["pagination"]
-        assert sent[0]["json"]["query"]["value"] == 1700000000
+        assert result.raised is None
+        assert "starting_after" not in result.requests[0].json()["pagination"]
+        assert result.requests[0].json()["query"]["value"] == 1700000000
 
     @pytest.mark.parametrize(
         "endpoint,selector,state,expected_url,expected_params",
@@ -635,160 +584,179 @@ class TestResumableRestEndpoints:
         expected_url: str,
         expected_params: dict[str, Any],
     ):
-        rows, sent = _run_rest(endpoint, _manager(state), [_page(selector, [5], None)])
+        result = _drive(endpoint, [_page(selector, [5], None)], resume_state=state)
 
-        assert rows == [5]
-        assert len(sent) == 1
-        assert sent[0]["url"] == expected_url
-        assert sent[0]["params"] == expected_params
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [5]
+        assert len(result.requests) == 1
+        if expected_params:
+            assert result.urls[0].split("?", 1)[0] == expected_url
+            assert {name: value[0] for name, value in result.queries[0].items()} == {
+                name: str(value) for name, value in expected_params.items()
+            }
+        else:
+            assert result.urls[0] == expected_url
 
 
-def _numbered_page(ids: list[int], page: int, total_pages: int) -> Response:
-    return _make_response(
-        {"type": "list", "data": [{"id": i} for i in ids], "page": page, "per_page": 50, "total_pages": total_pages}
+def _numbered_page(ids: list[int], page: int, total_pages: int) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "type": "list",
+            "data": [{"id": i} for i in ids],
+            "page": page,
+            "per_page": 50,
+            "total_pages": total_pages,
+        }
     )
 
 
 class TestPageNumberEndpoints:
     @pytest.mark.parametrize("endpoint", ["audiences", "content_snippets"])
     def test_fresh_run_walks_every_page_and_stops_at_total_pages(self, endpoint: str):
-        manager = _manager()
         responses = [_numbered_page([1], 1, 2), _numbered_page([2], 2, 2)]
 
-        rows, sent = _run_rest(endpoint, manager, responses)
+        result = _drive(endpoint, responses)
 
-        assert rows == [1, 2]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2]
         # The last page is known from `total_pages`, so no trailing empty-page request goes out.
-        assert [req["params"] for req in sent] == [{"per_page": 50, "page": 1}, {"per_page": 50, "page": 2}]
-        assert _staged(manager) == [IntercomResumeConfig(page=2)]
+        assert result.params("per_page") == ["50", "50"]
+        assert result.params("page") == ["1", "2"]
+        assert result.saved_states == [IntercomResumeConfig(page=2)]
 
     def test_resumed_run_starts_at_the_saved_page(self):
-        rows, sent = _run_rest("audiences", _manager(IntercomResumeConfig(page=3)), [_numbered_page([7], 3, 3)])
+        result = _drive("audiences", [_numbered_page([7], 3, 3)], resume_state=IntercomResumeConfig(page=3))
 
-        assert rows == [7]
-        assert len(sent) == 1
-        assert sent[0]["params"] == {"per_page": 50, "page": 3}
-
-
-def _segments_session(scroll_ids: list[str], segments: dict[str, Any]) -> mock.MagicMock:
-    responses: dict[str, Any] = {f"/companies/{cid}/segments": body for cid, body in segments.items()}
-
-    def get(url: str, params: Any = None, timeout: int = 30) -> Response:
-        if url.endswith("/companies/scroll"):
-            if params is None:
-                return _make_response({"data": [{"id": cid} for cid in scroll_ids], "scroll_param": "s1"})
-            return _make_response({"data": []})
-        body = responses[url.removeprefix(INTERCOM_API_BASE)]
-        if body is None:
-            return _make_response(None, status_code=404, text="Not Found")
-        return _make_response(body)
-
-    session = mock.MagicMock()
-    session.get.side_effect = get
-    return session
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [7]
+        assert len(result.requests) == 1
+        assert result.params("per_page") == ["50"]
+        assert result.params("page") == ["3"]
 
 
-def _segment_urls(session: mock.MagicMock) -> list[str]:
-    return [call.args[0] for call in session.get.call_args_list if call.args[0].endswith("/segments")]
+def _segments_script(scroll_ids: list[str], segments: dict[str, Any]) -> Script:
+    responses = {
+        "/companies/scroll": [
+            ScriptedResponse(json={"data": [{"id": cid} for cid in scroll_ids], "scroll_param": "s1"}),
+            ScriptedResponse(json={"data": []}),
+        ],
+        **{
+            f"/companies/{cid}/segments": [
+                ScriptedResponse(status=404) if body is None else ScriptedResponse(json=body)
+            ]
+            for cid, body in segments.items()
+        },
+    }
+    return route(responses)
 
 
 class TestExpiredSubstreamCursor:
     def test_expired_conversation_search_cursor_is_cleared(self):
-        manager = _manager(IntercomResumeConfig(cursor="expired", query_value=1600000000))
-        session = mock.MagicMock()
-        session.post.return_value = _make_response(
-            {"type": "error.list", "errors": [{"code": "parameter_invalid", "message": "cursor expired"}]},
-            status_code=400,
+        result = _drive(
+            "conversation_parts",
+            [
+                ScriptedResponse(
+                    status=400,
+                    json={"type": "error.list", "errors": [{"code": "parameter_invalid", "message": "cursor expired"}]},
+                )
+            ],
+            resume_state=IntercomResumeConfig(cursor="expired", query_value=1600000000),
+            incremental_field="updated_at",
         )
 
-        with mock.patch.object(intercom_module, "_make_intercom_session", return_value=session):
-            response = intercom_source(
-                access_token="token",
-                endpoint="conversation_parts",
-                team_id=1,
-                job_id="job-1",
-                api_version="2.16",
-                resumable_source_manager=manager,
-                incremental_field="updated_at",
-            )
-            with pytest.raises(HTTPError):
-                list(cast(Iterable[Any], response.items()))
-
-        manager.clear_state.assert_called_once_with()
+        assert isinstance(result.raised, HTTPError)
+        assert result.final_state is None
 
 
 class TestResumableCompanySegments:
     def test_fresh_run_stages_each_company_in_sorted_order(self):
         # co2 has no segments and co4 was deleted: both still move the cursor and reach a safe
         # point, because a long run of empty companies must still hand off at shutdown.
-        session = _segments_session(
-            ["co3", "co1", "co4", "co2"],
-            {
-                "co1": {"data": [{"id": "s1"}]},
-                "co2": {"data": []},
-                "co3": {"data": [{"id": "s3"}, {"id": "s4"}]},
-                "co4": None,
-            },
+        result = _drive(
+            "company_segments",
+            _segments_script(
+                ["co3", "co1", "co4", "co2"],
+                {
+                    "co1": {"data": [{"id": "s1"}]},
+                    "co2": {"data": []},
+                    "co3": {"data": [{"id": "s3"}, {"id": "s4"}]},
+                    "co4": None,
+                },
+            ),
         )
-        manager = _manager()
 
-        segments = list(_company_segments_generator(session, manager))
-
-        assert [(s["company_id"], s["id"]) for s in segments] == [("co1", "s1"), ("co3", "s3"), ("co3", "s4")]
-        assert _staged(manager) == [IntercomResumeConfig(last_company_id=cid) for cid in ["co1", "co2", "co3", "co4"]]
-        # One safe point per drained scroll page, plus one per company.
-        assert manager.safe_point.call_count == 1 + 4
+        assert result.raised is None
+        assert [(s["company_id"], s["id"]) for s in result.rows] == [
+            ("co1", "s1"),
+            ("co3", "s3"),
+            ("co3", "s4"),
+        ]
+        assert result.saved_states == [
+            IntercomResumeConfig(last_company_id=cid) for cid in ["co1", "co2", "co3", "co4"]
+        ]
+        assert result.final_state == IntercomResumeConfig(last_company_id="co4")
 
     def test_resumed_run_skips_completed_companies(self):
-        session = _segments_session(
-            ["co3", "co1", "co2"],
-            {"co1": {"data": [{"id": "s1"}]}, "co2": {"data": [{"id": "s2"}]}, "co3": {"data": [{"id": "s3"}]}},
+        result = _drive(
+            "company_segments",
+            _segments_script(
+                ["co3", "co1", "co2"],
+                {"co1": {"data": [{"id": "s1"}]}, "co2": {"data": [{"id": "s2"}]}, "co3": {"data": [{"id": "s3"}]}},
+            ),
+            resume_state=IntercomResumeConfig(last_company_id="co2"),
         )
-        manager = _manager(IntercomResumeConfig(last_company_id="co2"))
 
-        segments = list(_company_segments_generator(session, manager))
-
-        assert [s["id"] for s in segments] == ["s3"]
-        assert _segment_urls(session) == [f"{INTERCOM_API_BASE}/companies/co3/segments"]
+        assert result.raised is None
+        assert [s["id"] for s in result.rows] == ["s3"]
+        assert [path for path in result.paths if path.endswith("/segments")] == ["/companies/co3/segments"]
 
 
-def _conversation_page(ids: list[str], next_cursor: str | None) -> Response:
+def _conversation_page(ids: list[str], next_cursor: str | None) -> ScriptedResponse:
     next_block = {"starting_after": next_cursor} if next_cursor else None
-    return _make_response({"conversations": [{"id": cid} for cid in ids], "pages": {"next": next_block}})
+    return ScriptedResponse(json={"conversations": [{"id": cid} for cid in ids], "pages": {"next": next_block}})
 
 
-def _parts(*ids: str) -> Response:
-    return _make_response({"conversation_parts": {"conversation_parts": [{"id": pid} for pid in ids]}})
+def _parts(*ids: str) -> ScriptedResponse:
+    return ScriptedResponse(json={"conversation_parts": {"conversation_parts": [{"id": pid} for pid in ids]}})
 
 
 class TestResumableConversationParts:
     def test_fresh_run_stages_after_each_conversation_and_page(self):
-        session = mock.MagicMock()
-        session.post.side_effect = [_conversation_page(["c1", "c2"], "p2"), _conversation_page(["c3"], None)]
-        session.get.side_effect = [_parts("a", "b"), _parts(), _parts("c")]
-        manager = _manager()
+        result = _drive(
+            "conversation_parts",
+            [
+                _conversation_page(["c1", "c2"], "p2"),
+                _parts("a", "b"),
+                _parts(),
+                _conversation_page(["c3"], None),
+                _parts("c"),
+            ],
+            incremental_field="updated_at",
+        )
 
-        parts = list(_conversation_parts_generator(session, "updated_at", None, manager))
-
-        assert [p["id"] for p in parts] == ["a", "b", "c"]
-        assert _staged(manager) == [
+        assert result.raised is None
+        assert [p["id"] for p in result.rows] == ["a", "b", "c"]
+        assert result.saved_states == [
             IntercomResumeConfig(query_value=0, completed_conversation_ids=["c1"]),
             IntercomResumeConfig(query_value=0, completed_conversation_ids=["c1", "c2"]),
             IntercomResumeConfig(cursor="p2", query_value=0),
             IntercomResumeConfig(cursor="p2", query_value=0, completed_conversation_ids=["c3"]),
         ]
-        assert manager.safe_point.call_count == 4
+        assert result.final_state == IntercomResumeConfig(cursor="p2", query_value=0, completed_conversation_ids=["c3"])
 
     def test_resumed_run_replays_the_saved_page_and_skips_completed_conversations(self):
-        session = mock.MagicMock()
-        session.post.side_effect = [_conversation_page(["c3", "c4"], None)]
-        session.get.side_effect = [_parts("d")]
-        manager = _manager(IntercomResumeConfig(cursor="p2", query_value=1600000000, completed_conversation_ids=["c3"]))
+        result = _drive(
+            "conversation_parts",
+            [_conversation_page(["c3", "c4"], None), _parts("d")],
+            resume_state=IntercomResumeConfig(cursor="p2", query_value=1600000000, completed_conversation_ids=["c3"]),
+            should_use_incremental_field=True,
+            incremental_field="updated_at",
+            db_incremental_field_last_value="1700000000",
+        )
 
-        parts = list(_conversation_parts_generator(session, "updated_at", "1700000000", manager))
-
-        assert [(p["conversation_id"], p["id"]) for p in parts] == [("c4", "d")]
-        body = session.post.call_args_list[0].kwargs["json"]
+        assert result.raised is None
+        assert [(p["conversation_id"], p["id"]) for p in result.rows] == [("c4", "d")]
+        body = result.requests[0].json()
         assert body["pagination"]["starting_after"] == "p2"
         assert body["query"]["value"] == 1600000000
-        assert [call.args[0] for call in session.get.call_args_list] == [f"{INTERCOM_API_BASE}/conversations/c4"]
+        assert result.paths == ["/conversations/search", "/conversations/c4"]

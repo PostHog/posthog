@@ -88,7 +88,8 @@ What each report status means (in roughly the order a triage agent should care a
 - `in_progress` — actively being summarized / judged
 - `candidate` / `potential` — accumulated signals but not yet promoted to a real report
 - `failed` — processing errored
-- `suppressed` — manually hidden; not surfaced by default
+- `suppressed` — out of the inbox; not surfaced by default. A person or agent dismissed it, or a
+  judge held it back before anyone reviewed it. See _Dismissed and held-back reports_ below
 - `resolved` — the work the report asked for is done. Terminal: a resolved report never re-promotes,
   so a recurrence starts a fresh report linked back to it. Set automatically when a linked
   implementation PR merges, or directly via `inbox-reports-set-state` (see the workflow below)
@@ -96,6 +97,44 @@ What each report status means (in roughly the order a triage agent should care a
 By default `inbox-reports-list` excludes `suppressed` reports and orders results by
 `-is_suggested_reviewer,status,-updated_at` — the user's own suggested reports first, then by
 status, then most recently updated. Refer to the tool's input schema for filter mechanics.
+
+## Dismissed and held-back reports
+
+A `suppressed` report has one of two origins. The inbox shows each origin in its own view, and
+`inbox-reports-list` accepts the same split through its `view` parameter:
+
+| `view`      | Lists suppressed reports that…                                                                    | `suppression_source`                       |
+| ----------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `dismissed` | a person or agent dismissed, or that were merged into another report, or whose PR closed unmerged | `dismissed`                                |
+| `held_back` | a judge suppressed before anyone reviewed them                                                    | `safety_judge`, `not_actionable`, `system` |
+
+Each suppressed row carries two fields that tell the origins apart:
+
+- `suppression_source` — `null` unless the status is `suppressed`.
+  - `dismissed`: someone chose to remove the report. Read `dismissal_reason` and `dismissal_note`
+    for the reason.
+  - `safety_judge`: the safety judge marked the report unsafe.
+  - `not_actionable`: the actionability judge marked the report not actionable.
+  - `system`: the pipeline suppressed the report for a different reason. An older report that
+    has no dismissal record and no judge verdict also shows this value.
+- `suppression_explanation` — the judge's explanation when the source is `safety_judge` or
+  `not_actionable`. `null` for the other sources, or when the judge gave none.
+
+Only `dismissed` is a human or agent decision. The other sources are judge verdicts that nobody
+has reviewed, and a judge can be wrong. Do not tell the user they hid a held-back report.
+
+Include held-back reports in a review when:
+
+- the user asks what PostHog filtered out, or why an expected report is missing from the inbox
+- the user asks for a full review or audit of the inbox, not only the actionable queue
+- you deduplicate against the full inbox state before you file or merge a report
+
+For a held-back review, call `inbox-reports-list` with `{"view": "held_back"}`. Show the
+`suppression_source` and the `suppression_explanation` for each report, so the user can judge
+the verdict. If the user decides that a report is valid, restore it with `state: "potential"`.
+The report goes back to the status it had before the judge held it back. If the user agrees with the
+verdict, call `state: "suppressed"` with a `dismissal_reason`. The report then moves from
+`held_back` to `dismissed`. See _Workflow: resolve, dismiss, or snooze a report_ for both calls.
 
 ## What "suggested reviewer" means
 
@@ -536,8 +575,9 @@ inbox-source-configs-partial-update
   asked
 - `priority` and `actionability` are `null` for reports still in `pending_input` or `candidate`
   status; this is expected, not a bug — judgment hasn't run yet
-- `suppressed` reports are excluded by default; pass `status: "suppressed"` explicitly if the
-  user wants to see hidden items
+- `suppressed` reports are excluded by default. Pass `view: "dismissed"` for reports someone
+  dismissed, `view: "held_back"` for reports a judge held back, or `status: "suppressed"` for both.
+  Read `suppression_source` before you describe why a report left the inbox
 - The inbox writes exposed via MCP are `inbox-reports-set-state` (resolve / dismiss / snooze one
   report), `inbox-reports-bulk-set-state` (the same for 1–100 reports), `inbox-reports-claim`
   (claim / release / attach a PR), and

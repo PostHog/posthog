@@ -1,8 +1,12 @@
 import pytest
-from unittest.mock import patch
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.watchmode import (
     WatchmodeSourceConfig,
 )
@@ -24,15 +28,11 @@ class TestWatchmodeSource:
         ],
     )
     def test_validate_credentials_maps_status_codes(self, status_code: int, expected_valid: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.watchmode.make_tracked_session"
-        ) as mock_make_session:
-            response = requests.Response()
-            response.status_code = status_code
-            mock_make_session.return_value.get.return_value = response
-
+        with scripted_network(lambda _request: ScriptedResponse(status=status_code)) as network:
             valid, error = self.source.validate_credentials(self.config, team_id=1)
 
+        assert network.requests_log[0].path == "/v1/status/"
+        assert network.requests_log[0].headers["x-api-key"] == "test-key"
         assert valid is expected_valid
         if expected_valid:
             assert error is None
@@ -42,23 +42,23 @@ class TestWatchmodeSource:
     def test_validate_credentials_disables_redirects(self) -> None:
         # A cross-host redirect would otherwise replay the `X-API-Key` header off-host,
         # leaking the key; the validation probe must pin redirects off.
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.watchmode.make_tracked_session"
-        ) as mock_make_session:
-            response = requests.Response()
-            response.status_code = 200
-            mock_make_session.return_value.get.return_value = response
+        with scripted_network(
+            [ScriptedResponse(status=302, headers={"Location": "https://example.com/redirect"})]
+        ) as network:
+            valid, error = self.source.validate_credentials(self.config, team_id=1)
 
-            self.source.validate_credentials(self.config, team_id=1)
-
-        assert mock_make_session.call_args.kwargs["allow_redirects"] is False
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].path == "/v1/status/"
+        assert network.requests_log[0].headers["x-api-key"] == "test-key"
+        assert network.session_options[0]["allow_redirects"] is False
+        assert valid is False
+        assert error
 
     def test_validate_credentials_handles_connection_errors(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.watchmode.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.side_effect = requests.ConnectionError("connection refused")
+        def connection_error(_request: RecordedRequest) -> ScriptedResponse:
+            raise requests.ConnectionError("connection refused")
 
+        with scripted_network(connection_error):
             valid, error = self.source.validate_credentials(self.config, team_id=1)
 
         assert valid is False
