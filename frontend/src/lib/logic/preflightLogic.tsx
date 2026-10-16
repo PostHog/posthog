@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { identifyInstanceInPostHog } from 'lib/utils/posthogIdentity'
 import { urls } from 'scenes/urls'
 
 import { PreflightStatus, Realm } from '~/types'
@@ -402,10 +403,8 @@ export const preflightLogic = kea<preflightLogicType>([
                     commit_sha: appContext?.commit_sha,
                 })
 
-                if (values.preflight.site_url) {
-                    posthog.group('instance', values.preflight.site_url, {
-                        site_url: values.preflight.site_url,
-                    })
+                if (values.preflight.site_url && identifyInstanceInPostHog(posthog, values.preflight.site_url)) {
+                    posthog.reloadFeatureFlags()
                 }
             }
         },
