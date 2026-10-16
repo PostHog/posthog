@@ -31,16 +31,43 @@ pub(super) fn decimal_places_at_most(number: &str, places: i64) -> bool {
         <= places
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Rules,
+    Rule,
+    Variants,
+    Variant,
+    Holdout,
+    Other,
+}
+
 enum Container {
     Object {
         keys: HashSet<String>,
         key: String,
         expects_key: bool,
-        is_rule: bool,
+        kind: Kind,
     },
     Array {
-        is_rule_list: bool,
+        kind: Kind,
     },
+}
+
+/// Which contract object a container opened under `parent` is, so percentages are found by place.
+fn kind_of(parent: Option<&Container>, depth: usize, opens_object: bool) -> Kind {
+    let (parent_kind, key) = match parent {
+        Some(Container::Object { kind, key, .. }) => (*kind, key.as_str()),
+        Some(Container::Array { kind }) => (*kind, ""),
+        None => (Kind::Other, ""),
+    };
+    match (parent_kind, key, opens_object) {
+        (Kind::Rules, _, true) => Kind::Rule,
+        (Kind::Variants, _, true) => Kind::Variant,
+        (Kind::Rule, "holdout", true) => Kind::Holdout,
+        (Kind::Rule, "variants", false) => Kind::Variants,
+        (_, "rules", false) if depth == 1 => Kind::Rules,
+        _ => Kind::Other,
+    }
 }
 
 pub(crate) fn validate_raw_document(document: &RawValue) -> Result<(), ParseError> {
@@ -86,22 +113,18 @@ pub(crate) fn validate_raw_document(document: &RawValue) -> Result<(), ParseErro
                 }
             }
             b'{' => {
-                let is_rule = matches!(
-                    containers.last(),
-                    Some(Container::Array { is_rule_list: true })
-                );
+                let kind = kind_of(containers.last(), containers.len(), true);
                 containers.push(Container::Object {
                     keys: HashSet::new(),
                     key: String::new(),
                     expects_key: true,
-                    is_rule,
+                    kind,
                 });
                 index += 1;
             }
             b'[' => {
-                let is_rule_list = containers.len() == 1
-                    && matches!(containers.last(), Some(Container::Object { key, .. }) if key == "rules");
-                containers.push(Container::Array { is_rule_list });
+                let kind = kind_of(containers.last(), containers.len(), false);
+                containers.push(Container::Array { kind });
                 index += 1;
             }
             b'}' | b']' => {
@@ -130,10 +153,16 @@ pub(crate) fn validate_raw_document(document: &RawValue) -> Result<(), ParseErro
                 {
                     return Err(ParseError::Malformed("number_is_binary64"));
                 }
-                if matches!(containers.last(), Some(Container::Object { key, is_rule: true, .. }) if key == "rollout_percentage")
-                    && !decimal_places_at_most(token, 2)
-                {
-                    return Err(ParseError::Malformed("rollout_percentage"));
+                if let Some(Container::Object { key, kind, .. }) = containers.last() {
+                    let field = match (*kind, key.as_str()) {
+                        (Kind::Rule, "rollout_percentage") => Some("rollout_percentage"),
+                        (Kind::Variant, "weight") => Some("weight"),
+                        (Kind::Holdout, "exclusion_percentage") => Some("exclusion_percentage"),
+                        _ => None,
+                    };
+                    if let Some(field) = field.filter(|_| !decimal_places_at_most(token, 2)) {
+                        return Err(ParseError::Malformed(field));
+                    }
                 }
             }
             _ => index += 1,
