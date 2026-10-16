@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.se
     AWS_WAF_ENDPOINTS,
     CLOUDWATCH_SERVICE,
     ERROR_MESSAGES,
+    LIST_CALLS,
     MANAGED_RULE_GROUPS,
     METRICS_HISTORY,
     METRICS_NAMESPACE,
@@ -113,7 +114,11 @@ def from_epoch(value: Any) -> datetime | None:
 
 class AwsWafClient:
     def __init__(
-        self, config: AwsWafSourceConfig, api_version: str = WAF_API_VERSION, service: AwsService = WAFV2_SERVICE
+        self,
+        config: AwsWafSourceConfig,
+        api_version: str = WAF_API_VERSION,
+        service: AwsService = WAFV2_SERVICE,
+        capture: bool = True,
     ) -> None:
         if api_version != WAF_API_VERSION:
             raise ValueError(f"Unsupported AWS WAF API version: {api_version}")
@@ -136,6 +141,7 @@ class AwsWafClient:
         # WAF can throttle with HTTP 400, so one retry layer handles both HTTP statuses and AWS error codes.
         self.session = make_tracked_session(
             retry=Retry(total=0),
+            capture=capture,
             redact_values=tuple(value for value in (config.aws_secret_access_key, config.aws_session_token) if value),
         )
 
@@ -232,7 +238,8 @@ def validate_credentials(
     if table not in TABLE_PERMISSIONS:
         return False, f"Unknown AWS WAF table: {schema_name}"
     try:
-        client = AwsWafClient(config, api_version)
+        # Sampled requests carry end-user headers, so they stay out of HTTP sample capture.
+        client = AwsWafClient(config, api_version, capture=table != SAMPLED_REQUESTS)
     except ValueError as error:
         return False, str(error)
     try:
@@ -268,14 +275,6 @@ def sampled_metric_names(web_acl: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(names))
 
 
-def list_operation(endpoint: str) -> tuple[str, str]:
-    if endpoint == MANAGED_RULE_GROUPS:
-        return "ListAvailableManagedRuleGroups", "ManagedRuleGroups"
-    if endpoint in AWS_WAF_ENDPOINTS:
-        return AWS_WAF_ENDPOINTS[endpoint].list_operation, AWS_WAF_ENDPOINTS[endpoint].list_key
-    return "ListWebACLs", "WebACLs"
-
-
 def probe_table(client: AwsWafClient, config: AwsWafSourceConfig, table: str, api_version: str) -> None:
     if table == REQUEST_METRICS:
         metrics_client = AwsWafClient(config, api_version, CLOUDWATCH_SERVICE)
@@ -284,8 +283,8 @@ def probe_table(client: AwsWafClient, config: AwsWafSourceConfig, table: str, ap
         finally:
             metrics_client.close()
         return
-    operation, list_key = list_operation(table)
-    summaries = client.request(operation, {"Scope": client.scope, "Limit": 1})[list_key]
+    list_call = LIST_CALLS.get(table, LIST_CALLS["web_acls"])
+    summaries = client.request(list_call.operation, {"Scope": client.scope, "Limit": 1})[list_call.key]
     if not summaries:
         return
     if table == WEB_ACL_RESOURCES:
@@ -337,15 +336,15 @@ def get_rows(
     state = manager.load_state() or AwsWafResumeConfig()
     client = AwsWafClient(config, api_version)
     marker = state.next_marker
-    operation, list_key = list_operation(endpoint)
+    list_call = LIST_CALLS[endpoint]
     try:
         while True:
             payload: dict[str, Any] = {"Scope": client.scope, "Limit": PAGE_SIZE}
             if marker:
                 payload["NextMarker"] = marker
-            result = client.request(operation, payload)
+            result = client.request(list_call.operation, payload)
             rows = []
-            for summary in result[list_key]:
+            for summary in result[list_call.key]:
                 try:
                     rows.append(client.get_resource(endpoint, summary))
                 except AwsWafError as error:
@@ -437,15 +436,24 @@ def sampled_rows_for_web_acl(
     if web_acl is None:
         return
     for metric_name in sampled_metric_names(web_acl):
-        result = client.get_sampled_requests(web_acl["ARN"], metric_name, start, end, SAMPLED_REQUESTS_MAX_ITEMS)
-        rows = [
-            sampled_request_row(client, web_acl, metric_name, sample, result.get("PopulationSize"))
-            for sample in result.get("SampledRequests") or []
-        ]
-        if rows:
-            yield rows
-        else:
-            manager.safe_point()
+        window_start = start
+        while window_start < end:
+            result = client.get_sampled_requests(
+                web_acl["ARN"], metric_name, window_start, end, SAMPLED_REQUESTS_MAX_ITEMS
+            )
+            rows = [
+                sampled_request_row(client, web_acl, metric_name, sample, result.get("PopulationSize"))
+                for sample in result.get("SampledRequests") or []
+            ]
+            if rows:
+                yield rows
+            else:
+                manager.safe_point()
+            # AWS ends the returned window early when the rule saw 5,000 requests before the requested end.
+            returned_end = from_epoch((result.get("TimeWindow") or {}).get("EndTime"))
+            if returned_end is None or returned_end <= window_start or returned_end >= end:
+                break
+            window_start = returned_end
 
 
 def get_sampled_request_rows(
@@ -461,7 +469,7 @@ def get_sampled_request_rows(
         start = watermark
     if start >= end:
         return
-    client = AwsWafClient(config, api_version)
+    client = AwsWafClient(config, api_version, capture=False)
     try:
         yield from iter_web_acls(
             client, manager, lambda summary: sampled_rows_for_web_acl(client, manager, summary, start, end)
@@ -523,6 +531,11 @@ def get_request_metric_rows(
                 rows = []
                 for data in result.get("MetricDataResults") or []:
                     metric = batch[data["Id"]]
+                    # A failed series still returns HTTP 200, and skipping it would let the watermark pass its gap.
+                    if data.get("StatusCode") not in (None, "Complete", "PartialData"):
+                        raise AwsWafRetryableError(
+                            str(data["StatusCode"]), f"CloudWatch could not return {metric_id(metric)}."
+                        )
                     dimensions = {dimension["Name"]: dimension["Value"] for dimension in metric.get("Dimensions") or []}
                     for timestamp, value in zip(data.get("Timestamps") or [], data.get("Values") or []):
                         rows.append(

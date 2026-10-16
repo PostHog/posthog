@@ -356,11 +356,13 @@ def test_retries_stop_after_five_attempts() -> None:
     assert len(network.requests_log) == 5
 
 
-def test_tracked_transport_redacts_secrets_and_disables_nested_retries() -> None:
+@pytest.mark.parametrize("schema,capture", [(None, True), ("sampled_requests", False)])
+def test_tracked_transport_redacts_secrets_and_disables_nested_retries(schema: str | None, capture: bool) -> None:
     with scripted_network([ScriptedResponse(json={"WebACLs": []})]) as network:
-        assert validate_credentials(config()) == (True, None)
+        assert validate_credentials(config(), schema) == (True, None)
     assert network.session_options[0]["retry"].total == 0
     assert set(network.session_options[0]["redact_values"]) == {"example-secret", "example-token"}
+    assert network.session_options[0]["capture"] is capture
 
 
 def test_service_errors_do_not_become_credential_failures(session: MagicMock) -> None:
@@ -519,10 +521,24 @@ def test_sampled_requests_window_rules_and_header_redaction(
     session.post.side_effect = [
         response({"WebACLs": [{"Id": "id", "Name": "main", "ARN": web_acl["ARN"]}]}),
         response({"WebACL": web_acl}),
-        response({"SampledRequests": [sample], "PopulationSize": 40}),
+        response(
+            {
+                "SampledRequests": [sample],
+                "PopulationSize": 40,
+                "TimeWindow": {
+                    "StartTime": expected_start.timestamp(),
+                    "EndTime": (NOW - timedelta(minutes=2)).timestamp(),
+                },
+            }
+        ),
+        response({"SampledRequests": [], "TimeWindow": {"EndTime": NOW.timestamp()}}),
     ]
     rows = rows_for("sampled_requests", incremental_last_value=last_value)
-    assert targets(session) == ["ListWebACLs", "GetWebACL", "GetSampledRequests"]
+    assert targets(session) == ["ListWebACLs", "GetWebACL", "GetSampledRequests", "GetSampledRequests"]
+    assert payloads(session)[3]["TimeWindow"] == {
+        "StartTime": (NOW - timedelta(minutes=2)).timestamp(),
+        "EndTime": NOW.timestamp(),
+    }
     assert payloads(session)[2] == {
         "WebAclArn": web_acl["ARN"],
         "RuleMetricName": "sampled-rule",
@@ -610,3 +626,17 @@ def test_request_metrics_from_cloudwatch(session: MagicMock, scope: str, region_
         )
         for timestamp, value in [(hour, 5.0), (NOW.replace(minute=0), 7.0)]
     ]
+
+
+def test_request_metrics_fail_on_a_failed_series(session: MagicMock) -> None:
+    metric = {
+        "Namespace": "AWS/WAFV2",
+        "MetricName": "BlockedRequests",
+        "Dimensions": [{"Name": "Region", "Value": "eu-west-1"}],
+    }
+    session.post.side_effect = [
+        response({"Metrics": [metric]}),
+        response({"MetricDataResults": [{"Id": "m0", "StatusCode": "InternalError", "Timestamps": [], "Values": []}]}),
+    ]
+    with pytest.raises(AwsWafRetryableError, match="InternalError"):
+        rows_for("request_metrics")

@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.se
     ERROR_MESSAGES,
     INCREMENTAL_FIELDS,
     INCREMENTAL_LOOKBACK_SECONDS,
+    SHOULD_SYNC_DEFAULT,
     WAF_API_VERSION,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
@@ -86,6 +87,7 @@ class AwsWafSource(ResumableSource[AwsWafSourceConfig, AwsWafResumeConfig]):
             INCREMENTAL_FIELDS,
             names,
             descriptions=ENDPOINT_DESCRIPTIONS,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
             default_incremental_lookback_seconds=INCREMENTAL_LOOKBACK_SECONDS,
         )
 

@@ -85,6 +85,21 @@ TABLE_PERMISSIONS = {
     REQUEST_METRICS: ("cloudwatch:ListMetrics", "cloudwatch:GetMetricData"),
 }
 
+
+@frozen
+class ListCall:
+    operation: str
+    key: str
+
+
+LIST_CALLS = {
+    **{
+        name: ListCall(operation=endpoint.list_operation, key=endpoint.list_key)
+        for name, endpoint in AWS_WAF_ENDPOINTS.items()
+    },
+    MANAGED_RULE_GROUPS: ListCall(operation="ListAvailableManagedRuleGroups", key="ManagedRuleGroups"),
+}
+
 PRIMARY_KEYS = {
     **dict.fromkeys(AWS_WAF_ENDPOINTS, ["arn"]),
     MANAGED_RULE_GROUPS: ["vendor_name", "name"],
@@ -102,6 +117,8 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     SAMPLED_REQUESTS: [incremental_field("timestamp")],
     REQUEST_METRICS: [incremental_field("timestamp")],
 }
+# GetSampledRequests only reaches 3 hours back, longer than the default sync interval, so users opt in and pick a schedule.
+SHOULD_SYNC_DEFAULT = {SAMPLED_REQUESTS: False}
 # Hourly datapoints can still change while CloudWatch receives late data for the current hour.
 INCREMENTAL_LOOKBACK_SECONDS = {REQUEST_METRICS: 3 * 3600}
 
@@ -121,7 +138,19 @@ SAMPLED_REQUESTS_MAX_ITEMS = 500
 SAMPLED_REQUESTS_WINDOW = timedelta(hours=3)
 # End-user credentials in sampled request headers are not copied into the warehouse.
 REDACTED_HEADERS = frozenset(
-    {"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "x-amz-security-token"}
+    {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+        "api-key",
+        "x-api-key",
+        "x-auth-token",
+        "x-session-token",
+        "x-csrf-token",
+        "x-xsrf-token",
+        "x-amz-security-token",
+    }
 )
 
 METRICS_NAMESPACE = "AWS/WAFV2"
