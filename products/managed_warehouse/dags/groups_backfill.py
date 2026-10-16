@@ -1,7 +1,4 @@
-import json
-from dataclasses import replace
 from typing import TYPE_CHECKING
-from uuid import uuid4
 
 from django.utils import timezone
 
@@ -20,7 +17,6 @@ from dagster import (
     sensor,
 )
 from psycopg import sql
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
 
 from posthog.hogql.escape_sql import escape_clickhouse_string
 
@@ -38,13 +34,13 @@ from posthog.dags.events_backfill_to_duckling import (
     DucklingTarget,
     _compute_fanout,
     _DuckgresSession,
+    _execute_export_with_retry,
     _get_cluster,
     _glob_run_files,
     _repair_stale_running_statuses,
     _resolve_duckling_target,
     get_s3_url_for_clickhouse,
 )
-from posthog.dataclasses import frozen
 
 from products.data_warehouse.backend.facade.backfill_status import record_backfill_finished, record_backfill_started
 from products.data_warehouse.backend.facade.models import ManagedWarehouseBackfillPartition
@@ -64,7 +60,6 @@ MAX_TEAMS_PER_TICK = 25
 MAX_RUN_REQUESTS_PER_TICK = 3
 RETRY_HISTORY_LIMIT = 6
 RETRY_BASE_SECONDS = 600
-STATE_COMMENT_PREFIX = "posthog_groups_backfill:"
 GROUPS_TAGS = {"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **DUCKLING_BACKFILL_CONCURRENCY_TAG}
 duckling_groups_partitions_def = DynamicPartitionsDefinition(name="duckling_groups_backfill")
 GROUPS_COLUMN_TYPES = {
@@ -122,7 +117,7 @@ def export_groups_to_duckling_s3(
         SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
     # A failed export can leave partial S3 objects; only register files after the whole query succeeds.
-    client.execute(export_sql, settings=settings)
+    _execute_export_with_retry(client, export_sql, settings, f"team_id={target.team_id}, full groups export")
     return s3_glob
 
 
@@ -148,136 +143,48 @@ def ensure_groups_table(
             raise ValueError(f"Groups table schema mismatch: expected {GROUPS_COLUMN_TYPES}, got {actual}")
 
 
-@frozen
-class GroupsSnapshotTicket:
-    epoch: str
-    generation: int
-
-
-@frozen
-class GroupsSnapshotRegistration:
-    files_registered: int
-    superseded: bool = False
-
-
-@frozen
-class _GroupsSnapshotState:
-    epoch: str
-    issued: int
-    applied: dict[str, int]
-
-
-def _read_snapshot_state(conn: psycopg.Connection[tuple[object, ...]], table_name: str) -> _GroupsSnapshotState:
-    rows = conn.execute(
-        "SELECT comment FROM duckdb_tables() WHERE database_name = %s AND schema_name = 'posthog' AND table_name = %s",
-        (DUCKLAKE_ALIAS, table_name),
-    ).fetchall()
-    if len(rows) != 1:
-        raise ValueError("Groups table is missing from the catalog")
-    comment = rows[0][0]
-    if comment is None:
-        return _GroupsSnapshotState(epoch=uuid4().hex, issued=0, applied={})
-    if not isinstance(comment, str) or not comment.startswith(STATE_COMMENT_PREFIX):
-        raise ValueError("Groups table has unexpected snapshot metadata")
-    payload = json.loads(comment[len(STATE_COMMENT_PREFIX) :])
-    if not isinstance(payload, dict):
-        raise ValueError("Invalid groups snapshot metadata")
-    epoch, issued, applied = payload.get("epoch"), payload.get("issued"), payload.get("applied")
-    if not isinstance(epoch, str) or type(issued) is not int or issued < 0 or not isinstance(applied, dict):
-        raise ValueError("Invalid groups snapshot metadata")
-    if any(not isinstance(k, str) or type(v) is not int or not 0 <= v <= issued for k, v in applied.items()):
-        raise ValueError("Invalid groups snapshot generations")
-    return _GroupsSnapshotState(epoch=epoch, issued=issued, applied=applied)
-
-
-def _write_snapshot_state(
-    conn: psycopg.Connection[tuple[object, ...]], table_name: str, state: _GroupsSnapshotState
+def delete_groups_partition_data(
+    conn: psycopg.Connection[tuple[object, ...]], target: DucklingTarget, table_name: str
 ) -> None:
-    comment = STATE_COMMENT_PREFIX + json.dumps(
-        {"epoch": state.epoch, "issued": state.issued, "applied": state.applied}
-    )
     conn.execute(
-        sql.SQL("COMMENT ON TABLE {} IS {}").format(
-            sql.Identifier(DUCKLAKE_ALIAS, "posthog", table_name), sql.Literal(comment)
-        )
+        sql.SQL("DELETE FROM {} WHERE team_id = %s").format(sql.Identifier(DUCKLAKE_ALIAS, "posthog", table_name)),
+        (target.team_id,),
     )
-    if _read_snapshot_state(conn, table_name) != state:
-        raise ValueError("Groups snapshot metadata write was not applied")
 
 
-def _transaction_conflict(error: BaseException) -> bool:
-    return "transaction conflict" in str(error).lower()
-
-
-@retry(
-    retry=retry_if_exception(_transaction_conflict),
-    stop=stop_after_attempt(4),
-    wait=wait_random_exponential(multiplier=0.1, max=1),
-    reraise=True,
-)
-def reserve_groups_snapshot(conn: psycopg.Connection[tuple[object, ...]], table_name: str) -> GroupsSnapshotTicket:
-    with conn.transaction():
-        state = _read_snapshot_state(conn, table_name)
-        state = replace(state, issued=state.issued + 1)
-        _write_snapshot_state(conn, table_name, state)
-    return GroupsSnapshotTicket(epoch=state.epoch, generation=state.issued)
-
-
-@retry(
-    retry=retry_if_exception(_transaction_conflict),
-    stop=stop_after_attempt(4),
-    wait=wait_random_exponential(multiplier=0.1, max=1),
-    reraise=True,
-)
-def replace_groups_snapshot(
+def register_groups_files_with_duckling(
+    context: AssetExecutionContext,
     conn: psycopg.Connection[tuple[object, ...]],
-    target: DucklingTarget,
     table_name: str,
     s3_glob: str,
-    ticket: GroupsSnapshotTicket,
-) -> GroupsSnapshotRegistration:
+) -> int:
     files = _glob_run_files(conn, s3_glob)
-    # The generation marker commits with the data, so disconnects and empty snapshots preserve ordering.
-    with conn.transaction():
-        state = _read_snapshot_state(conn, table_name)
-        applied = state.applied.get(str(target.team_id), 0)
-        if ticket.epoch != state.epoch or ticket.generation < applied:
-            return GroupsSnapshotRegistration(files_registered=0, superseded=True)
-        if ticket.generation == applied:
-            return GroupsSnapshotRegistration(files_registered=len(files))
-        if ticket.generation > state.issued:
-            raise ValueError("Groups snapshot generation was not reserved")
+    if not files:
+        context.log.info(f"No groups files produced for {s3_glob}, nothing to register")
+        return 0
+    context.log.info(f"Registering {len(files)} groups file(s) with DuckLake from {s3_glob}")
+    for path in files:
         conn.execute(
-            sql.SQL("DELETE FROM {} WHERE team_id = %s").format(sql.Identifier(DUCKLAKE_ALIAS, "posthog", table_name)),
-            (target.team_id,),
+            "CALL ducklake_add_data_files(%s, %s, %s, schema => 'posthog', allow_missing => true)",
+            (DUCKLAKE_ALIAS, table_name, path),
         )
-        for path in files:
-            conn.execute(
-                "CALL ducklake_add_data_files(%s, %s, %s, schema => 'posthog', allow_missing => true)",
-                (DUCKLAKE_ALIAS, table_name, path),
-            )
-        _write_snapshot_state(
-            conn, table_name, replace(state, applied={**state.applied, str(target.team_id): ticket.generation})
-        )
-    return GroupsSnapshotRegistration(files_registered=len(files))
+    return len(files)
 
 
 def run_groups_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     team_id = int(context.partition_key)
     groups_snapshot_select_sql(team_id)
-    if not config.cleanup_existing_partition_data:
-        raise ValueError("Groups snapshots require cleanup_existing_partition_data=True")
     target = _resolve_duckling_target(team_id)
     table_name = resolve_groups_table(team_id)
     tags = dagster_tags(context)
-    session = None
-    registration = GroupsSnapshotRegistration(files_registered=0)
+    should_use_duckgres = not (config.dry_run or config.skip_ducklake_registration)
+    session = _DuckgresSession(context, target) if should_use_duckgres else None
+    files_registered = 0
     try:
-        ticket = None
-        if not (config.dry_run or config.skip_ducklake_registration):
-            session = _DuckgresSession(context, target)
+        if session is not None:
             session.run("ensure groups table", lambda conn: ensure_groups_table(conn, table_name, config))
-            ticket = session.run("reserve groups snapshot", lambda conn: reserve_groups_snapshot(conn, table_name))
+            if config.cleanup_existing_partition_data:
+                session.run("delete all groups", lambda conn: delete_groups_partition_data(conn, target, table_name))
 
         def export(client: "Client") -> str | None:
             with tags_context(kind="dagster", dagster=tags):
@@ -290,11 +197,15 @@ def run_groups_backfill(context: AssetExecutionContext, config: DucklingBackfill
             )
             .result()
         )
-        if s3_glob is not None and session is not None and ticket is not None:
-            registration = session.run(
-                "replace groups snapshot",
-                lambda conn: replace_groups_snapshot(conn, target, table_name, s3_glob, ticket),
-            )
+        if s3_glob is not None and session is not None:
+
+            def register_full_groups_files(conn: psycopg.Connection[tuple[object, ...]], glob: str = s3_glob) -> int:
+                # Re-clear the team on replay because an unacknowledged registration may have committed.
+                if config.cleanup_existing_partition_data:
+                    delete_groups_partition_data(conn, target, table_name)
+                return register_groups_files_with_duckling(context, conn, table_name, glob)
+
+            files_registered = session.run("register groups files (full)", register_full_groups_files)
     finally:
         if session is not None:
             session.close()
@@ -302,16 +213,15 @@ def run_groups_backfill(context: AssetExecutionContext, config: DucklingBackfill
         {
             "team_id": team_id,
             "groups_table": table_name,
-            "files_registered": registration.files_registered,
-            "superseded": registration.superseded,
+            "files_registered": files_registered,
         }
     )
-    if not config.dry_run and not config.skip_ducklake_registration and not registration.superseded:
+    if not config.dry_run and not config.skip_ducklake_registration:
         record_duckling_backfill_workload(
             team_id=team_id,
             dataset=GROUPS_DATASET,
             mode="full",
-            files_registered=registration.files_registered,
+            files_registered=files_registered,
             partitions_exported=1,
         )
 
