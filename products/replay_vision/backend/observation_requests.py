@@ -630,11 +630,12 @@ def step_result(
 
 # The answer a workflow step gets, per scanner type. Internal fields (citation segments, idle periods,
 # notability) would push a long session's answer over the step result budget and cut the chapters.
+# Short fields come first: the size cap fills fields in order, so a long summary can't crowd them out.
 _STEP_OUTPUT_FIELDS: dict[str, tuple[str, ...]] = {
-    ScannerType.MONITOR: ("verdict", "reasoning", "confidence"),
-    ScannerType.CLASSIFIER: ("tags", "reasoning", "confidence"),
-    ScannerType.SCORER: ("score", "reasoning", "confidence"),
-    ScannerType.SUMMARIZER: ("title", "summary", "chapters", "confidence"),
+    ScannerType.MONITOR: ("confidence", "verdict", "reasoning"),
+    ScannerType.CLASSIFIER: ("confidence", "tags", "reasoning"),
+    ScannerType.SCORER: ("confidence", "score", "reasoning"),
+    ScannerType.SUMMARIZER: ("confidence", "title", "summary", "chapters"),
 }
 
 
