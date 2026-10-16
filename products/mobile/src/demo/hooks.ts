@@ -58,6 +58,10 @@ export function useDemoChatsQuery(): QueryState<ChatListItem[]> {
     const anchor = useDemoMode((state) => state.anchor)
     const isRefreshing = useDemoMode((state) => state.isRefreshing)
     const refresh = useDemoMode((state) => state.refresh)
-    const items = useMemo(() => buildDemoChatList(new Date(anchor)), [anchor])
+    const archivedChats = useDemoMode((state) => state.archivedChats)
+    const items = useMemo(
+        () => buildDemoChatList(new Date(anchor)).filter((item) => !archivedChats[item.sourceId]),
+        [anchor, archivedChats]
+    )
     return successQuery(items, { isRefetching: isRefreshing, refetch: refresh })
 }

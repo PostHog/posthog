@@ -283,6 +283,15 @@ export async function finalizeArtifactUpload(
     })
 }
 
+/** `PATCH tasks/{id}/`. The server stamps `archived_at` and leaves an archived task out of the default list. */
+export async function setTaskArchived(taskId: string, archived: boolean, signal?: AbortSignal): Promise<void> {
+    await apiJson<unknown>(projectPath(`tasks/${encodeURIComponent(taskId)}/`), {
+        method: 'PATCH',
+        json: { archived },
+        signal,
+    })
+}
+
 /** Soft-deletes the task. It does not stop a run that already started. */
 export async function deleteTask(taskId: string, signal?: AbortSignal): Promise<void> {
     await apiJson<unknown>(projectPath(`tasks/${encodeURIComponent(taskId)}/`), { method: 'DELETE', signal })

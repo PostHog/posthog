@@ -4,6 +4,8 @@ import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } 
 import { RefreshControl, SectionList, StyleSheet, View } from 'react-native'
 
 import { useProjectScope } from '@/auth/useProjectScope'
+import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
+import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
 import { track } from '@/lib/analytics'
 import { useNow } from '@/lib/useNow'
 import type { ChatListItem } from '@/model/types'
@@ -21,8 +23,9 @@ import type { ChatSheetEntry } from '../chat/chatSheetEvents'
 import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
 import { useTabHeader } from '../tabs/tabHeaderStore'
 import { ChatRow } from './ChatRow'
+import { ChatRowMenu, type ChatRowMenuTarget } from './ChatRowMenu'
 import { filterChats, groupChats } from './chatGroups'
-import { sessionListKeys, useChatList } from './hooks'
+import { sessionListKeys, useArchiveChat, useChatList } from './hooks'
 
 interface ChatSection {
     label: string
@@ -58,6 +61,9 @@ export function ChatsScreen(): ReactElement {
     const scope = useProjectScope()
     const queryClient = useQueryClient()
     const [search, setSearch] = useState('')
+    const [rowMenu, setRowMenu] = useState<ChatRowMenuTarget | null>(null)
+    const toasts = useToasts()
+    const archiveActions = useArchiveChat()
 
     // Closing the chat sheet refocuses this screen. Invalidating instead of refetching keeps the pull spinner hidden.
     // The first focus is the mount, where the queries already fetch, so invalidating there would restart them.
@@ -86,6 +92,27 @@ export function ChatsScreen(): ReactElement {
         },
         [router, searching]
     )
+    const openRowMenu = useCallback((item: ChatListItem, anchor: RowAnchor) => {
+        track('mobile_chat_row_menu_opened', { origin: item.origin, status: item.status })
+        setRowMenu({ item, anchor })
+    }, [])
+    const restore = (item: ChatListItem): void => {
+        track('mobile_chat_archive_undone', { origin: item.origin, status: item.status })
+        archiveActions.restore(item).catch((error: unknown) => {
+            track('mobile_chat_archive_failed', { action: 'restore', code: toChatError(error).kind })
+            toasts.show("Couldn't restore this chat. Try again.")
+        })
+    }
+    // The row leaves at once and the toast offers Undo. A failed request brings the row back with a message.
+    const archive = (item: ChatListItem): void => {
+        setRowMenu(null)
+        track('mobile_chat_archived', { origin: item.origin, status: item.status })
+        toasts.show('Chat archived', () => restore(item))
+        archiveActions.archive(item).catch((error: unknown) => {
+            track('mobile_chat_archive_failed', { action: 'archive', code: toChatError(error).kind })
+            toasts.show("Couldn't archive this chat. Try again.")
+        })
+    }
     const refresh = (trigger: 'pull' | 'header' | 'retry'): void => {
         track('mobile_chats_refreshed', { trigger })
         void query.refetch()
@@ -123,8 +150,10 @@ export function ChatsScreen(): ReactElement {
     const contentTop = topOffset(insets, TABS_HEADER_BOTTOM)
 
     const renderItem = useCallback(
-        ({ item }: { item: ChatListItem }) => <ChatRow item={item} now={now} onOpen={openChat} />,
-        [now, openChat]
+        ({ item }: { item: ChatListItem }) => (
+            <ChatRow item={item} now={now} onOpen={openChat} onLongPress={openRowMenu} />
+        ),
+        [now, openChat, openRowMenu]
     )
     const renderSectionHeader = useCallback(
         ({ section }: { section: ChatSection }) => (
@@ -198,6 +227,8 @@ export function ChatsScreen(): ReactElement {
                     />
                 }
             />
+            <ChatRowMenu target={rowMenu} onClose={() => setRowMenu(null)} onArchive={archive} />
+            <ViewsToast toast={toasts.toast} onHide={toasts.hide} />
         </View>
     )
 }

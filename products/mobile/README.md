@@ -5,7 +5,7 @@ It is a quick-triage companion to the PostHog home page:
 open your latest reports, hand them to the PostHog agent, answer its questions,
 review the PR it opens, reassign, resolve, dismiss, mark read, or chat with PostHog AI about a report.
 
-Development builds offer a demo mode that renders the whole design from fixture data with no network.
+Demo mode renders the whole design from fixture data with no network.
 Signed in, the same screens read the PostHog API.
 
 This directory is its own pnpm workspace with its own lockfile.
@@ -30,11 +30,13 @@ If the app says it cannot load the project from your network address, see [Troub
 ### Demo mode
 
 Demo mode shows fixture reports and needs no PostHog account or network.
-It is available only in development bundles (`__DEV__`), including local Metro sessions.
-On the sign-in screen, tap **Try the demo**. Settings has a toggle to leave it.
-Release builds, including preview and store builds, hide both controls and ignore any saved demo session.
+It is available in every build, including preview and store builds, so app reviewers can try the app without an account.
+To start it, tap **Try the demo** on the sign-in screen. This is the only way to start demo mode in a release build.
+To leave it, tap **Exit demo** in Settings.
+The app saves demo mode on the device, so a demo session continues after the app relaunches.
 
-To start in demo mode, set `EXPO_PUBLIC_DEMO_MODE=1` when you start Metro:
+Development bundles (`__DEV__`), including local Metro sessions, also have a demo mode toggle in Settings.
+To start a development bundle in demo mode, set `EXPO_PUBLIC_DEMO_MODE=1` when you start Metro:
 
 ```sh
 EXPO_PUBLIC_DEMO_MODE=1 pnpm ios
@@ -59,7 +61,7 @@ A build made with `APP_VARIANT=development` or `preview` uses the `posthog-dev:/
 | --- | --- |
 | `EXPO_PUBLIC_POSTHOG_KEY` | Project API key for the app's own usage analytics. Analytics are off when it is not set. |
 | `EXPO_PUBLIC_POSTHOG_HOST` | Host for those analytics, for example `https://us.i.posthog.com`. |
-| `EXPO_PUBLIC_DEMO_MODE` | `1` starts a development bundle in demo mode. Ignored in release bundles. |
+| `EXPO_PUBLIC_DEMO_MODE` | `1` starts a development bundle in demo mode. Release bundles ignore it, so **Try the demo** is the only way into demo mode there. |
 | `EXPO_PUBLIC_SIGNUP_LINK` | `0` hides the "Create an account" link on the sign-in screen, for store builds where a link out to sign-up is not allowed. The `production` profile in `eas.json` and `pnpm update:production` set it, so store builds hide the link. |
 | `APP_VARIANT` | Build-time only: `development`, `preview` or `production` (the default). It sets the app name, bundle id, URL scheme, App Group and icon, so the variants install side by side. `eas.json` sets it per profile. See [RELEASING.md](docs/RELEASING.md#build-variants). |
 | `GOOGLE_SERVICES_JSON` | Build-time only: path to the Firebase `google-services.json` that Android push needs. On EAS it is a file variable; locally, a `google-services.json` in this directory is used instead. See [PUSH.md](docs/PUSH.md#credentials). |

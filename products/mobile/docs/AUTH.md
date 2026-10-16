@@ -152,9 +152,11 @@ Actions: `restore()`, `signIn(host, clientId)`, `signInWithPersonalApiKey(host, 
 
 ## Sign-in screen
 
-The screen mirrors the web login page: data region and Log in.
-Development bundles (`__DEV__`) also show "Try the demo" and the Settings demo toggle.
-Release bundles, including preview and store builds, require sign-in and ignore a saved demo session or `EXPO_PUBLIC_DEMO_MODE=1`.
+The screen mirrors the web login page: data region, Log in, Try the demo.
+Every build shows "Try the demo", including preview and store builds, so app reviewers can try the app without an account.
+In a release build it is the only way to start demo mode. Settings there can only leave demo mode, with "Exit demo".
+Development bundles (`__DEV__`) also have the Settings demo toggle and start in demo mode with `EXPO_PUBLIC_DEMO_MODE=1`.
+Every build restores a saved demo session when the app relaunches.
 Log in always opens the system browser, where the user's password, Google, GitHub, GitLab or SSO login happens.
 The app never asks for an email or password itself.
 
@@ -197,7 +199,7 @@ The sign-in, session and settings events never carry the host, the error text or
   - Android emulator: run `adb reverse tcp:8010 tcp:8010` first, so `localhost` on the emulator reaches the Mac.
 - **Personal API key** (dev builds only, `__DEV__`). Tap "Use a personal API key", pick the region or a custom host, paste a key with `user:read`, `organization:read`, `project:read` and the scopes of the screens you test (`task:read`, `task:write`, `user:write`, `conversation:write`, `today:read`, `query:read`, and for Views `dashboard:read`, `insight:read`, `file_system_shortcut:write`).
   The key never refreshes; a 401 ends the session.
-- **Demo** (development bundles only, `__DEV__`). "Try the demo" needs no account.
+- **Demo** (every build). "Try the demo" needs no account. "Exit demo" in Settings returns to the sign-in screen.
 
 ## Register a new OAuth app
 

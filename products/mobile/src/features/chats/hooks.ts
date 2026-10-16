@@ -1,12 +1,12 @@
-import { useQuery } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { NotSignedInError } from '@/api/client'
 import { isMissingFeature, type ProjectScope, retryUnlessMissing, scopeKey } from '@/api/reports'
-import { listMySessions } from '@/api/tasks'
+import { listMySessions, setTaskArchived, type TaskSummaryApi } from '@/api/tasks'
 import { useAuthStore } from '@/auth/authStore'
 import { useProjectScope } from '@/auth/useProjectScope'
-import { useDataMode } from '@/demo/demoMode'
+import { useDataMode, useDemoMode } from '@/demo/demoMode'
 import { useDemoChatsQuery } from '@/demo/hooks'
 import { toError } from '@/lib/errors'
 import { chatListFromSessions } from '@/model/adapters/chats'
@@ -115,4 +115,108 @@ export function useChatList(): QueryState<ChatListItem[]> {
         return demoQuery
     }
     return liveQuery
+}
+
+export interface ChatArchiveActions {
+    /** Hides the row at once and archives the task. A failed request puts the row back and rejects. */
+    archive: (item: ChatListItem) => Promise<void>
+    /** Puts the row back at once and unarchives the task, for the toast's Undo. */
+    restore: (item: ChatListItem) => Promise<void>
+}
+
+function useLiveArchiveChat(): ChatArchiveActions {
+    const scope = useProjectScope()
+    const queryClient = useQueryClient()
+    // The hidden rows, so Undo and a failed archive can put one back without a refetch.
+    const hidden = useRef(new Map<string, TaskSummaryApi>())
+    const archivesInFlight = useRef(new Map<string, Promise<void>>())
+
+    const putBack = useCallback(
+        (taskId: string): void => {
+            const session = hidden.current.get(taskId)
+            if (!session || !scope) {
+                return
+            }
+            queryClient.setQueriesData<TaskSummaryApi[]>({ queryKey: sessionListKeys.all(scope) }, (sessions) =>
+                !sessions || sessions.some((entry) => entry.id === taskId)
+                    ? sessions
+                    : [...sessions, { ...session, archived: false }]
+            )
+        },
+        [queryClient, scope]
+    )
+
+    const archive = useCallback(
+        (item: ChatListItem): Promise<void> => {
+            const pending = archivesInFlight.current.get(item.sourceId)
+            if (pending) {
+                return pending
+            }
+            const request = (async (): Promise<void> => {
+                if (!scope) {
+                    throw new NotSignedInError()
+                }
+                const filters = { queryKey: sessionListKeys.all(scope) }
+                await queryClient.cancelQueries(filters)
+                for (const [, sessions] of queryClient.getQueriesData<TaskSummaryApi[]>(filters)) {
+                    const session = sessions?.find((entry) => entry.id === item.sourceId)
+                    if (session) {
+                        hidden.current.set(item.sourceId, session)
+                    }
+                }
+                queryClient.setQueriesData<TaskSummaryApi[]>(filters, (sessions) =>
+                    sessions?.filter((entry) => entry.id !== item.sourceId)
+                )
+                try {
+                    await setTaskArchived(item.sourceId, true)
+                } catch (error) {
+                    putBack(item.sourceId)
+                    throw error
+                }
+            })()
+            archivesInFlight.current.set(item.sourceId, request)
+            const settled = (): void => {
+                archivesInFlight.current.delete(item.sourceId)
+            }
+            void request.then(settled, settled)
+            return request
+        },
+        [queryClient, scope, putBack]
+    )
+
+    const restore = useCallback(
+        async (item: ChatListItem): Promise<void> => {
+            if (!scope) {
+                throw new NotSignedInError()
+            }
+            putBack(item.sourceId)
+            await archivesInFlight.current.get(item.sourceId)?.catch(() => undefined)
+            await setTaskArchived(item.sourceId, false)
+            hidden.current.delete(item.sourceId)
+            // The server orders the list, so a refetch puts the row back where it belongs.
+            void queryClient.invalidateQueries({ queryKey: sessionListKeys.all(scope) })
+        },
+        [queryClient, scope, putBack]
+    )
+
+    return useMemo(() => ({ archive, restore }), [archive, restore])
+}
+
+function useDemoArchiveChat(): ChatArchiveActions {
+    const archiveChat = useDemoMode((state) => state.archiveChat)
+    const unarchiveChat = useDemoMode((state) => state.unarchiveChat)
+    return useMemo(
+        () => ({
+            archive: async (item) => archiveChat(item.sourceId),
+            restore: async (item) => unarchiveChat(item.sourceId),
+        }),
+        [archiveChat, unarchiveChat]
+    )
+}
+
+export function useArchiveChat(): ChatArchiveActions {
+    const mode = useDataMode()
+    const demoActions = useDemoArchiveChat()
+    const liveActions = useLiveArchiveChat()
+    return mode === 'demo' ? demoActions : liveActions
 }

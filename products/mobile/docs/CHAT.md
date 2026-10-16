@@ -393,6 +393,13 @@ The route takes an optional `entry` param; `chatSheetSource` falls back on `repo
 - `mobile_chats_load_failed` is captured with `code` (the `ChatError` kind) each time the list shows "Couldn't load your chats".
 - A 403 or 404 from tasks means the user has no sessions and shows the empty state.
 - `chatGroups.ts` labels rows by local calendar day and filters titles on the device.
+- A long press (or the screen reader's "Show actions") opens the row menu (`ChatRowMenu`) with Archive.
+  `useArchiveChat()` hides the row at once and sends `PATCH tasks/{id}/` with `{ "archived": true }`; the server stamps `archived_at`
+  and leaves the task out of every later list. The toast offers Undo, which puts the row back and sends `{ "archived": false }`.
+  A failed request puts the row back (or hides it again) and shows "Couldn't archive this chat. Try again."
+  There is no archived list in the app: the web app and PostHog Desktop show archived tasks.
+- `mobile_chat_row_menu_opened`, `mobile_chat_archived` and `mobile_chat_archive_undone` carry the row's `origin` and `status`;
+  `mobile_chat_archive_failed` carries `action` (`archive` or `restore`) and `code` (the `ChatError` kind).
 - Regaining focus (closing the sheet) invalidates the list, so a new chat appears with its title.
 - Legacy LangGraph conversations are not listed. The web's new side panel does not list them either.
 
@@ -404,3 +411,4 @@ Demo sessions replay the run logs in `src/demo/sessionThreads.ts`:
 "Fix the flaky checkout test" ended with a PR, "Add dark mode to settings" waits on a question,
 and "Migrate billing webhooks" failed. A send plays `DEMO_REPLY`, an answer plays `DEMO_ANSWER_REPLY`, and Stop cuts the reply short.
 The model list is the static catalogue, and the options change nothing about the reply.
+Archiving a demo chat hides it in the demo store until the demo refreshes or resets.
