@@ -255,7 +255,7 @@ For example, `?tags=%5B%22quality%22%2C%22production%22%5D&tag_match=all` finds 
 Filters apply before pagination; an empty array disables tag filtering. MCP list tools expose the same parameters, and update tools can replace tags.
 Assignments use the shared generic tagged-item relation. List queries use correlated existence checks and batch tag loading, so multiple matching tags do not duplicate rows or add a query per resource.
 
-The three tables have a Tags column near the end, showing up to two tags with remaining tags in an overflow popover and a control to edit assignments.
+The three tables have a Tags column before the timestamp columns, showing up to two tags with remaining tags in an overflow popover and a control to edit assignments.
 Tag filters are included in the URL and remembered separately per resource type, project, and user in browser storage.
 Explicit URL filters take precedence over remembered filters, including `tags=[]` to clear them.
 On the offline overview, the tag selector filters the recent experiments table; score trend charts retain their separate filters.

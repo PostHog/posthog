@@ -130,13 +130,6 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             },
         },
         {
-            ...(updatedAtColumn<ScoreDefinition>() as LemonTableColumn<
-                ScoreDefinition,
-                keyof ScoreDefinition | undefined
-            >),
-            className: '@max-[50rem]/scorers:hidden',
-        },
-        {
             title: 'Tags',
             key: 'tags',
             width: '25%',
@@ -149,6 +142,13 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                     onTagClick={(tag) => setFilters({ tags: [tag] }, true, false)}
                 />
             ),
+        },
+        {
+            ...(updatedAtColumn<ScoreDefinition>() as LemonTableColumn<
+                ScoreDefinition,
+                keyof ScoreDefinition | undefined
+            >),
+            className: '@max-[50rem]/scorers:hidden',
         },
         {
             width: 0,

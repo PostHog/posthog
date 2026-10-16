@@ -65,6 +65,20 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
             ),
         },
         {
+            title: 'Tags',
+            key: 'tags',
+            width: '25%',
+            render: (_, experiment) => (
+                <ResourceTags
+                    entity="experiments"
+                    resourceId={experiment.id}
+                    tags={experiment.tags}
+                    onSaved={refresh}
+                    onTagClick={(tag) => setFilters({ tags: [tag] })}
+                />
+            ),
+        },
+        {
             title: 'Execution',
             key: 'execution',
             className: '@max-[50rem]:hidden',
@@ -120,20 +134,6 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                         }`}
                     </span>
                 </Tooltip>
-            ),
-        },
-        {
-            title: 'Tags',
-            key: 'tags',
-            width: '25%',
-            render: (_, experiment) => (
-                <ResourceTags
-                    entity="experiments"
-                    resourceId={experiment.id}
-                    tags={experiment.tags}
-                    onSaved={refresh}
-                    onTagClick={(tag) => setFilters({ tags: [tag] })}
-                />
             ),
         },
     ]

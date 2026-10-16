@@ -92,14 +92,6 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
             },
         },
         {
-            ...(createdAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>),
-            className: '@max-[60rem]/datasets:hidden',
-        },
-        {
-            ...(updatedAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>),
-            className: '@max-[50rem]/datasets:hidden',
-        },
-        {
             title: 'Tags',
             key: 'tags',
             width: '20%',
@@ -114,6 +106,14 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
                     disabledReason={dataset.archived ? 'Restore this dataset to edit its tags' : undefined}
                 />
             ),
+        },
+        {
+            ...(createdAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>),
+            className: '@max-[60rem]/datasets:hidden',
+        },
+        {
+            ...(updatedAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>),
+            className: '@max-[50rem]/datasets:hidden',
         },
         {
             width: 0,
