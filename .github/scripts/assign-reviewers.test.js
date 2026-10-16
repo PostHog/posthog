@@ -222,28 +222,47 @@ const TEAMS_REGISTRY = {
     'team-channel-only': { slack: '#c', notifications: null, pr_label: null, review_every_change: null },
 }
 
-for (const [description, footprints, expectedRequested, expectedLabels] of [
+const REGISTRY_RESOLUTION = {
+    'surveys/a.py': resolved(['team-surveys'], 'owners.yaml'),
+    'surveys/moved.py': resolved(['team-surveys'], 'owners.yaml'),
+    'every/a.py': resolved(['team-every-change'], 'owners.yaml'),
+    'every/moved.py': resolved(['team-every-change'], 'owners.yaml'),
+    'label/a.py': resolved(['team-label-only'], 'owners.yaml'),
+    'channel/a.py': resolved(['team-channel-only'], 'owners.yaml'),
+}
+
+for (const [description, files, expectedRequested, expectedLabels] of [
     [
         'requests and labels a minor change by a team that reviews every change',
-        [fp('@PostHog/team-surveys', 200), fp('@PostHog/team-every-change', 1)],
+        [file('surveys/a.py', 200), file('every/a.py', 1)],
+        ['@PostHog/team-surveys', '@PostHog/team-every-change'],
+        ['feature/a'],
+    ],
+    [
+        'requests and labels a team that reviews every change when a rename moves a file out of its path',
+        [
+            file('surveys/a.py', 200),
+            { ...file('surveys/moved.py', 1), status: 'renamed', previousFilename: 'every/moved.py' },
+        ],
         ['@PostHog/team-surveys', '@PostHog/team-every-change'],
         ['feature/a'],
     ],
     [
         'labels a minor change by a team with only a label, without requesting it',
-        [fp('@PostHog/team-surveys', 200), fp('@PostHog/team-label-only', 1)],
+        [file('surveys/a.py', 200), file('label/a.py', 1)],
         ['@PostHog/team-surveys'],
         ['feature/b'],
     ],
     [
         'leaves a team with only a channel to the size rules',
-        [fp('@PostHog/team-surveys', 200), fp('@PostHog/team-channel-only', 1)],
+        [file('surveys/a.py', 200), file('channel/a.py', 1)],
         ['@PostHog/team-surveys'],
         [],
     ],
 ]) {
     test(`teamRegistrySettings: ${description}`, () => {
-        const { reviewEveryChange, prLabels } = teamRegistrySettings(footprints, TEAMS_REGISTRY)
+        const footprints = computeOwnerFootprints(REGISTRY_RESOLUTION, files)
+        const { reviewEveryChange, prLabels } = teamRegistrySettings(REGISTRY_RESOLUTION, files, TEAMS_REGISTRY)
         const { requested } = classifyOwnersWithPinned(footprints, reviewEveryChange)
         assert.deepEqual(
             requested.map((f) => f.owner),

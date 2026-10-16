@@ -53,10 +53,6 @@ function resolveOwners(filenames) {
     return runOwnersResolver([], filenames.join('\n'))
 }
 
-function readTeamsRegistry() {
-    return runOwnersResolver(['--teams'], '')
-}
-
 function runOwnersResolver(args, input) {
     const python = process.env.OWNERS_RESOLVER_PYTHON || 'python3'
     // Insert the package dir on sys.path *after* interpreter startup instead of
@@ -176,14 +172,6 @@ function teamSlugToLabel(name) {
         return null
     }
     return name.replace(/^team-/, 'team/')
-}
-
-function teamRegistrySettings(footprints, teamsRegistry) {
-    const owningTeams = footprints.filter((footprint) => footprint.type === 'team' && teamsRegistry[footprint.name])
-    return {
-        reviewEveryChange: owningTeams.filter((footprint) => teamsRegistry[footprint.name].review_every_change),
-        prLabels: [...new Set(owningTeams.map((footprint) => teamsRegistry[footprint.name].pr_label).filter(Boolean))],
-    }
 }
 
 function partitionExternalTeams(teams) {
@@ -325,17 +313,12 @@ function changedPaths(file) {
     return file.status === 'renamed' && file.previousFilename ? [file.filename, file.previousFilename] : [file.filename]
 }
 
-// A one-line edit to a sensitive path can turn a guard off, so `owners.yaml` marks such paths
-// with `sensitive: true` and their owners are requested whatever the size of the change.
-// Generated status does not skip a sensitive path: a tool writes a ratchet baseline, but one added
-// line in it is a new exemption.
-// Returns one entry per owner with the sensitive paths that pulled it in.
-function computeSensitiveOwners(resolutionByPath, changedFiles, config = CONFIG) {
+function ownersOfChangedPaths(resolutionByPath, changedFiles, includes, config = CONFIG) {
     const owners = new Map()
     for (const file of changedFiles) {
         for (const path of changedPaths(file)) {
             const resolution = resolutionByPath[path]
-            if (!resolution || !resolution.sensitive || isExcludedFile(path, config.excludedPatterns)) {
+            if (!resolution || !includes(path, resolution) || isExcludedFile(path, config.excludedPatterns)) {
                 continue
             }
             for (const rawOwner of resolution.owners || []) {
@@ -344,6 +327,28 @@ function computeSensitiveOwners(resolutionByPath, changedFiles, config = CONFIG)
         }
     }
     return Array.from(owners.values())
+}
+
+// A one-line edit to a sensitive path can turn a guard off, so `owners.yaml` marks such paths
+// with `sensitive: true` and their owners are requested whatever the size of the change.
+// Generated status does not skip a sensitive path: a tool writes a ratchet baseline, but one added
+// line in it is a new exemption.
+// Returns one entry per owner with the sensitive paths that pulled it in.
+function computeSensitiveOwners(resolutionByPath, changedFiles, config = CONFIG) {
+    return ownersOfChangedPaths(resolutionByPath, changedFiles, (path, resolution) => resolution.sensitive, config)
+}
+
+function teamRegistrySettings(resolutionByPath, changedFiles, teamsRegistry, config = CONFIG) {
+    const teams = ownersOfChangedPaths(
+        resolutionByPath,
+        changedFiles,
+        (path, resolution) => !isGeneratedOrVendored(path, resolution),
+        config
+    ).filter((entry) => entry.type === 'team' && teamsRegistry[entry.name])
+    return {
+        reviewEveryChange: teams.filter((entry) => teamsRegistry[entry.name].review_every_change),
+        prLabels: [...new Set(teams.map((entry) => teamsRegistry[entry.name].pr_label).filter(Boolean))],
+    }
 }
 
 function isSubstantive(footprint, config = CONFIG) {
@@ -425,9 +430,9 @@ function classifyOwnersWithPinned(footprints, pinnedOwners, config = CONFIG) {
 
 // The comment names only the owners of a sensitive path that the assignment without
 // sensitivity would not request. The others are in the sidebar for their changes.
-function sensitiveOwnersToExplain(sensitiveOwners, footprints, additionOwners, config = CONFIG) {
+function sensitiveOwnersToExplain(sensitiveOwners, footprints, pinnedOwners, config = CONFIG) {
     const requestedAnyway = new Set(
-        classifyOwnersWithPinned(footprints, additionOwners, config).requested.map((f) => f.owner)
+        classifyOwnersWithPinned(footprints, pinnedOwners, config).requested.map((f) => f.owner)
     )
     return sensitiveOwners.filter((entry) => !requestedAnyway.has(entry.owner))
 }
@@ -730,12 +735,9 @@ async function main() {
         const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
         const additionOwners = computeAdditionOwners(resolutionByPath, changedFiles)
         const sensitiveOwners = computeSensitiveOwners(resolutionByPath, changedFiles)
-        const teamSettings = teamRegistrySettings(footprints, readTeamsRegistry())
-        const { requested, demoted } = classifyOwnersWithPinned(footprints, [
-            ...additionOwners,
-            ...sensitiveOwners,
-            ...teamSettings.reviewEveryChange,
-        ])
+        const teamSettings = teamRegistrySettings(resolutionByPath, changedFiles, runOwnersResolver(['--teams'], ''))
+        const pinnedOwners = [...additionOwners, ...teamSettings.reviewEveryChange]
+        const { requested, demoted } = classifyOwnersWithPinned(footprints, [...pinnedOwners, ...sensitiveOwners])
 
         const teams = requested.filter((f) => f.type === 'team').map((f) => f.name)
         const users = requested.filter((f) => f.type === 'user').map((f) => f.name)
@@ -759,10 +761,7 @@ async function main() {
             requested,
             demoted,
             additionOwners,
-            sensitiveOwnersToExplain(sensitiveOwners, footprints, [
-                ...additionOwners,
-                ...teamSettings.reviewEveryChange,
-            ])
+            sensitiveOwnersToExplain(sensitiveOwners, footprints, pinnedOwners)
         )
         if (commentBody) {
             await upsertReviewerComment(commentBody)
