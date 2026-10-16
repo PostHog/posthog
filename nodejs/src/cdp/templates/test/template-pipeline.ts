@@ -19,16 +19,18 @@ import { RecipientTokensService } from '../../services/messaging/recipient-token
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
+    HogFunctionFilters,
     HogFunctionInputSchemaType,
     HogFunctionInvocationGlobals,
     HogFunctionMappingTemplate,
     HogFunctionTemplate,
     HogFunctionType,
 } from '../../types'
+import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { buildHogFunctionInvocations } from '../../utils/invocation-utils'
 import { PosthogJwtAudience } from '../../utils/jwt-utils'
 import { ScopedServiceJwt } from '../../utils/scoped-service-jwt'
-import { compileHog, compileHogTemplate } from '../compiler'
+import { compileHog, compileHogFilters, compileHogTemplate } from '../compiler'
 
 export type TemplateCase = {
     name: string
@@ -55,6 +57,12 @@ export type RunOptions = {
     debug?: boolean
 }
 
+export type FilterMatch = {
+    scope: 'function' | 'mapping'
+    match: boolean
+    error?: string
+}
+
 export type PipelineRun = {
     invocationErrors: string[]
     result?: CyclotronJobInvocationResult
@@ -67,7 +75,7 @@ export type PipelineRun = {
 }
 
 const EXECUTION_BUDGET_MS = 5000
-// Django compiles filters to bytecode. The event name already targets the mapping, so matching everything is safe.
+// The real filters have their own invariant, so the other invariants run whether or not the event passes them.
 const MATCH_ALL_FILTERS = { bytecode: ['_h', 29] }
 const MAX_ASYNC_FUNCTIONS = 10
 
@@ -216,6 +224,30 @@ export class TemplatePipeline {
             sensitiveValues,
             integrationCredentials,
         }
+    }
+
+    async matchRealFilters(templateCase: TemplateCase): Promise<FilterMatch[]> {
+        const { hogFunction } = await this.createHogFunction(templateCase, {})
+        const filterGlobals = convertToHogFunctionFilterGlobal(this.representativeGlobals(templateCase))
+        const scopes: [FilterMatch['scope'], HogFunctionFilters][] = [
+            ['function', functionFilters(templateCase.template)],
+        ]
+        if (templateCase.mapping) {
+            scopes.push(['mapping', templateCase.mapping.filters ?? {}])
+        }
+        return await Promise.all(
+            scopes.map(async ([scope, filters]): Promise<FilterMatch> => {
+                const compiled = await compileHogFilters(filters, hogFunction.type)
+                const result = await filterFunctionInstrumented({
+                    fn: hogFunction,
+                    filters: compiled,
+                    filterGlobals,
+                    caller: hogFunction.type === 'transformation' ? 'transformation' : 'build_hog_function_invocations',
+                })
+                const error = compiled.bytecode_error ?? (result.error === undefined ? undefined : String(result.error))
+                return { scope, match: result.match, ...(error === undefined ? {} : { error }) }
+            })
+        )
     }
 
     private async execute(
@@ -404,6 +436,15 @@ const INTEGRATION_CONFIGS: Record<string, Record<string, unknown>> = {
     twilio: { account_sid: 'ACexample0000' },
 }
 
+// The editor drops event and action filters from a function with mappings, so only its mappings pick events.
+const functionFilters = ({ filters = {}, mapping_templates }: HogFunctionTemplate): HogFunctionFilters => {
+    if (!mapping_templates) {
+        return filters
+    }
+    const { events: _events, actions: _actions, ...rest } = filters
+    return rest
+}
+
 const pluginEventFrom = (globals: HogFunctionInvocationGlobals): PluginEvent => ({
     uuid: globals.event.uuid,
     event: globals.event.event,
@@ -431,9 +472,9 @@ const SYSTEM_EVENT_PROPERTIES: Record<string, Record<string, unknown>> = {
 
 const HOGQL_EVENT_NAME = /\bevent\s*(?:in\s*\(|=)\s*'([^']+)'/
 
-// Mapping filters name their event either as the event id or in a HogQL property such as `event in ('$pageview')`.
-const eventNameFor = ({ mapping }: TemplateCase): string => {
-    const firstEvent = mapping?.filters?.events?.[0]
+// Filters name their event either as the event id or in a HogQL property such as `event in ('$pageview')`.
+const eventNameFor = ({ template, mapping }: TemplateCase): string => {
+    const firstEvent = (mapping ? mapping.filters : template.filters)?.events?.[0]
     if (typeof firstEvent?.id === 'string') {
         return firstEvent.id
     }

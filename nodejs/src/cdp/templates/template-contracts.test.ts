@@ -5,7 +5,14 @@ import '~/cdp/async-functions'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { OutgoingRequest, PipelineRun, TemplateCase, TemplatePipeline, casesFor } from './test/template-pipeline'
+import {
+    FilterMatch,
+    OutgoingRequest,
+    PipelineRun,
+    TemplateCase,
+    TemplatePipeline,
+    casesFor,
+} from './test/template-pipeline'
 
 type Exemptions = Record<string, string>
 
@@ -20,6 +27,8 @@ const RUNS_EXEMPTIONS: Exemptions = {
     'template-posthog-run-scout': WORKFLOW_ONLY,
     'template-posthog-send-ticket-message': WORKFLOW_ONLY,
 }
+
+const FILTERS_EXEMPTIONS: Exemptions = {}
 
 const INTEGRATION_EXEMPTIONS: Exemptions = {}
 
@@ -56,6 +65,14 @@ const runsWithoutError = (run: PipelineRun): string[] => [
     ...(run.result?.error ? [`execution: ${String(run.result.error)}`] : []),
     ...(run.result && !run.result.finished ? ['execution did not finish'] : []),
 ]
+
+const eventPassesRealFilters = (matches: FilterMatch[]): string[] =>
+    matches.flatMap(({ scope, match, error }) => {
+        if (error !== undefined) {
+            return [`${scope} filters: ${error}`]
+        }
+        return match ? [] : [`the representative event does not pass the ${scope} filters`]
+    })
 
 const wireText = (request: OutgoingRequest): string => {
     const basicAuthCredentials = Object.values(request.headers)
@@ -215,6 +232,7 @@ const checksIntegration = (templateCase: TemplateCase): boolean =>
 // An exempt case only fails the suite once fixed if its invariant runs, so each entry must name such a case.
 const EXEMPTION_SCOPES: [string, Exemptions, (templateCase: TemplateCase) => boolean][] = [
     ['runs', RUNS_EXEMPTIONS, () => true],
+    ['filters', FILTERS_EXEMPTIONS, () => true],
     ['well-formed', WELL_FORMED_EXEMPTIONS, checksRequests],
     ['failures', FAILURES_EXEMPTIONS, checksRequests],
     ['secrets', SECRETS_EXEMPTIONS, checksSecrets],
@@ -266,6 +284,12 @@ describe('template contracts', () => {
             expectInvariant(templateCase, RUNS_EXEMPTIONS, runsWithoutError(run))
         })
 
+        it('passes its real filters with the representative event', async () => {
+            const matches = await pipeline.matchRealFilters(templateCase)
+
+            expectInvariant(templateCase, FILTERS_EXEMPTIONS, eventPassesRealFilters(matches))
+        })
+
         if (checksRequests(templateCase)) {
             it('sends well-formed requests', async () => {
                 const run = await pipeline.run(templateCase, OK)
@@ -308,6 +332,12 @@ describe('template contracts', () => {
             const run = await pipeline.run(templateCase, OK)
 
             expectInvariant(templateCase, RUNS_EXEMPTIONS, runsWithoutError(run))
+        })
+
+        it('passes its real filters with the representative event', async () => {
+            const matches = await pipeline.matchRealFilters(templateCase)
+
+            expectInvariant(templateCase, FILTERS_EXEMPTIONS, eventPassesRealFilters(matches))
         })
 
         if (checksSecrets(templateCase)) {
