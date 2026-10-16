@@ -50,6 +50,7 @@ from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
+from posthog.temporal.common.memory_profiler import profile_worker_memory
 from posthog.temporal.common.shutdown import ShutdownSignalListener
 from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.common.zombie_exit import ZombieActivityExit
@@ -895,7 +896,7 @@ class Command(BaseCommand):
             if shutdown_task is None:
                 shutdown_task = loop.create_task(shutdown_all(worker, health_srv, sig))
 
-        with asyncio.Runner() as runner:
+        with profile_worker_memory(task_queue), asyncio.Runner() as runner:
             loop = runner.get_loop()
             otel_log_mirror = build_vision_log_mirror() if task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
             configure_logger(loop=loop, otel_log_mirror=otel_log_mirror)

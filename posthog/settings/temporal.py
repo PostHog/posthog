@@ -73,6 +73,24 @@ TEMPORAL_COMBINED_METRICS_SERVER_ENABLED: bool = get_from_env(
     "TEMPORAL_COMBINED_METRICS_SERVER_ENABLED", True, type_cast=str_to_bool
 )
 
+TEMPORAL_MEMRAY_ENABLED: bool = get_from_env("TEMPORAL_MEMRAY_ENABLED", False, type_cast=str_to_bool)
+TEMPORAL_MEMRAY_NATIVE_TRACES: bool = get_from_env("TEMPORAL_MEMRAY_NATIVE_TRACES", False, type_cast=str_to_bool)
+TEMPORAL_MEMRAY_METRICS_PORT: int = get_from_env("TEMPORAL_MEMRAY_METRICS_PORT", 8003, type_cast=int)
+TEMPORAL_MEMRAY_SNAPSHOT_INTERVAL_SECONDS: float = get_from_env(
+    "TEMPORAL_MEMRAY_SNAPSHOT_INTERVAL_SECONDS", 5.0, type_cast=float
+)
+TEMPORAL_MEMRAY_LOG_INTERVAL_SECONDS: float = get_from_env(
+    "TEMPORAL_MEMRAY_LOG_INTERVAL_SECONDS", 60.0, type_cast=float
+)
+TEMPORAL_MEMRAY_TOP_STACKS: int = get_from_env("TEMPORAL_MEMRAY_TOP_STACKS", 20, type_cast=int)
+TEMPORAL_MEMRAY_STARTUP_TIMEOUT_SECONDS: float = get_from_env(
+    "TEMPORAL_MEMRAY_STARTUP_TIMEOUT_SECONDS", 15.0, type_cast=float
+)
+TEMPORAL_MEMRAY_WATCHDOG_TIMEOUT_SECONDS: float = get_from_env(
+    "TEMPORAL_MEMRAY_WATCHDOG_TIMEOUT_SECONDS", 30.0, type_cast=float
+)
+TEMPORAL_MEMRAY_COLLECTOR_MAX_RSS_MB: int = get_from_env("TEMPORAL_MEMRAY_COLLECTOR_MAX_RSS_MB", 256, type_cast=int)
+
 # PostHog project where Temporal worker logs are ingested, used to build logs links
 # in Temporal UI workflow details. Set to 0 to disable the links.
 TEMPORAL_LOGS_PROJECT_ID: int = get_from_env("TEMPORAL_LOGS_PROJECT_ID", 1, type_cast=int)

@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.14.7"
 resolution-markers = [
     "platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten' and extra != 'group-7-posthog-inbox-ranking' and extra == 'group-7-posthog-sentiment'",
@@ -4466,6 +4466,33 @@ wheels = [
 ]
 
 [[package]]
+name = "memray"
+version = "1.20.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jinja2" },
+    { name = "rich" },
+    { name = "textual" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/99/3b/8f9736cbf698e62cb7efb0e1715a30d6d06b3cffd980b435209eb522d5f8/memray-1.20.0.tar.gz", hash = "sha256:ce1f1d900948d57d7db5b5d8d81f4ebfcb798eff674493503ce5bfaafcea84dc", size = 2416480, upload-time = "2026-08-07T20:16:20.295Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6e/63/7976092700eecf4e36ae5793020d18f3feab96aabc2f50d8c7669f751326/memray-1.20.0-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:90fc0ebfc6a264fe3b77d5c263678eaf4a47a0f4288e1b6a04ae3439743cd4be", size = 2227009, upload-time = "2026-08-07T20:15:12.733Z" },
+    { url = "https://files.pythonhosted.org/packages/af/1a/0f44b1b626169d40defaa2ae9286a70d40653ac26865f0604a882a10ffb2/memray-1.20.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:d1503ac18928d2493662af95935b9ccaadbf9f2579d86f6757304c23291a077b", size = 2195287, upload-time = "2026-08-07T20:15:14.107Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/09/45b74d8750ddccb9ad76a8ed639b46b2c3990f99dbe77f800f6f524257fe/memray-1.20.0-cp314-cp314-manylinux2014_i686.manylinux_2_17_i686.whl", hash = "sha256:d92692fb5266aca4322e2001e18810207b170dfc7ce2e8f0570c7ee181574063", size = 9871353, upload-time = "2026-08-07T20:15:15.595Z" },
+    { url = "https://files.pythonhosted.org/packages/54/b6/d0b4eb7324bf47b52165aea947bb8942807a40684a64f9decdf4b2a34387/memray-1.20.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:37bc107afee942f162d30160dfd7f28c2b989251c574570f2f920f5bbbb323e4", size = 10112228, upload-time = "2026-08-07T20:15:18.15Z" },
+    { url = "https://files.pythonhosted.org/packages/96/18/b70db3a617ba0be54730a0ddf72822df62551d503bba5c131afea1b47da1/memray-1.20.0-cp314-cp314-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:83cfa504ed4e1061b85af4b3c40228616a852851ebf5968ff1c3d85e363f8d24", size = 9550151, upload-time = "2026-08-07T20:15:20.623Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/35/3a972ce61e83648f970dbff8d54dcb0a6a54ab298e283cce139c40c8615b/memray-1.20.0-cp314-cp314-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5588174a24ac150100faa7ee60b535b0f09eae82bf672133443425a00704b769", size = 9776012, upload-time = "2026-08-07T20:15:22.822Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/d3/7d59a88509a301aa02c033b95460266553a689fc99f5b1b0d0f138675fc9/memray-1.20.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:2f51218744259983ad0ca66366ca2ff80158513132ca9bd835b1874a453199dd", size = 12425490, upload-time = "2026-08-07T20:15:24.977Z" },
+    { url = "https://files.pythonhosted.org/packages/27/71/3560aa204af1771cb25ab91489c48643dfe1ca0ce93783fb70ad677ca058/memray-1.20.0-cp314-cp314t-macosx_10_15_x86_64.whl", hash = "sha256:610643cfa186f7958a476e5589f6e8a1b0b7b3008ab10250a0f02575a692ef1d", size = 2239309, upload-time = "2026-08-07T20:15:27.025Z" },
+    { url = "https://files.pythonhosted.org/packages/02/e4/f3981abfecc1572fd24274386f3cbbc36b861704a3e3a10aebe2775aa1a0/memray-1.20.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:420bc47528fedf1a92832290c7a7b8a940c2e30bd9337a85811da18a27e07220", size = 2213281, upload-time = "2026-08-07T20:15:28.629Z" },
+    { url = "https://files.pythonhosted.org/packages/72/ee/a04a21557e50d76eef59f0fd4d5f293a2334142540a7180bb627d8ef5b73/memray-1.20.0-cp314-cp314t-manylinux2014_i686.manylinux_2_17_i686.whl", hash = "sha256:59e44042f2495698f6a17fe0a831051ea515242e567f08457ee8546283372993", size = 9836577, upload-time = "2026-08-07T20:15:30.102Z" },
+    { url = "https://files.pythonhosted.org/packages/31/66/13ec31746d61855bbe05a090b26a0a9aa6fd741bb3a9a2c0122061d3b985/memray-1.20.0-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:ffd3c7c53419465922be92654c17ebff577708fa1f74168dbef9eb5efa6bcb02", size = 10087796, upload-time = "2026-08-07T20:15:32.042Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/37/27da92dcca4c19ca19fdd5c43de474755eac9d16255a0d8f2104d5976998/memray-1.20.0-cp314-cp314t-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:ac9a5dd9bef7f44331d98174625167bf0a8f61785ed05440d99f581c93790acf", size = 9602483, upload-time = "2026-08-07T20:15:34.148Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/cc/6b682e4287dfb4bba6d0e0fd8e685fc3b1f0b769707f09c6305217cf8e1e/memray-1.20.0-cp314-cp314t-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:70010acd3d07dbf41aaca0787de3c81c5d8e22e07a6c0fdf04d66c4a376c0193", size = 9758476, upload-time = "2026-08-07T20:15:36.179Z" },
+    { url = "https://files.pythonhosted.org/packages/13/c3/ffbba95b0c468d831c63aa6e7dc9e7bb21074d1899c310604567d10ca204/memray-1.20.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:3270aad45dfa0bc7d32bb86b352aefabee765a8658aace8fb9dc8112a07f2e3c", size = 12388833, upload-time = "2026-08-07T20:15:38.049Z" },
+]
+
+[[package]]
 name = "mimesis"
 version = "5.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -5915,6 +5942,7 @@ dependencies = [
     { name = "markdown-it-py" },
     { name = "markdown-to-mrkdwn" },
     { name = "mcp" },
+    { name = "memray" },
     { name = "mimesis" },
     { name = "mistralai" },
     { name = "modal", extra = ["api-proxy-support"] },
@@ -6212,6 +6240,7 @@ requires-dist = [
     { name = "markdown-it-py", specifier = "~=3.0.0" },
     { name = "markdown-to-mrkdwn", specifier = "~=0.2.0" },
     { name = "mcp", specifier = "~=1.26.0" },
+    { name = "memray", specifier = "==1.20.0" },
     { name = "mimesis", specifier = "==5.2.1" },
     { name = "mistralai", specifier = "==1.6.0" },
     { name = "modal", extras = ["api-proxy-support"], specifier = "~=1.5.4" },

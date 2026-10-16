@@ -90,6 +90,7 @@ dependencies = [
     "lzstring==1.0.4",
     "markdown-it-py~=3.0.0",
     "mcp~=1.26.0",
+    "memray==1.20.0",
     "mimesis==5.2.1",
     "mistralai==1.6.0",
     "more-itertools==9.0.0",

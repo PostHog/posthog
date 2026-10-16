@@ -87,6 +87,51 @@ Workflows and activities run in Temporal workers. The Temporal service assigns w
 
 At PostHog, most of the configuration currently happens in this package, particularly in the `worker.py` module.
 
+### Worker memory profiling
+
+Set `TEMPORAL_MEMRAY_ENABLED=true` to continuously profile a Python worker started with `start_temporal_worker`.
+Profiling is disabled by default and starts before worker construction and polling.
+It covers allocations across all threads and concurrent activities in that process, including native allocations.
+Allocations made before profiling starts and allocations in child processes are not included.
+
+The worker streams to a persistent Memray collector over localhost; it does not write capture files.
+A separate supervisor exports Prometheus metrics and cached allocation-stack details, even when the combined Temporal metrics server is disabled.
+The collector stays connected between scrapes.
+
+| Setting                                     | Default | Purpose                                                                                          |
+| ------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------ |
+| `TEMPORAL_MEMRAY_ENABLED`                   | `false` | Enable process-wide profiling.                                                                   |
+| `TEMPORAL_MEMRAY_NATIVE_TRACES`             | `false` | Record native stack traces, with additional overhead. Native allocations are tracked either way. |
+| `TEMPORAL_MEMRAY_METRICS_PORT`              | `8003`  | Dedicated HTTP port for `/metrics`.                                                              |
+| `TEMPORAL_MEMRAY_SNAPSHOT_INTERVAL_SECONDS` | `5`     | Refresh interval; allocations are tracked continuously between snapshots.                        |
+| `TEMPORAL_MEMRAY_LOG_INTERVAL_SECONDS`      | `60`    | Interval for JSON allocation summaries on stdout.                                                |
+| `TEMPORAL_MEMRAY_TOP_STACKS`                | `20`    | Largest allocation stacks included in JSON output, up to 100.                                    |
+| `TEMPORAL_MEMRAY_STARTUP_TIMEOUT_SECONDS`   | `15`    | Deadline for each startup handshake.                                                             |
+| `TEMPORAL_MEMRAY_WATCHDOG_TIMEOUT_SECONDS`  | `30`    | Maximum collector silence or sustained stream backlog; must exceed the snapshot interval.        |
+| `TEMPORAL_MEMRAY_COLLECTOR_MAX_RSS_MB`      | `256`   | Collector RSS threshold, in MiB.                                                                 |
+
+Configure the deployment's Prometheus scrape target to use port `8003` (or the configured port).
+The endpoint exports `memray_tracked_outstanding_bytes`, `memray_tracked_outstanding_allocations`, `memray_observed_peak_bytes`, `memray_stream_active`, and `memray_snapshot_timestamp_seconds`.
+Alert on sustained or growing outstanding bytes, checking that the stream is active and the snapshot is fresh.
+These values measure tracked allocations, not worker RSS or confirmed leaks; the observed peak can miss spikes between snapshots.
+Counts describe allocator operations rather than Python objects; caches and allocator arenas can remain allocated after objects are freed.
+
+Use a pod port-forward to request `http://127.0.0.1:8003/memory/allocations` for cached details.
+The detail route accepts loopback requests only; `/metrics` is available on the pod interface.
+JSON summaries include bytes, allocation counts, and file/function/line stacks, with a limit of 16 frames per stack.
+Native stack details use local symbols only; the collector does not download debug archives.
+The same details appear in stdout events named `temporal_memray_allocations`; `temporal_memray_status` reports startup and collection failures.
+Keep stack details in log bodies rather than Loki or Prometheus labels.
+Memray's released live API does not expose allocation ages or the objects retaining memory, so there are no age buckets or lifetime histograms.
+
+Profiling requires Linux and adds CPU and memory overhead in both the worker and collector.
+Collector memory scales with live allocations and stack metadata.
+The supervisor checks RSS and progress every 250 ms and kills a failed, stalled, or oversized collector; the RSS threshold is not a hard memory cap.
+Socket backpressure can pause worker allocations until the watchdog disconnects the collector.
+The metrics endpoint then keeps the last snapshot with `memray_stream_active=0` and a stop reason in JSON.
+Restart the worker to establish a new profiling baseline; profiling does not reconnect automatically.
+Startup failures are logged and the worker continues without profiling.
+
 ### Schedule
 
 Temporal schedules are defined by: the action to execute, a spec, a state, and a policy.
