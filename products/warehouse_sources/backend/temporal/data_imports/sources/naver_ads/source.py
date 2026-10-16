@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.naver_ads.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     STATS_ENDPOINTS,
+    STATS_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -81,7 +82,13 @@ class NaverAdsSource(ResumableSource[NaverAdsSourceConfig, NaverAdsResumeConfig]
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Restated days come back on later syncs, so stats tables merge on (id, date) and never append.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=STATS_ENDPOINTS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=STATS_ENDPOINTS,
+            default_incremental_lookback_seconds=dict.fromkeys(STATS_ENDPOINTS, STATS_LOOKBACK_SECONDS),
+        )
 
     def validate_credentials(
         self,

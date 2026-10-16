@@ -11,8 +11,9 @@ NAVER_ADS_BASE_URL = "https://api.searchad.naver.com"
 # `recordSize` accepts up to 1,000 for ad groups and keywords.
 PAGE_SIZE = 1000
 STATS_IDS_PER_REQUEST = 100
-# Naver can restate a day's metrics for up to 48 hours (invalid clicks, late partner data).
-STATS_LOOKBACK_DAYS = 2
+# Naver can restate a day's metrics for up to 48 hours (invalid clicks, late partner data). Applied as the
+# schemas' default incremental lookback, which users can change per table.
+STATS_LOOKBACK_SECONDS = 2 * 24 * 60 * 60
 # `/stats` serves the last two years at most.
 MAX_HISTORY_DAYS = 730
 STATS_TIMEZONE = "Asia/Seoul"

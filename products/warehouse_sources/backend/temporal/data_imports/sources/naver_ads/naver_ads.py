@@ -35,7 +35,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.naver_ads.
     PAGE_SIZE,
     STAT_FIELDS,
     STATS_IDS_PER_REQUEST,
-    STATS_LOOKBACK_DAYS,
     STATS_TIMEZONE,
     EntityKind,
     NaverAdsEndpoint,
@@ -174,7 +173,7 @@ def stats_window(
     earliest = today - timedelta(days=MAX_HISTORY_DAYS)
     watermark = _to_date(inputs.db_incremental_field_last_value) if inputs.should_use_incremental_field else None
     if watermark is not None:
-        start = watermark - timedelta(days=STATS_LOOKBACK_DAYS)
+        start = watermark
     elif inputs.history_start is not None:
         start = inputs.history_start.astimezone(ZoneInfo(STATS_TIMEZONE)).date()
     else:
@@ -196,7 +195,12 @@ def fetch_stats(client: RESTClient, ids: list[str], day: date) -> Rows:
         data_selector="data",
         data_selector_required=True,
     ):
-        rows.extend({**row, "date": day} for row in page if isinstance(row, dict) and row.get("id"))
+        # An entity with no delivery that day comes back with every metric at zero, which adds a billed row and no data.
+        rows.extend(
+            {**row, "date": day}
+            for row in page
+            if isinstance(row, dict) and row.get("id") and any(row.get(field) for field in STAT_FIELDS)
+        )
     return rows
 
 

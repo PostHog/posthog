@@ -3,7 +3,7 @@ import json
 import base64
 import hashlib
 from collections.abc import Iterator
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     SourceDriver,
     always,
     scripted_network,
+    source_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.naverads import (
     NaverAdsSourceConfig,
@@ -24,8 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.naver_ads import naver_ads as naver_ads_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.naver_ads.naver_ads import (
     NaverAdsResumeConfig,
+    stats_window,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.naver_ads.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.naver_ads.source import NaverAdsSource
 
 CONFIG = NaverAdsSourceConfig(api_key="example-license", secret_key="example-secret", customer_id=" 1234567 ")
@@ -152,24 +155,24 @@ def test_child_entities_resume_after_the_last_finished_parent() -> None:
 
 
 @pytest.mark.parametrize(
-    ("incremental_field", "last_value", "should_use", "expected_days"),
+    ("last_value", "should_use", "expected_days"),
     [
-        # A watermark re-reads the two days Naver can still restate.
-        ("date", date(2026, 10, 14), True, ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"]),
-        ("date", "2026-10-14", True, ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"]),
+        # The pipeline applies the schema's lookback before the source sees the watermark.
+        (date(2026, 10, 13), True, ["2026-10-13", "2026-10-14", "2026-10-15"]),
+        ("2026-10-13", True, ["2026-10-13", "2026-10-14", "2026-10-15"]),
         # A full refresh ignores the stored watermark and reads the whole history window.
-        ("date", date(2026, 10, 14), False, None),
+        (date(2026, 10, 14), False, None),
     ],
 )
 def test_stats_windows_start_from_the_watermark_or_the_history_window(
-    incremental_field: str, last_value: Any, should_use: bool, expected_days: list[str] | None
+    last_value: Any, should_use: bool, expected_days: list[str] | None
 ) -> None:
     requests_per_day: dict[str, list[list[str]]] = {}
 
     result = driver().run(
         "campaign_stats",
         stats_responder(requests_per_day),
-        incremental_field=incremental_field,
+        incremental_field="date",
         db_incremental_field_last_value=last_value,
         should_use_incremental_field=should_use,
     )
@@ -187,6 +190,37 @@ def test_stats_windows_start_from_the_watermark_or_the_history_window(
     assert {row["id"] for row in result.rows if row["date"] == first["date"]} == {"cmp-1", "cmp-2", "cmp-3"}
     stats_request = next(request for request in result.requests if request.path == "/stats")
     assert json.loads(stats_request.param("fields") or "[]")[:2] == ["impCnt", "clkCnt"]
+
+
+def test_a_first_sync_starts_on_the_kst_day_of_the_recorded_history_start() -> None:
+    inputs = source_inputs("keyword_stats")
+    # 20:00 UTC is already the next day in Korea.
+    inputs.history_start = datetime(2025, 10, 14, 20, tzinfo=UTC)
+
+    window = stats_window(ENDPOINTS["keyword_stats"], inputs, None, today=date(2026, 10, 15))
+
+    assert (window.start, window.end) == (date(2025, 10, 15), date(2026, 10, 15))
+
+
+def test_stats_rows_without_delivery_are_dropped() -> None:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/ncc/campaigns":
+            return ok([{"nccCampaignId": "cmp-1"}, {"nccCampaignId": "cmp-2"}])
+        return ok(
+            {
+                "data": [
+                    {"id": "cmp-1", "impCnt": 0, "clkCnt": 0, "salesAmt": 0, "ccnt": 0},
+                    {"id": "cmp-2", "impCnt": 0, "clkCnt": 0, "salesAmt": 0, "ccnt": 2},
+                ]
+            }
+        )
+
+    result = driver().run(
+        "campaign_stats", respond, incremental_field="date", db_incremental_field_last_value=date(2026, 10, 15)
+    )
+
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == ["cmp-2"]
 
 
 def test_stats_chunk_ids_and_resume_after_the_last_written_id(monkeypatch: pytest.MonkeyPatch) -> None:
