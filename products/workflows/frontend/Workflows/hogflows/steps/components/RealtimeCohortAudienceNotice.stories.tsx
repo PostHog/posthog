@@ -25,8 +25,3 @@ RealtimeCohortAlone.args = {
         realtime_cohort: { id: 2, name: 'Viewed pricing', state: 'ready', percent_complete: null },
     },
 }
-
-export const RealtimeCohortWithOtherConditions = Template.bind({})
-RealtimeCohortWithOtherConditions.args = {
-    blastRadius: { ...base, realtime_cohort_with_other_conditions: { id: 2, name: 'Viewed pricing' } },
-}
