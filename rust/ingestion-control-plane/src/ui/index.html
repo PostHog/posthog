@@ -946,14 +946,14 @@
           return el("table", {},
             el("thead", {}, el("tr", {},
               el("th", {}, "pod"), el("th", {}, "ip"), el("th", {}, "phase"), el("th", {}, "restarts"), el("th", {}, "started"),
-              el("th", {}, "peer"), el("th", {}, "workers"), el("th", {}, "in flight"), el("th", {}, "stashed"))),
+              el("th", {}, "peer"), el("th", {}, "workers"), el("th", {}, "in flight"), el("th", {}, "pending"))),
             el("tbody", {}, group.pods.map((pod) => {
               const key = `${pod.namespace}/${pod.name}`;
               const live = {
                 peer: el("td", { class: "mono muted" }, "…"),
                 workers: el("td", { class: "mono muted" }, "…"),
                 inFlight: el("td", { class: "mono muted" }, "…"),
-                stashed: el("td", { class: "mono muted" }, "…"),
+                pending: el("td", { class: "mono muted" }, "…"),
               };
               this.liveCells.set(key, live);
               if (this.loads.has(key)) this.paintLoad(key);
@@ -963,7 +963,7 @@
                 el("td", {}, el("span", { class: `pill ${pod.ready ? "good" : "warn"}` }, pod.phase || "?")),
                 el("td", { class: "mono" }, String(pod.restarts)),
                 el("td", { class: "muted mono" }, pod.started_at ? `${new Date(pod.started_at).toLocaleString()} (${fmtAgo(pod.started_at)})` : "–"),
-                live.peer, live.workers, live.inFlight, live.stashed);
+                live.peer, live.workers, live.inFlight, live.pending);
               row.addEventListener("click", () => this.selectPod(pod, row));
               return row;
             }))
@@ -996,7 +996,7 @@
           if (!cells || !result) return;
           if (!result.ok) {
             cells.peer.replaceChildren(el("span", { class: "pill bad" }, "unreachable"));
-            for (const cell of [cells.workers, cells.inFlight, cells.stashed]) cell.replaceChildren("–");
+            for (const cell of [cells.workers, cells.inFlight, cells.pending]) cell.replaceChildren("–");
             return;
           }
           const { load } = result;
@@ -1009,10 +1009,12 @@
           set(cells.workers, routable === load.workers.length
             ? `${routable}/${load.workers.length}`
             : el("span", { class: "pill warn" }, `${routable}/${load.workers.length}`));
-          set(cells.inFlight, fmtInt(load.dispatcher.total_in_flight));
-          set(cells.stashed, load.dispatcher.stashed_messages > 0
-            ? el("span", { class: "pill warn" }, fmtInt(load.dispatcher.stashed_messages))
-            : "0");
+          // A consumer pod from before the batcher rename still answers with
+          // `dispatcher`; read whichever key the pod sends during a rollout.
+          const batcher = load.batcher || load.dispatcher || {};
+          set(cells.inFlight, fmtInt(batcher.total_in_flight ?? 0));
+          const pending = batcher.pending_messages ?? 0;
+          set(cells.pending, pending > 0 ? el("span", { class: "pill warn" }, fmtInt(pending)) : "0");
         },
 
         selectPod(pod, row) {

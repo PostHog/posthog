@@ -2,10 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useLayoutEffect, useRef } from 'react'
 
-import { IconRefresh } from '@posthog/icons'
-import { Button, Skeleton, Spinner, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Skeleton, Text } from '@posthog/quill'
 
-import { todayBriefingLogic } from './todayBriefingLogic'
 import { TodayExplore } from './TodayExplore'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
@@ -36,23 +34,20 @@ function TodayPulseSkeleton(): JSX.Element {
 }
 
 function TodayMetaLine(): JSX.Element {
-    const { now, currentTeam } = useValues(todayLogic)
+    const { now } = useValues(todayLogic)
     const date = new Date(now)
     return (
         <p className="TodayHome__meta">
             <time translate="no" dateTime={date.toISOString()}>
                 {DATE_FORMAT.format(date)}
             </time>
-            <span className="whitespace-pre">{` · ${currentTeam?.name ?? 'Your project'}`}</span>
         </p>
     )
 }
 
 export function TodayHomePage(): JSX.Element {
-    const { greeting, showPersonalBriefing, isNewProject, recentObjects, returnFocusReportId } = useValues(todayLogic)
+    const { greeting, isNewProject, recentObjects, returnFocusReportId } = useValues(todayLogic)
     const { setReturnFocusReportId } = useActions(todayLogic)
-    const { personalBriefing, briefingWaiting } = useValues(todayBriefingLogic)
-    const { refreshBriefing } = useActions(todayBriefingLogic)
     const { highlights, highlightsPending } = useValues(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
 
@@ -88,30 +83,6 @@ export function TodayHomePage(): JSX.Element {
                     <Text render={<h1 />} className="m-0 text-[21px] font-[560] tracking-[-0.015em]">
                         {greeting}
                     </Text>
-                    {briefingWaiting ? (
-                        <span className="TodayHome__badge" data-attr="today-briefing-writing">
-                            <Spinner />
-                            <span>Writing your briefing…</span>
-                        </span>
-                    ) : showPersonalBriefing || personalBriefing?.status === 'failed' ? (
-                        <Tooltip>
-                            <TooltipTrigger
-                                render={
-                                    <Button
-                                        variant="link-muted"
-                                        size="icon-sm"
-                                        className="TodayHome__refresh"
-                                        aria-label="Refresh briefing"
-                                        onClick={() => refreshBriefing()}
-                                        data-attr="today-briefing-refresh"
-                                    />
-                                }
-                            >
-                                <IconRefresh className="size-4" />
-                            </TooltipTrigger>
-                            <TooltipContent>Refresh briefing</TooltipContent>
-                        </Tooltip>
-                    ) : null}
                 </div>
                 <TodayMetaLine />
             </section>

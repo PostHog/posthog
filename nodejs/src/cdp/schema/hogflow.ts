@@ -70,6 +70,11 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         type: z.literal('schedule'),
     }),
     z.object({
+        type: z.literal('cohort'),
+        cohort_id: z.number(),
+        transition: z.enum(['entered', 'left']),
+    }),
+    z.object({
         type: z.literal('batch'),
         filters: z.object({
             // 'accounts' fans out one run per customer analytics account instead of per person

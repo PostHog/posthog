@@ -340,13 +340,14 @@ inbox_ranking_nn_training_job = dagster.define_asset_job(
 
 # After the dataset job's 2h budget (02:30 UTC start), so the dt=D-1 snapshots exist, and before the
 # main training job (05:00 UTC) where the run is short enough. A champion that lands after that
-# job's manifest is published by the next day's manifest. Stopped everywhere until the location is
-# deployed on the image with torch.
+# job's manifest is published by the next day's manifest.
 @dagster.schedule(
     cron_schedule="30 4 * * *",
     job=inbox_ranking_nn_training_job,
     execution_timezone="UTC",
-    default_status=dagster.DefaultScheduleStatus.STOPPED,
+    default_status=dagster.DefaultScheduleStatus.RUNNING
+    if settings.CLOUD_DEPLOYMENT == "US"
+    else dagster.DefaultScheduleStatus.STOPPED,
     tags=owner_tags,
 )
 def inbox_ranking_nn_training_schedule(
