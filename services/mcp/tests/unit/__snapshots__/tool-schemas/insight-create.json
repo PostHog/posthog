@@ -81,6 +81,21 @@
                                 "type": "string"
                             },
                             "type": "object"
+                        },
+                        "vizSpecificOptions": {
+                            "description": "Chart rendering options.",
+                            "properties": {
+                                "ActionsPie": {
+                                    "properties": {
+                                        "hideAggregation": {
+                                            "description": "Hide the total on a pie chart.",
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            },
+                            "type": "object"
                         }
                     },
                     "required": ["source"],
@@ -314,7 +329,7 @@
                                                             "type": "string"
                                                         },
                                                         "displayType": {
-                                                            "description": "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type.",
+                                                            "description": "Chart type. `auto` uses `display`.",
                                                             "enum": ["auto", "line", "bar", "area"],
                                                             "type": "string"
                                                         },
@@ -387,7 +402,7 @@
                                                                 "type": "string"
                                                             },
                                                             "displayType": {
-                                                                "description": "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type.",
+                                                                "description": "Chart type. `auto` uses `display`.",
                                                                 "enum": ["auto", "line", "bar", "area"],
                                                                 "type": "string"
                                                             },
@@ -497,7 +512,7 @@
                                                                 "type": "string"
                                                             },
                                                             "displayType": {
-                                                                "description": "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type.",
+                                                                "description": "Chart type. `auto` uses `display`.",
                                                                 "enum": ["auto", "line", "bar", "area"],
                                                                 "type": "string"
                                                             },

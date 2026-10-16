@@ -1187,7 +1187,10 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
     assert result.shadow_launched is True
     shadow_result_reader.assert_not_called()
     create_event_ingest_token.assert_called_once()
-    assert create_event_ingest_token.call_args.kwargs == {"sandbox_id": "sandbox-id"}
+    assert create_event_ingest_token.call_args.kwargs == {
+        "sandbox_id": "sandbox-id",
+        "stream_generation": context.stream_generation,
+    }
     task_queryset.get.assert_called_once_with(id="task-id")
     get_user_mcp_configs.assert_called_once_with(
         token="oauth-token",

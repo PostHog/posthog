@@ -36,15 +36,12 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.briefing_reports import (
     IMPLEMENTATION_PR_STATES as IMPLEMENTATION_PR_STATES,
-    # Re-exported for the Today briefing, which ranks these reports next to other products' items.
-    BriefingReport as BriefingReport,
     BriefingReportDetails as BriefingReportDetails,
     BriefingReportRelation as BriefingReportRelation,
     OpenReportCounts as OpenReportCounts,
     open_report_counts as open_report_counts,
     report_details as report_details,
     report_ids_naming_user as report_ids_naming_user,
-    reports_for_briefing as reports_for_briefing,
 )
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct

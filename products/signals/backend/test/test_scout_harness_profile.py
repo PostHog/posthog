@@ -9,6 +9,7 @@ from __future__ import annotations
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -457,6 +458,31 @@ class TestScoutFleet(BaseTest):
         entry = _scout_fleet(self.team)["enabled"][0]
 
         assert entry["last_emitted_at"] is None
+
+    @parameterized.expand(
+        [
+            ("own_query", {"precheck_query": "SELECT 1"}, "config"),
+            ("disabled", {"precheck_query": "SELECT 1", "precheck_disabled": True}, None),
+            ("no_query", {}, None),
+        ]
+    )
+    def test_carries_precheck_state(self, _name: str, config_kwargs: dict[str, Any], source: str | None) -> None:
+        last_run = timezone.now() - timedelta(days=5)
+        checked = timezone.now() - timedelta(minutes=10)
+        self._config(
+            "signals-scout-logs",
+            last_run_at=last_run,
+            last_precheck_at=checked,
+            last_precheck_outcome=SignalScoutConfig.PrecheckOutcome.SKIP,
+            **config_kwargs,
+        )
+
+        entry = _scout_fleet(self.team)["enabled"][0]
+
+        assert entry["precheck_source"] == source
+        assert (entry["last_precheck_outcome"], entry["last_precheck_at"]) == ("skip", checked.isoformat())
+        assert entry["last_run_at"] == last_run.isoformat()
+        ScoutFleetEntry.model_validate(entry)
 
     def test_team_isolated(self) -> None:
         other = Team.objects.create(organization=self.organization, name="other")
