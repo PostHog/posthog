@@ -821,10 +821,13 @@ class InputsItemSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {
                         "input": "Value must be a repository name like your-org/your-repo, or a template with the "
-                        "repositories it may name, like {'template': '{event.properties.repository}', "
-                        "'allowed': ['your-org/your-repo']}."
+                        'repositories it may name, like {"template": "{event.properties.repository}", '
+                        '"allowed": ["your-org/your-repo"]}.'
                     }
                 )
+            if isinstance(value, dict):
+                # Hog's trim strips only spaces, so a newline kept here would render into every repository name.
+                value = attrs["value"] = {**value, "template": value["template"].strip()}
         elif item_type == "task_model":
             # A non-empty value means a model was chosen (an empty value returned above as "use the
             # default model"), so it must name a usable model. Otherwise the run-time consumer drops

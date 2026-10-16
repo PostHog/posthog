@@ -7273,9 +7273,15 @@ class TestCreateTaskActionValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    def test_accepts_a_templated_repository_with_an_allowlist_and_renders_it(self):
+    @parameterized.expand(
+        [
+            ("single_line", "{event.properties.repository}"),
+            ("with_the_newline_a_multi_line_editor_keeps", "{event.properties.repository}\n"),
+        ]
+    )
+    def test_accepts_a_templated_repository_with_an_allowlist_and_renders_it(self, _name, repository_template):
         self._connect_github(["my-org/api", "my-org/web"])
-        template = {"template": "{event.properties.repository}", "allowed": ["my-org/api", "My-Org/Web"]}
+        template = {"template": repository_template, "allowed": ["my-org/api", "My-Org/Web"]}
 
         response = self._post_flow({"repository": {"value": template}})
 
