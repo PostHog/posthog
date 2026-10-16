@@ -187,6 +187,11 @@ type EvalModel struct {
 	viewport viewport.Model
 	atBottom bool
 	shownKey string
+	// content is the pane text before wrapping. continued marks the rows that
+	// wrapping split off the row above, so copies can rejoin them.
+	content   string
+	continued []bool
+	wrapWidth int
 
 	filePath    string
 	fileText    string
@@ -271,7 +276,6 @@ func (m EvalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		if !m.ready {
 			m.viewport = viewport.New()
-			m.viewport.SoftWrap = true
 			m.viewport.FillHeight = true
 			m.viewport.HighlightStyle = searchMatchStyle
 			m.viewport.SelectedHighlightStyle = searchCurrentMatchStyle
@@ -408,15 +412,20 @@ func (m *EvalModel) applyEvent(ev EvalEvent) {
 			t.detail = ev.Detail
 		}
 	case "message":
+		added := false
 		for _, line := range strings.Split(ev.Text, "\n") {
 			if hasAnyPrefix(line, evalDiagnosticPrefixes) {
 				m.diagnostics = append(m.diagnostics, line)
+				added = true
 			}
 		}
 		if over := len(m.diagnostics) - evalMaxDiagnostics; over > 0 {
 			m.diagnostics = m.diagnostics[over:]
 		}
-		return
+		// Other messages change nothing on screen, so skip the rebuild.
+		if !added || m.selectedTrial() != nil || m.showLogs {
+			return
+		}
 	case "finish":
 		code := 1
 		if ev.ExitCode != nil {
@@ -492,6 +501,19 @@ func (m EvalModel) HarnessLost() bool { return m.streamClosed && m.exitCode == n
 func (m EvalModel) handleKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 	m.flash = ""
 	m.selected = false
+	// Ctrl-C must cancel from every mode, because the view ignores SIGINT and
+	// leaves cancellation to this key.
+	if key.Matches(msg, m.keys.Interrupt) {
+		if m.finished() {
+			return m, tea.Quit
+		}
+		m.confirmCancel = false
+		if !m.cancelRequested {
+			m.cancelRequested = true
+			cmds = append(cmds, m.send("cancel"))
+		}
+		return m, tea.Batch(cmds...)
+	}
 	if m.copyMode {
 		cmds = append(cmds, m.handleCopyKey(msg))
 		return m, tea.Batch(cmds...)
@@ -513,14 +535,6 @@ func (m EvalModel) handleKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, te
 	}
 
 	switch {
-	case key.Matches(msg, m.keys.Interrupt):
-		if m.finished() {
-			return m, tea.Quit
-		}
-		if !m.cancelRequested {
-			m.cancelRequested = true
-			cmds = append(cmds, m.send("cancel"))
-		}
 	case key.Matches(msg, m.keys.Quit):
 		if m.finished() {
 			return m, tea.Quit
@@ -697,9 +711,14 @@ func (m *EvalModel) copyLines(lo, hi int) tea.Cmd {
 	if lo > hi {
 		return nil
 	}
-	plain := make([]string, 0, hi-lo+1)
-	for _, line := range lines[lo : hi+1] {
-		plain = append(plain, ansi.Strip(line))
+	var plain []string
+	for i, line := range lines[lo : hi+1] {
+		text := ansi.Strip(line)
+		if i > 0 && lo+i < len(m.continued) && m.continued[lo+i] {
+			plain[len(plain)-1] += text
+			continue
+		}
+		plain = append(plain, text)
 	}
 	return m.copyText(strings.Join(plain, "\n"), len(plain))
 }
@@ -730,31 +749,28 @@ func pbcopy(text string) {
 	}
 }
 
-// wrappedRow returns the first viewport row of a source line. The viewport
-// offset counts wrapped rows, not source lines.
-func (m EvalModel) wrappedRow(line int) int {
-	width := max(m.viewport.Width(), 1)
-	row := 0
-	for _, text := range m.contentLines()[:line] {
-		row += max((ansi.StringWidth(text)+width-1)/width, 1)
+// setContent wraps the pane text once per change. The viewport's own soft wrap
+// rescans a line for every row it cuts, so one large log line made every frame
+// slow enough to block keys.
+func (m *EvalModel) setContent(content string) {
+	m.content = content
+	m.wrapWidth = max(m.viewport.Width(), 1)
+	var rows []string
+	m.continued = m.continued[:0]
+	for _, line := range strings.Split(content, "\n") {
+		for i, row := range strings.Split(ansi.Hardwrap(line, m.wrapWidth, true), "\n") {
+			rows = append(rows, row)
+			m.continued = append(m.continued, i > 0)
+		}
 	}
-	return row
+	m.viewport.SetContentLines(rows)
 }
 
 func (m EvalModel) firstVisibleLine() int {
-	width := max(m.viewport.Width(), 1)
-	row, offset := 0, m.viewport.YOffset()
-	for i, text := range m.contentLines() {
-		row += max((ansi.StringWidth(text)+width-1)/width, 1)
-		if row > offset {
-			return i
-		}
-	}
-	return 0
+	return m.viewport.YOffset()
 }
 
-func (m *EvalModel) ensureLineVisible(line int) {
-	row := m.wrappedRow(line)
+func (m *EvalModel) ensureLineVisible(row int) {
 	if offset := m.viewport.YOffset(); row < offset {
 		m.viewport.SetYOffset(row)
 	} else if row >= offset+m.viewport.Height() {
@@ -769,21 +785,11 @@ func (m EvalModel) outputPoint(x, y int) evalPoint {
 	return evalPoint{row: m.viewport.YOffset() + row, col: col}
 }
 
-// wrappedRows splits the content the same way the soft-wrapping viewport does,
-// so a mouse position maps to the text on screen.
 func (m EvalModel) wrappedRows() []wrappedRow {
-	width := max(m.viewport.Width(), 1)
-	var rows []wrappedRow
-	for _, line := range m.contentLines() {
-		plain := ansi.Strip(line)
-		w := ansi.StringWidth(plain)
-		if w <= width {
-			rows = append(rows, wrappedRow{text: plain})
-			continue
-		}
-		for idx := 0; idx < w; idx += width {
-			rows = append(rows, wrappedRow{text: ansi.Cut(plain, idx, idx+width), continued: idx > 0})
-		}
+	lines := m.contentLines()
+	rows := make([]wrappedRow, len(lines))
+	for i, line := range lines {
+		rows[i] = wrappedRow{text: ansi.Strip(line), continued: i < len(m.continued) && m.continued[i]}
 	}
 	return rows
 }
@@ -886,6 +892,9 @@ func (m *EvalModel) applySize() {
 		m.viewport.SetWidth(max(m.width-m.sidebarWidth()-2, 1))
 	}
 	m.viewport.SetHeight(m.bodyHeight())
+	if m.viewport.Width() != m.wrapWidth && m.content != "" {
+		m.setContent(m.content)
+	}
 	m.ensureCursorVisible()
 }
 
@@ -970,7 +979,11 @@ func (m *EvalModel) refreshContent() {
 	if !m.ready || m.copyMode {
 		return
 	}
-	shownKey := fmt.Sprintf("%v|%v", m.selectedTrial(), m.showLogs)
+	selectedID := ""
+	if t := m.selectedTrial(); t != nil {
+		selectedID = t.id
+	}
+	shownKey := fmt.Sprintf("%s|%v", selectedID, m.showLogs)
 	switched := shownKey != m.shownKey
 	m.shownKey = shownKey
 	path := m.currentFile()
@@ -986,7 +999,7 @@ func (m *EvalModel) refreshContent() {
 	} else {
 		content = m.renderOverview()
 	}
-	m.viewport.SetContent(content)
+	m.setContent(content)
 	if m.query != "" {
 		m.applySearch(false)
 	}
@@ -1135,7 +1148,7 @@ func (m *EvalModel) applySearch(jump bool) {
 		return lipgloss.NewStyle()
 	}
 	if jump {
-		m.viewport.SetYOffset(max(m.wrappedRow(current)-m.viewport.Height()/2, 0))
+		m.viewport.SetYOffset(max(current-m.viewport.Height()/2, 0))
 		m.atBottom = m.viewport.AtBottom()
 	}
 }

@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import json
 import time
+import queue
+import select
 import shutil
 import signal
 import socket
@@ -21,6 +23,9 @@ from .transcript import write_console
 
 PHROCS_DIR = Path(__file__).resolve().parents[4] / "tools" / "phrocs"
 READY_TIMEOUT_SECONDS = 5
+VIEW_WRITE_TIMEOUT_SECONDS = 30
+"""How long the view may stop reading progress events before the harness treats it as failed."""
+VIEW_QUEUE_LIMIT = 10_000
 
 
 def resolve_view_command() -> list[str]:
@@ -95,10 +100,11 @@ class EvalDashboard:
         self._command = list(command)
         self._terminal = terminal
         self._cancel = cancel
-        self._send_lock = threading.Lock()
         self._socket: socket.socket | None = None
+        self._outbox: queue.Queue[bytes | None] = queue.Queue(maxsize=VIEW_QUEUE_LIMIT)
         self._process: subprocess.Popen[bytes] | None = None
         self._reader: threading.Thread | None = None
+        self._writer: threading.Thread | None = None
         self._ready = threading.Event()
         self._run_active = threading.Event()
         self._stopping = threading.Event()
@@ -107,14 +113,44 @@ class EvalDashboard:
         self._error: BaseException | None = None
 
     def _send(self, event: dict[str, object]) -> None:
-        with self._send_lock:
-            if self._socket is None:
-                return
-            try:
-                self._socket.sendall(json.dumps(event).encode() + b"\n")
-            except OSError:
-                # The reader thread sees the closed view and reports the failure.
-                pass
+        # The reporter calls this from the eval event loop, so it must never wait on the view.
+        # A full queue means the view already stopped reading, and the writer reports that.
+        try:
+            self._outbox.put_nowait(json.dumps(event).encode() + b"\n")
+        except queue.Full:
+            pass
+
+    def _write_events(self) -> None:
+        assert self._socket is not None
+        sock = self._socket
+        while (data := self._outbox.get()) is not None:
+            view = memoryview(data)
+            deadline = time.monotonic() + VIEW_WRITE_TIMEOUT_SECONDS
+            while view:
+                remaining = deadline - time.monotonic()
+                if self._stopping.is_set() or remaining <= 0:
+                    if not self._stopping.is_set():
+                        self._view_failed(
+                            RuntimeError(
+                                f"The terminal view stopped reading progress for {VIEW_WRITE_TIMEOUT_SECONDS} seconds"
+                            )
+                        )
+                    return
+                try:
+                    _, writable, _ = select.select([], [sock], [], min(remaining, 1.0))
+                    if writable:
+                        view = view[sock.send(view) :]
+                except BlockingIOError:
+                    continue
+                except (OSError, ValueError):
+                    # The reader thread sees the closed view and reports the failure.
+                    return
+
+    def _view_failed(self, error: BaseException) -> None:
+        if self._error is None:
+            self._error = error
+        if self._run_active.is_set():
+            self.request_cancel()
 
     def configure(self, description: str) -> None:
         self._send({"type": "run", "description": description, "transcript": str(self.transcript)})
@@ -179,25 +215,37 @@ class EvalDashboard:
 
     def _read_replies(self) -> None:
         assert self._socket is not None and self._process is not None
-        try:
-            with self._socket.makefile("rb") as replies:
-                for line in replies:
-                    reply = line.strip()
-                    if reply == b"ready":
-                        self._ready.set()
-                    elif reply == b"cancel":
-                        self.request_cancel()
-        except OSError:
-            pass
+        sock = self._socket
+        pending = b""
+        while True:
+            try:
+                readable, _, _ = select.select([sock], [], [], 1.0)
+                if not readable:
+                    continue
+                chunk = sock.recv(4096)
+            except BlockingIOError:
+                continue
+            except (OSError, ValueError):
+                break
+            if not chunk:
+                break
+            pending += chunk
+            while b"\n" in pending:
+                line, pending = pending.split(b"\n", 1)
+                reply = line.strip()
+                if reply == b"ready":
+                    self._ready.set()
+                elif reply == b"cancel":
+                    self.request_cancel()
         returncode = self._process.wait()
         if self._exit_code is None and not self._stopping.is_set():
             stderr = self._process.stderr.read().decode(errors="replace").strip() if self._process.stderr else ""
-            self._error = RuntimeError(
-                f"The terminal view exited with code {returncode} before the eval run completed"
-                + (f": {stderr}" if stderr else "")
+            self._view_failed(
+                RuntimeError(
+                    f"The terminal view exited with code {returncode} before the eval run completed"
+                    + (f": {stderr}" if stderr else "")
+                )
             )
-            if self._run_active.is_set():
-                self.request_cancel()
         self._ready.set()
 
     @contextmanager
@@ -219,9 +267,13 @@ class EvalDashboard:
                 )
             finally:
                 child.close()
+            # Non-blocking, so a view that stops reading can never block the writer thread.
+            parent.setblocking(False)
             self._socket = parent
             self._reader = threading.Thread(target=self._read_replies, name="eval-view-replies", daemon=True)
             self._reader.start()
+            self._writer = threading.Thread(target=self._write_events, name="eval-view-events", daemon=True)
+            self._writer.start()
             if not self._ready.wait(timeout=READY_TIMEOUT_SECONDS):
                 raise RuntimeError(f"The terminal view did not start within {READY_TIMEOUT_SECONDS} seconds")
             if self._error is not None:
@@ -241,16 +293,26 @@ class EvalDashboard:
             # inherit raw mode. Restore the modes from before the view started.
             if saved_modes is not None:
                 _restore_terminal_modes(self._terminal.input, saved_modes)
-            with self._send_lock:
-                self._socket = None
-                parent.close()
+            if self._writer is not None:
+                try:
+                    self._outbox.put_nowait(None)
+                except queue.Full:
+                    pass
+                self._writer.join(timeout=5)
+            self._socket = None
+            parent.close()
             if self._reader is not None:
                 self._reader.join(timeout=5)
 
     def finish(self, exit_code: int) -> None:
         self._exit_code = exit_code
         summary = self.result_text if self.result_text.lstrip().startswith("Sandboxed eval summary") else ""
-        self._send({"type": "finish", "exit_code": exit_code, "text": summary})
+        event = json.dumps({"type": "finish", "exit_code": exit_code, "text": summary}).encode() + b"\n"
+        try:
+            # The view stays open until it receives this event, so wait for queue room here.
+            self._outbox.put(event, timeout=VIEW_WRITE_TIMEOUT_SECONDS)
+        except queue.Full:
+            return
         if self._process is not None:
             self._process.wait()
 

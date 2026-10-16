@@ -68,6 +68,8 @@ func TestEvalCancelAndClose(t *testing.T) {
 		{name: "q then n keeps the run", keys: []tea.KeyPressMsg{keypress('q'), keypress('n'), keypress('y')}},
 		{name: "q then y cancels", keys: []tea.KeyPressMsg{keypress('q'), keypress('y')}, wantReplies: []string{"cancel"}},
 		{name: "ctrl+c cancels once", keys: []tea.KeyPressMsg{ctrlC, ctrlC, keypress('q'), keypress('y')}, wantReplies: []string{"cancel"}},
+		{name: "ctrl+c cancels while searching", keys: []tea.KeyPressMsg{keypress('/'), ctrlC}, wantReplies: []string{"cancel"}},
+		{name: "ctrl+c cancels at the confirmation", keys: []tea.KeyPressMsg{keypress('q'), ctrlC}, wantReplies: []string{"cancel"}},
 		{name: "q closes a finished run", finished: true, keys: []tea.KeyPressMsg{keypress('q')}, wantQuit: true},
 		{name: "ctrl+c closes a finished run", finished: true, keys: []tea.KeyPressMsg{ctrlC}, wantQuit: true},
 	}
