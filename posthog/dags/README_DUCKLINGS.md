@@ -46,8 +46,13 @@ Duckling RDS Catalog (PostgreSQL)
 
 `duckling_groups_backfill_job` runs a full snapshot per team using the team ID as its partition key.
 `duckling_groups_full_backfill_sensor` discovers teams with backfills enabled in a ready warehouse and retries failed runs.
-Rerun a team partition manually to refresh its groups; there is no daily groups top-up sensor.
-Each sensor tick checks at most 25 teams, schedules at most three runs, and advances a cursor so repeated failures cannot block discovery.
+`duckling_groups_daily_backfill_sensor` refreshes teams with a successful snapshot once per UTC day, using the same team partition and job.
+Each refresh exports the full current state so updates and removals are reflected without appending duplicate group versions.
+The daily date appears in the run key and `groups_backfill/refresh_date` tag, not the partition key.
+A successful real snapshot launched that UTC day, including a manual run, satisfies that day's refresh; previews do not.
+Failed daily runs retry with a new run key after the backoff window, and active snapshots block another run for the same team.
+Each sensor tick checks at most 25 teams, performs at most three bounded run-storage reads per team, schedules at most three runs, and advances a cursor so repeated failures cannot block discovery.
+Both sensors check every 10 minutes. The daily sensor can submit at most 18 refreshes per hour; failures and the shared concurrency limit can reduce throughput.
 Failed snapshots retry with exponential backoff from 10 minutes to a maximum of 320 minutes.
 The sensor checks active runs separately from real snapshot history; previews do not hide a successful or active snapshot.
 The export uses the latest group properties from ClickHouse, sorts by group type and key, and replaces the team's DuckLake snapshot in a transaction.
@@ -58,15 +63,16 @@ Output metadata reports `superseded: true` when a newer snapshot or table reset 
 The job shares the events/persons backfill concurrency limit and supports `dry_run` and `skip_ducklake_registration`.
 Groups snapshots require `cleanup_existing_partition_data: true`.
 
-The groups sensor defaults to stopped. Use a manual snapshot to validate rollout before enabling automatic discovery:
+Both groups sensors default to stopped. Use a manual snapshot to validate rollout before enabling automatic discovery:
 
-1. Deploy the job and confirm `duckling_groups_full_backfill_sensor` is stopped in Dagster. The default does not override a previously stored running state.
-2. Add the selected team's ID to the `duckling_groups_backfill` dynamic partition set.
+1. Deploy the job and confirm both `duckling_groups_full_backfill_sensor` and `duckling_groups_daily_backfill_sensor` are stopped in Dagster. The default does not override a previously stored running state.
+2. Add the selected team's ID to the `duckling_groups_backfill` dynamic partition set through **Materialize… → Add a partition**.
 3. Launch `duckling_groups_backfill_job` for that partition with `dry_run: false`, `skip_ducklake_registration: false`, and `delete_tables: false`.
 4. Verify the latest groups per type/key against ClickHouse and run a managed warehouse HogQL groups query. Use Dagster run status and output metadata to inspect registration.
 5. Start `duckling_groups_full_backfill_sensor` to discover all teams with `backfill_enabled: true` in ready warehouses. The successful manual snapshot is skipped.
+6. Start `duckling_groups_daily_backfill_sensor` to refresh teams after their first successful snapshot. A successful canary launched that UTC day refreshes on the next day.
 
-Stop the sensor to pause new discovery. Stop queued or active runs separately if they must not finish.
+Stop both sensors to pause new discovery and daily refreshes. Stop queued or active runs separately if they must not finish.
 Groups query mapping is available before the first snapshot completes; queries can fail before table creation or read an empty table during the initial export.
 
 ## Partition Strategy

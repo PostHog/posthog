@@ -198,10 +198,12 @@ Source metadata describes what HogQL means. Target mappings describe where the c
 
 `duckling_groups_backfill_job` exports a full ClickHouse groups snapshot for each enabled team to Parquet and registers the files in DuckLake.
 The full-backfill sensor rotates through at most 25 teams per tick, schedules at most three runs, and retries failures with exponential backoff from 10 to 320 minutes.
-The partition key is the team ID; rerun that partition in Dagster to refresh the snapshot.
-There is no daily groups top-up sensor.
-The sensor defaults to stopped for controlled rollout. Validate a manual team snapshot before starting automatic discovery; see the [groups rollout steps](../../posthog/dags/README_DUCKLINGS.md#groups-backfill).
-Starting the sensor discovers all eligible teams, including existing memberships. A stored running sensor state must be stopped explicitly in Dagster.
+The partition key is the team ID; manual and daily runs reuse it.
+`duckling_groups_daily_backfill_sensor` refreshes teams with a successful snapshot once per UTC day, using the same full-snapshot replacement.
+The date is recorded in the run key and `groups_backfill/refresh_date` tag. A successful real snapshot launched that day satisfies the refresh; previews do not.
+The daily sensor checks every 10 minutes with the same scan limits, request cap, active-run checks, and failure backoff as discovery.
+Both sensors default to stopped for controlled rollout. Validate a manual team snapshot before starting automatic discovery; see the [groups rollout steps](../../posthog/dags/README_DUCKLINGS.md#groups-backfill).
+Starting the full-backfill sensor discovers all eligible teams, including existing memberships; the daily sensor only refreshes teams with a successful snapshot. Stored running sensor states must be stopped explicitly in Dagster.
 
 The table name is `posthog.groups_<schema_name>`, derived from the control-plane team membership, including teams with grandfathered events or persons table names.
 Legacy teams without a membership use `posthog.groups` for manual runs.

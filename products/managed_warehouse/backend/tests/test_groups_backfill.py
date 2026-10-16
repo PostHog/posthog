@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 import time_machine
@@ -26,16 +26,23 @@ from products.managed_warehouse.backend.facade.contracts import (
 )
 from products.managed_warehouse.dags.groups_backfill import (
     GROUPS_JOB_NAME,
+    GROUPS_REFRESH_DATE_TAG,
     GROUPS_SNAPSHOT_TAG,
     MAX_TEAMS_PER_TICK,
     RETRY_BASE_SECONDS,
     duckling_groups_backfill,
+    duckling_groups_daily_backfill_sensor,
     duckling_groups_full_backfill_sensor,
     ensure_groups_table,
     groups_snapshot_select_sql,
     replace_groups_snapshot,
     reserve_groups_snapshot,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from dagster import RunRequest
 
 
 def test_groups_snapshot_deduplicates_keys_within_each_team_and_group_type(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -190,18 +197,18 @@ def _add_run(
     snapshot: bool = True,
     age_seconds: int = RETRY_BASE_SECONDS + 1,
 ) -> None:
-    instance.add_run(
-        DagsterRun(
-            job_name=GROUPS_JOB_NAME,
-            run_id=run_id,
-            status=status,
-            tags={"dagster/partition": str(team_id), GROUPS_SNAPSHOT_TAG: "true" if snapshot else "false"},
+    with time_machine.travel(datetime.now(UTC) - timedelta(seconds=age_seconds), tick=False):
+        instance.add_run(
+            DagsterRun(
+                job_name=GROUPS_JOB_NAME,
+                run_id=run_id,
+                status=status,
+                tags={"dagster/partition": str(team_id), GROUPS_SNAPSHOT_TAG: "true" if snapshot else "false"},
+            )
         )
-    )
-    if status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
-        run = instance.get_run_by_id(run_id)
-        assert run is not None
-        with time_machine.travel(_NOW - timedelta(seconds=age_seconds), tick=False):
+        if status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+            run = instance.get_run_by_id(run_id)
+            assert run is not None
             instance.report_run_failed(run)
 
 
@@ -256,10 +263,15 @@ def test_preview_after_snapshot_or_during_active_snapshot_does_not_schedule_anot
         assert not result.run_requests
 
 
+@pytest.mark.parametrize("daily", [False, True])
 @time_machine.travel(_NOW, tick=False)
-def test_failed_teams_do_not_starve_discovery_and_storage_reads_are_bounded() -> None:
+def test_failed_teams_do_not_starve_discovery_and_storage_reads_are_bounded(daily: bool) -> None:
     memberships = [_membership(i) for i in range(1, MAX_TEAMS_PER_TICK + 10)]
+    evaluate = duckling_groups_daily_backfill_sensor if daily else duckling_groups_full_backfill_sensor
     with DagsterInstance.ephemeral() as instance:
+        if daily:
+            for row in memberships:
+                _add_run(instance, row.team_id, f"initial-{row.team_id}", DagsterRunStatus.SUCCESS, age_seconds=86400)
         for team_id in range(1, 4):
             _add_run(instance, team_id, f"failure-{team_id}", DagsterRunStatus.FAILURE)
         with (
@@ -269,30 +281,41 @@ def test_failed_teams_do_not_starve_discovery_and_storage_reads_are_bounded() ->
             ),
             patch("products.managed_warehouse.dags.groups_backfill._repair_stale_running_statuses"),
         ):
-            first = duckling_groups_full_backfill_sensor(build_sensor_context(instance=instance))
+            first = evaluate(build_sensor_context(instance=instance))
             assert isinstance(first, SensorResult)
-            second = duckling_groups_full_backfill_sensor(build_sensor_context(instance=instance, cursor=first.cursor))
+            second = evaluate(build_sensor_context(instance=instance, cursor=first.cursor))
             assert isinstance(second, SensorResult)
             assert [r.partition_key for r in second.run_requests or []] == ["4", "5", "6"]
             for row in memberships:
-                _add_run(instance, row.team_id, f"success-{row.team_id}", DagsterRunStatus.SUCCESS)
+                _add_run(instance, row.team_id, f"success-{row.team_id}", DagsterRunStatus.SUCCESS, age_seconds=0)
             with patch.object(instance, "get_run_records", wraps=instance.get_run_records) as reads:
-                scanned = duckling_groups_full_backfill_sensor(build_sensor_context(instance=instance))
+                scanned = evaluate(build_sensor_context(instance=instance))
             assert isinstance(scanned, SensorResult)
             assert scanned.cursor == str(MAX_TEAMS_PER_TICK)
             assert reads.call_count <= MAX_TEAMS_PER_TICK
-            wrapped = duckling_groups_full_backfill_sensor(
-                build_sensor_context(instance=instance, cursor=str(memberships[-1].team_id))
-            )
+            wrapped = evaluate(build_sensor_context(instance=instance, cursor=str(memberships[-1].team_id)))
             assert isinstance(wrapped, SensorResult)
             assert wrapped.cursor == str(MAX_TEAMS_PER_TICK)
 
 
-@pytest.mark.parametrize("age_seconds,expected", [(0, False), (RETRY_BASE_SECONDS + 1, True)])
+@pytest.mark.parametrize("daily", [False, True])
+@pytest.mark.parametrize(
+    "failures,age_seconds,expected",
+    [
+        (1, 0, False),
+        (1, RETRY_BASE_SECONDS + 1, True),
+        (6, RETRY_BASE_SECONDS + 1, False),
+        (6, RETRY_BASE_SECONDS * 32 + 1, True),
+    ],
+)
 @time_machine.travel(_NOW, tick=False)
-def test_failed_snapshot_observes_retry_backoff(age_seconds: int, expected: bool) -> None:
+def test_failed_snapshot_observes_retry_backoff(daily: bool, failures: int, age_seconds: int, expected: bool) -> None:
+    evaluate = duckling_groups_daily_backfill_sensor if daily else duckling_groups_full_backfill_sensor
     with DagsterInstance.ephemeral() as instance:
-        _add_run(instance, 7, "failed", DagsterRunStatus.FAILURE, age_seconds=age_seconds)
+        if daily:
+            _add_run(instance, 7, "initial", DagsterRunStatus.SUCCESS, age_seconds=86400)
+        for i in range(failures):
+            _add_run(instance, 7, f"failed-{i}", DagsterRunStatus.FAILURE, age_seconds=age_seconds)
         with (
             patch(
                 "products.managed_warehouse.dags.groups_backfill.list_enabled_backfill_team_memberships",
@@ -300,9 +323,80 @@ def test_failed_snapshot_observes_retry_backoff(age_seconds: int, expected: bool
             ),
             patch("products.managed_warehouse.dags.groups_backfill._repair_stale_running_statuses"),
         ):
-            result = duckling_groups_full_backfill_sensor(build_sensor_context(instance=instance))
+            result = evaluate(build_sensor_context(instance=instance))
         assert isinstance(result, SensorResult)
         assert bool(result.run_requests) == expected
+
+
+@pytest.mark.parametrize(
+    "initial_age,status,age_seconds,preview,expected",
+    [
+        (None, None, 0, False, False),
+        (None, DagsterRunStatus.SUCCESS, 0, True, False),
+        (None, DagsterRunStatus.FAILURE, RETRY_BASE_SECONDS + 1, False, False),
+        (86400, None, 0, False, True),
+        (0, None, 0, False, False),
+        (86400, DagsterRunStatus.SUCCESS, 0, True, True),
+        (86400, DagsterRunStatus.STARTED, 0, False, False),
+        (86400, DagsterRunStatus.FAILURE, 0, False, False),
+        (86400, DagsterRunStatus.FAILURE, RETRY_BASE_SECONDS + 1, False, True),
+        (86400, DagsterRunStatus.CANCELED, RETRY_BASE_SECONDS + 1, False, True),
+    ],
+)
+@time_machine.travel(_NOW, tick=False)
+def test_daily_groups_refresh_requires_a_successful_snapshot_and_observes_current_runs(
+    initial_age: int | None, status: DagsterRunStatus | None, age_seconds: int, preview: bool, expected: bool
+) -> None:
+    with DagsterInstance.ephemeral() as instance:
+        if initial_age is not None:
+            _add_run(instance, 7, "initial", DagsterRunStatus.SUCCESS, age_seconds=initial_age)
+        if status is not None:
+            _add_run(instance, 7, "latest", status, age_seconds=age_seconds, snapshot=not preview)
+        with (
+            patch(
+                "products.managed_warehouse.dags.groups_backfill.list_enabled_backfill_team_memberships",
+                return_value=[_membership(7)],
+            ),
+            patch("products.managed_warehouse.dags.groups_backfill._repair_stale_running_statuses"),
+        ):
+            result = duckling_groups_daily_backfill_sensor(build_sensor_context(instance=instance))
+            assert isinstance(result, SensorResult)
+            assert bool(result.run_requests) == expected
+            if initial_age is not None:
+                initial = duckling_groups_full_backfill_sensor(build_sensor_context(instance=instance))
+                assert isinstance(initial, SensorResult)
+                assert not initial.run_requests
+
+
+@time_machine.travel(_NOW, tick=False)
+def test_daily_groups_refresh_is_deduplicated_per_utc_day_and_retries_with_a_new_run_key() -> None:
+    with (
+        DagsterInstance.ephemeral() as instance,
+        patch(
+            "products.managed_warehouse.dags.groups_backfill.list_enabled_backfill_team_memberships",
+            return_value=[_membership(7)],
+        ),
+        patch("products.managed_warehouse.dags.groups_backfill._repair_stale_running_statuses"),
+    ):
+        _add_run(instance, 7, "initial", DagsterRunStatus.SUCCESS, age_seconds=86400)
+
+        def requests() -> Sequence[RunRequest]:
+            result = duckling_groups_daily_backfill_sensor(build_sensor_context(instance=instance))
+            assert isinstance(result, SensorResult)
+            return result.run_requests or []
+
+        first = requests()[0]
+        assert first.partition_key == "7"
+        assert first.tags[GROUPS_REFRESH_DATE_TAG] == _NOW.date().isoformat()
+        assert requests()[0].run_key == first.run_key
+        _add_run(instance, 7, "failed", DagsterRunStatus.FAILURE)
+        assert requests()[0].run_key != first.run_key
+        _add_run(instance, 7, "refreshed", DagsterRunStatus.SUCCESS, age_seconds=0)
+        assert not requests()
+        with time_machine.travel(_NOW + timedelta(days=1), tick=False):
+            tomorrow = requests()[0]
+            assert tomorrow.run_key != first.run_key
+            assert tomorrow.tags[GROUPS_REFRESH_DATE_TAG] == "2026-01-02"
 
 
 @pytest.mark.parametrize("config", [{"dry_run": True}, {"skip_ducklake_registration": True}])

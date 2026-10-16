@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -60,6 +61,7 @@ if TYPE_CHECKING:
 GROUPS_DATASET = ManagedWarehouseBackfillPartition.Dataset.GROUPS
 GROUPS_JOB_NAME = "duckling_groups_backfill_job"
 GROUPS_SNAPSHOT_TAG = "groups_backfill/snapshot"
+GROUPS_REFRESH_DATE_TAG = "groups_backfill/refresh_date"
 MAX_TEAMS_PER_TICK = 25
 MAX_RUN_REQUESTS_PER_TICK = 3
 RETRY_HISTORY_LIMIT = 6
@@ -350,11 +352,48 @@ duckling_groups_backfill_job = define_asset_job(
 )
 
 
-@sensor(job=duckling_groups_backfill_job, minimum_interval_seconds=600, default_status=DefaultSensorStatus.STOPPED)
-def duckling_groups_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
-    backfills = sorted(
-        list_enabled_backfill_team_memberships("groups_full_backfill_sensor"), key=lambda row: row.team_id
+def _groups_snapshot_run_request(
+    context: SensorEvaluationContext, key: str, *, refresh_daily: bool, now: datetime
+) -> RunRequest | None:
+    partition_tags = {"dagster/partition": key}
+    if context.instance.get_runs(
+        filters=RunsFilter(job_name=GROUPS_JOB_NAME, tags=partition_tags, statuses=ACTIVE_RUN_STATUSES), limit=1
+    ):
+        return None
+    snapshot_tags = {**partition_tags, GROUPS_SNAPSHOT_TAG: "true"}
+    successes = context.instance.get_run_records(
+        filters=RunsFilter(job_name=GROUPS_JOB_NAME, tags=snapshot_tags, statuses=[DagsterRunStatus.SUCCESS]), limit=1
     )
+    if refresh_daily:
+        if not successes or successes[0].create_timestamp.astimezone(UTC).date() >= now.date():
+            return None
+    elif successes:
+        return None
+    history = context.instance.get_run_records(
+        filters=RunsFilter(job_name=GROUPS_JOB_NAME, tags=snapshot_tags), limit=RETRY_HISTORY_LIMIT
+    )
+    latest = history[0] if history else None
+    if latest is not None and latest.dagster_run.status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+        failures = 0
+        for record in history:
+            if record.dagster_run.status not in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+                break
+            failures += 1
+        retry_after = RETRY_BASE_SECONDS * 2 ** (failures - 1)
+        ended_at = latest.end_time or latest.update_timestamp.timestamp()
+        if now.timestamp() < ended_at + retry_after:
+            return None
+    refresh_date = now.date().isoformat()
+    return RunRequest(
+        partition_key=key,
+        run_key=f"{key}_groups_{refresh_date + '_' if refresh_daily else ''}{latest.dagster_run.run_id if latest else 'new'}",
+        tags={GROUPS_SNAPSHOT_TAG: "true", **({GROUPS_REFRESH_DATE_TAG: refresh_date} if refresh_daily else {})},
+    )
+
+
+def _groups_snapshot_sensor_result(context: SensorEvaluationContext, *, refresh_daily: bool) -> SensorResult:
+    call_site = "groups_daily_backfill_sensor" if refresh_daily else "groups_full_backfill_sensor"
+    backfills = sorted(list_enabled_backfill_team_memberships(call_site), key=lambda row: row.team_id)
     if not backfills:
         return SensorResult(run_requests=[])
     _repair_stale_running_statuses(context, GROUPS_DATASET)
@@ -363,41 +402,16 @@ def duckling_groups_full_backfill_sensor(context: SensorEvaluationContext) -> Se
     existing = set(context.instance.get_dynamic_partitions("duckling_groups_backfill"))
     new_partitions: list[str] = []
     requests: list[RunRequest] = []
+    now = timezone.now().astimezone(UTC)
     for membership in candidates[:MAX_TEAMS_PER_TICK]:
         after_team = membership.team_id
         key = str(membership.team_id)
-        active = context.instance.get_runs(
-            filters=RunsFilter(job_name=GROUPS_JOB_NAME, tags={"dagster/partition": key}, statuses=ACTIVE_RUN_STATUSES),
-            limit=1,
-        )
-        if active:
+        request = _groups_snapshot_run_request(context, key, refresh_daily=refresh_daily, now=now)
+        if request is None:
             continue
-        history = context.instance.get_run_records(
-            filters=RunsFilter(job_name=GROUPS_JOB_NAME, tags={"dagster/partition": key, GROUPS_SNAPSHOT_TAG: "true"}),
-            limit=RETRY_HISTORY_LIMIT,
-        )
-        latest = history[0] if history else None
-        if latest is not None and latest.dagster_run.is_success:
-            continue
-        if latest is not None:
-            failures = 0
-            for record in history:
-                if record.dagster_run.status not in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
-                    break
-                failures += 1
-            retry_after = RETRY_BASE_SECONDS * 2 ** max(failures - 1, 0)
-            ended_at = latest.end_time or latest.update_timestamp.timestamp()
-            if timezone.now().timestamp() < ended_at + retry_after:
-                continue
         if key not in existing:
             new_partitions.append(key)
-        requests.append(
-            RunRequest(
-                partition_key=key,
-                run_key=f"{key}_groups_{latest.dagster_run.run_id if latest else 'new'}",
-                tags={GROUPS_SNAPSHOT_TAG: "true"},
-            )
-        )
+        requests.append(request)
         if len(requests) >= MAX_RUN_REQUESTS_PER_TICK:
             break
     return SensorResult(
@@ -407,3 +421,13 @@ def duckling_groups_full_backfill_sensor(context: SensorEvaluationContext) -> Se
         if new_partitions
         else [],
     )
+
+
+@sensor(job=duckling_groups_backfill_job, minimum_interval_seconds=600, default_status=DefaultSensorStatus.STOPPED)
+def duckling_groups_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
+    return _groups_snapshot_sensor_result(context, refresh_daily=False)
+
+
+@sensor(job=duckling_groups_backfill_job, minimum_interval_seconds=600, default_status=DefaultSensorStatus.STOPPED)
+def duckling_groups_daily_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
+    return _groups_snapshot_sensor_result(context, refresh_daily=True)
