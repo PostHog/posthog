@@ -544,6 +544,21 @@ export interface scoutFleetLogicActions {
         scoutRuns: SignalScoutRunSummary[]
         payload?: void
     }
+    loadScoutRunsForSkill: (skillName: string) => string
+    loadScoutRunsForSkillFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScoutRunsForSkillSuccess: (
+        scoutRuns: SignalScoutRunSummary[],
+        payload?: string
+    ) => {
+        scoutRuns: SignalScoutRunSummary[]
+        payload?: string
+    }
     materializeScoutFleet: () => {
         value: true
     }
@@ -918,6 +933,23 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     // (running/queued) runs are never reused: their rows show a wall-clock duration
                     // that must keep advancing with each poll.
                     return reconcileById(values.scoutRuns, runs, (run) => run.run_id, isSettledRun)
+                },
+                // One scout's runs, merged over that scout's slice of the window. A scout page loads
+                // this first, so it does not wait on the probes of every other scout in the fleet.
+                loadScoutRunsForSkill: async (skillName: string, breakpoint) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.scoutRuns
+                    }
+                    const runs = await signalsScoutRunsRecentPerScout(String(teamId), {
+                        per_scout_limit: SCOUT_RUNS_PER_SCOUT,
+                        skill_name: skillName,
+                    })
+                    breakpoint()
+                    const merged = [...values.scoutRuns.filter((run) => run.skill_name !== skillName), ...runs].sort(
+                        (a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? '')
+                    )
+                    return reconcileById(values.scoutRuns, merged, (run) => run.run_id, isSettledRun)
                 },
             },
         ],
@@ -1661,7 +1693,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 })
                 lemonToast.success('Run started. It shows up in this scout’s runs when it finishes.')
                 // The run row appears on the next poll; pull once now so the page reacts immediately.
-                actions.loadScoutRuns()
+                if (config) {
+                    actions.loadScoutRunsForSkill(config.skill_name)
+                } else {
+                    actions.loadScoutRuns()
+                }
             } catch (error: any) {
                 // The endpoint refuses deliberately in several ordinary cases — already running,
                 // over the daily budget — so the backend's own message is the useful one.
