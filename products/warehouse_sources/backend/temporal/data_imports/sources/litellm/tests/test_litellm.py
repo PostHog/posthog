@@ -56,16 +56,24 @@ class TestSpendLogs:
         last = first_page[-1]
         result = _run(
             "spend_logs",
-            [_logs(first_page), _logs([last, _log("next", FIRST + timedelta(minutes=5))])],
+            [
+                _logs([first_page[0]]),
+                _logs(first_page),
+                _logs([last, _log("next", FIRST + timedelta(minutes=5))]),
+                _logs([]),
+            ],
             should_use_incremental_field=False,
         )
 
         assert result.raised is None
+        # The oldest-log lookup, then requests that each cover at most a day after the cursor.
         assert [_request(request) for request in result.requests] == [
             ("2000-01-01 00:00:00", RUN_END, "1"),
-            ("2026-01-01 10:01:39", RUN_END, "1"),
+            ("2026-01-01 10:00:00", "2026-01-02 10:00:00", "1"),
+            ("2026-01-01 10:01:39", "2026-01-02 10:01:39", "1"),
+            ("2026-01-02 10:01:39", RUN_END, "1"),
         ]
-        assert result.params("page_size") == ["100", "100"]
+        assert result.params("page_size") == ["1", "100", "100", "100"]
         assert {(r.param("sort_by"), r.param("sort_order")) for r in result.requests} == {("startTime", "asc")}
         assert result.requests[0].headers["authorization"] == "Bearer sk-master"
         assert [row["request_id"] for row in result.rows] == [f"r{i}" for i in range(100)] + ["next"]
@@ -75,7 +83,8 @@ class TestSpendLogs:
                 run_end="2026-01-03T00:00:00+00:00",
                 page=1,
                 seen_request_ids=("r99",),
-            )
+            ),
+            LiteLLMResumeConfig(cursor="2026-01-02T10:01:39+00:00", run_end="2026-01-03T00:00:00+00:00", page=1),
         ]
 
     def test_incremental_run_starts_at_the_watermark_second(self) -> None:
@@ -93,22 +102,22 @@ class TestSpendLogs:
         same_second = [_log(f"s{i}", FIRST) for i in range(100)]
         result = _run(
             "spend_logs",
-            [_logs(same_second), _logs([_log("after", FIRST + timedelta(seconds=2))])],
+            [_logs(same_second), _logs([_log("after", FIRST + timedelta(seconds=2))]), _logs([])],
             incremental_field="startTime",
             db_incremental_field_last_value="2026-01-01T10:00:00Z",
         )
 
         assert result.raised is None
-        assert [_request(request) for request in result.requests] == [
-            ("2026-01-01 10:00:00", RUN_END, "1"),
-            ("2026-01-01 10:00:00", RUN_END, "2"),
+        assert [_request(request) for request in result.requests][:2] == [
+            ("2026-01-01 10:00:00", "2026-01-02 10:00:00", "1"),
+            ("2026-01-01 10:00:00", "2026-01-02 10:00:00", "2"),
         ]
         assert len(result.rows) == 101
 
     def test_resume_drops_logs_the_last_page_already_yielded(self) -> None:
         result = _run(
             "spend_logs",
-            [_logs([_log("seen", FIRST), _log("new", FIRST)])],
+            [_logs([_log("seen", FIRST), _log("new", FIRST)]), _logs([])],
             should_use_incremental_field=False,
             resume_state=LiteLLMResumeConfig(
                 cursor="2026-01-01T10:00:00+00:00",
@@ -119,9 +128,7 @@ class TestSpendLogs:
         )
 
         assert result.raised is None
-        assert [_request(request) for request in result.requests] == [
-            ("2026-01-01 10:00:00", "2026-01-02 20:00:00", "1")
-        ]
+        assert _request(result.requests[0]) == ("2026-01-01 10:00:00", "2026-01-02 10:00:00", "1")
         assert [row["request_id"] for row in result.rows] == ["new"]
 
     def test_proxy_without_any_logs_makes_one_request(self) -> None:
@@ -159,6 +166,7 @@ _METADATA = {
         {"callback_name": "langfuse", "callback_vars": {"langfuse_secret_key": "sk-lf-1", "langfuse_host": "h"}}
     ],
     "callback_settings": {"callback_vars": {"langsmith_api_key": "ls-1"}},
+    "secret_manager_settings": {"aws_secret_access_key": "aws-secret"},
     "owner": "growth",
 }
 _REDACTED_METADATA = {
@@ -204,6 +212,8 @@ class TestListEndpoints:
         assert result.params("size") == ["100", "100"]
         assert result.params("return_full_object") == ["true", "true"]
         assert result.rows == [{"token": "t1", "metadata": _REDACTED_METADATA}, {"token": "t2"}]
+        # Responses are captured before the row map masks them, so capture stays off.
+        assert {options.get("capture") for options in result.session_options} == {False}
 
     def test_teams_page_through_v2_and_drop_credentials(self) -> None:
         team = {"team_id": "team-1", "metadata": _METADATA, "keys": [{"token": "t1", "config": {"api_key": "x"}}]}
@@ -213,6 +223,7 @@ class TestListEndpoints:
         assert result.paths == ["/litellm/v2/team/list"]
         assert result.params("page_size") == ["100"]
         assert result.rows == [{"team_id": "team-1", "metadata": _REDACTED_METADATA}]
+        assert {options.get("capture") for options in result.session_options} == {False}
 
     def test_models_lift_the_deployment_id(self) -> None:
         body = {"data": [{"model_name": "gpt", "model_info": {"id": "dep-1"}}, {"model_name": "bare"}]}

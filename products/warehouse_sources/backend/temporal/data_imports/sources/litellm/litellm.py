@@ -26,11 +26,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.litellm.se
     LITELLM_ENDPOINTS,
     SPEND_LOGS_FIELD,
     SPEND_LOGS_PAGE_SIZE,
+    SPEND_LOGS_WINDOW,
     LiteLLMEndpointConfig,
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
-# A full refresh reads from here, which is earlier than any log a LiteLLM proxy can hold.
+# The lower bound of the one query that finds the oldest spend log on a full refresh.
 SPEND_LOGS_EARLIEST = datetime(2000, 1, 1, tzinfo=UTC)
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 _REDACTED = "[redacted by PostHog]"
@@ -124,6 +125,14 @@ def _as_utc(value: Any) -> datetime | None:
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
+def _request_ids_at(rows: list[dict[str, Any]], times: list[datetime | None], second: datetime) -> tuple[str, ...]:
+    return tuple(
+        str(row.get("request_id"))
+        for row, time in zip(rows, times)
+        if time is not None and time.replace(microsecond=0) == second
+    )
+
+
 def spend_log_pages(
     session: requests.Session,
     base_url: str,
@@ -144,12 +153,19 @@ def spend_log_pages(
         seen = set(resume.seen_request_ids)
     else:
         run_end = datetime.now(UTC).replace(microsecond=0)
-        cursor = (_as_utc(db_incremental_field_last_value) or SPEND_LOGS_EARLIEST).replace(microsecond=0)
         page = 1
         seen = set()
+        start = _as_utc(db_incremental_field_last_value)
+        if start is None:
+            oldest = _fetch_spend_logs(session, base_url, SPEND_LOGS_EARLIEST, run_end, page=1, page_size=1)
+            start = _as_utc(oldest["data"][0].get(SPEND_LOGS_FIELD)) if oldest.get("data") else None
+            if start is None:
+                return
+        cursor = start.replace(microsecond=0)
 
     while True:
-        body = _fetch_spend_logs(session, base_url, cursor, run_end, page, SPEND_LOGS_PAGE_SIZE)
+        end = min(cursor + SPEND_LOGS_WINDOW, run_end)
+        body = _fetch_spend_logs(session, base_url, cursor, end, page, SPEND_LOGS_PAGE_SIZE)
         page_rows: list[dict[str, Any]] = body.get("data") or []
         times = [_as_utc(row.get(SPEND_LOGS_FIELD)) for row in page_rows]
         # Old proxies ignore `sort_order` and return newest first, which would break the cursor.
@@ -169,17 +185,19 @@ def spend_log_pages(
                     seen_request_ids=tuple(sorted(seen)),
                 )
             else:
-                at_last_second = [
-                    str(row.get("request_id"))
-                    for row, time in zip(page_rows, times)
-                    if time is not None and time.replace(microsecond=0) == last_second
-                ]
                 next_state = LiteLLMResumeConfig(
                     cursor=last_second.isoformat(),
                     run_end=run_end.isoformat(),
                     page=1,
-                    seen_request_ids=tuple(at_last_second),
+                    seen_request_ids=_request_ids_at(page_rows, times, last_second),
                 )
+        elif end < run_end:
+            next_state = LiteLLMResumeConfig(
+                cursor=end.isoformat(),
+                run_end=run_end.isoformat(),
+                page=1,
+                seen_request_ids=_request_ids_at(page_rows, times, end),
+            )
 
         if next_state is not None:
             resumable_source_manager.save_state(next_state)
@@ -201,15 +219,17 @@ def _with_model_id(row: dict[str, Any]) -> dict[str, Any]:
     return {**row, "model_id": model_info.get("id") if isinstance(model_info, dict) else None}
 
 
-def _redact_callback_vars(metadata: Any) -> Any:
-    """Mask logging credentials, such as `langfuse_secret_key`, that LiteLLM keeps in key and team metadata.
+def _redact_credentials(metadata: Any) -> Any:
+    """Mask the credentials LiteLLM keeps in key and team metadata.
 
-    The keys stay, so the table still shows which logging integrations are configured. LiteLLM masks
-    the same two places before it writes its own audit log.
+    Logging credentials such as `langfuse_secret_key` sit in `callback_vars`; their names stay, so
+    the table still shows which logging integrations are configured. LiteLLM masks the same two
+    places before it writes its own audit log. `secret_manager_settings` can hold cloud credentials
+    for the proxy's secret manager, so it is dropped.
     """
     if not isinstance(metadata, dict):
         return metadata
-    redacted = dict(metadata)
+    redacted = {name: value for name, value in metadata.items() if name != "secret_manager_settings"}
     if isinstance(redacted.get("logging"), list):
         redacted["logging"] = [
             {**entry, "callback_vars": dict.fromkeys(entry["callback_vars"], _REDACTED)}
@@ -230,7 +250,7 @@ def _shape_key(row: dict[str, Any]) -> dict[str, Any]:
     # A key's `config` can hold a model list with provider API keys.
     shaped = {name: value for name, value in row.items() if name != "config"}
     if "metadata" in shaped:
-        shaped["metadata"] = _redact_callback_vars(shaped["metadata"])
+        shaped["metadata"] = _redact_credentials(shaped["metadata"])
     return shaped
 
 
@@ -238,7 +258,7 @@ def _shape_team(row: dict[str, Any]) -> dict[str, Any]:
     # Some versions embed full key objects in team rows; the keys table already has them, shaped.
     shaped = {name: value for name, value in row.items() if name != "keys"}
     if "metadata" in shaped:
-        shaped["metadata"] = _redact_callback_vars(shaped["metadata"])
+        shaped["metadata"] = _redact_credentials(shaped["metadata"])
     return shaped
 
 
@@ -286,6 +306,7 @@ def _list_resource(
             "headers": {"Accept": "application/json"},
             "auth": {"type": "bearer", "token": api_key},
             "allow_redirects": False,
+            "capture": config.capture,
         },
         "resource_defaults": {},
         "resources": [resource],
