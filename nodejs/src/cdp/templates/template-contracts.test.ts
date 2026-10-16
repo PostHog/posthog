@@ -168,6 +168,9 @@ const sentCredentials = (run: PipelineRun): string[] =>
         run.requests.map((request) => connection.credentialIn(wireText(request))).filter((c) => c !== undefined)
     )
 
+// A logged object is JSON-encoded, which escapes the newlines of a multiline secret such as a PEM key.
+const logFormsOf = (secret: string): string[] => [secret, JSON.stringify(secret).slice(1, -1)]
+
 const secretsStayOutOfOutput = (run: PipelineRun): string[] => {
     if (run.sensitiveValues.length === 0) {
         return ['the run configured no sensitive value to look for']
@@ -180,7 +183,7 @@ const secretsStayOutOfOutput = (run: PipelineRun): string[] => {
         String(run.result?.error ?? ''),
     ].map(withDecodedBase64)
     return sensitiveValues
-        .filter((secret) => output.some((text) => text.includes(secret)))
+        .filter((secret) => output.some((text) => logFormsOf(secret).some((form) => text.includes(form))))
         .map((secret) => `output shows the sensitive value ${secret}`)
 }
 
@@ -193,7 +196,7 @@ const failureIsVisible = (run: PipelineRun): string[] => {
     return failed || retrying ? [] : ['the invocation ended as a success']
 }
 
-const INTEGRATION_INPUT_TYPES = new Set(['integration', 'integration_multi'])
+const INTEGRATION_INPUT_TYPES = new Set<HogFunctionInputSchemaType['type']>(['integration', 'integration_multi'])
 
 const isIntegrationInput = (schema: HogFunctionInputSchemaType): boolean => INTEGRATION_INPUT_TYPES.has(schema.type)
 

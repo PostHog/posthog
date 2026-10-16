@@ -141,10 +141,11 @@ export class TemplatePipeline {
             recipientTokensService,
             hub.encryptedFields
         )
-        const redis = await createRedisFromConfig({
-            url: hub.CDP_REDIS_HOST,
-            options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-        })
+        const redis = await createRedisFromConfig(
+            hub.CDP_REDIS_HOST
+                ? { url: hub.CDP_REDIS_HOST, options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD } }
+                : { url: hub.REDIS_URL }
+        )
         const pushNotificationService = new PushNotificationService(
             hub.integrationManager,
             hub.encryptedFields,
