@@ -26,7 +26,7 @@ from posthog.slack.markdown import slack_markdown_block
 
 from ...facade.contracts import SlackMention
 from ...logic.admission import claim, rolled_out_team_ids, within_rate_limit
-from ...logic.commands import Answer, CommandRequest, DispatchOutcome, PullRequestRef, SubjectRef
+from ...logic.commands import Answer, CommandRequest, DispatchOutcome, FollowUpAddress, PullRequestRef, SubjectRef
 from ...logic.dispatcher import Admission, CommandDispatcher
 from ...logic.github import CommandGitHub
 from ...logic.registry import COMMANDS
@@ -114,6 +114,55 @@ def read_slack_command(mention: SlackMention) -> SlackCommandRequest | None:
     )
 
 
+@frozen
+class SlackThread:
+    """The thread a command answers in, through the Slack integration the mention came in on."""
+
+    integration_id: int
+    integration_team_id: int
+    channel: str
+    thread_ts: str
+
+    def to_address(self) -> FollowUpAddress:
+        return {
+            "channel": "slack",
+            "integration_id": self.integration_id,
+            "integration_team_id": self.integration_team_id,
+            "slack_channel": self.channel,
+            "thread_ts": self.thread_ts,
+        }
+
+    @classmethod
+    def from_address(cls, address: FollowUpAddress) -> "SlackThread":
+        return cls(
+            integration_id=int(address["integration_id"]),
+            integration_team_id=int(address["integration_team_id"]),
+            channel=str(address["slack_channel"]),
+            thread_ts=str(address["thread_ts"]),
+        )
+
+
+def post_in_thread(thread: SlackThread, message: str) -> None:
+    integration = Integration.objects.filter(
+        id=thread.integration_id, team_id=thread.integration_team_id, kind="slack"
+    ).first()
+    if integration is None:
+        logger.warning("slack_command_reply_integration_missing", integration_id=thread.integration_id)
+        return
+    try:
+        post_message(
+            SlackIntegration(integration),
+            thread.channel,
+            [slack_markdown_block(message)],
+            message,
+            thread_ts=thread.thread_ts,
+        )
+    except Exception:
+        # Best effort, as for pull request comments: a lost answer must not turn a run that
+        # started into a failure.
+        logger.warning("slack_command_reply_failed", exc_info=True)
+
+
 class SlackMentionChannel:
     name = "slack"
     unlinked_message = (
@@ -124,6 +173,13 @@ class SlackMentionChannel:
     def __init__(self, command: SlackCommandRequest, github: CommandGitHub | None = None) -> None:
         self._command = command
         self._github = github
+        self._thread = SlackThread(
+            integration_id=command.integration_id,
+            integration_team_id=command.integration_team_id,
+            channel=command.channel,
+            thread_ts=command.thread_ts,
+        )
+        self.follow_up: FollowUpAddress | None = self._thread.to_address()
         self.request = CommandRequest(
             subject=command.subject,
             verb=command.verb,
@@ -159,25 +215,7 @@ class SlackMentionChannel:
         return [users[user_id] for user_id in user_ids if user_id in users and users[user_id].is_active]
 
     def reply(self, message: str) -> None:
-        command = self._command
-        integration = Integration.objects.filter(
-            id=command.integration_id, team_id=command.integration_team_id, kind="slack"
-        ).first()
-        if integration is None:
-            logger.warning("slack_command_reply_integration_missing", integration_id=command.integration_id)
-            return
-        try:
-            post_message(
-                SlackIntegration(integration),
-                command.channel,
-                [slack_markdown_block(message)],
-                message,
-                thread_ts=command.thread_ts,
-            )
-        except Exception:
-            # Best effort, as for pull request comments: a lost answer must not turn a run that
-            # started into a failure.
-            logger.warning("slack_command_reply_failed", exc_info=True)
+        post_in_thread(self._thread, message)
 
 
 def dispatch_slack_command(command: SlackCommandRequest, *, github: CommandGitHub | None = None) -> DispatchOutcome:

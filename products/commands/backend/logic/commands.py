@@ -116,6 +116,11 @@ class PullRequestFacts:
 SubjectFacts = PullRequestFacts
 
 
+# Where a channel wants the result of work that finishes after the command answered. Only the
+# channel reads it, so the core keeps it as plain data.
+FollowUpAddress = dict[str, str | int]
+
+
 @frozen
 class ProjectMember:
     """A project the commenter may act in, and the commenter's PostHog account that acts there.
@@ -135,6 +140,7 @@ class CommandContext:
     # Best candidate first. Every entry passed the membership, rollout and resource-access checks
     # for this command. A project appears once per linked account that is a member of it.
     members: tuple[ProjectMember, ...]
+    follow_up: FollowUpAddress | None = None
 
     @property
     def pull_request(self) -> PullRequestFacts:

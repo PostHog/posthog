@@ -78,6 +78,7 @@ from products.tasks.backend.models import Task, TaskRun
 REPO = "acme/widgets"
 INSTALLATION_ID = "2001"
 BASE_SHA = "base000"
+FINISHED_REVIEW_HOOKS = "products.stamphog.backend.temporal.activities.get_finished_review_hooks"
 POLICY_DEFAULTS_DIR = Path(__file__).resolve().parents[2] / "packages" / "pr-approval-agent" / "defaults"
 
 
@@ -1418,7 +1419,11 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
     # ph_scoped_capture is a context manager yielding the capture callable, so the patch
     # provides a context manager whose __enter__ returns the mock to assert against.
     capture_fn = MagicMock()
-    with patch("products.stamphog.backend.temporal.activities.ph_scoped_capture") as mock_capture_cm:
+    finished_hook = MagicMock()
+    with (
+        patch("products.stamphog.backend.temporal.activities.ph_scoped_capture") as mock_capture_cm,
+        patch(FINISHED_REVIEW_HOOKS, return_value=(finished_hook,)),
+    ):
         mock_capture_cm.return_value.__enter__.return_value = capture_fn
         mock_capture_cm.return_value.__exit__.return_value = False
         _run_activity(mark_review_failed, MarkReviewFailedInput(str(run.id), team.id, raw_error))
@@ -1426,6 +1431,7 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
     run.refresh_from_db()
     assert run.status == ReviewRunStatus.FAILED
     assert run.error == expected_stored
+    assert finished_hook.call_args.args[0].status == ReviewRunStatus.FAILED
     assert capture_fn.call_args.kwargs["event"] == "stamphog_review_failed"
     assert capture_fn.call_args.kwargs["distinct_id"] == "devex-dev"
     props = capture_fn.call_args.kwargs["properties"]
@@ -1502,10 +1508,15 @@ def test_approval_posted_while_losing_supersession_race_is_dismissed(team, stamp
         ReviewRun.objects.for_team(team.id).filter(id=run.id).update(status=ReviewRunStatus.SUPERSEDED)
         return original_comment_id(obj)
 
-    with patch.object(activities, "_comment_id", side_effect=_supersede_then_extract):
+    finished_hook = MagicMock()
+    with (
+        patch.object(activities, "_comment_id", side_effect=_supersede_then_extract),
+        patch(FINISHED_REVIEW_HOOKS, return_value=(finished_hook,)),
+    ):
         result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
 
     assert result == {"verdict": "skipped_superseded"}
+    finished_hook.assert_not_called()
     approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
     dismissals = [w for w in recorder.github_writes if w["kind"] == "dismiss_review"]
     assert len(approvals) == 1
@@ -2701,6 +2712,7 @@ def test_each_non_approval_posts_its_own_review(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
     )
 
+    finished_hook = MagicMock(side_effect=RuntimeError("callback down"))
     for _ in range(2):
         run = ReviewRun.objects.for_team(team.id).create(
             team_id=team.id,
@@ -2710,8 +2722,12 @@ def test_each_non_approval_posts_its_own_review(
             output={"reviewer_raw": engine_output},
         )
         # Twice per run: a Temporal retry after the post must not repeat the review.
-        _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
-        _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+        with patch(FINISHED_REVIEW_HOOKS, return_value=(finished_hook,)):
+            _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+            _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+        run.refresh_from_db()
+        finished = finished_hook.call_args.args[0]
+        assert (finished.status, finished.verdict) == (run.status, run.verdict)
 
     writes = stamphog_chain.recorder.github_writes
     assert [w for w in writes if w["kind"] in ("issue_comment", "issue_comment_edit")] == []
