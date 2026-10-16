@@ -55,6 +55,8 @@ _OPTIONS_CACHE_SECONDS = 60
 # The lock outlasts the slowest query, a 60 second Snuffle or ClickHouse query, so a slow query runs only once.
 _OPTIONS_LOCK_SECONDS = 90
 _OPTIONS_POLL_SECONDS = 0.1
+# A failed load is shared with the callers that wait for it, so they do not run the same failing query again.
+_OPTIONS_ERROR_SECONDS = 10
 cache = ConnectionProxy(caches, "metrics_variable_options")
 # The selection API accepts values up to this length, so a longer option could not be selected.
 MAX_OPTION_LENGTH = 1024
@@ -233,7 +235,11 @@ def fill_all_values(
             date_to=date_to,
             depth=depth + 1,
         )
-        if definition.regex:
+        # A list has no query, and its select shows every value, so a regex left over from a query does not apply.
+        if definition.regex and definition.source in (
+            MetricsDashboardVariableSource.PROMQL,
+            MetricsDashboardVariableSource.SQL,
+        ):
             regex_key = _cache_key(team, ["regex", definition.regex, options])
             options = _shared_options(regex_key, partial(apply_regex, team, options, definition.regex))
         filled[name] = with_values(variable, options)
@@ -273,12 +279,14 @@ def _shared_options(
     """The options from the shared cache. When several callers miss at once, one runs `load` and the others wait.
 
     Only the caller that holds the lock runs `load`, inside `slot`. A cache hit or a waiter takes no
-    slot. When the loader fails, it releases the lock and the next waiter takes it.
+    slot. A load that fails with an error the user can see gives the waiters the same error. Any other
+    failure releases the lock, and the next waiter loads.
     """
     lock_key = f"{key}:lock"
+    error_key = f"{key}:error"
     deadline = time.monotonic() + _OPTIONS_LOCK_SECONDS
     while True:
-        options = cache.get(key)
+        options = _published_options(key, error_key)
         if options is not None:
             return options
         if cache.add(lock_key, True, _OPTIONS_LOCK_SECONDS):
@@ -287,12 +295,26 @@ def _shared_options(
             raise ValueError("The variable values are still loading. Try again in a moment.")
         time.sleep(_OPTIONS_POLL_SECONDS)
     try:
-        with slot():
-            options = load()
+        # Another loader can publish between the read above and taking the lock.
+        options = _published_options(key, error_key)
+        if options is not None:
+            return options
+        try:
+            with slot():
+                options = load()
+        except (ValueError, ExposedHogQLError, ExposedCHQueryError) as exc:
+            cache.set(error_key, str(exc), _OPTIONS_ERROR_SECONDS)
+            raise
         cache.set(key, options, _OPTIONS_CACHE_SECONDS)
         return options
     finally:
         cache.delete(lock_key)
+
+
+def _published_options(key: str, error_key: str) -> list[str] | None:
+    if (error := cache.get(error_key)) is not None:
+        raise ValueError(error)
+    return cache.get(key)
 
 
 def list_variable_options(

@@ -79,6 +79,14 @@ describe('metricVariables', () => {
         )
     })
 
+    it.each([
+        ['a query variable', 'promql', 'regex'],
+        ['a list, which does not use the regex', 'custom', undefined],
+    ])('checks an invalid regex on %s', (_name, source, field) => {
+        const variable = { name: 'v', source, query: 'label_values(job)', customValues: ['a'], regex: '(' }
+        expect(ownValue(variableErrors([variable as MetricsDashboardVariable]), 'v')?.field).toEqual(field)
+    })
+
     it.each(['__proto__', '__interval'])('rejects the reserved name %s', (name) => {
         const errors = variableErrors([{ name, source: 'promql', query: 'label_values(job)' }])
         expect(ownValue(errors, name)?.field).toEqual('name')

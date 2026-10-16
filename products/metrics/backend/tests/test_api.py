@@ -16,6 +16,8 @@ from rest_framework import status
 
 from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorTooManyBytes
@@ -122,6 +124,37 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
         assert cached.status_code == status.HTTP_200_OK
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert run.call_count == 1
+
+    def test_a_failed_options_query_is_shared_with_the_next_caller(self) -> None:
+        with patch(
+            "products.metrics.backend.variable_options.run_metrics_sql_values",
+            side_effect=ExposedHogQLError("Unknown column"),
+        ) as run:
+            responses = [self._post({"source": "sql", "query": OPTIONS_SQL}) for _ in range(2)]
+
+        assert [response.status_code for response in responses] == [status.HTTP_400_BAD_REQUEST] * 2
+        assert all("Unknown column" in response.json()["detail"] for response in responses)
+        assert run.call_count == 1
+
+    def test_all_of_a_list_ignores_a_regex_left_over_from_a_query(self) -> None:
+        filled = fill_all_values(
+            team=self.team,
+            names=["env"],
+            variables={"env": Variable(values=(), is_all=True, all_value=None, options=())},
+            definitions={
+                "env": MetricsDashboardVariable(
+                    name="env",
+                    source=MetricsDashboardVariableSource.CUSTOM,
+                    customValues=["api", "web"],
+                    regex="^api",
+                    includeAll=True,
+                )
+            },
+            date_from=timezone.now() - timedelta(hours=1),
+            date_to=timezone.now(),
+        )
+
+        assert filled["env"].values == ("api", "web")
 
     def test_clickhouse_limits_are_shown_to_the_user(self) -> None:
         with patch(

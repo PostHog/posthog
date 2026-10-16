@@ -197,7 +197,8 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
                 actions.setError(name, null)
                 actions.setOptions(name, options)
                 const current = reconcileSelection(variable, options)
-                if (!objectsEqual(current, variable.current ?? null)) {
+                // Without reconcile, the dependents load for the saved selection, which the tiles use.
+                if (shouldReconcile && !objectsEqual(current, variable.current ?? null)) {
                     variables = variables.map((other) => (other.name === name ? { ...other, current } : other))
                 }
             }

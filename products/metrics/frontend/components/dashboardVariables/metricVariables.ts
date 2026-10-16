@@ -86,25 +86,32 @@ export function variablesToReload(previous: MetricsDashboardVariable[], next: Me
     return [...new Set([...redefined, ...dependentsOf(next, [...redefined, ...changed])])]
 }
 
-/** Keeps the options that match the variable's regex. With a capture group, the option is the first group.
-
-RE2 runs the pattern in linear time, so a saved pattern cannot freeze the dashboard. A pattern that RE2 cannot read keeps every option. */
-export function applyVariableRegex(options: string[], regex: string | null | undefined): string[] {
+/** RE2 runs the pattern in linear time, so a saved pattern cannot freeze the dashboard. Throws for an invalid pattern. */
+export function compileVariableRegex(regex: string | null | undefined): RE2JS | null {
     if (!regex) {
-        return options
+        return null
     }
     // Grafana writes the pattern as /pattern/flags.
     const slashed = /^\/(.*)\/([a-z]*)$/s.exec(regex)
     const flags = slashed?.[2] ?? ''
-    let pattern: RE2JS
+    return RE2JS.compile(
+        slashed ? slashed[1] : regex,
+        (flags.includes('i') ? RE2JS.CASE_INSENSITIVE : 0) |
+            (flags.includes('m') ? RE2JS.MULTILINE : 0) |
+            (flags.includes('s') ? RE2JS.DOTALL : 0)
+    )
+}
+
+/** With a capture group, the option is the first group. An invalid pattern keeps every option, because the editor
+ * rejects it before it is saved. */
+export function applyVariableRegex(options: string[], regex: string | null | undefined): string[] {
+    let pattern: RE2JS | null
     try {
-        pattern = RE2JS.compile(
-            slashed ? slashed[1] : regex,
-            (flags.includes('i') ? RE2JS.CASE_INSENSITIVE : 0) |
-                (flags.includes('m') ? RE2JS.MULTILINE : 0) |
-                (flags.includes('s') ? RE2JS.DOTALL : 0)
-        )
+        pattern = compileVariableRegex(regex)
     } catch {
+        return options
+    }
+    if (!pattern) {
         return options
     }
     const matched: string[] = []

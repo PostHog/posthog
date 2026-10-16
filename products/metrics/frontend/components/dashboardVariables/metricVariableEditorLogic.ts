@@ -24,13 +24,14 @@ import {
     MAX_VALUE_LENGTH,
     VARIABLE_NAME,
     applyVariableRegex,
+    compileVariableRegex,
     orderVariables,
     ownValue,
     selectionsForRequest,
 } from './metricVariables'
 
 export interface MetricVariableError {
-    field: 'name' | 'values' | 'query' | 'allValue'
+    field: 'name' | 'values' | 'query' | 'regex' | 'allValue'
     message: string
 }
 
@@ -127,17 +128,31 @@ export type metricVariableEditorLogicType = MakeLogicType<
 >
 
 function withSourceSettings(variable: MetricsDashboardVariable, previousSource: string): MetricsDashboardVariable {
-    if (variable.source === previousSource || variable.source !== 'textbox') {
+    if (variable.source === previousSource || variable.source === 'promql' || variable.source === 'sql') {
         return variable
+    }
+    // A list and a text input have no query, so a regex left over from a query would only filter All on SQL tiles.
+    if (variable.source === 'custom') {
+        return { ...variable, regex: null }
     }
     // A text input has one value and no All, so a saved All would match everything with no way to clear it.
     const value = variable.current?.all ? undefined : variable.current?.values[0]
     return {
         ...variable,
+        regex: null,
         multi: null,
         includeAll: null,
         allValue: null,
         current: value ? { values: [value] } : null,
+    }
+}
+
+function regexError(regex: string | null | undefined): string | null {
+    try {
+        compileVariableRegex(regex)
+        return null
+    } catch (error) {
+        return `The regex is not valid: ${error instanceof Error ? error.message : String(error)}`
     }
 }
 
@@ -162,6 +177,8 @@ export function variableErrors(variables: MetricsDashboardVariable[]): Record<st
     const errors: Record<string, MetricVariableError> = Object.create(null)
     const seen = new Set<string>()
     for (const variable of variables) {
+        const invalidRegex =
+            variable.source === 'promql' || variable.source === 'sql' ? regexError(variable.regex) : null
         if (variable.name.length > MAX_NAME_LENGTH) {
             errors[variable.name] = { field: 'name', message: `Use at most ${MAX_NAME_LENGTH} characters.` }
         } else if (variable.name.startsWith('__')) {
@@ -180,6 +197,8 @@ export function variableErrors(variables: MetricsDashboardVariable[]): Record<st
             errors[variable.name] = { field: 'query', message: 'Write a query that gives the values.' }
         } else if ((variable.query?.length ?? 0) > MAX_QUERY_LENGTH) {
             errors[variable.name] = { field: 'query', message: `Use at most ${MAX_QUERY_LENGTH} characters.` }
+        } else if (invalidRegex) {
+            errors[variable.name] = { field: 'regex', message: invalidRegex }
         } else if ((variable.allValue?.length ?? 0) > MAX_VALUE_LENGTH) {
             errors[variable.name] = { field: 'allValue', message: `Use at most ${MAX_VALUE_LENGTH} characters.` }
         } else if (variable.source === 'custom' && !variable.customValues?.length) {

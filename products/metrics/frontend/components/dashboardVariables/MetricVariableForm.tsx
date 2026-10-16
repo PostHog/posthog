@@ -143,6 +143,7 @@ export function MetricVariableForm({ variable }: { variable: MetricsDashboardVar
                         label="Regex"
                         showOptional
                         info="Keeps the values that match. With a capture group, the value is the first group."
+                        error={error?.field === 'regex' ? error.message : undefined}
                     >
                         <LemonInput
                             className="font-mono"
