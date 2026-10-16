@@ -4305,3 +4305,37 @@ async fn merge_events_are_one_per_merged_person_and_gated_by_the_team_allowlist(
 
     h.ctx.cleanup().await.expect("cleanup");
 }
+
+#[tokio::test]
+async fn an_inline_conflict_warns_when_the_op_that_settles_it_completes() {
+    let h = MergeHarness::new().await;
+    h.ctx.insert_person_with_distinct_id("inline-target").await;
+    h.ctx.insert_person_with_distinct_id("inline-source").await;
+    let mut frozen =
+        serde_json::to_value(merge_request("inline-target", &["inline-source"])).unwrap();
+    frozen["original"] = json!({"call": "settled"});
+    frozen["inline_results"] = json!({ "inline-held": OUTCOME_SKIPPED_CONFLICT });
+    h.engine
+        .execute(&h.driver, Uuid::now_v7(), h.ctx.team_id, &frozen)
+        .await
+        .expect("merge completes");
+
+    assert_eq!(
+        h.warned(),
+        vec![(WarningType::MergeRaceCondition, "inline-held".to_string())]
+    );
+    assert_eq!(h.warning_rows()[0].source, MERGE_SAGA);
+
+    // A claim abort settles nothing: the retry re-classifies the conflict.
+    let mut aborted =
+        serde_json::to_value(merge_request("inline-no-target", &["inline-no-source"])).unwrap();
+    aborted["original"] = json!({"call": "aborted"});
+    aborted["inline_results"] = json!({ "inline-held-again": OUTCOME_SKIPPED_CONFLICT });
+    h.engine
+        .execute(&h.driver, Uuid::now_v7(), h.ctx.team_id, &aborted)
+        .await
+        .expect("claim abort is terminal");
+    assert_eq!(h.warned().len(), 1);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}

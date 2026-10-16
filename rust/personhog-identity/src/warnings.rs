@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_ingestion_warnings::serializer::Warning;
-use common_ingestion_warnings::throttle::WarningThrottle;
+use common_ingestion_warnings::throttle::{WarningThrottle, DEFAULT_MAX_TRACKED_KEYS};
 use common_ingestion_warnings::{
     observe_delivery, KafkaRowWarningEmitter, RowWarningEmitter, WarningSource, WarningType,
     INGESTION_WARNINGS_EMITTER_ENABLED,
@@ -44,12 +44,12 @@ const KAFKA_RETRIES: u32 = 0;
 const KAFKA_LINGER_MS: u32 = 100;
 const KAFKA_QUEUE_MESSAGES: u32 = 10_000;
 const KAFKA_MESSAGE_TIMEOUT_MS: u32 = 5_000;
-const TYPE_BUDGET_PERIOD: Duration = Duration::from_secs(1);
-const TYPE_BUDGET_BURST: NonZeroU32 = NonZeroU32::new(60).unwrap();
+const TYPE_BUDGET_PER_SECOND: NonZeroU32 = NonZeroU32::new(60).unwrap();
 /// Keys are per source distinct id, so the crate default (sized for capture's
 /// per-token keys) would fill within the hour a key lives and silence every
 /// team on the pod. The type budgets admit well under this many keys an hour.
 const MAX_TRACKED_SCOPES: usize = 1_000_000;
+const _: () = assert!(MAX_TRACKED_SCOPES > DEFAULT_MAX_TRACKED_KEYS);
 const THROTTLE_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 /// The distinct id column's own limit: a legal id is never cut, and an
 /// oversized one is cut before it is copied into details.
@@ -250,7 +250,10 @@ fn report_emitter_enabled(reason: &'static str, enabled: bool) {
 fn throttle() -> WarningThrottle {
     WarningThrottle::default()
         .with_max_tracked_keys(MAX_TRACKED_SCOPES)
-        .with_type_budget(TYPE_BUDGET_PERIOD, TYPE_BUDGET_BURST)
+        .with_type_budget(
+            Duration::from_secs(1) / TYPE_BUDGET_PER_SECOND.get(),
+            TYPE_BUDGET_PER_SECOND,
+        )
 }
 
 pub fn install(settings: &WarningsSettings, handle: Option<lifecycle::Handle>) -> MergeWarnings {
@@ -315,7 +318,7 @@ pub fn install(settings: &WarningsSettings, handle: Option<lifecycle::Handle>) -
 mod tests {
     use common_ingestion_warnings::row::throttle_key;
     use common_ingestion_warnings::test_support::CollectingRowEmitter;
-    use common_ingestion_warnings::throttle::{ThrottleDecision, DEFAULT_MAX_TRACKED_KEYS};
+    use common_ingestion_warnings::throttle::ThrottleDecision;
     use metrics_util::debugging::{DebugValue, DebuggingRecorder};
     use rstest::rstest;
     use serde_json::Value;
@@ -579,13 +582,45 @@ mod tests {
     }
 
     #[test]
-    fn the_throttle_tracks_more_scopes_than_the_shared_default_cap() {
+    fn the_throttle_tracks_only_admitted_scopes_and_caps_above_the_shared_default() {
         let throttle = throttle();
         let warning = WarningType::CannotMergeAlreadyIdentified;
+        let mut admitted = 0;
         for n in 0..=DEFAULT_MAX_TRACKED_KEYS {
-            let decision = throttle.check(&throttle_key(7, &n.to_string()), warning);
-            assert_ne!(decision, ThrottleDecision::CardinalityCapped, "scope {n}");
+            match throttle.check(&throttle_key(7, &n.to_string()), warning) {
+                ThrottleDecision::Emit => admitted += 1,
+                ThrottleDecision::TypeBudgetExhausted => {}
+                other => panic!("scope {n}: {other:?}"),
+            }
         }
-        assert_eq!(throttle.tracked_keys(), DEFAULT_MAX_TRACKED_KEYS + 1);
+        assert!(admitted >= TYPE_BUDGET_PER_SECOND.get() as usize);
+        assert_eq!(
+            throttle.tracked_keys(),
+            admitted,
+            "a scope the budget refused must not hold a key"
+        );
+    }
+
+    #[test]
+    fn the_type_budget_refills_at_the_stated_rate() {
+        let throttle = throttle();
+        let warning = WarningType::MergeRaceCondition;
+        for n in 0..TYPE_BUDGET_PER_SECOND.get() {
+            assert_eq!(
+                throttle.check(&throttle_key(7, &n.to_string()), warning),
+                ThrottleDecision::Emit,
+                "scope {n}"
+            );
+        }
+        assert_eq!(
+            throttle.check(&throttle_key(7, "over"), warning),
+            ThrottleDecision::TypeBudgetExhausted
+        );
+        std::thread::sleep(Duration::from_millis(100));
+        // A budget that refilled one permit a second would still refuse.
+        assert_eq!(
+            throttle.check(&throttle_key(7, "later"), warning),
+            ThrottleDecision::Emit
+        );
     }
 }

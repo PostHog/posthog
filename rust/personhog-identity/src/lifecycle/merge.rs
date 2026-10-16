@@ -406,6 +406,10 @@ struct RequestView<'a> {
     creator_event_uuid: &'a str,
     #[serde(borrow)]
     sources: Vec<SourceView<'a>>,
+    /// Verdicts the entrance gave before the saga, by distinct id; a row
+    /// frozen without an entrance pass has none.
+    #[serde(borrow, default)]
+    inline_results: HashMap<&'a str, &'a str>,
 }
 
 #[derive(Deserialize)]
@@ -487,6 +491,31 @@ fn emit_terminal_warnings(warnings: &MergeWarnings, op: &OpRow, outcome: &Value)
                 event_uuid,
                 source_person_id: record.person_id,
                 source_person_uuid: record.person_uuid,
+                survivor_uuid,
+            },
+        );
+    }
+    // An inline conflict is unsettled at the entrance, so it warned nothing
+    // there; this op finishing without a claim abort is what settles it,
+    // the same way the response reports it.
+    if claim_abort {
+        return;
+    }
+    for (distinct_id, outcome) in &request.inline_results {
+        if outcome_settled(outcome) {
+            continue;
+        }
+        warnings.emit_verdict(
+            op.team_id,
+            MERGE_SAGA,
+            outcome,
+            true,
+            &MergePair {
+                source_distinct_id: distinct_id,
+                target_distinct_id: request.target_distinct_id,
+                event_uuid: request.creator_event_uuid,
+                source_person_id: None,
+                source_person_uuid: None,
                 survivor_uuid,
             },
         );

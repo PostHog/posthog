@@ -10,8 +10,10 @@
 //! caps how many warnings of one type a pod sends, whatever the number of
 //! tokens.
 
+use std::collections::HashMap;
 use std::num::NonZeroU32;
-use std::time::Duration;
+use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use governor::{clock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
 
@@ -27,11 +29,64 @@ pub const DEFAULT_THROTTLE_PERIOD: Duration = Duration::from_secs(3600);
 pub const DEFAULT_MAX_TRACKED_KEYS: usize = 100_000;
 
 type Key = (String, crate::registry::WarningType);
-type TypeBudget = RateLimiter<
-    crate::registry::WarningType,
-    DefaultKeyedStateStore<crate::registry::WarningType>,
-    clock::DefaultClock,
->;
+
+/// Per-type token bucket: `burst` permits, one refilled per `period`. Not a
+/// governor limiter because [`WarningThrottle::check`] must know whether a
+/// permit is available before it tracks a new key, and governor can only
+/// take one.
+struct TypeBudget {
+    period: Duration,
+    burst: f64,
+    buckets: Mutex<HashMap<crate::registry::WarningType, Bucket>>,
+}
+
+struct Bucket {
+    permits: f64,
+    refilled_at: Instant,
+}
+
+impl TypeBudget {
+    fn new(period: Duration, burst: NonZeroU32) -> Self {
+        assert!(!period.is_zero(), "type budget period must be non-zero");
+        Self {
+            period,
+            burst: f64::from(burst.get()),
+            buckets: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn has_permit(&self, warning: crate::registry::WarningType) -> bool {
+        self.with_permits(warning, |permits| *permits >= 1.0)
+    }
+
+    fn take_permit(&self, warning: crate::registry::WarningType) -> bool {
+        self.with_permits(warning, |permits| {
+            if *permits < 1.0 {
+                return false;
+            }
+            *permits -= 1.0;
+            true
+        })
+    }
+
+    fn with_permits<T>(
+        &self,
+        warning: crate::registry::WarningType,
+        f: impl FnOnce(&mut f64) -> T,
+    ) -> T {
+        let now = Instant::now();
+        let mut buckets = self.buckets.lock().unwrap_or_else(PoisonError::into_inner);
+        let bucket = buckets.entry(warning).or_insert(Bucket {
+            permits: self.burst,
+            refilled_at: now,
+        });
+        let refilled =
+            now.duration_since(bucket.refilled_at).as_secs_f64() / self.period.as_secs_f64();
+        bucket.permits = (bucket.permits + refilled).min(self.burst);
+        bucket.refilled_at = now;
+        f(&mut bucket.permits)
+    }
+}
 
 /// Outcome of a throttle check; names align with the emission metric's
 /// `outcome` label values.
@@ -93,10 +148,7 @@ impl WarningThrottle {
     /// at `burst`, refilling one permit per `period`. This bounds what one
     /// failure that hits many tokens at once can send. Off by default.
     pub fn with_type_budget(mut self, period: Duration, burst: NonZeroU32) -> Self {
-        let quota = Quota::with_period(period)
-            .expect("type budget period must be non-zero")
-            .allow_burst(burst);
-        self.type_budget = Some(RateLimiter::dashmap(quota));
+        self.type_budget = Some(TypeBudget::new(period, burst));
         self
     }
 
@@ -110,6 +162,17 @@ impl WarningThrottle {
         if self.limiter.len() >= self.max_tracked_keys {
             return ThrottleDecision::CardinalityCapped;
         }
+        // Asked before the per-key check tracks the key, so a token the
+        // budget refuses neither takes a slot in the map nor spends its own
+        // permit. The permit itself is taken last, so a token that repeats
+        // a warning cannot use up the budget of every other token.
+        if self
+            .type_budget
+            .as_ref()
+            .is_some_and(|budget| !budget.has_permit(warning))
+        {
+            return ThrottleDecision::TypeBudgetExhausted;
+        }
         if self
             .limiter
             .check_key(&(token.to_string(), warning))
@@ -117,13 +180,8 @@ impl WarningThrottle {
         {
             return ThrottleDecision::Throttled;
         }
-        // The type budget comes second, so a token that repeats a warning
-        // spends at most one budget permit per period and cannot use up the
-        // budget of every other token.
         match &self.type_budget {
-            Some(budget) if budget.check_key(&warning).is_err() => {
-                ThrottleDecision::TypeBudgetExhausted
-            }
+            Some(budget) if !budget.take_permit(warning) => ThrottleDecision::TypeBudgetExhausted,
             _ => ThrottleDecision::Emit,
         }
     }
@@ -268,11 +326,15 @@ mod tests {
                 ThrottleDecision::Throttled,
                 ThrottleDecision::Emit,
                 ThrottleDecision::TypeBudgetExhausted,
-                // The refused check still spent tok_c's per-token permit.
-                ThrottleDecision::Throttled,
+                ThrottleDecision::TypeBudgetExhausted,
                 // Each type has its own budget.
                 ThrottleDecision::Emit,
             ]
+        );
+        assert_eq!(
+            throttle.tracked_keys(),
+            3,
+            "the refused tok_c checks must not take key-map slots"
         );
     }
 
