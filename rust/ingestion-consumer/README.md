@@ -17,7 +17,8 @@ Each guarantee has a violation counter that must stay flat and a denominator tha
 | Messages enter the worker pipeline in per-key offset order (end to end) | `ingestion_api_out_of_order_messages_total` (worker-side) | `ingestion_api_replayed_messages_total`, `ingestion_api_order_sentinel_keys` |
 
 Commit success can't be observed via rdkafka's `commit_callback` — librdkafka drops the result of manual async commits (no conf-level `offset_commit_cb` is ever registered by rust-rdkafka, and only sync commits attach a reply queue).
-The broker's view comes from kminion, which exports every group's lag per partition; commits that stop landing show as lag that grows while the consumer's processed rate holds.
+The broker's view comes from kminion, which exports every group's lag per partition; commits that stop landing show as lag that grows while the consumer's processed rate holds, or as lag that stays above zero on a partition with nothing new to read.
+A commit that never lands costs a replay from the last landed commit on the next restart, not a loss.
 
 Both sides default to enabled and have kill switches: `CONSUMER_ORDER_SENTINEL_ENABLED` here, `INGESTION_API_FEED_ORDER_SENTINEL_ENABLED` (plus `INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS`) on the worker.
 The rebalance metrics from the consumer context stay on regardless, and the `consumer_id`/`replay` request fields are always stamped so either side can be toggled independently.
