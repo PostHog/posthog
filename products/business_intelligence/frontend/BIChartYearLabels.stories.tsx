@@ -34,7 +34,7 @@ const config: BIConfig = {
     ],
     filters: [],
     chartType: ChartDisplayType.ActionsBar,
-    limit: 100,
+    limit: 50_000,
 }
 const dates = [
     '2025-10-01',
