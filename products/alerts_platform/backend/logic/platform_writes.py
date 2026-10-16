@@ -146,9 +146,14 @@ def update_owned_copy(
 
 def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
     """Deletes the copy of a source alert the platform owns, with its instances and threads."""
-    PlatformAlertConfiguration.objects.for_team(team_id).filter(
+    copies = PlatformAlertConfiguration.objects.for_team(team_id).filter(
         legacy_configuration_id=legacy_configuration_id, owner=PlatformAlertOwner.PLATFORM
-    ).delete()
+    )
+    with transaction.atomic():
+        # The configuration before its children, the order `record_outcomes` locks them in. The
+        # cascade deletes the children first, so without this the two can deadlock.
+        list(copies.select_for_update())
+        copies.delete()
 
 
 def _locked_owned_copy(team_id: int, legacy_configuration_id: UUID) -> PlatformAlertConfiguration | None:
