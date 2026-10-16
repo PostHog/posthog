@@ -33,6 +33,7 @@ const DEFAULT_READ_TTL_SECONDS = 5 * 60
 const CONNECTOR_READ_TTL_SECONDS = 60
 const MAX_STATE_PAGES = 20
 const canvasQuerySchema = z.object({ kind: z.nativeEnum(NodeKind) }).passthrough()
+const CANVAS_QUERY_TAGS = { productKey: 'canvas', scene: 'Canvas' }
 // pinned: `$lib` value on events a canvas captures, shared with PostHog Desktop
 const CANVAS_CAPTURE_LIB = 'posthog-canvas'
 
@@ -73,7 +74,32 @@ interface CanvasDataResult {
     insight?: { name: string | null; kind: string | null; display: string | null }
 }
 
-type QueryNode = { kind?: string; source?: QueryNode | null; variables?: Record<string, unknown> | null }
+type QueryNode = {
+    kind?: string
+    source?: QueryNode | null
+    variables?: Record<string, unknown> | null
+    tags?: Record<string, unknown> | null
+}
+
+// The backend schemas of these kinds have no `tags` field and forbid extra fields, so a tag fails validation.
+const UNTAGGABLE_QUERY_KINDS = new Set<string>([
+    NodeKind.InsightVizNode,
+    NodeKind.DataVisualizationNode,
+    NodeKind.BIVisualizationNode,
+    NodeKind.InsightActorsQueryOptions,
+    NodeKind.FunnelCorrelationQuery,
+    NodeKind.WebAnalyticsExternalSummaryQuery,
+])
+
+// Tag every node in the source chain, because a runner like InsightActorsQuery reads its own tags
+// and does not run its source. The canvas cannot override attribution, so its own tags lose to ours.
+function withCanvasQueryTags<T extends QueryNode>(node: T): T {
+    const tagged =
+        node.kind && UNTAGGABLE_QUERY_KINDS.has(node.kind)
+            ? node
+            : { ...node, tags: { ...node.tags, ...CANVAS_QUERY_TAGS } }
+    return tagged.source?.kind ? { ...tagged, source: withCanvasQueryTags(tagged.source) } : tagged
+}
 
 function refreshSeconds(value: unknown): number | undefined {
     if (value === undefined) {
@@ -182,7 +208,9 @@ export class CanvasDataBridge {
             throw new Error('ph.query parameters are not supported. Use a typed query with variables instead.')
         }
         const refresh = refreshSeconds(input.refresh)
-        const node = canvasQuerySchema.parse(typed ? input.query : { kind: NodeKind.HogQLQuery, query: hogql })
+        const node = withCanvasQueryTags(
+            canvasQuerySchema.parse(typed ? input.query : { kind: NodeKind.HogQLQuery, query: hogql })
+        )
         return this.cache.read(
             'query',
             { node, params: input.params },

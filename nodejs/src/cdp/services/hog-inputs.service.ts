@@ -17,6 +17,12 @@ export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 const EMAIL_INPUT_TYPES = ['native_email', 'email']
 
+const ACCESS_TOKEN_PLACEHOLDER_PURPOSE = 'integration-access-token-placeholder'
+
+const accessTokenPlaceholderBase = (integrationId: number): string => `${ACCESS_TOKEN_PLACEHOLDER}${integrationId}`
+
+const signedAccessTokenPlaceholder = (base: string, signature: string): string => `${base}_${signature.slice(0, 32)}`
+
 export class HogInputsService {
     constructor(
         private integrationManager: IntegrationManagerService,
@@ -170,6 +176,20 @@ export class HogInputsService {
         return result
     }
 
+    // The fetch step swaps these values for the token wherever they appear in the request, so they must not be
+    // something a request can contain unless the function read it from these inputs.
+    private accessTokenPlaceholder(integrationId: number): string {
+        const base = accessTokenPlaceholderBase(integrationId)
+        return signedAccessTokenPlaceholder(base, this.encryptedFields.sign(ACCESS_TOKEN_PLACEHOLDER_PURPOSE, base))
+    }
+
+    public acceptedAccessTokenPlaceholders(integrationId: number): string[] {
+        const base = accessTokenPlaceholderBase(integrationId)
+        return this.encryptedFields
+            .signatures(ACCESS_TOKEN_PLACEHOLDER_PURPOSE, base)
+            .map((signature) => signedAccessTokenPlaceholder(base, signature))
+    }
+
     public async loadIntegrationInputs(
         hogFunction: HogFunctionType,
         newGlobals?: HogFunctionInvocationGlobalsWithInputs,
@@ -233,7 +253,7 @@ export class HogInputsService {
                 ...integration.sensitive_config,
                 ...(integration.sensitive_config.access_token || integration.config.access_token
                     ? {
-                          access_token: ACCESS_TOKEN_PLACEHOLDER + integration.id,
+                          access_token: this.accessTokenPlaceholder(integration.id),
                           access_token_raw:
                               integration.sensitive_config.access_token ?? integration.config.access_token,
                       }

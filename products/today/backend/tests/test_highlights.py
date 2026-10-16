@@ -67,6 +67,7 @@ ALERT_RESULT = HighlightSourceResult(
     failed=False,
 )
 FAILED_RESULT = HighlightSourceResult(source_name="errors", found=None, failed=True)
+PARTIAL_RESULT = HighlightSourceResult(source_name="alerts", found=ALERT_RESULT.found, failed=True)
 READY_CONTENT = HIGHLIGHTS.dump_python(
     contracts.Highlights(
         status=HighlightsStatus.READY,
@@ -251,6 +252,7 @@ class TestFinalizeHighlights(BaseTest):
         [
             ("one source failed", [ALERT_RESULT, FAILED_RESULT], HighlightsStatus.READY, ["alert"], False),
             ("every source failed", [FAILED_RESULT], HighlightsStatus.FAILED, [], True),
+            ("every source failed but one kept an item", [PARTIAL_RESULT], HighlightsStatus.READY, ["alert"], False),
         ]
     )
     def test_a_ready_computation_replaces_the_older_rows(
@@ -299,8 +301,14 @@ class TestGetHighlights(BaseTest):
                 0,
                 ["k1"],
             ),
-            ("a recent computing row", {"created_at": timedelta(minutes=1)}, HighlightsStatus.COMPUTING, 0, []),
-            ("a lost computing row", {"created_at": timedelta(minutes=5)}, HighlightsStatus.COMPUTING, 1, []),
+            (
+                "a computing row inside the retry budget",
+                {"created_at": timedelta(minutes=3)},
+                HighlightsStatus.COMPUTING,
+                0,
+                [],
+            ),
+            ("a lost computing row", {"created_at": timedelta(minutes=6)}, HighlightsStatus.COMPUTING, 1, []),
             (
                 "a stale ready row",
                 {"status": HighlightsStatus.READY, "ready_at": timedelta(minutes=20)},

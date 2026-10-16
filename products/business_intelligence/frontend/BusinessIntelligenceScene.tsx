@@ -26,6 +26,7 @@ import { getBIHierarchyParent } from './biHierarchies'
 import { BIResultSummary } from './BIResultSummary'
 import { keepBIScatterRows } from './biScatter'
 import { biSceneLogic } from './biSceneLogic'
+import { BISQLPreviewModal } from './BISQLPreviewModal'
 
 export const scene: SceneExport = {
     component: BusinessIntelligenceScene,
@@ -57,6 +58,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         copyDisabledReason,
         worksheet,
         displayedQueryIsCurrent,
+        generatedQuery,
     } = useValues(logic)
     const {
         setName,
@@ -71,6 +73,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         undo,
         redo,
         navigateHierarchy,
+        setSqlPreviewOpen,
     } = useActions(logic)
 
     const hierarchyParent = getBIHierarchyParent(worksheet)
@@ -100,6 +103,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
     return (
         <BindLogic logic={biSceneLogic} props={{ tabId }}>
             <div className="flex h-full min-h-0 flex-col" data-attr="bi-worksheet">
+                <BISQLPreviewModal />
                 <header className="flex flex-wrap items-center gap-1 border-b px-2 py-1">
                     <LemonButton size="small" to={urls.businessIntelligence()}>
                         Worksheets
@@ -131,6 +135,15 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                     </LemonButton>
                     <LemonMenu
                         items={[
+                            {
+                                label: 'View SQL',
+                                onClick: () => setSqlPreviewOpen(true),
+                                disabledReason:
+                                    !generatedQuery && !lastRunQuery
+                                        ? 'Select fields to build a query first'
+                                        : undefined,
+                                'data-attr': 'bi-view-sql',
+                            },
                             {
                                 label: 'Save a copy',
                                 onClick: () => saveInsight({ asCopy: true }),

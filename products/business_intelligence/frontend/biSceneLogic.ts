@@ -58,6 +58,7 @@ import {
 import type { BIQueryBuildResult } from './biEditorTypes'
 import { mergeBITableSettings } from './biMeasureSettings'
 import { applyBIDateRange, mergeBIQuerySource } from './biQueryFilters'
+import { getBIVisualizationSource } from './biQueryResults'
 import { getBIScatterAxisOptions } from './biScatter'
 
 export interface BISceneLogicProps {
@@ -111,6 +112,10 @@ export interface biSceneLogicValues {
     loadError: string | null
     name: string
     saveDisabledReason: string | undefined
+    sqlEditorUrl: string | null
+    sqlPreviewOpen: boolean
+    sqlPreviewQuery: BIVisualizationNode | null
+    sqlPreviewVersion: 'current' | 'last_run'
     visualization: BIVisualizationNode
     worksheet: BIVisualizationNode
 }
@@ -245,6 +250,12 @@ export interface biSceneLogicActions {
         axis: 'x' | 'y'
         column: string
     }
+    setSqlPreviewOpen: (open: boolean) => {
+        open: boolean
+    }
+    setSqlPreviewVersion: (version: 'current' | 'last_run') => {
+        version: 'current' | 'last_run'
+    }
     setVisualization: (visualization: VisualizationNode) => {
         visualization: VisualizationNode
     }
@@ -263,6 +274,12 @@ export interface biSceneLogicActions {
 export interface biSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        sqlPreviewQuery: (
+            sqlPreviewVersion: 'current' | 'last_run',
+            worksheet: BIVisualizationNode,
+            lastRunQuery: BIVisualizationNode | null
+        ) => BIVisualizationNode | null
+        sqlEditorUrl: (sqlPreviewQuery: BIVisualizationNode | null) => string | null
         displayedQueryIsCurrent: (lastRunQuery: BIVisualizationNode | null, worksheet: BIVisualizationNode) => boolean
         canUndo: (history: BIWorksheetHistory) => boolean
         canRedo: (history: BIWorksheetHistory) => boolean
@@ -331,6 +348,8 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         selectConnection: (connectionId: string | null) => ({ connectionId }),
         setExportViewName: (name: string) => ({ name }),
         setExportViewOpen: (open: boolean) => ({ open }),
+        setSqlPreviewOpen: (open: boolean) => ({ open }),
+        setSqlPreviewVersion: (version: 'current' | 'last_run') => ({ version }),
     }),
     loaders(({ values, actions }) => ({
         insight: [
@@ -462,8 +481,34 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         ],
         exportViewName: ['', { setExportViewName: (_, { name }) => name }],
         exportViewOpen: [false, { setExportViewOpen: (_, { open }) => open }],
+        sqlPreviewOpen: [false, { setSqlPreviewOpen: (_, { open }) => open, restoreWorksheet: () => false }],
+        sqlPreviewVersion: ['current' as 'current' | 'last_run', { setSqlPreviewVersion: (_, { version }) => version }],
     }),
     selectors({
+        sqlPreviewQuery: [
+            (s) => [s.sqlPreviewVersion, s.worksheet, s.lastRunQuery],
+            (
+                version: 'current' | 'last_run',
+                worksheet: BIVisualizationNode,
+                lastRun: BIVisualizationNode | null
+            ): BIVisualizationNode | null => {
+                const query = version === 'current' ? worksheet : lastRun
+                return query?.source.query ? { ...query, source: getBIVisualizationSource(query) } : null
+            },
+        ],
+        sqlEditorUrl: [
+            (s) => [s.sqlPreviewQuery],
+            (query: BIVisualizationNode | null): string | null =>
+                query
+                    ? urls.sqlEditor({
+                          query: {
+                              kind: NodeKind.DataVisualizationNode,
+                              source: query.source,
+                              display: ChartDisplayType.ActionsTable,
+                          },
+                      })
+                    : null,
+        ],
         displayedQueryIsCurrent: [
             (s) => [s.lastRunQuery, s.worksheet],
             (lastRunQuery: BIVisualizationNode | null, worksheet: BIVisualizationNode): boolean =>
@@ -548,6 +593,11 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
+        setSqlPreviewOpen: ({ open }) => {
+            if (open) {
+                actions.setSqlPreviewVersion(values.generatedQuery ? 'current' : 'last_run')
+            }
+        },
         recordWorksheet: ({ reset }) => {
             if (!cache.restoringHistory) {
                 actions.pushHistory(
@@ -715,7 +765,8 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             if (values.autoUpdate && values.generatedQuery) {
                 const dataLogic = dataNodeLogic.findMounted({ key: values.dataNodeKey })
                 if (
-                    !equal(values.lastRunQuery?.source, values.worksheet.source) ||
+                    !values.lastRunQuery ||
+                    !equal(getBIVisualizationSource(values.lastRunQuery), getBIVisualizationSource(values.worksheet)) ||
                     (!dataLogic?.values.responseLoading &&
                         (!dataLogic?.values.response ||
                             dataLogic.values.responseError ||
@@ -727,12 +778,24 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 }
             }
         },
+        setChartType: () => {
+            if (
+                !values.autoUpdate &&
+                values.lastRunQuery &&
+                equal({ ...values.lastRunQuery.config, chartType: values.config.chartType }, values.config) &&
+                equal(getBIVisualizationSource(values.lastRunQuery), getBIVisualizationSource(values.worksheet))
+            ) {
+                actions.setLastRunQuery(values.worksheet)
+            }
+        },
         runQuery: () => {
             if (!values.generatedQuery) {
                 return
             }
             captureBIEditorQueryRun({ editorView: BIEditorView.BI, config: values.config })
-            const unchanged = equal(values.lastRunQuery?.source, values.worksheet.source)
+            const unchanged =
+                !!values.lastRunQuery &&
+                equal(getBIVisualizationSource(values.lastRunQuery), getBIVisualizationSource(values.worksheet))
             actions.setLastRunQuery(values.worksheet)
             if (unchanged) {
                 dataNodeLogic.findMounted({ key: values.dataNodeKey })?.actions.loadData('force_async')

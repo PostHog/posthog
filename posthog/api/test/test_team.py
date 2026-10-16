@@ -15,7 +15,7 @@ from django.test.client import RequestFactory
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework import status, test
+from rest_framework import serializers, status, test
 
 from posthog.api.project import ProjectBackwardCompatSerializer, log_activity
 from posthog.api.team.conversations_settings import handle_conversations_token_on_update, merge_conversations_settings
@@ -4248,6 +4248,20 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
 _TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
 
 
+def _sixty_channel_ids() -> list[str]:
+    return [f"C{i}" for i in range(60)]
+
+
+def _validate_conversations_settings(
+    serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+    stored: dict[str, object] | None,
+    submitted: dict[str, object],
+) -> dict[str, object] | None:
+    team = Team(conversations_settings=stored)
+    instance = team if serializer_class is TeamSerializer else MagicMock(passthrough_team=team)
+    return serializer_class(instance=instance).validate_conversations_settings(submitted)
+
+
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
     @parameterized.expand([(None,), ({},), ({"widget_color": "#123456"},)])
     def test_conversations_settings_clear_without_managed_values(self, existing: dict[str, str] | None) -> None:
@@ -4344,6 +4358,134 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         serializer = serializer_class(data={"conversations_settings": value}, partial=True)
         self.assertFalse(serializer.is_valid())
         self.assertIn("conversations_settings", serializer.errors)
+
+    @parameterized.expand(
+        [
+            (serializer, name, ai_reply_modes, expected_cleaned)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for name, ai_reply_modes, expected_cleaned in (
+                ("non_string_mode_is_dropped", {"slack": {"how_to": ["bot_reply"]}}, {}),
+                (
+                    "bot_reply_for_diagnostic_becomes_private_note",
+                    {"slack": {"diagnostic": "bot_reply"}},
+                    {"slack": {"diagnostic": "private_note"}},
+                ),
+            )
+        ]
+    )
+    def test_conversations_settings_ai_reply_modes_cleans_up_values(
+        self,
+        serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+        _name: str,
+        ai_reply_modes: dict,
+        expected_cleaned: dict,
+    ) -> None:
+        # Calls the field validator directly, like test_normalize_logs_json_attribute_key below:
+        # building a full serializer.is_valid() call needs view/request context neither
+        # serializer has outside a real request, which this no-DB test does not set up.
+        cleaned = serializer_class().validate_conversations_settings({"ai_reply_modes": ai_reply_modes})
+        assert cleaned is not None
+        self.assertEqual(cleaned["ai_reply_modes"], expected_cleaned)
+
+    @parameterized.expand(
+        [
+            (serializer, name, stored, submitted)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for name, stored, submitted in (
+                ("ai_reply_modes_must_be_an_object", None, {"ai_reply_modes": ["not", "a", "dict"]}),
+                (
+                    "changed_ai_reply_modes_must_be_an_object",
+                    {"ai_reply_modes": ["old"]},
+                    {"ai_reply_modes": ["new"]},
+                ),
+                (
+                    "changed_display_name_over_200_characters",
+                    {"slack_bot_display_name": "a" * 201},
+                    {"slack_bot_display_name": "b" * 201},
+                ),
+            )
+        ]
+    )
+    def test_conversations_settings_rejects_invalid_values(
+        self,
+        serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+        _name: str,
+        stored: dict[str, object] | None,
+        submitted: dict[str, object],
+    ) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            _validate_conversations_settings(serializer_class, stored, submitted)
+
+    @parameterized.expand(
+        [
+            (serializer, name, stored, submitted, expected_cleaned)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for name, stored, submitted, expected_cleaned in (
+                (
+                    "dedupes_and_caps_at_50",
+                    None,
+                    {"slack_channel_ids": ["a", "a", "b"] + [f"c{i}" for i in range(50)]},
+                    {"slack_channel_ids": ["a", "b"] + [f"c{i}" for i in range(48)]},
+                ),
+                ("null_clears_the_stored_list", None, {"slack_channel_ids": None}, {"slack_channel_ids": None}),
+                (
+                    "unchanged_list_over_50_is_kept",
+                    {"slack_channel_ids": _sixty_channel_ids()},
+                    {"slack_channel_ids": _sixty_channel_ids()},
+                    {"slack_channel_ids": _sixty_channel_ids()},
+                ),
+                (
+                    "changed_list_over_50_is_capped",
+                    {"slack_channel_ids": _sixty_channel_ids()},
+                    {"slack_channel_ids": ["new", *_sixty_channel_ids()]},
+                    {"slack_channel_ids": ["new", *_sixty_channel_ids()[:49]]},
+                ),
+                (
+                    "unchanged_display_name_over_200_characters_is_kept",
+                    {"slack_bot_display_name": "a" * 201},
+                    {"slack_bot_display_name": "a" * 201},
+                    {"slack_bot_display_name": "a" * 201},
+                ),
+                (
+                    "unchanged_non_object_ai_reply_modes_is_kept",
+                    {"ai_reply_modes": ["old"]},
+                    {"ai_reply_modes": ["old"]},
+                    {"ai_reply_modes": ["old"]},
+                ),
+                (
+                    "unchanged_bot_reply_mode_is_kept",
+                    {"ai_reply_modes": {"slack": {"diagnostic": "bot_reply"}}},
+                    {"ai_reply_modes": {"slack": {"diagnostic": "bot_reply"}}},
+                    {"ai_reply_modes": {"slack": {"diagnostic": "bot_reply"}}},
+                ),
+                (
+                    "unchanged_widget_domains_is_kept",
+                    {"widget_domains": _TOO_MANY_WILDCARDS},
+                    {"widget_domains": _TOO_MANY_WILDCARDS},
+                    {"widget_domains": _TOO_MANY_WILDCARDS},
+                ),
+                (
+                    "changed_value_is_cleaned_with_unchanged_value_present",
+                    {"ai_reply_modes": ["old"], "slack_alert_channel_id": "old"},
+                    {"ai_reply_modes": ["old"], "slack_alert_channel_id": " new "},
+                    {"ai_reply_modes": ["old"], "slack_alert_channel_id": "new"},
+                ),
+            )
+        ]
+    )
+    def test_conversations_settings_cleans_up_values(
+        self,
+        serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+        _name: str,
+        stored: dict[str, object] | None,
+        submitted: dict[str, object],
+        expected_cleaned: dict[str, object],
+    ) -> None:
+        # A PATCH that sends null must clear the stored list, not silently keep the old one:
+        # merge_conversations_settings only overwrites keys present in the validated value, so
+        # dropping the key here (instead of keeping it as None) would make the clear a no-op.
+        cleaned = _validate_conversations_settings(serializer_class, stored, submitted)
+        self.assertEqual(cleaned, expected_cleaned)
 
     @parameterized.expand([(None,), (True,), (123,), ([],), ({},), ("a" * 201,)])
     def test_invalid_logs_json_attribute_key(self, key):

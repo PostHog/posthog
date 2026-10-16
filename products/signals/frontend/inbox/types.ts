@@ -1,6 +1,7 @@
 import type { UserBasicType } from '~/types'
 
 import {
+    type SignalReportApi,
     type ReportChartApi,
     type ReportMetricApi,
     type ReportRankingApi,
@@ -85,7 +86,7 @@ export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
     'requires_human_input',
 ]
 
-export interface SignalReport {
+export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_at'> {
     pull_requests?: readonly SignalReportPullRequestApi[]
     assignee?: SignalReportAssigneeApi | null
     id: string

@@ -666,6 +666,12 @@ export const BatchExportsCreateBody = () => zod
                             'Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown\/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).'
                         ),
                     sessionTableVersion: zod.union([zod.enum(['auto', 'v1', 'v2', 'v3']), zod.null()]).optional(),
+                    sessionTimestampBufferMinutes: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range.'
+                        ),
                     sessionsV2JoinMode: zod.union([zod.enum(['string', 'uuid']), zod.null()]).optional(),
                     timings: zod.union([zod.boolean(), zod.null()]).optional(),
                     typeAwareCastSimplification: zod
@@ -1392,6 +1398,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             'Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown\/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).'
                         ),
                     sessionTableVersion: zod.union([zod.enum(['auto', 'v1', 'v2', 'v3']), zod.null()]).optional(),
+                    sessionTimestampBufferMinutes: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range.'
+                        ),
                     sessionsV2JoinMode: zod.union([zod.enum(['string', 'uuid']), zod.null()]).optional(),
                     timings: zod.union([zod.boolean(), zod.null()]).optional(),
                     typeAwareCastSimplification: zod
@@ -1849,6 +1861,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                             'Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown\/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).'
                         ),
                     sessionTableVersion: zod.union([zod.enum(['auto', 'v1', 'v2', 'v3']), zod.null()]).optional(),
+                    sessionTimestampBufferMinutes: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range.'
+                        ),
                     sessionsV2JoinMode: zod.union([zod.enum(['string', 'uuid']), zod.null()]).optional(),
                     timings: zod.union([zod.boolean(), zod.null()]).optional(),
                     typeAwareCastSimplification: zod
@@ -2149,6 +2167,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                         'Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown\/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).'
                     ),
                 sessionTableVersion: zod.union([zod.enum(['auto', 'v1', 'v2', 'v3']), zod.null()]).optional(),
+                sessionTimestampBufferMinutes: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range.'
+                    ),
                 sessionsV2JoinMode: zod.union([zod.enum(['string', 'uuid']), zod.null()]).optional(),
                 timings: zod.union([zod.boolean(), zod.null()]).optional(),
                 typeAwareCastSimplification: zod

@@ -139,6 +139,15 @@ export interface BIFilter {
     enabled?: boolean
 }
 
+export interface BIPaneSettings {
+    /** Ordered dimension IDs used to split returned groups into separate charts. */
+    fields: string[]
+    /** Use a separate value scale for each pane instead of a shared primary scale. */
+    independentAxes?: boolean
+    /** Calculate reference lines from each pane or from all returned worksheet marks. */
+    referenceLines?: 'pane' | 'worksheet'
+}
+
 export interface BIConfig {
     source: BIDataSource | null
     /** Reusable expressions owned by this worksheet only. */
@@ -153,6 +162,8 @@ export interface BIConfig {
     }[]
     memberAliases?: { field: BIField; aliases: { value: string | null; label: string }[] }[]
     colorBy?: string | null
+    /** Split the returned groups into charts using these ordered dimension IDs. */
+    panes?: BIPaneSettings
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIField | null
     dateRange?: DateRange

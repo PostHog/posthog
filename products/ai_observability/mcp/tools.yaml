@@ -1702,6 +1702,7 @@ tools:
             description); optionally set min_tags and max_tags. For tagger_type "hog", provide tagger_config.source Hog
             code that returns a tag name string, a list of tag name strings, or null; optionally provide
             tagger_config.tags as a whitelist. Use enabled=false while drafting, then update the tagger from the UI.
+        feature_flag: llm-analytics-tags
         url_prefix: /ai-evals/taggers
     llma-tagger-list:
         operation: taggers_list
@@ -1719,6 +1720,7 @@ tools:
             List AI observability taggers for the current project. Supports filtering by enabled status, id__in, search,
             and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model
             configuration, creator, and timestamps.
+        feature_flag: llm-analytics-tags
         url_prefix: /ai-evals/taggers
     llma-tagger-test-hog:
         operation: taggers_test_hog_create
@@ -1735,6 +1737,7 @@ tools:
             return a tag name string, a list of tag name strings, or null. Optionally pass tags as a whitelist; returned
             tags outside the whitelist are filtered out. Results include input/output previews, selected tags, stdout
             reasoning, and any execution error for each sampled event.
+        feature_flag: llm-analytics-tags
     llma-trace-review-create:
         operation: llm_analytics_trace_reviews_create
         enabled: true

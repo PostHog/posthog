@@ -5,13 +5,13 @@ import './buffer-polyfill'
 import { Suspense, lazy } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
-import { markBootMilestone } from 'lib/utils/bootMarks'
+import { markBootPhase } from 'lib/utils/bootTiming'
 import { retryBootImport } from 'lib/utils/retryImport'
 
 import { RootErrorBoundary } from './RootErrorBoundary'
 import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 
-markBootMilestone('entry-start')
+markBootPhase('entry')
 
 type AppModules = [typeof import('scenes/App'), typeof import('scenes/bootApp')]
 
@@ -22,7 +22,8 @@ function loadAppModules(): Promise<AppModules> {
         retryBootImport(() => import('scenes/App')),
         retryBootImport(() => import('scenes/bootApp')),
     ]).then((modules) => {
-        markBootMilestone('app-modules-loaded')
+        // Marked here, not in the lazy() factory: React calls the factory only after the CSS gate in boot().
+        markBootPhase('app_modules_loaded')
         return modules
     }))
 }
@@ -60,7 +61,6 @@ function getAppRoot(): Root | null {
 }
 
 function renderApp(): void {
-    markBootMilestone('render-start')
     getAppRoot()?.render(
         <RootErrorBoundary>
             {/* Auto-reloads once on a chunk-load failure (stale deploy). Repeated or non-chunk

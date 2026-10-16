@@ -360,6 +360,19 @@ _METRIC_CHECK_GUIDANCE = """- Use `kind: "metric_threshold"` when the `outcome` 
   Do not use a per-interval goal: the executor compares the whole query window. A spec naming
   anything else is dropped."""
 
+_MONITORING_METRIC_CHECK_GUIDANCE = """- This organization can define Monitoring metric checks. When the evidence establishes the periods and
+  scaling policy, include `config.monitoring` with `reference_period_minutes`, `threshold_scaling`, and
+  `baseline_period_minutes`. The reference period is the period the comparison target describes; the
+  baseline period is the actual period you measured. Both are positive whole minutes, at most 366 days.
+  They are independent of soak_hours and the run schedule. Monitoring observations will cover Monitoring
+  start through the observation time. Choose `linear` only for one additive event count or property sum
+  without a formula: the target scales by elapsed minutes / reference_period_minutes. Choose `fixed`
+  explicitly for rates, averages, distinct counts, or other targets that keep the same bound. Never infer
+  scaling from the number's display format. Supply the baseline period whenever baseline_value is present.
+  If these facts are unknown, omit monitoring rather than invent them. Preserve the bounded relative query
+  and whole-window comparison for existing Resolved behavior. This only defines the measurement; it does
+  not enable interim execution or decide a final outcome."""
+
 _AGENT_CHECK_GUIDANCE = """- Use `kind: "agent"` when no single number settles the claim but a later run can establish it by
   reading the project's data, such as re-reading an error issue's recent events. It needs no metric,
   baseline, or comparison. The `config` is
@@ -1323,6 +1336,7 @@ Respond with a JSON object matching this schema:
 def build_fix_verification_prompt(
     *,
     metric_checks_enabled: bool = False,
+    monitoring_enabled: bool = False,
     agent_checks_enabled: bool = False,
     previous_checks: list[dict] | None = None,
 ) -> str:
@@ -1339,6 +1353,7 @@ def build_fix_verification_prompt(
         guidance
         for guidance, enabled in (
             (_METRIC_CHECK_GUIDANCE, metric_checks_enabled),
+            (_MONITORING_METRIC_CHECK_GUIDANCE, metric_checks_enabled and monitoring_enabled),
             (_AGENT_CHECK_GUIDANCE, agent_checks_enabled),
             (_METRIC_ONLY_CHECK_GUIDANCE, metric_checks_enabled and not agent_checks_enabled),
         )
@@ -1478,6 +1493,7 @@ async def run_multi_turn_research(
     resolved_report_summary: str | None = None,
     linked_reports: list[LinkedReportContext] | None = None,
     metrics_enabled: bool = False,
+    monitoring_enabled: bool = False,
     reviewer_selection_enabled: bool = False,
     agent_checks_enabled: bool = False,
     steering_section: str = "",
@@ -1685,6 +1701,7 @@ async def run_multi_turn_research(
                 # A `metric_threshold` check references one of the report's own metrics, so the
                 # metrics rollout is what makes that kind available at all.
                 metric_checks_enabled=metrics_enabled,
+                monitoring_enabled=monitoring_enabled,
                 agent_checks_enabled=agent_checks_enabled,
                 previous_checks=previous_checks,
             )
