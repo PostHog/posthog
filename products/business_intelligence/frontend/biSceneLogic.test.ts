@@ -124,14 +124,20 @@ describe('biSceneLogic', () => {
     })
     afterEach(() => logic.unmount())
 
-    it('reconciles an assistant rename without overwriting unsaved query edits', async () => {
+    it.each([
+        { id: 123, insightId: 'another-worksheet' },
+        { insightId: 123, insight_id: 'another-worksheet' },
+        { insight_id: 123, short_id: 'another-worksheet' },
+        { short_id: 'bi-test', shortId: 'another-worksheet' },
+        { shortId: 'bi-test' },
+    ])('reconciles an assistant rename using %j without overwriting unsaved query edits', async (input) => {
         await expectLogic(logic, () =>
             router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
         ).toFinishAllListeners()
         logic.actions.restoreWorksheet(worksheet({ ...config, limit: 10000 }))
         stored = { ...stored, name: 'Assistant name' }
 
-        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(input)).toFinishAllListeners()
 
         expect(logic.values.name).toBe('Assistant name')
         expect(logic.values.worksheet.config.limit).toBe(10000)
@@ -152,11 +158,50 @@ describe('biSceneLogic', () => {
         ).toFinishAllListeners()
         expect(logic.values.worksheet.config.limit).toBe(1000)
 
-        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.short_id)).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.refreshInsightFromAgent(stored.short_id)
+            logic.actions.refreshInsightFromAgent('another-worksheet')
+        }).toFinishAllListeners()
 
         expect(logic.values.name).toBe('Local name')
         expect(logic.values.worksheet.config.limit).toBe(50000)
         expect(logic.values.agentUpdateState).toBeNull()
+    })
+
+    it('reconciles assistant changes after an already-running save completes', async () => {
+        await expectLogic(logic, () =>
+            router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+        ).toFinishAllListeners()
+        logic.actions.restoreWorksheet(worksheet({ ...config, limit: 10000 }))
+        let releaseSave!: () => void
+        const savePending = new Promise<void>((resolve) => {
+            releaseSave = resolve
+        })
+        let saveStarted!: () => void
+        const saveRequest = new Promise<void>((resolve) => {
+            saveStarted = resolve
+        })
+        save.mockImplementationOnce(async ({ request }: { request: Request }) => {
+            const saved = { ...stored, ...(await request.json()) }
+            saveStarted()
+            await savePending
+            stored = { ...saved, name: 'Assistant name' }
+            return [200, saved]
+        })
+
+        const completed = expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        await saveRequest
+        logic.actions.refreshInsightFromAgent(stored.id)
+        expect(logic.values.agentUpdateState).toBe('loading')
+        releaseSave()
+        await completed
+
+        expect(logic.values.agentUpdateState).toBeNull()
+        expect(logic.values.name).toBe('Assistant name')
+        expect(logic.values.insight?.name).toBe('Assistant name')
+        expect(logic.values.worksheet.config.limit).toBe(10000)
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(stored.name).toBe('Assistant name')
     })
 
     it('preserves conflicting drafts and blocks overwriting the assistant until changes are discarded', async () => {

@@ -194,6 +194,9 @@ export interface biSceneLogicActions {
         reset: boolean
         snapshot: BIWorksheetSnapshot
     }
+    reconcileInsightFromAgent: () => {
+        value: true
+    }
     recordWorksheet: (reset?: any) => {
         reset: any
     }
@@ -313,7 +316,7 @@ export interface biSceneLogicMeta {
             generatedQuery: BIQueryBuildResult | null,
             insight: InsightApi | null,
             name: string,
-            agentUpdateState: any
+            agentUpdateState: 'conflict' | 'error' | 'loading' | null
         ) => string | undefined
     }
 }
@@ -356,6 +359,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         setScatterAxis: (axis: 'x' | 'y', column: string) => ({ axis, column }),
         setName: (name: string) => ({ name }),
         refreshInsightFromAgent: (targetId: unknown) => ({ targetId }),
+        reconcileInsightFromAgent: true,
         setInsightFromAgent: (insight: InsightApi) => ({ insight }),
         setAgentUpdateState: (state: 'loading' | 'conflict' | 'error' | null) => ({ state }),
         runQuery: true,
@@ -373,7 +377,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         setSqlPreviewOpen: (open: boolean) => ({ open }),
         setSqlPreviewVersion: (version: 'current' | 'last_run') => ({ version }),
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, cache }) => ({
         insight: [
             null as InsightApi | null,
             {
@@ -409,7 +413,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                         values.insight && !asCopy
                             ? await insightsPartialUpdate(String(values.currentTeamId), values.insight.id, payload)
                             : await insightsCreate(String(values.currentTeamId), payload)
-                    actions.setAgentUpdateState(null)
+                    if (asCopy) {
+                        cache.agentRefreshAfterSave = false
+                        actions.setAgentUpdateState(null)
+                    }
                     captureBIEditorQuerySaved(state, 'insight', operation, !!payload.dashboards?.length)
                     captureBIWorksheetAction('saved', state.config, { insight_id: insight.id })
                     if (asCopy) {
@@ -642,13 +649,30 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
-        refreshInsightFromAgent: async ({ targetId }, breakpoint) => {
+        refreshInsightFromAgent: ({ targetId }) => {
+            if (targetId && typeof targetId === 'object' && !Array.isArray(targetId)) {
+                const input = targetId as Record<string, unknown>
+                targetId = [input.id, input.insightId, input.insight_id, input.short_id, input.shortId].find(
+                    (value) => value !== undefined
+                )
+            }
             const baseline = values.insight
             if (!baseline || (String(targetId) !== String(baseline.id) && targetId !== baseline.short_id)) {
                 return
             }
+            actions.reconcileInsightFromAgent()
+        },
+        reconcileInsightFromAgent: async (_, breakpoint) => {
+            const baseline = values.insight
+            if (!baseline) {
+                return
+            }
             const hadConflict = values.agentUpdateConflict
             actions.setAgentUpdateState('loading')
+            if (values.insightLoading) {
+                cache.agentRefreshAfterSave = true
+                return
+            }
             try {
                 const response = await insightsList(String(values.currentTeamId), {
                     short_id: baseline.short_id,
@@ -656,6 +680,9 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 })
                 breakpoint()
                 if (values.insight !== baseline) {
+                    if (values.insight?.id === baseline.id) {
+                        actions.reconcileInsightFromAgent()
+                    }
                     return
                 }
                 const updated = response.results[0]
@@ -859,6 +886,11 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             }
         },
         saveInsightSuccess: ({ insight }) => {
+            if (cache.agentRefreshAfterSave) {
+                cache.agentRefreshAfterSave = false
+                actions.reconcileInsightFromAgent()
+                return
+            }
             if (values.agentUpdateState) {
                 return
             }
@@ -871,6 +903,12 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                     urls.businessIntelligenceWorksheet(insight.short_id),
                     dashboard ? { dashboard } : {}
                 )
+            }
+        },
+        saveInsightFailure: () => {
+            if (cache.agentRefreshAfterSave) {
+                cache.agentRefreshAfterSave = false
+                actions.reconcileInsightFromAgent()
             }
         },
         runAfterChange: async (_, breakpoint) => {

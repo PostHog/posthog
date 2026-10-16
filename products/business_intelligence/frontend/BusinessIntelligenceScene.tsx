@@ -102,7 +102,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         tools: ['insight-update'],
         targetKey: `bi-worksheet:${currentTeamId}:${insight?.id ?? 'unsaved'}`,
         active: !!insight && !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
-        onApply: (_event, { innerInput }) => refreshInsightFromAgent(innerInput?.id),
+        onApply: (_event, { innerInput }) => refreshInsightFromAgent(innerInput),
     })
 
     useKeyboardHotkeys({
