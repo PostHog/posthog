@@ -371,11 +371,11 @@ export interface scoutFleetLogicValues {
     publishingScoutIds: string[]
     rollups: Map<string, ScoutRollup>
     rosterEvaluatedAt: number
-    runNoteDrafts: Record<string, string>
-    runNotePopoverConfigId: string | null
     rosterGroupCounts: Record<ScoutGroupKey, number>
     rosterScouts: ScoutRosterRow[]
     rosterScoutsBeforeSearch: ScoutRosterRow[]
+    runNoteDrafts: Record<string, string>
+    runNotePopoverConfigId: string | null
     runningChatType: ScoutChatType | null
     runsWindow: {
         complete: boolean
@@ -589,6 +589,9 @@ export interface scoutFleetLogicActions {
         configId: string
         hasNote: boolean
     }
+    setRosterEvaluatedAt: (evaluatedAt: number) => {
+        evaluatedAt: number
+    }
     setRunNoteDraft: (
         configId: string,
         note: string
@@ -598,9 +601,6 @@ export interface scoutFleetLogicActions {
     }
     setRunNotePopoverConfigId: (configId: string | null) => {
         configId: string | null
-    }
-    setRosterEvaluatedAt: (evaluatedAt: number) => {
-        evaluatedAt: number
     }
     setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
         filter: ScoutEnabledFilter
