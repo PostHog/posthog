@@ -1148,9 +1148,14 @@ async def test_run_agentic_report_activity_resolves_metrics_payload(
 @pytest.mark.django_db
 @pytest.mark.parametrize("has_previous_research", [False, True])
 @pytest.mark.parametrize("has_query", [False, True])
+@pytest.mark.parametrize("monitoring_enabled", [False, True])
 async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearch(
-    monkeypatch, ateam, has_previous_research, has_query
+    monkeypatch, ateam, has_previous_research, has_query, monitoring_enabled
 ):
+    monkeypatch.setattr(
+        "products.signals.backend.report_content_gates.feature_enabled_or_false",
+        lambda flag, *args, **kwargs: monitoring_enabled if flag == "signals-report-monitoring" else False,
+    )
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
     )
@@ -1163,6 +1168,11 @@ async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearc
             "query": _metric().query if has_query else None,
             "baseline_value": 40,
             "comparison": {"operator": "lte", "value": 0},
+            "monitoring": {
+                "reference_period_minutes": 10080,
+                "threshold_scaling": "fixed",
+                "baseline_period_minutes": 10080,
+            },
         },
         status=SignalReportCheck.Status.PENDING,
         next_run_at=timezone.now() + timedelta(days=7),
@@ -1186,6 +1196,9 @@ async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearc
     assert previous_checks[0]["id"] == str(check.id)
     assert previous_checks[0]["approved"] is True
     assert ("baseline_value" in previous_checks[0]["config"]) is has_query
+    assert ("monitoring" in previous_checks[0]["config"]) is monitoring_enabled
+    assert research_kwargs["monitoring_enabled"] is monitoring_enabled
+    assert result.checks_monitoring_enabled is monitoring_enabled
     assert result.checks_snapshot == {str(check.id): check.updated_at.isoformat()}
 
 

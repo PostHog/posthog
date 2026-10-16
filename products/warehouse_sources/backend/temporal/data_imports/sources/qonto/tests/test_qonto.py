@@ -20,7 +20,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qonto import QontoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.qonto.qonto import validate_credentials
-from products.warehouse_sources.backend.temporal.data_imports.sources.qonto.settings import AUTH_ERROR, PERMISSION_ERROR
+from products.warehouse_sources.backend.temporal.data_imports.sources.qonto.settings import (
+    AUTH_ERROR,
+    ENDPOINTS,
+    PERMISSION_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.qonto.source import QontoSource
 
 CONFIG = QontoSourceConfig(login="example-company", secret_key="fake-secret")
@@ -90,6 +94,36 @@ def test_incremental_filters(
             assert request.query["bank_account_id"] == ("account-1",)
     assert result.response is not None
     assert result.response.sort_mode == "desc"
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "selector", "expected_query"),
+    [
+        ("labels", "labels", {"per_page": ("100",)}),
+        ("beneficiaries", "beneficiaries", {"per_page": ("100",)}),
+        (
+            "client_invoices",
+            "client_invoices",
+            {"per_page": ("100",), "sort_by": ("created_at:asc",), "exclude_imported": ("false",)},
+        ),
+    ],
+)
+def test_full_refresh_endpoints_walk_every_page(
+    endpoint: str, selector: str, expected_query: dict[str, tuple[str, ...]]
+) -> None:
+    result = drive(
+        endpoint,
+        [page(selector, [{"id": "first"}], 1, 2), page(selector, [{"id": "second"}], 2, 2)],
+        incremental_field="updated_at",
+        db_incremental_field_last_value="2025-01-02T03:04:05Z",
+    )
+
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == ["first", "second"]
+    assert [request.path for request in result.requests] == [f"/v2/{ENDPOINTS[endpoint][0]}"] * 2
+    assert result.params("page") == ["1", "2"]
+    for request in result.requests:
+        assert {key: value for key, value in request.query.items() if key != "page"} == expected_query
 
 
 @pytest.mark.parametrize(
