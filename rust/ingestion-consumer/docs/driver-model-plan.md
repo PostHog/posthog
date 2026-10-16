@@ -591,7 +591,7 @@ Exit criterion at the canary: zero ledger errors and gap walks, and a stalled pa
 - Modify `Config`: add the completion granularity and `CONSUMER_COMMIT_INTERVAL_MS`.
 - Modify `IngestionConsumer::process`: at `group` granularity, select over `GroupCompletion` events. The per-poll path stays for rollback.
 - Replace `ImmediateCommitPacer` with `CommitPacer::every(interval)`; `poll` granularity uses the zero interval.
-- Delete `commit_sentinel.rs` and `commit_monitor.rs`, with `ingestion_consumer_commit_violations_total{kind=gap|out_of_order|overlap}`, `ingestion_consumer_commits_checked_total`, `ingestion_consumer_broker_committed_offset`, `ingestion_consumer_commit_confirmation_lag`, `ingestion_consumer_last_successful_commit_timestamp_seconds` and `ingestion_consumer_commit_monitor_errors_total`. `SentinelContext` forgets partitions on the pacer.
+- Delete `commit_sentinel.rs` and `commit_monitor.rs`, with `ingestion_consumer_commit_violations_total{kind=gap|out_of_order|overlap}`, `ingestion_consumer_commits_checked_total`, `ingestion_consumer_broker_committed_offset`, `ingestion_consumer_commit_confirmation_lag`, `ingestion_consumer_last_successful_commit_timestamp_seconds` and `ingestion_consumer_commit_monitor_errors_total`. The rdkafka context moves to `rebalance.rs` as `RebalanceContext`, an event source with a revoke hook and an assign hook; the consumer's hooks forget a partition's ledger window and pending frontier together, on either path.
 
 ### 22. Delete the per-poll completion path (cleanup)
 
@@ -706,7 +706,7 @@ Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the dea
 
 - Modify `KeyTableScheduler`: drop queued work per partition on the revoke marker.
 - Modify `IngestionConsumer` and `OffsetLedger`: the final commit, the refund of abandoned charge, and the stall deadline.
-- Modify `SentinelContext`: override `rebalance` so a revoke reports without unassigning, with the `closing` flag and the lost-assignment path above.
+- Modify `RebalanceContext`: override `rebalance` so a revoke reports without unassigning, with the `closing` flag and the lost-assignment path above.
 - Modify `Config`: add the drain switch, default off.
 
 **Metrics:**

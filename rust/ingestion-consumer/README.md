@@ -114,7 +114,7 @@ Sub-batches are split at `INGESTION_TRANSPORT_MAX_BODY_BYTES` (default 10 MiB) i
 
 ### 2. Commit-error observability — done
 
-Addressed by `SentinelContext` (`order_sentinel.rs`) and kminion: the consumer reports the offset it last handed to the client, kminion reports the group's lag per partition (see "Ordering sentinels" above), and rebalance callbacks log assignment changes and reset the ordering sentinels.
+Addressed by `RebalanceContext` (`rebalance.rs`) and kminion: the consumer reports the offset it last handed to the client, kminion reports the group's lag per partition (see "Ordering sentinels" above), and rebalance callbacks log assignment changes and reset the ordering sentinels.
 The originally envisioned offset-commit callback turned out to be unreachable for manual async commits (librdkafka drops their results unless a conf-level `offset_commit_cb` is registered, which rust-rdkafka never does).
 Remaining: alert rules on the ledger counters and on kminion lag.
 

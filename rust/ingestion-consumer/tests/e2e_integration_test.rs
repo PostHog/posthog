@@ -37,7 +37,7 @@ use ingestion_consumer::config::CompletionGranularity;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
-use ingestion_consumer::order_sentinel::SentinelContext;
+use ingestion_consumer::rebalance::RebalanceContext;
 use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::worker_registry::{
     WorkerId, WorkerRegistry, WorkerRegistryConfig, WorkerState,
@@ -629,8 +629,8 @@ fn make_kafka_consumer(
     topic: &str,
     group_id: &str,
     instance_id: Option<&str>,
-) -> StreamConsumer<SentinelContext> {
-    make_kafka_consumer_with_context(topic, group_id, instance_id, SentinelContext::detached())
+) -> StreamConsumer<RebalanceContext> {
+    make_kafka_consumer_with_context(topic, group_id, instance_id, RebalanceContext::new())
 }
 
 /// Like `make_kafka_consumer`, under a context the test keeps a hand on.
@@ -638,8 +638,8 @@ fn make_kafka_consumer_with_context(
     topic: &str,
     group_id: &str,
     instance_id: Option<&str>,
-    context: SentinelContext,
-) -> StreamConsumer<SentinelContext> {
+    context: RebalanceContext,
+) -> StreamConsumer<RebalanceContext> {
     let mut config = ClientConfig::new();
     config
         .set("bootstrap.servers", KAFKA_BROKERS)
@@ -653,7 +653,7 @@ fn make_kafka_consumer_with_context(
     if let Some(id) = instance_id {
         config.set("group.instance.id", id);
     }
-    let kafka_consumer: StreamConsumer<SentinelContext> =
+    let kafka_consumer: StreamConsumer<RebalanceContext> =
         config.create_with_context(context).expect("kafka consumer");
     kafka_consumer.subscribe(&[topic]).expect("subscribe");
     kafka_consumer
@@ -886,9 +886,9 @@ impl Harness {
         let _monitor = manager.monitor_background();
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
-        let context = SentinelContext::detached();
-        let ledger = context.topic_offset_ledger();
-        let kafka_consumer = make_kafka_consumer_with_context(topic, &group_id, None, context);
+        let ledger = Arc::new(TopicOffsetLedger::new());
+        let kafka_consumer =
+            make_kafka_consumer_with_context(topic, &group_id, None, RebalanceContext::new());
 
         let (batcher, outputs) = common::batcher(
             pool_source,
@@ -913,6 +913,7 @@ impl Harness {
                 debug_recorder: None,
                 completion_granularity,
                 commit_interval: COMMIT_INTERVAL,
+                ledger: Arc::clone(&ledger),
             },
             handle,
         );
@@ -974,10 +975,13 @@ impl Harness {
         let handle = manager.register("consumer", ComponentOptions::new());
         self.shutdown = handle.shutdown_token();
 
-        let context = SentinelContext::detached();
-        self.ledger = context.topic_offset_ledger();
-        let kafka_consumer =
-            make_kafka_consumer_with_context(&self.topic, &self.group_id, None, context);
+        self.ledger = Arc::new(TopicOffsetLedger::new());
+        let kafka_consumer = make_kafka_consumer_with_context(
+            &self.topic,
+            &self.group_id,
+            None,
+            RebalanceContext::new(),
+        );
         let (batcher, outputs) = common::batcher(
             pool_source,
             Arc::clone(&transport),
@@ -1001,6 +1005,7 @@ impl Harness {
                 debug_recorder: None,
                 completion_granularity: self.completion_granularity,
                 commit_interval: COMMIT_INTERVAL,
+                ledger: Arc::clone(&self.ledger),
             },
             handle,
         );
@@ -1104,6 +1109,7 @@ impl Harness {
                 debug_recorder: None,
                 completion_granularity: self.completion_granularity,
                 commit_interval: COMMIT_INTERVAL,
+                ledger: Arc::new(TopicOffsetLedger::new()),
             },
             handle,
         );
@@ -3376,6 +3382,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             debug_recorder: None,
             completion_granularity: CompletionGranularity::Poll,
             commit_interval: Duration::ZERO,
+            ledger: Arc::new(TopicOffsetLedger::new()),
         },
         handle,
     );
