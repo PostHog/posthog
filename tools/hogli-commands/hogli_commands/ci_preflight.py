@@ -51,6 +51,7 @@ from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIP
 from hogli_commands.depot_mirrors import mirror_violations
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 from hogli_commands.lockfile_merge import LOCKFILE_GLOBS, missing_resolutions
+from hogli_commands.ownership_lint import TEST_FILE_SCOPE
 from hogli_commands.preflight_checks import (
     SEMGREP_SCOPE,
     SNAPSHOT_MANIFEST,
@@ -169,6 +170,14 @@ DIFF_CHECKS: list[DiffCheck] = [
         verify=["hogli", "lint:size"],
         takes_files=True,
         takes_diff_scope=True,
+        soft=True,
+    ),
+    DiffCheck(
+        key="test-owners",
+        label="test ownership (warn when no team owns a changed test)",
+        triggers=[*TEST_FILE_SCOPE],
+        verify=["hogli", "lint:test-owners"],
+        takes_files=True,
         soft=True,
     ),
     DiffCheck(

@@ -881,6 +881,9 @@ quality:
     lint:size:
         click: hogli_commands.size_lint:cmd_lint_size
         description: Check the size of changed Python/TypeScript files (warn-only, crossing 1000 lines)
+    lint:test-owners:
+        click: hogli_commands.ownership_lint:cmd_lint_test_owners
+        description: Report changed test files that no team owns through owners.yaml (warn-only)
     lint:api-ratchet:
         click: hogli_commands.api_ratchet:cmd_lint_api_ratchet
         description: Block new frontend/src/lib/api.ts path methods that a generated client already covers
