@@ -98,8 +98,21 @@ impl PartitionDeliveries {
         }
     }
 
-    fn credit(&mut self, offset: i64) {
-        self.credited.insert(offset);
+    /// Credit a completion's run and return the offsets to settle: those
+    /// charged under this generation that no earlier completion credited.
+    fn credit_run(&mut self, run: &[Offset]) -> Vec<Offset> {
+        let Self {
+            credited, charges, ..
+        } = self;
+        run.iter()
+            .copied()
+            .filter(|offset| {
+                credited.insert(offset.0)
+                    && charges
+                        .binary_search_by_key(&offset.0, |(charged, _)| charged.0)
+                        .is_ok()
+            })
+            .collect()
     }
 
     fn uncredited_charge(&self) -> Option<Offset> {
@@ -322,11 +335,9 @@ fn apply_completion(
                 poll.accepted += run_accepted;
                 deliveries.covered += run_len as u32;
                 deliveries.accepted += run_accepted;
-                for offset in run {
-                    deliveries.credit(offset.0);
-                }
-                if fully_accepted {
-                    settle(topic_partition, deliveries.generation, run);
+                let settleable = deliveries.credit_run(run);
+                if fully_accepted && !settleable.is_empty() {
+                    settle(topic_partition, deliveries.generation, &settleable);
                 }
                 remaining = rest;
                 continue 'runs;
@@ -1264,6 +1275,38 @@ mod tests {
         assert_eq!(runs, 0, "the ledger must not commit past a dropped message");
         assert_eq!(in_flight[0].covered, 2);
         assert_eq!(in_flight[0].accepted, 1);
+    }
+
+    #[test]
+    fn a_regained_poll_settles_each_charged_offset_once() {
+        // Offsets 8..10 arrived, the partition was revoked and regained, and
+        // offset 8 arrived again before the poll closed: the span covers all
+        // four deliveries, the charges hold offset 8 under the new generation.
+        let tp = TopicPartition::new("test", 0);
+        let mut regained = poll(1, 0, 8, 8, 4);
+        let deliveries = regained.partitions.get_mut(&tp).unwrap();
+        deliveries.span.last = 10;
+        deliveries.generation = 2;
+        let mut in_flight = VecDeque::from([regained]);
+        let mut runs = Vec::new();
+        let mut settle = |_: &TopicPartition, generation: u64, offsets: &[Offset]| {
+            runs.push((generation, offsets.to_vec()));
+        };
+
+        apply_completion(
+            &mut in_flight,
+            &completion(1, 0, &[8, 9, 10], 3),
+            &mut settle,
+        );
+        apply_completion(&mut in_flight, &completion(1, 0, &[8], 1), &mut settle);
+
+        assert_eq!(
+            runs,
+            vec![(2, vec![MessageOffset(8)])],
+            "neither the uncharged old offsets nor the redelivered one reach the ledger"
+        );
+        assert!(in_flight[0].is_complete());
+        assert!(pop_committable(&mut in_flight).is_ok());
     }
 
     #[test]
