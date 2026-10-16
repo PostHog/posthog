@@ -1,4 +1,5 @@
-//! Stores a flush's blocks: their keys, the sealed blocks, the image packs, both indexes and the fetch jobs.
+//! One attempt to store a flush's blocks. It writes nothing that a retry cannot write again: object names are
+//! unique.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -102,7 +103,7 @@ pub async fn write_flush(
         .into_iter()
         .unzip();
 
-    // The writer's columns go into a copy, so the shared blocks stay as the inspector left them.
+    // This attempt's own copy: a retry fills the writer's columns again from zero.
     let mut stats: Vec<BlockStats> = blocks.iter().map(|b| b.stats.clone()).collect();
     for (&index, block) in indices.iter().zip(&sealed) {
         stats[index].images_extracted += block.counts.extracted;

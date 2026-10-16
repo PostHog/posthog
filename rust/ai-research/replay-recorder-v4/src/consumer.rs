@@ -1,6 +1,7 @@
 //! The consume loop: gate and admit each message from its key and headers, buffer it, and flush on time or size.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -14,21 +15,77 @@ use rdkafka::message::{BorrowedMessage, Headers as _, Message as _};
 use rdkafka::{ClientConfig, ClientContext, Offset, TopicPartitionList};
 
 use crate::batch::{Batch, Block, Inspectors, Raw, SessionKey, Tp};
-use crate::flush::{write_flush, FlushError, Writer};
+use crate::config::{retry_backoff, MAX_POLL_INTERVAL};
+use crate::flush::{write_flush, Writer};
 use crate::limits::{Blocklist, Restrictions};
 use crate::process::{admit, sampled, Admitted, Headers, Skip};
 use crate::teams::TeamCache;
 
-/// Records the partitions each rebalance takes away, so the loop can drop what it buffered for them.
+const KAFKA_TIMEOUT: Duration = Duration::from_secs(10);
+const COMMIT_ATTEMPTS: u32 = 3;
+const HEARTBEAT: Duration = Duration::from_secs(5);
+
+/// The assignment state the rebalance callbacks keep. A partition's epoch moves on every revoke, so a message read
+/// before the revoke is never mistaken for one read after a new assignment of the same partition.
+#[derive(Default)]
+struct Assignments {
+    epochs: HashMap<Tp, (u64, bool)>,
+    revoked: Vec<Tp>,
+    /// Partitions without a committed offset whose first message is not read yet.
+    uncommitted: HashSet<Tp>,
+}
+
 pub struct RebalanceContext {
     topics: Vec<&'static str>,
-    revoked: Arc<Mutex<Vec<Tp>>>,
+    commit_latest: bool,
+    state: Arc<Mutex<Assignments>>,
 }
 
 impl RebalanceContext {
     fn tp(&self, topic: &str, partition: i32) -> Option<Tp> {
         let topic = *self.topics.iter().find(|t| **t == topic)?;
         Some(Tp { topic, partition })
+    }
+
+    /// A new group starts at the head of the topic. Committing that head now means a partition revoked before its
+    /// first flush does not send its next owner to a later head, past the messages in between.
+    fn commit_heads(&self, consumer: &BaseConsumer<Self>, assigned: &TopicPartitionList) {
+        let committed = match consumer.committed_offsets(assigned.clone(), KAFKA_TIMEOUT) {
+            Ok(committed) => committed,
+            Err(error) => {
+                tracing::warn!(%error, "reading committed offsets failed");
+                return;
+            }
+        };
+        let mut heads = TopicPartitionList::new();
+        let mut uncommitted = Vec::new();
+        for element in committed.elements() {
+            if element.offset() != Offset::Invalid {
+                continue;
+            }
+            uncommitted.extend(self.tp(element.topic(), element.partition()));
+            if !self.commit_latest {
+                continue;
+            }
+            match consumer.fetch_watermarks(element.topic(), element.partition(), KAFKA_TIMEOUT) {
+                Ok((_, high)) => {
+                    if let Err(error) = heads.add_partition_offset(
+                        element.topic(),
+                        element.partition(),
+                        Offset::Offset(high),
+                    ) {
+                        tracing::warn!(%error, "building the starting offsets failed");
+                    }
+                }
+                Err(error) => tracing::warn!(%error, "reading a partition head failed"),
+            }
+        }
+        if heads.count() > 0 {
+            if let Err(error) = consumer.commit(&heads, CommitMode::Sync) {
+                tracing::warn!(%error, "committing the starting offsets failed");
+            }
+        }
+        self.state.lock().unwrap().uncommitted.extend(uncommitted);
     }
 }
 
@@ -37,19 +94,36 @@ impl ClientContext for RebalanceContext {}
 impl ConsumerContext for RebalanceContext {
     fn pre_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
         if let Rebalance::Revoke(partitions) = rebalance {
-            let revoked = partitions
-                .elements()
-                .iter()
-                .filter_map(|e| self.tp(e.topic(), e.partition()))
-                .collect::<Vec<_>>();
-            self.revoked.lock().unwrap().extend(revoked);
+            let mut state = self.state.lock().unwrap();
+            for element in partitions.elements() {
+                if let Some(tp) = self.tp(element.topic(), element.partition()) {
+                    let entry = state.epochs.entry(tp).or_default();
+                    *entry = (entry.0 + 1, false);
+                    state.revoked.push(tp);
+                    state.uncommitted.remove(&tp);
+                }
+            }
+        }
+    }
+
+    fn post_rebalance(&self, consumer: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
+        if let Rebalance::Assign(partitions) = rebalance {
+            {
+                let mut state = self.state.lock().unwrap();
+                for element in partitions.elements() {
+                    if let Some(tp) = self.tp(element.topic(), element.partition()) {
+                        state.epochs.entry(tp).or_default().1 = true;
+                    }
+                }
+            }
+            self.commit_heads(consumer, partitions);
         }
     }
 }
 
 pub struct RecorderConsumer {
     consumer: StreamConsumer<RebalanceContext>,
-    revoked: Arc<Mutex<Vec<Tp>>>,
+    state: Arc<Mutex<Assignments>>,
 }
 
 impl RecorderConsumer {
@@ -73,7 +147,12 @@ impl RecorderConsumer {
             // Offsets move only after a flush has stored the blocks for them.
             .set("enable.auto.commit", "false")
             .set("enable.auto.offset.store", "false")
-            .set("partition.assignment.strategy", "cooperative-sticky");
+            .set("partition.assignment.strategy", "cooperative-sticky")
+            // `Config::validate` keeps every flush under this, so the group keeps the partitions while one runs.
+            .set(
+                "max.poll.interval.ms",
+                MAX_POLL_INTERVAL.as_millis().to_string(),
+            );
         if kafka.kafka_tls {
             config
                 .set("security.protocol", "ssl")
@@ -82,37 +161,71 @@ impl RecorderConsumer {
         if !kafka.kafka_client_rack.is_empty() {
             config.set("client.rack", &kafka.kafka_client_rack);
         }
-        let revoked = Arc::new(Mutex::new(Vec::new()));
+        let state = Arc::new(Mutex::new(Assignments::default()));
         let consumer: StreamConsumer<RebalanceContext> =
             config.create_with_context(RebalanceContext {
                 topics: topics.clone(),
-                revoked: revoked.clone(),
+                commit_latest: offset_reset == "latest",
+                state: state.clone(),
             })?;
         consumer.subscribe(&topics)?;
-        Ok(Self { consumer, revoked })
+        Ok(Self { consumer, state })
     }
 
     fn take_revoked(&self) -> Vec<Tp> {
-        std::mem::take(&mut *self.revoked.lock().unwrap())
+        std::mem::take(&mut self.state.lock().unwrap().revoked)
     }
 
-    /// Commits the next offset of every partition this process still owns.
-    fn commit(&self, offsets: &std::collections::HashMap<Tp, i64>) {
-        let assigned = self.consumer.assignment().unwrap_or_default();
+    /// The epoch of a partition this process owns now.
+    fn current_epoch(&self, tp: Tp) -> Option<u64> {
+        match self.state.lock().unwrap().epochs.get(&tp) {
+            Some(&(epoch, true)) => Some(epoch),
+            _ => None,
+        }
+    }
+
+    /// Commits the first offset read on a partition that had none, so a restart before the first flush starts where
+    /// this process started, and the flush's `start_offset` stays the same.
+    fn commit_start(&self, tp: Tp, offset: i64) {
+        if !self.state.lock().unwrap().uncommitted.remove(&tp) {
+            return;
+        }
         let mut list = TopicPartitionList::new();
-        for (&tp, &offset) in offsets {
-            if assigned.find_partition(tp.topic, tp.partition).is_some() {
-                if let Err(error) =
-                    list.add_partition_offset(tp.topic, tp.partition, Offset::Offset(offset + 1))
-                {
-                    tracing::warn!(%error, partition = tp.partition, "building the offset commit failed");
-                }
+        if let Err(error) = list
+            .add_partition_offset(tp.topic, tp.partition, Offset::Offset(offset))
+            .and_then(|()| {
+                tokio::task::block_in_place(|| self.consumer.commit(&list, CommitMode::Sync))
+            })
+        {
+            tracing::warn!(%error, partition = tp.partition, "committing the start offset failed");
+        }
+    }
+
+    /// Commits the next offset of every partition this process still owns under the same assignment.
+    async fn commit(&self, offsets: &HashMap<Tp, (u64, i64)>) -> Result<(), String> {
+        let mut list = TopicPartitionList::new();
+        for (&tp, &(epoch, offset)) in offsets {
+            if self.current_epoch(tp) == Some(epoch) {
+                list.add_partition_offset(tp.topic, tp.partition, Offset::Offset(offset))
+                    .map_err(|e| e.to_string())?;
             }
         }
-        if list.count() > 0 {
-            if let Err(error) = self.consumer.commit(&list, CommitMode::Async) {
-                tracing::warn!(%error, "committing offsets failed");
-                counter!("replay_recorder_v4_commit_failures_total").increment(1);
+        if list.count() == 0 {
+            return Ok(());
+        }
+        let mut attempt = 0;
+        loop {
+            match tokio::task::block_in_place(|| self.consumer.commit(&list, CommitMode::Sync)) {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    counter!("replay_recorder_v4_commit_failures_total").increment(1);
+                    attempt += 1;
+                    if attempt >= COMMIT_ATTEMPTS {
+                        return Err(format!("committing offsets failed: {error}"));
+                    }
+                    tracing::warn!(%error, attempt, "committing offsets failed");
+                    tokio::time::sleep(Duration::from_millis(500 * u64::from(attempt))).await;
+                }
             }
         }
     }
@@ -132,6 +245,9 @@ pub struct Settings {
     pub flush_interval: Duration,
     pub flush_max_bytes: usize,
     pub flush_concurrency: usize,
+    pub flush_timeout: Duration,
+    pub flush_retries: u32,
+    pub shutdown_flush: Duration,
     pub session_idle: Duration,
     /// The main topic, when the main lane moves its force-overflow messages to the overflow topic.
     pub redirecting_topic: Option<String>,
@@ -171,23 +287,52 @@ pub async fn run(
         handle.report_healthy();
         let revoked = consumer.take_revoked();
         if !revoked.is_empty() {
-            batch.drop_partitions(&revoked);
             inspectors.drop_partitions(&revoked);
+            batch.retain(|tp, epoch| consumer.current_epoch(tp) == Some(epoch));
         }
         if batch.should_flush(settings.flush_interval, settings.flush_max_bytes) {
-            let mut flushed = std::mem::take(&mut batch);
-            drop_blocked(&mut flushed, sources.blocklist.as_ref()).await;
-            let (blocks, offsets) = inspectors
-                .inspect(flushed, settings.flush_concurrency)
-                .await;
-            if let Err(error) = flush(blocks, writer.as_ref(), settings.flush_concurrency).await {
+            let flushed = flush(
+                std::mem::take(&mut batch),
+                &mut inspectors,
+                &consumer,
+                &settings,
+                &sources,
+                writer.as_ref(),
+                &handle,
+                settings.flush_retries,
+            )
+            .await;
+            if let Err(error) = flushed {
                 // Nothing of this flush is committed, so a restart reads it again from the last commit.
                 tracing::error!(%error, "flush failed");
                 handle.signal_failure(format!("flush failed: {error}"));
-                break;
+                return;
             }
-            consumer.commit(&offsets);
-            inspectors.evict_idle(settings.session_idle);
+        }
+    }
+    if batch.is_empty() {
+        return;
+    }
+    // A flush cut off by the deadline commits nothing, so the next owner reads the buffer again.
+    let flushed = tokio::time::timeout(
+        settings.shutdown_flush,
+        flush(
+            batch,
+            &mut inspectors,
+            &consumer,
+            &settings,
+            &sources,
+            writer.as_ref(),
+            &handle,
+            0,
+        ),
+    )
+    .await;
+    match flushed {
+        Ok(Ok(())) => tracing::info!("flushed the buffer on shutdown"),
+        Ok(Err(error)) => tracing::warn!(%error, "the flush on shutdown failed: nothing committed"),
+        Err(_) => {
+            tracing::warn!("the flush on shutdown did not fit the grace period: nothing committed")
         }
     }
 }
@@ -206,6 +351,10 @@ async fn handle_message(
     else {
         return;
     };
+    let Some(epoch) = consumer.current_epoch(tp) else {
+        return;
+    };
+    consumer.commit_start(tp, message.offset());
     match admit_message(message, tp, settings, sources).await {
         Ok(admitted) => {
             counter!("replay_recorder_v4_messages_total", "outcome" => "admitted").increment(1);
@@ -218,11 +367,11 @@ async fn handle_message(
                 payload: message.payload().unwrap_or_default().to_vec(),
                 content_encoding: header(message, "content-encoding").map(str::to_owned),
             };
-            batch.add(tp, session, raw);
+            batch.add(tp, epoch, session, raw);
         }
         Err(skip) => {
             counter!("replay_recorder_v4_messages_total", "outcome" => skip.as_str()).increment(1);
-            batch.handled(tp, message.offset());
+            batch.handled(tp, epoch, message.offset());
         }
     }
 }
@@ -251,9 +400,36 @@ async fn admit_message(
     admit(&headers, restriction, redirect_overflow, team, now_ms)
 }
 
-/// Drops the sessions the replay lanes blocked, before anything is decoded. The main lane blocks a session when it
-/// first sees it. Checking at the flush gives it that time.
-async fn drop_blocked(batch: &mut Batch, blocklist: &dyn Blocklist) {
+/// Reports the component healthy while `work` runs. Callers bound `work` with a timeout, so a hung flush still ends.
+async fn with_heartbeat<T>(handle: &Handle, work: impl Future<Output = T>) -> T {
+    tokio::pin!(work);
+    let mut beat = tokio::time::interval(HEARTBEAT);
+    loop {
+        tokio::select! {
+            out = &mut work => return out,
+            _ = beat.tick() => handle.report_healthy(),
+        }
+    }
+}
+
+/// Drops blocked sessions, decodes and inspects the rest, stores them with up to `retries` more attempts, and only
+/// then commits.
+#[allow(clippy::too_many_arguments)]
+async fn flush(
+    mut batch: Batch,
+    inspectors: &mut Inspectors,
+    consumer: &RecorderConsumer,
+    settings: &Settings,
+    sources: &Sources,
+    writer: Option<&Writer>,
+    handle: &Handle,
+    retries: u32,
+) -> Result<(), String> {
+    let offsets: HashMap<Tp, (u64, i64)> = batch
+        .spans
+        .iter()
+        .map(|(tp, span)| (*tp, (span.epoch, span.last + 1)))
+        .collect();
     let sessions: Vec<SessionKey> = batch
         .sessions
         .keys()
@@ -261,31 +437,61 @@ async fn drop_blocked(batch: &mut Batch, blocklist: &dyn Blocklist) {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    let blocked = blocklist.blocked(&sessions).await;
-    if blocked.is_empty() {
-        return;
+    // The main lane blocks a session when it first sees it. Checking at the flush gives it that time.
+    let blocked = with_heartbeat(handle, sources.blocklist.blocked(&sessions)).await;
+    if !blocked.is_empty() {
+        let messages: usize = batch
+            .sessions
+            .iter()
+            .filter(|((session, _), _)| blocked.contains(session))
+            .map(|(_, pending)| pending.messages.len())
+            .sum();
+        counter!("replay_recorder_v4_messages_total", "outcome" => Skip::Blocked.as_str())
+            .increment(messages as u64);
+        batch
+            .sessions
+            .retain(|(session, _), _| !blocked.contains(session));
     }
-    let messages: usize = batch
-        .sessions
-        .iter()
-        .filter(|((session, _), _)| blocked.contains(session))
-        .map(|(_, pending)| pending.messages.len())
-        .sum();
-    counter!("replay_recorder_v4_messages_total", "outcome" => Skip::Blocked.as_str())
-        .increment(messages as u64);
-    batch
-        .sessions
-        .retain(|(session, _), _| !blocked.contains(session));
+    let blocks = with_heartbeat(
+        handle,
+        inspectors.inspect(batch, settings.flush_concurrency),
+    )
+    .await;
+    report(&blocks);
+    if let Some(writer) = writer {
+        let blocks: Vec<Arc<Block>> = blocks.into_iter().map(Arc::new).collect();
+        let mut attempt = 0;
+        loop {
+            let stored = tokio::time::timeout(
+                settings.flush_timeout,
+                with_heartbeat(
+                    handle,
+                    write_flush(&blocks, writer, settings.flush_concurrency),
+                ),
+            )
+            .await;
+            let error = match stored {
+                Ok(Ok(())) => break,
+                Ok(Err(error)) => error.to_string(),
+                Err(_) => format!("timed out after {:?}", settings.flush_timeout),
+            };
+            counter!("replay_recorder_v4_flush_failures_total").increment(1);
+            attempt += 1;
+            if attempt > retries {
+                return Err(error);
+            }
+            tracing::warn!(%error, attempt, "flush attempt failed, trying again");
+            with_heartbeat(handle, tokio::time::sleep(retry_backoff(attempt))).await;
+        }
+    }
+    consumer.commit(&offsets).await?;
+    inspectors.evict_idle(settings.session_idle);
+    Ok(())
 }
 
-/// Stores a flush's blocks, or only reports them when the recorder runs dry.
-async fn flush(
-    blocks: Vec<Block>,
-    writer: Option<&Writer>,
-    concurrency: usize,
-) -> Result<(), FlushError> {
+fn report(blocks: &[Block]) {
     counter!("replay_recorder_v4_blocks_total").increment(blocks.len() as u64);
-    for block in &blocks {
+    for block in blocks {
         counter!("replay_recorder_v4_block_events_total").increment(block.stats.event_count);
         if block.stats.cold_start {
             counter!("replay_recorder_v4_cold_start_blocks_total").increment(1);
@@ -294,7 +500,4 @@ async fn flush(
             counter!("replay_recorder_v4_orphan_mutation_blocks_total").increment(1);
         }
     }
-    let Some(writer) = writer else { return Ok(()) };
-    let blocks: Vec<Arc<Block>> = blocks.into_iter().map(Arc::new).collect();
-    write_flush(&blocks, writer, concurrency).await
 }
