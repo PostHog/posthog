@@ -6,7 +6,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.documentation import PostHogAutoSchema
+from posthog.api.documentation.autoschema import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.replay_vision.backend.api.observations import ReplayObservationSerializer

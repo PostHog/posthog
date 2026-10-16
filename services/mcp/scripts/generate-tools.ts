@@ -89,7 +89,7 @@ interface OpenApiSchema {
 
 interface OpenApiOperation {
     operationId: string
-    /** Scopes the API requires, written by `posthog/api/documentation.py`. */
+    /** Scopes the API requires, written by `posthog/api/documentation/postprocessing.py`. */
     security?: Array<Record<string, string[]>>
     /** The API picks the scopes per request, so `security` lists only the fallback for human callers. */
     'x-request-dependent-scopes'?: boolean

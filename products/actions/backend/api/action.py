@@ -20,7 +20,7 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import validate_regex
 
-from posthog.api.documentation import (
+from posthog.api.documentation.filter_serializers import (
     ArrayPropertyFilterSerializer,
     DatePropertyFilterSerializer,
     ExistencePropertyFilterSerializer,

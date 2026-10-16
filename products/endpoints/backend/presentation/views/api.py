@@ -19,7 +19,7 @@ from django.shortcuts import get_object_or_404
 
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from openai import APIConnectionError
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
@@ -36,7 +36,6 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 
-from posthog.api.documentation import extend_schema
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import PydanticModelMixin, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin

@@ -97,7 +97,7 @@ def inject_widget_spec_pydantic_components(
 ) -> dict[str, Any]:
     """POSTPROCESSING_HOOKS entry — inject Pydantic ``model_json_schema()`` widget components."""
     _ = (generator, request, public)
-    from posthog.api.documentation import _fix_pydantic_schema_for_openapi
+    from posthog.api.documentation.schema_normalization import _fix_pydantic_schema_for_openapi
 
     schemas = result.setdefault("components", {}).setdefault("schemas", {})
 

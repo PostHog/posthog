@@ -38,7 +38,7 @@ from posthog.schema import (
     TraceSpansQueryResponse,
 )
 
-from posthog.api.documentation import _FallbackSerializer
+from posthog.api.documentation.autoschema import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries

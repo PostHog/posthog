@@ -9,7 +9,7 @@ from django.http.response import HttpResponseBase
 import orjson
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from opentelemetry import trace
 from prometheus_client import Counter
 from pydantic import BaseModel
@@ -36,7 +36,7 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.metadata import enrich_hogql_validation_error
 
 from posthog import settings
-from posthog.api.documentation import _FallbackSerializer, extend_schema
+from posthog.api.documentation.autoschema import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import (
     Feature as MonitoringFeature,

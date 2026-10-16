@@ -28,6 +28,7 @@ from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
     PolymorphicProxySerializer,
+    extend_schema,
     extend_schema_field,
 )
 from prometheus_client import Counter
@@ -40,7 +41,7 @@ from rest_framework.settings import api_settings
 from posthog.schema import ProductKey
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
+from posthog.api.documentation.filter_serializers import FeatureFlagFiltersSchemaSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin

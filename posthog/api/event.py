@@ -12,7 +12,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, viewsets
@@ -29,7 +29,7 @@ from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.hogql.property_utils import create_property_conditions
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.documentation import PropertiesSerializer, extend_schema
+from posthog.api.documentation.filter_serializers import PropertiesSerializer
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action

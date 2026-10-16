@@ -35,7 +35,7 @@ from posthog.schema import ActorsQuery, ProductKey
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
 from posthog.api.capture import CaptureInternalError, capture_internal
-from posthog.api.documentation import PersonPropertiesSerializer
+from posthog.api.documentation.filter_serializers import PersonPropertiesSerializer
 from posthog.api.fields import CoercedStringListField
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION

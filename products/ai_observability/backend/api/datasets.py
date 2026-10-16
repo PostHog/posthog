@@ -7,7 +7,7 @@ from django.http import Http404
 from django.http.response import HttpResponseBase
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
@@ -17,7 +17,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.api.documentation import extend_schema
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin

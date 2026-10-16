@@ -7,7 +7,7 @@ from drf_spectacular.openapi import AutoSchema
 from parameterized import parameterized
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.api.documentation import LabeledEnumDataclassSerializerExtension, _use_class_labels
+from posthog.api.documentation.autoschema import LabeledEnumDataclassSerializerExtension, _use_class_labels
 from posthog.enums import LabeledStrEnum
 
 
