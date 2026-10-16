@@ -83,6 +83,24 @@ class TestPagedLists:
         ]
 
     @time_machine.travel(datetime(2026, 10, 15, 12, tzinfo=UTC), tick=False)
+    def test_resumed_order_items_rebuild_the_days_from_the_saved_window_start(self) -> None:
+        # The watermark moved past the saved window start, which must not shift the saved pass index.
+        result = _run(
+            "order_items",
+            "/orders",
+            [EMPTY, EMPTY],
+            resume_state=BolRetailerResumeConfig(pass_index=1, page=2, window_start="2026-10-13"),
+            incremental_field="latestChangedDateTime",
+            db_incremental_field_last_value=datetime(2026, 10, 14, 8, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert [(r.param("latest-change-date"), r.param("page")) for r in _api(result)] == [
+            ("2026-10-14", "2"),
+            ("2026-10-15", "1"),
+        ]
+
+    @time_machine.travel(datetime(2026, 10, 15, 12, tzinfo=UTC), tick=False)
     def test_a_first_order_items_sync_reaches_three_months_back(self) -> None:
         result = _run("order_items", "/orders", [EMPTY] * 91)
 
@@ -112,6 +130,31 @@ class TestPagedLists:
         assert [row["shipmentId"] for row in result.rows] == ["1", "2"]
         # The empty page that ends the first pass stages the second pass, and the safe point commits it.
         assert BolRetailerResumeConfig(pass_index=1) in result.committed_states
+
+    def test_incremental_shipments_stop_each_pass_at_the_first_page_older_than_the_watermark(self) -> None:
+        # The list returns newest shipments first and reaches three months back.
+        def shipment(shipment_id: str, day: int) -> dict[str, Any]:
+            return {"shipmentId": shipment_id, "shipmentDateTime": f"2026-10-{day:02d}T12:00:00+02:00"}
+
+        result = _run(
+            "shipments",
+            "/shipments",
+            [
+                ScriptedResponse(json={"shipments": [shipment("4", 14), shipment("3", 9)]}),
+                ScriptedResponse(json={"shipments": [shipment("2", 8), shipment("1", 2)]}),
+                ScriptedResponse(json={"shipments": [shipment("5", 1)]}),
+            ],
+            incremental_field="shipmentDateTime",
+            db_incremental_field_last_value=datetime(2026, 10, 10, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert [(r.param("fulfilment-method"), r.param("page")) for r in _api(result)] == [
+            ("FBR", "1"),
+            ("FBR", "2"),
+            ("FBB", "1"),
+        ]
+        assert [row["shipmentId"] for row in result.rows] == ["4", "3", "2", "1", "5"]
 
     def test_returns_resume_at_the_saved_pass_and_page(self) -> None:
         result = _run(

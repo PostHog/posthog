@@ -46,7 +46,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "inventory": {
         "description": "Stock the seller keeps in bol's warehouses (fulfilment by bol), one row per product.",
-        "docs_url": f"{_DOCS}v10/functional/retailer-api/inventory.html",
+        "docs_url": f"{_DOCS}v10/functional/retailer-api/inventory-shipments-fbb.html",
         "columns": {
             "ean": "EAN of the product.",
             "bsku": "bol's stock keeping unit for the product.",
@@ -66,7 +66,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "offers": {
         "description": "An offer the seller lists on bol.com for a product.",
-        "docs_url": f"{_DOCS}v11/functional/retailer-api/offers.html",
+        "docs_url": f"{_DOCS}v11/functional/offer-api/offer-api.html",
         "columns": {
             "offerId": "Unique identifier of the offer.",
             "ean": "EAN of the product the offer is for.",

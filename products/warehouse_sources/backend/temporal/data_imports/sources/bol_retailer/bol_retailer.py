@@ -85,6 +85,7 @@ def _paged_passes(
     resume: BolRetailerResumeConfig | None,
     window_start: str | None = None,
     row_map: Callable[[dict[str, Any]], list[dict[str, Any]]] | None = None,
+    stop_before: tuple[str, datetime] | None = None,
 ) -> Iterator[list[Any]]:
     start_pass = resume.pass_index if resume is not None else 0
     for pass_index in range(start_pass, len(passes)):
@@ -111,6 +112,20 @@ def _paged_passes(
                 yield mapped
             else:
                 manager.safe_point()
+            if stop_before is not None and mapped and all(_is_before(row, *stop_before) for row in mapped):
+                if pass_index + 1 < len(passes):
+                    manager.save_state(BolRetailerResumeConfig(pass_index=pass_index + 1, window_start=window_start))
+                break
+
+
+def _as_utc(value: Any) -> datetime:
+    parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _is_before(row: dict[str, Any], field: str, watermark: datetime) -> bool:
+    value = row.get(field)
+    return value is not None and _as_utc(value) < watermark
 
 
 def _to_date(value: Any) -> date:
@@ -267,6 +282,9 @@ def bol_retailer_source(
             **response_kwargs,
         )
 
+    stop_before: tuple[str, datetime] | None = None
+    if config.newest_first and should_use_incremental_field and db_incremental_field_last_value is not None:
+        stop_before = (config.incremental_fields[0]["field"], _as_utc(db_incremental_field_last_value))
     return SourceResponse(
         items=lambda: _paged_passes(
             client,
@@ -275,7 +293,10 @@ def bol_retailer_source(
             [dict(params) for params in config.passes],
             resumable_source_manager,
             resume,
+            stop_before=stop_before,
         ),
+        # Newest-first lists take the watermark once the run ends.
+        sort_mode="desc" if config.newest_first else "asc",
         **response_kwargs,
     )
 

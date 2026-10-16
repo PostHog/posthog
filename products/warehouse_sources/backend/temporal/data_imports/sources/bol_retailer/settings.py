@@ -39,6 +39,9 @@ class BolEndpointConfig:
     partition_key: str | None = None
     # Repeat the passes once per day, filtered on the day the order items last changed.
     per_change_day: bool = False
+    # The list returns the newest rows first, so an incremental pass stops at the first page older
+    # than the watermark.
+    newest_first: bool = False
 
 
 BOL_ENDPOINTS: dict[str, BolEndpointConfig] = {
@@ -68,7 +71,17 @@ BOL_ENDPOINTS: dict[str, BolEndpointConfig] = {
         data_selector="shipments",
         primary_keys=("shipmentId",),
         passes=((("fulfilment-method", "FBR"),), (("fulfilment-method", "FBB"),)),
+        # The list reaches three months back, so only merging keeps older shipments in the table.
+        incremental_fields=(
+            {
+                "label": "shipmentDateTime",
+                "type": IncrementalFieldType.DateTime,
+                "field": "shipmentDateTime",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ),
         partition_key="shipmentDateTime",
+        newest_first=True,
     ),
     "returns": BolEndpointConfig(
         name="returns",
@@ -119,5 +132,6 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: list(config.incremental_fields) for name, config in BOL_ENDPOINTS.items()
 }
 
-# Order items re-read the watermark's whole day each run. Appending would write those rows again.
-MERGE_ONLY = ("order_items",)
+# Order items re-read the watermark's whole day each run, and shipments re-read the watermark's page.
+# Appending would write those rows again.
+MERGE_ONLY = ("order_items", "shipments")
