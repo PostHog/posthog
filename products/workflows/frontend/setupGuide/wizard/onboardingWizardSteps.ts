@@ -2,6 +2,8 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
+import type { WorkflowsConfig } from '~/types'
+
 import type { HogFlowAction } from '../../Workflows/hogflows/types'
 import type { WorkflowsOnboardingPath } from '../workflowsSetupGuideLogic'
 
@@ -129,41 +131,29 @@ export interface FrequencyCap {
     windowDays: number | null
 }
 
-// pinned: analytics property values for the sending rules step - renaming breaks dashboards
-export type FrequencyCapPreset = 'recommended' | 'weekly' | 'off' | 'custom'
+/** The frequency cap a new setup gets. A custom cap or no cap is set in Messaging settings. */
+export const RECOMMENDED_FREQUENCY_CAP: FrequencyCap = { maxMessages: 1, windowDays: 2 }
 
-export const FREQUENCY_CAP_PRESETS: Record<Exclude<FrequencyCapPreset, 'custom'>, FrequencyCap> = {
-    recommended: { maxMessages: 1, windowDays: 2 },
-    weekly: { maxMessages: 3, windowDays: 7 },
-    off: { maxMessages: null, windowDays: null },
-}
-
-/** The preset a saved cap matches. An unset cap counts as "off", because the worker treats it as no cap. */
-export function frequencyCapPreset(cap: FrequencyCap): FrequencyCapPreset {
-    const match = (Object.keys(FREQUENCY_CAP_PRESETS) as (keyof typeof FREQUENCY_CAP_PRESETS)[]).find(
-        (key) =>
-            FREQUENCY_CAP_PRESETS[key].maxMessages === cap.maxMessages &&
-            FREQUENCY_CAP_PRESETS[key].windowDays === cap.windowDays
-    )
-    return match ?? 'custom'
-}
-
-/** The preset the step shows: the person's pick, else the saved cap, else the recommended cap for a new setup. */
-export function shownFrequencyCapPreset(saved: FrequencyCap, choice: FrequencyCapPreset | null): FrequencyCapPreset {
-    if (choice) {
-        return choice
-    }
-    const savedPreset = frequencyCapPreset(saved)
-    return savedPreset === 'off' ? 'recommended' : savedPreset
-}
-
-/** The cap to save when the person leaves the step, or null when the saved cap already matches. */
-export function frequencyCapToSave(saved: FrequencyCap, choice: FrequencyCapPreset | null): FrequencyCap | null {
-    const shown = shownFrequencyCapPreset(saved, choice)
-    if (shown === 'custom' || shown === frequencyCapPreset(saved)) {
+/** What the sending rules step saves when the person continues, or null when nothing changes.
+ * An unset cap gets the recommended cap. A saved cap, custom or not, stays as it is. */
+export function sendingRulesToSave(
+    saved: FrequencyCap & { engagementEvents: boolean },
+    engagementEvents: boolean,
+    canEditCap: boolean
+): WorkflowsConfig | null {
+    const setCap = canEditCap && (saved.maxMessages === null || saved.windowDays === null)
+    if (!setCap && engagementEvents === saved.engagementEvents) {
         return null
     }
-    return FREQUENCY_CAP_PRESETS[shown]
+    return {
+        capture_workflows_engagement_events: engagementEvents,
+        ...(setCap
+            ? {
+                  marketing_frequency_cap_max_messages: RECOMMENDED_FREQUENCY_CAP.maxMessages,
+                  marketing_frequency_cap_window_days: RECOMMENDED_FREQUENCY_CAP.windowDays,
+              }
+            : {}),
+    }
 }
 
 // pinned: integration kinds - these are the `kind` values the integrations API returns

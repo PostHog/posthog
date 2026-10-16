@@ -1,15 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
+import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { WorkflowsEmailTrackingConsentSettings } from '../../scenes/settings/WorkflowsEmailTrackingConsentSettings'
-import { WorkflowsEngagementEventsSettings } from '../../scenes/settings/WorkflowsEngagementEventsSettings'
-import { FrequencyCapPreset } from './onboardingWizardSteps'
+import { RECOMMENDED_FREQUENCY_CAP } from './onboardingWizardSteps'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
-
-const ADMIN_ONLY_REASON = 'Only project admins can change the frequency cap'
 
 function SendingRule({
     title,
@@ -18,7 +16,7 @@ function SendingRule({
 }: {
     title: string
     description: string
-    children: JSX.Element
+    children: React.ReactNode
 }): JSX.Element {
     return (
         <section className="flex flex-col gap-3">
@@ -31,32 +29,16 @@ function SendingRule({
     )
 }
 
-/** The project-wide sending rules, with a frequency cap picked for a new setup so people do not get flooded. */
+/** The project-wide sending rules. A new setup gets the recommended frequency cap and engagement events. */
 export function WizardSendingRulesStep(): JSX.Element {
-    const { shownFrequencyCap, savedFrequencyCap, canEditSendingRules } = useValues(workflowsOnboardingWizardLogic)
-    const { setFrequencyCapChoice } = useActions(workflowsOnboardingWizardLogic)
-    const disabledReason = canEditSendingRules ? undefined : ADMIN_ONLY_REASON
+    const { savedFrequencyCap, canEditSendingRules, shownEngagementEvents } = useValues(workflowsOnboardingWizardLogic)
+    const { setEngagementEventsChoice } = useActions(workflowsOnboardingWizardLogic)
 
-    const options: LemonRadioOption<FrequencyCapPreset>[] = [
-        {
-            value: 'recommended',
-            label: 'At most 1 email every 2 days (recommended)',
-            description: 'Keeps marketing email from piling up when several workflows target the same person.',
-        },
-        { value: 'weekly', label: 'At most 3 emails a week' },
-        {
-            value: 'off',
-            label: 'No cap',
-            description: 'Each workflow and broadcast sends on its own schedule.',
-        },
-    ]
-    if (shownFrequencyCap === 'custom') {
-        options.unshift({
-            value: 'custom',
-            label: `At most ${savedFrequencyCap.maxMessages} emails every ${savedFrequencyCap.windowDays} days`,
-            description: 'Your current cap. Change the numbers in Messaging settings.',
-        })
-    }
+    const hasSavedCap = savedFrequencyCap.maxMessages !== null && savedFrequencyCap.windowDays !== null
+    const cap = hasSavedCap ? savedFrequencyCap : RECOMMENDED_FREQUENCY_CAP
+    const isRecommended =
+        cap.maxMessages === RECOMMENDED_FREQUENCY_CAP.maxMessages &&
+        cap.windowDays === RECOMMENDED_FREQUENCY_CAP.windowDays
 
     return (
         <div className="flex flex-col gap-6">
@@ -64,16 +46,20 @@ export function WizardSendingRulesStep(): JSX.Element {
                 title="Frequency cap"
                 description="The most marketing emails one person gets across all workflows and broadcasts. Transactional email is never capped."
             >
-                <LemonRadio
-                    value={shownFrequencyCap}
-                    onChange={setFrequencyCapChoice}
-                    options={options.map((option) => ({
-                        ...option,
-                        disabledReason,
-                        'data-attr': `workflows-onboarding-wizard-frequency-cap-${option.value}`,
-                    }))}
-                    aria-label="Frequency cap"
-                />
+                <div className="flex flex-wrap items-center gap-2 rounded border bg-surface-primary px-3 py-2">
+                    <span className="font-semibold">
+                        {`At most ${pluralize(cap.maxMessages ?? 0, 'email')} every ${pluralize(cap.windowDays ?? 0, 'day')}`}
+                    </span>
+                    {isRecommended && <LemonTag type="success">Recommended</LemonTag>}
+                </div>
+                <p className="mb-0 text-sm text-secondary">
+                    {!hasSavedCap && !canEditSendingRules ? 'Only project admins can set the frequency cap. ' : null}
+                    To set a different cap or turn it off, go to{' '}
+                    <Link to={urls.workflows('settings')} data-attr="workflows-onboarding-wizard-messaging-settings">
+                        Messaging settings
+                    </Link>
+                    .
+                </p>
             </SendingRule>
             <LemonDivider className="my-0" />
             <SendingRule
@@ -87,7 +73,13 @@ export function WizardSendingRulesStep(): JSX.Element {
                 title="Engagement events"
                 description="Capture sends, opens, clicks and bounces as PostHog events, so you can use them in insights and funnels. These events count toward your event usage."
             >
-                <WorkflowsEngagementEventsSettings />
+                <LemonSwitch
+                    checked={shownEngagementEvents}
+                    onChange={setEngagementEventsChoice}
+                    label="Capture email engagement events"
+                    bordered
+                    data-attr="workflows-onboarding-wizard-engagement-events"
+                />
             </SendingRule>
         </div>
     )

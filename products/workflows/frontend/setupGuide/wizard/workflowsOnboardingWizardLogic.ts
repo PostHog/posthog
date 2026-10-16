@@ -22,15 +22,13 @@ import {
     BLANK_START_ID,
     DATA_SUGGESTION_START_ID,
     FrequencyCap,
-    FrequencyCapPreset,
     ONBOARDING_WIZARD_TAB,
     WIZARD_STEP_COPY,
     WizardConnection,
     WizardStepKey,
     firstOpenStepIndex,
-    frequencyCapToSave,
     requiredConnections,
-    shownFrequencyCapPreset,
+    sendingRulesToSave,
     wizardSteps,
 } from './onboardingWizardSteps'
 
@@ -50,7 +48,7 @@ export interface workflowsOnboardingWizardLogicValues {
     connectionsNeeded: WizardConnection[]
     continueDisabledReason: string | null
     currentStep: WizardStepKey
-    frequencyCapChoice: FrequencyCapPreset | null
+    engagementEventsChoice: boolean | null
     hasPositioned: boolean
     initialized: boolean
     isLastStep: boolean
@@ -62,7 +60,7 @@ export interface workflowsOnboardingWizardLogicValues {
     selectedTemplate: HogFlowTemplate | null
     selectedTemplateId: string | null
     setupCheckFailed: boolean
-    shownFrequencyCap: FrequencyCapPreset
+    shownEngagementEvents: boolean
     startsBlank: boolean
     stepDone: Partial<Record<WizardStepKey, boolean>> | null
     stepIndex: number
@@ -141,8 +139,8 @@ export interface workflowsOnboardingWizardLogicActions {
     selectTemplate: (templateId: string) => {
         templateId: string
     }
-    setFrequencyCapChoice: (preset: FrequencyCapPreset) => {
-        preset: FrequencyCapPreset
+    setEngagementEventsChoice: (enabled: boolean) => {
+        enabled: boolean
     }
     setStepIndex: (index: number) => {
         index: number
@@ -173,10 +171,7 @@ export interface workflowsOnboardingWizardLogicMeta {
         connectionsNeeded: (selectedTemplate: HogFlowTemplate | null) => WizardConnection[]
         missingConnections: (connectionsNeeded: 'slack'[], integrations: IntegrationType[] | null) => WizardConnection[]
         savedFrequencyCap: (currentTeam: TeamType | null) => FrequencyCap
-        shownFrequencyCap: (
-            savedFrequencyCap: FrequencyCap,
-            frequencyCapChoice: FrequencyCapPreset | null
-        ) => FrequencyCapPreset
+        shownEngagementEvents: (engagementEventsChoice: boolean | null) => boolean
         canEditSendingRules: (currentTeam: TeamType | null) => boolean
         stepDone: (
             wizardPath: WorkflowsOnboardingPath,
@@ -251,7 +246,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
         positionAtFirstOpenStep: (index: number) => ({ index }),
         positionIfReady: true,
         startPushSetup: true,
-        setFrequencyCapChoice: (preset: FrequencyCapPreset) => ({ preset }),
+        setEngagementEventsChoice: (enabled: boolean) => ({ enabled }),
         setTemplatesShown: (shown: boolean) => ({ shown }),
         finishWithSuggestion: true,
     }),
@@ -304,10 +299,10 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 setTemplatesShown: (_, { shown }) => shown,
             },
         ],
-        frequencyCapChoice: [
-            null as FrequencyCapPreset | null,
+        engagementEventsChoice: [
+            null as boolean | null,
             {
-                setFrequencyCapChoice: (_, { preset }) => preset,
+                setEngagementEventsChoice: (_, { enabled }) => enabled,
             },
         ],
         pushSetupStarted: [
@@ -337,10 +332,10 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 windowDays: currentTeam?.workflows_config?.marketing_frequency_cap_window_days ?? null,
             }),
         ],
-        shownFrequencyCap: [
-            (s) => [s.savedFrequencyCap, s.frequencyCapChoice],
-            (savedFrequencyCap: FrequencyCap, frequencyCapChoice: FrequencyCapPreset | null): FrequencyCapPreset =>
-                shownFrequencyCapPreset(savedFrequencyCap, frequencyCapChoice),
+        // A new setup captures engagement events unless the person turns them off.
+        shownEngagementEvents: [
+            (s) => [s.engagementEventsChoice],
+            (engagementEventsChoice: boolean | null): boolean => engagementEventsChoice ?? true,
         ],
         // Matches the admin restriction on the frequency cap in project settings.
         canEditSendingRules: [
@@ -480,21 +475,22 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 path: values.wizardPath,
                 step,
                 skipped: WIZARD_STEP_COPY[step].optional && !values.stepDone?.[step],
-                ...(step === 'sending-rules' ? { frequency_cap: values.shownFrequencyCap } : {}),
+                ...(step === 'sending-rules' ? { engagement_events: values.shownEngagementEvents } : {}),
             })
-            const capToSave =
-                step === 'sending-rules' && values.canEditSendingRules
-                    ? frequencyCapToSave(values.savedFrequencyCap, values.frequencyCapChoice)
+            const rulesToSave =
+                step === 'sending-rules'
+                    ? sendingRulesToSave(
+                          {
+                              ...values.savedFrequencyCap,
+                              engagementEvents:
+                                  !!values.currentTeam?.workflows_config?.capture_workflows_engagement_events,
+                          },
+                          values.shownEngagementEvents,
+                          values.canEditSendingRules
+                      )
                     : null
-            if (capToSave) {
-                actions.updateCurrentTeam({
-                    workflows_config: {
-                        capture_workflows_engagement_events:
-                            values.currentTeam?.workflows_config?.capture_workflows_engagement_events ?? false,
-                        marketing_frequency_cap_max_messages: capToSave.maxMessages,
-                        marketing_frequency_cap_window_days: capToSave.windowDays,
-                    },
-                })
+            if (rulesToSave) {
+                actions.updateCurrentTeam({ workflows_config: rulesToSave })
             }
             if (values.isLastStep) {
                 actions.finish()
