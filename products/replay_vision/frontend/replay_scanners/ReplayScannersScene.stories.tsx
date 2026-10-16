@@ -1950,7 +1950,6 @@ const goalDraft: DraftScannerResponseApi = {
     sampling_rate: 0.25,
     model: 'gemini-3-flash-preview',
     credit_limit: 5000,
-    experiment_targeting: null,
     estimated_monthly_observations: 1000,
 }
 
@@ -1987,7 +1986,7 @@ export const ScannerEditorGoalOverview: StoryObj = {
 export const ScannerEditorGoalOverviewExperiment: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test', [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
     },
     decorators: [
         mswDecorator({
@@ -2022,10 +2021,14 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
             const draft: DraftScannerResponseApi = {
                 ...goalDraft,
                 name: 'New creation flow friction',
-                description: 'Flags sessions where a participant struggles in the new AI creation flow.',
+                description: 'Describes how participants get through the new AI creation flow.',
+                scanner_type: 'experiment',
                 scanner_config: {
-                    prompt: 'Did the participant hesitate, backtrack, or give up while describing their goal in the scanner creation flow? Answer yes or no with a one-sentence reason.',
-                    allow_inconclusive: true,
+                    prompt: 'Watch the scanner creation flow. Note where the participant hesitates, backtracks, or gives up while describing their goal, and how the session ends.',
+                    length: 'medium',
+                    experiment_id: 11,
+                    variants: ['test'],
+                    balance_variants: true,
                 },
                 rationale:
                     'Your goal is about the new AI creation flow, so this watches only the sessions of people the experiment put in its test variant, on the pages where that flow lives. Struggling looks unremarkable, so it watches all matching replays rather than only the eventful ones.',
@@ -2048,7 +2051,6 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
                         },
                     ],
                 } as RecordingsQuery,
-                experiment_targeting: { experiment_id: 11, variant: 'test' },
             }
             logic.actions.draftScannerFromGoalSuccess(draft)
             logic.actions.setScannerValues({
@@ -2059,7 +2061,6 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
                 query: draft.query as RecordingsQuery,
                 sampling_mode: draft.sampling_mode as SamplingMode,
                 sampling_rate: draft.sampling_rate ?? 1,
-                experiment_targeting: draft.experiment_targeting,
             })
             return <StoryFn />
         },
@@ -2187,6 +2188,41 @@ export const ScannerEditorGoalFlowBudget: StoryObj = {
             return <StoryFn />
         },
     ],
+}
+
+// "Track an experiment" opened and an experiment picked: the starter lists running experiments and drafts an
+// experiment scanner on the one picked.
+export const ScannerEditorGoalFlowExperimentPicker: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerTemplate('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/experiments/': {
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [
+                        { id: 11, name: 'AI creation flow', feature_flag: { filters: {} } },
+                        { id: 12, name: 'Pricing page layout', feature_flag: { filters: {} } },
+                    ],
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Track an experiment'))
+        const picker = await waitFor(() => {
+            const button = canvasElement.querySelector('[data-attr="vision-goal-starter-experiment-picker"]')
+            expect(button).not.toHaveClass('LemonButton--loading')
+            return button as HTMLElement
+        })
+        await userEvent.click(picker)
+        await userEvent.click(await within(document.body).findByText('AI creation flow'))
+    },
 }
 
 // No free credits left this period, so "Free" is disabled and the budget input shows.

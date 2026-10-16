@@ -1023,6 +1023,9 @@ const visionScannersDraft = (): ToolBase<
         if (params.monthly_credit_budget !== undefined) {
             body['monthly_credit_budget'] = params.monthly_credit_budget
         }
+        if (params.experiment_id !== undefined) {
+            body['experiment_id'] = params.experiment_id
+        }
         const result = await context.api.request<Schemas.DraftScannerResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/draft/`,

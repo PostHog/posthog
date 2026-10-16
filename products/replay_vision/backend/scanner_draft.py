@@ -55,6 +55,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerModel,
     ScannerType,
     apply_experiment_targeting,
+    config_experiment_scope,
 )
 from products.replay_vision.backend.queries.action_volume import recent_action_sessions
 from products.replay_vision.backend.queries.event_volume import recent_event_sessions
@@ -261,6 +262,11 @@ class DraftError(Exception):
         self.detail = detail
 
 
+class UnwatchableExperimentError(Exception):
+    """The experiment a draft was asked to watch is one a scan cannot watch: never launched, deleted,
+    group-aggregated, or without variants."""
+
+
 class _LlmDraft(BaseModel):
     """The model's structured output: one drafted scanner."""
 
@@ -325,11 +331,6 @@ class ScannerDraft:
     # budget so a mis-estimate cannot overspend it. None on the legacy path.
     model: str | None = None
     credit_limit: int | None = None
-    # Shape: ScannerExperimentTargetingSerializer. Set by the goal-based path when the goal named one
-    # of the team's experiments, so the scan watches that experiment's participants. It stays out of
-    # `query`, which is where the API refuses an exposure filter, and rides to the wizard as its own
-    # field the way a saved scanner carries it.
-    experiment_targeting: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -896,7 +897,7 @@ class _LlmEventPropertyFilter(BaseModel):
 class _LlmDraftV2(BaseModel):
     """The model's structured output for the goal-based flow: one drafted scanner plus targeting."""
 
-    scanner_type: Literal["monitor", "classifier", "scorer", "summarizer"] = Field(
+    scanner_type: Literal["monitor", "classifier", "scorer", "summarizer", "experiment"] = Field(
         description="The scanner type that best fits the goal."
     )
     name: str = Field(description="Short scanner name (under 8 words), e.g. 'Checkout abandonment'.")
@@ -918,7 +919,7 @@ class _LlmDraftV2(BaseModel):
         default=None, description="Scorer only: one-word label for the dimension being scored, e.g. 'frustration'."
     )
     length: Literal["short", "medium", "long"] = Field(
-        default="medium", description="Summarizer only: how long each summary should be."
+        default="medium", description="Summarizer and experiment only: how long each summary should be."
     )
     allow_inconclusive: bool = Field(
         default=False,
@@ -991,7 +992,7 @@ class _LlmDraftV2(BaseModel):
 
 _SYSTEM_PROMPT_V2 = """
 You turn a PostHog user's goal into a draft Replay Vision scanner. A scanner watches individual session
-recordings of the user's product and produces one observation per recording. There are four scanner types:
+recordings of the user's product and produces one observation per recording. There are five scanner types:
 
 - monitor: answers a yes/no question about the session (e.g. "Did the user fail to complete checkout?").
   Best when the goal is detecting whether something specific happened.
@@ -1001,6 +1002,9 @@ recordings of the user's product and produces one observation per recording. The
   Best when the goal is ranking sessions by intensity of something.
 - summarizer: writes a free-text summary of the session. Best when the goal is broad ("what are users
   doing?", "give me an overview") and doesn't fit one question, dimension, or vocabulary.
+- experiment: summarizes how each person exposed to one A/B experiment experiences the change under
+  test. Pick it whenever you set filter_experiment, and only then: it is the type built to watch an
+  experiment's participants, so a goal about an experiment always gets it.
 
 A short or vague goal ("test", "help", "what's going on") is not a puzzle to work out. Draft a summarizer over
 the whole product with no filters and move on. The user reviews the draft in the wizard and narrows it
@@ -1037,6 +1041,10 @@ Pick the single type that best fits the goal, then draft the scanner:
     configured separately via `scale_min`/`scale_max`.
   - summarizer: say what every summary must cover and in what order (what the person was trying to do,
     what the product did, where they got stuck, how it ended), and what to leave out.
+  - experiment: the scanner already knows the experiment's name, hypothesis and variants, and must never
+    be told which variant a session got. Say which surface the change lives on, what to watch for on it
+    (the moments that show whether the change helps or hurts the goal), and what to leave out. Do not
+    restate the experiment or ask the scanner to name a variant.
 - Fill only the fields relevant to the chosen type; leave the rest at their defaults.
 - For monitors: set allow_inconclusive to true when many sessions won't even reach the flow the question
   is about (e.g. a checkout question when most sessions never open checkout), so those sessions aren't
@@ -1094,7 +1102,8 @@ Pick the single type that best fits the goal, then draft the scanner:
   limits the scan to the people that experiment exposed, which no page or event filter can
   express: a page filter scans everyone who visited the page, so the control group's sessions land
   in the results too and the observations describe the old experience and the new one at once.
-  Copy the name exactly; anything not in the list is discarded.
+  Copy the name exactly; anything not in the list is discarded. Setting it means scanner_type is
+  experiment.
   - filter_experiment_variant: the variant whose experience the goal is about, copied exactly from
     that experiment's variants. A goal about the new thing means the variant that has it, not
     control. Leave empty only when the goal compares the variants or names none.
@@ -1152,6 +1161,7 @@ def _build_user_content_v2(
     actions: Sequence[_MatchedAction] = (),
     cohorts: Sequence[_MatchedCohort] = (),
     experiments: Sequence[_MatchedExperiment] = (),
+    pinned_experiment: _MatchedExperiment | None = None,
     business_context: str = "",
     company: str = "",
 ) -> str:
@@ -1223,6 +1233,18 @@ def _build_user_content_v2(
                     "the team's saved actions whose names match the goal, each with the sessions it "
                     "fired in recently. Each is a curated definition of a behavior; copy a name into "
                     "filter_actions to scan only sessions containing it"
+                ),
+            )
+        )
+    if pinned_experiment is not None:
+        lines.append(
+            "\n"
+            + as_untrusted_data(
+                "chosen-experiment",
+                [f'"{pinned_experiment.name}" -> variants: {", ".join(pinned_experiment.variants)}'],
+                source=(
+                    "the experiment the user picked for this scanner to watch. Copy its name into "
+                    "filter_experiment and draft an experiment scanner about it"
                 ),
             )
         )
@@ -1314,7 +1336,7 @@ def _events_for_goal(team: Team, goal: str) -> list[str]:
     return list(dict.fromkeys([*quoted, *matched, *baseline]))
 
 
-def _scopes_allow_read(allowed_scopes: list[str] | None, resource: APIScopeObject) -> bool:
+def scopes_allow_read(allowed_scopes: list[str] | None, resource: APIScopeObject) -> bool:
     """Whether a credential's API scopes permit reading `resource`.
 
     `None` means session or other non-token auth, which is not scope-gated (RBAC applies instead).
@@ -1367,10 +1389,10 @@ def _goal_entity_matches(
         ) or user_access_control.has_any_specific_access_for_resource(resource, required_level="viewer")
 
     acl_kinds: tuple[APIScopeObject, ...] = ("survey", "action", "experiment")
-    kinds: set[str] = {kind for kind in acl_kinds if _readable(kind) and _scopes_allow_read(allowed_scopes, kind)}
+    kinds: set[str] = {kind for kind in acl_kinds if _readable(kind) and scopes_allow_read(allowed_scopes, kind)}
     # Cohorts are team-scoped only, not in ACCESS_CONTROL_RESOURCES, so they get no resource gate,
     # but a scoped token still must hold cohort:read to receive them.
-    if _scopes_allow_read(allowed_scopes, "cohort"):
+    if scopes_allow_read(allowed_scopes, "cohort"):
         kinds.add("cohort")
     # `search_entities` builds its result by unioning one queryset per kind, then orders by the rank
     # those querysets annotate. With no kind it orders an empty base queryset by a column that was
@@ -1735,12 +1757,12 @@ def _finalize_v2(
     allowed_actions: Sequence[_MatchedAction] = (),
     allowed_cohorts: Sequence[_MatchedCohort] = (),
     allowed_experiments: Sequence[_MatchedExperiment] = (),
+    pinned_experiment: _MatchedExperiment | None = None,
 ) -> ScannerDraft:
     """Normalize the v2 model output; costing is applied by the caller."""
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
     if not name or not parsed.prompt.strip():
         raise DraftError("missing_name_or_prompt")
-    scanner_config = _normalized_config(parsed)  # type: ignore[arg-type]
 
     proposed_pages = _proposed_filter_values(parsed.filter_pages, allowed_pages)
     # Dead events count as offered here: they left the briefing, but revival below can still put one
@@ -1770,9 +1792,14 @@ def _finalize_v2(
         for name in dict.fromkeys(n.strip() for n in parsed.filter_cohorts)
         if name in cohorts_by_name
     ][:_MAX_FILTER_COHORTS]
-    targeting = _grounded_targeting(
-        parsed.filter_experiment, parsed.filter_experiment_variant, allowed=allowed_experiments
+    # The user picked this experiment, so a draft that named another one, or none, still watches it.
+    experiment_name, experiments = (
+        (pinned_experiment.name, [pinned_experiment])
+        if pinned_experiment is not None
+        else (parsed.filter_experiment, allowed_experiments)
     )
+    targeting = _grounded_targeting(experiment_name, parsed.filter_experiment_variant, allowed=experiments)
+    scanner_type, scanner_config = _typed_config(parsed, targeting)
     # Dropping a dead event narrows only while another filter still holds the scan down. Alone it
     # inverts, leaving a query that matches every session rather than none, so the event goes back.
     revived_dead_events = (
@@ -1857,14 +1884,38 @@ def _finalize_v2(
     return ScannerDraft(
         name=name,
         description=parsed.description.strip()[:_MAX_DESCRIPTION_LENGTH],
-        scanner_type=parsed.scanner_type,
+        scanner_type=scanner_type,
         scanner_config=scanner_config,
         rationale=parsed.rationale.strip()[:_MAX_RATIONALE_LENGTH],
         query=query,
         sampling_mode=parsed.sampling_mode,
         model=parsed.model,
-        experiment_targeting=targeting,
     )
+
+
+def _typed_config(parsed: _LlmDraftV2, targeting: dict[str, Any] | None) -> tuple[str, dict[str, Any]]:
+    """The scanner type and config for the v2 draft.
+
+    A draft that watches an experiment becomes the experiment type whatever type the model picked,
+    because only that type scopes the scan to the experiment's participants and tells the scanner
+    what the experiment changes. The drafted prompt becomes its focus. An experiment type with no
+    experiment that survived grounding falls back to the summarizer it is built on.
+    """
+    if targeting is None:
+        if parsed.scanner_type == "experiment":
+            parsed = parsed.model_copy(update={"scanner_type": "summarizer"})
+        return parsed.scanner_type, _normalized_config(parsed)  # type: ignore[arg-type]
+    summary = _normalized_config(parsed.model_copy(update={"scanner_type": "summarizer"}))  # type: ignore[arg-type]
+    variant = targeting.get("variant")
+    scanner_config = {
+        **summary,
+        "experiment_id": targeting["experiment_id"],
+        "variants": [variant] if variant else None,
+        "balance_variants": True,
+    }
+    if error := scanner_config_error(ScannerType.EXPERIMENT, scanner_config):
+        raise DraftError("config_invalid", error)
+    return ScannerType.EXPERIMENT.value, scanner_config
 
 
 def _closing(item: Callable[[], _T]) -> Callable[[], _T]:
@@ -1920,13 +1971,36 @@ def draft_scanner_from_goal_v2(
     user_access_control: UserAccessControl,
     include_business_context: bool = True,
     allowed_scopes: list[str] | None = None,
+    experiment_id: int | None = None,
 ) -> ScannerDraft:
     """The goal-based flow: ground the goal in the team's real pages, draft the whole scanner in one
     model call, then solve the sampling dials from the stated monthly credit budget.
 
+    `experiment_id` is an experiment the user picked for the scanner to watch. The draft is then an
+    experiment scanner on it, whatever the goal names. The caller checks the user and the token may
+    read it; this raises UnwatchableExperimentError when a scan cannot watch it.
+
     Raises DraftError on model failure. A costing failure does not fail the draft: the sampling
     fields come back None and the wizard keeps its defaults.
     """
+    pinned_experiment: _MatchedExperiment | None = None
+    if experiment_id is not None:
+        try:
+            targetable = targetable_experiments(team, experiment_ids=[experiment_id])
+        except Exception as e:
+            # Unlike a goal-matched experiment, the picked one is the whole draft, so a failed read is
+            # an outage to retry rather than a refused pick.
+            raise DraftError("experiment_read_failed") from e
+        pinned_experiment = next(
+            (
+                _MatchedExperiment(name=t.name, experiment_id=t.id, variants=t.variants)
+                for t in targetable
+                if t.name.strip()
+            ),
+            None,
+        )
+        if pinned_experiment is None:
+            raise UnwatchableExperimentError()
     company = (
         " / ".join(part for part in [team.organization.name, team.project.name if team.project else ""] if part)
         if include_business_context
@@ -1938,7 +2012,7 @@ def draft_scanner_from_goal_v2(
     # analytics read behind query:read, so a scoped token without it gets the names unmeasured —
     # counts the briefing would show could otherwise reach the model's prompt and rationale.
     def measure(names: Sequence[str]) -> list[_CandidateEvent]:
-        if _scopes_allow_read(allowed_scopes, "query"):
+        if scopes_allow_read(allowed_scopes, "query"):
             return _measured_events(team, names)
         return [_CandidateEvent(name=name) for name in names]
 
@@ -2002,7 +2076,8 @@ def draft_scanner_from_goal_v2(
         surveys=matches.surveys,
         actions=matches.actions,
         cohorts=matches.cohorts,
-        experiments=matches.experiments,
+        experiments=[e for e in matches.experiments if e != pinned_experiment],
+        pinned_experiment=pinned_experiment,
         business_context=_business_context(team, user) if include_business_context else "",
         company=company,
     )
@@ -2025,6 +2100,7 @@ def draft_scanner_from_goal_v2(
         allowed_actions=matches.actions,
         allowed_cohorts=matches.cohorts,
         allowed_experiments=matches.experiments,
+        pinned_experiment=pinned_experiment,
     )
     # The cap is the stated budget, so a mis-estimate stops the scanner at the credits the user
     # agreed to rather than overspending. Kept even when costing fails, so the guardrail survives.
@@ -2038,7 +2114,7 @@ def draft_scanner_from_goal_v2(
             # Targeting survives the page fallback: the goal named the experiment, so a population
             # that ignores it answers a different question, and unlike an event filter it cannot be
             # the dead part — the exposure read is resolved from the experiment itself.
-            experiment_targeting=draft.experiment_targeting,
+            experiment_targeting=config_experiment_scope(draft.scanner_config),
             monthly_credit_budget=monthly_credit_budget,
             credits_per_observation=observation_credits_for_model(draft.model or ScannerModel.GEMINI_3_FLASH_PREVIEW),
             model_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
