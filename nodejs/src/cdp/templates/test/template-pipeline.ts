@@ -82,6 +82,8 @@ export type PipelineRun = {
     thrown?: string
     requests: OutgoingRequest[]
     printedOutput: string[]
+    /** Secret inputs by key, and integration credentials by `<input key>.<credential>`. */
+    secrets: Record<string, string>
     sensitiveValues: string[]
     integrationCredentials: string[]
 }
@@ -202,9 +204,15 @@ export class TemplatePipeline {
         this.requests = []
         this.response = response
 
-        const { hogFunction, integrationCredentials } = await this.createHogFunction(templateCase, options)
+        const { hogFunction, integrationSecrets } = await this.createHogFunction(templateCase, options)
         const globals = this.globalsFor(templateCase, options.entry ?? INVENTED_CORPUS[0])
-        const sensitiveValues = [...this.sensitiveInputValues(hogFunction), ...integrationCredentials]
+        const secrets = { ...secretInputs(hogFunction), ...integrationSecrets }
+        const evidence = {
+            requests: this.requests,
+            secrets,
+            sensitiveValues: Object.values(secrets),
+            integrationCredentials: Object.values(integrationSecrets),
+        }
 
         if (hogFunction.type === 'transformation') {
             const { invocationResults } = await this.transformer.transformEvent(pluginEventFrom(globals), [hogFunction])
@@ -212,10 +220,8 @@ export class TemplatePipeline {
             return {
                 invocationErrors: result ? [] : ['the transformation did not run'],
                 result,
-                requests: this.requests,
                 printedOutput: result?.logs.map((log) => log.message) ?? [],
-                sensitiveValues,
-                integrationCredentials,
+                ...evidence,
             }
         }
 
@@ -235,10 +241,8 @@ export class TemplatePipeline {
             invocationErrors,
             result,
             thrown,
-            requests: this.requests,
             printedOutput: result?.logs.map((log) => log.message) ?? [],
-            sensitiveValues,
-            integrationCredentials,
+            ...evidence,
         }
     }
 
@@ -282,15 +286,17 @@ export class TemplatePipeline {
     private async createHogFunction(
         templateCase: TemplateCase,
         options: RunOptions
-    ): Promise<{ hogFunction: HogFunctionType; integrationCredentials: string[] }> {
+    ): Promise<{ hogFunction: HogFunctionType; integrationSecrets: Record<string, string> }> {
         const { template, mapping } = templateCase
-        const integrationCredentials: string[] = []
+        const integrationSecrets: Record<string, string> = {}
         const values: Record<string, unknown> = {}
 
         for (const schema of template.inputs_schema) {
             if (schema.type === 'integration') {
                 const credentials = fakeIntegrationCredentials(schema.key)
-                integrationCredentials.push(...Object.values(credentials))
+                for (const [name, credential] of Object.entries(credentials)) {
+                    integrationSecrets[`${schema.key}.${name}`] = credential
+                }
                 values[schema.key] = await this.insertIntegration(schema, credentials)
             } else {
                 values[schema.key] =
@@ -339,7 +345,7 @@ export class TemplatePipeline {
             updated_at: '2025-01-01T00:00:00Z',
         }
 
-        return { hogFunction, integrationCredentials }
+        return { hogFunction, integrationSecrets }
     }
 
     private async insertIntegration(
@@ -356,12 +362,6 @@ export class TemplatePipeline {
         return integration.id
     }
 
-    private sensitiveInputValues(hogFunction: HogFunctionType): string[] {
-        return Object.values(hogFunction.encrypted_inputs ?? {})
-            .map((input) => input.value)
-            .filter((value): value is string => typeof value === 'string')
-    }
-
     private globalsFor(templateCase: TemplateCase, entry: CorpusEntry): HogFunctionInvocationGlobals {
         const projectUrl = `https://us.posthog.com/project/${this.team.id}`
         const eventName = eventNameFor(templateCase, entry)
@@ -371,7 +371,7 @@ export class TemplatePipeline {
                 ...entry.event,
                 event: eventName,
                 url: `${projectUrl}/events/${entry.event.uuid}`,
-                properties: { ...entry.event.properties, ...SYSTEM_EVENT_PROPERTIES[eventName] },
+                properties: { ...SYSTEM_EVENT_PROPERTIES[eventName], ...entry.event.properties },
             },
             person: entry.person && {
                 ...entry.person,
@@ -394,6 +394,13 @@ const INTEGRATION_CONFIGS: Record<string, Record<string, unknown>> = {
     slack: { scope: 'chat:write,chat:write.customize', team: { id: 'T0000EXAMPLE', name: 'Example workspace' } },
     twilio: { account_sid: 'ACexample0000' },
 }
+
+const secretInputs = (hogFunction: HogFunctionType): Record<string, string> =>
+    Object.fromEntries(
+        Object.entries(hogFunction.encrypted_inputs ?? {})
+            .map(([key, input]) => [key, input.value] as const)
+            .filter((entry): entry is readonly [string, string] => typeof entry[1] === 'string')
+    )
 
 const pluginEventFrom = (globals: HogFunctionInvocationGlobals): PluginEvent => ({
     uuid: globals.event.uuid,

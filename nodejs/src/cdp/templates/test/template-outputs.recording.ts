@@ -28,8 +28,16 @@ const recordRun = (
     run: PipelineRun,
     teamId: number
 ): Record<string, unknown> => {
-    const context: NormalizeContext = { sensitiveValues: run.sensitiveValues, inputText: JSON.stringify(entry), teamId }
-    const errors = [...run.invocationErrors, ...(run.result?.error ? [String(run.result.error)] : [])]
+    const context: NormalizeContext = {
+        secrets: run.secrets,
+        inputText: JSON.stringify([entry, templateCase.template]),
+        teamId,
+    }
+    const errors = [
+        ...run.invocationErrors,
+        ...(run.thrown ? [run.thrown] : []),
+        ...(run.result?.error ? [String(run.result.error)] : []),
+    ]
     return {
         corpusEntry: entry.name,
         requests: normalizeRequests(run.requests, context),

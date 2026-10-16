@@ -7,17 +7,30 @@
 #   CDP_TEMPLATE_SHADOW_DIR   where the two recordings go, defaults to a new temp directory
 #
 # The base checkout runs with this tree's node_modules and recorder files, so a dependency change is not part of the diff.
-# Exits 0 when every template sends the same requests, 1 when any differ.
-set -euo pipefail
+# Exits 0 when every template sends the same requests, 1 when any differ, 2 when the comparison itself fails.
+set -Eeuo pipefail
+trap 'exit 2' ERR
+
+absolute_path() {
+    mkdir -p "$1"
+    (cd "$1" && pwd)
+}
 
 nodejs_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo_root="$(cd "$nodejs_dir/.." && pwd)"
-base_ref="${1:-$(git -C "$repo_root" merge-base HEAD origin/master)}"
-shadow_dir="${CDP_TEMPLATE_SHADOW_DIR:-$(mktemp -d)}"
+base_ref="$(git -C "$repo_root" rev-parse --verify --quiet "${1:-$(git -C "$repo_root" merge-base HEAD origin/master)}^{commit}")" || {
+    echo "Unknown base ref: ${1:-the merge base with origin/master}" >&2
+    exit 2
+}
+shadow_dir="$(absolute_path "${CDP_TEMPLATE_SHADOW_DIR:-$(mktemp -d)}")"
 base_tree="$(mktemp -d)/base"
-corpus="${CDP_TEMPLATE_CORPUS:+$(realpath "$CDP_TEMPLATE_CORPUS")}"
+corpus=""
+if [[ -n "${CDP_TEMPLATE_CORPUS:-}" ]]; then
+    corpus="$(cd "$(dirname "$CDP_TEMPLATE_CORPUS")" && pwd)/$(basename "$CDP_TEMPLATE_CORPUS")"
+fi
 
 recorder_files=(
+    src/cdp/templates/compiler.ts
     src/cdp/templates/test/template-pipeline.ts
     src/cdp/templates/test/shadow-recording.ts
     src/cdp/templates/test/template-outputs.recording.ts
@@ -39,7 +52,10 @@ prepare_base_tree() {
         mkdir -p "$(dirname "$base_tree/nodejs/$file")"
         cp "$nodejs_dir/$file" "$base_tree/nodejs/$file"
     done
-    cp --update=none "$nodejs_dir"/tests/fixtures/hog-bytecode/*.json "$base_tree/nodejs/tests/fixtures/hog-bytecode/"
+    for fixture in "$nodejs_dir"/tests/fixtures/hog-bytecode/*.json; do
+        local target="$base_tree/nodejs/tests/fixtures/hog-bytecode/$(basename "$fixture")"
+        [[ -e "$target" ]] || cp "$fixture" "$target"
+    done
 }
 
 record() {
@@ -53,15 +69,24 @@ record() {
     fi
 }
 
-mkdir -p "$shadow_dir"
 echo "Recording $(git -C "$repo_root" rev-parse --short "$base_ref") (base) and the working tree into $shadow_dir" >&2
 prepare_base_tree
 record "$base_tree/nodejs" "$shadow_dir/base"
 record "$nodejs_dir" "$shadow_dir/head"
 
-if git --no-pager diff --no-index --stat "$shadow_dir/base" "$shadow_dir/head"; then
-    echo "No differences: every template sends the same requests on base and the working tree." >&2
-    exit 0
-fi
-git --no-pager diff --no-index "$shadow_dir/base" "$shadow_dir/head" || true
-exit 1
+diff_status=0
+git --no-pager diff --no-index --stat "$shadow_dir/base" "$shadow_dir/head" || diff_status=$?
+case "$diff_status" in
+    0)
+        echo "No differences: every template sends the same requests on base and the working tree." >&2
+        exit 0
+        ;;
+    1)
+        git --no-pager diff --no-index "$shadow_dir/base" "$shadow_dir/head" || true
+        exit 1
+        ;;
+    *)
+        echo "Comparing the recordings failed with status $diff_status." >&2
+        exit 2
+        ;;
+esac
