@@ -13,10 +13,16 @@ from products.workflows.backend.models import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 
-@patch(
-    "products.workflows.backend.presentation.views.workflow_setup.posthoganalytics.feature_enabled", return_value=False
-)
 class TestWorkflowSetupStatusAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag = patch(
+            "products.workflows.backend.presentation.views.workflow_setup.posthoganalytics.feature_enabled",
+            return_value=False,
+        )
+        flag.start()
+        self.addCleanup(flag.stop)
+
     def _status(self) -> dict:
         response = self.client.get(f"/api/projects/{self.team.id}/workflow_setup/status/")
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -44,7 +50,7 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
             actions=[{"id": "step", "type": action_type}],
         )
 
-    def test_a_new_project_starts_at_the_channel(self, _flag) -> None:
+    def test_a_new_project_starts_at_the_channel(self) -> None:
         body = self._status()
 
         assert not any(self._done(body).values())
@@ -54,7 +60,7 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
             f"/project/{self.team.id}/workflows/onboarding?path=messaging&step=channel"
         )
 
-    def test_an_unverified_domain_cannot_send(self, _flag) -> None:
+    def test_an_unverified_domain_cannot_send(self) -> None:
         self._add_email_channel(verified=False)
 
         body = self._status()
@@ -70,7 +76,7 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
             ("a disabled SES tenant", {"ses_tenant_sending_status": "DISABLED"}),
         ]
     )
-    def test_paused_sending_is_not_ready(self, _name, paused_fields, _flag) -> None:
+    def test_paused_sending_is_not_ready(self, _name, paused_fields) -> None:
         self._add_email_channel(verified=True)
         TeamWorkflowsConfig.objects.create(team=self.team, **paused_fields)
 
@@ -80,7 +86,7 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
         assert body["ready_to_send_email"] is False
         assert body["email_sending_paused"] is True
 
-    def test_a_set_up_project_has_every_step_done(self, _flag) -> None:
+    def test_a_set_up_project_has_every_step_done(self) -> None:
         self._add_email_channel(verified=True)
         create_message_category_for_test(team_id=self.team.id, key="product-updates", name="Product updates")
         TeamWorkflowsConfig.objects.create(
@@ -105,7 +111,7 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
             ("a broadcast", {"action_type": "function_email", "origin_product": "broadcasts"}, False),
         ]
     )
-    def test_first_workflow_counts_only_live_messaging_workflows(self, _name, workflow, expected, _flag) -> None:
+    def test_first_workflow_counts_only_live_messaging_workflows(self, _name, workflow, expected) -> None:
         self._add_workflow(**workflow)
 
         assert self._done(self._status())["first-workflow"] is expected
