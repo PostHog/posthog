@@ -563,15 +563,51 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
     def test_depot_merge_queue_gate_run_resolves_to_the_landed_pr(
         self, _name: str, gate_pr_author: str, expected_pr_number: int, expected_is_merge_queue: int
     ) -> None:
+        gate_branch = "trunk-merge/pr-101991/1b92e8cf-acbf-4658-8071-4cf622123da8"
+        # GitHub's run of the gate PR handed its tests to Depot, so only Depot's run of it counts.
         runs_table = self._create_table(
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(
-                    901, "Backend CI", "abc123", "completed", "success", "2026-09-24 14:50:00", "2026-09-24 15:05:00"
+                    901,
+                    "Backend CI",
+                    "abc123",
+                    "completed",
+                    "success",
+                    "2026-09-24 14:50:00",
+                    "2026-09-24 15:05:00",
+                    pr_number=117864,
+                    head_branch=gate_branch,
+                    actor=gate_pr_author,
                 )
             ],
         )
+        jobs_table = self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(9011, 901, "Hand off backend tests to Depot CI", "success", head_sha="abc123"),
+                _job_row(9012, 901, "Django Tests Pass", "success", head_sha="abc123"),
+            ],
+        )
+        attempt = {
+            "run_id": "427q556wmn",
+            "run_workflow_count": 1,
+            "repo": "PostHog/posthog",
+            "ref": "refs/pull/117864/merge",
+            "head_sha": "abc123",
+            "sha": "",
+            "workflow_id": "6n4tghls33",
+            "workflow_name": "Backend CI on Depot",
+            "workflow_status": "finished",
+            "workflow_created_at": "2026-09-24T14:51:17.948Z",
+            "workflow_started_at": "2026-09-24T14:51:18.000Z",
+            "workflow_finished_at": "2026-09-24T15:01:18.000Z",
+            "attempt": 1,
+            "attempt_status": "finished",
+            "sandbox_id": "sandbox",
+        }
         prs_table = self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
@@ -582,7 +618,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     "open",
                     1,
                     "2026-09-24T14:00:00Z",
-                    head_ref="trunk-merge/pr-101991/1b92e8cf-acbf-4658-8071-4cf622123da8",
+                    head_ref=gate_branch,
                 )
             ],
         )
@@ -590,37 +626,32 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             "depot_job_attempts",
             DEPOT_JOB_ATTEMPTS_COLUMNS,
             [
-                {
-                    "run_id": "427q556wmn",
-                    "run_workflow_count": 1,
-                    "repo": "PostHog/posthog",
-                    "ref": "refs/pull/117864/merge",
-                    "head_sha": "abc123",
-                    "sha": "",
-                    "workflow_id": "6n4tghls33",
-                    "workflow_name": "Backend CI on Depot",
-                    "workflow_status": "failed",
-                    "workflow_created_at": "2026-09-24T14:51:17.948Z",
-                    "workflow_started_at": "2026-09-24T14:51:18.000Z",
-                    "workflow_finished_at": "2026-09-24T15:01:18.000Z",
+                attempt
+                | {
+                    "job_id": "j2k3l4m5n6",
+                    "job_key": "ci-backend.yml:wait-for-handoff",
+                    "job_display_name": "Wait for GitHub Actions to hand off backend tests",
+                    "attempt_id": "c2d3f4g5h6",
+                    "attempt_started_at": "2026-09-24T14:51:20.000Z",
+                    "attempt_finished_at": "2026-09-24T14:51:30.000Z",
+                },
+                attempt
+                | {
                     "job_id": "p4kd9tq2xs",
                     "job_key": "ci-backend.yml:django-tests",
                     "job_display_name": "Django Tests Pass on Depot",
                     "attempt_id": "zf6sbbn2wh",
-                    "attempt": 1,
-                    "attempt_status": "failed",
                     "attempt_started_at": "2026-09-24T14:53:00.000Z",
                     "attempt_finished_at": "2026-09-24T14:55:00.000Z",
-                    "sandbox_id": "sandbox",
-                }
+                },
             ],
         )
         depot = depot_ci.DepotJobAttempts(table=depot_table, repository="PostHog/posthog")
-        runs = depot_ci.with_depot_runs(runs_table, depot, prs_table, None)
+        runs = depot_ci.with_depot_runs(runs_table, depot, prs_table, jobs_table)
 
         assert self._select(
-            f"SELECT pr_number, is_merge_queue FROM ({workflow_runs.build_query(runs)}) AS r WHERE ci_engine = 'depot_ci'"
-        ) == [(expected_pr_number, expected_is_merge_queue)]
+            f"SELECT ci_engine, pr_number, is_merge_queue FROM ({workflow_runs.build_query(runs)}) AS r"
+        ) == [("depot_ci", expected_pr_number, expected_is_merge_queue)]
 
     def test_pull_requests_view_handles_null_user(self) -> None:
         # The real source lands user as Nullable(String), NULL for a PR by a deleted GitHub account.
