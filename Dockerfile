@@ -404,11 +404,11 @@ COPY --chown=posthog:posthog products products/
 COPY --from=posthog-build --chown=posthog:posthog /code/products/wizard/tool-catalog.json /code/products/wizard/tool-catalog.json
 # Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
 # runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image as
-# source. The engine arrives with products/ above, and only packages/owners-yaml needs its own COPY. This
+# source, the engine with its default policy files. The engine arrives with products/ above, and only packages/owners-yaml needs its own COPY. This
 # differs from the installation of owners-yaml into the venv as a library: the sandbox receives
 # files copied into a checkout, and not an import.
 COPY --chown=posthog:posthog packages/owners-yaml packages/owners-yaml/
-RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -d packages/owners-yaml/owners_yaml
+RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -f products/stamphog/packages/pr-approval-agent/defaults/policy.yml && test -d packages/owners-yaml/owners_yaml
 # Generated MCP tool catalog, read at runtime from BASE_DIR by the OAuth consent page
 # (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
 # services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.
