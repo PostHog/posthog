@@ -5992,6 +5992,7 @@ class TestTaskAPI(BaseTaskAPITest):
         [
             ("switch_to_codex", {"runtime_adapter": "codex", "model": "gpt-5.4"}, status.HTTP_400_BAD_REQUEST),
             ("stay_on_fx", {"runtime_adapter": "fx", "model": "gpt-6-sol"}, status.HTTP_200_OK),
+            ("model_only", {"model": "gpt-6-sol"}, status.HTTP_200_OK),
             ("inherit_fx", {}, status.HTTP_200_OK),
         ]
     )

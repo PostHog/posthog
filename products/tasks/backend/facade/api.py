@@ -308,6 +308,7 @@ __all__ = [
     "get_task_run_detail",
     "get_task_run_source",
     "get_task_run_claude_model_access",
+    "get_task_run_runtime_adapter",
     "get_task_run_sandbox_connection",
     "resolve_task_run_preview_redirect",
     "task_run_preview_ready",
@@ -3042,6 +3043,14 @@ def get_task_run_claude_model_access(run_id: str | UUID, task_id: str | UUID, te
     return (
         TaskRun.objects.filter(pk=run_id, team_id=team_id, task_id=task_id)
         .values_list("state__claude_model_access", flat=True)
+        .first()
+    )
+
+
+def get_task_run_runtime_adapter(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+    return (
+        TaskRun.objects.filter(pk=run_id, team_id=team_id, task_id=task_id)
+        .values_list("state__runtime_adapter", flat=True)
         .first()
     )
 

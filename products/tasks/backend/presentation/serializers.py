@@ -177,6 +177,16 @@ def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]
         raise serializers.ValidationError({"codex_model_access": "Only a user can select a ChatGPT plan."})
 
 
+def _resumed_run_runtime_adapter(attrs: dict[str, Any], context: dict[str, Any]) -> str | None:
+    run_id = attrs.get("resume_from_run_id")
+    kwargs = getattr(context.get("view"), "kwargs", {})
+    task_id = kwargs.get("parent_lookup_task_id") or kwargs.get("pk")
+    team = context.get("team")
+    if run_id is None or task_id is None or team is None:
+        return None
+    return tasks_facade.get_task_run_runtime_adapter(run_id, task_id, team.id)
+
+
 def request_distinct_id(context: dict[str, Any]) -> str | None:
     """The acting user's distinct id, for flag evaluation. `None` when there isn't one."""
     user = getattr(context.get("request"), "user", None)
@@ -3778,6 +3788,12 @@ class TaskRunCreateRequestSerializer(
                     errors[field] = "Scheduled runs cannot use credentials or connections from a connected desktop."
             if attrs.get("claude_model_access") == "own-subscription":
                 errors["claude_model_access"] = "Scheduled runs must use the PostHog gateway."
+        if (
+            attrs.get("model")
+            and attrs.get("runtime_adapter") is None
+            and _resumed_run_runtime_adapter(attrs, self.context) == RuntimeAdapter.FX.value
+        ):
+            attrs["runtime_adapter"] = RuntimeAdapter.FX.value
         if attrs.get("model") and attrs.get("runtime_adapter") is None:
             model_runtime_adapter = get_runtime_adapter_for_model(attrs["model"]) or next(
                 (
