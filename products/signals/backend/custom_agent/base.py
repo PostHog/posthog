@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING, TypeVar
+from uuid import uuid4
 
 import structlog
 import posthoganalytics
@@ -518,6 +519,10 @@ involvement — the ranking handles that.
         Fails fast on missing title/description before any default-resolver
         LLM calls.
         """
+        from products.signals.backend.scout_report.trial import (
+            custom_report_reservation,  # noqa: PLC0415 -- scout report registration imports custom agents
+        )
+
         missing_required = [
             name for name, value in (("title", self._title), ("description", self._description)) if value is None
         ]
@@ -525,18 +530,23 @@ involvement — the ranking handles that.
             raise MissingReportComponentError(
                 f"Custom agent must register {' and '.join(missing_required)} before finalizing"
             )
-        await self._resolve_missing_report_components()
-        final = self._final_report()
-        task_id = str(self._task.id) if self._task is not None else None
-        assert self._resolved_repository is not None, "start() must run before finalization"
-        persisted = await database_sync_to_async(create_custom_agent_ready_report, thread_sensitive=False)(
-            team_id=self.team_id,
-            final_report=final,
-            repo_selection=self._resolved_repository,
-            task_id=task_id,
-            agent_identifier=type(self).identifier(),
-            registered_artefacts=list(self._registered_artefacts),
-        )
+        team = await Team.objects.aget(id=self.team_id)
+        run_id = self._session.task_run.id if self._session else None
+        emission_key = f"{run_id or uuid4()}:{len(self._persisted_reports)}"
+        async with custom_report_reservation(team=team, run_id=run_id, emission_key=emission_key) as reserved_report_id:
+            await self._resolve_missing_report_components()
+            final = self._final_report()
+            task_id = str(self._task.id) if self._task is not None else None
+            assert self._resolved_repository is not None, "start() must run before finalization"
+            persisted = await database_sync_to_async(create_custom_agent_ready_report, thread_sensitive=False)(
+                team_id=self.team_id,
+                final_report=final,
+                repo_selection=self._resolved_repository,
+                task_id=task_id,
+                agent_identifier=type(self).identifier(),
+                registered_artefacts=list(self._registered_artefacts),
+                reserved_report_id=reserved_report_id,
+            )
         self._persisted_reports.append(persisted)
         await self._maybe_autostart(persisted)
         return persisted

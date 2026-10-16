@@ -423,7 +423,22 @@ class TestSignalsBilling(BaseTest):
         index_sql, index_params = run_model.objects.filter(index.condition).order_by().query.sql_with_params()
         query_sql, query_params = _bridges_with_pr_run().query.sql_with_params()
         self.assertIn(index_sql.split(" WHERE ", 1)[1], query_sql)
-        self.assertTrue(set(index_params).issubset(query_params))
+        self.assertTrue(all(parameter in query_params for parameter in index_params))
+
+    def test_trial_pr_does_not_exempt_a_later_paid_run_on_the_same_task(self) -> None:
+        report = self._report()
+        trial = self._pr_run(report, created_at=_at(5))
+        trial.state = {"self_driving_funding": {"funding": "trial"}}
+        trial.save(update_fields=["state"])
+        self.assertEqual(self._credits(), {})
+        _task_run_model().objects.create(
+            team=self.team,
+            task=trial.task,
+            created_at=_at(15),
+            state={"self_driving_funding": {"funding": "paid"}},
+            output={"pr_url": "https://github.com/example/repository/pull/2"},
+        )
+        self.assertEqual(self._credits(), {self.team.id: 1500})
 
 
 class TestBillingExemptions(BaseTest):

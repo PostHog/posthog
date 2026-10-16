@@ -17,6 +17,7 @@ from redis.exceptions import RedisError
 
 from posthog.dataclasses import frozen
 from posthog.redis import get_client
+from posthog.sync import database_sync_to_async
 from posthog.token_bucket import BucketUnavailable, Budget, consume
 
 from products.ml_inference.backend.facade import api as decision_api
@@ -35,6 +36,7 @@ from products.signals.backend.system_one_prompts import (
     SystemOnePrompt,
     model_experiment_prompt,
 )
+from products.signals.backend.trial.reports import requires_trial_accounting
 
 if TYPE_CHECKING:
     from posthoganalytics.feature_flag_evaluations import FeatureFlagEvaluations
@@ -310,6 +312,8 @@ async def run_model_decision(
     on_deciding_provider: Callable[[str], None] | None = None,
 ) -> T:
     if team_id is None:
+        return await traditional(None)
+    if await database_sync_to_async(requires_trial_accounting)(team_id):
         return await traditional(None)
     mode = mode_override or await model_mode(team_id)
     if mode == "traditional-only":

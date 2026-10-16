@@ -12,6 +12,7 @@ from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.free_trial import SELF_DRIVING_FREE_TRIAL_FLAG
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import cost_to_spend
+from products.signals.backend.trial.policy import TrialPolicy
 
 logger = structlog.get_logger(__name__)
 USAGE_BILLING_FLAG = "self-driving-usage-based-billing"
@@ -34,7 +35,10 @@ def scout_spend_exempt(scout: SignalScoutRun) -> bool:
 
 def usage_billing_enabled(team_id: int) -> bool | None:
     try:
-        organization_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
+        team = Team.objects.get(id=team_id)
+        if TrialPolicy(team).grant() is not None:
+            return True
+        organization_id = str(team.organization_id)
 
         def enabled(key: str) -> bool | None:
             return posthoganalytics.feature_enabled(
@@ -76,7 +80,14 @@ def report_usage_billing_mode(
 def recognize_spend(spend: SignalSpend, *, now: datetime) -> None:
     if not spend.usage_based_billing or spend.billing_exempt or not spend.finalized_at:
         return
-    total = int(cost_to_spend(spend.token_cost_microusd, task_count=spend.task_count) * 10_000)
+    trial_sources = list(spend.trial_sources.values())
+    total = int(
+        cost_to_spend(
+            spend.token_cost_microusd - sum(source["cost_microusd"] or 0 for source in trial_sources),
+            task_count=spend.task_count - sum(source["is_task"] for source in trial_sources),
+        )
+        * 10_000
+    )
     recognized = sum(spend.billing_amounts.values())
     if total < recognized:
         # Already reported days are immutable. A downward correction needs the refund path.

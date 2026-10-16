@@ -60,6 +60,7 @@ def test_fail_open_metric_noops_outside_activity():
 )
 def test_self_driving_quota_gate_enforces_only_when_limited_and_flag_on(limited, flag_on, expected_enforced):
     with (
+        patch("products.signals.backend.quota.trial_quota_gate", return_value=None),
         patch("products.signals.backend.quota.is_team_limited", return_value=limited),
         patch("products.signals.backend.quota.posthoganalytics.feature_enabled", return_value=flag_on) as flag_mock,
     ):
@@ -72,6 +73,7 @@ def test_self_driving_quota_gate_enforces_only_when_limited_and_flag_on(limited,
 def test_self_driving_quota_gate_fails_open_on_flag_error():
     # A flag-service outage must not start blocking pipelines: limited stays visible, enforcement off.
     with (
+        patch("products.signals.backend.quota.trial_quota_gate", return_value=None),
         patch("products.signals.backend.quota.is_team_limited", return_value=True),
         patch(
             "products.signals.backend.quota.posthoganalytics.feature_enabled",

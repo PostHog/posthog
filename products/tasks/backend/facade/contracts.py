@@ -146,6 +146,8 @@ class TaskRunSpend:
     complete: bool
     is_terminal: bool
     stage: str
+    trial_grant_id: str | None = None
+    environment_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -154,6 +156,16 @@ class TaskRunCost:
 
     token_cost: int | None
     compute_cost: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class TaskRunActualCost:
+    """Raw provider and compute costs, including failed attempts, without customer task fees."""
+
+    token_cost_microusd: int | None
+    compute_cost_microusd: int | None
+    complete: bool
+    compute_complete: bool
 
 
 @dataclass(frozen=True)

@@ -90,6 +90,22 @@ def self_driving_quota_enforcement_enabled(team: "Team") -> bool:
         return False
 
 
+def trial_quota_gate(team: "Team") -> SelfDrivingQuotaGate | None:
+    from products.signals.backend.trial.billing import (
+        paid_trial_continuation_authorized,  # noqa: PLC0415 -- trial policy imports Signals models
+    )
+    from products.signals.backend.trial.policy import TrialPolicy  # noqa: PLC0415 -- avoid model registration cycle
+
+    policy = TrialPolicy(team)
+    grant = policy.grant()
+    if grant is not None:
+        if grant.exhausted_at is None:
+            return SelfDrivingQuotaGate(limited=False, enforced=False)
+        limited = not paid_trial_continuation_authorized(team)
+        return SelfDrivingQuotaGate(limited=limited, enforced=limited)
+    return None
+
+
 def self_driving_quota_gate(team: "Team") -> SelfDrivingQuotaGate:
     """Resolve the quota gate for one team: is it quota-limited, and is enforcement on.
 
@@ -102,6 +118,9 @@ def self_driving_quota_gate(team: "Team") -> SelfDrivingQuotaGate:
     paths pay a single cached Redis read. Blocking network I/O; wrap in `sync_to_async` from
     async code.
     """
+    trial_gate = trial_quota_gate(team)
+    if trial_gate is not None:
+        return trial_gate
     if not is_team_signals_quota_limited(team.api_token):
         return SelfDrivingQuotaGate(limited=False, enforced=False)
     return SelfDrivingQuotaGate(limited=True, enforced=self_driving_quota_enforcement_enabled(team))

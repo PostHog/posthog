@@ -12,6 +12,7 @@ run checks out the head branch of that pull request, so the pull request it open
 
 from functools import partial
 from typing import cast
+from uuid import uuid4
 
 from django.db import transaction
 from django.utils import timezone
@@ -35,6 +36,7 @@ from products.signals.backend.implementation_pr import fetch_implementation_prs_
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_generation.research import ReportLayer
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
+from products.signals.backend.trial.policy import TrialPolicy
 from products.signals.backend.typed_report_links import has_open_or_merged_pull_request, incoming_links, outgoing_links
 
 logger = structlog.get_logger(__name__)
@@ -86,6 +88,7 @@ def _inherited_judgments(parent: SignalReport) -> list[StatusArtefactContent]:
     return judgments
 
 
+@transaction.atomic
 def create_layer_reports(
     *, parent: SignalReport, layers: list[ReportLayer], attribution: ArtefactAttribution
 ) -> list[str]:
@@ -105,6 +108,10 @@ def create_layer_reports(
     if has_open_or_merged_pull_request(team_id=team_id, report_ids=[str(parent.id)]):
         logger.info("signals.stack_plan.layers_skipped_for_own_pull_request", report_id=str(parent.id), team_id=team_id)
         return []
+    layer_ids = [uuid4() for _ in layers]
+    if not TrialPolicy(parent.team).reserve_report_layers(parent.id, layer_ids):
+        logger.info("signals.stack_plan.trial_report_limit", report_id=str(parent.id), team_id=team_id)
+        return []
     judgments = _inherited_judgments(parent)
     # A layer does the plan's work, so it keeps the plan's exemption. The scout policy matches only
     # the report the scout emitted, and a layer's id is never in that list.
@@ -113,6 +120,7 @@ def create_layer_reports(
     child_ids: list[str] = []
     for index, layer in enumerate(layers):
         child = SignalReport.objects.create(
+            id=layer_ids[index],
             team_id=team_id,
             usage_based_billing=parent.usage_based_billing,
             triggering_signal_id=parent.triggering_signal_id,

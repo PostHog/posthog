@@ -81,6 +81,7 @@ from products.signals.backend.temporal.agentic import (
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.trial.reports import trial_report_activity
 from products.signals.backend.typed_report_links import (
     ReportEdge,
     linked_reports as fetch_linked_reports,
@@ -1052,6 +1053,7 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
+@trial_report_activity
 async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenticReportOutput:
     """Run the sandbox-backed report research and persist its artefacts after full success."""
     try:

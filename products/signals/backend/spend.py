@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import field
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from django.conf import settings
@@ -143,11 +143,35 @@ async def publish_signal_spend(*, team_id: int, signal_id: str, wait_for_complet
         )
 
 
+class SpendSource(TypedDict):
+    cost_microusd: int | None
+    stage: str
+    is_task: bool
+    task_id: str | None
+    accounting_failed: bool
+    finished: bool
+    updated_at: str
+    trial_grant_id: NotRequired[str | None]
+    compute_cost_microusd: NotRequired[int | None]
+    actual_cost_incomplete: NotRequired[bool]
+    environment_id: NotRequired[int]
+    request_id: NotRequired[str | None]
+
+
+def _sources(spend: SignalSpend) -> dict[str, SpendSource]:
+    return cast(dict[str, SpendSource], spend.trial_sources)
+
+
 def _save_spend(spend: SignalSpend, *, finalize: bool = False) -> SignalSpendSummary:
+    from products.signals.backend.trial.spend import apply_trial_spend
     from products.tasks.backend.facade.billing import (
+        get_task_run_actual_cost,
         get_task_runs_spend,  # noqa: PLC0415 — keeps task services off startup
     )
 
+    previous_sources = (
+        SignalSpend.objects.for_team(spend.team_id).values_list("trial_sources", flat=True).get(id=spend.id)
+    )
     owner = {"signal_id": spend.signal_id} if spend.signal_id else {"scout_run_id": spend.scout_run_id}
     legacy = list(LegacySignalSpend.objects.for_team(spend.team_id).filter(**owner))
     for receipt in legacy:
@@ -159,8 +183,37 @@ def _save_spend(spend: SignalSpend, *, finalize: bool = False) -> SignalSpendSum
     failed_stages.update(receipt.stage for receipt in legacy if receipt.accounting_failed)
     for run in runs:
         task_costs[str(run.run_id)] = max(task_costs.get(str(run.run_id), 0), run.cost_microusd or 0)
-        if not run.complete:
+        complete = run.complete
+        if run.trial_grant_id:
+            environment_id = run.environment_id or spend.team_id
+            actual = get_task_run_actual_cost(team_id=environment_id, run_id=run.run_id)
+            key = f"task:{run.run_id}"
+            previous = _sources(spend).get(key)
+            cost = actual.token_cost_microusd
+            compute = actual.compute_cost_microusd
+            if cost is None and previous:
+                cost = previous["cost_microusd"]
+            if compute is None and previous:
+                compute = previous.get("compute_cost_microusd")
+            complete = actual.complete if run.is_terminal else run.complete
+            _sources(spend)[key] = SpendSource(
+                cost_microusd=cost,
+                compute_cost_microusd=compute,
+                stage="scout" if spend.scout_run_id else run.stage,
+                is_task=True,
+                task_id=str(run.task_id),
+                accounting_failed=not complete,
+                actual_cost_incomplete=not complete,
+                finished=run.is_terminal,
+                updated_at=timezone.now().isoformat(),
+                trial_grant_id=run.trial_grant_id,
+                environment_id=environment_id,
+            )
+            task_costs[str(run.run_id)] = cost or 0
+        if not complete:
             failed_stages.add("scout" if spend.scout_run_id else run.stage)
+    failed_stages.update(source["stage"] for source in _sources(spend).values() if source["accounting_failed"])
+    apply_trial_spend(spend, previous_sources)
     cost = spend.llm_cost_microusd + sum(receipt.token_cost_microusd or 0 for receipt in legacy if not receipt.is_task)
     cost += sum(task_costs.values())
     if (cost, len(task_costs)) != (spend.token_cost_microusd, spend.task_count):
@@ -225,6 +278,8 @@ def record_llm_spend(
     team_id: int | None,
     stage: str,
     signal_id: str | None = None,
+    source_id: str | None = None,
+    trial_grant_id: str | None = None,
 ) -> None:
     if team_id is None or signal_id is None:
         return
@@ -233,10 +288,32 @@ def record_llm_spend(
             spend = _locked_spend(team_id=team_id, signal_id=signal_id)
             assert spend is not None
             spend.finalized_at = None
-            if token_cost_microusd is None:
+            key = source_id or request_id or f"unknown-{uuid4()}"
+            previous = _sources(spend).get(key)
+            grant_id = previous.get("trial_grant_id") if previous else trial_grant_id
+            if grant_id:
+                cost = (
+                    token_cost_microusd
+                    if token_cost_microusd is not None
+                    else (previous["cost_microusd"] if previous else None)
+                )
+                _sources(spend)[key] = SpendSource(
+                    cost_microusd=cost,
+                    stage=stage,
+                    is_task=False,
+                    task_id=None,
+                    accounting_failed=token_cost_microusd is None,
+                    actual_cost_incomplete=token_cost_microusd is None,
+                    finished=True,
+                    updated_at=timezone.now().isoformat(),
+                    trial_grant_id=grant_id,
+                    request_id=request_id or (previous.get("request_id") if previous else None),
+                )
+                spend.llm_cost_microusd += (cost or 0) - ((previous["cost_microusd"] or 0) if previous else 0)
+            elif token_cost_microusd is None:
                 spend.llm_failed_stages = sorted(set(spend.llm_failed_stages) | {stage})
             else:
-                # This runs once where generation returns. Retrying generation makes another paid call.
+                # Ordinary generation is recorded once where it returns; trial receipts also support recovery.
                 spend.llm_cost_microusd += token_cost_microusd
             _save_spend(spend)
         if token_cost_microusd is None:
@@ -356,6 +433,41 @@ def _task_spend(*, team_id: int, run_id: str) -> SignalSpend | None:
     legacy = LegacySignalSpend.objects.for_team(team_id).filter(source_id=run_id, is_task=True).first()
     if legacy and legacy.signal_id:
         return _locked_spend(team_id=team_id, signal_id=str(legacy.signal_id))
+    if (run.state or {}).get("self_driving_funding", {}).get("funding") == "trial":
+        from products.signals.backend.trial.models import SignalTrialOperation
+
+        operation = SignalTrialOperation.objects.for_team(team_id).get(task_run_id=run_id)
+        if (
+            operation.stage in {SignalTrialOperation.Stage.SCOUT, SignalTrialOperation.Stage.RESEARCH}
+            and not run.is_terminal
+        ):
+            return None
+        return _locked_spend(team_id=team_id, signal_id=run_id)
+    return None
+
+
+def refresh_task_spend(*, team_id: int, run_id: str, strict: bool = False) -> str | None:
+    try:
+        with transaction.atomic():
+            spend = _task_spend(team_id=team_id, run_id=run_id)
+            if spend is None:
+                return None
+            previous_finalized_at = spend.finalized_at
+            source = _sources(spend).get(f"task:{run_id}")
+            record_task_spend(
+                team_id=team_id,
+                run_id=run_id,
+                stage=source["stage"] if source else ("scout" if spend.scout_run_id else "implementation"),
+                signal_id=str(spend.signal_id) if spend.signal_id else None,
+                scout_run_id=str(spend.scout_run_id) if spend.scout_run_id else None,
+            )
+            spend.refresh_from_db()
+            if spend.signal_id and spend.finalized_at and spend.finalized_at != previous_finalized_at:
+                return str(spend.signal_id)
+    except Exception:
+        if strict:
+            raise
+        logger.exception("signals.spend.accounting_failed", stage="task_cost_update", team_id=team_id, run_id=run_id)
     return None
 
 
@@ -475,35 +587,39 @@ async def publish_report_spend(*, team_id: int, report_id: str) -> None:
         )
 
 
-def complete_task_spend(*, team_id: int, run_id: str) -> None:
+def complete_task_spend(*, team_id: int, run_id: str) -> bool:
     from products.tasks.backend.facade.api import get_task_run  # noqa: PLC0415 — keeps task services off startup
     from products.tasks.backend.facade.billing import (  # noqa: PLC0415 — keeps task services off startup
         TaskTokenUsageUnavailable,
+        get_task_run_actual_cost,
         get_task_run_token_usage,
         process_pending_gateway_usage,
     )
 
     run = get_task_run(run_id, team_id=team_id)
     if run is None or not run.is_terminal:
-        return
+        return False
     with transaction.atomic():
         spend = _task_spend(team_id=team_id, run_id=run_id)
         if spend is None:
-            return
+            return False
         if run.task_id not in spend.task_ids:
             spend.task_ids.append(run.task_id)
             spend.save(update_fields=["task_ids"])
     process_pending_gateway_usage(run_id=UUID(run_id), team_id=team_id, limit=1000)
     usage = get_task_run_token_usage(run_id=UUID(run_id), team_id=team_id)
-    if not usage.complete:
+    trial = (run.state or {}).get("self_driving_funding", {}).get("funding") == "trial"
+    actual = get_task_run_actual_cost(run_id=UUID(run_id), team_id=team_id) if trial else None
+    if (actual is not None and not actual.complete) or (actual is None and not usage.complete):
         raise TaskTokenUsageUnavailable("Task usage is not settled yet")
     with transaction.atomic():
         spend = _task_spend(team_id=team_id, run_id=run_id)
         if spend is None:
-            return
+            return False
         _save_spend(spend, finalize=spend.scout_run_id is not None)
     if spend.report_id:
         # Research stays open until its parent finishes the implementation decision.
         if (run.state or {}).get("ai_stage") not in {"research", "repo_selection"}:
             finish_report_spend(team_id=team_id, report_id=str(spend.report_id))
         async_to_sync(publish_report_spend)(team_id=team_id, report_id=str(spend.report_id))
+    return True

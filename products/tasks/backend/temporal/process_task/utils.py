@@ -6,6 +6,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional
+from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -1444,6 +1445,13 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
+    from products.signals.backend.facade.trial import start_task_trial
+
+    trial = bool((ctx.state or {}).get("self_driving_funding", {}).get("funding") == "trial")
+    if trial:
+        start_task_trial(team=task.team, run_id=UUID(str(ctx.run_id)))
+        if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access) or ctx.task_runtime == "pi":
+            raise GatewayNotConfiguredError("Trial work requires accounted AI gateway execution")
     if task.is_scout_experiment is True:
         ensure_scout_trial_capture_ready()
         if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
@@ -1503,6 +1511,8 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
         team_id=ctx.team_id,
         uses_gateway=bool(env_vars.get("AI_GATEWAY_TOKEN")),
     )
+    if trial and not env_vars.get("AI_GATEWAY_TOKEN"):
+        raise GatewayNotConfiguredError("Trial work requires accounted AI gateway execution")
     return env_vars
 
 

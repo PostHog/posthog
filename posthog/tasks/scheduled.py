@@ -120,6 +120,8 @@ from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
+    reconcile_trials,
+    recover_incomplete_spend,
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
     sweep_implementation_dispatches,
@@ -453,6 +455,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         refresh_signal_scout_background_bands.s(),
         name="refresh signals scout background bands",
     )
+
+    sender.add_periodic_task(crontab(minute="*"), reconcile_trials.s(), name="check self-driving trial limits")
+    sender.add_periodic_task(crontab(minute="*"), recover_incomplete_spend.s(), name="recover signals spend")
 
     # Warn, then pause signals scouts that produce nothing anyone uses - daily at 6:15 AM
     sender.add_periodic_task(

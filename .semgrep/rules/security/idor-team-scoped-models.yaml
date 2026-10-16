@@ -402,6 +402,9 @@ rules:
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |SignalTrialGrant
+                              |SignalTrialOperation
+                              |SignalTrialReportReservation
                               |LegacySignalSpend
                               |SignalScratchpad
                               |SignalProjectProfile
@@ -864,6 +867,9 @@ rules:
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |SignalTrialGrant
+                        |SignalTrialOperation
+                        |SignalTrialReportReservation
                         |LegacySignalSpend
                         |SignalScratchpad
                         |SignalProjectProfile
@@ -1315,6 +1321,7 @@ rules:
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
+                              |SignalTrialOrganization
                               |Plugin
                               |Project
                               |ProxyRecord
@@ -1398,6 +1405,7 @@ rules:
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
+                        |SignalTrialOrganization
                         |Plugin
                         |Project
                         |ProxyRecord
