@@ -80,8 +80,16 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.updated_at == comment.created_at
         assert self.ticket.unread_customer_count == 0  # Customer messages don't increment this
 
+    @parameterized.expand(
+        [
+            ("written_by_the_channel", False, True),
+            ("written_by_a_posthog_user", True, False),
+        ]
+    )
     @patch("products.conversations.backend.events.capture_internal")
-    def test_customer_message_event_checks_the_message_author(self, mock_capture, mock_on_commit):
+    def test_customer_message_event_checks_the_message_author(
+        self, _name, has_created_by, expected, mock_capture, mock_on_commit
+    ):
         Ticket.objects.filter(id=self.ticket.id).update(
             identity_verified=True,
             distinct_id="customer@example.com",
@@ -93,6 +101,7 @@ class TestTicketMessageSignals(BaseTest):
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
             content="Hello",
+            created_by=self.user if has_created_by else None,
             item_context={
                 "author_type": "customer",
                 "distinct_id": "customer@example.com",
@@ -101,7 +110,7 @@ class TestTicketMessageSignals(BaseTest):
             },
         )
 
-        assert mock_capture.call_args.kwargs["properties"]["customer_email_verified"] is True
+        assert mock_capture.call_args.kwargs["properties"]["customer_email_verified"] is expected
 
     @patch("products.conversations.backend.signals.capture_message_received")
     @patch("products.conversations.backend.signals.capture_message_sent")

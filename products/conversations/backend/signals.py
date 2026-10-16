@@ -224,7 +224,10 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                     ticket,
                     comment_id,
                     content or "",
-                    item_context=item_context if isinstance(item_context, dict) else None,
+                    # The comments API stores the request's item_context, and a thread reply copies its
+                    # parent's item_context. Only channel handlers write a customer comment with no
+                    # created_by, so only those comments can attest the message author.
+                    item_context=item_context if isinstance(item_context, dict) and created_by_id is None else None,
                 )
 
             # Internal analytics (PostHog tracking its own usage)
