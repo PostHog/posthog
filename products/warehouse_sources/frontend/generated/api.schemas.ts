@@ -1691,6 +1691,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `BlackboardLearn` - BlackboardLearn
  * * `Bling` - Bling
  * * `Bloomerang` - Bloomerang
+ * * `Blueshift` - Blueshift
  * * `Bluesky` - Bluesky
  * * `BolRetailer` - BolRetailer
  * * `Boulevard` - Boulevard
@@ -3080,6 +3081,7 @@ export const ExternalDataSourceTypeEnumApi = {
     BlackboardLearn: 'BlackboardLearn',
     Bling: 'Bling',
     Bloomerang: 'Bloomerang',
+    Blueshift: 'Blueshift',
     Bluesky: 'Bluesky',
     BolRetailer: 'BolRetailer',
     Boulevard: 'Boulevard',
@@ -4611,6 +4613,7 @@ export interface ExternalDataSourceCreateApi {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -6507,6 +6510,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -7976,6 +7980,7 @@ export interface DatabaseSchemaRequestApi {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -9369,6 +9374,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -10816,6 +10822,7 @@ export interface SourcePreviewRequestApi {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -12244,6 +12251,7 @@ export interface SourceSetupApi {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -13679,6 +13687,7 @@ export interface SourceCredentialCreateApi {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
