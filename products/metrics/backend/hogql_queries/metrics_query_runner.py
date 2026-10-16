@@ -27,6 +27,7 @@ from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
@@ -212,6 +213,8 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
 
     def _call_with_rate_limits(self, *, dashboard_id: int | None) -> tuple[MetricsQueryResponse, float]:
         # Tiles that wait for one shared load of the All options must not hold the runner's concurrency slots.
+        if get_query_tag_value("api_queries_budgeted"):
+            self._enforce_api_queries_budget()
         try:
             self._load_all_options()
         except ValueError as exc:

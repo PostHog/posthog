@@ -37,7 +37,6 @@ REFERENCE = re.compile(
 RANGE_VARIABLES = frozenset({"__rate_interval", "__interval", "__range", "__range_s", "__range_ms", "__auto"})
 VARIABLE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _REGEX_SPECIAL = set("\\^$.|?*+()[]{}")
-_PROMQL_REGEX_OPERATOR = re.compile(r"[=!]~\s*\Z")
 _PROMQL_CONTROL_ESCAPES = {"\n": "\\n", "\r": "\\r", "\t": "\\t"}
 _SQL_REFERENCE = re.compile(r"\$\{(?P<braced>[A-Za-z0-9_]+)(?::[A-Za-z0-9_]+)?\}|\$(?P<plain>[A-Za-z0-9_]+)")
 MATCH_ALL = ".*"
@@ -106,11 +105,8 @@ def referenced_names(text: str | None) -> list[str]:
 
 
 def sql_referenced_names(sql: str | None) -> list[str]:
-    """The variables a SQL query refers to. `[[name]]` is not a SQL reference, because `[[x]]` is a nested array."""
-    names = (match.group("braced") or match.group("plain") for match in _SQL_REFERENCE.finditer(sql or ""))
-    return list(
-        dict.fromkeys(name for name in names if _is_variable_reference(name) and name not in _SQL_TIME_PLACEHOLDERS)
-    )
+    """The variables a SQL query refers to, outside comments. `[[x]]` is a nested array, not a reference."""
+    return list(substitute_sql(sql or "", {}).unresolved)
 
 
 def _is_sql_reference(name: str) -> bool:
@@ -139,24 +135,40 @@ def promql_string_escape(value: str, quote: str | None = '"') -> str:
     return "".join(_PROMQL_CONTROL_ESCAPES.get(char, char) for char in escaped)
 
 
-def _promql_string_context(expr: str, position: int) -> PromQLStringContext:
+@dataclasses.dataclass(frozen=False)
+class _PromQLScanner:
+    """Finds the string that holds each reference in one pass, because references come in order."""
+
+    expr: str
+    index: int = 0
     quote: str | None = None
-    start = 0
-    index = 0
-    while index < position:
-        char = expr[index]
-        if quote is not None:
-            if char == "\\" and quote != "`":
-                index += 2
+    in_regex: bool = False
+
+    def context_at(self, position: int) -> PromQLStringContext | None:
+        """None when the position is inside a `#` comment."""
+        expr = self.expr
+        while self.index < position:
+            char = expr[self.index]
+            if self.quote is not None:
+                if char == "\\" and self.quote != "`":
+                    self.index += 2
+                    continue
+                if char == self.quote:
+                    self.quote = None
+            elif char == "#":
+                end = expr.find("\n", self.index)
+                self.index = len(expr) if end < 0 else end
                 continue
-            if char == quote:
-                quote = None
-        elif char in "\"'`":
-            quote = char
-            start = index
-        index += 1
-    in_regex = quote is not None and _PROMQL_REGEX_OPERATOR.search(expr, 0, start) is not None
-    return PromQLStringContext(quote=quote, in_regex=in_regex)
+            elif char in "\"'`":
+                self.quote = char
+                before = self.index - 1
+                while before >= 0 and expr[before].isspace():
+                    before -= 1
+                self.in_regex = before >= 1 and expr[before] == "~" and expr[before - 1] in "=!"
+            self.index += 1
+        if self.quote is None and self.index > position:
+            return None
+        return PromQLStringContext(quote=self.quote, in_regex=self.quote is not None and self.in_regex)
 
 
 def _has_value(variable: Variable | None) -> bool:
@@ -265,21 +277,21 @@ def substitute_promql(expr: str, variables: Mapping[str, Variable], *, keep: Col
     References to the names in `keep` stay in the text.
     """
     unresolved: list[str] = []
+    scanner = _PromQLScanner(expr)
 
     def replace(match: re.Match[str]) -> str:
         name = reference_name(match)
         if not _is_variable_reference(name) or name in keep:
+            return match.group(0)
+        context = scanner.context_at(match.start())
+        if context is None:
             return match.group(0)
         variable = variables.get(name)
         if variable is None or not _has_value(variable):
             unresolved.append(name)
             return match.group(0)
         # In a regex matcher, a dot in a selected value such as an IP address must stay a dot.
-        return format_promql(
-            variable,
-            match.group("braced_format") or match.group("bracketed_format"),
-            context=_promql_string_context(expr, match.start()),
-        )
+        return format_promql(variable, match.group("braced_format") or match.group("bracketed_format"), context=context)
 
     return Substitution(text=REFERENCE.sub(replace, expr), unresolved=tuple(dict.fromkeys(unresolved)))
 

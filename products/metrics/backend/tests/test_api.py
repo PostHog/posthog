@@ -31,7 +31,7 @@ from products.access_control.backend.facade.user_access_control import AccessCon
 from products.access_control.backend.models.access_control import AccessControl
 from products.error_tracking.backend.facade.testing import create_issue, create_spike_event
 from products.metrics.backend.date_range import metrics_query_date_range
-from products.metrics.backend.variable_options import fill_all_values
+from products.metrics.backend.variable_options import fill_all_values, list_variable_options
 from products.metrics.backend.variables import Variable
 
 
@@ -201,6 +201,36 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
                     fill()
             else:
                 assert fill()[names[-1]].values == ("a",)
+
+    def test_all_expansion_loads_each_variable_once(self) -> None:
+        all_value = Variable(values=(), is_all=True, all_value=None, options=())
+        definitions = {
+            f"v{index}": MetricsDashboardVariable(
+                name=f"v{index}",
+                source=MetricsDashboardVariableSource.SQL,
+                query=" UNION ALL ".join(
+                    ["SELECT 'a'", *(f"SELECT 'a' WHERE 'a' IN $v{parent}" for parent in reversed(range(index)))]
+                ),
+                includeAll=True,
+            )
+            for index in range(8)
+        }
+        with (
+            patch("products.metrics.backend.variable_options.run_metrics_sql_values", return_value=["a"]),
+            patch(
+                "products.metrics.backend.variable_options.list_variable_options", wraps=list_variable_options
+            ) as load,
+        ):
+            fill_all_values(
+                team=self.team,
+                names=["v7"],
+                variables=dict.fromkeys(definitions, all_value),
+                definitions=definitions,
+                date_from=timezone.now() - timedelta(hours=1),
+                date_to=timezone.now(),
+            )
+
+        assert load.call_count == 8
 
     def test_promql_options_respect_the_query_byte_budget(self) -> None:
         exhausted = MagicMock(remaining_bytes=0, retry_after_seconds=30)

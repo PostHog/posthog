@@ -7,6 +7,7 @@ import json
 import time
 import hashlib
 import datetime as dt
+import dataclasses
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import AbstractContextManager, nullcontext
 from functools import partial
@@ -42,6 +43,7 @@ from products.metrics.backend.variables import (
 )
 
 MAX_VARIABLE_OPTIONS = 1000
+MAX_EXPANDED_VARIABLES = 50
 _FUNCTION = re.compile(r"^\s*(?P<name>label_values|label_names|metrics|query_result)\s*\((?P<args>.*)\)\s*$", re.DOTALL)
 _LABEL_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _REGEX_QUERY = "SELECT arrayDistinct(arrayFilter(x -> match(x, {pattern}), {options}))"
@@ -211,6 +213,13 @@ def apply_regex(team: Team, options: list[str], regex: str | None) -> list[str]:
     return [str(option) for option in rows[0][0]] if rows else []
 
 
+@dataclasses.dataclass(frozen=False)
+class _Expansion:
+    # Nested SQL variable queries share one expansion, so each variable set to All loads once per query.
+    filled: dict[str, Variable]
+    resolved: set[str] = dataclasses.field(default_factory=set)
+
+
 def fill_all_values(
     *,
     team: Team,
@@ -219,7 +228,6 @@ def fill_all_values(
     definitions: Mapping[str, MetricsDashboardVariable],
     date_from: dt.datetime,
     date_to: dt.datetime,
-    path: frozenset[str] = frozenset(),
     slot: Callable[[], AbstractContextManager[None]] = nullcontext,
 ) -> dict[str, Variable]:
     """Give each variable that is set to All the values of every option, for SQL, which cannot match everything.
@@ -227,25 +235,54 @@ def fill_all_values(
     A dashboard does not store the options of All, so that its URL stays short. They come from the
     variable's own list or query.
     """
-    filled = dict(variables)
+    expansion = _Expansion(filled=dict(variables))
+    _expand(
+        team=team,
+        names=names,
+        expansion=expansion,
+        definitions=definitions,
+        date_from=date_from,
+        date_to=date_to,
+        path=frozenset(),
+        slot=slot,
+    )
+    return expansion.filled
+
+
+def _expand(
+    *,
+    team: Team,
+    names: Iterable[str],
+    expansion: _Expansion,
+    definitions: Mapping[str, MetricsDashboardVariable],
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    path: frozenset[str],
+    slot: Callable[[], AbstractContextManager[None]],
+) -> None:
     for name in names:
-        variable = filled.get(name)
+        variable = expansion.filled.get(name)
         definition = definitions.get(name)
-        if variable is None or not variable.is_all or variable.values or definition is None:
+        if name in expansion.resolved or variable is None or not variable.is_all or variable.values:
+            continue
+        if definition is None:
             continue
         if name in path:
             raise ValueError(f"The variable queries refer to each other in a loop through ${name}.")
+        if len(expansion.resolved) >= MAX_EXPANDED_VARIABLES:
+            raise ValueError(f"A query can use at most {MAX_EXPANDED_VARIABLES} variables that are set to All.")
         options = list_variable_options(
             team=team,
             source=definition.source,
             query=definition.query,
             custom_values=definition.customValues,
-            variables=filled,
+            variables=expansion.filled,
             definitions=definitions,
             date_from=date_from,
             date_to=date_to,
             path=path | {name},
             slot=slot,
+            expansion=expansion,
         )
         # A list has no query, and its select shows every value, so a regex left over from a query does not apply.
         if definition.regex and definition.source in (
@@ -254,8 +291,8 @@ def fill_all_values(
         ):
             regex_key = _cache_key(team, ["regex", definition.regex, options])
             options = _shared_options(regex_key, partial(apply_regex, team, options, definition.regex), slot)
-        filled[name] = with_values(variable, options)
-    return filled
+        expansion.filled[name] = with_values(variable, options)
+        expansion.resolved.add(name)
 
 
 def _cache_key(team: Team, parts: list[Any]) -> str:
@@ -341,6 +378,7 @@ def list_variable_options(
     definitions: Mapping[str, MetricsDashboardVariable] | None = None,
     path: frozenset[str] = frozenset(),
     slot: Callable[[], AbstractContextManager[None]] = nullcontext,
+    expansion: _Expansion | None = None,
 ) -> list[str]:
     """The options of one variable, in the order the source gives them. Raises `ValueError` for a bad query.
 
@@ -362,16 +400,18 @@ def list_variable_options(
         options = _shared_options(key, lambda: _promql_options(team, substitution.text, date_from, date_to), slot)
     else:
         if definitions:
-            variables = fill_all_values(
+            expansion = expansion or _Expansion(filled=dict(variables))
+            _expand(
                 team=team,
                 names=sql_referenced_names(query),
-                variables=variables,
+                expansion=expansion,
                 definitions=definitions,
                 date_from=date_from,
                 date_to=date_to,
                 path=path,
                 slot=slot,
             )
+            variables = expansion.filled
         sql = substitute_sql(query or "", variables)
         if sql.unresolved:
             raise ValueError(unresolved_message(sql.unresolved))

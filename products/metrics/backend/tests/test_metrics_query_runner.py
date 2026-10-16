@@ -98,7 +98,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert runner.query.variables is not None and runner.query.variables["job"].values == ["api"]
 
-    def test_sql_tiles_load_all_options_before_taking_a_concurrency_slot(self) -> None:
+    def test_sql_tiles_check_the_budget_and_load_all_options_before_taking_a_concurrency_slot(self) -> None:
         events: list[str] = []
 
         @contextmanager
@@ -128,6 +128,10 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
         with (
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.get_query_tag_value", return_value=True),
+            patch.object(
+                MetricsQueryRunner, "_enforce_api_queries_budget", side_effect=lambda: events.append("budget")
+            ),
             patch("posthog.hogql_queries.query_runner.app_org_concurrency_slot", side_effect=slot),
             patch("products.metrics.backend.hogql_queries.metrics_query_runner.fill_all_values", side_effect=fill),
             patch("products.metrics.backend.hogql_queries.metrics_query_runner.substitute_sql") as substitute,
@@ -136,7 +140,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             substitute.return_value.unresolved = ()
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-        assert events == ["options", "slot"]
+        assert events.index("budget") < events.index("options") < events.index("slot")
 
     def test_default_date_range_is_last_24_hours(self) -> None:
         query = MetricsQuery(

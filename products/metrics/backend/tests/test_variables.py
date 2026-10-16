@@ -16,6 +16,7 @@ from products.metrics.backend.variable_options import _has_capture_group, re2_pa
 from products.metrics.backend.variables import (
     Variable,
     from_dashboard,
+    sql_referenced_names,
     substitute_filter,
     substitute_promql,
     substitute_sql,
@@ -38,6 +39,13 @@ QUOTED = Variable(values=("api'worker\nnext",), is_all=False, all_value=None, op
         ("single_quotes_and_newlines", "up{env='$env'}", QUOTED, "up{env='api\\'worker\\nnext'}"),
         ("double_quotes_keep_single_quotes", 'up{env="$env"}', QUOTED, 'up{env="api\'worker\\nnext"}'),
         ("single_quoted_regex_matcher", "up{env=~'$env'}", DOTTED, "up{env=~'10\\\\.0\\\\.0\\\\.1'}"),
+        (
+            "quote_in_a_comment_does_not_change_the_string",
+            'up{ # don\'t filter\n env="$env"}',
+            ONE,
+            'up{ # don\'t filter\n env="pro\\"d"}',
+        ),
+        ("reference_in_a_comment_stays", "up # $env\n", ONE, "up # $env\n"),
         ("csv_format", 'up{env=~"${env:csv}"}', MANY, 'up{env=~"a.b,c"}'),
         ("all_matches_everything", 'up{env=~"$env"}', ALL, 'up{env=~".*"}'),
         ("all_value", 'up{env=~"[[env]]"}', ALL_WITH_VALUE, 'up{env=~"api-.*"}'),
@@ -100,6 +108,10 @@ def test_sql_references_become_placeholders(_name: str, sql: str, variable: Vari
 def test_sql_text_that_is_not_a_reference_stays(_name: str, sql: str) -> None:
     substitution = substitute_sql(sql, {"env": ONE})
     assert (substitution.sql, substitution.placeholders) == (sql, {})
+
+
+def test_sql_references_in_comments_are_not_dependencies() -> None:
+    assert sql_referenced_names("SELECT 1 -- $job\nWHERE env IN $env /* $zone */") == ["env"]
 
 
 def test_sql_time_aliases_become_the_date_placeholders() -> None:
