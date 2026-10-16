@@ -108,8 +108,9 @@ class TestLivestormSessionPeople:
             "/v1/sessions/s2/people",
         ]
         assert result.requests[0].param("filter[updated_since]") is None
-        # The session walk is bounded to sessions starting up to a week before the watermark.
-        assert result.requests[0].param("filter[date_from]") == str(1759000000 - 7 * 24 * 60 * 60)
+        # Every session is read. Livestorm documents no session filter that catches a new
+        # registration or replay view on an older session.
+        assert result.requests[0].param("filter[date_from]") is None
         assert {r.param("filter[updated_since]") for r in result.requests[1:]} == {"1759000000"}
         assert [(row["session_id"], row["id"]) for row in result.rows] == [("s1", "p1"), ("s1", "p2"), ("s2", "p1")]
         assert all("attributes" not in row and "_sessions_id" not in row for row in result.rows)
@@ -130,7 +131,6 @@ class TestLivestormSessionPeople:
 
         assert result.raised is None
         assert result.paths == ["/v1/sessions", "/v1/sessions/s2/people"]
-        assert result.requests[0].param("filter[date_from]") is None
 
 
 class TestLivestormValidateCredentials:

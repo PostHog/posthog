@@ -1,9 +1,7 @@
-import dataclasses
 from typing import Any, Optional, cast
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -28,7 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.livestorm.settings import (
     LIVESTORM_BASE_URL,
     LIVESTORM_ENDPOINTS,
-    SESSION_PEOPLE_LOOKBACK_SECONDS,
     LivestormEndpointConfig,
 )
 
@@ -80,18 +77,6 @@ def get_resource(config: LivestormEndpointConfig, incremental_field: Optional[st
     }
 
 
-def _session_window_start(watermark: Any) -> Optional[int]:
-    """The `filter[date_from]` value, in Unix seconds, that bounds an incremental session walk."""
-    if isinstance(watermark, int | float):
-        seconds = int(watermark)
-    else:
-        parsed = parse_datetime_value(watermark)
-        if parsed is None:
-            return None
-        seconds = int(parsed.timestamp())
-    return seconds - SESSION_PEOPLE_LOOKBACK_SECONDS
-
-
 def _source_response(config: LivestormEndpointConfig, resource: Any, is_incremental: bool) -> SourceResponse:
     return SourceResponse(
         name=config.name,
@@ -125,17 +110,12 @@ def livestorm_source(
             if state:
                 resumable_source_manager.save_state(LivestormResumeConfig(fanout_state=state))
 
-        fanout = config.fanout
-        window_start = _session_window_start(db_incremental_field_last_value) if cursor else None
-        if window_start is not None:
-            fanout = dataclasses.replace(fanout, parent_params={"filter[date_from]": window_start})
-
         child = cast(
             Resource,
             build_dependent_resource(
                 endpoint_configs=LIVESTORM_ENDPOINTS,
                 child_endpoint=endpoint,
-                fanout=fanout,
+                fanout=config.fanout,
                 client_config=client_config,
                 path_format_values={},
                 team_id=team_id,

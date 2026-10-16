@@ -57,7 +57,7 @@ class LivestormSource(ResumableSource[LivestormSourceConfig, LivestormResumeConf
 
 Create an API token in Livestorm under **Account settings > Integrations > Public API**. Give it read access to the **Events** scope.
 
-Livestorm allows 10,000 API calls per 30 days for each account. `session_people` makes one request per session, so sync it daily or less often.""",
+Livestorm allows 10,000 API calls per 30 days for each account. `session_people` reads every session on each sync, one request per session, so sync it daily or less often, or deselect it if you hold many sessions.""",
             iconPath="/static/services/livestorm.png",
             docsUrl="https://posthog.com/docs/cdp/sources/livestorm",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -88,9 +88,13 @@ Livestorm allows 10,000 API calls per 30 days for each account. `session_people`
         return {
             "401 Client Error: Unauthorized for url": "Livestorm rejected the API token. Create a new token in Livestorm, then reconnect the source.",
             "403 Client Error: Forbidden for url": "The Livestorm API token has no read access to events. Give the token read access to the Events scope, then reconnect the source.",
-            # Livestorm answers 429 when the account's 30-day quota of 10,000 calls is spent, with a
-            # Retry-After that lasts until the quota resets.
-            "HTTP 429 for https://api.livestorm.co": "Livestorm's API quota for this account is used up. It allows 10,000 calls per 30 days, shared with your other Livestorm integrations. Sync less often, deselect session_people, or ask Livestorm for a higher quota.",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Livestorm answers 429 once the account's 30-day quota of 10,000 calls is spent. The error
+        # stays retryable so syncs resume by themselves after the quota resets.
+        return {
+            "HTTP 429 for https://api.livestorm.co": "Livestorm's API quota for this account is used up. It allows 10,000 calls per 30 days, shared with your other Livestorm integrations. Syncs resume after the quota resets. To stay within it, sync less often, deselect session_people, or ask Livestorm for a higher quota.",
         }
 
     def get_schemas(
