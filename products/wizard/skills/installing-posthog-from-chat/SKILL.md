@@ -48,7 +48,6 @@ Errors the user can act on:
 | `github_not_connected`      | Go back to step 1.                                                                                         |
 | `repository_not_accessible` | Ask the user to add the repository to the PostHog GitHub App, then retry with a new `idempotency_key`.     |
 | `run_already_active`        | Someone in the project already has a run in progress. Ask the user to wait for it, or check it in PostHog. |
-| `email_not_verified`        | Ask the user to verify their PostHog email address, then retry.                                            |
 | HTTP 429                    | The user reached the hourly or daily limit for setup runs. Relay the message. Don't retry right away.      |
 
 Tell the user the run started and share the `url` from the response, where they can follow it in PostHog.
