@@ -14,7 +14,6 @@ from django.db.models.functions import Cast
 from rest_framework.request import Request
 
 from posthog.models.user import User
-from posthog.temporal.oauth import request_is_sandbox_authenticated
 
 from products.canvas.backend.facade.contracts import CanvasOwnerActivity, CanvasSummary
 from products.canvas.backend.models import Canvas
@@ -129,7 +128,10 @@ def filter_file_system_rows(rows: QuerySet, request: Request, project_id: int) -
     user = request.user
     user_id = user.id if isinstance(user, User) else None
     channel_q = tasks_facade.visible_channels_q(user_id, relation="channel")
-    if request_is_sandbox_authenticated(request):
+    # Imported on first use: the OAuth stack stays off the facade import path.
+    from posthog.oauth_provenance import is_sandbox_oauth_request  # noqa: PLC0415
+
+    if is_sandbox_oauth_request(request):
         channel_q &= tasks_facade.visible_channels_q(None, relation="channel") | Q(created_by_id=user_id)
     visible = Canvas.objects.unscoped().filter(
         channel_q,

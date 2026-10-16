@@ -709,24 +709,3 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
         raise RuntimeError("Wizard app has no scope ceiling. Must be configured in the database.")
 
     return _mint_run_access_token(user, team_id, app=app, scopes=sorted(ceiling))
-
-
-def request_is_sandbox_authenticated(request: Any) -> bool:
-    """True when the request bears an OAuth token minted for a task sandbox, the credential a task sandbox
-    (via the MCP server) calls the API with.
-
-    The sandbox apps also issue the desktop app's interactive grants, so the application alone does not
-    prove sandbox origin. Server-minted tokens carry either a task binding or the internal provenance
-    scope. An unbound server token must still fail closed rather than inherit its user's visibility.
-    """
-    from posthog.auth import OAuthAccessTokenAuthentication  # noqa: PLC0415 — keeps DRF off the worker import path
-
-    authenticator = getattr(request, "successful_authenticator", None)
-    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
-        return False
-    access_token = authenticator.access_token
-    scopes = set((access_token.scope or "").split())
-    if access_token.sandbox_task_id is None and "internal_run:read" not in scopes:
-        return False
-    application = access_token.application
-    return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS

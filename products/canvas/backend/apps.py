@@ -46,22 +46,29 @@ class CanvasConfig(AppConfig):
             return visibility.filter_file_system_rows(rows, request, project_id)
 
         def _authorize_delete(context: DeletionContext, canvas: Canvas) -> None:
+            from posthog.oauth_provenance import is_sandbox_oauth_request  # noqa: PLC0415
+
             from products.canvas.backend.logic import visibility  # noqa: PLC0415
 
             # A file system row carries no channel, so the check reads the canvas's own rules: the creator
-            # deletes, as in the canvas API.
+            # deletes, as in the canvas API, and a sandbox token never does.
             user_id = getattr(context.user, "id", None)
-            if not visibility.canvas_deletable_by(team_id=canvas.team_id, canvas_id=canvas.id, user_id=user_id):
+            if is_sandbox_oauth_request(context.request) or not visibility.canvas_deletable_by(
+                team_id=canvas.team_id, canvas_id=canvas.id, user_id=user_id
+            ):
                 raise PermissionDenied("Only the person who created a canvas can delete it.")
 
         def _authorize_restore(context: RestoreContext, canvas: Canvas) -> None:
             from posthog.api.file_system.file_system import UNDO_DELETE_REFUSED  # noqa: PLC0415
+            from posthog.oauth_provenance import is_sandbox_oauth_request  # noqa: PLC0415
 
             from products.canvas.backend.logic import visibility  # noqa: PLC0415
 
             # The same answer as every other refused undo, so the endpoint cannot tell apart refs that exist.
             user_id = getattr(context.user, "id", None)
-            if not visibility.canvas_restorable_by(team_id=canvas.team_id, canvas_id=canvas.id, user_id=user_id):
+            if is_sandbox_oauth_request(context.request) or not visibility.canvas_restorable_by(
+                team_id=canvas.team_id, canvas_id=canvas.id, user_id=user_id
+            ):
                 raise ValidationError({"detail": UNDO_DELETE_REFUSED})
 
         register_file_system_visibility_filter("canvas", _filter_rows)

@@ -159,6 +159,10 @@ class TestCanvasFileSystemVisibility(APIBaseTest):
         self.assertIn(str(self.public_canvas.id), refs)
         self.assertNotIn(str(private_canvas.id), refs)
 
+        own = FileSystem.objects.get(team=self.team, type="canvas", ref=str(self.public_canvas.id))
+        response = sandbox.delete(f"/api/projects/{self.team.id}/file_system/{own.id}/")
+        self.assertEqual(response.status_code, 403, response.content)
+
     def test_another_member_cannot_delete_a_public_canvas_through_the_file_system(self) -> None:
         entry = FileSystem.objects.get(team=self.team, type="canvas", ref=str(self.public_canvas.id))
         self.client.force_login(self.other)

@@ -26,9 +26,9 @@ from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.user import User
+from posthog.oauth_provenance import is_sandbox_oauth_request
 from posthog.permissions import is_service_auth
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.temporal.oauth import request_is_sandbox_authenticated
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.canvas.backend.facade import api as canvas_api
@@ -319,7 +319,7 @@ class CanvasAccessMixin(TeamAndOrgViewSetMixin):
 
     @staticmethod
     def _is_sandbox_authenticated(request: Request) -> bool:
-        return request_is_sandbox_authenticated(request)
+        return is_sandbox_oauth_request(request)
 
     def _validate_sandbox_channel(self, channel_id: UUID, task_id: UUID | None) -> None:
         if not self._is_sandbox_authenticated(self.request):
