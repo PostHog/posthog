@@ -22,10 +22,16 @@ export function TodayWaysToUseDialog(): JSX.Element {
 
     return (
         <Dialog open={isOpen} onOpenChange={(open: boolean) => !open && closeWaysToUse('dismiss')}>
-            <DialogContent ref={popupRef} size="wide" initialFocus={popupRef} data-attr="today-ways-to-use-dialog">
+            <DialogContent
+                ref={popupRef}
+                size="wide"
+                initialFocus={popupRef}
+                className="group/popup"
+                data-attr="today-ways-to-use-dialog"
+            >
                 <DialogHeader className="items-center text-center">
                     <DialogTitle className="text-lg">Use PostHog where you work</DialogTitle>
-                    <DialogDescription>
+                    <DialogDescription className="max-w-xl text-balance">
                         Use the web app, ask in Slack, or connect your AI agents and terminal. They all use the same
                         project data.
                     </DialogDescription>

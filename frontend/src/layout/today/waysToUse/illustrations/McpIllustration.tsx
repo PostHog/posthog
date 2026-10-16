@@ -1,5 +1,7 @@
-import { IconCheck, IconMCP } from '@posthog/icons'
+import { IconCheck, IconMCP, IconPullRequest } from '@posthog/icons'
 import { Text } from '@posthog/quill'
+
+import { WaysToUseReveal } from '../WaysToUseReveal'
 
 export function McpIllustration(): JSX.Element {
     return (
@@ -24,6 +26,14 @@ export function McpIllustration(): JSX.Element {
                     <IconCheck className="size-3 shrink-0" />
                 </div>
                 <Text size="xxs">3 flags are fully rolled out.</Text>
+                <WaysToUseReveal>
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                        <IconPullRequest className="size-3 shrink-0" />
+                        <Text size="xxs" variant="muted">
+                            Opened a cleanup PR
+                        </Text>
+                    </div>
+                </WaysToUseReveal>
             </div>
         </div>
     )

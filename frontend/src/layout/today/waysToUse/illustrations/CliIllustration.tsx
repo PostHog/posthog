@@ -16,6 +16,10 @@ export function CliIllustration(): JSX.Element {
                     {text}
                 </Text>
             ))}
+            <div className="flex items-center gap-1">
+                <Text size="xxs">$</Text>
+                <span className="h-3 w-1.5 bg-current text-foreground group-has-[a:hover]/card:animate-pulse group-has-[a:focus-visible]/card:animate-pulse motion-reduce:animate-none" />
+            </div>
         </div>
     )
 }
