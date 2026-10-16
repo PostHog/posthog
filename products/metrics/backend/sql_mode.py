@@ -122,7 +122,6 @@ def _parse_metrics_sql(
     interval: str | None,
     variables: Mapping[str, ast.Expr] | None,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
-    """Parse the SQL with the date and variable placeholders filled in, and check that it reads only metrics tables."""
     resolved = _resolve_interval(date_from, date_to, interval)
     step = _interval_step(resolved)
     placeholders: dict[str, ast.Expr] = {

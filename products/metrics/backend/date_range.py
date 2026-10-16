@@ -1,5 +1,3 @@
-"""The time window of a metrics query, resolved the same way for tiles and dashboard variable options."""
-
 from datetime import datetime
 from typing import TYPE_CHECKING
 
