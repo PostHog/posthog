@@ -181,6 +181,7 @@ from .bland_ai.source import BlandAISource
 from .bling.source import BlingSource
 from .blogger.source import BloggerSource
 from .bloomerang.source import BloomerangSource
+from .blueshift.source import BlueshiftSource
 from .bluesky.source import BlueskySource
 from .bluetally.source import BluetallySource
 from .bol_retailer.source import BolRetailerSource
@@ -1277,6 +1278,7 @@ from .uk_companies_house.source import UkCompaniesHouseSource
 from .uk_ons.source import UkOnsSource
 from .umami.source import UmamiSource
 from .un_comtrade.source import UnComtradeSource
+from .unity_ads.source import UnityAdsSource
 from .unleash.source import UnleashSource
 from .unstructured.source import UnstructuredSource
 from .uploadcare.source import UploadcareSource

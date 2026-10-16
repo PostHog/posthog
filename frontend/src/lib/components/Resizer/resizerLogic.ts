@@ -152,28 +152,51 @@ export const resizerLogic = kea<resizerLogicType>([
             // grabbing, and to disable pointer events on all elements except the resizer
             document.body.classList.add('is-resizing')
 
+            let pendingMouseMove: MouseEvent | null = null
+            let pendingFrame: number | null = null
+            const updateResize = (e: MouseEvent): void => {
+                const event = calculateEvent(e)
+                actions.setResizingSize(event.desiredSize)
+
+                const newIsClosed = props.closeThreshold ? event.desiredSize < props.closeThreshold : false
+                if (newIsClosed !== isClosed) {
+                    props.onToggleClosed?.(newIsClosed)
+                }
+                isClosed = newIsClosed
+            }
+
             // Add dynamic event listeners using disposables
             cache.disposables.add(() => {
                 const onMouseMove = (e: MouseEvent): void => {
-                    const event = calculateEvent(e)
-                    actions.setResizingSize(event.desiredSize)
                     isDoubleClick = false
-
-                    const newIsClosed = props.closeThreshold ? event.desiredSize < props.closeThreshold : false
-
-                    if (newIsClosed !== isClosed) {
-                        props.onToggleClosed?.(newIsClosed)
+                    pendingMouseMove = e
+                    if (pendingFrame === null) {
+                        pendingFrame = requestAnimationFrame(() => {
+                            pendingFrame = null
+                            if (pendingMouseMove) {
+                                updateResize(pendingMouseMove)
+                                pendingMouseMove = null
+                            }
+                        })
                     }
-
-                    isClosed = newIsClosed
                 }
                 document.addEventListener('mousemove', onMouseMove)
-                return () => document.removeEventListener('mousemove', onMouseMove)
+                return () => {
+                    document.removeEventListener('mousemove', onMouseMove)
+                    if (pendingFrame !== null) {
+                        cancelAnimationFrame(pendingFrame)
+                        pendingFrame = null
+                    }
+                    pendingMouseMove = null
+                }
             }, 'dynamicMouseMove')
 
             cache.disposables.add(() => {
                 const onMouseUp = (e: MouseEvent): void => {
                     if (e.button === 0) {
+                        if (pendingMouseMove) {
+                            updateResize(e)
+                        }
                         const event = calculateEvent(e)
 
                         if (isDoubleClick) {
