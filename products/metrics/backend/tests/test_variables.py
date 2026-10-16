@@ -97,6 +97,17 @@ def test_sql_text_that_is_not_a_reference_stays(_name: str, sql: str) -> None:
     assert (substitution.sql, substitution.placeholders) == (sql, {})
 
 
+def test_sql_time_aliases_become_the_date_placeholders() -> None:
+    substitution = substitute_sql(
+        "SELECT 1 WHERE t >= $__from AND t < '${__to}' GROUP BY $__interval, $__interval_seconds", {}
+    )
+    assert (substitution.sql, substitution.placeholders, substitution.unresolved) == (
+        "SELECT 1 WHERE t >= {date_from} AND t < {date_to} GROUP BY {interval}, {interval_seconds}",
+        {},
+        (),
+    )
+
+
 def test_sql_quoted_reference_without_a_selection_is_reported() -> None:
     assert substitute_sql("SELECT 1 WHERE job = '$job'", {"env": ONE}).unresolved == ("job",)
 

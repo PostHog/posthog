@@ -33,7 +33,7 @@ export function MetricVariableSelect({
                     size="xsmall"
                     noPadding
                     icon={<IconWarning className="text-warning" />}
-                    tooltip={`${error} Click to load the values again.`}
+                    tooltip={error}
                     onClick={onRetry}
                     data-attr="dashboard-metric-variable-retry"
                 />
@@ -135,9 +135,7 @@ function MetricVariableOptionsSelect({
             ]}
             emptyStateComponent={
                 <div className="flex flex-col items-start gap-1 p-1 max-w-80">
-                    <p className="text-secondary italic m-0">
-                        {error ?? 'No values. Check the variable query in the variable settings, or the date range.'}
-                    </p>
+                    <p className="text-secondary italic m-0">{error ?? 'No values'}</p>
                     {error && (
                         <LemonButton size="small" type="secondary" onClick={onRetry}>
                             Try again

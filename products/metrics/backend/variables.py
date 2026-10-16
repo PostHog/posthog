@@ -41,6 +41,12 @@ _REGEX_SPECIAL = set("\\^$.|?*+()[]{}")
 _IN_PROMQL_REGEX_MATCHER = re.compile(r"""[=!]~\s*(["'])(?:(?!\1)[^\\]|\\.)*\Z""")
 _SQL_REFERENCE = re.compile(r"\$\{(?P<braced>[A-Za-z0-9_]+)(?::[A-Za-z0-9_]+)?\}|\$(?P<plain>[A-Za-z0-9_]+)")
 MATCH_ALL = ".*"
+_SQL_TIME_PLACEHOLDERS = {
+    "__from": "date_from",
+    "__to": "date_to",
+    "__interval": "interval",
+    "__interval_seconds": "interval_seconds",
+}
 
 
 @frozen
@@ -95,7 +101,13 @@ def referenced_names(text: str | None) -> list[str]:
 def sql_referenced_names(sql: str | None) -> list[str]:
     """The variables a SQL query refers to. `[[name]]` is not a SQL reference, because `[[x]]` is a nested array."""
     names = (match.group("braced") or match.group("plain") for match in _SQL_REFERENCE.finditer(sql or ""))
-    return list(dict.fromkeys(name for name in names if _is_variable_reference(name)))
+    return list(
+        dict.fromkeys(name for name in names if _is_variable_reference(name) and name not in _SQL_TIME_PLACEHOLDERS)
+    )
+
+
+def _is_sql_reference(name: str) -> bool:
+    return name in _SQL_TIME_PLACEHOLDERS or _is_variable_reference(name)
 
 
 def filter_referenced_names(filters: Iterable[MetricsQueryFilter] | None) -> list[str]:
@@ -289,6 +301,8 @@ def substitute_sql(sql: str, variables: Mapping[str, Variable]) -> SqlSubstituti
     unresolved: list[str] = []
 
     def placeholder(name: str) -> str:
+        if name in _SQL_TIME_PLACEHOLDERS:
+            return f"{{{_SQL_TIME_PLACEHOLDERS[name]}}}"
         variable = variables.get(name)
         if variable is None or not _has_value(variable):
             unresolved.append(name)
@@ -311,7 +325,7 @@ def substitute_sql(sql: str, variables: Mapping[str, Variable]) -> SqlSubstituti
                 whole = _SQL_REFERENCE.fullmatch(literal[1:-1])
                 names = [name for name in referenced_names(literal) if name in variables]
                 # A string that holds only a reference is a variable, so a missing selection is reported.
-                if whole is not None and _is_variable_reference(whole.group("braced") or whole.group("plain")):
+                if whole is not None and _is_sql_reference(whole.group("braced") or whole.group("plain")):
                     parts.append(placeholder(whole.group("braced") or whole.group("plain")))
                     index = end
                     continue
@@ -328,7 +342,7 @@ def substitute_sql(sql: str, variables: Mapping[str, Variable]) -> SqlSubstituti
         # A reference after a dot or inside a name (properties.$browser) is a field, not a variable.
         if match is not None and not (previous.isalnum() or previous in "_.$"):
             name = match.group("braced") or match.group("plain")
-            if _is_variable_reference(name):
+            if _is_sql_reference(name):
                 parts.append(placeholder(name))
                 index = match.end()
                 continue
