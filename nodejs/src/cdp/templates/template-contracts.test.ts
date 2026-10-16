@@ -1,5 +1,7 @@
 import { HOG_FUNCTION_TEMPLATES_DESTINATIONS, HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS } from '.'
 
+import { getRegisteredAsyncFunctionNames } from '~/cdp/async-function-registry'
+import '~/cdp/async-functions'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { parseJSON } from '~/common/utils/json-parse'
 
@@ -73,7 +75,10 @@ const integrationCredentialsReachTheWire = (run: PipelineRun): string[] => {
 
 const HTTP_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']
 const UNRESOLVED_TEMPLATE = /\{\{|\{(event|person|groups|inputs|project|source)\./
-const STRINGIFIED_MISSING_VALUE = /(^|[/=?&:])(undefined|null)($|[/?&#])/
+const STRINGIFIED_MISSING_VALUE = /(^|[/=?&:.])(undefined|null)($|[/?&#.:])/
+const UNDEFINED_WORD = /\bundefined\b/
+
+const carriesMissingValue = (text: string): boolean => text === 'null' || UNDEFINED_WORD.test(text)
 
 const jsonStringLeaves = (value: unknown): string[] => {
     if (typeof value === 'string') {
@@ -97,32 +102,43 @@ const requestProblems = (request: OutgoingRequest): string[] => {
     if (url && !['http:', 'https:'].includes(url.protocol)) {
         problems.push(`${where}: url is not http or https`)
     }
-    if (url && STRINGIFIED_MISSING_VALUE.test(decodeURIComponent(url.pathname + url.search))) {
+    const decodedUrl = url ? decodeURIComponent(url.href) : ''
+    if (STRINGIFIED_MISSING_VALUE.test(decodedUrl) || UNDEFINED_WORD.test(decodedUrl)) {
         problems.push(`${where}: url carries a stringified undefined or null`)
     }
     if (!HTTP_METHODS.includes(request.method.toUpperCase())) {
         problems.push(`${where}: method ${request.method} is not an HTTP method`)
     }
     for (const [name, value] of Object.entries(request.headers)) {
-        if (value === 'undefined' || value === 'null' || /\b(undefined|null)$/.test(String(value))) {
+        if (carriesMissingValue(String(value)) || /\bnull$/.test(String(value))) {
             problems.push(`${where}: header ${name} carries a stringified undefined or null`)
         }
     }
     if (UNRESOLVED_TEMPLATE.test(wireText(request))) {
         problems.push(`${where}: request carries unresolved template syntax`)
     }
-    const contentType = Object.entries(request.headers).find(([name]) => name.toLowerCase() === 'content-type')?.[1]
-    if (request.body && String(contentType).includes('json')) {
+    return [...problems, ...bodyProblems(request).map((problem) => `${where}: ${problem}`)]
+}
+
+const bodyProblems = (request: OutgoingRequest): string[] => {
+    if (!request.body) {
+        return []
+    }
+    const contentType = String(
+        Object.entries(request.headers).find(([name]) => name.toLowerCase() === 'content-type')?.[1] ?? ''
+    )
+    if (contentType.includes('json')) {
         try {
             const leaves = jsonStringLeaves(parseJSON(request.body))
-            if (leaves.some((leaf) => leaf === 'undefined' || leaf === 'null')) {
-                problems.push(`${where}: JSON body carries a stringified undefined or null`)
-            }
+            return leaves.some(carriesMissingValue) ? ['JSON body carries a stringified undefined or null'] : []
         } catch {
-            problems.push(`${where}: JSON body does not parse`)
+            return ['JSON body does not parse']
         }
     }
-    return problems
+    const values = contentType.includes('x-www-form-urlencoded')
+        ? [...new URLSearchParams(request.body).values()]
+        : [request.body]
+    return values.some(carriesMissingValue) ? ['body carries a stringified undefined or null'] : []
 }
 
 const requestsAreWellFormed = (run: PipelineRun): string[] => [
@@ -136,6 +152,9 @@ const withDecodedBase64 = (text: string): string =>
     [text, ...(text.match(BASE64_RUN) ?? []).map((run) => Buffer.from(run, 'base64').toString('utf-8'))].join('\n')
 
 const secretsStayOutOfOutput = (run: PipelineRun): string[] => {
+    if (run.sensitiveValues.length === 0) {
+        return ['the run configured no sensitive value to look for']
+    }
     const output = [...run.printedOutput, ...run.invocationErrors, String(run.result?.error ?? '')].map(
         withDecodedBase64
     )
@@ -153,7 +172,12 @@ const failureIsVisible = (run: PipelineRun): string[] => {
 const hasSensitiveValues = ({ template }: TemplateCase): boolean =>
     template.inputs_schema.some((schema) => schema.secret || schema.type === 'integration')
 
-const callsFetch = ({ template }: TemplateCase): boolean => /\bfetch\(/.test(template.code)
+// Every other async function reaches the network, including the helpers that call PostHog's internal API.
+const ASYNC_FUNCTIONS_WITHOUT_HTTP = new Set(['sendEmail', 'sendPushNotification', 'produceToWarehouseWebhooks'])
+const HTTP_ASYNC_FUNCTIONS = getRegisteredAsyncFunctionNames().filter((name) => !ASYNC_FUNCTIONS_WITHOUT_HTTP.has(name))
+
+const sendsHttpRequests = ({ template }: TemplateCase): boolean =>
+    HTTP_ASYNC_FUNCTIONS.some((name) => new RegExp(`\\b${name}\\(`).test(template.code))
 
 const hasIntegrationInput = ({ template }: TemplateCase): boolean =>
     template.inputs_schema.some((schema) => schema.type === 'integration')
@@ -202,7 +226,7 @@ describe('template contracts', () => {
             return
         }
 
-        if (callsFetch(templateCase)) {
+        if (sendsHttpRequests(templateCase)) {
             it('sends well-formed requests', async () => {
                 const run = await pipeline.run(templateCase, OK)
 
@@ -245,5 +269,13 @@ describe('template contracts', () => {
 
             expectInvariant(templateCase, RUNS_EXEMPTIONS, runsWithoutError(run))
         })
+
+        if (hasSensitiveValues(templateCase)) {
+            it('keeps sensitive values out of its output', async () => {
+                const run = await pipeline.run(templateCase, OK, { debug: true })
+
+                expectInvariant(templateCase, SECRETS_EXEMPTIONS, secretsStayOutOfOutput(run))
+            })
+        }
     })
 })

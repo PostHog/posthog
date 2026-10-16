@@ -27,7 +27,7 @@ import {
 import { buildHogFunctionInvocations } from '../../utils/invocation-utils'
 import { PosthogJwtAudience } from '../../utils/jwt-utils'
 import { ScopedServiceJwt } from '../../utils/scoped-service-jwt'
-import { compileHog } from '../compiler'
+import { compileHog, compileHogTemplate } from '../compiler'
 
 export type TemplateCase = {
     name: string
@@ -270,12 +270,13 @@ export class TemplatePipeline {
 
         const inputs: Record<string, CyclotronInputType> = {}
         const encryptedInputs: Record<string, CyclotronInputType> = {}
-        for (const [order, schema] of template.inputs_schema.entries()) {
+        const order = dependencyOrder(values)
+        for (const schema of template.inputs_schema) {
             if (values[schema.key] === undefined) {
                 continue
             }
             const target = schema.secret ? encryptedInputs : inputs
-            target[schema.key] = { ...(await compileInput(schema, values[schema.key])), order }
+            target[schema.key] = { ...(await compileInput(schema, values[schema.key])), order: order[schema.key] }
         }
 
         const mappings = mapping
@@ -437,13 +438,18 @@ const eventNameFor = ({ mapping }: TemplateCase): string => {
     return 'order_completed'
 }
 
+// Secrets whose format the template checks before it sends anything.
+const SECRET_VALUES: Record<string, string> = {
+    signing_secret: `whsec_${Buffer.from('fake-signing-secret-0000').toString('base64')}`,
+}
+
 const representativeValue = (schema: HogFunctionInputSchemaType): unknown => {
-    const userMustFillIn = schema.required && (schema.default === undefined || schema.default === '')
-    if (!userMustFillIn) {
+    const hasNoDefault = schema.default === undefined || schema.default === ''
+    if (!hasNoDefault || !(schema.required || schema.secret)) {
         return schema.default
     }
     if (schema.secret) {
-        return `fake-secret-${schema.key}-0000`
+        return SECRET_VALUES[schema.key] ?? `fake-secret-${schema.key}-0000`
     }
     if (schema.choices?.length) {
         return schema.choices[0].value
@@ -495,19 +501,46 @@ const compileInput = async (schema: HogFunctionInputSchemaType, value: unknown):
 const compileMappingInputs = async (
     mapping: HogFunctionMappingTemplate
 ): Promise<Record<string, CyclotronInputType>> => {
+    const schemas = mapping.inputs_schema ?? []
+    const values = Object.fromEntries(schemas.map((schema) => [schema.key, representativeValue(schema)]))
+    const order = dependencyOrder(values)
     const inputs: Record<string, CyclotronInputType> = {}
-    for (const [order, schema] of (mapping.inputs_schema ?? []).entries()) {
-        const value = representativeValue(schema)
-        if (value !== undefined) {
-            inputs[schema.key] = { ...(await compileInput(schema, value)), order }
+    for (const schema of schemas) {
+        if (values[schema.key] !== undefined) {
+            inputs[schema.key] = { ...(await compileInput(schema, values[schema.key])), order: order[schema.key] }
         }
     }
     return inputs
 }
 
+const INPUT_REFERENCE = /\binputs\.([A-Za-z_$][\w$]*)/g
+
+// validation.py orders inputs so that an input which reads `inputs.<key>` runs after that key.
+const dependencyOrder = (values: Record<string, unknown>): Record<string, number> => {
+    const keys = Object.keys(values).filter((key) => values[key] !== undefined)
+    const dependencies = Object.fromEntries(
+        keys.map((key) => [
+            key,
+            [...JSON.stringify(values[key]).matchAll(INPUT_REFERENCE)]
+                .map((match) => match[1])
+                .filter((dependency) => dependency !== key && keys.includes(dependency)),
+        ])
+    )
+    const sorted: string[] = []
+    const visit = (key: string, path: Set<string>): void => {
+        if (sorted.includes(key) || path.has(key)) {
+            return
+        }
+        dependencies[key].forEach((dependency) => visit(dependency, new Set([...path, key])))
+        sorted.push(key)
+    }
+    keys.forEach((key) => visit(key, new Set()))
+    return Object.fromEntries(sorted.map((key, index) => [key, index]))
+}
+
 const compileTemplateValue = async (value: unknown): Promise<unknown> => {
     if (typeof value === 'string') {
-        return await compileHog(`return f'${value}'`)
+        return await compileHogTemplate(value)
     }
     if (Array.isArray(value)) {
         return await Promise.all(value.map(compileTemplateValue))
