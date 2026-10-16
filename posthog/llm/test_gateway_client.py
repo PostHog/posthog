@@ -603,6 +603,7 @@ class TestBuildGeminiClient:
         [
             "https://generativelanguage.googleapis.com/upload/v1beta/files",
             "http://ai-gateway.example/v1beta/files",
+            "http://ai-gateway.example:443/v1beta/files",
             "https://ai-gateway.example:8443/v1beta/files",
         ],
     )

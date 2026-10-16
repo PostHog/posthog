@@ -603,7 +603,8 @@ class AIGatewayHostError(RuntimeError):
 
 
 def _origin(url: httpx.URL) -> str:
-    return f"{url.scheme}://{url.host}:{url.port or (443 if url.scheme == 'https' else 80)}"
+    # httpx lowercases the host and drops a scheme's default port, so equal origins compare equal.
+    return f"{url.scheme}://{url.netloc.decode('ascii')}"
 
 
 def build_gemini_client(
