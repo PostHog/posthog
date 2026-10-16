@@ -127,6 +127,7 @@ class FlagUsageExporter:
                         "distinct_id": str(team_id),
                         "event": USAGE_EVENT_NAMES[request_type],
                         "properties": {
+                            **({"$geoip_disable": True} if self.ph_client.disable_geoip else {}),
                             **self.ph_client.super_properties,
                             "team_id": team_id,
                             "team_uuid": str(team_uuid),
@@ -179,6 +180,7 @@ class FlagUsageExporter:
                 event = cast(UsageExportEvent, filtered)
                 event["uuid"] = item.event["uuid"]
                 event["timestamp"] = item.event["timestamp"]
+            event["properties"]["$ignore_sent_at"] = True
             events.append(event)
             deliverable.append(item)
         if not events:

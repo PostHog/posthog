@@ -23,12 +23,13 @@ class TestFlagUsageExporter(SimpleTestCase):
             disabled=False,
             send=True,
             before_send=None,
+            disable_geoip=True,
             super_properties={},
             api_key="test-key",
             host="https://example.com",
         )
         self.clock = time_machine.travel("2026-06-02T00:00:00Z", tick=False)
-        self.clock.start()
+        self.clock_coordinates = self.clock.start()
         self.addCleanup(self.clock.stop)
         self.post = self.enterContext(patch("products.feature_flags.backend.usage_export.batch_post"))
         self.capture_error = self.enterContext(
@@ -70,10 +71,13 @@ class TestFlagUsageExporter(SimpleTestCase):
         assert len(first) == 1
         assert first[0]["properties"]["count"] == 10
         assert first[0]["properties"]["sdk_breakdown"] == {"posthog-js": 10}
+        assert first[0]["properties"]["$ignore_sent_at"] is True
+        assert first[0]["properties"]["$geoip_disable"] is True
         assert self.redis_client.hgetall(key) == {b"14836320": b"2"}
         assert self.redis_client.hget(f"{key}:pending_export", "uuid") == first[0]["uuid"].encode()
 
         self.redis_client.hincrby(key, "14836318", 5)
+        self.clock_coordinates.shift(24 * 60 * 60)
         self.post.side_effect = None
         restarted = FlagUsageExporter(self.ph_client, self.redis_client)
         restarted.capture_team(self.team_id, "test-team")
@@ -85,7 +89,7 @@ class TestFlagUsageExporter(SimpleTestCase):
         restarted.capture_team(self.team_id, "test-team")
         restarted.flush()
         next_event = self.post.call_args.kwargs["batch"][0]
-        assert next_event["properties"]["count"] == 5
+        assert next_event["properties"]["count"] == 7
         assert next_event["uuid"] != first[0]["uuid"]
 
     @parameterized.expand([("missing_token",), ("disabled",), ("send_false",)])
@@ -102,12 +106,17 @@ class TestFlagUsageExporter(SimpleTestCase):
         assert self.redis_client.hgetall(key) == {b"14836318": b"7", b"14836319": b"3", b"14836320": b"2"}
         self.post.assert_not_called()
 
-    def test_exports_a_completed_bucket_without_waiting_for_another_request(self) -> None:
+    @parameterized.expand([("geoip_disabled", True), ("geoip_enabled", False)])
+    def test_exports_a_completed_bucket_without_waiting_for_another_request(
+        self, _name: str, disable_geoip: bool
+    ) -> None:
+        self.ph_client.disable_geoip = disable_geoip
         key = get_team_request_key(self.team_id, FlagRequestType.DECIDE)
         self.redis_client.hset(key, "14836319", 4)
         self.exporter.capture_team(self.team_id, "test-team")
         self.exporter.flush()
         assert self.post.call_args.kwargs["batch"][0]["properties"]["count"] == 4
+        assert self.post.call_args.kwargs["batch"][0]["properties"].get("$geoip_disable", False) == disable_geoip
         assert not self.redis_client.exists(key)
 
     def test_overlapping_exporter_does_not_acknowledge_a_newer_pending_batch(self) -> None:
