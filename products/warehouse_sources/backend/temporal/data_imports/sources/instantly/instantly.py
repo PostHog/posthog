@@ -2,7 +2,8 @@ import time
 import hashlib
 import secrets
 import dataclasses
-from datetime import datetime
+from collections.abc import Callable, Iterable, Iterator
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 import orjson
@@ -10,6 +11,8 @@ import pyarrow as pa
 import requests
 from asgiref.sync import async_to_sync
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -20,10 +23,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
+    RESTClient,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     JSONResponseCursorPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     Endpoint,
@@ -33,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.settings import (
+    ANALYTICS_HISTORY_START_DATE,
     BASE_URL,
     DEFAULT_PAGE_SIZE,
     EMAILS_REQUEST_INTERVAL_SECONDS,
@@ -42,9 +50,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.
 )
 
 REQUEST_TIMEOUT_SECONDS = 30
+# (connect, read). Analytics responses can span years of rows, so reads get more room than probes.
+SYNC_REQUEST_TIMEOUT_SECONDS = (10, 120)
 # Bounded walk of the webhook list when reconciling ours by URL — a workspace won't have
 # thousands of webhooks, so this is a defensive cap, not an expected limit.
 MAX_WEBHOOK_LIST_PAGES = 10
+
+# Instantly limits daily analytics requests to 31 days.
+DATE_WINDOW_SIZE_DAYS = 31
 
 WEBHOOK_NAME = "PostHog data warehouse"
 # Instantly deliveries are unsigned, but webhooks accept static custom headers — we attach a
@@ -61,7 +74,7 @@ WEBHOOK_SCOPE_ERROR = (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class InstantlyResumeConfig:
     cursor: str
 
@@ -103,6 +116,12 @@ def _format_incremental_timestamp(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value)
+
+
+def _format_incremental_date(value: Any) -> str:
+    if isinstance(value, date):
+        return value.strftime("%Y-%m-%d")
+    return str(value)[:10]
 
 
 def _make_paginator(config: InstantlyEndpointConfig) -> InstantlyCursorPaginator:
@@ -188,6 +207,20 @@ def instantly_source(
 
     config = INSTANTLY_ENDPOINTS[endpoint]
 
+    if config.campaign_fanout is not None:
+        fanout_client = _make_client(api_key)
+        return _source_response(config, lambda: _campaign_fanout_pages(fanout_client, config), supports_resume=False)
+    if config.date_windowed:
+        windowed_client = _make_client(api_key)
+        start_date = (
+            _format_incremental_date(db_incremental_field_last_value)
+            if should_use_incremental_field and db_incremental_field_last_value is not None
+            else ANALYTICS_HISTORY_START_DATE
+        )
+        return _source_response(
+            config, lambda: _date_windowed_pages(windowed_client, config, start_date), supports_resume=False
+        )
+
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
@@ -199,6 +232,7 @@ def instantly_source(
                 "Accept": "application/json",
                 "Content-Type": "application/json",
             },
+            "request_timeout": SYNC_REQUEST_TIMEOUT_SECONDS,
         },
         "resource_defaults": {},
         "resources": [get_resource(endpoint, should_use_incremental_field)],
@@ -224,9 +258,16 @@ def instantly_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+    return _source_response(config, lambda: resource)
+
+
+def _source_response(
+    config: InstantlyEndpointConfig, items: Callable[[], Iterable[Any]], supports_resume: bool = True
+) -> SourceResponse:
     return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
+        name=config.name,
+        items=items,
+        supports_resume=supports_resume,
         primary_keys=config.primary_keys,
         sort_mode="asc",
         partition_count=1 if config.partition_key else None,
@@ -235,6 +276,84 @@ def instantly_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
     )
+
+
+def _make_client(api_key: str) -> RESTClient:
+    return RESTClient(
+        base_url=BASE_URL,
+        headers={"Accept": "application/json"},
+        auth=BearerTokenAuth(api_key),
+        request_timeout=SYNC_REQUEST_TIMEOUT_SECONDS,
+    )
+
+
+def _list_request(config: InstantlyEndpointConfig) -> tuple[dict[str, Any], BasePaginator]:
+    if config.pagination == "single":
+        return dict(config.params), SinglePagePaginator()
+    return {**config.params, "limit": DEFAULT_PAGE_SIZE}, InstantlyCursorPaginator()
+
+
+def _campaign_fanout_pages(client: RESTClient, config: InstantlyEndpointConfig) -> Iterator[list[dict[str, Any]]]:
+    """Walk every campaign and fetch the endpoint once per campaign.
+
+    Fan-out endpoints don't resume: a retry re-walks the campaigns from scratch.
+    """
+    fanout = config.campaign_fanout
+    assert fanout is not None
+    campaigns = INSTANTLY_ENDPOINTS["campaigns"]
+    for campaign_page in client.paginate(
+        path=f"/api/v2{campaigns.path}",
+        params={"limit": DEFAULT_PAGE_SIZE},
+        paginator=InstantlyCursorPaginator(),
+        data_selector=campaigns.data_selector,
+    ):
+        for campaign in campaign_page:
+            campaign_id = campaign.get("id")
+            if not campaign_id:
+                continue
+            params, paginator = _list_request(config)
+            for page in client.paginate(
+                path=f"/api/v2{config.path}",
+                params={**params, fanout.param: campaign_id},
+                paginator=paginator,
+                data_selector=config.data_selector,
+            ):
+                if fanout.stamp_field:
+                    page = [{**row, fanout.stamp_field: campaign_id} for row in page]
+                if page:
+                    yield page
+
+
+def _today() -> date:
+    return datetime.now(UTC).date()
+
+
+@frozen
+class DateWindow:
+    start: str
+    end: str
+
+
+def _date_windows(start_date: str, end: date) -> Iterator[DateWindow]:
+    current = datetime.strptime(start_date, "%Y-%m-%d").date()
+    while current <= end:
+        window_end = min(current + timedelta(days=DATE_WINDOW_SIZE_DAYS - 1), end)
+        yield DateWindow(start=current.isoformat(), end=window_end.isoformat())
+        current = window_end + timedelta(days=1)
+
+
+def _date_windowed_pages(
+    client: RESTClient, config: InstantlyEndpointConfig, start_date: str
+) -> Iterator[list[dict[str, Any]]]:
+    for window in _date_windows(start_date, _today()):
+        for page in client.paginate(
+            path=f"/api/v2{config.path}",
+            params={**config.params, "start_date": window.start, "end_date": window.end},
+            paginator=SinglePagePaginator(),
+            data_selector=config.data_selector,
+        ):
+            # Row order is undocumented; sort so the asc watermark never passes an unwritten date.
+            yield sorted(page, key=lambda row: str(row.get("date") or ""))
 
 
 def _webhook_events_source(webhook_source_manager: Optional[WebhookSourceManager]) -> SourceResponse:
@@ -277,9 +396,14 @@ def _probe_endpoint(session: requests.Session, endpoint: str) -> requests.Respon
         return session.post(url, json={"limit": 1}, timeout=REQUEST_TIMEOUT_SECONDS)
     if config.pagination == "single":
         # Analytics endpoints have no limit param; a one-day window keeps the probe cheap.
-        params = {"start_date": "2024-01-01", "end_date": "2024-01-01", "exclude_total_leads_count": "true"}
+        params = {
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-01",
+            "exclude_total_leads_count": "true",
+            **config.probe_params,
+        }
         return session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
-    return session.get(url, params={"limit": 1}, timeout=REQUEST_TIMEOUT_SECONDS)
+    return session.get(url, params={"limit": 1, **config.probe_params}, timeout=REQUEST_TIMEOUT_SECONDS)
 
 
 def _error_message(response: requests.Response) -> str | None:

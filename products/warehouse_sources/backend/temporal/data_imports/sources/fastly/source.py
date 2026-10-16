@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -27,6 +28,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FastlySource(ResumableSource[FastlySourceConfig, FastlyResumeConfig]):
+    codebase_detection = detect(
+        env=("^FASTLY_",),
+        npm=("fastly", "@fastly/js-compute"),
+        pypi=("fastly",),
+        cargo=("fastly", "fastly-kv-preview", "fastly-macros", "fastly-shared", "fastly-sys", "log-fastly"),
+        composer=("fastly/fastly",),
+        go=("github.com/fastly/go-fastly", "github.com/fastly/fastly-exporter", "github.com/fastly/fastly-go"),
+        rubygems=("fastly", "fastly-rails"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.fastly.com/documentation/reference/api/"
 
@@ -88,17 +99,19 @@ A read-only token with **global** scope is sufficient to sync every table.""",
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Fastly's config endpoints expose no server-side timestamp filter, so every table is full
-        # refresh only. Each object carries a stable `created_at` used for partitioning.
+        # Only the metrics endpoints take a server-side time filter. Every config endpoint is full
+        # refresh only, partitioned on the stable `created_at` each object carries. Append is never
+        # offered: Fastly revises a reported bucket after the fact, which append would duplicate.
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = FASTLY_ENDPOINTS[endpoint]
             return SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=bool(endpoint_config.incremental_fields),
                 supports_append=False,
-                incremental_fields=[],
+                incremental_fields=endpoint_config.incremental_fields,
                 should_sync_default=endpoint_config.should_sync_default,
                 description=endpoint_config.description,
+                default_incremental_lookback_seconds=endpoint_config.incremental_lookback_seconds,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
@@ -133,4 +146,6 @@ A read-only token with **global** scope is sufficient to sync every table.""",
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

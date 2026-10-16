@@ -1,6 +1,6 @@
 import json
-import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
@@ -10,16 +10,17 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
-from django.contrib.auth import BACKEND_SESSION_KEY
+from django.contrib.auth import BACKEND_SESSION_KEY, load_backend
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.asgi import get_asgi_application
 from django.core.cache import cache
 from django.db import connection
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
+from django.utils.module_loading import import_string
 
 from asgiref.sync import sync_to_async
 from django_otp.oath import totp
@@ -27,7 +28,7 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.util import random_hex
 from httpx import ASGITransport, AsyncClient
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import authentication, status
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
@@ -38,24 +39,32 @@ from two_factor.utils import totp_digits
 from posthog.api.authentication import password_reset_token_generator, social_login_notification
 from posthog.api.email_verification import is_email_verification_disabled
 from posthog.auth import (
+    ExportRendererAuthentication,
     InternalAPIUser,
+    JwtAuthentication,
     OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
     ProjectSecretAPIKeyUser,
+    SessionAuthentication,
     TeamSecretTokenAuthentication,
     TeamSecretTokenUser,
+    WidgetAuthentication,
     _extract_phs_token,
+    mint_export_renderer_token,
 )
-from posthog.clickhouse.query_tagging import AccessMethod
+from posthog.clickhouse.query_tagging import AccessMethod, get_query_tags, tags_context
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
     build_known_device_cookie_value,
     has_valid_known_device_cookie,
 )
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
 from posthog.models.activity_logging.signal_handlers import post_login
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -63,7 +72,9 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.authentication_checks import covers_authentication
 
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
@@ -833,16 +844,72 @@ class TestDevLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class TestInternalTokensRefuseBlockedAccounts(APIBaseTest):
+    def _authenticator_and_request(
+        self, kind: str
+    ) -> tuple[ExportRendererAuthentication | JwtAuthentication, HttpRequest]:
+        if kind == "export_renderer":
+            asset = ExportedAsset.objects.create(
+                team=self.team,
+                created_by=self.user,
+                export_format=ExportedAsset.ExportFormat.PNG,
+                export_context={"session_recording_id": "recording-id"},
+            )
+            token = mint_export_renderer_token(
+                user_id=self.user.id, team_id=self.team.id, exported_asset_id=asset.id, scope="session_recording:read"
+            )
+            authenticator: ExportRendererAuthentication | JwtAuthentication = ExportRendererAuthentication()
+        else:
+            token = encode_jwt({"id": self.user.id}, timedelta(minutes=5), PosthogJwtAudience.IMPERSONATED_USER)
+            authenticator = JwtAuthentication()
+        return authenticator, APIRequestFactory().get("/", headers={"authorization": f"Bearer {token}"})
+
+    @parameterized.expand([("export renderer token", "export_renderer"), ("internal JWT", "jwt")])
+    def test_a_refused_account_keeps_the_refusal_code(self, _name: str, kind: str) -> None:
+        # Both authenticators wrap their body in a catch-all that would turn the refusal into "Token invalid."
+        authenticator, request = self._authenticator_and_request(kind)
+
+        with patch("posthog.auth.security_access_refused", return_value=True):
+            with pytest.raises(AuthenticationFailed) as raised:
+                authenticator.authenticate(request)
+        assert raised.value.get_codes() == "access_blocked"
+
+        with patch("posthog.auth.security_access_refused", return_value=False):
+            result = authenticator.authenticate(request)
+        assert result is not None and result[0] == self.user
+
+
+class TestSessionBackendsRefuseInactiveUsers(APIBaseTest):
+    @parameterized.expand(
+        [(path,) for path in settings.AUTHENTICATION_BACKENDS if hasattr(import_string(path), "get_user")]
+    )
+    def test_get_user_refuses_inactive_user(self, backend_path: str) -> None:
+        backend = load_backend(backend_path)
+        assert backend.get_user(self.user.pk) == self.user
+
+        User.objects.filter(pk=self.user.pk).update(is_active=False)
+
+        assert backend.get_user(self.user.pk) is None
+
+
 class TestLogoutRedirect(APIBaseTest):
     """
     Tests that /logout preserves a safe `next` param so users return to where they were
     after logging back in.
     """
 
-    def test_logout_without_next_redirects_to_login(self):
-        response = self.client.post("/logout")
+    @parameterized.expand(
+        [
+            ("no reason", {}, None),
+            ("an unknown reason", {"reason": "Your account was hacked, call this number"}, None),
+            ("an access rule refusal", {"reason": "access_blocked"}, "access_blocked"),
+        ]
+    )
+    def test_logout_without_next_redirects_to_login(self, _name, data, error_code):
+        response = self.client.post("/logout", data, format="multipart")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response["Location"], settings.LOGIN_URL)
+        expected = settings.LOGIN_URL if error_code is None else f"{settings.LOGIN_URL}?error_code={error_code}"
+        self.assertEqual(response["Location"], expected)
 
     def test_logout_forwards_safe_next_param(self):
         response = self.client.post("/logout", {"next": "/settings/user-notifications"}, format="multipart")
@@ -936,24 +1003,26 @@ class TestTwoFactorAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
 
-    def test_2fa_throttling(self):
+    @parameterized.expand([("authenticator_code", "000000"), ("backup_code", "zzzz7777")])
+    def test_2fa_throttling(self, _name: str, wrong_token: str) -> None:
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        StaticDevice.objects.create(user=self.user, name="backup").token_set.create(token="abcd2345")
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(
-            self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"],
-            "2fa_invalid",
-        )
-        self.assertEqual(
-            self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"],
-            "2fa_too_many_attempts",
-        )
+        with time_machine.travel(timezone.now(), tick=False):
+            self.assertEqual(
+                self.client.post("/api/login/token", {"token": wrong_token}).json()["code"],
+                "2fa_invalid",
+            )
+            response = self.client.post("/api/login/token", {"token": wrong_token}).json()
+        self.assertEqual(response["code"], "2fa_too_many_attempts")
+        self.assertTrue(response["detail"].startswith("Too many attempts. Try again in 1 second"))
 
     @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email")
     def test_login_with_backup_code(self, mock_send_email):
         """Test that a user can log in using a backup code instead of TOTP"""
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         static_device = StaticDevice.objects.create(user=self.user, name="backup")
-        static_device.token_set.create(token="123456")
+        static_device.token_set.create(token="abcd2345")
 
         # First authenticate with username/password
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
@@ -961,7 +1030,7 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(response.json()["code"], "2fa_required")
 
         # Then authenticate with backup code
-        response = self.client.post("/api/login/token", {"token": "123456"})
+        response = self.client.post("/api/login/token", {"token": "abcd2345"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Verify we're logged in
@@ -970,7 +1039,7 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(response.json()["email"], self.user.email)
 
         # Verify the backup code was consumed (can't be reused)
-        self.assertFalse(static_device.token_set.filter(token="123456").exists())
+        self.assertFalse(static_device.token_set.filter(token="abcd2345").exists())
 
         # Verify email was triggered
         mock_send_email.delay.assert_called_once_with(self.user.id)
@@ -980,13 +1049,13 @@ class TestTwoFactorAPI(APIBaseTest):
         """Test that backup codes are one-time use only"""
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         static_device = StaticDevice.objects.create(user=self.user, name="backup")
-        static_device.token_set.create(token="123456")
+        static_device.token_set.create(token="abcd2345")
 
         # First authenticate with username/password
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
 
         # Use backup code once
-        response = self.client.post("/api/login/token", {"token": "123456"})
+        response = self.client.post("/api/login/token", {"token": "abcd2345"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Verify email was triggered
@@ -995,40 +1064,34 @@ class TestTwoFactorAPI(APIBaseTest):
         # Log out
         self.client.logout()
 
-        # Wait for throttling to expire
-        time.sleep(2)
-
         # Try to authenticate again with same backup code
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        response = self.client.post("/api/login/token", {"token": "123456"})
+        response = self.client.post("/api/login/token", {"token": "abcd2345"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "2fa_invalid")
 
     @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email")
     def test_backup_codes_work_when_totp_device_is_throttled(self, mock_send_email):
-        """Test that backup codes still work even if TOTP device is throttled"""
-        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        totp_device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         static_device = StaticDevice.objects.create(user=self.user, name="backup")
-        static_device.token_set.create(token="123456")
+        static_device.token_set.create(token="abcd2345")
 
-        # First authenticate with username/password
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
 
-        # Trigger TOTP throttling with invalid attempts
-        self.client.post("/api/login/token", {"token": "000000"})
-        self.client.post("/api/login/token", {"token": "000000"})
+        with time_machine.travel(timezone.now(), tick=False):
+            self.client.post("/api/login/token", {"token": "000000"})
+            response = self.client.post("/api/login/token", {"token": "000000"})
+            self.assertEqual(
+                response.json()["detail"],
+                "Too many attempts. Try again in 1 second, or enter one of your backup codes.",
+            )
 
-        # Wait for throttling to expire
-        import time
-
-        time.sleep(2)
-
-        # Backup code should still work
-        response = self.client.post("/api/login/token", {"token": "123456"})
+            response = self.client.post("/api/login/token", {"token": "abcd2345"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Verify email was triggered
         mock_send_email.delay.assert_called_once_with(self.user.id)
+
+        totp_device.refresh_from_db()
+        self.assertEqual(totp_device.throttling_failure_count, 0)
 
     def test_passkey_2fa_begin_requires_pending_session(self):
         """Test that passkey 2FA begin requires a pending login session"""
@@ -1605,7 +1668,7 @@ class TestPasswordResetAPI(APIBaseTest):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
-        self.assertEqual(response.headers["Content-Length"], "0")
+        self.assertNotIn("Content-Length", response.headers)
 
         user: User = User.objects.get(email=self.CONFIG_EMAIL)
         self.assertEqual(
@@ -2343,6 +2406,77 @@ class TestTimeSensitivePermissions(APIBaseTest):
             )
             assert res.status_code == 200
 
+    @parameterized.expand(
+        [
+            ("passkey_register_begin", "post", "/api/webauthn/register/begin/"),
+            ("passkey_register_complete", "post", "/api/webauthn/register/complete/"),
+            ("passkey_rename", "patch", "/api/webauthn/credentials/1/"),
+            ("passkey_delete", "delete", "/api/webauthn/credentials/1/"),
+            ("passkey_verify", "post", "/api/webauthn/credentials/1/verify/"),
+            ("connected_app_revoke", "post", "/api/oauth/connected-apps/00000000-0000-0000-0000-000000000001/revoke/"),
+            ("github_start", "post", "/api/users/@me/integrations/github/start/"),
+            ("github_prepare_callback", "post", "/api/users/@me/integrations/github/prepare_callback/"),
+            ("github_disconnect", "delete", "/api/users/@me/integrations/github/123/"),
+            ("slack_start", "post", "/api/users/@me/integrations/slack/start/"),
+            ("slack_disconnect", "delete", "/api/users/@me/integrations/slack/U0123ABC/"),
+        ]
+    )
+    def test_credential_writes_require_recent_authentication(self, _name, method, url):
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = getattr(self.client, method)(url, {}, format="json")
+            assert res.status_code == 403, res.content
+            assert res.json()["code"] == "sensitive_action_required_reauth"
+
+    @parameterized.expand(
+        [
+            ("passkey_list", "get", "/api/webauthn/credentials/"),
+            ("connected_app_list", "get", "/api/oauth/connected-apps"),
+            ("personal_integration_list", "get", "/api/users/@me/integrations/"),
+            ("github_repos_refresh", "post", "/api/users/@me/integrations/github/123/repos/refresh/"),
+            (
+                "github_install_request_cancel",
+                "delete",
+                "/api/users/@me/integrations/github/install_requests/00000000-0000-0000-0000-000000000001/",
+            ),
+        ]
+    )
+    def test_credential_reads_do_not_require_recent_authentication(self, _name, method, url):
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = getattr(self.client, method)(url, {}, format="json")
+            assert res.status_code != 403, res.content
+
+    @parameterized.expand(
+        [
+            ("personal_posthog_connection", "posthog", True),
+            ("team_slack_integration", "slack", False),
+        ]
+    )
+    def test_integration_removal_needs_recent_authentication_only_for_personal_connections(
+        self, _name, kind, needs_reauth
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        integration = Integration.objects.create(team=self.team, kind=kind, config={}, created_by=self.user)
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = self.client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.pk}/")
+            if needs_reauth:
+                assert res.status_code == 403, res.content
+                assert res.json()["code"] == "sensitive_action_required_reauth"
+            else:
+                assert res.status_code != 403, res.content
+
+    def test_creating_a_personal_posthog_connection_needs_recent_authentication(self):
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = self.client.post(
+                f"/api/environments/{self.team.pk}/integrations/", {"kind": "posthog", "config": {}}, format="json"
+            )
+            assert res.status_code == 403, res.content
+            assert res.json()["code"] == "sensitive_action_required_reauth"
+
 
 class TestTeamSecretTokenAuthentication(APIBaseTest):
     def setUp(self):
@@ -2351,6 +2485,7 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
         self.team.save()
         self.factory = APIRequestFactory()  # Use APIRequestFactory instead of RequestFactory
 
+    @covers_authentication(TeamSecretTokenAuthentication)
     def test_authenticate_with_valid_secret_api_key_in_header(self):
         # Simulate a request with a valid team secret token
         wsgi_request = self.factory.get(
@@ -2381,6 +2516,16 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
             team_id=self.team.id,
             access_method=AccessMethod.TEAM_SECRET_TOKEN,
         )
+
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_authenticate_returns_none_when_legacy_tokens_switched_off(self) -> None:
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
+        )
+        result = TeamSecretTokenAuthentication().authenticate(Request(wsgi_request))
+
+        self.assertIsNone(result)
 
     def test_authenticate_with_valid_secret_api_key_in_body_not_supported(self):
         # Body tokens were removed after the audit in #66176: even a valid token must not authenticate.
@@ -2464,6 +2609,15 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
         user, _ = result
         self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
+
+
+class TestWidgetAuthentication(SimpleTestCase):
+    @parameterized.expand([(Team.DoesNotExist,), (Team.MultipleObjectsReturned,)])
+    def test_invalid_token_fails_authentication(self, lookup_error: type[Exception]) -> None:
+        request = Request(APIRequestFactory().get("/", HTTP_X_CONVERSATIONS_TOKEN="test-widget-token"))
+        with patch("posthog.models.Team.objects.get", side_effect=lookup_error):
+            with self.assertRaises(AuthenticationFailed):
+                WidgetAuthentication().authenticate(request)
 
 
 class TestSyntheticUser(SimpleTestCase):
@@ -2556,6 +2710,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
         return Request(wsgi_request)
 
+    @covers_authentication(ProjectSecretAPIKeyAuthentication)
     def test_authenticate_with_valid_psak_in_header(self):
         authenticator = ProjectSecretAPIKeyAuthentication()
         result = authenticator.authenticate(self._request_with_header(self.token))
@@ -2661,6 +2816,36 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertGreater(self.psak.last_used_at, old + timedelta(hours=1))
 
 
+class TestScoutPrivateCaptureAuthentication(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("ordinary", "query:read", True, False),
+            ("unbound", "scout_experiment_internal:read", False, False),
+            ("trial", "query:read scout_experiment_internal:read", True, True),
+        ]
+    )
+    def test_capture_policy_requires_the_bound_scope(self, _name: str, scope: str, bound: bool, private: bool) -> None:
+        token = OAuthAccessToken(
+            user=User(id=1, current_team_id=2),
+            scope=scope,
+            sandbox_task_id=uuid.uuid4() if bound else None,
+        )
+        request = Request(
+            APIRequestFactory().get(
+                "/?is_scout_experiment=true",
+                HTTP_AUTHORIZATION="Bearer pha_synthetic",
+                HTTP_X_POSTHOG_SUPPRESS_ANALYTICS="true",
+            )
+        )
+        with (
+            tags_context(is_scout_experiment=False),
+            patch.object(OAuthAccessTokenAuthentication, "_validate_token", return_value=token),
+            patch("posthog.auth.activity_storage.is_request_scoped", return_value=False),
+        ):
+            self.assertIsNotNone(OAuthAccessTokenAuthentication().authenticate(request))
+            self.assertEqual(get_query_tags().is_scout_experiment, private)
+
+
 class TestOAuthAccessTokenAuthentication(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -2685,6 +2870,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             scope="openid profile",
         )
 
+    @covers_authentication(OAuthAccessTokenAuthentication)
     def test_authenticate_with_valid_oauth_token(self):
         wsgi_request = self.factory.get(
             "/",
@@ -2904,6 +3090,66 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
+
+
+class TestAuthenticatorsRunOncePerRequest(APIBaseTest):
+    def _personal_api_key_header(self) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="once per request",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=["dashboard:read"],
+        )
+        return f"Bearer {value}"
+
+    def _oauth_access_token_header(self) -> str:
+        application = OAuthApplication.objects.create(
+            name="Once per request",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_once_per_request",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="dashboard:read",
+        )
+        return f"Bearer {token.token}"
+
+    @parameterized.expand(
+        [
+            ("session", SessionAuthentication, None),
+            ("personal_api_key", PersonalAPIKeyAuthentication, _personal_api_key_header),
+            ("oauth_access_token", OAuthAccessTokenAuthentication, _oauth_access_token_header),
+        ]
+    )
+    def test_authenticate_runs_once_per_request(
+        self,
+        _name: str,
+        authenticator_class: type[authentication.BaseAuthentication],
+        authorization_header: Callable[..., str] | None,
+    ) -> None:
+        headers = {}
+        if authorization_header is not None:
+            self.client.logout()
+            headers["authorization"] = authorization_header(self)
+
+        with patch.object(
+            authenticator_class,
+            "authenticate",
+            autospec=True,
+            wraps=authenticator_class.authenticate,
+        ) as authenticate:
+            response = self.client.get(f"/api/projects/{self.team.pk}/dashboards/", headers=headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(authenticate.call_count, 1)
 
 
 class TestOAuthLoginNotification(APIBaseTest):

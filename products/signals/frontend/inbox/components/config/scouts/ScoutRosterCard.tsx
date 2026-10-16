@@ -11,12 +11,12 @@ import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { nextRunAt, SCOUT_GROUP_LABEL, ScoutRosterRow, scoutSubtitle } from '../../../utils/scoutGroups'
 import { runStripEmptyLabel, scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
-import { ScoutExemptionBadge, ScoutLifecycleBadge } from './ScoutBadges'
+import { ScoutDeprecationBadge, ScoutExemptionBadge, ScoutLifecycleBadge } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutCostLine } from './ScoutCostLine'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
-import { ScoutRunBoxes } from './ScoutRunBoxes'
+import { ScoutRosterRunBoxes } from './ScoutRosterRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
 import { ScoutWriteAccessTag } from './ScoutWriteAccessTag'
 
@@ -41,15 +41,8 @@ function MetaSeparator(): JSX.Element {
  */
 export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
     const { config, group } = row
-    const {
-        rollups,
-        updatingScoutIds,
-        scoutRunsLoadedOnce,
-        scoutRunsCoverFleet,
-        scoutRunCosts,
-        scoutCostRollups,
-        expensiveRunCostThreshold,
-    } = useValues(scoutFleetLogic)
+    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunsCoverFleet, scoutCostRollups } =
+        useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
@@ -78,6 +71,7 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
                         <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} />
                         <ScoutExemptionBadge config={config} group={group} />
                         <ScoutLifecycleBadge config={config} />
+                        <ScoutDeprecationBadge config={config} />
                     </div>
                     {subtitle && (
                         <p className={cn('m-0 line-clamp-1 text-xs leading-snug', SUBTITLE_TONE_CLASS[subtitle.tone])}>
@@ -110,7 +104,7 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
                 {/* A fixed strip width on wide rows keeps every row's newest run on one vertical line. */}
                 <div className="flex min-w-0 justify-end @lg:w-52">
                     {runs.length > 0 ? (
-                        <ScoutRunBoxes runs={runs} costs={scoutRunCosts} costThreshold={expensiveRunCostThreshold} />
+                        <ScoutRosterRunBoxes skillName={config.skill_name} runs={runs} />
                     ) : (
                         // Until the runs request has landed once, an empty rollup means "not
                         // loaded", not "never ran"; the poll retries a failed load on its own. Past

@@ -1,5 +1,6 @@
 from typing import cast
 
+from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed
@@ -15,8 +16,31 @@ from products.managed_warehouse.backend.models import DuckgresServer
 logger = structlog.get_logger(__name__)
 
 
+class DuckgresServerAdminForm(forms.ModelForm):
+    new_trino_password = forms.CharField(
+        label="New Trino password",
+        help_text="Leave blank to keep the current Trino password.",
+        widget=forms.PasswordInput(render_value=False),
+        required=False,
+        strip=False,
+    )
+
+    class Meta:
+        model = DuckgresServer
+        exclude = ("trino_password",)
+
+    def save(self, commit: bool = True) -> DuckgresServer:
+        server = super().save(commit=False)
+        if password := self.cleaned_data.get("new_trino_password"):
+            server.trino_password = password
+        if commit:
+            server.save()
+        return server
+
+
 @admin.register(DuckgresServer)
 class DuckgresServerAdmin(admin.ModelAdmin):
+    form = DuckgresServerAdminForm
     list_display = (
         "id",
         "organization_id",
@@ -32,7 +56,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
     # bucket / bucket_region are control-plane-owned: provisioning persists them
     # and status_for() self-heals them on every read, so a manual admin edit
     # would just be overwritten. Show them, but read-only.
-    readonly_fields = ("id", "created_at", "updated_at", "bucket", "bucket_region")
+    readonly_fields = ("id", "created_at", "updated_at", "bucket", "bucket_region", "trino_password_configured")
     raw_id_fields = ("organization",)
 
     # Custom templates add the provision / enable-backfill / deprovision buttons.
@@ -56,6 +80,12 @@ class DuckgresServerAdmin(admin.ModelAdmin):
             "DuckLake catalog connection",
             {
                 "fields": ("catalog_host", "catalog_port", "catalog_database", "catalog_username"),
+            },
+        ),
+        (
+            "Trino connection",
+            {
+                "fields": ("trino_password_configured", "new_trino_password"),
             },
         ),
         (
@@ -95,12 +125,22 @@ class DuckgresServerAdmin(admin.ModelAdmin):
             },
         ),
         (
+            "Trino connection",
+            {
+                "fields": ("new_trino_password",),
+            },
+        ),
+        (
             "Storage",
             {
                 "fields": ("bucket", "bucket_region"),
             },
         ),
     )
+
+    @admin.display(boolean=True, description="Trino password configured")
+    def trino_password_configured(self, obj: DuckgresServer) -> bool:
+        return bool(obj.trino_password)
 
     def get_urls(self):
         custom_urls = [

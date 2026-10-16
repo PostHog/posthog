@@ -30,8 +30,8 @@ from posthog.models.team.team import Team
 from posthog.personhog_client.fake_client import FakePersonHogClient
 from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
 
-from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.services.email_sending_tier import TierDecision
+from products.workflows.backend.facade.contracts import TierDecision
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
 def _attach_messages(request) -> None:
@@ -716,7 +716,7 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         # bar"), which misled staff when the real reason was the dwell or a cooldown.
         request = self._post()
         with patch(
-            "posthog.admin.admins.team_admin.recompute_email_sending_tier_for_team",
+            "posthog.admin.admins.team_admin.recompute_email_sending_tier",
             return_value=TierDecision(team_id=self.team.id, previous_tier=4, new_tier=4, reason="too_soon"),
         ):
             response = self.admin.recompute_email_sending_tier_view(request, str(self.team.pk))
@@ -729,9 +729,7 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         # rowless team, so the recompute action must create the row before it runs.
         TeamWorkflowsConfig.objects.filter(team_id=self.team.pk).delete()
         assert self._config() is None
-        with patch(
-            "posthog.admin.admins.team_admin.recompute_email_sending_tier_for_team", return_value=None
-        ) as mock_recompute:
+        with patch("posthog.admin.admins.team_admin.recompute_email_sending_tier", return_value=None) as mock_recompute:
             response = self.admin.recompute_email_sending_tier_view(self._post(), str(self.team.pk))
         assert response.status_code == 302
         mock_recompute.assert_called_once_with(self.team.id)

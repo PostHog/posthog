@@ -8,10 +8,6 @@ installation so we don't keep dead tokens around.
 The handler never calls GitHub's DELETE endpoint — the App is already gone —
 which keeps the outbound/inbound pair loop-free.
 
-Before the Integration rows are deleted, any Loop (products/tasks) referencing them is
-auto-paused and flagged for attention, so a disconnected integration never leaves a loop
-silently pointed at a repository it can no longer reach.
-
 ``action == "created"`` is the other direction: an org owner approved a pending install
 request (see ``posthog.api.github_callback.install_requests``). The payload's ``requester.id``
 is who asked, so matching pending ``GitHubInstallRequest`` rows on ``github_user_id`` flip to
@@ -30,6 +26,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.models.integration import Integration, invalidate_github_repository_caches_for_installation
+from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
 
 logger = structlog.get_logger(__name__)
@@ -58,10 +55,30 @@ def handle_installation_event(payload: dict) -> HttpResponse:
     installation_id = str(installation_id)
 
     integrations = list(Integration.objects.filter(kind="github", integration_id=installation_id))
-    _pause_loops_referencing_integrations(integrations, installation_id)
 
-    team_deleted, _ = Integration.objects.filter(kind="github", integration_id=installation_id).delete()
-    user_deleted, _ = UserIntegration.objects.filter(kind="github", integration_id=installation_id).delete()
+    project_audits = [GitHubAudit.project(row) for row in integrations]
+    personal_rows = list(UserIntegration.objects.filter(kind="github", integration_id=installation_id))
+    personal_audits = [GitHubAudit.personal(row) for row in personal_rows]
+    try:
+        # nosemgrep: idor-lookup-without-team (a verified installation webhook removes this installation across projects)
+        team_deleted, _ = Integration.objects.filter(
+            kind="github", integration_id=installation_id, pk__in=[row.pk for row in integrations]
+        ).delete()
+    except Exception as exc:
+        for audit in project_audits:
+            audit.record("webhook_cleanup_failed", stage="project_deletion", failure_type=type(exc).__name__)
+        raise
+    for audit in project_audits:
+        audit.record("deleted", after_commit=True, customer_visible=True, outcome="disconnected")
+        audit.record("webhook_cleanup", after_commit=True, outcome="already_absent", completed_deletion=True)
+    try:
+        user_deleted, _ = UserIntegration.objects.filter(pk__in=[row.pk for row in personal_rows]).delete()
+    except Exception as exc:
+        for audit in personal_audits:
+            audit.record("webhook_cleanup_failed", stage="personal_deletion", failure_type=type(exc).__name__)
+        raise
+    for audit in personal_audits:
+        audit.record("credential_deleted", after_commit=True, reason="installation_deleted_webhook")
 
     logger.info(
         "github_installation_webhook_uninstalled",
@@ -71,28 +88,6 @@ def handle_installation_event(payload: dict) -> HttpResponse:
     )
 
     return HttpResponse(status=200)
-
-
-def _pause_loops_referencing_integrations(integrations: list[Integration], installation_id: str) -> None:
-    """Auto-pause every loop referencing a GitHub integration that's about to be hard-deleted.
-
-    See products/tasks/docs/LOOPS.md "Lifecycle and reconciliation": the App uninstall hard-deletes
-    the Integration row with no downstream hooks, and loop references to it are JSON, so no FK
-    machinery helps. Runs before the delete below and is fully isolated: a loops-side failure must
-    never break the pre-existing Integration/UserIntegration deletion path.
-    """
-    if not integrations:
-        return
-
-    try:
-        from products.tasks.backend.facade.loops import (  # noqa: PLC0415 (keeps the loops/Temporal dependency off this module's import path)
-            pause_loops_referencing_integrations,
-        )
-    except Exception:
-        logger.exception("github_installation_webhook_loop_import_failed", installation_id=installation_id)
-        return
-
-    pause_loops_referencing_integrations(integrations, installation_id)
 
 
 def _handle_installation_created(payload: dict) -> HttpResponse:

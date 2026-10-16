@@ -69,7 +69,7 @@ class TestQuotaLimitsAPI(APIBaseTest):
 
         # The deactivated-org answer must not depend on Redis being reachable.
         with patch(
-            "ee.api.quota_limits.get_fresh_team_limited_resources",
+            "ee.billing.quota_limiting.get_fresh_team_limited_resources",
             side_effect=Exception("redis unavailable"),
         ):
             response = self.client.get(self._url())

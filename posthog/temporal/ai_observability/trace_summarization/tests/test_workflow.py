@@ -1,9 +1,10 @@
 """Tests for batch trace summarization workflow and sampling."""
 
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.placeholders import replace_placeholders
@@ -350,6 +351,30 @@ class TestSampleItemsInWindowActivity:
 
 
 class TestBatchTraceSummarizationWorkflow:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("consent_unavailable", [False, True], ids=["denied", "unavailable"])
+    async def test_does_not_process_items_without_verified_consent(self, consent_unavailable: bool) -> None:
+        consent_error = RuntimeError("Consent unavailable")
+        execute_activity = AsyncMock(side_effect=consent_error if consent_unavailable else [False])
+        workflow_path = "posthog.temporal.ai_observability.trace_summarization.workflow"
+
+        with (
+            patch(f"{workflow_path}.temporalio.workflow.now", return_value=datetime(2026, 1, 1, tzinfo=UTC)),
+            patch(f"{workflow_path}.temporalio.workflow.patched", return_value=True),
+            patch(f"{workflow_path}.temporalio.workflow.execute_activity", execute_activity),
+            patch(f"{workflow_path}.increment_workflow_started"),
+            patch(f"{workflow_path}.increment_workflow_finished"),
+        ):
+            if consent_unavailable:
+                with pytest.raises(RuntimeError, match="Consent unavailable"):
+                    await BatchTraceSummarizationWorkflow().run(BatchSummarizationInputs(team_id=1))
+            else:
+                result = await BatchTraceSummarizationWorkflow().run(BatchSummarizationInputs(team_id=1))
+                assert result.metrics.items_queried == 0
+                assert result.metrics.summaries_generated == 0
+
+        assert execute_activity.await_count == 1
+
     def test_parse_inputs_minimal(self):
         inputs = BatchTraceSummarizationWorkflow.parse_inputs(["123"])
 

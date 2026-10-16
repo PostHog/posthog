@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MoxieSource(SimpleSource[MoxieSourceConfig]):
+    codebase_detection = detect(env=("^MOXIE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://help.withmoxie.com/en/collections/5482062-public-api-endpoints"
 
@@ -100,6 +103,7 @@ class MoxieSource(SimpleSource[MoxieSourceConfig]):
 
 Go to **Workspace settings > Connected Apps > Integrations** in Moxie and click **Enable Custom Integration** to see your workspace's base URL and API key.""",
             iconPath="/static/services/moxie.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/moxie",
             fields=cast(
                 list[FieldType],
                 [

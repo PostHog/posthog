@@ -85,7 +85,7 @@ def build_summary_query(runner: "MarketingAnalyticsRetentionQueryRunner") -> ast
             AND events.timestamp >= toDateTime({start})
             AND events.timestamp <= toDateTime({end})
             AND events.$session_id != acquisition.first_session_id
-            AND events.session.$start_timestamp > acquisition.first_session_at
+            AND toDate(events.session.$start_timestamp) > toDate(acquisition.first_session_at)
             AND events.session.$start_timestamp <= acquisition.first_session_at + INTERVAL 30 DAY
             AND events.session.$start_timestamp <= toDateTime(acquisition.observation_end)
             AND {filters}
@@ -136,7 +136,7 @@ def build_summary_query(runner: "MarketingAnalyticsRetentionQueryRunner") -> ast
             countIf(returned_at > first_session_at) AS returners,
             if(returners > 0,
                 medianIf(
-                    dateDiff('second', first_session_at, returned_at) / 86400.0,
+                    dateDiff('day', first_session_at, returned_at),
                     returned_at > first_session_at),
                 NULL) AS medianReturnDays
         FROM people

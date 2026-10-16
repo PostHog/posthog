@@ -20,12 +20,13 @@ CLICKHOUSE_INCREMENTAL_BACKUP_SCHEDULE: str = os.getenv("CLICKHOUSE_INCREMENTAL_
 SQUASH_PERSON_OVERRIDES_SCHEDULE: str = os.getenv(
     "SQUASH_PERSON_OVERRIDES_SCHEDULE", "0 22 * * 6"
 )  # At 22:00 (10 PM) on Saturday
+# Each region's quietest hour on its persons writer, measured over 14 days. Charts overrides it
+# per deployment; the default is the US value.
+PERSON_PG_CLEANUP_DRAIN_SCHEDULE: str = os.getenv("PERSON_PG_CLEANUP_DRAIN_SCHEDULE", "0 8 * * *")
 DAGSTER_DOMAIN: str | None = os.getenv("DAGSTER_DOMAIN")
 
 DAGSTER_UI_HOST: str = os.getenv("DAGSTER_UI_HOST", "localhost")
 DAGSTER_UI_PORT: int = int(os.getenv("DAGSTER_UI_PORT", 3030))
-
-DAGSTER_AI_EVALS_S3_BUCKET: str = os.getenv("DAGSTER_AI_EVALS_S3_BUCKET", "ai-evals")
 
 DAGSTER_FAVICONS_S3_BUCKET: str = os.getenv("DAGSTER_FAVICONS_S3_BUCKET", "posthog")
 

@@ -16,22 +16,32 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.polymarket.settings import (
+    GAMMA_BASE_URL,
     POLYMARKET_ENDPOINTS,
     PolymarketEndpointConfig,
 )
 
-POLYMARKET_BASE_URL = "https://gamma-api.polymarket.com"
-
 
 @frozen
 class PolymarketResumeConfig:
-    # Keyset endpoints resume from an opaque cursor; offset endpoints resume from a row offset.
+    # Keyset and cursor endpoints resume from an opaque cursor; offset endpoints resume from a row offset.
     # Exactly one is set, matching the endpoint's pagination style.
     cursor: Optional[str] = None
     offset: Optional[int] = None
 
 
 def _build_endpoint(config: PolymarketEndpointConfig) -> Endpoint:
+    if config.pagination == "cursor":
+        # The Data API pages only by `pagination.next_cursor`, which is null on the last page.
+        # Sending `offset` is a 400, so the offset paginator must never touch these endpoints.
+        return {
+            "path": config.path,
+            "params": {"limit": config.page_size, **config.params},
+            "data_selector": config.data_key,
+            "data_selector_required": True,
+            "paginator": JSONResponseCursorPaginator(cursor_path="pagination.next_cursor", cursor_param="cursor"),
+        }
+
     # `order=id&ascending=true` is what makes paging stable. Without an explicit order the offset
     # endpoints return rows in an unspecified order, so a row inserted mid-sync shifts every later
     # page and silently skips or duplicates rows.
@@ -66,10 +76,10 @@ def polymarket_source(
 ) -> SourceResponse:
     config = POLYMARKET_ENDPOINTS[endpoint]
 
-    # Gamma's read endpoints are public and take no credential, so no `auth` is configured.
+    # Gamma and the Data API are public and take no credential, so no `auth` is configured.
     rest_config: RESTAPIConfig = {
         "client": {
-            "base_url": POLYMARKET_BASE_URL,
+            "base_url": config.base_url,
             "headers": {"Accept": "application/json"},
         },
         "resource_defaults": {},
@@ -85,7 +95,7 @@ def polymarket_source(
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
-            if config.pagination == "keyset" and resume.cursor is not None:
+            if config.pagination in ("keyset", "cursor") and resume.cursor is not None:
                 initial_paginator_state = {"cursor": resume.cursor}
             elif config.pagination == "offset" and resume.offset is not None:
                 initial_paginator_state = {"offset": resume.offset}
@@ -95,7 +105,7 @@ def polymarket_source(
         # primary key) instead of skipping it.
         if not state:
             return
-        if config.pagination == "keyset":
+        if config.pagination in ("keyset", "cursor"):
             if state.get("cursor"):
                 resumable_source_manager.save_state(PolymarketResumeConfig(cursor=str(state["cursor"])))
         elif state.get("offset") is not None:
@@ -131,7 +141,7 @@ def validate_credentials() -> bool:
     # against an endpoint that has moved.
     ok, _status = validate_via_probe(
         make_tracked_session,
-        f"{POLYMARKET_BASE_URL}/status",
+        f"{GAMMA_BASE_URL}/status",
         headers={"Accept": "application/json"},
     )
     return ok

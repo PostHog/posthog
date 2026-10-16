@@ -338,7 +338,8 @@ export function dateStringToDayJs(date: string | null, timezone: string = 'UTC')
     const isSubDay = ['hour', 'minute', 'second'].includes(dateComponents.unit)
     const offset: dayjs.Dayjs = isSubDay ? dayjs().tz(timezone) : dayjs().tz(timezone).startOf('day')
     const response = componentsToDayJs(dateComponents, offset, timezone)
-    return response
+    // dayjs keeps today's UTC offset when it adds calendar units, so resolve the local time again.
+    return isSubDay ? response : response.tz(timezone, true)
 }
 
 export function isValidRelativeOrAbsoluteDate(date: string): boolean {

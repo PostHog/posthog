@@ -465,6 +465,7 @@ export default function NewTaskScreen() {
     runtimeAdapter: adapter,
     model,
     reasoningEffort: showReasoningPill ? reasoning : null,
+    permissionMode: mode,
     contextWindow: supports1MContext(model) ? contextWindow : null,
     fastMode: supportsFastMode(model) ? fastMode : null,
   });

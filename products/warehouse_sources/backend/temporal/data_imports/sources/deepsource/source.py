@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,9 +35,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "repositories": "All repositories in the account, including ones not activated on DeepSource",
     "analysis_runs": "One row per analysis run with its status and occurrence summary",
+    "checks": "One row per analyzer check inside an analysis run, with the issues it introduced and resolved",
+    "pull_requests": "Pull requests analyzed by DeepSource, with the issues and vulnerabilities each one raised",
     "issues": "Currently open issue types per repository with category, severity, and occurrence count",
     "issue_occurrences": "Every open occurrence of an issue with its file path and position",
     "vulnerability_occurrences": "Dependency vulnerabilities (SCA) with CVSS/EPSS scores per repository",
+    "analyzers": "Every analyzer DeepSource offers, resolving the shortcodes carried on issues and checks",
     "metrics": "Latest value per code-quality metric and language (coverage, duplication, and more)",
     "reports": "Current value and status of each compliance and trend report (OWASP Top 10, code health, and more)",
 }
@@ -44,6 +48,8 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class DeepsourceSource(ResumableSource[DeepsourceSourceConfig, DeepsourceResumeConfig]):
+    codebase_detection = detect(env=("^DEEPSOURCE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.deepsource.com/docs/developers/api"
 

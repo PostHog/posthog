@@ -112,7 +112,7 @@ class TestComputationJob(BaseTest):
             assert row_count == 1
 
 
-class TestComputeQueryHash(BaseTest):
+class TestComputeQueryHash(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -1507,7 +1507,7 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
             )
 
 
-class TestParseTtlSchedule(BaseTest):
+class TestParseTtlSchedule(SimpleTestCase):
     def test_int_returns_schedule_with_no_rules(self):
         schedule = parse_ttl_schedule(3600)
         assert schedule.rules == []
@@ -1665,7 +1665,7 @@ class TestParseTtlSchedule(BaseTest):
         assert schedule.get_ttl(django_timezone.now() - timedelta(days=30), jittered=True) == 86400
 
 
-class TestSplitRangesByTtl(BaseTest):
+class TestSplitRangesByTtl(SimpleTestCase):
     def test_single_range_uniform_ttl(self):
         schedule = TtlSchedule.from_seconds(3600)
         ranges = [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC))]
@@ -1708,7 +1708,7 @@ class TestSplitRangesByTtl(BaseTest):
         assert result[1] == (datetime(2024, 1, 5, tzinfo=UTC), datetime(2024, 1, 7, tzinfo=UTC), 3600)
 
 
-class TestWrittenRows(BaseTest):
+class TestWrittenRows(SimpleTestCase):
     """`sync_execute` only swaps an INSERT's result for the `written_rows` counter when that
     counter is nonzero, so the driver's passthrough result is how a zero-row insert shows up."""
 
@@ -1720,7 +1720,7 @@ class TestWrittenRows(BaseTest):
         assert _written_rows(None) == 0
 
 
-class TestComputationExecutor(BaseTest):
+class TestComputationExecutor(SimpleTestCase):
     def test_executor_with_custom_settings(self):
         default_executor = LazyComputationExecutor()
         assert default_executor.wait_timeout_seconds == DEFAULT_WAIT_TIMEOUT_SECONDS
@@ -1954,12 +1954,14 @@ class TestComputationExecutorExecute(BaseTest):
     def test_returns_immediately_when_all_ranges_ready(self):
         query_info, query_hash = self._make_query_info()
 
+        computed_at = django_timezone.now() - timedelta(minutes=30)
         ready_job = PreaggregationJob.objects.create(
             team=self.team,
             query_hash=query_hash,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             status=PreaggregationJob.Status.READY,
+            computed_at=computed_at,
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
@@ -1974,6 +1976,8 @@ class TestComputationExecutorExecute(BaseTest):
 
         assert result.ready is True
         assert ready_job.id in result.job_ids
+        # The materialized-at time of the served window is surfaced for the "data as of X" badge.
+        assert result.computed_at == computed_at
 
     def test_inserts_missing_ranges_and_returns_all_job_ids(self):
         query_info, query_hash = self._make_query_info()
@@ -2232,6 +2236,32 @@ class TestComputationExecutorExecute(BaseTest):
         else:
             assert job.id not in result.job_ids
             assert insert_count[0] == 1
+
+    @parameterized.expand(
+        [
+            ("default_policy", False, None, True),
+            ("invalidated", True, None, False),
+            ("invalidated_with_grace", True, 6 * 60 * 60, False),
+        ]
+    )
+    def test_future_job_invalidation_is_opt_in(
+        self, _name: str, invalidate: bool, grace: int | None, expected_ready: bool
+    ) -> None:
+        query_info, _ = self._make_query_info()
+        start = datetime(2026, 9, 11, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        schedule = parse_ttl_schedule(2 * 60 * 60, invalidate_at_window_start=invalidate)
+        with time_machine.travel(start - timedelta(minutes=25), tick=False) as clock:
+            warmed = LazyComputationExecutor(ttl_schedule=schedule).execute(
+                team=self.team, query_info=query_info, start=start, end=end, run_insert=lambda t, j: 0
+            )
+            assert warmed.ready
+            clock.shift(timedelta(minutes=25))
+            cached = LazyComputationExecutor(
+                ttl_schedule=schedule, run_inserts=False, stale_while_revalidate_seconds=grace
+            ).execute(team=self.team, query_info=query_info, start=start, end=end, run_insert=lambda t, j: 0)
+            assert cached.ready is expected_ready
+            assert cached.job_ids == (warmed.job_ids if expected_ready else [])
 
     @parameterized.expand(
         [
@@ -3136,6 +3166,29 @@ class TestPubsubAndStaleDetection(BaseTest):
             assert mock_publish.call_args[0][1] == "failed"
 
 
+class _FakeMonotonicClock:
+    """Stand-in for the executor's `time` module. The clock moves only when the
+    executor sleeps, so a wait deadline arrives after a fixed number of loop
+    passes and costs no wall-clock time. Each reading also adds a small tick, so
+    a loop that stops pacing still reaches the deadline instead of spinning
+    forever."""
+
+    TICK_SECONDS = 0.001
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        reading = self.now
+        self.now += self.TICK_SECONDS
+        return reading
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
 class TestJobLifecycleCounters(BaseTest):
     """Counters that answer "how many jobs were we creating vs finishing" — the
     framework runs jobs synchronously, so PENDING is just "INSERT in flight" and
@@ -3308,15 +3361,16 @@ class TestJobLifecycleCounters(BaseTest):
         # Range has no existing coverage, so the executor enters the create path
         # on every loop iteration. Patching `create_lazy_computation_job` to
         # always return None simulates losing the partial-unique-index race on
-        # every attempt; the executor times out shortly after.
+        # every attempt; the executor times out shortly after. The fake clock
+        # advances on the executor's own sleeps, so the timeout arrives after a
+        # fixed number of passes rather than after 0.2s of contended CPU.
+        clock = _FakeMonotonicClock()
         with (
             patch(
                 "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
                 return_value=None,
             ),
-            patch(
-                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.time.sleep"
-            ) as mock_sleep,
+            patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.time", clock),
         ):
             executor = LazyComputationExecutor(wait_timeout_seconds=0.2, poll_interval_seconds=0.05)
             result = executor.execute(
@@ -3328,8 +3382,10 @@ class TestJobLifecycleCounters(BaseTest):
             )
             assert result.ready is False  # Timed out: every create attempt lost the race.
         # Repeated conflicts on a still-missing window must pace instead of
-        # hot-spinning no-op inserts for the whole wait budget.
-        assert mock_sleep.call_count >= 1
+        # hot-spinning no-op inserts, and the pacing must stay inside the wait
+        # budget instead of extending it.
+        assert len(clock.sleeps) >= 1
+        assert sum(clock.sleeps) <= 0.2
 
         assert (
             self._delta(
@@ -3499,11 +3555,23 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
 
     @parameterized.expand(
         [
-            ("default_read_after_write", {}, "auto"),
-            ("background_no_quorum", {"read_after_write": False}, 0),
+            ("default_read_after_write", {}, "auto", {}),
+            ("background_no_quorum", {"read_after_write": False}, 0, {}),
+            # Caller overrides must win over the defaults and over spill_to_disk's threshold.
+            (
+                "caller_settings_override_defaults",
+                {
+                    "spill_to_disk": True,
+                    "insert_settings": {"max_memory_usage": 7, "max_bytes_before_external_group_by": 3},
+                },
+                "auto",
+                {"max_memory_usage": 7, "max_bytes_before_external_group_by": 3},
+            ),
         ]
     )
-    def test_manual_insert_path_passes_insert_settings_to_clickhouse(self, _name, extra_kwargs, expected_quorum):
+    def test_manual_insert_path_passes_insert_settings_to_clickhouse(
+        self, _name, extra_kwargs, expected_quorum, expected_overrides
+    ):
         # The quorum constant is patched to its production value because TEST forces
         # it to 0, which would make both parameter rows assert the same settings.
         with (
@@ -3522,7 +3590,12 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
                 time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
                 **extra_kwargs,
             )
-            expected_settings = _get_insert_settings(self.team.pk, **extra_kwargs)
+            expected_settings = _get_insert_settings(
+                self.team.pk,
+                spill_to_disk=extra_kwargs.get("spill_to_disk", False),
+                read_after_write=extra_kwargs.get("read_after_write", True),
+                overrides=extra_kwargs.get("insert_settings"),
+            )
 
         assert result.ready is True
         # Bind the assertion to the INSERT specifically, so the test doesn't break (or silently
@@ -3531,6 +3604,7 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
         assert len(insert_calls) == 1  # one missing range -> one INSERT
         assert insert_calls[0].kwargs["settings"] == expected_settings
         assert insert_calls[0].kwargs["settings"]["insert_quorum"] == expected_quorum
+        assert insert_calls[0].kwargs["settings"].items() >= expected_overrides.items()
         # The coverage landed in this call, so quorum-skipping callers must not read it yet.
         assert result.freshly_built is True
 
@@ -3660,7 +3734,7 @@ class TestInsertsReportRowsWritten(BaseTest):
         assert abs(expires_in - (60 * 60 if expected == 0 else 7 * 24 * 60 * 60)) < 100
 
 
-class TestMaxWindowDaysCap(BaseTest):
+class TestMaxWindowDaysCap(SimpleTestCase):
     def test_parse_carries_max_window_days(self):
         assert parse_ttl_schedule(3600, max_window_days=2).max_window_days == 2
         assert parse_ttl_schedule({"default": 3600}, "UTC", max_window_days=1).max_window_days == 1

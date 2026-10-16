@@ -1,13 +1,16 @@
 import re
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -15,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     required_parents_from_endpoint_configs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
@@ -28,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.se
     ZENDESK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.zendesk import (
+    ZendeskResumeConfig,
     normalize_subdomain,
     validate_credentials,
     zendesk_source,
@@ -36,7 +41,109 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
+class ZendeskSource(ResumableSource[ZendeskSourceConfig, ZendeskResumeConfig]):
+    codebase_detection = detect(
+        env=("^ZENDESK_",),
+        script_hosts=("static.zdassets.com", "ekr.zdassets.com", "v2.zopim.com", "assets.zendesk.com", "cdn.smooch.io"),
+        npm=(
+            "node-zendesk",
+            "zendesk_app_framework_sdk",
+            "@zendesk/zcli",
+            "react-zendesk",
+            "react-native-zendesk-messaging",
+            "@types/zendesk-web-widget",
+            "smooch",
+            "sunshine-conversations-client",
+            "passport-zendesk",
+            "@zendesk/connector-sdk",
+            "@zendesk/zendesk-app-scripts",
+        ),
+        pypi=("zenpy", "sunshine-conversations-client"),
+        cocoapods=(
+            "ZendeskSupportSDK",
+            "ZendeskSDKMessaging",
+            "ZendeskChatSDK",
+            "ZendeskChatProvidersSDK",
+            "ZendeskAnswerBotSDK",
+            "ZendeskAnswerBotProvidersSDK",
+            "ZendeskSupportProvidersSDK",
+            "ZendeskCoreSDK",
+            "ZendeskCommonUISDK",
+            "ZendeskMessagingSDK",
+            "ZendeskMessagingAPISDK",
+            "ZendeskSDK",
+            "ZendeskSDKConfigurationsSDK",
+            "ZendeskSDKGuideKit",
+            "ZendeskSDKConversationKit",
+            "ZendeskSDKCoreUtilities",
+            "ZendeskSDKUIComponents",
+            "ZendeskTalkSDK",
+            "ZDCChat",
+            "Smooch",
+        ),
+        composer=("zendesk/zendesk_api_client_php", "huddledigital/zendesk-laravel"),
+        go=("github.com/nukosuke/go-zendesk",),
+        maven=(
+            "zendesk.messaging:messaging-android",
+            "zendesk.guidekit:guidekit-android",
+            "zendesk.talk:talk-android",
+            "zendesk.conversationkit:conversationkit-android",
+            "zendesk.ui:ui-android",
+            "com.zendesk:support",
+            "com.zendesk:support-providers",
+            "com.zendesk:chat",
+            "com.zendesk:chat-providers",
+            "com.zendesk:answerbot",
+            "com.zendesk:answerbot-providers",
+            "com.zendesk:messaging",
+            "com.zendesk:messaging-api",
+            "com.zendesk:core",
+            "com.zendesk:common-ui",
+            "com.zendesk:guide",
+            "com.zendesk:guide-providers",
+            "com.zendesk:sdk",
+            "com.zendesk:sdk-providers",
+            "com.zendesk:sdk-configurations",
+            "com.zopim.android:sdk",
+            "io.smooch:core",
+            "io.smooch:ui",
+            "com.zendesk:sunshine-conversations-client",
+            "io.smooch:api",
+            "com.cloudbees.thirdparty:zendesk-java-client",
+        ),
+        pub=("zendesk_messaging",),
+        rubygems=(
+            "zendesk_api",
+            "zendesk_apps_tools",
+            "zendesk_apps_support",
+            "sunshine-conversations-client",
+            "smooch-api",
+        ),
+        swiftpm=(
+            "github.com/zendesk/sdk_messaging_ios",
+            "github.com/zendesk/support_sdk_ios",
+            "github.com/zendesk/support_providers_sdk_ios",
+            "github.com/zendesk/chat_sdk_ios",
+            "github.com/zendesk/chat_providers_sdk_ios",
+            "github.com/zendesk/answer_bot_sdk_ios",
+            "github.com/zendesk/answer_bot_providers_sdk_ios",
+            "github.com/zendesk/core_sdk_ios",
+            "github.com/zendesk/commonui_sdk_ios",
+            "github.com/zendesk/messaging_sdk_ios",
+            "github.com/zendesk/messagingapi_sdk_ios",
+            "github.com/zendesk/sdk_zendesk_ios",
+            "github.com/zendesk/sdkconfigurations_sdk_ios",
+            "github.com/zendesk/talk_sdk_ios",
+            "github.com/zendesk/sdk_guide_kit_ios",
+            "github.com/zendesk/sdk_conversation_kit_ios",
+            "github.com/zendesk/sdk_core_utilities_ios",
+            "github.com/zendesk/sdk_ui_components_ios",
+            "github.com/zendesk/sunshine-conversations-ios",
+        ),
+        alternative_to=(ProductKey.CONVERSATIONS,),
+    )
+    setup_requires_ui = True
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.zendesk.com/api-reference"
@@ -61,6 +168,15 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             "403 Client Error: Forbidden for url": "Zendesk authentication failed. Please check your API token and subdomain.",
             "401 Client Error": "Zendesk authentication failed. Please check your API token and subdomain.",
         }
+
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        endpoint = ZENDESK_ENDPOINTS.get(schema_name or "")
+        return endpoint is None or endpoint.fanout is None
 
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:
         return required_parents_from_endpoint_configs(ZENDESK_ENDPOINTS, schema_name)
@@ -159,7 +275,17 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             ),
         )
 
-    def source_for_pipeline(self, config: ZendeskSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ZendeskResumeConfig]:
+        return ResumableSourceManager[ZendeskResumeConfig](inputs, ZendeskResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: ZendeskSourceConfig,
+        resumable_source_manager: ResumableSourceManager[ZendeskResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        endpoint_config = ZENDESK_ENDPOINTS.get(inputs.schema_name)
+        is_fanout = endpoint_config is not None and endpoint_config.fanout is not None
         resource = zendesk_source(
             subdomain=config.subdomain,
             api_key=config.api_key,
@@ -174,16 +300,19 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             incremental_field_name=inputs.incremental_field,
             source_id=inputs.source_id,
             use_warehouse_parent=inputs.fanout_warehouse_reuse,
+            resumable_source_manager=resumable_source_manager,
         )
         # The original nine endpoints aren't in the declarative catalog; they keep the `id`
         # primary key and ascending sort they have always used.
-        endpoint_config = ZENDESK_ENDPOINTS.get(inputs.schema_name)
         response = SourceResponse(
             name=resource.name,
             items=lambda: resource,
             primary_keys=endpoint_config.primary_key if endpoint_config else ["id"],
             column_hints=resource.column_hints,
             sort_mode=endpoint_config.sort_mode if endpoint_config else "asc",
+            # The fan-out saves no checkpoint (see `zendesk_source`), so a shutdown must not hand it
+            # to another worker expecting one.
+            supports_resume=not is_fanout,
         )
 
         partition_key = PARTITION_FIELDS.get(inputs.schema_name, None)

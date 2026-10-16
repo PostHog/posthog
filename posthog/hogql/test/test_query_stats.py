@@ -1,5 +1,9 @@
 import threading
 
+import pytest
+
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.query_stats import get_active, last_rows_read, query_stats_scope, record, reset_last_rows_read, use
 
 
@@ -61,3 +65,37 @@ def test_a_lookup_counts_in_the_totals_and_is_kept_apart():
 
     assert (stats.rows_read, stats.duration_ms) == (1003, 52.0)
     assert (stats.lookup_rows_read, stats.lookup_duration_ms) == (1000, 50.0)
+
+
+@pytest.mark.parametrize(
+    "workloads,expected",
+    [
+        ([], None),
+        (["ONLINE"], "ONLINE"),
+        (["OFFLINE", "OFFLINE"], "OFFLINE"),
+        (["ONLINE", "OFFLINE"], "mixed"),
+    ],
+)
+def test_the_workload_is_the_one_cluster_the_queries_ran_on_or_mixed(workloads, expected):
+    with query_stats_scope() as stats:
+        for workload in workloads:
+            record(rows_read=1, duration_ms=1.0, workload=workload)
+
+    assert stats.workload() == expected
+
+
+def test_record_execution_keeps_the_ast_only_when_retaining():
+    tree = ast.Constant(value=1)
+
+    with query_stats_scope() as not_retaining:
+        not_retaining.record_execution(tree=tree, context=HogQLContext(), rows_read=7)
+    assert not_retaining.executions == []
+
+    with query_stats_scope(retain_ast=True) as retaining:
+        retaining.record_execution(tree=tree, context=HogQLContext(), rows_read=7)
+    assert len(retaining.executions) == 1
+
+    with query_stats_scope() as outer:
+        with query_stats_scope(retain_ast=True) as nested:
+            nested.record_execution(tree=tree, context=HogQLContext(), rows_read=7)
+    assert len(outer.executions) == 1

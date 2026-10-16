@@ -1,9 +1,6 @@
-import {
-    AWS_ONLY_REGION_OPTIONS,
-    S3FamilyFields,
-    S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS,
-    validateBucketName,
-} from './common'
+import { AWS_ONLY_REGION_OPTIONS } from 'lib/integrations/s3Regions'
+
+import { S3FamilyFields, S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS, validateBucketName } from './common'
 import type { DestinationDefinition } from './types'
 
 // AWS S3 — the first-class destination for buckets hosted on AWS. No endpoint or virtual-style

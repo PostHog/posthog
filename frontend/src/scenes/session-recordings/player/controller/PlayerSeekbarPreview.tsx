@@ -5,6 +5,7 @@ import { useDebouncedCallback } from 'use-debounce'
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { cn } from 'lib/utils/css-classes'
+import { formatLocalizedTime } from 'lib/utils/datetime'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 
 import { PlayerFrame } from '../PlayerFrame'
@@ -94,7 +95,9 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
         timestampFormat === TimestampFormat.Relative
             ? colonDelimitedDuration(minMs / 1000 + progressionSeconds, fixedUnits)
             : absoluteTime
-              ? (timestampFormat === TimestampFormat.UTC ? absoluteTime?.tz('UTC') : absoluteTime)?.format('HH:mm:ss')
+              ? (timestampFormat === TimestampFormat.UTC ? absoluteTime?.tz('UTC') : absoluteTime)?.format(
+                    formatLocalizedTime()
+                )
               : '00:00:00'
 
     const isHovering = useIsHovering(seekBarRef)

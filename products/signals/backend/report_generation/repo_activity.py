@@ -236,15 +236,16 @@ def rebuild_repository_activity(team_id: int, repository: str) -> int:
 
 def _commit_attributions_by_sha(team_id: int, repository: str) -> dict[str, GitHubCommitAttribution]:
     """GitHub's sha→login attribution for the activity window, keyed for the sha join."""
-    github = GitHubIntegration.first_for_team_repository(team_id, repository, source="signals_activity_rebuild")
+    # Sheddable: rebuilds are deferrable background work — the egress limiter drops BATCH
+    # calls first when the installation's shared budget runs hot, and a denied listing
+    # aborts the rebuild rather than writing a half-attributed map.
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, repository, source="signals_activity_rebuild", priority=Priority.BATCH
+    )
     if github is None:
         # Same expected-deferral type the collector raises — the rebuild task logs it
         # instead of capturing an exception.
         raise RepositoryCommitActivityError(f"No GitHub integration for team {team_id} can access {repository}")
-    # Sheddable: rebuilds are deferrable background work — the egress limiter drops BATCH
-    # calls first when the installation's shared budget runs hot, and a denied listing
-    # aborts the rebuild rather than writing a half-attributed map.
-    github.priority = Priority.BATCH
     since = timezone.now() - timedelta(days=ACTIVITY_WINDOW_DAYS)
     return {attribution.sha: attribution for attribution in github.list_commit_attributions(repository, since=since)}
 

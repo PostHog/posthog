@@ -26,7 +26,7 @@ export function AlertSimulationSection({
 }: AlertSimulationSectionProps): JSX.Element {
     return (
         <div className="deprecated-space-y-2">
-            <div className="flex gap-2 items-center">
+            <div className="flex flex-wrap gap-2 items-center">
                 <h4 className="m-0">Simulation</h4>
                 <LemonSelect
                     size="small"
@@ -46,6 +46,11 @@ export function AlertSimulationSection({
                     Simulate
                 </LemonButton>
             </div>
+            {simulationResult?.evaluated_interval_start && simulationResult.evaluated_interval_end ? (
+                <p className="text-sm text-secondary">
+                    {`Latest evaluated interval: ${simulationResult.evaluated_interval_start} to ${simulationResult.evaluated_interval_end} (${simulationResult.evaluated_interval_timezone}; delay: ${simulationResult.evaluation_delay_intervals} intervals).`}
+                </p>
+            ) : null}
             {simulationResult && alertForm.detector_config && (
                 <SimulationSummary result={simulationResult} detectorConfig={alertForm.detector_config} />
             )}

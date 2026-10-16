@@ -5,9 +5,9 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { MessageTemplate } from '../../../messages/MessageTemplate'
+import { getToolOutputRecord } from '../../../utils/getToolOutputRecord'
 import { DataToolRow } from '../DataToolRow'
 import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
-import { getToolOutputRecord } from '../getToolOutputRecord'
 import type { ToolRendererProps } from '../toolRegistry'
 
 /** The notebook fields the widget renders, pulled from the REST payload. */

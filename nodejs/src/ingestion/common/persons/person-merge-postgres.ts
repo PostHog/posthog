@@ -1,9 +1,11 @@
+import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
 import { PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
 import { personMergeFailureCounter } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
+import { MergePersonUpdate, PendingPersonChanges } from '~/common/persons/person-update-batch'
 import { isDistinctIdUnmergeable } from '~/common/persons/person-utils'
 import {
     PersonClaimedByLifecycleOpError,
@@ -20,6 +22,7 @@ import { PersonOutputs } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { buildPersonMergeEventMessage } from './person-merge-event'
 import {
+    MergeOutcomeOversizedError,
     PersonMergeLimitExceededError,
     PersonMergeRaceConditionError,
     PersonMergeResult,
@@ -79,6 +82,11 @@ export const personMergeEventProducedCounter = new Counter({
     help: 'Number of person_merge_events messages acked by the broker (gate-on merges only).',
 })
 
+export const mergeIdentifiedSourceNewTargetCounter = new Counter({
+    name: 'person_merge_identified_source_new_target_total',
+    help: 'Identifies refused because the source is identified while the target had no person, so the merge created one for the target.',
+})
+
 export const mergeNoopMappingEmissionCounter = new Counter({
     name: 'person_merge_noop_mapping_emission_total',
     help: 'Distinct ids considered for mapping re-emission on already-satisfied merges.',
@@ -126,14 +134,40 @@ export interface MergeEventsConfig {
 export interface PostgresMergePolicy {
     /** When true, all property changes trigger person updates; mirrors the store option of the same name. */
     updateAllProperties: boolean
-    /** Teams on the new-world merge behavior: lifecycle-mark claims plus tombstone deletes. */
-    isTombstoneTeam: ValueMatcher<number>
+    /** Teams whose merge locks the person rows and writes the survivor in its transaction; others queue it for the flush. */
+    isLockedOutcomeTeam: ValueMatcher<number>
     mergeEvents: MergeEventsConfig
     /**
      * When set, already-satisfied merges re-emit the committed mappings (debounced),
      * healing ClickHouse rows lost between a prior merge's commit and its produce.
      */
     noopMappingDebounce?: MergeMappingDebounce
+}
+
+/** A committed attach: the survivor, the flag write when there was one, and the messages to produce. */
+type AttachOutcome = readonly [InternalPerson, MergePersonUpdate | null, PersonMessage[]]
+
+/**
+ * The keys a merge changes. The event's $set keys and keys this pod's pending unset hides go as sets, because the view
+ * can show a set-once that has not landed and the row can still hold a hidden key. Every other key only fills a gap.
+ */
+function propertyChanges(
+    before: Properties,
+    after: Properties,
+    eventSets: Properties,
+    hidden: Set<string>
+): { toSet: Properties; toSetOnce: Properties; toUnset: string[] } {
+    const toSet: Properties = {}
+    const toSetOnce: Properties = {}
+    for (const [key, value] of Object.entries(after)) {
+        // Deep equality: the outcome is a copy, so object values never match by reference.
+        if (Object.hasOwn(eventSets, key) || !isEqual(before[key], value)) {
+            const fillsGap = !Object.hasOwn(eventSets, key) && !hidden.has(key)
+            ;(fillsGap ? toSetOnce : toSet)[key] = value
+        }
+    }
+    const toUnset = Object.keys(before).filter((key) => !Object.hasOwn(after, key))
+    return { toSet, toSetOnce, toUnset }
 }
 
 /**
@@ -154,6 +188,10 @@ export class PostgresPersonMerge {
      * unwinds past that scope while the commit it produced for stands.
      */
     private bootstrapAck?: Promise<void>
+    /** The distinct ids the store re-pointed at the target during the attempt, purged when it throws. */
+    private movedDistinctIds: string[] = []
+    /** Set when an attempt's outcome was oversized; the rerun commits the merge without it. */
+    private dropOversizedOutcome = false
 
     constructor(
         private store: BatchWritingPersonsStore,
@@ -183,8 +221,8 @@ export class PostgresPersonMerge {
         return DateTime.fromMillis(this.request.createdAtMs, { zone: 'utc' })
     }
 
-    private tombstoneEnabled(): boolean {
-        return this.policy.isTombstoneTeam(this.teamId)
+    private lockedOutcomeEnabled(): boolean {
+        return this.policy.isLockedOutcomeTeam(this.teamId)
     }
 
     async execute(): Promise<MergePersonsResult> {
@@ -215,18 +253,176 @@ export class PostgresPersonMerge {
     }
 
     /**
-     * Runs a single-source merge, purging both ids from the batch caches
-     * on any throw: merge verbs update the caches optimistically inside a
-     * transaction that has now rolled back, and a retry must re-read
-     * committed state rather than a mapping that was never committed.
+     * Runs a single-source merge, purging both request ids and every id it
+     * moved from the batch caches on any throw: merge verbs update the
+     * caches optimistically inside a transaction that has now rolled back,
+     * and a retry must re-read committed state rather than a mapping that
+     * was never committed.
      */
     private async mergeSingleWithCachePurge(source: MergePersonsSource): Promise<MergePersonsResult> {
+        this.movedDistinctIds = []
         try {
             return await this.mergeSingle(source)
         } catch (error) {
             this.store.removeDistinctIdFromCache(this.teamId, this.targetDistinctId)
             this.store.removeDistinctIdFromCache(this.teamId, source.distinctId)
+            this.purgeMovedDistinctIds()
             throw error
+        }
+    }
+
+    private purgeMovedDistinctIds(): void {
+        for (const distinctId of this.movedDistinctIds) {
+            this.store.removeDistinctIdFromCache(this.teamId, distinctId)
+        }
+        this.movedDistinctIds = []
+    }
+
+    /**
+     * Locks the target and sources, in ascending id order, and returns their rows; a row that is gone throws the
+     * caller's error for its role.
+     */
+    private async lockMergeRows(
+        tx: PersonsStoreTransactionForBatch,
+        target: InternalPerson,
+        sources: InternalPerson[],
+        missing: (role: 'target' | 'source') => Error
+    ): Promise<Map<string, InternalPerson>> {
+        const rows = await tx.readMergeRows(
+            target.team_id,
+            target.id,
+            sources.map((source) => source.id),
+            this.targetDistinctId
+        )
+        const byId = new Map(rows.map((row) => [row.id, row]))
+        if (!byId.has(target.id)) {
+            throw missing('target')
+        }
+        if (sources.some((source) => !byId.has(source.id))) {
+            throw missing('source')
+        }
+        return byId
+    }
+
+    /**
+     * Adds the distinct id to the person. With `writeFlag`, the committed row decides whether the identified flag
+     * is written with the mapping: the batch's view of the person can show the flag pending while Postgres still
+     * holds false, and a merge on another pod that reads the row before this batch flushes would attach a second
+     * user to it.
+     */
+    private async attachDistinctId(
+        existingPerson: InternalPerson,
+        distinctIdToAdd: string,
+        distinctIdsToPurge: [string, string],
+        writeFlag: boolean
+    ): Promise<AttachOutcome> {
+        const teamId = this.teamId
+        const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.eventUuid)
+        const deleted = (): Error =>
+            new TargetPersonNotFoundError('Person was deleted before the merge could add a distinct id')
+        this.discardOverrideCounts()
+        return await this.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
+            // The person's lifecycle mark keeps a concurrent tombstone from landing
+            // between this check and the distinct id insert (an orphaned mapping).
+            await tx.claimLifecycleMarks(
+                lifecycleOpId,
+                existingPerson.team_id,
+                [{ personId: existingPerson.id, personUuid: existingPerson.uuid, role: 'target' }],
+                this.targetDistinctId
+            )
+            if (!(await tx.isPersonLive(existingPerson, this.targetDistinctId))) {
+                // Purge the stale cache entries so the caller's retry attempt
+                // re-fetches from Postgres instead of replaying the cached,
+                // now-tombstoned person into the same failure.
+                for (const distinctId of distinctIdsToPurge) {
+                    this.store.removeDistinctIdFromCache(teamId, distinctId)
+                }
+                throw deleted()
+            }
+            // See the note on `distinctIdVersion` in mergeSingle.
+            const distinctIdVersion = 1
+            this.recordOverrideCount('oneExists')
+
+            // The row first, before the mapping insert takes a key-share lock on it, as the merge paths order theirs.
+            const row = writeFlag
+                ? (await this.lockMergeRows(tx, existingPerson, [], deleted)).get(existingPerson.id)
+                : undefined
+            const messages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
+            let survivor = existingPerson
+            let outcome: MergePersonUpdate | null = null
+            let survivorMessages: PersonMessage[] = []
+            if (row !== undefined && !row.is_identified) {
+                const identified: MergePersonUpdate = { is_identified: true }
+                let written: boolean
+                ;[survivor, survivorMessages, written] = await tx.updatePersonForMerge(
+                    row,
+                    identified,
+                    this.targetDistinctId
+                )
+                outcome = written ? identified : null
+            }
+            await tx.releaseLifecycleMarks(lifecycleOpId, teamId, this.targetDistinctId)
+            return [survivor, outcome, [...messages, ...survivorMessages]] as const
+        })
+    }
+
+    /**
+     * Target wins over sources, earlier sources over later; the event's ops apply on top. Returns the pending
+     * changes each row's view took, so the entries can be settled against them after the commit.
+     */
+    private mergeOutcome(
+        byId: Map<string, InternalPerson>,
+        target: InternalPerson,
+        sources: InternalPerson[]
+    ): {
+        changes: { toSet: Properties; toSetOnce: Properties; toUnset: string[] }
+        createdAt: DateTime
+        pending: Map<string, PendingPersonChanges | null>
+    } {
+        const pendingById = new Map<string, PendingPersonChanges | null>()
+        const withPending = (row: InternalPerson): InternalPerson => {
+            const pending = this.store.pendingChanges(row.team_id, row.id)
+            pendingById.set(row.id, pending)
+            if (!pending) {
+                return row
+            }
+            const properties = { ...pending.toSetOnce, ...row.properties, ...pending.toSet }
+            for (const key of pending.toUnset) {
+                delete properties[key]
+            }
+            return { ...row, properties, created_at: DateTime.min(row.created_at, pending.createdAt) }
+        }
+        const targetView = withPending(byId.get(target.id)!)
+        const sourceViews = sources.map((source) => withPending(byId.get(source.id)!))
+        const after = this.applyMergePrecedence(targetView, sourceViews)
+        return {
+            changes: propertyChanges(
+                targetView.properties,
+                after.properties,
+                this.request.eventOps.set,
+                new Set(this.store.pendingChanges(target.team_id, target.id)?.toUnset)
+            ),
+            createdAt: DateTime.min(targetView.created_at, ...sourceViews.map((source) => source.created_at)),
+            pending: pendingById,
+        }
+    }
+
+    private applyMergePrecedence(target: InternalPerson, sources: InternalPerson[]): InternalPerson {
+        const merged: Properties = {}
+        for (let i = sources.length - 1; i >= 0; i--) {
+            Object.assign(merged, sources[i].properties)
+        }
+        Object.assign(merged, target.properties)
+        const refined = refineEventOps(this.request.eventOps, merged, this.policy.updateAllProperties)
+        const [after] = applyEventPropertyUpdates(refined, { ...target, properties: merged })
+        return after
+    }
+
+    private deferredOutcome(target: InternalPerson, sources: InternalPerson[]): MergePersonUpdate {
+        return {
+            created_at: DateTime.min(target.created_at, ...sources.map((source) => source.created_at)),
+            properties: this.applyMergePrecedence(target, sources).properties,
+            is_identified: true,
         }
     }
 
@@ -333,7 +529,11 @@ export class PostgresPersonMerge {
         // id whose uuid a newly created person is born on — its events already point at the right
         // person, so it keeps version 0 and stays out of the overrides join.
 
-        if ((otherPerson && !mergeIntoPerson) || (!otherPerson && mergeIntoPerson)) {
+        if (otherPerson && !mergeIntoPerson && otherPerson.is_identified && !this.request.allowIdentifiedSources) {
+            // Attaching the new target to an identified source would identify one person as two
+            // users, so the source keeps its person and the target gets its own, as when both exist.
+            return await this.createTargetBesideIdentifiedSource(otherPerson, otherPersonDistinctId)
+        } else if ((otherPerson && !mergeIntoPerson) || (!otherPerson && mergeIntoPerson)) {
             // Only one of the two Distinct IDs points at an existing Person
 
             const [existingPerson, distinctIdToAdd] = (() => {
@@ -344,46 +544,39 @@ export class PostgresPersonMerge {
                 }
             })()
 
-            this.discardOverrideCounts()
-            const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.eventUuid)
-            const [result, kafkaMessages] = await this.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
-                // New-world merges claim the person's lifecycle mark, which keeps a concurrent
-                // tombstone from landing between this check and the distinct id insert (an
-                // orphaned mapping); old-world merges rely on the delete's FK violation instead.
-                if (this.tombstoneEnabled()) {
-                    await tx.claimLifecycleMarks(
-                        lifecycleOpId,
-                        existingPerson.team_id,
-                        [{ personId: existingPerson.id, personUuid: existingPerson.uuid, role: 'target' }],
-                        this.targetDistinctId
-                    )
-                    if (!(await tx.isPersonLive(existingPerson, this.targetDistinctId))) {
-                        // Purge the stale cache entries so the caller's retry attempt
-                        // re-fetches from Postgres instead of replaying the cached,
-                        // now-tombstoned person into the same failure.
-                        this.store.removeDistinctIdFromCache(teamId, otherPersonDistinctId)
-                        this.store.removeDistinctIdFromCache(teamId, mergeIntoDistinctId)
-                        throw new TargetPersonNotFoundError(
-                            'Person was deleted before the merge could add a distinct id'
-                        )
-                    }
+            let committed: AttachOutcome
+            try {
+                committed = await this.attachDistinctId(
+                    existingPerson,
+                    distinctIdToAdd,
+                    [otherPersonDistinctId, mergeIntoDistinctId],
+                    this.lockedOutcomeEnabled()
+                )
+            } catch (error) {
+                // A row already over the properties size limit rejects the flag write. The mapping still commits
+                // and the flag rides the flush, as the merge path drops its oversized outcome.
+                if (!(error instanceof MergeOutcomeOversizedError)) {
+                    throw error
                 }
-                // See comment above about `distinctIdVersion`
-                const distinctIdVersion = 1
-                this.recordOverrideCount('oneExists')
-
-                const messages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
-                if (this.tombstoneEnabled()) {
-                    await tx.releaseLifecycleMarks(lifecycleOpId, teamId, this.targetDistinctId)
-                }
-                return [existingPerson, messages] as const
-            })
+                committed = await this.attachDistinctId(
+                    existingPerson,
+                    distinctIdToAdd,
+                    [otherPersonDistinctId, mergeIntoDistinctId],
+                    false
+                )
+            }
+            const [survivorRow, survivorUpdate, kafkaMessages] = committed
+            // After the commit, so a rollback leaves nothing of the attach in the cache: the person's entry takes
+            // the row, and its pending property changes stay pending since the write carried none.
+            const survivor = survivorUpdate
+                ? this.store.takeMergedRow(survivorRow, this.targetDistinctId, survivorUpdate, null, this.batchId)
+                : survivorRow
             this.flushOverrideCounts()
             // Produce only after the transaction commits: a produce awaited inside the
             // transaction holds row locks and lifecycle marks across the Kafka roundtrip.
             const kafkaAck = this.produceMessages(kafkaMessages)
             return {
-                survivor: result,
+                survivor,
                 results: [{ sourceDistinctId: otherPersonDistinctId, outcome: 'attached' }],
                 kafkaAck,
             }
@@ -429,7 +622,7 @@ export class PostgresPersonMerge {
                     const distinctId2Version = 1
                     this.recordOverrideCount('neitherExist')
 
-                    const [created, wasCreated, messages] = await this.createService.createPerson(
+                    const [created, wasCreated, messages, idOwned] = await this.createService.createPerson(
                         this.timestamp,
                         this.request.eventOps.set,
                         this.request.eventOps.setOnce,
@@ -441,8 +634,12 @@ export class PostgresPersonMerge {
                         [{ distinctId: distinctId2, version: distinctId2Version }],
                         tx
                     )
-                    // If person was not created (creation conflict) and is not identified,
-                    // we need to update it later
+                    // A retry can attach only when no other writer owns one of the ids by now.
+                    if (idOwned) {
+                        throw new PersonMergeRaceConditionError(
+                            `person for ${distinctId1} or ${distinctId2} was created concurrently during a merge`
+                        )
+                    }
                     return [created, !wasCreated && !created.is_identified, messages] as const
                 }
             )
@@ -457,6 +654,44 @@ export class PostgresPersonMerge {
         }
     }
 
+    private async createTargetBesideIdentifiedSource(
+        source: InternalPerson,
+        sourceDistinctId: string
+    ): Promise<MergePersonsResult> {
+        const teamId = this.teamId
+        const [person, kafkaMessages] = await this.inTransaction('mergeDistinctIds-IdentifiedSource', async (tx) => {
+            // The target derives the new person's uuid, so its mapping keeps version 0.
+            const [created, , messages, idOwned] = await this.createService.createPerson(
+                this.timestamp,
+                this.request.eventOps.set,
+                this.request.eventOps.setOnce,
+                teamId,
+                null,
+                true,
+                this.request.eventUuid,
+                { distinctId: this.targetDistinctId, version: 0 },
+                [],
+                tx
+            )
+            // Another writer now owns the target; the retry re-reads both ids and classifies against it.
+            // A uuid held by a person that owns neither id resolves to that holder without mapping the
+            // target, as in the neither-exists branch.
+            if (idOwned) {
+                throw new PersonMergeRaceConditionError(
+                    `person for ${this.targetDistinctId} was created concurrently during a merge`
+                )
+            }
+            return [created, messages] as const
+        })
+        mergeIdentifiedSourceNewTargetCounter.inc()
+        const kafkaAck = this.produceMessages(kafkaMessages)
+        return {
+            survivor: person,
+            results: [{ sourceDistinctId, outcome: 'skipped_already_identified', sourcePersonUuid: source.uuid }],
+            kafkaAck,
+        }
+    }
+
     /**
      * Folded-merge execution for a multi-source request: every source
      * merges into the target inside one transaction. Any failure rolls
@@ -464,6 +699,7 @@ export class PostgresPersonMerge {
      * fall back to per-event sequential merges.
      */
     private async executeFold(): Promise<MergePersonsResult> {
+        this.movedDistinctIds = []
         try {
             return await this.executeFoldInner()
         } catch (error) {
@@ -475,6 +711,7 @@ export class PostgresPersonMerge {
             for (const source of this.request.sources) {
                 this.store.removeDistinctIdFromCache(this.teamId, source.distinctId)
             }
+            this.purgeMovedDistinctIds()
             logger.warn('🤔', 'folded merge failed, falling back to sequential merges', {
                 team_id: this.teamId,
                 distinct_id: this.targetDistinctId,
@@ -493,7 +730,7 @@ export class PostgresPersonMerge {
      * aborts the fold (rolling it back) when:
      * - a source is missing entirely — it was merged away between the locked
      *   fetch (whose locks were released at statement end) and the transaction,
-     *   so its already-computed property contribution would be stale;
+     *   so there is nothing left of it to fold;
      * - a source's count exceeds the LIMIT/ASYNC move limit — those events
      *   need their own per-event DLQ/redirect decision;
      * - the total exceeds batched SYNC's per-statement batch size.
@@ -616,30 +853,15 @@ export class PostgresPersonMerge {
             return { survivor: target, results: outcomes, kafkaAck }
         }
 
-        // Sequential property precedence: each source merges its properties
-        // under the accumulated target's (target wins, earlier sources win
-        // over later ones). Event $set/$set_once apply on top, as in mergePeople.
-        const mergedProperties: Properties = {}
-        for (let i = mergeSources.length - 1; i >= 0; i--) {
-            Object.assign(mergedProperties, mergeSources[i].properties)
-        }
-        Object.assign(mergedProperties, target.properties)
-        const propertyUpdates = refineEventOps(this.request.eventOps, mergedProperties, this.policy.updateAllProperties)
-        const [updatedTempPerson] = applyEventPropertyUpdates(propertyUpdates, {
-            ...target,
-            properties: mergedProperties,
-        })
-
-        const createdAt = DateTime.min(target.created_at, ...mergeSources.map((source) => source.created_at))
-        const version = Math.max(target.version, ...mergeSources.map((source) => source.version)) + 1
-
         const currentTarget = target
         this.discardOverrideCounts()
         const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.eventUuid)
-        const [mergedPerson, kafkaMessages] = await this.inTransaction('mergePeopleFold', async (tx) => {
-            // New-world folds claim every person, keeping concurrent lifecycle operations
-            // (other merges, the delete saga) off the targets and sources until commit.
-            if (this.tombstoneEnabled()) {
+        let pendingAtRead = new Map<string, PendingPersonChanges | null>()
+        const [survivorRow, survivorUpdate, kafkaMessages] = await this.inTransaction(
+            'mergePeopleFold',
+            async (tx): Promise<[InternalPerson, MergePersonUpdate | null, PersonMessage[]]> => {
+                // Folds claim every person, keeping concurrent lifecycle operations
+                // (other merges, the delete saga) off the targets and sources until commit.
                 await tx.claimLifecycleMarks(
                     lifecycleOpId,
                     currentTarget.team_id,
@@ -657,61 +879,81 @@ export class PostgresPersonMerge {
                 if (!(await tx.isPersonLive(currentTarget, this.targetDistinctId))) {
                     throw new MergeFoldConflictError('Fold target was deleted concurrently')
                 }
-            }
-            const expectedMoveCount = await this.assertFoldSourcesWithinMoveBounds(tx, mergeSources)
+                if (!this.lockedOutcomeEnabled()) {
+                    return await this.deferredOutcomeFold(
+                        tx,
+                        currentTarget,
+                        mergeSources,
+                        missingSources,
+                        lifecycleOpId
+                    )
+                }
+                // Before the person rows lock, as in mergePeople.
+                if (mergeSources.length > 0) {
+                    await tx.updateCohortsAndFeatureFlagsForMergeBatch(
+                        teamId,
+                        mergeSources.map((source) => source.id),
+                        currentTarget.id,
+                        this.targetDistinctId
+                    )
+                }
+                // The person rows first, before the moves take key-share locks on them, so two merges that share a
+                // person cannot deadlock; the locks then span the merge.
+                const rows =
+                    mergeSources.length > 0
+                        ? await this.lockMergeRows(
+                              tx,
+                              currentTarget,
+                              mergeSources,
+                              (role) => new MergeFoldConflictError(`Fold ${role} was deleted concurrently`)
+                          )
+                        : undefined
+                const moveMessages = await this.moveFoldDistinctIds(tx, currentTarget, mergeSources, missingSources)
 
-            let person = currentTarget
-            let updateMessages: PersonMessage[] = []
-            if (mergeSources.length > 0) {
-                ;[person, updateMessages] = await tx.updatePersonForMerge(
-                    currentTarget,
-                    {
+                let survivor = currentTarget
+                let outcome: MergePersonUpdate | null = null
+                let survivorMessages: PersonMessage[] = []
+                let deleteMessages: PersonMessage[] = []
+                if (rows) {
+                    // Right before the write, so a change this pod made during the moves counts as pending.
+                    const { changes, createdAt, pending } = this.mergeOutcome(rows, currentTarget, mergeSources)
+                    pendingAtRead = pending
+                    const changesWritten: MergePersonUpdate = {
                         created_at: createdAt,
-                        properties: updatedTempPerson.properties,
+                        properties: changes.toSet,
+                        properties_to_set_once: changes.toSetOnce,
+                        properties_to_unset: changes.toUnset,
                         is_identified: true,
-                        version,
-                    },
-                    this.targetDistinctId
-                )
-            }
+                    }
+                    // The survivor's write and the sources' delete commit together, every row locked since the read.
+                    let written: boolean
+                    ;[survivor, survivorMessages, written] = await tx.updatePersonForMerge(
+                        currentTarget,
+                        changesWritten,
+                        this.targetDistinctId
+                    )
+                    outcome = written ? changesWritten : null
+                    deleteMessages = await tx.deletePersons(mergeSources, this.targetDistinctId)
+                }
 
-            const moveResult = await tx.moveDistinctIdsFromPersons(mergeSources, currentTarget, this.targetDistinctId)
-            if (!moveResult.success) {
-                throw new TargetPersonNotFoundError('Target person no longer exists')
-            }
-            // A mismatch means a concurrent merge touched the sources
-            // between the count and the move; abort so the sequential path
-            // (whose zero-moved handling retries with fresh persons) takes
-            // over rather than merging stale source properties.
-            if (moveResult.distinctIdsMoved.length !== expectedMoveCount) {
-                throw new MergeFoldConflictError('folded merge moved an unexpected number of distinct ids')
-            }
-            this.recordOverrideCount('bothExistMove', moveResult.distinctIdsMoved.length)
-
-            const addMessages: PersonMessage[] = []
-            for (const pair of missingSources) {
-                // See mergeSingle for the distinctIdVersion logic.
-                const distinctIdVersion = 1
-                this.recordOverrideCount('fold')
-                addMessages.push(...(await tx.addDistinctId(person, pair.distinctId, distinctIdVersion)))
-            }
-
-            let deleteMessages: PersonMessage[] = []
-            if (mergeSources.length > 0) {
-                await tx.updateCohortsAndFeatureFlagsForMergeBatch(
-                    teamId,
-                    mergeSources.map((source) => source.id),
-                    currentTarget.id,
-                    this.targetDistinctId
-                )
-                deleteMessages = await tx.deletePersons(mergeSources, this.targetDistinctId)
-            }
-
-            if (this.tombstoneEnabled()) {
                 await tx.releaseLifecycleMarks(lifecycleOpId, teamId, this.targetDistinctId)
+                return [survivor, outcome, [...moveMessages, ...survivorMessages, ...deleteMessages]]
             }
-            return [person, [...updateMessages, ...moveResult.messages, ...addMessages, ...deleteMessages]]
-        })
+        )
+        // After the commit, so a rollback leaves nothing of the merge in the cache: the survivor's entry takes the
+        // row, and the sources' entries are released.
+        const mergedPerson = survivorUpdate
+            ? this.store.takeMergedRow(
+                  survivorRow,
+                  this.targetDistinctId,
+                  survivorUpdate,
+                  pendingAtRead.get(currentTarget.id) ?? null,
+                  this.batchId
+              )
+            : survivorRow
+        for (const source of mergeSources) {
+            this.store.releaseMergedSource(source.team_id, source.id, pendingAtRead.get(source.id) ?? null)
+        }
 
         this.flushOverrideCounts()
         mergeFoldExecutedCounter.inc()
@@ -751,12 +993,13 @@ export class PostgresPersonMerge {
         otherPerson: InternalPerson
         otherPersonDistinctId: string
     }): Promise<MergePersonsResult> {
-        const olderCreatedAt = DateTime.min(mergeInto.created_at, otherPerson.created_at)
-
         // $merge_dangerously has no restrictions; $create_alias and $identify
         // will not merge a user who's already identified into anyone else.
         const mergeAllowed = this.request.allowIdentifiedSources || !otherPerson.is_identified
         if (!mergeAllowed) {
+            // A replay of a committed createTargetBesideIdentifiedSource lands here, so re-emit
+            // the target's mapping in case the crash came before its produce.
+            const { kafkaAck } = await this.reemitSatisfiedMappings([mergeIntoDistinctId])
             return {
                 survivor: mergeInto,
                 results: [
@@ -766,6 +1009,7 @@ export class PostgresPersonMerge {
                         sourcePersonUuid: otherPerson.uuid,
                     },
                 ],
+                kafkaAck,
             }
         }
 
@@ -783,21 +1027,11 @@ export class PostgresPersonMerge {
         //   that guarantees consistency of how properties are processed regardless of persons created_at timestamps and rollout state
         //   we're calling aliasDeprecated as we need to refresh the persons info completely first
 
-        const mergedProperties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
-        const propertyUpdates = refineEventOps(this.request.eventOps, mergedProperties, this.policy.updateAllProperties)
-
-        // Create a temporary person object to apply property updates to
-        const tempPerson: InternalPerson = { ...mergeInto, properties: mergedProperties }
-        const [updatedTempPerson, _] = applyEventPropertyUpdates(propertyUpdates, tempPerson)
-        const properties = updatedTempPerson.properties
-
         const result = await this.handleMergeTransaction(
             mergeInto,
             mergeIntoDistinctId,
             otherPerson,
-            otherPersonDistinctId,
-            olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
-            properties
+            otherPersonDistinctId
         )
 
         if (result.success) {
@@ -856,9 +1090,7 @@ export class PostgresPersonMerge {
 
     private async executeTransaction(
         currentTargetPerson: InternalPerson,
-        currentSourcePerson: InternalPerson,
-        createdAt: DateTime,
-        properties: Properties
+        currentSourcePerson: InternalPerson
     ): Promise<PersonMergeResult> {
         try {
             mergeTxnAttemptCounter
@@ -871,15 +1103,18 @@ export class PostgresPersonMerge {
 
             this.discardOverrideCounts()
             const lifecycleOpId = lifecycleOpIdFromEvent(this.teamId, this.request.eventUuid)
-            const [mergedPerson, kafkaMessages] = await this.inTransaction('mergePeople', async (tx) => {
-                // New-world merges claim both persons in the lifecycle mark table: at
-                // most one live operation (merge or delete saga) may hold a person, so
-                // neither can be tombstoned under this transaction. The marks say
-                // nothing about tombstones committed before the claim, so assert both
-                // persons are still live while holding them. Liveness checks are
-                // separate statements because a claim that waited on the mark index
-                // resumes with a stale snapshot.
-                if (this.tombstoneEnabled()) {
+            let sourcePending: PendingPersonChanges | null = null
+            let targetPending: PendingPersonChanges | null = null
+            const [survivorRow, survivorUpdate, kafkaMessages] = await this.inTransaction(
+                'mergePeople',
+                async (tx): Promise<[InternalPerson, MergePersonUpdate | null, PersonMessage[]]> => {
+                    // Merges claim both persons in the lifecycle mark table: at
+                    // most one live operation (merge or delete saga) may hold a person, so
+                    // neither can be tombstoned under this transaction. The marks say
+                    // nothing about tombstones committed before the claim, so assert both
+                    // persons are still live while holding them. Liveness checks are
+                    // separate statements because a claim that waited on the mark index
+                    // resumes with a stale snapshot.
                     await tx.claimLifecycleMarks(
                         lifecycleOpId,
                         currentTargetPerson.team_id,
@@ -904,59 +1139,78 @@ export class PostgresPersonMerge {
                     if (!(await tx.isPersonLive(currentSourcePerson, this.targetDistinctId))) {
                         throw new SourcePersonNotFoundError('Source person was deleted concurrently')
                     }
-                }
-                const [person, updatePersonMessages] = await tx.updatePersonForMerge(
-                    currentTargetPerson,
-                    {
+                    if (!this.lockedOutcomeEnabled()) {
+                        return await this.deferredOutcomeTransaction(
+                            tx,
+                            currentTargetPerson,
+                            currentSourcePerson,
+                            lifecycleOpId
+                        )
+                    }
+                    // Before the person rows lock, so the locks do not span this step. It locks no person row: the
+                    // override foreign key is checked at commit, and cohort rows have none.
+                    // TODO: Doesn't this table need to add updates to CH too?
+                    await tx.updateCohortsAndFeatureFlagsForMerge(
+                        currentSourcePerson.team_id,
+                        currentSourcePerson.id,
+                        currentTargetPerson.id,
+                        this.targetDistinctId
+                    )
+                    // The person rows first, before the moves take key-share locks on them, so two merges that
+                    // share a person cannot deadlock; the locks then span the merge.
+                    const rows = await this.lockMergeRows(tx, currentTargetPerson, [currentSourcePerson], (role) =>
+                        role === 'target'
+                            ? new TargetPersonNotFoundError('Target person was deleted concurrently')
+                            : new SourcePersonNotFoundError('Source person was deleted concurrently')
+                    )
+                    // Move distinct IDs early to establish ownership of the source person quickly.
+                    // This reduces contention when multiple concurrent merges target the same source,
+                    // as subsequent lookups via distinct ID will fail faster.
+                    const allDistinctIdMessages = await this.moveDistinctIdsBasedOnMode(
+                        tx,
+                        currentSourcePerson,
+                        currentTargetPerson
+                    )
+
+                    // Right before the write, so a change this pod made during the moves counts as pending.
+                    const { changes, createdAt, pending } = this.mergeOutcome(rows, currentTargetPerson, [
+                        currentSourcePerson,
+                    ])
+                    sourcePending = pending.get(currentSourcePerson.id) ?? null
+                    targetPending = pending.get(currentTargetPerson.id) ?? null
+                    const outcome: MergePersonUpdate = {
                         created_at: createdAt,
-                        properties: properties,
+                        properties: changes.toSet,
+                        properties_to_set_once: changes.toSetOnce,
+                        properties_to_unset: changes.toUnset,
                         is_identified: true,
+                    }
 
-                        // By using the max version between the two Persons, we ensure that if
-                        // this Person is later split, we can use `this_person.version + 1` for
-                        // any split-off Persons and know that *that* version will be higher than
-                        // any previously deleted Person, and so the new Person row will "win" and
-                        // "undelete" the Person.
-                        //
-                        // For example:
-                        //  - Merge Person_1(version:7) into Person_2(version:2)
-                        //      - Person_1 is deleted
-                        //      - Person_2 attains version 8 via this code below
-                        //  - Person_2 is later split, which attempts to re-create Person_1 by using
-                        //    its `distinct_id` to generate the deterministic Person UUID.
-                        //    That new Person_1 will have a version _at least_ as high as 8, and
-                        //    so any previously existing rows in CH or otherwise from
-                        //    Person_1(version:7) will "lose" to this new Person_1.
-                        version: Math.max(currentTargetPerson.version, currentSourcePerson.version) + 1,
-                    },
-                    this.targetDistinctId
-                )
-
-                // Move distinct IDs first to establish ownership of the source person quickly.
-                // This reduces contention when multiple concurrent merges target the same source,
-                // as subsequent lookups via distinct ID will fail faster.
-                const allDistinctIdMessages = await this.moveDistinctIdsBasedOnMode(
-                    tx,
-                    currentSourcePerson,
-                    currentTargetPerson
-                )
-
-                // Update cohorts and feature flags after distinct IDs are moved.
-                // The source person row still exists (deleted below), so FK constraints are satisfied.
-                // TODO: Doesn't this table need to add updates to CH too?
-                await tx.updateCohortsAndFeatureFlagsForMerge(
-                    currentSourcePerson.team_id,
-                    currentSourcePerson.id,
-                    currentTargetPerson.id,
-                    this.targetDistinctId
-                )
-
-                const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.targetDistinctId)
-                if (this.tombstoneEnabled()) {
+                    // The survivor's write and the source's delete commit together, both rows locked since the read.
+                    const [survivor, survivorMessages, written] = this.dropOversizedOutcome
+                        ? this.store.rejectMergeOutcome(currentTargetPerson, outcome, this.targetDistinctId)
+                        : await tx.updatePersonForMerge(currentTargetPerson, outcome, this.targetDistinctId)
+                    const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.targetDistinctId)
                     await tx.releaseLifecycleMarks(lifecycleOpId, this.teamId, this.targetDistinctId)
+                    return [
+                        survivor,
+                        written ? outcome : null,
+                        [...allDistinctIdMessages, ...survivorMessages, ...deletePersonMessages],
+                    ]
                 }
-                return [person, [...updatePersonMessages, ...allDistinctIdMessages, ...deletePersonMessages]]
-            })
+            )
+            // After the commit, so a rollback leaves nothing of the merge in the cache: the survivor's entry takes
+            // the row, and the source's entry is released.
+            const mergedPerson = survivorUpdate
+                ? this.store.takeMergedRow(
+                      survivorRow,
+                      this.targetDistinctId,
+                      survivorUpdate,
+                      targetPending,
+                      this.batchId
+                  )
+                : survivorRow
+            this.store.releaseMergedSource(currentSourcePerson.team_id, currentSourcePerson.id, sourcePending)
 
             this.flushOverrideCounts()
             mergeTxnSuccessCounter
@@ -976,6 +1230,8 @@ export class PostgresPersonMerge {
             void this.producePersonMergeEvent(currentSourcePerson, mergedPerson).catch(() => {})
             return mergeSuccess(mergedPerson, kafkaAck, true)
         } catch (error) {
+            // The transaction rolled back, so the ids its move re-pointed at the target are the source's again.
+            this.purgeMovedDistinctIds()
             // Map exceptions to result types - these will cause transaction rollback
             if (error instanceof SourcePersonNotFoundError) {
                 return mergeError(error)
@@ -986,8 +1242,8 @@ export class PostgresPersonMerge {
             } else if (error.code === '23503' || error instanceof PersonTombstoneBlockedError) {
                 // A concurrent merge added a distinct ID to the source person after we've already
                 // moved the distinct IDs we knew about, but before the delete executed — surfaced
-                // as a foreign key violation by the hard delete, or as PersonTombstoneBlockedError
-                // by the tombstone's live-mapping guard. The retry mechanism will:
+                // as PersonTombstoneBlockedError by the tombstone's live-mapping guard, or as a
+                // foreign key violation. The retry mechanism will:
                 // 1. Refresh the source person data to see all distinct IDs (including newly added ones)
                 // 2. Move ALL distinct IDs to the target person
                 // 3. Successfully delete the now-empty source person
@@ -1082,6 +1338,7 @@ export class PostgresPersonMerge {
                 allDistinctIdMessages.push(...distinctIdResult.messages)
                 hasProcessedAnyDistinctIds = true
                 this.recordOverrideCount('bothExistMove', distinctIdResult.distinctIdsMoved.length)
+                this.movedDistinctIds.push(...distinctIdResult.distinctIdsMoved)
 
                 // Check if we moved fewer than the batch size, indicating we're done
                 hasMore = distinctIdResult.distinctIdsMoved.length >= batchSize
@@ -1114,6 +1371,9 @@ export class PostgresPersonMerge {
         }
 
         const allDistinctIdMessages = distinctIdResult.success ? distinctIdResult.messages : []
+        if (distinctIdResult.success) {
+            this.movedDistinctIds.push(...distinctIdResult.distinctIdsMoved)
+        }
 
         // If moved count equals the per-call limit, verify if it's a partial move by checking remaining IDs
         const movedCount = distinctIdResult.success ? distinctIdResult.distinctIdsMoved.length : 0
@@ -1136,25 +1396,118 @@ export class PostgresPersonMerge {
         return allDistinctIdMessages
     }
 
+    private async moveFoldDistinctIds(
+        tx: PersonsStoreTransactionForBatch,
+        target: InternalPerson,
+        mergeSources: InternalPerson[],
+        missingSources: MergePersonsSource[]
+    ): Promise<PersonMessage[]> {
+        const expectedMoveCount = await this.assertFoldSourcesWithinMoveBounds(tx, mergeSources)
+
+        const moveResult = await tx.moveDistinctIdsFromPersons(mergeSources, target, this.targetDistinctId)
+        if (!moveResult.success) {
+            throw new TargetPersonNotFoundError('Target person no longer exists')
+        }
+        // A mismatch means a concurrent merge touched the sources
+        // between the count and the move; abort so the sequential path
+        // (whose zero-moved handling retries with fresh persons) takes
+        // over rather than merging stale source properties.
+        if (moveResult.distinctIdsMoved.length !== expectedMoveCount) {
+            throw new MergeFoldConflictError('folded merge moved an unexpected number of distinct ids')
+        }
+        this.recordOverrideCount('bothExistMove', moveResult.distinctIdsMoved.length)
+        this.movedDistinctIds.push(...moveResult.distinctIdsMoved)
+
+        const addMessages: PersonMessage[] = []
+        for (const pair of missingSources) {
+            // See mergeSingle for the distinctIdVersion logic.
+            const distinctIdVersion = 1
+            this.recordOverrideCount('fold')
+            addMessages.push(...(await tx.addDistinctId(target, pair.distinctId, distinctIdVersion)))
+        }
+        return [...moveResult.messages, ...addMessages]
+    }
+
+    /** The merge for a team off the locked-outcome allowlist: the survivor is queued for the flush and no person row is locked. */
+    private async deferredOutcomeTransaction(
+        tx: PersonsStoreTransactionForBatch,
+        target: InternalPerson,
+        source: InternalPerson,
+        lifecycleOpId: string
+    ): Promise<[InternalPerson, MergePersonUpdate | null, PersonMessage[]]> {
+        const allDistinctIdMessages = await this.moveDistinctIdsBasedOnMode(tx, source, target)
+        const survivor = this.store.deferMergeOutcome(
+            target,
+            this.deferredOutcome(target, [source]),
+            this.targetDistinctId,
+            this.batchId
+        )
+        await tx.updateCohortsAndFeatureFlagsForMerge(source.team_id, source.id, target.id, this.targetDistinctId)
+        const deletePersonMessages = await tx.deletePerson(source, this.targetDistinctId)
+        await tx.releaseLifecycleMarks(lifecycleOpId, this.teamId, this.targetDistinctId)
+        return [survivor, null, [...allDistinctIdMessages, ...deletePersonMessages]]
+    }
+
+    private async deferredOutcomeFold(
+        tx: PersonsStoreTransactionForBatch,
+        target: InternalPerson,
+        mergeSources: InternalPerson[],
+        missingSources: MergePersonsSource[],
+        lifecycleOpId: string
+    ): Promise<[InternalPerson, MergePersonUpdate | null, PersonMessage[]]> {
+        const moveMessages = await this.moveFoldDistinctIds(tx, target, mergeSources, missingSources)
+        let survivor = target
+        let deleteMessages: PersonMessage[] = []
+        if (mergeSources.length > 0) {
+            survivor = this.store.deferMergeOutcome(
+                target,
+                this.deferredOutcome(target, mergeSources),
+                this.targetDistinctId,
+                this.batchId
+            )
+            await tx.updateCohortsAndFeatureFlagsForMergeBatch(
+                this.teamId,
+                mergeSources.map((source) => source.id),
+                target.id,
+                this.targetDistinctId
+            )
+            deleteMessages = await tx.deletePersons(mergeSources, this.targetDistinctId)
+        }
+        await tx.releaseLifecycleMarks(lifecycleOpId, this.teamId, this.targetDistinctId)
+        return [survivor, null, [...moveMessages, ...deleteMessages]]
+    }
+
+    /**
+     * An oversized outcome aborts the transaction, so it rolls back, and one rerun commits the merge without the
+     * outcome, as the flush drops an oversized write. The rerun reads the rows afresh.
+     */
+    private async executeTransactionOrDropOversized(
+        target: InternalPerson,
+        source: InternalPerson
+    ): Promise<PersonMergeResult> {
+        try {
+            return await this.executeTransaction(target, source)
+        } catch (error) {
+            if (!(error instanceof MergeOutcomeOversizedError) || this.dropOversizedOutcome) {
+                throw error
+            }
+            this.dropOversizedOutcome = true
+            return await this.executeTransaction(target, source)
+        }
+    }
+
     private async handleMergeTransaction(
         targetPerson: InternalPerson,
         targetDistinctId: string,
         sourcePerson: InternalPerson,
         sourceDistinctId: string,
-        createdAt: DateTime,
-        properties: Properties,
         maxRetries: number = 5
     ): Promise<PersonMergeResult> {
         let currentTargetPerson = targetPerson
         let currentSourcePerson = sourcePerson
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            const result = await this.executeTransaction(
-                currentTargetPerson,
-                currentSourcePerson,
-                createdAt,
-                properties
-            )
+            const result = await this.executeTransactionOrDropOversized(currentTargetPerson, currentSourcePerson)
 
             if (result.success) {
                 return result

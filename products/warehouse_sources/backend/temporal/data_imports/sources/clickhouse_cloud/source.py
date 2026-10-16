@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ClickhouseCloudSource(ResumableSource[ClickhouseCloudSourceConfig, ClickhouseCloudResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^(CLICKHOUSE_CLOUD|CLICKHOUSECLOUD)_",
+            "^CLICKHOUSE_TOKEN_KEY$",
+            "^CLICKHOUSE_TOKEN_SECRET$",
+            "^CLICKHOUSE_ORG_ID$",
+        )
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -48,10 +58,12 @@ class ClickhouseCloudSource(ResumableSource[ClickhouseCloudSourceConfig, Clickho
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your ClickHouse Cloud API key to pull your organization's usage costs, service inventory, and audit log into the PostHog Data warehouse.
 
+This source reads your ClickHouse Cloud account, not the data in it. To sync tables out of a ClickHouse Cloud service, use the **ClickHouse** source instead.
+
 Generate an API key from your [ClickHouse Cloud console](https://console.clickhouse.cloud/) under your organization's **API keys** settings. Keys with the **Admin** role can read every table; a **Developer**-scoped key may not have access to the usage cost and audit log tables.""",
             iconPath="/static/services/clickhouse_cloud.png",
             docsUrl="https://posthog.com/docs/cdp/sources/clickhouse-cloud",
-            keywords=["clickhouse", "cloud costs", "finops", "billing"],
+            keywords=["clickhouse", "cloud costs", "finops", "billing", "usage", "audit log"],
             fields=cast(
                 list[FieldType],
                 [

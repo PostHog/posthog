@@ -20,9 +20,6 @@ import { getExperimentVariants, getFlagVariants } from '../utils'
 
 export type ExperimentWizardStep = 'about' | 'variants' | 'analytics'
 
-const SHOW_GUIDE_STORAGE_KEY = 'experiment-wizard-show-guide'
-const SHOW_GUIDE_DEFAULT = true
-
 const WIZARD_STEPS: ExperimentWizardStep[] = ['about', 'variants', 'analytics']
 
 export function stepStorageKey(): string {
@@ -70,7 +67,6 @@ export interface experimentWizardLogicValues {
     isFirstStep: boolean
     isLastStep: boolean
     linkedFeatureFlag: FeatureFlagType | null
-    showGuide: boolean
     stepNumber: number
     stepValidationErrors: Record<ExperimentWizardStep, string[]>
 }
@@ -118,15 +114,8 @@ export interface experimentWizardLogicActions {
             secondary: ExperimentMetricUnion[]
         }
     } // createExperimentLogic
-    reportExperimentWizardGuideToggled: (
-        visible: boolean,
-        currentStep: string
-    ) => {
-        currentStep: string
-        visible: boolean
-    } // eventUsageLogic
-    reportExperimentWizardStarted: (guideVisible: boolean) => {
-        guideVisible: boolean
+    reportExperimentWizardStarted: () => {
+        value: true
     } // eventUsageLogic
     loadFeatureFlagsForAutocomplete: () => {
         value: true
@@ -170,9 +159,6 @@ export interface experimentWizardLogicActions {
     }
     setStep: (step: ExperimentWizardStep) => {
         step: ExperimentWizardStep
-    }
-    toggleGuide: () => {
-        value: true
     }
 }
 
@@ -242,7 +228,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             selectExistingFeatureFlagModalLogic,
             ['loadFeatureFlagsForAutocomplete', 'loadFeatureFlagsSuccess'],
             eventUsageLogic,
-            ['reportExperimentWizardStarted', 'reportExperimentWizardGuideToggled'],
+            ['reportExperimentWizardStarted'],
         ],
     })),
 
@@ -256,7 +242,6 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         _applyStep: (step: ExperimentWizardStep) => ({ step }),
         markStepDeparted: (step: ExperimentWizardStep) => ({ step }),
         resetWizard: true,
-        toggleGuide: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
     }),
 
@@ -270,19 +255,6 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 loadFeatureFlagsSuccess: () => true,
                 resetWizard: () => false,
                 saveExperimentSuccess: () => false,
-            },
-        ],
-        showGuide: [
-            (() => {
-                try {
-                    const stored = localStorage.getItem(SHOW_GUIDE_STORAGE_KEY)
-                    return stored === null ? SHOW_GUIDE_DEFAULT : stored === 'true'
-                } catch {
-                    return SHOW_GUIDE_DEFAULT
-                }
-            })(),
-            {
-                toggleGuide: (state) => !state,
             },
         ],
         currentStep: [
@@ -413,14 +385,6 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 // ignore
             }
         },
-        toggleGuide: () => {
-            actions.reportExperimentWizardGuideToggled(values.showGuide, values.currentStep)
-            try {
-                localStorage.setItem(SHOW_GUIDE_STORAGE_KEY, JSON.stringify(values.showGuide))
-            } catch {
-                // Ignore localStorage errors
-            }
-        },
         loadFeatureFlagsSuccess: ({
             featureFlags,
         }: {
@@ -475,9 +439,9 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         },
     })),
 
-    events(({ actions, values }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
-            actions.reportExperimentWizardStarted(values.showGuide)
+            actions.reportExperimentWizardStarted()
             actions.loadFeatureFlagsForAutocomplete()
         },
     })),

@@ -1,8 +1,9 @@
 """Backend edits to a self-driving pull request's description.
 
 The agent writes the description, and the backend then adds sections it must not paraphrase, such
-as the tracker issue reference and the Origin section. Every such edit reads the current body and
-writes it back under the body's etag, so an edit never overwrites a change the agent made in between.
+as the tracker issue reference and the Origin section. GitHub has no conditional write for a pull
+request body, so every edit reads the body again right before the write and backs off when it changed.
+A change that lands between that second read and the write can still get lost.
 """
 
 from collections.abc import Callable
@@ -10,6 +11,7 @@ from enum import StrEnum
 
 import structlog
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
@@ -20,9 +22,21 @@ class BodyEditOutcome(StrEnum):
     WRITTEN = "written"
     # Nothing to write, or the URL is not a GitHub pull request. A retry cannot change that.
     SKIPPED = "skipped"
-    # GitHub refused, the repository access check failed, or the body changed after the read.
+    # GitHub refused, the repository access check failed, or the body changed during the edit.
     # A retry can succeed.
     FAILED = "failed"
+
+
+def _read_body(
+    github: GitHubIntegration, repository: str, number: int, *, report_id: str, pr_url: str, log_event: str
+) -> str | None:
+    pull_request = github.get_pull_request(repository, number)
+    if not pull_request.get("success"):
+        logger.warning(
+            f"{log_event}_pr_fetch_failed", report_id=report_id, pr_url=pr_url, error=pull_request.get("error")
+        )
+        return None
+    return pull_request.get("body") or ""
 
 
 def edit_pull_request_body(
@@ -36,29 +50,34 @@ def edit_pull_request_body(
     parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
     if parsed is None:
         return BodyEditOutcome.SKIPPED
-    github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.BATCH
+    )
     if github is None:
         # The lookup also returns None when the access check hits a transient GitHub error.
         logger.info(f"{log_event}_no_integration", report_id=report_id, pr_url=pr_url)
         return BodyEditOutcome.FAILED
 
-    pull_request = github.get_pull_request(parsed.repository, parsed.number)
-    if not pull_request.get("success"):
-        logger.warning(
-            f"{log_event}_pr_fetch_failed", report_id=report_id, pr_url=pr_url, error=pull_request.get("error")
-        )
+    body = _read_body(github, parsed.repository, parsed.number, report_id=report_id, pr_url=pr_url, log_event=log_event)
+    if body is None:
         return BodyEditOutcome.FAILED
-
-    body = pull_request.get("body") or ""
     updated = edit(body, parsed.repository)
     if updated is None:
         return BodyEditOutcome.SKIPPED
     if updated == body:
         return BodyEditOutcome.WRITTEN
 
-    outcome = github.update_pull_request_body(
-        parsed.repository, parsed.number, updated, expected_etag=pull_request.get("etag")
+    # `edit` can take seconds (the Origin section queries ClickHouse), and the agent can edit the body in that time.
+    latest = _read_body(
+        github, parsed.repository, parsed.number, report_id=report_id, pr_url=pr_url, log_event=log_event
     )
+    if latest is None:
+        return BodyEditOutcome.FAILED
+    if latest != body:
+        logger.info(f"{log_event}_pr_body_changed", report_id=report_id, pr_url=pr_url)
+        return BodyEditOutcome.FAILED
+
+    outcome = github.update_pull_request_body(parsed.repository, parsed.number, updated)
     if not outcome.get("success"):
         logger.warning(f"{log_event}_pr_update_failed", report_id=report_id, pr_url=pr_url, error=outcome.get("error"))
         return BodyEditOutcome.FAILED

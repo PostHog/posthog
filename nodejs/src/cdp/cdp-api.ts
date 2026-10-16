@@ -128,6 +128,16 @@ function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
 export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps
 
+function parseRealtimeCohort(value: unknown): BatchResolverState['realtimeCohort'] {
+    if (typeof value !== 'object' || value === null) {
+        return undefined
+    }
+    const { id, team_id } = value as { id?: unknown; team_id?: unknown }
+    return Number.isInteger(id) && Number.isInteger(team_id)
+        ? { id: id as number, teamId: team_id as number }
+        : undefined
+}
+
 export class CdpApi {
     private hogExecutorAsync: HogExecutorAsyncService
     private hogInputsService: HogInputsService
@@ -1263,7 +1273,9 @@ export class CdpApi {
             // request to this flow id, and cancelJobs filters on (team_id, function_id).
 
             // UUID-shaped ids only: cancelJobs binds them as ::uuid[], so a malformed id must be a
-            // 400 here rather than a Postgres cast error surfaced as a 500. The cap is the same
+            // 400 here rather than a Postgres cast error surfaced as a 500. Match the shape only:
+            // invocation ids are UUIDTs, whose version and variant nibbles carry a series counter
+            // and random bytes, so a version-aware check rejects every real id. The cap is the same
             // env-driven one the Django cancel serializer validates against, so raising the env
             // var lifts both sides together instead of leaving Django accepting ids this route
             // then rejects with a 400 (which Django surfaces as a 500).
@@ -1272,7 +1284,7 @@ export class CdpApi {
             const parsed = z
                 .object({
                     invocation_ids: z
-                        .array(z.string().uuid(idsMessage))
+                        .array(z.string().refine((id) => UUID.validateString(id, false), idsMessage))
                         .min(1, idsMessage)
                         .max(maxInvocationIds, idsMessage)
                         .optional(),
@@ -1433,6 +1445,7 @@ export class CdpApi {
                 // dedupe than dedupe wrongly. Also skip when the flow has no email action at all.
                 // Account audiences carry no person (and external ids are already unique), so never dedupe.
                 dedupeKey: audienceType !== 'accounts' && canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
+                realtimeCohort: parseRealtimeCohort(req.body.realtime_cohort),
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,

@@ -19,7 +19,6 @@ from products.slack_app.backend.services.slack_messages import (
 )
 
 TASK_URL = "https://us.posthog.com/project/1/tasks/2?runId=3&unfurl=false"
-DESKTOP_URL = "https://us.posthog.com/code/task/2?unfurl=false"
 
 
 class TestRunFooter(SimpleTestCase):
@@ -27,25 +26,25 @@ class TestRunFooter(SimpleTestCase):
         [
             (
                 "everything",
-                RunFooter(TASK_URL, DESKTOP_URL, "claude-opus-5", "high"),
+                RunFooter(TASK_URL, "claude-opus-5", "high", project="Fernwood staging"),
                 "slack://app?team=T1&id=A1&tab=home",
-                f"<{TASK_URL}|View on web> · <{DESKTOP_URL}|View on desktop>"
-                " · *Claude Opus 5* [High] · <slack://app?team=T1&id=A1&tab=home|Configure>",
+                f"<{TASK_URL}|View session> · *Claude Opus 5* [High]"
+                " · Project: *Fernwood staging* · <slack://app?team=T1&id=A1&tab=home|Configure>",
             ),
             (
-                "links_only",
-                RunFooter(TASK_URL, DESKTOP_URL),
+                "link_only",
+                RunFooter(TASK_URL),
                 None,
-                f"<{TASK_URL}|View on web> · <{DESKTOP_URL}|View on desktop>",
+                f"<{TASK_URL}|View session>",
             ),
             ("model_without_effort", RunFooter(model="claude-opus-5"), None, "*Claude Opus 5*"),
             # A workspace connected to several projects answers from one of them, and the
             # answer looks the same whichever it was, so the footer has to name it.
             (
-                "project_precedes_the_model",
+                "model_precedes_the_project",
                 RunFooter(model="claude-opus-5", project="Fernwood staging"),
                 None,
-                "Project: *Fernwood staging* · *Claude Opus 5*",
+                "*Claude Opus 5* · Project: *Fernwood staging*",
             ),
             # A project name is tenant text with no character validation, and the footer
             # rides under every reply. Unescaped, `<!channel>` broadcasts to everyone in
@@ -87,8 +86,7 @@ class TestRunFooter(SimpleTestCase):
 class TestLoadRunFooter(SimpleTestCase):
     @patch("products.tasks.backend.facade.run_config.parse_run_state")
     @patch("products.tasks.backend.facade.api.get_task_run")
-    def test_describes_the_run_links_included(self, mock_get_run, mock_parse) -> None:
-        # Whether the reader may open the links is asked later, where the reader is known.
+    def test_describes_the_run(self, mock_get_run, mock_parse) -> None:
         task_id = uuid4()
         mock_get_run.return_value = SimpleNamespace(
             id=uuid4(), task_id=task_id, team_id=1, state={}, created_by_id=None
@@ -97,7 +95,6 @@ class TestLoadRunFooter(SimpleTestCase):
 
         footer = load_run_footer("run-1", integration_id=None)
 
-        assert f"/code/task/{task_id}" in (footer.desktop_url or "")
         assert f"/tasks/{task_id}" in (footer.task_url or "")
         assert footer.model == "claude-opus-5"
 

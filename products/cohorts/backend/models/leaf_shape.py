@@ -269,7 +269,8 @@ class FilterShapeHashes:
 
         leaf_types = {leaf.get("type") for leaf in walk_filter_leaves((filters or {}).get("properties"))}
         person_backfillable = bool(self.person) and "person_metadata" not in leaf_types
-        # Match the run creators: an unhashed behavioral leaf can trigger a run, but person metadata cannot.
+        # Match the run creators: a moved behavioral hash hands the decision to the behavioral
+        # creator, but person metadata has no creator to hand to.
         behavioral_run_fires = previous.behavioral != self.behavioral and "behavioral" in leaf_types
         person_run_fires = previous.person != self.person and person_backfillable
 

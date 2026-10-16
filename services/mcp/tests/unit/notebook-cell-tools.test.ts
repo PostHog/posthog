@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { buildToolResultPayload } from '@/lib/build-tool-result'
+import { findRecoverableApiError, PostHogValidationError } from '@/lib/errors'
 import { GENERATED_TOOLS } from '@/tools/generated/notebooks'
-import { addCellHandler } from '@/tools/notebooks/addCell'
+import { addCellHandler, NotebooksAddCellSchema } from '@/tools/notebooks/addCell'
+import { findCellTag, readExpressionProp, readStringProp } from '@/tools/notebooks/cellTags'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
 import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
+import { runCellHandler } from '@/tools/notebooks/runCell'
+import { runNotebookHandler } from '@/tools/notebooks/runNotebook'
+import { runNotebookStatusHandler } from '@/tools/notebooks/runNotebookStatus'
 import { setVariablesHandler } from '@/tools/notebooks/setVariables'
 import { updateCellHandler } from '@/tools/notebooks/updateCell'
 import { formatNotebookWidgetCatalogForAgents } from '@/tools/notebooks/widgetCatalog'
@@ -24,6 +29,8 @@ interface MockState {
     saveBodies: any[]
     runBodies: any[]
     runStatusResponses: any[]
+    notebookRunStatuses: any[]
+    notebookRunStartBodies: any[]
     createBodies: any[]
     patchBodies: any[]
     // Cells the sql_v2 state endpoint reports. Supplied per test: the spans are the backend's
@@ -32,6 +39,8 @@ interface MockState {
     // Version the state endpoint reports. Set it apart from `version` to model a notebook that
     // moved between the caller's read and its write.
     stateVersion?: number
+    // Makes the sql_v2 run dispatch fail with this message, as the backend does with a 400.
+    runDispatchError?: string
 }
 
 function markdownContent(markdown: string): Record<string, unknown> {
@@ -59,6 +68,13 @@ function createMockContext(state: MockState): Context {
                 cells: state.stateCells ?? [],
             }
         }
+        if (opts.method === 'GET' && /\/runs\//.test(path)) {
+            const next = state.notebookRunStatuses.shift()
+            if (!next) {
+                throw new Error('No queued notebook run status')
+            }
+            return next
+        }
         if (opts.method === 'GET') {
             return {
                 short_id: 'aBcD1234',
@@ -77,7 +93,21 @@ function createMockContext(state: MockState): Context {
                 variables: state.variables,
             }
         }
+        if (opts.method === 'POST' && path.endsWith('/runs/')) {
+            state.notebookRunStartBodies.push(opts.body)
+            return { run_id: 'nbrun-1', cell_count: 2, starts_sandbox: false, sandbox_hourly_price: null }
+        }
         if (opts.method === 'POST' && path.endsWith('/sql_v2/run/')) {
+            if (state.runDispatchError) {
+                throw new PostHogValidationError({
+                    detail: state.runDispatchError,
+                    attr: undefined,
+                    code: undefined,
+                    extra: undefined,
+                    url: path,
+                    method: 'POST',
+                })
+            }
             state.runBodies.push(opts.body)
             return { run_id: 'run-1' }
         }
@@ -125,6 +155,8 @@ function makeState(markdown: string, variables: any[] = []): MockState {
         saveBodies: [],
         runBodies: [],
         runStatusResponses: [],
+        notebookRunStatuses: [],
+        notebookRunStartBodies: [],
         createBodies: [],
         patchBodies: [],
     }
@@ -270,7 +302,7 @@ describe('notebook cell tools', () => {
 
         // Model-facing result keeps the preview but never the base64 media payload.
         expect(result.run).toMatchObject({ status: 'done', rows_preview: [[1]], stdout: 'hello' })
-        expect(result.run!.media).toEqual([{ mime_type: 'image/png' }])
+        expect(result.run).toHaveProperty('media', [{ mime_type: 'image/png' }])
         expect(JSON.stringify(result.run)).not.toContain('aGVsbG8=')
 
         // Run output is attacker-influenceable (query rows, stdout), so the response must
@@ -302,6 +334,298 @@ describe('notebook cell tools', () => {
         const writtenBack = state.saveBodies[1].content.content[0].attrs.markdown
         expect(writtenBack).toContain('runId="run-1"')
         expect(writtenBack).not.toContain('result={')
+    })
+
+    describe('sql cell charts', () => {
+        const doneWith = (result: Record<string, unknown>): Record<string, unknown> => ({
+            status: 'done',
+            result: { status: 'ok', has_more: false, ...result },
+            error: null,
+        })
+
+        it('add sql cell with a visualization opens the chart tab and stores the chart without its source', async () => {
+            const state = makeState('# Doc\n')
+            state.runStatusResponses.push(DONE_STATUS)
+            const context = createMockContext(state)
+
+            const result = await addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'sql',
+                code: 'select 1 as x',
+                visualization: { display: 'ActionsBar', chartSettings: { yAxis: [{ column: 'x' }] } },
+            })
+
+            const inserted = state.saveBodies[0].content.content[0].attrs.markdown
+            expect(inserted).toContain('outputTab="visualization"')
+            expect(inserted).toContain(
+                'vizQuery={{"kind":"DataVisualizationNode","display":"ActionsBar","chartSettings":{"yAxis":[{"column":"x"}]}}}'
+            )
+            expect(inserted).not.toContain('"source"')
+            expect(result).not.toHaveProperty('visualization_warnings')
+        })
+
+        it.each([
+            {
+                label: 'an axis column the query does not return',
+                chartSettings: { xAxis: { column: 'month' } },
+                run: doneWith({ columns: ['x'], types: [['x', 'Int64']], row_count: 1, first_page: [[1]] }),
+                warning: "xAxis column 'month' is not in the result columns: x.",
+            },
+            {
+                label: 'a Y column that is not numeric',
+                chartSettings: { xAxis: { column: 'month' }, yAxis: [{ column: 'orgs' }] },
+                run: doneWith({
+                    columns: ['month', 'orgs'],
+                    types: [
+                        ['month', 'Date'],
+                        ['orgs', 'String'],
+                    ],
+                    row_count: 1,
+                    first_page: [['2026-09-01', '12']],
+                }),
+                warning: "yAxis column 'orgs' is not numeric (String), so the chart cannot plot it.",
+            },
+            {
+                label: 'more rows than the chart plots',
+                chartSettings: { yAxis: [{ column: 'x' }] },
+                run: doneWith({
+                    columns: ['x'],
+                    types: [['x', 'Int64']],
+                    row_count: 120,
+                    first_page: Array.from({ length: 50 }, (_, index) => [index]),
+                    has_more: true,
+                }),
+                warning: 'The chart plots only the first 50 rows of 120. Aggregate in SQL so the result fits.',
+            },
+        ])('add sql cell warns about $label', async ({ chartSettings, run, warning }) => {
+            const state = makeState('# Doc\n')
+            state.runStatusResponses.push(run)
+            const context = createMockContext(state)
+
+            const result = await addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'sql',
+                code: 'select 1',
+                visualization: { display: 'ActionsLineGraph', chartSettings },
+            })
+
+            expect(result.visualization_warnings).toContain(warning)
+        })
+
+        const STORED_PREVIEW =
+            'runId="old" result={{"columns":["x"],"types":[["x","Int64"]],"row_count":20,"first_page":[[1]],"has_more":true,"previewOnly":true}}'
+        const LEGACY_PIE_QUERY =
+            'query={{"kind":"DataVisualizationNode","display":"ActionsPie","source":{"kind":"HogQLQuery","query":"select 1 as x"}}}'
+        const targetProp = (state: MockState, name: string): unknown => {
+            const source = findCellTag(state.markdown, 'target')!.source
+            return readStringProp(source, name) ?? readExpressionProp(source, name)
+        }
+
+        it.each([
+            { label: 'a cell that holds its SQL in code', sql: 'code="select 1 as x"' },
+            { label: 'a legacy cell that holds its SQL and a pie chart in query', sql: LEGACY_PIE_QUERY },
+        ])(
+            'update cell with only a visualization changes the chart of $label without re-running, and null restores the table',
+            async ({ sql }) => {
+                const state = makeState(
+                    `# Doc\n\n<SQLV2 nodeId="target" ${sql} returnVariable="df" ${STORED_PREVIEW} />\n`
+                )
+                const context = createMockContext(state)
+
+                const charted = await updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: 'target',
+                    visualization: { display: 'ActionsLineGraph', chartSettings: { yAxis: [{ column: 'y' }] } },
+                })
+
+                expect(state.runBodies).toHaveLength(0)
+                expect(targetProp(state, 'code')).toBe('select 1 as x')
+                expect(targetProp(state, 'outputTab')).toBe('visualization')
+                expect(targetProp(state, 'vizQuery')).toMatchObject({ display: 'ActionsLineGraph' })
+                expect(charted).toMatchObject({
+                    updated: true,
+                    visualization_warnings: expect.arrayContaining([
+                        "yAxis column 'y' is not in the result columns: x.",
+                    ]),
+                })
+                // The stored preview holds fewer rows than the chart restores, so it must not claim truncation.
+                expect(JSON.stringify(charted)).not.toContain('plots only')
+
+                await updateCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target', visualization: null })
+
+                expect(state.runBodies).toHaveLength(0)
+                expect(targetProp(state, 'code')).toBe('select 1 as x')
+                expect(targetProp(state, 'outputTab')).toBe('results')
+                expect(targetProp(state, 'vizQuery')).toBeNull()
+                expect(targetProp(state, 'runId')).toBe('old')
+            }
+        )
+
+        it('update cell with new code keeps the chart a legacy cell holds in query', async () => {
+            const state = makeState(`# Doc\n\n<SQLV2 nodeId="target" ${LEGACY_PIE_QUERY} returnVariable="df" />\n`)
+            state.runStatusResponses.push(DONE_STATUS)
+            const context = createMockContext(state)
+
+            await updateCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target', code: 'select 2 as x' })
+
+            expect(state.runBodies[0]).toMatchObject({ code: 'select 2 as x' })
+            expect(targetProp(state, 'code')).toBe('select 2 as x')
+            expect(targetProp(state, 'outputTab')).toBe('visualization')
+            expect(targetProp(state, 'vizQuery')).toMatchObject({ display: 'ActionsPie' })
+        })
+
+        it.each(['WorldMap', 'TwoDimensionalHeatmap'])(
+            'refuses the %s display, which opens a sql cell on an empty chart',
+            (display) => {
+                expect(
+                    NotebooksAddCellSchema.safeParse({
+                        notebook_id: 'aBcD1234',
+                        cell_type: 'sql',
+                        code: 'select 1',
+                        visualization: { display },
+                    }).success
+                ).toBe(false)
+            }
+        )
+
+        it.each([
+            {
+                label: 'add a python cell',
+                markdown: '# Doc\n',
+                run: (context: Context) =>
+                    addCellHandler(context, {
+                        notebook_id: 'aBcD1234',
+                        cell_type: 'python',
+                        code: 'df.plot()',
+                        visualization: { display: 'ActionsBar' },
+                    }),
+            },
+            {
+                label: 'update a python cell',
+                markdown: '# Doc\n\n<PythonV2 nodeId="py" code="x = 1" returnVariable="out" />\n',
+                run: (context: Context) =>
+                    updateCellHandler(context, {
+                        notebook_id: 'aBcD1234',
+                        node_id: 'py',
+                        visualization: { display: 'ActionsBar' },
+                    }),
+            },
+        ] as { label: string; markdown: string; run: (context: Context) => Promise<unknown> }[])(
+            'refuses a visualization to $label without saving or running',
+            async ({ markdown, run }) => {
+                const state = makeState(markdown)
+                const context = createMockContext(state)
+
+                await expect(run(context)).rejects.toThrow(/sql cells only/)
+                expect(state.saveBodies).toHaveLength(0)
+                expect(state.runBodies).toHaveLength(0)
+            }
+        )
+    })
+
+    describe('run control', () => {
+        it.each([
+            { cell_type: 'sql' as const, code: 'select 1', tag: 'SQLV2' },
+            { cell_type: 'python' as const, code: 'x = 1', tag: 'PythonV2' },
+        ])('add $cell_type cell with run false inserts the tag without a run', async ({ cell_type, code, tag }) => {
+            const state = makeState('# Doc\n')
+            const context = createMockContext(state)
+
+            const result = await addCellHandler(context, { notebook_id: 'aBcD1234', cell_type, code, run: false })
+
+            expect(state.runBodies).toHaveLength(0)
+            expect(state.saveBodies).toHaveLength(1)
+            expect(state.markdown).toContain(`<${tag} nodeId="${result.node_id}"`)
+            expect(state.markdown).not.toContain('runId=')
+            expect(result.run).toMatchObject({ status: 'not_run', hint: expect.stringContaining('notebooks-run-cell') })
+        })
+
+        it.each([
+            { label: 'a cell as it is', sql: 'code="select {country}"', body: { code: 'select {country}' } },
+            {
+                label: 'a cell on an external connection with its connection settings',
+                sql: 'code="select 1" connectionId="conn-1" sendRawQuery={true}',
+                body: { code: 'select 1', connection_id: 'conn-1', send_raw_query: true },
+            },
+            {
+                label: 'a legacy cell that holds its SQL in query',
+                sql: 'query={{"kind":"HogQLQuery","query":"select 1"}}',
+                body: { code: 'select 1' },
+            },
+        ])('run cell runs $label, writes the result back, and reports stale dependents', async ({ sql, body }) => {
+            const country = { name: 'country', type: 'string', value: 'US' }
+            const state = makeState(
+                [
+                    '# Doc',
+                    '',
+                    `<SQLV2 nodeId="target" ${sql} returnVariable="df" />`,
+                    '',
+                    '<PythonV2 nodeId="reader" code="df.head()" returnVariable="out" />',
+                    '',
+                ].join('\n'),
+                [country]
+            )
+            state.runStatusResponses.push(DONE_STATUS)
+            const context = createMockContext(state)
+
+            const result = await runCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target' })
+
+            expect(state.runBodies[0]).toMatchObject({
+                node_id: 'target',
+                node_type: 'hogql',
+                output_name: 'df',
+                variables: [country],
+                ...body,
+            })
+            expect('connection_id' in state.runBodies[0]).toBe('connection_id' in body)
+            expect(state.saveBodies).toHaveLength(1)
+            expect(state.markdown).toContain('runId="run-1"')
+            expect(result).toMatchObject({
+                node_id: 'target',
+                run: { status: 'done' },
+                stale_dependents: [{ node_id: 'reader', dataframe_name: 'out' }],
+            })
+        })
+
+        it.each([
+            { label: 'an unknown node_id', node_id: 'missing' },
+            { label: 'a component cell', node_id: 'chart' },
+        ])('run cell refuses $label without dispatching a run', async ({ node_id }) => {
+            const state = makeState(
+                '# Doc\n\n<Query nodeId="chart" query={{"kind":"SavedInsightNode","shortId":"abc"}} />\n'
+            )
+            const context = createMockContext(state)
+
+            await expect(runCellHandler(context, { notebook_id: 'aBcD1234', node_id })).rejects.toThrow(
+                /Only SQL and Python cells run/
+            )
+            expect(state.runBodies).toHaveLength(0)
+        })
+
+        it('a run that reads an unrun cell names that cell and the tool that runs it', async () => {
+            const state = makeState(
+                [
+                    '# Doc',
+                    '',
+                    '<SQLV2 nodeId="upstream" code="select 1" returnVariable="events_df" />',
+                    '',
+                    '<SQLV2 nodeId="target" code="select * from events_df" returnVariable="df" />',
+                    '',
+                ].join('\n')
+            )
+            state.runDispatchError = "Referenced node 'events_df' has not been run yet — run it first."
+            const context = createMockContext(state)
+
+            const error = await runCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target' }).catch(
+                (caught: unknown) => caught
+            )
+
+            expect((error as Error).message).toContain(
+                'Cell upstream produces events_df. Run it with notebooks-run-cell, then run this cell again.'
+            )
+            // The handler classifies by the API error in the cause chain, so the hint must keep it.
+            expect(findRecoverableApiError(error)).toBeInstanceOf(PostHogValidationError)
+        })
     })
 
     it('add markdown cell appends prose without dispatching a run', async () => {
@@ -837,6 +1161,62 @@ describe('notebook cell tools', () => {
     })
 
     describe('markdown cells', () => {
+        it.each(['update', 'delete'] as const)(
+            '%s preserves neighboring cells and operates on the full markdown span',
+            async (operation) => {
+                const source = '## Overview\n\nFirst paragraph.\n\nSecond paragraph.'
+                const prefix = '# Title\n\n\n<!--ph:phb-note-->\n'
+                const suffix = '\n\n\nA separate cell.'
+                const state = makeState(prefix + source + suffix)
+                state.stateCells = [
+                    {
+                        node_id: 'phb-note',
+                        cell_type: 'markdown',
+                        code: source,
+                        start: prefix.length,
+                        end: prefix.length + source.length,
+                    },
+                ]
+                const context = createMockContext(state)
+                if (operation === 'update') {
+                    await updateCellHandler(context, {
+                        notebook_id: 'aBcD1234',
+                        node_id: 'phb-note',
+                        markdown: 'Replacement.',
+                    })
+                    expect(state.markdown).toBe(prefix + 'Replacement.' + suffix)
+                } else {
+                    await deleteCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'phb-note' })
+                    expect(state.markdown).toBe('# Title\n\n\n' + suffix)
+                }
+                expect(state.runBodies).toEqual([])
+            }
+        )
+
+        it.each(['version', 'span', 'duplicate'] as const)(
+            'refuses to delete a markdown cell with a mismatched %s',
+            async (mismatch) => {
+                const state = makeState('First paragraph.')
+                const cell = {
+                    node_id: 'mdp-note-0',
+                    cell_type: 'markdown',
+                    code: 'First paragraph.',
+                    start: 0,
+                    end: 16,
+                }
+                state.stateCells = mismatch === 'duplicate' ? [cell, cell] : [cell]
+                if (mismatch === 'version') {
+                    state.stateVersion = state.version + 1
+                } else if (mismatch === 'span') {
+                    cell.start = 1
+                }
+                await expect(
+                    deleteCellHandler(createMockContext(state), { notebook_id: 'aBcD1234', node_id: cell.node_id })
+                ).rejects.toThrow()
+                expect(state.saveBodies).toEqual([])
+            }
+        )
+
         const DOC = ['# Title', '', 'First paragraph.', '', 'Second paragraph.'].join('\n')
         // Spans of "First paragraph." in DOC, as the backend reports them.
         const FIRST = { node_id: 'mdp-abc-0', cell_type: 'markdown', code: 'First paragraph.', start: 9, end: 25 }
@@ -1013,5 +1393,241 @@ describe('notebook cell tools', () => {
             )
             expect(state.saveBodies).toHaveLength(0)
         })
+    })
+    const RUN_MARKDOWN = [
+        '# Doc',
+        '',
+        '<SQLV2 nodeId="first" code="select 1" returnVariable="df" />',
+        '',
+        '<PythonV2 nodeId="second" code="df.head()" returnVariable="out" />',
+        '',
+    ].join('\n')
+
+    const runCell = (
+        node_id: string,
+        dataframe_name: string,
+        status: string | null,
+        run_id: string | null
+    ): Record<string, unknown> => ({
+        node_id,
+        cell_type: node_id === 'second' ? 'python' : 'sql',
+        dataframe_name,
+        run_id,
+        status,
+        error: null,
+    })
+
+    const notebookRunStatus = (
+        status: string,
+        cells: any[],
+        failed_node_id: string | null = null
+    ): Record<string, unknown> => ({
+        run_id: 'nbrun-1',
+        status,
+        trigger: 'mcp',
+        variables: [],
+        cell_count: 2,
+        current_index: 0,
+        current_node_id: null,
+        failed_node_id,
+        error: null,
+        cells,
+        created_at: '2026-01-01T00:00:00Z',
+        finished_at: null,
+    })
+
+    it('run notebook writes each landed result back and batches one save per poll', async () => {
+        vi.useFakeTimers()
+        const state = makeState(RUN_MARKDOWN)
+        state.notebookRunStatuses.push(
+            notebookRunStatus('running', [
+                runCell('first', 'df', 'done', 'cell-1'),
+                runCell('second', 'out', null, null),
+            ]),
+            notebookRunStatus('done', [
+                runCell('first', 'df', 'done', 'cell-1'),
+                runCell('second', 'out', 'done', 'cell-2'),
+            ])
+        )
+        state.runStatusResponses.push(DONE_STATUS, DONE_STATUS)
+        const context = createMockContext(state)
+
+        const pending = runNotebookHandler(context, { notebook_id: 'aBcD1234', wait: true })
+        await vi.advanceTimersByTimeAsync(10_000)
+        const result: any = await pending
+
+        expect(result).toMatchObject({ run_id: 'nbrun-1', status: 'done', cell_count: 2, completed_count: 2 })
+        // One save per poll, not one per cell: two cells landed across two polls.
+        expect(state.saveBodies).toHaveLength(2)
+        const markdown = state.saveBodies[1].content.content[0].attrs.markdown
+        expect(markdown).toContain('runId="cell-1"')
+        expect(markdown).toContain('runId="cell-2"')
+        expect(result.cells[0].run).toMatchObject({ run_id: 'cell-1', status: 'done', row_count: 1 })
+    })
+
+    it('run status writes a large catch-up in bounded batches', async () => {
+        // An agent that starts a run and comes back later finds every cell landed at once.
+        // One save per cell-batch keeps the raw envelopes it holds bounded.
+        const cells = Array.from({ length: 12 }, (_, i) => `c${i}`)
+        const state = makeState(
+            [
+                '# Doc',
+                '',
+                ...cells.map((id) => `<SQLV2 nodeId="${id}" code="select 1" returnVariable="${id}" />\n`),
+            ].join('\n')
+        )
+        state.notebookRunStatuses.push({
+            ...notebookRunStatus('done', []),
+            cell_count: cells.length,
+            cells: cells.map((id, i) => runCell(id, id, 'done', `cell-${i}`)),
+        })
+        cells.forEach(() => state.runStatusResponses.push(DONE_STATUS))
+        const context = createMockContext(state)
+
+        const result: any = await runNotebookStatusHandler(context, {
+            notebook_id: 'aBcD1234',
+            run_id: 'nbrun-1',
+        })
+
+        expect(result.completed_count).toBe(12)
+        // 12 cells at a cap of 10 is two saves, not one unbounded save and not twelve.
+        expect(state.saveBodies).toHaveLength(2)
+        const markdown = state.saveBodies[1].content.content[0].attrs.markdown
+        expect(markdown).toContain('runId="cell-0"')
+        expect(markdown).toContain('runId="cell-11"')
+    })
+
+    it('run notebook sets the variables in the same call', async () => {
+        const state = makeState(RUN_MARKDOWN)
+        state.notebookRunStatuses.push(notebookRunStatus('done', []))
+        const context = createMockContext(state)
+
+        await runNotebookHandler(context, {
+            notebook_id: 'aBcD1234',
+            wait: true,
+            variables: [{ name: 'week_start', type: 'date', value: '2026-01-05' }],
+        })
+
+        expect(state.notebookRunStartBodies[0]).toEqual({
+            variables: [{ name: 'week_start', type: 'date', value: '2026-01-05' }],
+        })
+    })
+
+    it('run notebook reports the cell that stopped the run', async () => {
+        const state = makeState(RUN_MARKDOWN)
+        state.notebookRunStatuses.push(
+            notebookRunStatus(
+                'failed',
+                [runCell('first', 'df', 'failed', 'cell-1'), runCell('second', 'out', null, null)],
+                'first'
+            )
+        )
+        state.runStatusResponses.push({ status: 'failed', result: null, error: 'Unknown table' })
+        const context = createMockContext(state)
+
+        const result: any = await runNotebookHandler(context, { notebook_id: 'aBcD1234', wait: true })
+
+        expect(result).toMatchObject({ status: 'failed', failed_cell: 'first', completed_count: 0 })
+        expect(result.cells[1].status).toBeNull()
+    })
+
+    it('run notebook hands the agent the status tool when the budget ends', async () => {
+        vi.useFakeTimers()
+        const state = makeState(RUN_MARKDOWN)
+        for (let i = 0; i < 60; i++) {
+            state.notebookRunStatuses.push(
+                notebookRunStatus('running', [
+                    runCell('first', 'df', 'running', 'cell-1'),
+                    runCell('second', 'out', null, null),
+                ])
+            )
+        }
+        const context = createMockContext(state)
+
+        const pending = runNotebookHandler(context, { notebook_id: 'aBcD1234', wait: true })
+        await vi.advanceTimersByTimeAsync(60_000)
+        const result: any = await pending
+
+        expect(result.status).toBe('running')
+        expect(result.hint).toContain('notebooks-run-status')
+    })
+
+    it('run status does not roll a cell back to an older run', async () => {
+        // Finish run A, finish run B, then read A's status. The cell carries B's result, and
+        // A's rows must not replace them: run ids are uuid7, so the one already there sorting
+        // above this one means a later execution produced it.
+        const state = makeState(
+            ['# Doc', '', '<SQLV2 nodeId="first" code="select 1" returnVariable="df" runId="cell-b" />', ''].join('\n')
+        )
+        state.notebookRunStatuses.push(notebookRunStatus('done', [runCell('first', 'df', 'done', 'cell-a')]))
+        state.runStatusResponses.push(DONE_STATUS)
+        const context = createMockContext(state)
+
+        await runNotebookStatusHandler(context, { notebook_id: 'aBcD1234', run_id: 'nbrun-a' })
+
+        expect(state.saveBodies).toHaveLength(0)
+        expect(state.markdown).toContain('runId="cell-b"')
+    })
+
+    it('a run that produced nothing clears the rows the previous one left', async () => {
+        // Rerunning a cell that already has rows, and failing, used to update runId and leave
+        // the old result attached. Reopening then shows those rows as this run's output, and
+        // the editor skips recovery for a cell that already carries one.
+        const state = makeState(
+            [
+                '# Doc',
+                '',
+                '<SQLV2 nodeId="first" code="select 1" returnVariable="df" runId="cell-1" result={{"columns":["x"],"first_page":[[1]]}} />',
+                '',
+            ].join('\n')
+        )
+        state.notebookRunStatuses.push(notebookRunStatus('done', [runCell('first', 'df', 'failed', 'cell-2')]))
+        state.runStatusResponses.push({ status: 'failed', result: null, error: 'boom' })
+        const context = createMockContext(state)
+
+        await runNotebookStatusHandler(context, { notebook_id: 'aBcD1234', run_id: 'nbrun-1' })
+
+        const markdown = state.saveBodies[0].content.content[0].attrs.markdown
+        expect(markdown).toContain('runId="cell-2"')
+        expect(markdown).not.toContain('result=')
+    })
+
+    it('a failed write-back still hands back the run id', async () => {
+        // The run started and its cells may be executing. Raising bare would take the id with
+        // it, and the status tool needs that id — starting over either collides with this run
+        // or repeats it once it finishes.
+        const state = makeState(RUN_MARKDOWN)
+        state.notebookRunStatuses.push(notebookRunStatus('done', [runCell('first', 'df', 'done', 'cell-1')]))
+        state.runStatusResponses.push(DONE_STATUS)
+        const context = createMockContext(state)
+        const passThrough = context.api.request as any
+        ;(context.api as any).request = vi.fn(async (opts: any) => {
+            if (opts.method === 'POST' && (opts.path ?? '').endsWith('/collab/markdown_save/')) {
+                throw new Error('an editor holds the document')
+            }
+            return passThrough(opts)
+        })
+
+        const result: any = await runNotebookHandler(context, { notebook_id: 'aBcD1234', wait: true })
+
+        expect(result.run_id).toBe('nbrun-1')
+        expect(result.hint).toContain('notebooks-run-status')
+    })
+
+    it('run status leaves a result the document already carries alone', async () => {
+        const state = makeState(
+            ['# Doc', '', '<SQLV2 nodeId="first" code="select 1" returnVariable="df" runId="cell-1" />', ''].join('\n')
+        )
+        state.notebookRunStatuses.push(notebookRunStatus('done', [runCell('first', 'df', 'done', 'cell-1')]))
+        state.runStatusResponses.push(DONE_STATUS)
+        const context = createMockContext(state)
+
+        const result: any = await runNotebookStatusHandler(context, {
+            notebook_id: 'aBcD1234',
+            run_id: 'nbrun-1',
+        })
+
+        expect(result.status).toBe('done')
+        expect(state.saveBodies).toHaveLength(0)
     })
 })

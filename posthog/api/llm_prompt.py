@@ -1,14 +1,13 @@
 import json
-from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, OperationalError
 from django.db.models import Func, IntegerField, Q, QuerySet, TextField
 from django.db.models.functions import Cast
 
-import posthoganalytics
+import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -38,6 +37,7 @@ from posthog.api.llm_prompt_serializers import (
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.llm_prompt import (
+    LLMPromptArchivedVersionsOverlapError,
     LLMPromptDuplicateNameConflictError,
     LLMPromptEditError,
     LLMPromptLabelConflictError,
@@ -50,6 +50,7 @@ from posthog.api.services.llm_prompt import (
     archive_prompt,
     duplicate_prompt,
     get_active_prompt_queryset,
+    get_archived_prompts_queryset,
     get_labeled_prompts_queryset,
     get_latest_prompts_queryset,
     get_prompt_by_name_from_db,
@@ -58,19 +59,19 @@ from posthog.api.services.llm_prompt import (
     remove_prompt_label,
     resolve_versions_page,
     set_prompt_label,
+    unarchive_prompt,
 )
-from posthog.auth import (
-    DelegatedOAuthAccessTokenAuthentication,
-    JwtAuthentication,
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    SessionAuthentication,
-)
+from posthog.auth import DelegatedOAuthAccessTokenAuthentication, OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team, User
+from posthog.models import User
 from posthog.permissions import AccessControlPermission
-from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
+from posthog.rate_limit import (
+    BurstRateThrottle,
+    LLMPromptFetchRateThrottle,
+    LLMPromptPublishBurstRateThrottle,
+    SustainedRateThrottle,
+)
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -78,34 +79,16 @@ from products.ai_observability.backend.activity_logging import log_llm_prompt_ac
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
 from products.ai_observability.backend.prompt_references import (
+    PROMPT_REFERENCE_REGEX,
     PromptReferenceResolutionError,
     assemble_prompt_payload,
     get_active_references_to,
 )
 
+logger = structlog.get_logger(__name__)
+
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
-
-
-PROMPT_PARTIALS_FLAG = "prompt-partials"
-
-
-def prompt_partials_enabled(team: Team) -> bool:
-    """Kill switch for fetch-time reference resolution. Flag off = tags pass through as plain text."""
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                PROMPT_PARTIALS_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={"organization": {"id": str(team.organization_id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        # Flag service unavailable must not take down the SDK fetch path.
-        return False
 
 
 @extend_schema(extensions={"x-product": "llm_analytics"})
@@ -127,8 +110,10 @@ class LLMPromptViewSet(
     def get_throttles(self):
         if self.action == "update_by_name":
             return [LLMPromptPublishBurstRateThrottle(), BurstRateThrottle(), SustainedRateThrottle()]
-        if self.action in ["get_by_name", "resolve_by_name"]:
-            return [BurstRateThrottle(), SustainedRateThrottle()]
+        # SDK read paths (get_all() hits list) get a dedicated per-minute budget, so a
+        # polling fleet cannot exhaust the shared sustained budget for the whole API key.
+        if self.action in ["list", "get_by_name", "resolve_by_name"]:
+            return [LLMPromptFetchRateThrottle()]
 
         return super().get_throttles()
 
@@ -154,17 +139,6 @@ class LLMPromptViewSet(
         # every prompts page view as a fetch. A JWT is a background job impersonating
         # a user, which reads prompts like any other API caller.
         return isinstance(request.successful_authenticator, SessionAuthentication | OAuthAccessTokenAuthentication)
-
-    def _ensure_web_authenticated(self, request: Request) -> Response | None:
-        if not isinstance(
-            request.successful_authenticator,
-            SessionAuthentication | JwtAuthentication | PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication,
-        ):
-            return Response(
-                {"detail": "This endpoint is only available to web-authenticated users."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        return None
 
     def _prompt_not_found_response(self, prompt_name: str) -> Response:
         return Response(
@@ -271,13 +245,66 @@ class LLMPromptViewSet(
 
         report_team_action(self.team, "llma prompt fetched", properties)
 
-    def _track_list_fetch(self, prompts: Sequence[LLMPrompt], label: str | None) -> None:
+    def _reference_resolution_error_response(self, err: PromptReferenceResolutionError) -> Response:
+        error_status: int = status.HTTP_409_CONFLICT
+        if err.unavailable:
+            error_status = status.HTTP_503_SERVICE_UNAVAILABLE
+        elif err.missing:
+            error_status = status.HTTP_404_NOT_FOUND
+        return Response({"detail": err.message, "reference_name": err.reference_name}, status=error_status)
+
+    def _resolve_labeled_list_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Splice references into labeled list rows, mirroring get_by_name.
+
+        An unresolvable reference fails the whole request with the same
+        status get_by_name uses. Serving the raw tag would leak it into the
+        caller's LLM, and omitting the row would silently shorten a page,
+        which a paginating client reads as the end of the results.
+        """
+
+        def has_tags(item: dict[str, Any]) -> bool:
+            return isinstance(item.get("prompt"), str) and bool(PROMPT_REFERENCE_REGEX.search(item["prompt"]))
+
+        # A tag-free row is trivially resolved: its raw and assembled content are
+        # identical, so it gets []. Null stays the marker for tags that were
+        # left in place.
+        for item in items:
+            if not has_tags(item):
+                item["resolved_references"] = []
+        if not any(has_tags(item) for item in items):
+            return items
+        resolved_items: list[dict[str, Any]] = []
+        shared_memo: dict[tuple[str, str | None, str | None], tuple[str, int]] = {}
+        for item in items:
+            if not has_tags(item):
+                resolved_items.append(item)
+                continue
+            try:
+                assembled = assemble_prompt_payload(self.team, item, memoized=shared_memo)
+            except PromptReferenceResolutionError as err:
+                # The bulk response has no single subject, so the message names
+                # the prompt whose reference failed.
+                raise PromptReferenceResolutionError(
+                    reference_name=err.reference_name,
+                    message=f"Prompt '{item.get('name')}': {err.message}",
+                    missing=err.missing,
+                    unavailable=err.unavailable,
+                ) from err
+            # The outline is derived from content, so it must describe what
+            # this response returns. prompt_size_bytes stays the stored size:
+            # it backs the list ordering.
+            assembled["outline"] = get_prompt_outline(assembled.get("prompt"))
+            resolved_items.append(assembled)
+        return resolved_items
+
+    def _track_list_fetch(self, served_count: int, label: str | None, resolved_reference_count: int) -> None:
         # One event per request, not per prompt: the event is billed into the calling
         # team's own project, so a page of N prompts would bill N events per call.
         properties = {
             "prompt_fetch_path": "list",
             "prompt_label": label,
-            "prompt_count": len(prompts),
+            "prompt_count": served_count,
+            "prompt_resolved_reference_count": resolved_reference_count,
         }
         if not settings.TEST:
             try:
@@ -303,9 +330,12 @@ class LLMPromptViewSet(
         params = self._get_list_params(request)
 
         label = params.get("label")
-        base_queryset = (
-            get_labeled_prompts_queryset(self.team, label) if label else get_latest_prompts_queryset(self.team)
-        )
+        if params.get("archived"):
+            base_queryset = get_archived_prompts_queryset(self.team)
+        elif label:
+            base_queryset = get_labeled_prompts_queryset(self.team, label)
+        else:
+            base_queryset = get_latest_prompts_queryset(self.team)
         queryset = base_queryset.annotate(
             prompt_size_bytes=Func(
                 Cast("prompt", output_field=TextField()), function="OCTET_LENGTH", output_field=IntegerField()
@@ -399,16 +429,11 @@ class LLMPromptViewSet(
                 )
             return self._prompt_not_found_response(prompt_name)
 
-        if resolve and content_mode == "full" and prompt_partials_enabled(self.team):
+        if resolve and content_mode == "full":
             try:
                 prompt = assemble_prompt_payload(self.team, prompt)
             except PromptReferenceResolutionError as err:
-                error_status: int = status.HTTP_409_CONFLICT
-                if err.unavailable:
-                    error_status = status.HTTP_503_SERVICE_UNAVAILABLE
-                elif err.missing:
-                    error_status = status.HTTP_404_NOT_FOUND
-                return Response({"detail": err.message, "reference_name": err.reference_name}, status=error_status)
+                return self._reference_resolution_error_response(err)
 
         self._track_prompt_fetch(prompt)
         return Response(self._apply_content_mode(prompt, content_mode))
@@ -418,10 +443,6 @@ class LLMPromptViewSet(
     @llma_track_latency("llma_prompts_publish_by_name")
     @monitor(feature=None, endpoint="llma_prompts_publish_by_name", method="PATCH")
     def update_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
         # PATCH shares the GET's route, so the segment has to mean the same thing on both verbs.
         resolved_name = self._resolve_prompt_name(prompt_name)
         if resolved_name is None:
@@ -497,10 +518,6 @@ class LLMPromptViewSet(
     @llma_track_latency("llma_prompts_resolve_by_name")
     @monitor(feature=None, endpoint="llma_prompts_resolve_by_name", method="GET")
     def resolve_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
         query_params = self._get_resolve_query_params(request)
         version = cast(int | None, query_params.get("version"))
         version_id = query_params.get("version_id")
@@ -552,10 +569,6 @@ class LLMPromptViewSet(
     @llma_track_latency("llma_prompts_archive")
     @monitor(feature=None, endpoint="llma_prompts_archive", method="POST")
     def archive(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
         try:
             prompt_versions = archive_prompt(self.team, prompt_name, user=cast(User, request.user))
         except LLMPromptNotFoundError:
@@ -594,10 +607,6 @@ class LLMPromptViewSet(
     @llma_track_latency("llma_prompts_duplicate")
     @monitor(feature=None, endpoint="llma_prompts_duplicate", method="POST")
     def duplicate(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
         payload = LLMPromptDuplicateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         new_name = payload.validated_data["new_name"]
@@ -631,6 +640,59 @@ class LLMPromptViewSet(
         return Response(self._serialize_prompt(new_prompt), status=status.HTTP_201_CREATED)
 
     @extend_schema(
+        request=None,
+        responses={
+            200: LLMPromptSerializer,
+            409: OpenApiResponse(
+                description="An active prompt with this name already exists, or the archived versions overlap."
+            ),
+        },
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<prompt_name>[^/]+)/unarchive",
+        required_scopes=["llm_prompt:write"],
+    )
+    @llma_track_latency("llma_prompts_unarchive")
+    @monitor(feature=None, endpoint="llma_prompts_unarchive", method="POST")
+    def unarchive(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
+        try:
+            restored_versions = unarchive_prompt(self.team, prompt_name, user=cast(User, request.user))
+        except LLMPromptNotFoundError:
+            return Response(
+                {"detail": f"No archived prompt matching '{prompt_name}' in this project."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except LLMPromptDuplicateNameConflictError:
+            return Response(
+                {"detail": "An active prompt with this name already exists. Rename or archive it first."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except LLMPromptArchivedVersionsOverlapError:
+            return Response(
+                {
+                    "detail": "This name was archived more than once and its versions overlap, so it can't be restored. Create a new prompt instead."
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        report_user_action(
+            cast(User, request.user),
+            "llma prompt unarchived",
+            {
+                "prompt_name": prompt_name,
+                "prompt_versions": len(restored_versions),
+            },
+            team=self.team,
+            request=request,
+        )
+        prompt = get_prompt_by_name_from_db(self.team, prompt_name)
+        if prompt is None:
+            return self._prompt_not_found_response(prompt_name)
+        return Response(self._serialize_prompt(prompt))
+
+    @extend_schema(
         request=LLMPromptSetLabelSerializer,
         responses={
             200: LLMPromptLabelSerializer,
@@ -648,10 +710,6 @@ class LLMPromptViewSet(
     @llma_track_latency("llma_prompts_set_label")
     @monitor(feature=None, endpoint="llma_prompts_set_label", method="PUT")
     def set_label(self, request: Request, prompt_name: str = "", label_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
         label_name = validate_prompt_label_name_value(label_name)
         payload = LLMPromptSetLabelSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -673,6 +731,16 @@ class LLMPromptViewSet(
         except LLMPromptLabelConflictError:
             return Response(
                 {"detail": "This label was changed by someone else at the same time. Try again."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except OperationalError as err:
+            # Reference validation locks the referenced prompts' rows, so two
+            # moves over mutually referencing labels can deadlock; Postgres
+            # aborts one. A retry serializes behind the survivor.
+            if "deadlock detected" not in str(err):
+                raise
+            return Response(
+                {"detail": "Another label or reference change touched the same prompts at the same time. Try again."},
                 status=status.HTTP_409_CONFLICT,
             )
         except LLMPromptLabelLimitError as err:
@@ -717,10 +785,6 @@ class LLMPromptViewSet(
     @llma_track_latency("llma_prompts_delete_label")
     @monitor(feature=None, endpoint="llma_prompts_delete_label", method="DELETE")
     def delete_label(self, request: Request, prompt_name: str = "", label_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
         try:
             remove_prompt_label(self.team, prompt_name=prompt_name, label_name=label_name)
         except LLMPromptLabelNotFoundError:
@@ -772,16 +836,26 @@ class LLMPromptViewSet(
         context["prompt_labels_by_name"] = self._get_prompt_labels_map([prompt.name for prompt in prompts])
         serializer = LLMPromptListSerializer(prompts, many=True, context=context)
 
-        label = self._get_list_params(request).get("label")
-        if label or not self._is_browser_session(request):
+        params = self._get_list_params(request)
+        label = params.get("label")
+        data = list(serializer.data)
+        if label is not None and params.get("content", "full") == "full" and cast(bool, params.get("resolve", True)):
+            try:
+                data = self._resolve_labeled_list_items(data)
+            except PromptReferenceResolutionError as err:
+                return self._reference_resolution_error_response(err)
+
+        if (label or not self._is_browser_session(request)) and not params.get("archived"):
             # The unlabeled list also backs the prompts UI page, where reading the
             # page is not a prompt fetch. The browser session separates a prompt
-            # served to an application from someone looking at the list.
-            self._track_list_fetch(prompts, label)
+            # served to an application from someone looking at the list. An archived
+            # list is never served to an application, so it is not a fetch either.
+            resolved_reference_count = sum(len(item.get("resolved_references") or []) for item in data)
+            self._track_list_fetch(len(data), label, resolved_reference_count)
 
         if page is not None:
-            return self.get_paginated_response(serializer.data)
-        return Response({"count": len(serializer.data), "results": serializer.data})
+            return self.get_paginated_response(data)
+        return Response({"count": len(data), "results": data})
 
     @llma_track_latency("llma_prompts_create")
     @monitor(feature=None, endpoint="llma_prompts_create", method="POST")

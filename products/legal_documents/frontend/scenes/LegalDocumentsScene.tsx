@@ -9,6 +9,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { settingsSectionSceneScope } from 'scenes/settings/settingsSectionScenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -88,6 +89,7 @@ export function LegalDocumentsScene(): JSX.Element {
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.LegalDocuments].name}
                     resourceType={{ type: 'default_icon_type', forceIcon: <IconBalance /> }}
+                    scope={settingsSectionSceneScope('organization-legal-documents')}
                 />
                 <LemonBanner type="info">
                     <p className="mb-0">Legal documents are only available on PostHog Cloud.</p>
@@ -103,6 +105,7 @@ export function LegalDocumentsScene(): JSX.Element {
                     name={sceneConfigurations[Scene.LegalDocuments].name}
                     description={sceneConfigurations[Scene.LegalDocuments].description}
                     resourceType={{ type: 'default_icon_type', forceIcon: <IconBalance /> }}
+                    scope={settingsSectionSceneScope('organization-legal-documents')}
                 />
                 <LemonBanner type="warning">
                     <h2 className="mb-2">Admin access required</h2>
@@ -125,6 +128,7 @@ export function LegalDocumentsScene(): JSX.Element {
                 name={sceneConfigurations[Scene.LegalDocuments].name}
                 description={sceneConfigurations[Scene.LegalDocuments].description}
                 resourceType={{ type: 'default_icon_type', forceIcon: <IconBalance /> }}
+                scope={settingsSectionSceneScope('organization-legal-documents')}
                 actions={
                     <LemonMenu
                         items={buildNewMenuItems(existingDocumentTypes, baaBlockedReason)}

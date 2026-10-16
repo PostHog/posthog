@@ -13,6 +13,8 @@ import { notebooksList } from '../generated/api'
 export const notebooksSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.NOTEBOOKS,
     path: ['products', 'notebooks', 'frontend', 'emptyState', 'notebooksSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const response = await notebooksList(projectId, { limit: 1 })

@@ -273,14 +273,17 @@ BACKGROUND_WARMING_TRIGGERS = frozenset(
     }
 )
 
+
 # Stale-while-revalidate window for *user-facing* requests: windows that expired within
 # this grace are served from their existing (complete-but-stale) rows instantly instead
 # of recomputing inline, and a background revalidation is enqueued. Refresh normally
 # arrives within minutes via the revalidation task (plus the hourly eager warmer for
 # warmed shapes) — the grace is the ceiling for revalidation failures and warmer
-# outages. Must stay well under the framework's 48h ClickHouse expiry buffer (rows must
-# still exist).
-STALE_WHILE_REVALIDATE_SECONDS = 6 * 60 * 60
+# outages. Env-tunable via WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS (see
+# posthog/settings/web.py for the default and the freshness/hit-rate trade-off).
+def stale_while_revalidate_seconds() -> int:
+    return settings.WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS
+
 
 WEB_ANALYTICS_LAZY_PRECOMPUTE_CHECK_MISS = Counter(
     "web_analytics_lazy_precompute_check_miss_total",
@@ -618,7 +621,7 @@ def web_ensure_precomputed(
     family = kwargs.pop("family", None)
     modifiers = create_default_modifiers_for_team(team, kwargs.get("modifiers"))
     if runner is not None:
-        # Pin the runner's decision so a flag refresh cannot change INSERT semantics after hashing.
+        # Use the runner's value, which can carry a per-query override, so the INSERT and the job hash match the read.
         modifiers.cookielessTrafficIsRegular = runner.modifiers.cookielessTrafficIsRegular
     kwargs["modifiers"] = modifiers
     if modifiers.cookielessTrafficIsRegular:
@@ -641,7 +644,7 @@ def web_ensure_precomputed(
             kwargs["stale_while_revalidate_seconds"] = None
         else:
             kwargs["stale_while_revalidate_seconds"] = resolve_stale_while_revalidate_seconds(
-                STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS
+                stale_while_revalidate_seconds(), BACKGROUND_WARMING_TRIGGERS
             )
     # User-facing requests never compute inline: they are served from covering
     # READY jobs (fresh or within the stale grace) or told "miss" immediately so
@@ -758,9 +761,11 @@ _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
 #    Windows aged 2+ days are *session-final*: sessions cap at 24h (the insert
 #    scans window_end+24h), so bounce/duration can no longer change, and
 #    measured late-event ingestion beyond 49h is ≤0.03% of pageviews on the
-#    worst enrolled team (~0% elsewhere). Their TTLs are therefore generous —
-#    recomputing an immutable window buys nothing — and bounded in practice by
-#    hash rotations (any AST-affecting deploy rebuilds everything anyway).
+#    worst enrolled team (~0% elsewhere). Their TTLs are therefore generous,
+#    because recomputing an immutable window buys nothing, and bounded in
+#    practice by hash rotations (any AST-affecting deploy rebuilds everything
+#    anyway). The `default` band holds 90 days so that a year-long shape does
+#    not re-scan a year of events every time the band expires.
 # 2. Job sizing — `split_ranges_by_ttl` merges *consecutive days with the same
 #    TTL* into one job. Distinct per-week TTLs therefore force weekly job
 #    boundaries, so a 31-day warm splits into ≤7-day jobs instead of one ~24-day
@@ -775,25 +780,20 @@ LAZY_TTL_SECONDS: dict[str, int] = {
     "21d": 10 * 24 * 60 * 60,  # days 15–21 → one 7d job
     "28d": 12 * 24 * 60 * 60,  # days 22–28 → one 7d job
     "35d": 14 * 24 * 60 * 60,  # days 29–35 → one 7d job (covers the tail of a 31d warm)
-    "default": 21 * 24 * 60 * 60,  # days 36+
+    "default": 90 * 24 * 60 * 60,  # days 36+
 }
 
-# TTL schedule for channel-filtered shapes: same graded bands for recent days,
-# but old immutable days are held for 90 days instead of 21 — without the longer
-# hold, a year-long shape re-scans a year of events every three weeks per shape.
-CHANNEL_TTL_SECONDS: dict[str, int] = {**LAZY_TTL_SECONDS, "default": 90 * 24 * 60 * 60}
-
-# Job-width cap for channel shapes. `split_ranges_by_ttl` merges consecutive days
-# sharing one TTL band into a single job, so the 90-day band above would put a
-# year-long span's whole tail into ONE insert without this cap. Seven days keeps
-# each insert bounded (a 366-day backfill runs as ~53 jobs) while the reactive
-# OOM pin can still tighten a pathological team to 1-day windows.
-CHANNEL_MAX_WINDOW_DAYS = 7
+# Job-width cap. `split_ranges_by_ttl` merges consecutive days sharing one TTL
+# band into a single job, so the `default` band above would put a year-long
+# span's whole tail into ONE insert without this cap. Seven days keeps each
+# insert bounded (a 366-day backfill runs as ~53 jobs) while the reactive OOM
+# pin can still tighten a pathological team to 1-day windows.
+LAZY_MAX_WINDOW_DAYS = 7
 
 
-def channel_ttl_schedule(team: Team) -> TtlSchedule:
-    """The channel-filtered shapes' TTL schedule, with the job-width cap applied."""
-    return parse_ttl_schedule(CHANNEL_TTL_SECONDS, team.timezone, max_window_days=CHANNEL_MAX_WINDOW_DAYS)
+def lazy_ttl_schedule(team: Team) -> TtlSchedule:
+    """The lazy precompute TTL schedule, with the job-width cap applied."""
+    return parse_ttl_schedule(LAZY_TTL_SECONDS, team.timezone, max_window_days=LAZY_MAX_WINDOW_DAYS)
 
 
 # MVP user-filter allowlist: only an EventPropertyFilter on `$host` with
@@ -801,9 +801,12 @@ def channel_ttl_schedule(team: Team) -> TtlSchedule:
 # (their content is hashed into the cache key).
 SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
 
-# Upper bound on the precompute span. Above this, the framework would create
-# enough daily jobs that the first request burns INSERT slots for minutes.
-MAX_PRECOMPUTE_DAYS = 90
+# Upper bound on the precompute span: a full year plus a leap day, which covers
+# the "this year" and "last 12 months" dashboards these shapes appear on. Span
+# width does not size an insert, because `LAZY_MAX_WINDOW_DAYS` caps job width
+# independently, and cold spans build behind the live fallback, so the first
+# request never burns the slots itself.
+MAX_PRECOMPUTE_DAYS = 366
 
 # Forward pad on the per-job event-scan window. Matches the JS SDK's
 # 24 h hard SESSION_LENGTH_LIMIT and covers ~100% of population sessions.

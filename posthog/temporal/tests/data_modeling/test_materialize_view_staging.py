@@ -1,10 +1,19 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import OperationalError
+
 import pyarrow as pa
 from parameterized import parameterized
 
-from posthog.temporal.data_modeling.activities.materialize_view import _CDPRowSink, _stage_person_property_batch
+from posthog.temporal.data_modeling.activities.materialize_view import (
+    AccountPropertyRowSink,
+    PersonPropertyRowSink,
+    _account_property_sync_enabled,
+    _build_person_property_sink,
+    _CDPRowSink,
+    _stage_person_property_batch,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -19,6 +28,10 @@ def _batch() -> pa.RecordBatch:
 
 def _producer() -> MagicMock:
     return MagicMock(stage_chunk=AsyncMock(), clear=AsyncMock())
+
+
+def _matview_objects() -> MagicMock:
+    return MagicMock(team=MagicMock(pk=1), saved_query=MagicMock(id="01978e6b-0000-7000-8000-000000000000"))
 
 
 class TestStagePersonPropertyBatch:
@@ -73,3 +86,46 @@ class TestCDPRowSinkStage:
         assert mock_capture.called is expect_capture
         assert sink.enabled is False
         producer.clear.assert_awaited_once()
+
+
+class TestPropertySinkResolutionReportsOnlyNonTransientFailures:
+    @parameterized.expand(
+        [
+            ("transient_connection_drop", OperationalError("server closed the connection unexpectedly"), False),
+            ("other_error", RuntimeError("boom"), True),
+        ]
+    )
+    async def test_build_person_property_sink(self, _name, error, expect_capture) -> None:
+        # A pgbouncer connection recycle while resolving the person-property projection must not fail
+        # the materialization (should_run's failure is already swallowed) or page anyone — it clears on
+        # its own. A non-transient failure is a real bug and must keep reaching error tracking.
+        objects = _matview_objects()
+        logger = MagicMock(awarning=AsyncMock())
+
+        with (
+            patch.object(PersonPropertyRowSink, "should_run", AsyncMock(side_effect=error)),
+            patch("posthog.temporal.data_modeling.activities.materialize_view.capture_exception") as mock_capture,
+        ):
+            result = await _build_person_property_sink(objects, "job-1", logger, incremental=False)
+
+        assert result is None
+        assert mock_capture.called is expect_capture
+
+    @parameterized.expand(
+        [
+            ("transient_connection_drop", OperationalError("server closed the connection unexpectedly"), False),
+            ("other_error", RuntimeError("boom"), True),
+        ]
+    )
+    async def test_account_property_sync_enabled(self, _name, error, expect_capture) -> None:
+        objects = _matview_objects()
+        logger = MagicMock(awarning=AsyncMock())
+
+        with (
+            patch.object(AccountPropertyRowSink, "should_run", AsyncMock(side_effect=error)),
+            patch("posthog.temporal.data_modeling.activities.materialize_view.capture_exception") as mock_capture,
+        ):
+            result = await _account_property_sync_enabled(objects, "job-1", logger)
+
+        assert result is False
+        assert mock_capture.called is expect_capture

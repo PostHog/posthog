@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     APPLICATION_FEE_RESOURCE_NAME,
+    BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_GRANT_RESOURCE_NAME,
@@ -218,6 +219,80 @@ class TestStripeGetRowsIncrementalCursor:
         rows = [row for table in tables for row in table.to_pylist()]
         assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(5)]
         assert len(tables) > 1
+
+
+class TestStripeFlatResourceResumeCursor:
+    def test_restarts_listing_when_resume_cursor_no_longer_exists(self):
+        # A cursor saved by a previous run can outlive the object it names (e.g. the
+        # invoice_payment it pointed at was voided between runs). Without recovery, every retry
+        # reloads the same stale cursor and 404s identically forever — this locks in restarting
+        # the listing instead of getting the job permanently stuck.
+        calls: list[dict] = []
+
+        def method(params=None):
+            calls.append(params or {})
+            if (params or {}).get("starting_after") == "inpay_gone":
+                raise stripe_lib.InvalidRequestError(
+                    "No such invoice_payment: 'inpay_gone'",
+                    "starting_after",
+                    code="resource_missing",
+                    http_status=404,
+                )
+            return cast(ListObject[Any], _FakeStripeList([{"id": "inpay_1"}, {"id": "inpay_2"}]))
+
+        resource = StripeResource(method=method)
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = True
+        resumable_source_manager.load_state.return_value = stripe_module.StripeResumeConfig(starting_after="inpay_gone")
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "_build_resources", return_value={INVOICE_PAYMENT_RESOURCE_NAME: resource}),
+        ):
+            tables = list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint=INVOICE_PAYMENT_RESOURCE_NAME,
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
+                )
+            )
+
+        rows = [row for table in tables for row in table.to_pylist()]
+        assert [row["id"] for row in rows] == ["inpay_1", "inpay_2"]
+        # First call carries the stale cursor and 404s; the recovery call drops it entirely.
+        assert calls == [{"limit": DEFAULT_LIMIT, "starting_after": "inpay_gone"}, {"limit": DEFAULT_LIMIT}]
+
+    def test_other_invalid_request_errors_still_raise(self):
+        def method(params=None):
+            raise stripe_lib.InvalidRequestError("Invalid string", "expand", code="parameter_unknown", http_status=400)
+
+        resource = StripeResource(method=method)
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = True
+        resumable_source_manager.load_state.return_value = stripe_module.StripeResumeConfig(starting_after="inpay_1")
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "_build_resources", return_value={INVOICE_PAYMENT_RESOURCE_NAME: resource}),
+        ):
+            with pytest.raises(stripe_lib.InvalidRequestError):
+                list(
+                    get_rows(
+                        api_key="sk_test_123",
+                        endpoint=INVOICE_PAYMENT_RESOURCE_NAME,
+                        account_id=None,
+                        db_incremental_field_last_value=None,
+                        db_incremental_field_earliest_value=None,
+                        logger=MagicMock(),
+                        resumable_source_manager=resumable_source_manager,
+                        api_version=STRIPE_API_VERSION_ACACIA,
+                    )
+                )
 
 
 class TestStripeSource:
@@ -670,17 +745,31 @@ class TestStripeNestedResourceGetRows:
         assert called_for == ["cus_credit", "cus_owed"]
         assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
 
-    def test_sparse_sweep_checkpoints_by_parent_count(self):
+    @pytest.mark.parametrize(
+        "checkpoint_parents,checkpoint_seconds,expected_positions,expected_rows_totals",
+        [
+            (3, 3600.0, ["cus_2", "cus_5"], [3, 6, 8]),
+            (1000, 0.0, [f"cus_{i}" for i in range(7)], [1, 2, 3, 4, 5, 6, 7, 8]),
+        ],
+        ids=["by_parent_count", "by_elapsed_time"],
+    )
+    def test_sparse_sweep_checkpoints_and_reaches_a_safe_point(
+        self, checkpoint_parents, checkpoint_seconds, expected_positions, expected_rows_totals
+    ):
         # A nested resource where no parent has data (CustomerPaymentMethod over customers with no
         # stored payment method) never fills a chunk, so the row-driven checkpoint never fires and
         # a killed run restarted the whole customer walk. Position must be recorded by parents
-        # walked, regardless of how few rows come back.
+        # walked or time spent, regardless of how few rows come back, and each such checkpoint is
+        # where the sweep can hand off during a worker shutdown.
         def nested_method(customer=None, params=None):
             return _list_object([])
 
         manager = MagicMock()
         logger = MagicMock()
-        with patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_PARENTS", 3):
+        with (
+            patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_PARENTS", checkpoint_parents),
+            patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_SECONDS", checkpoint_seconds),
+        ):
             rows = _run_nested_get_rows(
                 nested_method,
                 parent_objects=[{"id": f"cus_{i}"} for i in range(8)],
@@ -689,11 +778,12 @@ class TestStripeNestedResourceGetRows:
             )
 
         assert rows == []
-        # Checkpointed after the 3rd and 6th parent; the 7th and 8th are still in flight.
-        assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == ["cus_2", "cus_5"]
+        assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == expected_positions
+        manager.committing.assert_not_called()
+        assert manager.safe_point.call_count == len(expected_positions)
         # The pipeline kills this loop mid-sweep on a worker shutdown, so every checkpoint carries
         # the running fan-out size instead of leaving the attempt's only line until after the loop.
-        assert [call.kwargs["rows_total"] for call in logger.info.call_args_list] == [3, 6, 8]
+        assert [call.kwargs["rows_total"] for call in logger.info.call_args_list] == expected_rows_totals
 
     def test_query_param_service_receives_parent_in_params(self):
         # Flat Stripe services with a required filter (e.g. entitlements.active_entitlements.list)
@@ -1137,6 +1227,7 @@ class TestWebhookEventMapping:
 
     @parameterized.expand(
         [
+            (BALANCE_TRANSACTION_RESOURCE_NAME,),
             (SUBSCRIPTION_ITEM_RESOURCE_NAME,),
             (SETUP_ATTEMPT_RESOURCE_NAME,),
             (SHIPPING_RATE_RESOURCE_NAME,),
@@ -1434,6 +1525,12 @@ class TestWebhookUpsertCollapse:
             # A redelivery can arrive after a newer event, so a plain last-row-wins rule would
             # reinstate the older state.
             ("older event delivered last", [(1700000100, "paid"), (1700000050, "open")], "paid"),
+            # Stripe does not deliver events in order and the webhook handler does not finish them
+            # in order, so on a `created` tie the stale snapshot can be the last row.
+            ("tie with the stale snapshot last", [(1700000100, "paid"), (1700000100, "open")], "paid"),
+            ("tie between draft and open", [(1700000100, "open"), (1700000100, "draft")], "open"),
+            # An uncollectible invoice can still be paid or voided.
+            ("tie after uncollectible", [(1700000100, "void"), (1700000100, "uncollectible")], "void"),
         ]
     )
     def test_latest_state_per_object_wins(
@@ -1669,6 +1766,9 @@ class TestSchemaWebhookCapability:
             expected = name in RESOURCE_TO_STRIPE_WEBHOOK_EVENT or schema.webhook_only
             assert schema.supports_webhooks is expected, name
 
+    def test_balance_transaction_does_not_offer_webhook_sync(self):
+        assert self.by_name[BALANCE_TRANSACTION_RESOURCE_NAME].supports_webhooks is False
+
 
 class TestCreateWebhookPermissionErrorCopy:
     # Regression test: a permission-denied webhook creation used to always tell the user to add
@@ -1681,7 +1781,7 @@ class TestCreateWebhookPermissionErrorCopy:
             (
                 "api_key",
                 "forbidden",
-                "add the 'Write' permission for 'Webhook endpoints' to your API key",
+                "Give it Write access on Webhook endpoints in Stripe, then select Try again",
                 None,
             ),
             ("oauth", "forbidden", "cannot create webhooks", "reconnect"),
@@ -2143,8 +2243,9 @@ class TestStripeNestedSweepResume:
 
         def run(manager):
             collected: list[dict] = []
-            checkpoints: list[tuple[int, Any]] = []
-            manager.save_state.side_effect = lambda state: checkpoints.append((len(collected), state))
+            staged: list[Any] = []
+            committed: list[tuple[int, Any]] = []
+            manager.save_state.side_effect = staged.append
             with (
                 patch.object(stripe_module, "StripeClient"),
                 patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
@@ -2166,12 +2267,15 @@ class TestStripeNestedSweepResume:
                     warehouse_parent=warehouse_parent,
                 ):
                     collected.extend(table.to_pylist())
-            return collected, checkpoints
+                    if staged:
+                        committed.append((len(collected), staged[-1]))
+                        staged.clear()
+            return collected, committed
 
         killed = MagicMock()
         killed.can_resume.return_value = False
-        all_rows, checkpoints = run(killed)
-        rows_written, crash_state = checkpoints[0]
+        all_rows, committed = run(killed)
+        rows_written, crash_state = committed[0]
 
         restarted = MagicMock()
         restarted.can_resume.return_value = True

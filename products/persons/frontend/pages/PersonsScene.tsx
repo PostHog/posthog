@@ -10,7 +10,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { isUUIDLike } from 'lib/utils/guards'
-import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -59,8 +59,8 @@ export function PersonsScene(): JSX.Element {
         LemonDialog.openForm({
             width: '30rem',
             title: 'Reset deleted person',
-            description: `Once a person is deleted, the "distinct_id" associated with them can no longer be used.
-                You can use this tool to reset the "distinct_id" for a person so that new events associated with it will create a new Person profile.`,
+            description: `Use this if a deleted person's distinct ID gets new events, but no person shows up for it.
+                Resetting the distinct ID makes that person show up again.`,
             initialValues: { distinct_id: '' },
             content: (
                 <LemonField name="distinct_id" label="Distinct ID to reset">
@@ -76,7 +76,7 @@ export function PersonsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs tabKey="persons" />
+            <ActivitySceneTabs activeKey="persons" />
 
             {sceneMenuBarEnabled && (
                 <SceneMenuBar>
@@ -113,8 +113,8 @@ export function PersonsScene(): JSX.Element {
                                         LemonDialog.openForm({
                                             width: '30rem',
                                             title: 'Reset deleted person',
-                                            description: `Once a person is deleted, the "distinct_id" associated with them can no longer be used.
-                                                You can use this tool to reset the "distinct_id" for a person so that new events associated with it will create a new Person profile.`,
+                                            description: `Use this if a deleted person's distinct ID gets new events, but no person shows up for it.
+                                                Resetting the distinct ID makes that person show up again.`,
                                             initialValues: {
                                                 distinct_id: '',
                                             },

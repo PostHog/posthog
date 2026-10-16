@@ -10,6 +10,7 @@ import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { sessionsLabel } from "@posthog/core/sidebar/selection";
 import {
   Button,
+  cn,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -25,6 +26,8 @@ interface SidebarBulkActionBarProps {
   actions: SidebarBulkActions;
   onClearSelection: () => void;
   onArchive: () => void;
+  withCommandCenter?: boolean;
+  className?: string;
 }
 
 /**
@@ -77,6 +80,8 @@ export function SidebarBulkActionBar({
   actions,
   onClearSelection,
   onArchive,
+  withCommandCenter = true,
+  className,
 }: SidebarBulkActionBarProps): ReactElement {
   const {
     selectedCount,
@@ -104,7 +109,12 @@ export function SidebarBulkActionBar({
       </span>
 
       {selectedCount > 0 && (
-        <div className="flex items-center justify-between gap-2 border-(--gray-5) border-t bg-(--gray-2) px-2 py-1.5">
+        <div
+          className={cn(
+            "flex items-center justify-between gap-2 border-(--gray-5) border-t bg-(--gray-2) px-2 py-1.5",
+            className,
+          )}
+        >
           <div className="flex min-w-0 items-center gap-1">
             <span className="shrink-0 font-medium text-(--gray-12) text-[12px]">
               {selectedCount} selected
@@ -128,13 +138,15 @@ export function SidebarBulkActionBar({
               )}
             </ActionButton>
 
-            <ActionButton
-              label={`Add ${sessions} to Command Center`}
-              disabledReason={commandCenterDisabledReason}
-              onClick={actions.addSelectedToCommandCenter}
-            >
-              <SquaresFourIcon size={13} />
-            </ActionButton>
+            {withCommandCenter && (
+              <ActionButton
+                label={`Add ${sessions} to Command Center`}
+                disabledReason={commandCenterDisabledReason}
+                onClick={actions.addSelectedToCommandCenter}
+              >
+                <SquaresFourIcon size={13} />
+              </ActionButton>
+            )}
 
             {fileDisabledReason === null ? (
               <DropdownMenu>

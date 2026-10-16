@@ -12,8 +12,9 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
-import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
+
+import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
+import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
 
 import { RelationshipRow, RelationshipStatusFilter, relationshipsLogic } from '../relationshipsLogic'
 

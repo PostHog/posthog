@@ -1,11 +1,12 @@
 import { LemonBanner, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { AWS_ONLY_REGION_OPTIONS } from 'lib/integrations/s3Regions'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { IntegrationType } from '~/types'
 
-import { AWS_ONLY_REGION_OPTIONS, PERSON_PROPERTIES_EVENT_FIELD, validateBucketName } from './common'
+import { PERSON_EVENT_FIELDS, validateBucketName } from './common'
 import type { DestinationDefinition } from './types'
 
 // Redshift is the only destination with a non-trivial form ↔ payload mapping.
@@ -238,7 +239,7 @@ export const redshiftDefinition: DestinationDefinition = {
         return result
     },
     eventTableOverrides: { teamIdHogql: 'toInt32(team_id)' },
-    eventTableExtraFields: { ...PERSON_PROPERTIES_EVENT_FIELD },
+    eventTableExtraFields: { ...PERSON_EVENT_FIELDS },
     Fields: function RedshiftFields({ isNew, formValues, selectedIntegration }) {
         const useConnection = usesConnection(isNew, formValues)
         const useS3Connection = usesS3Connection(isNew, formValues)

@@ -1436,7 +1436,6 @@ describe('Hogflow Executor', () => {
                         },
                     ],
                     bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
-                    window_minutes: null,
                 }
 
                 // Person does not match conversion filters yet
@@ -1551,7 +1550,6 @@ describe('Hogflow Executor', () => {
                         },
                     ],
                     bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
-                    window_minutes: null,
                 }
 
                 // Person does not match conversion filters yet
@@ -1621,7 +1619,6 @@ describe('Hogflow Executor', () => {
                 hogFlow.conversion = {
                     filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
                     bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
-                    window_minutes: null,
                 } as any
 
                 const invocation = createExampleHogFlowInvocation(
@@ -1645,7 +1642,6 @@ describe('Hogflow Executor', () => {
                 hogFlow.conversion = {
                     filters: [],
                     bytecode: [],
-                    window_minutes: null,
                     events: [{ filters: { bytecode: ['_H', 1, 29] } }],
                 }
 

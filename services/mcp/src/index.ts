@@ -1,3 +1,4 @@
+import { isRejectedTokenChallenge, withResourceMetadata } from '@/lib/auth-errors'
 import { resolveEffectiveClientName } from '@/lib/client-detection'
 import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
 import { isIdJagAccessToken } from '@/lib/id-jag'
@@ -198,11 +199,9 @@ const handleRequest = async (
     // initialize call itself. Distinct from `sessionId` (above), which is the
     // wrapper-app-provided analytics correlation id.
     const mcpSessionId = sanitizeHeaderValue(request.headers.get('mcp-session-id') || undefined)
-    // Agent-echoed conversation id from `@posthog/mcp-analytics` PR #14.
-    // Caller-supplied for now (wrapper apps can pass it via the header even
-    // before the SDK lands). Once the SDK is bumped with `enableConversationId`,
-    // the same value will also flow in from tool args — both sources land on
-    // the same `requestProperties.mcpConversationId` slot.
+    // Agent-echoed conversation id, for wrapper apps that hold one already. Direct clients
+    // carry it in the `conversation_id` tool argument instead, which the SDK reads in
+    // `prepareToolCall`. Both land on the same `requestProperties.mcpConversationId` slot.
     const mcpConversationId = sanitizeHeaderValue(request.headers.get('mcp-conversation-id') || undefined)
 
     // Anthropic-set per-request identifier for the inner upstream client (e.g.
@@ -275,7 +274,12 @@ const handleRequest = async (
     if (url.pathname.startsWith('/mcp')) {
         const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
         log.extend({ proxy: 'hono', region })
-        return proxyToHono(request, region)
+        const response = await proxyToHono(request, region)
+        if (isRejectedTokenChallenge(response)) {
+            log.extend({ authError: 'rejected_token' })
+            return withResourceMetadata(response, request, effectiveRegion)
+        }
+        return response
     }
 
     log.extend({ error: 'route_not_found' })

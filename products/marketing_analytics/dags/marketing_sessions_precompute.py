@@ -5,7 +5,7 @@ The table is only useful for teams whose windows this job keeps warm. Configure
 """
 
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import dagster
 import structlog
@@ -18,7 +18,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_sessions_preco
     CHUNK_DAYS,
     PRECOMPUTE_WINDOW_DAYS,
     ensure_marketing_sessions_precomputed,
-    precompute_window_days,
+    precompute_window_start,
 )
 
 logger = structlog.get_logger(__name__)
@@ -74,11 +74,11 @@ def _ensure_for_team(
 
 @dagster.op
 def ensure_marketing_sessions_precompute_op(context: dagster.OpExecutionContext) -> dict[str, int]:
-    end = datetime.now(UTC)
+    now = datetime.now(UTC)
 
     team_ids = get_selected_team_ids()
     context.log.info(
-        f"marketing_sessions_precompute_start teams={len(team_ids)} display_days={PRECOMPUTE_WINDOW_DAYS} end={end} chunk_days={CHUNK_DAYS}"
+        f"marketing_sessions_precompute_start teams={len(team_ids)} display_days={PRECOMPUTE_WINDOW_DAYS} now={now} chunk_days={CHUNK_DAYS}"
     )
     if not team_ids:
         context.log.info(f"marketing_sessions_precompute_noop ({SELECTED_TEAM_IDS_ENV_VAR} is empty)")
@@ -95,7 +95,13 @@ def ensure_marketing_sessions_precompute_op(context: dagster.OpExecutionContext)
         if team is None:
             context.log.warning(f"marketing_sessions_precompute_team_missing team_id={team_id}")
             continue
-        start = end - timedelta(days=precompute_window_days(team))
+        start = precompute_window_start(team, now)
+        # Attribution reads include the full local day, which can cross into the next UTC day.
+        end = (
+            now.astimezone(team.timezone_info)
+            .replace(hour=23, minute=59, second=59, microsecond=999999)
+            .astimezone(UTC)
+        )
         failures += _ensure_for_team(context, team, start, end, CHUNK_DAYS)
         processed += 1
 

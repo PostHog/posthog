@@ -25,7 +25,7 @@ from products.conversations.backend.mailgun import (
     MailgunTransientError,
     send_mime,
 )
-from products.conversations.backend.models import EmailMessageMapping, EmailOutboxMessage
+from products.conversations.backend.models import EmailMessageMapping, EmailOutboxMessage, Ticket
 
 logger = structlog.get_logger(__name__)
 
@@ -84,6 +84,32 @@ def _mark_outbox_failed(outbox: EmailOutboxMessage, error: str) -> None:
     _set_comment_delivery_status(outbox.team_id, outbox.comment_id, "failed")
 
 
+def cancel_pending_email_replies_for_ticket(*, team_id: int, ticket_id: UUID | str) -> None:
+    """Stop queued replies for a ticket that was just soft-deleted.
+
+    Rows under an active send lease are left alone. Their worker checks the delete
+    right before it sends, and it owns the final status of the row.
+    """
+    now = timezone.now()
+    with transaction.atomic():
+        pending = list(
+            EmailOutboxMessage.objects.select_for_update(skip_locked=True)
+            .filter(team_id=team_id, ticket_id=ticket_id, status=EmailOutboxMessage.Status.PENDING)
+            .filter(models.Q(locked_until__isnull=True) | models.Q(locked_until__lte=now))
+            .only("id", "comment_id")
+        )
+        if not pending:
+            return
+        EmailOutboxMessage.objects.filter(id__in=[outbox.id for outbox in pending]).update(
+            status=EmailOutboxMessage.Status.FAILED_PERMANENT,
+            last_error="ticket deleted",
+            locked_until=None,
+            updated_at=now,
+        )
+    for comment_id in [outbox.comment_id for outbox in pending]:
+        _set_comment_delivery_status(team_id, comment_id, "failed")
+
+
 def _schedule_outbox_retry(outbox: EmailOutboxMessage, error: str) -> None:
     outbox.attempts += 1
     backoff = min(
@@ -107,6 +133,10 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     config = ticket.email_config
     comment = outbox.comment
 
+    # The FK loads soft-deleted tickets too. A reply must not reach the customer after the delete.
+    if ticket.deleted_at is not None:
+        _mark_outbox_failed(outbox, "ticket deleted")
+        return
     settings_dict = ticket.team.conversations_settings or {}
     if not settings_dict.get("email_enabled"):
         _mark_outbox_failed(outbox, "email disabled for team")
@@ -182,6 +212,12 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
 
     recipients = [ticket.email_from, *cc]
     mime_bytes = email_message.message().as_bytes(linesep="\r\n")
+
+    # Check again right before the send. The delete can commit after the check at the top,
+    # and a row lock held across the Mailgun call would block every write to the ticket.
+    if Ticket.all_objects.filter(id=ticket.id, deleted_at__isnull=False).exists():
+        _mark_outbox_failed(outbox, "ticket deleted")
+        return
 
     try:
         send_mime(config.domain, mime_bytes, recipients=recipients)

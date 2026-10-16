@@ -4,8 +4,7 @@ import csv
 import json
 import time
 import hashlib
-import dataclasses
-from collections.abc import Buffer, Iterator, Sequence
+from collections.abc import Buffer, Callable, Iterator, Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
@@ -13,6 +12,8 @@ from urllib.parse import quote, urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -36,6 +37,11 @@ REPORT_ROW_WARNING_THRESHOLD = 90_000
 # The reports endpoint allows 10 requests per minute per org, so backfill
 # windows are paced instead of riding the 429 backoff.
 REPORT_REQUEST_INTERVAL_SECONDS = 6.0
+# Gladly rejects an events startAt older than 24 hours. The margin keeps the
+# first window inside that limit by the time its request arrives.
+EVENTS_RETENTION = timedelta(hours=24) - timedelta(minutes=5)
+EVENTS_WINDOW = timedelta(hours=1)
+VOICE_ITEM_TYPES = ("PHONE_CALL", "VOICEMAIL")
 
 # Gladly serves production on gladly.com and the testing sandbox on gladly.qa. The
 # config field is typed as a Literal, but nothing validates Literal membership at
@@ -61,6 +67,16 @@ class GladlyReportUnavailableError(Exception):
     def __init__(self, metric_set: str, header: list[str]) -> None:
         super().__init__(
             f"Gladly returned no report for metricSet={metric_set}: the response body is not a CSV report. "
+            f"First line: {header!r:.300}"
+        )
+        self.header = header
+
+
+class GladlyReportNotAvailableForAccountError(Exception):
+    def __init__(self, metric_set: str, header: list[str]) -> None:
+        super().__init__(
+            f"Gladly report unavailable for this account: metricSet={metric_set} returned an error body "
+            f"instead of a CSV on every attempt, and this table has never completed a sync. "
             f"First line: {header!r:.300}"
         )
 
@@ -99,7 +115,7 @@ class _ResponseByteStream(io.RawIOBase):
         return take
 
 
-@dataclasses.dataclass
+@frozen
 class GladlyResumeConfig:
     # Jobs are processed oldest-first; persisting the last fully-processed
     # job's updatedAt lets a retried sync skip straight past it.
@@ -107,6 +123,8 @@ class GladlyResumeConfig:
     # Report streams persist the end date (YYYY-mm-dd) of the last fully-processed
     # window; a retried sync restarts at that date and merge dedupes the overlap.
     last_report_window_end: str | None = None
+    # The events stream persists the end timestamp of the last fully-processed window.
+    last_event_window_end: str | None = None
 
 
 def _get_session(agent_email: str, api_token: str) -> requests.Session:
@@ -155,6 +173,16 @@ def _format_timestamp(value: Any) -> str:
     return str(value)
 
 
+def _parse_timestamp(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
 def _normalize_report_column(name: str) -> str:
     """Turn a report CSV header like "Assigned Agent ID" into a stable warehouse
     column name ("assigned_agent_id"). Output is limited to [a-z0-9_] so the
@@ -181,15 +209,17 @@ def _report_csv_lines(stream: io.TextIOBase) -> Iterator[str]:
         yield line
 
 
-def _report_row_id(row: dict[str, Any]) -> str:
+def _report_row_id(row: dict[str, Any], key_columns: Sequence[str] = ()) -> str:
     """Deterministic id for report rows that carry no natural key.
 
     Timestamps-report rows are immutable events with no event id column, so the
     id is a hash of the whole normalized row: the same row re-read from an
     overlapping window merges onto itself, while rows differing in any field
-    stay distinct.
+    stay distinct. Rows that restate in place hash only their identifying
+    ``key_columns`` instead, so the newer version replaces the older one.
     """
-    return hashlib.sha256(json.dumps(row, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    keyed = {column: row.get(column) for column in key_columns} if key_columns else row
+    return hashlib.sha256(json.dumps(keyed, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def _report_start_date(
@@ -278,6 +308,7 @@ def get_rows(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     domain: str = DEFAULT_DOMAIN,
+    schema_has_ever_synced: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     config = GLADLY_ENDPOINTS[endpoint]
     session = _get_session(agent_email, api_token)
@@ -293,12 +324,9 @@ def get_rows(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            schema_has_ever_synced=schema_has_ever_synced,
         )
         return
-
-    filename = config.filename
-    if filename is None:
-        raise ValueError(f"Gladly endpoint {endpoint} declares neither an export filename nor a report metric set")
 
     @retry(
         retry=retry_if_exception_type((GladlyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -320,6 +348,30 @@ def get_rows(
 
         return response
 
+    if config.event_entities:
+        yield from _event_rows(
+            fetch=fetch,
+            base_url=base_url,
+            entities=config.event_entities,
+            logger=logger,
+            resumable_source_manager=resumable_source_manager,
+            incremental_last_value=db_incremental_field_last_value if should_use_incremental_field else None,
+        )
+        return
+
+    if config.list_path is not None:
+        body = fetch(f"{base_url}{config.list_path}").json()
+        rows = body if isinstance(body, list) else []
+        if rows:
+            yield rows
+        return
+
+    filename = config.filename
+    if filename is None:
+        raise ValueError(
+            f"Gladly endpoint {endpoint} declares neither an export filename, a list path, nor a report metric set"
+        )
+
     # The cutoff is the later of the incremental watermark and the resume
     # state, so retried syncs skip already-processed jobs either way.
     cutoff: Optional[str] = None
@@ -336,20 +388,32 @@ def get_rows(
 
     jobs_body = fetch(f"{base_url}/export/jobs?{urlencode({'status': 'COMPLETED'})}").json()
     jobs = jobs_body if isinstance(jobs_body, list) else []
-    jobs = [job for job in jobs if job.get("updatedAt")]
+    # Jobs sharing the cutoff timestamp are re-yielded rather than skipped, so a
+    # late-arriving job with the same updatedAt as the watermark isn't lost.
+    # Merge-on-id dedupes the boundary job's re-yielded rows.
+    jobs = [
+        job
+        for job in jobs
+        if job.get("updatedAt")
+        and (cutoff is None or job["updatedAt"] >= cutoff)
+        and filename in (job.get("files") or [])
+    ]
     jobs.sort(key=lambda job: job["updatedAt"])
+
+    if config.voice_transcripts:
+        yield from _voice_transcript_rows(
+            session=session,
+            base_url=base_url,
+            jobs=jobs,
+            filename=filename,
+            fetch=fetch,
+            logger=logger,
+            resumable_source_manager=resumable_source_manager,
+        )
+        return
 
     for job in jobs:
         job_updated_at = job["updatedAt"]
-        # Strict less-than: jobs sharing the cutoff timestamp are re-yielded rather
-        # than skipped, so a late-arriving job with the same updatedAt as the
-        # watermark isn't lost. Merge-on-id dedupes the boundary job's re-yielded rows.
-        if cutoff is not None and job_updated_at < cutoff:
-            continue
-
-        files = job.get("files") or []
-        if filename not in files:
-            continue
 
         # id is required per the export contract and is needed for the download
         # URL — a missing one is a broken API response, so fail loud.
@@ -377,6 +441,148 @@ def get_rows(
         resumable_source_manager.save_state(GladlyResumeConfig(last_job_updated_at=job_updated_at))
 
 
+def _event_rows(
+    fetch: Callable[[str], requests.Response],
+    base_url: str,
+    entities: Sequence[str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[GladlyResumeConfig],
+    incremental_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    now = datetime.now(UTC)
+    earliest = now - EVENTS_RETENTION
+    window_start = earliest
+
+    if incremental_last_value is not None:
+        watermark = _parse_timestamp(incremental_last_value)
+        if watermark is None:
+            logger.warning(
+                f"Gladly: could not parse events watermark {incremental_last_value!r}; reading the last 24 hours"
+            )
+        else:
+            if watermark < earliest:
+                logger.warning(
+                    f"Gladly: events watermark {watermark.isoformat()} is older than the 24 hours Gladly retains, "
+                    f"so events between it and {earliest.isoformat()} could not be synced"
+                )
+            # Events arrive in no documented order and trail live activity by up to
+            # 15 seconds, so one window is re-read behind the watermark. Merge on id
+            # dedupes the overlap.
+            window_start = max(window_start, watermark - EVENTS_WINDOW)
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None and resume_config.last_event_window_end is not None:
+        resume_end = _parse_timestamp(resume_config.last_event_window_end)
+        if resume_end is None:
+            logger.warning(f"Gladly: ignoring malformed resume state {resume_config.last_event_window_end!r}")
+        else:
+            window_start = max(window_start, resume_end)
+
+    while window_start < now:
+        window_end = min(window_start + EVENTS_WINDOW, now)
+        params = [
+            ("startAt", _format_timestamp(window_start)),
+            ("endAt", _format_timestamp(window_end)),
+            *(("entities", entity) for entity in entities),
+        ]
+        response = fetch(f"{base_url}/events?{urlencode(params)}")
+        chunk: list[dict[str, Any]] = []
+        for line in response.iter_lines(decode_unicode=True):
+            if not line or not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                logger.warning(f"Gladly: skipping malformed events line in window {window_start} - {window_end}")
+                continue
+            chunk.append(row)
+            if len(chunk) >= CHUNK_SIZE:
+                yield chunk
+                chunk = []
+
+        resumable_source_manager.save_state(GladlyResumeConfig(last_event_window_end=_format_timestamp(window_end)))
+        if chunk:
+            yield chunk
+        else:
+            resumable_source_manager.safe_point()
+        window_start = window_end
+
+
+def _voice_transcript_rows(
+    session: requests.Session,
+    base_url: str,
+    jobs: Sequence[dict[str, Any]],
+    filename: str,
+    fetch: Callable[[str], requests.Response],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[GladlyResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    @retry(
+        retry=retry_if_exception_type((GladlyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+        wait=wait_exponential_jitter(initial=2, max=90),
+        reraise=True,
+    )
+    def fetch_transcript(item_id: str) -> dict[str, Any] | None:
+        url = f"{base_url}/conversation-items/{quote(item_id)}/voice-transcript"
+        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+        # Gladly answers 404 for a call or voicemail that has no transcript.
+        if response.status_code == 404:
+            return None
+        if response.status_code == 429 or response.status_code >= 500:
+            raise GladlyRetryableError(f"Gladly API error (retryable): status={response.status_code}, url={url}")
+        if not response.ok:
+            logger.error(f"Gladly API error: status={response.status_code}, body={response.text[:500]}, url={url}")
+            response.raise_for_status()
+        body = response.json()
+        return body if isinstance(body, dict) else None
+
+    for job in jobs:
+        job_id = job["id"]
+        job_updated_at = job["updatedAt"]
+        response = fetch(f"{base_url}/export/jobs/{quote(job_id)}/files/{quote(filename)}")
+        # One transcript is held back, so the job's cursor can be staged before
+        # the last transcript of the job is yielded.
+        pending: dict[str, Any] | None = None
+        for line in response.iter_lines(decode_unicode=True):
+            if not line or not line.strip():
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                logger.warning(f"Gladly: skipping malformed JSONL line in job {job_id} {filename}")
+                continue
+            content = item.get("content") or {}
+            if content.get("type") not in VOICE_ITEM_TYPES or not item.get("id"):
+                continue
+
+            transcript = fetch_transcript(item["id"])
+            if transcript is None:
+                if pending is not None:
+                    yield [pending]
+                    pending = None
+                else:
+                    resumable_source_manager.safe_point()
+                continue
+
+            if pending is not None:
+                yield [pending]
+            pending = {
+                **transcript,
+                "conversation_item_id": item["id"],
+                "conversation_id": item.get("conversationId"),
+                "item_type": content.get("type"),
+                "_job_id": job_id,
+                "_job_updated_at": job_updated_at,
+            }
+
+        resumable_source_manager.save_state(GladlyResumeConfig(last_job_updated_at=job_updated_at))
+        if pending is not None:
+            yield [pending]
+        else:
+            resumable_source_manager.safe_point()
+
+
 def _report_rows(
     session: requests.Session,
     base_url: str,
@@ -386,6 +592,7 @@ def _report_rows(
     resumable_source_manager: ResumableSourceManager[GladlyResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    schema_has_ever_synced: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     @retry(
         retry=retry_if_exception_type((GladlyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -424,6 +631,9 @@ def _report_rows(
     # The columns the stream is keyed on. An injected `_row_id` is built from the row
     # rather than read from the report, so it is never required of the header.
     required_columns = {incremental_field["field"] for incremental_field in config.incremental_fields}
+    required_columns.update(config.report_row_id_columns)
+    if config.report_final_row_column is not None:
+        required_columns.add(config.report_final_row_column)
     if not inject_row_id:
         required_columns.add(config.primary_key)
 
@@ -459,25 +669,37 @@ def _report_rows(
             raise GladlyReportHeaderError(metric_set, missing, present)
         return reader
 
+    report_never_served = not schema_has_ever_synced and (
+        resume_config is None or resume_config.last_report_window_end is None
+    )
+
     is_first_request = True
     while window_start <= today:
         window_end = min(window_start + timedelta(days=config.report_window_days - 1), today)
         if not is_first_request:
             time.sleep(REPORT_REQUEST_INTERVAL_SECONDS)
         is_first_request = False
-        reader = open_report(
-            {
-                "metricSet": metric_set,
-                # Explicit UTC keeps window boundaries and rendered timestamps
-                # stable even if the organization's default timezone changes.
-                "timezone": "UTC",
-                # endAt is inclusive: the report covers through the end of that day.
-                "startAt": window_start.isoformat(),
-                "endAt": window_end.isoformat(),
-            },
-            window_start,
-            window_end,
-        )
+        payload = {
+            "metricSet": metric_set,
+            # Explicit UTC keeps window boundaries and rendered timestamps
+            # stable even if the organization's default timezone changes.
+            "timezone": "UTC",
+        }
+        if config.report_uses_time_range:
+            # endAtTime is inclusive through the 59th second of the minute given.
+            payload["startAtTime"] = f"{window_start.isoformat()}T00:00Z"
+            payload["endAtTime"] = f"{window_end.isoformat()}T23:59Z"
+        else:
+            # endAt is inclusive: the report covers through the end of that day.
+            payload["startAt"] = window_start.isoformat()
+            payload["endAt"] = window_end.isoformat()
+        try:
+            reader = open_report(payload, window_start, window_end)
+        except GladlyReportUnavailableError as e:
+            if report_never_served:
+                raise GladlyReportNotAvailableForAccountError(metric_set, e.header) from e
+            raise
+        report_never_served = False
         columns = {name: _normalize_report_column(name) for name in reader.fieldnames or []}
 
         row_count = 0
@@ -490,10 +712,12 @@ def _report_rows(
                 value = csv_row.get(raw_name)
                 # Blank CSV cells become NULL (e.g. topic columns of non-topic events).
                 row[column] = None if value == "" else value
-            if inject_row_id:
-                row[REPORT_ROW_ID_COLUMN] = _report_row_id(row)
-            chunk.append(row)
             row_count += 1
+            if config.report_final_row_column is not None and row.get(config.report_final_row_column) is None:
+                continue
+            if inject_row_id:
+                row[REPORT_ROW_ID_COLUMN] = _report_row_id(row, config.report_row_id_columns)
+            chunk.append(row)
             if len(chunk) >= CHUNK_SIZE:
                 yield chunk
                 chunk = []
@@ -522,6 +746,7 @@ def gladly_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     domain: str = DEFAULT_DOMAIN,
+    schema_has_ever_synced: bool = False,
 ) -> SourceResponse:
     config = GLADLY_ENDPOINTS[endpoint]
 
@@ -537,6 +762,7 @@ def gladly_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             domain=domain,
+            schema_has_ever_synced=schema_has_ever_synced,
         ),
         primary_keys=[config.primary_key],
         partition_count=1,

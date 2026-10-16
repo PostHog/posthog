@@ -29,7 +29,7 @@ TEST_TIME = dt.datetime.now(dt.UTC).replace(hour=0, minute=0, second=0, microsec
 
 TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
     BatchExportModel(
-        name="a-custom-model",
+        name="events",
         schema={
             "fields": [
                 {"expression": "event", "alias": "event"},
@@ -135,7 +135,7 @@ async def assert_clickhouse_records_in_bigquery(
                 batch_export_model.schema["values"] if batch_export_model.schema is not None else None
             )
         else:
-            model_name = "custom"
+            model_name = "events"
             fields = batch_export_model["fields"]
             filters = None
             extra_query_parameters = batch_export_model["values"]
@@ -220,6 +220,9 @@ async def assert_clickhouse_records_in_bigquery(
         inserted_records = [record for record in inserted_records if not is_record_seen(record)]
 
     assert len(inserted_records) == len(expected_records)
+
+    if model_name == "events" and fields is None and expected_fields is None:
+        assert "person_id" in inserted_records[0]
 
     # Ordering is not guaranteed, so we sort before comparing.
     inserted_records.sort(key=operator.itemgetter(sort_key))

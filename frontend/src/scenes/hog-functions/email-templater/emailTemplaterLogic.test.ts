@@ -1,14 +1,20 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { Realm } from '~/types'
 
 import {
     EMAIL_TYPE_SUPPORTED_FIELDS,
     EditorRef,
     EmailTemplate,
     EmailTemplaterLogicProps,
+    buildPersonPropertyMergeValue,
     emailTemplaterLogic,
 } from './emailTemplaterLogic'
 
@@ -128,6 +134,34 @@ describe('emailTemplaterLogic', () => {
                 revealedAdvancedFields: ['replyTo'],
                 visibleFields: expect.arrayContaining([expect.objectContaining({ key: 'replyTo' })]),
             })
+        })
+    })
+
+    describe('email media library', () => {
+        it.each([
+            {
+                description: 'identifies the project to Unlayer in the native editor',
+                type: 'native_email',
+                flagOn: true,
+                identified: true,
+            },
+            {
+                description: 'leaves Unlayer anonymous with the flag off',
+                type: 'native_email',
+                flagOn: false,
+                identified: false,
+            },
+            { description: 'leaves the destination editor untouched', type: 'email', flagOn: true, identified: false },
+        ] as const)('$description', ({ type, flagOn, identified }) => {
+            preflightLogic.mount()
+            preflightLogic.actions.loadPreflightSuccess({ realm: Realm.Cloud } as any)
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_MEDIA_LIBRARY]: flagOn })
+
+            logic = emailTemplaterLogic(makeProps({ type }))
+            logic.mount()
+
+            expect(logic.values.unlayerEditorUser?.id.startsWith('project-') ?? false).toBe(identified)
         })
     })
 
@@ -484,16 +518,22 @@ describe('emailTemplaterLogic', () => {
             expect(loadDesign).toHaveBeenLastCalledWith(DESIGN_EXTERNAL)
         })
 
-        it('does not reload the canvas when our own edit echoes back through the parent', async () => {
+        it.each([
+            ['as exported', DESIGN_EDITED],
+            [
+                'after a save drops undefined keys',
+                { body: { ...DESIGN_EDITED.body, values: { fontFamily: undefined } } },
+            ],
+        ])('does not reload the canvas when our own edit echoes back through the parent %s', async (_, exported) => {
             jest.useFakeTimers()
-            editorDesign = DESIGN_EDITED
+            editorDesign = exported
             editorListeners['design:updated']()
             await jest.advanceTimersByTimeAsync(500)
             jest.useRealTimers()
             await expectLogic(logic).toFinishAllListeners()
             expect(onChange).toHaveBeenCalledTimes(1)
 
-            updateProps({ design: DESIGN_EDITED })
+            updateProps({ design: JSON.parse(JSON.stringify(exported)) })
             await expectLogic(logic).toFinishAllListeners()
 
             expect(loadDesign).toHaveBeenCalledTimes(1)
@@ -620,5 +660,20 @@ describe('emailTemplaterLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.isModalOpen).toBe(true)
         })
+    })
+})
+
+describe('buildPersonPropertyMergeValue', () => {
+    // Never emit double quotes: they end an HTML attribute like a link href, and entity-encoded they
+    // render an empty value. A bare identifier uses dot access; everything else uses single-quoted
+    // brackets.
+    it.each([
+        ['first_name', '{{person.properties.first_name}}'],
+        ['$browser', "{{person.properties['$browser']}}"],
+        ['renews on', "{{person.properties['renews on']}}"],
+        ['a.b', "{{person.properties['a.b']}}"],
+        ["it's", "{{person.properties['it\\'s']}}"],
+    ])('builds %s as %s', (name, expected) => {
+        expect(buildPersonPropertyMergeValue(name)).toBe(expected)
     })
 })

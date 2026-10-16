@@ -15,6 +15,12 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: conversations
+scout-precheck-query: |
+  SELECT event, count() AS events, max(timestamp) AS last_seen
+  FROM events
+  WHERE (startsWith(event, '$conversation_ticket') OR startsWith(event, '$conversation_message'))
+    AND timestamp > {now} - INTERVAL 30 DAY
+  GROUP BY event
 ---
 
 # Signals scout: Conversations (support inbox)
@@ -41,8 +47,11 @@ Your unit is always a dated, dimension-named operational metric across many tick
 
 ## Quick close-out: is the inbox even in use?
 
-If `$conversation_ticket_created` is absent from `top_events` (and `$conversation_message_sent` / `_received` are too), the Conversations product isn't in use here.
-`top_events` counts are windowed, so before closing out a busy-looking project, rule out a capture gap with one `execute-sql` over 30 days:
+A scheduled run can start with a `<precheck_result>` block. Its rows are the result of the 30-day query below, so the inbox is in use. When the block is present, skip the `not-in-use` check. The baseline close-out still applies.
+
+If the profile's `surfaces["signals-scout-conversations"]` entry reads `in_use: false`, the Conversations product isn't in use here.
+Do not read absence from `top_events` as "not in use": it keeps only the top events by volume, and a quiet inbox falls off it.
+When the entry reads `in_use: null`, check with one `execute-sql` over 30 days:
 
 ```sql
 SELECT event, count() AS c, max(timestamp) AS last_seen

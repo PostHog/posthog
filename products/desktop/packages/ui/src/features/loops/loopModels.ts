@@ -1,6 +1,5 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { getReasoningEffortOptions } from "@posthog/agent/adapters/reasoning-effort";
-import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   flattenSelectOptions,
   formatModelId,
@@ -13,6 +12,7 @@ import {
   DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
   labelForModel,
 } from "@posthog/shared/model-catalog";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import type { ModelRolloutFlags } from "../sessions/modelOptionFilters";
 
 export interface LoopModelOption {
@@ -61,7 +61,9 @@ const FALLBACK_MODEL_IDS: Record<
   claude: [
     "claude-opus-4-8",
     "claude-opus-5",
+    "claude-opus-5-5",
     "claude-sonnet-5",
+    "claude-sonnet-5-5",
     "claude-fable-5",
     "claude-fable-5-1",
     "zai-org/glm-5.3",
@@ -75,6 +77,9 @@ const FALLBACK_MODEL_IDS: Record<
     "gpt-5.6-terra",
     "gpt-5.6-luna",
     "gpt-6-astra",
+    "gpt-6-sol",
+    "gpt-6.1-sol",
+    "gpt-6-luna",
   ],
 };
 

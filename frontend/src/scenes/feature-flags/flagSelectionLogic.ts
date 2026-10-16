@@ -545,12 +545,14 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 bulkDeleteFlags: async ({ ids, allMatching }: { ids: number[]; allMatching: boolean }) => {
                     if (allMatching) {
                         const { limit, offset, ...filters } = values.paramsFromFilters
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsBulkDeleteCreate() from 'products/feature_flags/frontend/generated/api' instead.
                         const response = await api.create(
                             `api/projects/${values.currentProjectId}/feature_flags/bulk_delete/`,
                             { filters }
                         )
                         return response as BulkDeleteResult
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsBulkDeleteCreate() from 'products/feature_flags/frontend/generated/api' instead.
                     const response = await api.create(
                         `api/projects/${values.currentProjectId}/feature_flags/bulk_delete/`,
                         { ids }

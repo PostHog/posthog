@@ -1,13 +1,14 @@
-"""Assemble a completed metrics recalculation from the timeseries points of one daily run.
+"""Assemble a completed metrics recalculation from the timeseries points of one scheduled run.
 
-The daily timeseries workflows stamp each metric's query_to at the moment its own activity runs, so the points of one
-run land seconds to minutes apart and never share an exact window. This module accepts that approximation: every
+The scheduled timeseries workflows stamp each metric's query_to at the moment its own activity runs, so the points of
+one run land seconds to minutes apart and never share an exact window. This module accepts that approximation: every
 metric whose newest completed point falls inside the run qualifies, and the copies land under one shared query_to so
 the recalculation reads (`get_run_results`, derived counters, the metric-config-change window reuse) work unchanged.
 
 Two workflows (inline metrics, saved metrics) run per hour and each calls this for the same experiment with its own
-run start. The row belongs to the experiment's daily run, not to one workflow: the first pass creates it, and a later
-pass adds the copies the row still lacks.
+run start. The row belongs to one scheduled run of the experiment, not to one workflow: the first pass creates it,
+and a later pass in the same hour adds the copies the row still lacks. The lookup is scoped to the run's start, so a
+team with a second recalculation time later in the day gets a fresh row for that run.
 """
 
 from datetime import datetime, timedelta
@@ -20,23 +21,17 @@ import structlog
 
 from posthog.models.scoping import team_scope
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_calculation.config import MetricCalculationConfig, build_calculation_configs
+from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_resolution import is_daily_timeseries_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.recalculation import get_active_recalculation
-from products.experiments.backend.temporal.metric_resolution import find_metric_dict, is_daily_timeseries_metric
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
-from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
 
 logger = structlog.get_logger(__name__)
-
-# The copies land one second past the newest point. A copy at a point's own query_to would share its
-# (experiment, metric_uuid, query_to) key with the timeseries row and rewrite that row's fingerprint.
-_WINDOW_OFFSET = timedelta(seconds=1)
 
 # The two hourly workflows start within the same cron minute; yesterday's sync row is a day older.
 _SAME_RUN_LOOKBACK = timedelta(hours=1)
@@ -45,12 +40,12 @@ _SAME_RUN_LOOKBACK = timedelta(hours=1)
 def sync_timeseries_recalculation(
     experiment_id: int, *, team_id: int, run_started_at: datetime, now: datetime | None = None
 ) -> str | None:
-    """Copy the timeseries points written between run_started_at and now into this daily run's recalculation.
+    """Copy the timeseries points written between run_started_at and now into this run's recalculation.
 
     Returns the recalculation id when a row was created or gained copies, else None: no metric has a point
-    inside the run, the day's sync row already holds every point, or another run's window already reaches the
+    inside the run, the run's sync row already holds every point, or another run's window already reaches the
     oldest qualifying point. A supported metric without a point is counted in total_metrics but gets no copy, so
-    the frontend sees the gap and heals it. Metric types the daily run cannot compute are left out of the row.
+    the frontend sees the gap and heals it. Metric types the scheduled run cannot compute are left out of the row.
     """
     now = now or timezone.now()
     with team_scope(team_id, canonical=True), transaction.atomic():
@@ -66,36 +61,16 @@ def sync_timeseries_recalculation(
         if experiment.start_date is None:
             return None
 
-        stats_method = get_experiment_stats_method(experiment)
+        store = MetricResultStore(experiment_id=experiment.id)
         metric_uuids: list[str] = []
-        points: dict[str, tuple[str, ExperimentMetricResult]] = {}
-        for metric in discover_experiment_metrics(experiment):
-            metric_dict = find_metric_dict(experiment, metric.metric_uuid)
-            if metric_dict is None or not is_daily_timeseries_metric(metric_dict):
+        points: dict[str, tuple[MetricCalculationConfig, ExperimentMetricResult]] = {}
+        for calculation_config in build_calculation_configs(experiment):
+            if not is_daily_timeseries_metric(calculation_config.definition):
                 continue
-            metric_uuids.append(metric.metric_uuid)
-            config_fp = compute_metric_fingerprint(
-                metric_dict,
-                experiment.start_date,
-                stats_method,
-                experiment.exposure_criteria,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants,
-            )
-            row = (
-                ExperimentMetricResult.objects.filter(
-                    experiment=experiment,
-                    metric_uuid=metric.metric_uuid,
-                    fingerprint=config_fp,
-                    status=ExperimentMetricResult.Status.COMPLETED,
-                    query_to__gte=run_started_at,
-                    query_to__lte=now,
-                )
-                .order_by("-query_to")
-                .first()
-            )
+            metric_uuids.append(calculation_config.metric_id)
+            row = store.latest_daily_point(calculation_config, since=run_started_at, until=now)
             if row is not None:
-                points[metric.metric_uuid] = (compute_recalc_fingerprint(config_fp), row)
+                points[calculation_config.metric_id] = (calculation_config, row)
 
         if not points:
             return None
@@ -113,15 +88,13 @@ def sync_timeseries_recalculation(
             .first()
         )
         if recalculation is not None and recalculation.query_to is not None:
-            already_copied = set(
-                ExperimentMetricResult.objects.filter(
-                    experiment=experiment, query_to=recalculation.query_to, metric_uuid__in=points.keys()
-                ).values_list("metric_uuid", flat=True)
-            )
+            already_copied = store.metric_uuids_stored_at(recalculation.query_to, points.keys())
             missing = {uuid: point for uuid, point in points.items() if uuid not in already_copied}
             if not missing:
                 return None
-            _copy_points(experiment, recalculation.query_to, missing, now)
+            store.copy_into_sync_run(
+                recalculation.query_to, missing.values(), query_from=experiment.start_date, completed_at=now
+            )
             copied = len(missing)
         else:
             # A run that already reaches the oldest point covers this data. Trigger-failure tombstones never got
@@ -135,18 +108,19 @@ def sync_timeseries_recalculation(
             if already_covered or get_active_recalculation(experiment) is not None:
                 return None
 
+            window = MetricResultStore.sync_copy_window(newest_point)
             recalculation = ExperimentMetricsRecalculation.objects.create(
                 team=experiment.team,
                 experiment=experiment,
                 status=ExperimentMetricsRecalculation.Status.COMPLETED,
                 trigger=ExperimentMetricsRecalculation.Trigger.TIMESERIES_SYNC,
-                query_to=newest_point + _WINDOW_OFFSET,
+                query_to=window,
                 started_at=now,
                 completed_at=now,
                 total_metrics=len(metric_uuids),
                 metric_uuids=metric_uuids,
             )
-            _copy_points(experiment, newest_point + _WINDOW_OFFSET, points, now)
+            store.copy_into_sync_run(window, points.values(), query_from=experiment.start_date, completed_at=now)
             copied = len(points)
 
     logger.info(
@@ -157,26 +131,3 @@ def sync_timeseries_recalculation(
         total_metrics=len(metric_uuids),
     )
     return str(recalculation.id)
-
-
-def _copy_points(
-    experiment: Experiment,
-    window: datetime,
-    points: dict[str, tuple[str, ExperimentMetricResult]],
-    now: datetime,
-) -> None:
-    for metric_uuid, (recalc_fp, row) in points.items():
-        ExperimentMetricResult.objects.update_or_create(
-            experiment=experiment,
-            metric_uuid=metric_uuid,
-            query_to=window,
-            defaults={
-                "fingerprint": recalc_fp,
-                "query_from": experiment.start_date,
-                "status": ExperimentMetricResult.Status.COMPLETED,
-                "result": row.result,
-                "query_id": None,
-                "completed_at": now,
-                "error_message": None,
-            },
-        )

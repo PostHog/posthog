@@ -252,6 +252,7 @@ class TestCheckSuiteActivities(BaseTest):
         run = DataQualityCheckRun.objects.for_team(self.team.id).get(suite_run_id=prepared.suite_run_id)
         assert run.status == CheckRunStatus.ERRORED
         assert "staged files" in run.error
+        assert run.audited_staged_refresh
 
     def _fail_checks(self, checks: list[DataQualityCheck]) -> str:
         suite_run_id = self._prepare(created_by_id=self.user.id).suite_run_id

@@ -1,7 +1,9 @@
 # Session replay structured data index
 
 The ML mirror extracts a sparse index for full snapshots, `$json_ld` custom events, and URL changes.
-Both versions store separate Parquet index files; v2 encrypts the projected entries and also retains the original entries in encrypted block metadata.
+Every version stores separate Parquet index files.
+V2 encrypts the projected entries and also retains the original entries in encrypted block metadata.
+V3 stores the projected entries as plain Parquet columns.
 Use it to find candidate labels and block locations without downloading DOM payloads.
 The native anonymizer extracts metadata after scrubbing and passes it beside the serialized recording bytes.
 The ordinary replay ingestion path does not extract this index.
@@ -39,12 +41,34 @@ Each returned block contains raw team and session IDs, its storage key and byte 
 The entries retain their original fields, including `windowId`, `eventTimestamp`, `eventIndex`, and `rootTypes`.
 These original metadata entries are separate from the projected, URL-enriched entries returned by `replay_index()`.
 
-When reading original entries through `metadata()` instead of the separate index, data preparation must validate and flatten them before using the SQL example below.
+When reading original entries through `metadata()` instead of the separate index, data preparation must validate and flatten them before applying the pairing rules below.
 Attach the block's identifiers and storage location to each entry, and apply the URL matching rules in this guide.
 Map `windowId` to `window_id`, `eventTimestamp` to `event_ts_ms`, `eventIndex` to `event_index`, and `rootTypes` to `root_types`.
 Map the block's `replay_index_truncated` flag to `block_index_truncated`.
-The encrypted reader returns metadata; it does not create these query views.
+The encrypted reader returns metadata; it does not flatten the entries.
 Use `ReplayV2Reader.recording()` to fetch and decrypt selected recording blocks before inspecting their events.
+
+### Plain v3 index and metadata
+
+A session that starts at or after the v3 cutoff writes to the v3 bucket.
+V3 writes `block-metadata/v3/<YYYY-MM>/part-<writer>-<time>-<sequence>.parquet` and `block-metadata-replay-index/v3/<YYYY-MM>/kind=<kind>/part-<writer>-<time>-<sequence>.parquet`, partitioned by the session's UTC start month.
+Both files use plain Parquet columns with real team and session IDs, so a reader queries them without a key.
+The index has the v1 columns, including the scrubbed `url`.
+The metadata keeps the v1 columns, including the scrubbed `first_url` and `urls`, and has no `replay_index_entries`.
+Deletion does not remove rows from these files, and the sink does not check session keys for v3 rows.
+The recording blocks that the rows of a deleted session point to become unreadable when the session key is shredded and its cached copies expire.
+
+A v3 prefix can also hold objects in the sealed format, mostly under 2026-09.
+A sealed object has a `payload` column that holds an encrypted JSON envelope, and a plain object has no `payload` column.
+A reader checks each object in every month, decrypts a sealed object as it decrypts v2 objects, and reads a plain object directly.
+The two formats carry some metadata fields differently:
+
+| Field               | Sealed payload (JSON)                                 | Plain object (Parquet)                                                                                     |
+| ------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Block start and end | `first_ts_ms` and `last_ts_ms`, in epoch milliseconds | `first_ts` and `last_ts`, as UTC timestamps                                                                |
+| Identifier scheme   | `format_version`, which is 2                          | No `format_version` column: the `/v3/` path shows that the `team_id` and `session_id` columns hold raw IDs |
+| Session start       | `session_start_ts_ms`                                 | No column: decode it from the UUIDv7 session ID                                                            |
+| Index entries       | `replay_index_entries` and `replay_index_truncated`   | No column: read the separate index                                                                         |
 
 ### Legacy v1 sparse index
 
@@ -79,7 +103,7 @@ For an event-time search, include the preceding seven session-start dates and fi
 
 ## Full snapshot URLs
 
-The metadata consumer enriches projected v1 and v2 index rows before writing Parquet.
+The metadata consumer enriches the projected index rows of every version before writing Parquet.
 Apply these same matching rules if preparing original entries from decrypted v2 block metadata instead.
 For JSON-LD, it copies the URL from the `page` entry at the same event index, then omits that duplicate page row.
 For a full snapshot, it uses a URL entry at the same event index or the immediately preceding event index.
@@ -99,64 +123,131 @@ Payload validation must account for this limit.
 
 ## Pairing labels with snapshots
 
-For v1, read the requested session-start partitions into DuckDB views named `labels`, `snapshots`, and `pages`.
-For v2, create these views from `ReplayV2Reader.replay_index()` results for the requested monthly partitions and kinds.
-Use `union_by_name=true` when reading Parquet files across schema versions.
-The following query finds candidates by URL and time, including separate blocks and out-of-order arrivals.
+Pair labels with snapshots in Athena.
+Athena reads the plain v1 and v3 index files.
+It cannot read sealed entries, which are the v2 index and the sealed objects under the v3 prefix.
+Decrypt those entries with the encrypted reader, and apply the same rules to them.
+
+An Athena table over the v3 index uses these columns and partitions:
+
+```sql
+CREATE EXTERNAL TABLE replay_index_v3 (
+    team_id string,
+    session_id string,
+    window_id string,
+    session_start_ts_ms double,
+    event_ts_ms double,
+    block_index_truncated boolean,
+    event_index int,
+    full_snapshot_ts_ms double,
+    root_types array<string>,
+    url string,
+    block_s3_key string,
+    block_byte_start double,
+    block_byte_end double,
+    payload binary
+)
+PARTITIONED BY (session_month string, kind string)
+STORED AS PARQUET
+LOCATION 's3://<v3-bucket>/block-metadata-replay-index/v3/'
+TBLPROPERTIES (
+    'projection.enabled' = 'true',
+    'projection.session_month.type' = 'date',
+    'projection.session_month.format' = 'yyyy-MM',
+    'projection.session_month.range' = '2026-09,NOW',
+    'projection.session_month.interval' = '1',
+    'projection.session_month.interval.unit' = 'MONTHS',
+    'projection.kind.type' = 'enum',
+    'projection.kind.values' = 'json_ld,full_snapshot,page',
+    'storage.location.template' = 's3://<v3-bucket>/block-metadata-replay-index/v3/${session_month}/kind=${kind}/'
+)
+```
+
+The v3 path does not write its month as `key=value`, so the table finds each partition through `storage.location.template`.
+The `kind` partition supplies the `kind` value, because an Athena table cannot use one name for a column and a partition.
+Only a sealed object has a `payload` value, so the query keeps the rows where `payload` is null.
+A v1 table uses the same columns at `block-metadata-replay-index/v1/`, with a `session_start_date` partition in place of `session_month`.
+
+Set the session months and the training team IDs in `index_rows` before you run the query.
+For v1, filter on `session_start_date` in place of `session_month`.
+The query finds candidates by URL and time, including separate blocks and out-of-order arrivals.
 Its one-second Meta gap and two-second label gap are example selection parameters, not SDK guarantees.
 Measure match coverage and audit payloads before choosing the final thresholds.
 
 ```sql
-WITH page_urls AS (
+WITH index_rows AS (
+    SELECT *
+    FROM replay_index_v3
+    WHERE session_month IN ('2026-10', '2026-11')
+      AND payload IS NULL
+      AND team_id NOT IN ('<training team ID>')
+), labels AS (
+    SELECT * FROM index_rows WHERE kind = 'json_ld'
+), snapshots AS (
+    SELECT * FROM index_rows WHERE kind = 'full_snapshot'
+), pages AS (
+    SELECT * FROM index_rows WHERE kind = 'page'
+), page_urls AS (
     SELECT team_id, session_id, window_id, event_ts_ms,
            CASE WHEN count(url) = count(*) AND count(DISTINCT url) = 1
                 THEN min(url) END AS url
     FROM pages
     GROUP BY team_id, session_id, window_id, event_ts_ms
+), snapshot_rows AS (
+    SELECT DISTINCT team_id, session_id, window_id, event_ts_ms, event_index, url,
+           block_s3_key, block_byte_start, block_byte_end
+    FROM snapshots
 ), snapshot_urls AS (
-    SELECT s.* EXCLUDE (url),
-           coalesce(s.url, CASE WHEN s.event_ts_ms - p.event_ts_ms <= 1000
-                               THEN p.url END) AS url
-    FROM (SELECT DISTINCT * FROM snapshots) s
-    ASOF LEFT JOIN page_urls p
-      ON s.team_id = p.team_id
-     AND s.session_id = p.session_id
-     AND s.window_id = p.window_id
-     AND s.event_ts_ms >= p.event_ts_ms
+    -- Athena has no ASOF join, so this takes the latest page row at or before each snapshot.
+    SELECT s.team_id, s.session_id, s.window_id, s.event_ts_ms, s.event_index,
+           s.block_s3_key, s.block_byte_start, s.block_byte_end,
+           coalesce(s.url, CASE WHEN s.event_ts_ms - max(p.event_ts_ms) <= 1000
+                                THEN max_by(p.url, p.event_ts_ms) END) AS url
+    FROM snapshot_rows s
+    LEFT JOIN page_urls p
+      ON p.team_id = s.team_id
+     AND p.session_id = s.session_id
+     AND p.window_id = s.window_id
+     AND p.event_ts_ms <= s.event_ts_ms
+    GROUP BY s.team_id, s.session_id, s.window_id, s.event_ts_ms, s.event_index, s.url,
+             s.block_s3_key, s.block_byte_start, s.block_byte_end
 ), incomplete_sessions AS (
     SELECT team_id, session_id FROM labels WHERE block_index_truncated
     UNION
     SELECT team_id, session_id FROM snapshots WHERE block_index_truncated
     UNION
     SELECT team_id, session_id FROM pages WHERE block_index_truncated
+), candidates AS (
+    SELECT
+        j.team_id, j.session_id, j.window_id, j.url, j.root_types,
+        j.event_ts_ms AS label_ts_ms, s.event_ts_ms AS snapshot_ts_ms,
+        j.block_s3_key AS label_block, j.block_byte_start AS label_start,
+        j.block_byte_end AS label_end, j.event_index AS label_event_index,
+        s.block_s3_key AS snapshot_block, s.block_byte_start AS snapshot_start,
+        s.block_byte_end AS snapshot_end, s.event_index AS snapshot_event_index
+    FROM labels j
+    JOIN snapshot_urls s
+      ON j.team_id = s.team_id
+     AND j.session_id = s.session_id
+     AND j.window_id = s.window_id
+     AND j.url = s.url
+     AND abs(j.event_ts_ms - s.event_ts_ms) <= 2000
+    LEFT JOIN incomplete_sessions i
+      ON i.team_id = j.team_id AND i.session_id = j.session_id
+    WHERE j.url IS NOT NULL AND j.url <> ''
+      AND i.team_id IS NULL
 )
-SELECT DISTINCT
-    j.team_id, j.session_id, j.window_id, j.url, j.root_types,
-    j.event_ts_ms AS label_ts_ms, s.event_ts_ms AS snapshot_ts_ms,
-    j.block_s3_key AS label_block, j.block_byte_start AS label_start,
-    j.block_byte_end AS label_end, j.event_index AS label_event_index,
-    s.block_s3_key AS snapshot_block, s.block_byte_start AS snapshot_start,
-    s.block_byte_end AS snapshot_end, s.event_index AS snapshot_event_index
-FROM labels j
-JOIN snapshot_urls s
-  ON j.team_id = s.team_id
- AND j.session_id = s.session_id
- AND j.window_id = s.window_id
- AND j.url = s.url
- AND abs(j.event_ts_ms - s.event_ts_ms) <= 2000
-WHERE j.url IS NOT NULL AND j.url <> ''
-  AND NOT EXISTS (
-      SELECT 1 FROM incomplete_sessions i
-      WHERE i.team_id = j.team_id AND i.session_id = j.session_id
-  )
-  AND NOT EXISTS (
-      SELECT 1 FROM page_urls p
-      WHERE p.team_id = j.team_id AND p.session_id = j.session_id
-        AND p.window_id = j.window_id
-        AND p.event_ts_ms BETWEEN least(j.event_ts_ms, s.event_ts_ms)
-                              AND greatest(j.event_ts_ms, s.event_ts_ms)
-        AND p.url IS DISTINCT FROM j.url
-  );
+-- Keep a pair only when no page row with another URL falls between the label and the snapshot.
+SELECT DISTINCT c.*
+FROM candidates c
+LEFT JOIN page_urls p
+  ON p.team_id = c.team_id
+ AND p.session_id = c.session_id
+ AND p.window_id = c.window_id
+ AND p.event_ts_ms BETWEEN least(c.label_ts_ms, c.snapshot_ts_ms)
+                       AND greatest(c.label_ts_ms, c.snapshot_ts_ms)
+ AND p.url IS DISTINCT FROM c.url
+WHERE p.team_id IS NULL
 ```
 
 This query returns candidates, not verified pairs.
@@ -184,14 +275,14 @@ Exclude JSON-LD rows without URLs; do not infer those URLs from older SDK naviga
 Use the `url` on each `json_ld` row for site and page coverage.
 The SDK captures it in `data.href` at the same time as the label, after applying replay URL masking and hash settings.
 The shared recorder emits a label entry and a URL entry for that event.
-The consumer combines them by event index for both versions of the separate index.
+The consumer combines them by event index for every version of the separate index.
 The anonymizer scrubs it again before extracting index metadata.
 This works when navigation events and JSON-LD arrive in separate payloads and needs no session URL cache.
 
 Exclude rows without a usable URL from coverage counts and dataset selection.
 Older SDKs do not send this field; URL masking can also omit it.
 The index retains those rows, but coverage queries do not infer their URLs from `page` events.
-Both index versions omit the duplicate `page` row for JSON-LD events with a URL.
+Every index version omits a `page` row at the event index of a JSON-LD or full-snapshot row, and moves its URL onto that row.
 The original entries inside encrypted v2 block metadata retain both entries.
 
 Count distinct normalized scrubbed URLs as page families.
@@ -216,7 +307,8 @@ Exclude cross-split content duplicates or keep their domain groups together befo
 
 The v1 layout supports a bounded-date Parquet scan followed by selective block fetches.
 V2 readers select monthly index objects, decrypt their entries, and then fetch selected blocks.
-It does not provide an S3 point lookup by domain or URL: those filters still scan the selected date partitions.
+V3 readers scan the monthly index objects directly, and then fetch selected blocks.
+No layout provides an S3 point lookup by domain or URL: those filters still scan the selected partitions.
 Cache the selected index locally for repeated sampling and split experiments.
 A compacted metadata table can reduce file-listing overhead later without changing SDK capture or replay storage.
 
@@ -228,13 +320,14 @@ The metadata batcher also flushes at 32 MiB of input messages and buffered encry
 This limits accumulation to that threshold plus one input batch; decoded objects and Parquet encoding require additional memory.
 The legacy metadata sink writes index partitions sequentially.
 The v2 sink writes encrypted index partitions and metadata by session month.
-Both paths commit Kafka offsets only after their storage writes succeed.
+The v3 sink writes plain index partitions and metadata by session month.
+Every path commits Kafka offsets only after its storage writes succeed.
 A partial upload followed by a retry can produce duplicate rows.
 Deduplicate rows by team, session, block key, byte range, event index, and kind before counting them.
 Repeated source blocks can also have different storage keys, so dataset preparation still needs content deduplication.
 
 The existing write-error metric includes storage failures.
-The following index counters cover both index versions.
+The following index counters cover every index version.
 `ml_mirror_replay_index_rows_written_total` counts uploaded entries by kind, including retries.
 `ml_mirror_replay_index_skipped_total` counts invalid entries, blocks without a usable session start, and truncated blocks.
 These counters measure indexing, not unique sessions or pages.
@@ -247,7 +340,7 @@ This change does not backfill old recordings.
 ## JSON-LD URL rollout
 
 Deploy the anonymizer that scrubs `data.href` before releasing the SDK change that sends it.
-The metadata consumer populates URLs on JSON-LD and full-snapshot index rows for both versions.
+The metadata consumer populates URLs on JSON-LD and full-snapshot index rows for every version.
 The separate v2 index encrypts those projected rows before storage.
 The existing schema and shared recorder already provide the fields needed by that consumer.
 Full-snapshot URL enrichment also works with older SDKs that send Meta events; JSON-LD coverage still requires the SDK URL addition.

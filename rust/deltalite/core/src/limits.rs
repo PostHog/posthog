@@ -10,8 +10,17 @@
 //! Every acquisition therefore goes through BOTH a per-call semaphore (preserving the
 //! per-call knobs) and a process-global one from this module, so the process-level bound
 //! means what it says regardless of how many upserts run concurrently. Acquisition order
-//! is fixed everywhere -- partition -> file -> bytes, local before global at each level
-//! -- so the two layers cannot deadlock against each other.
+//! is fixed everywhere -- partition -> file -> fetch -> bytes, local before global at
+//! each level -- so the two layers cannot deadlock against each other.
+//!
+//! The fetch budget covers the *compressed* row-group bytes a Parquet reader pulls from
+//! storage before it can decode anything: the async reader fetches every projected
+//! column chunk of a row group in one go and holds them until that row group is decoded,
+//! so a reader of a single-row-group file holds the whole file. The decode budget
+//! (`bytes`) never saw those bytes. A reader takes its fetch permit once per file, before
+//! the first byte of data is fetched, and keeps it until the stream is dropped; it may
+//! take decode permits while holding it, but nothing ever waits on a fetch permit while
+//! holding decode budget, so the two budgets cannot form a cycle.
 //!
 //! Limits are injected as an [`Arc<ProcessLimits>`] rather than read from a hidden
 //! static, so tests can build isolated instances; the binding crate passes
@@ -30,16 +39,26 @@ pub const DEFAULT_PROCESS_MAX_PARALLEL_PARTITIONS: usize = 8;
 pub const DEFAULT_PROCESS_MAX_PARALLEL_FILES: usize = 16;
 /// Default process-wide cap on decompressed survivor bytes in flight.
 pub const DEFAULT_PROCESS_MAX_BUFFERED_BYTES: usize = 256 * 1024 * 1024;
+/// Default process-wide cap on compressed row-group bytes held by readers.
+pub const DEFAULT_PROCESS_MAX_FETCH_BYTES: usize = 256 * 1024 * 1024;
 /// Default ceiling for the source-size guard (resident source + estimated PK set).
 pub const DEFAULT_MAX_SOURCE_BYTES: usize = 2 * 1024 * 1024 * 1024;
 
 /// Process-wide concurrency budgets shared by every concurrent `upsert` call.
+#[derive(Debug)]
 pub struct ProcessLimits {
     partitions: Arc<Semaphore>,
     files: Arc<Semaphore>,
     buffer: Arc<Semaphore>,
     /// Capacity of `buffer` in KiB (tokio permits are u32-denominated).
     buffer_cap_kb: u32,
+    fetch: Arc<Semaphore>,
+    /// Capacity of `fetch` in KiB.
+    fetch_cap_kb: u32,
+}
+
+fn cap_kb(bytes: usize) -> u32 {
+    (bytes / 1024).clamp(1, u32::MAX as usize) as u32
 }
 
 pub(crate) fn env_usize(name: &str, default: usize) -> usize {
@@ -55,24 +74,60 @@ pub(crate) fn env_usize(name: &str, default: usize) -> usize {
     }
 }
 
+/// Whether the setting `value` of an on/off kill switch keeps the feature on: `0`,
+/// `false`, `off` and `no` turn it off; unset or any other value keeps it on.
+pub(crate) fn switch_setting(value: Option<&str>) -> bool {
+    match value {
+        Some(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "off" | "no"
+        ),
+        None => true,
+    }
+}
+
+/// [`switch_setting`] of the environment variable `name`.
+pub(crate) fn env_switch(name: &str) -> bool {
+    switch_setting(std::env::var(name).ok().as_deref())
+}
+
 impl ProcessLimits {
-    /// Build limits with explicit capacities. Zero capacities are clamped to 1 (a
-    /// zero-permit semaphore would deadlock every upsert forever).
+    /// Build limits with explicit capacities and the default fetch budget. Zero
+    /// capacities are clamped to 1 (a zero-permit semaphore would deadlock every upsert
+    /// forever).
     pub fn new(max_partitions: usize, max_files: usize, max_buffered_bytes: usize) -> Self {
-        let cap_kb = (max_buffered_bytes / 1024).clamp(1, u32::MAX as usize) as u32;
+        Self::with_fetch(
+            max_partitions,
+            max_files,
+            max_buffered_bytes,
+            DEFAULT_PROCESS_MAX_FETCH_BYTES,
+        )
+    }
+
+    /// [`ProcessLimits::new`] with an explicit fetch budget.
+    pub fn with_fetch(
+        max_partitions: usize,
+        max_files: usize,
+        max_buffered_bytes: usize,
+        max_fetch_bytes: usize,
+    ) -> Self {
+        let buffer_cap_kb = cap_kb(max_buffered_bytes);
+        let fetch_cap_kb = cap_kb(max_fetch_bytes);
         Self {
             partitions: Arc::new(Semaphore::new(max_partitions.max(1))),
             files: Arc::new(Semaphore::new(max_files.max(1))),
-            buffer: Arc::new(Semaphore::new(cap_kb as usize)),
-            buffer_cap_kb: cap_kb,
+            buffer: Arc::new(Semaphore::new(buffer_cap_kb as usize)),
+            buffer_cap_kb,
+            fetch: Arc::new(Semaphore::new(fetch_cap_kb as usize)),
+            fetch_cap_kb,
         }
     }
 
     /// Capacities from `DELTALITE_PROCESS_MAX_PARALLEL_PARTITIONS`,
-    /// `DELTALITE_PROCESS_MAX_PARALLEL_FILES` and
-    /// `DELTALITE_PROCESS_MAX_BUFFERED_BYTES`, with the module defaults as fallback.
+    /// `DELTALITE_PROCESS_MAX_PARALLEL_FILES`, `DELTALITE_PROCESS_MAX_BUFFERED_BYTES` and
+    /// `DELTALITE_PROCESS_MAX_FETCH_BYTES`, with the module defaults as fallback.
     pub fn from_env() -> Self {
-        Self::new(
+        Self::with_fetch(
             env_usize(
                 "DELTALITE_PROCESS_MAX_PARALLEL_PARTITIONS",
                 DEFAULT_PROCESS_MAX_PARALLEL_PARTITIONS,
@@ -84,6 +139,10 @@ impl ProcessLimits {
             env_usize(
                 "DELTALITE_PROCESS_MAX_BUFFERED_BYTES",
                 DEFAULT_PROCESS_MAX_BUFFERED_BYTES,
+            ),
+            env_usize(
+                "DELTALITE_PROCESS_MAX_FETCH_BYTES",
+                DEFAULT_PROCESS_MAX_FETCH_BYTES,
             ),
         )
     }
@@ -122,9 +181,34 @@ impl ProcessLimits {
             .map_err(|_| Error::Generic("process byte-budget semaphore closed".into()))
     }
 
+    /// Try to reserve `kb` KiB without waiting. Callers that can fall back to a
+    /// streaming path use this to avoid deadlocking when several operations each hold
+    /// part of the process budget and need one more allocation to finish.
+    pub fn try_acquire_buffer_kb(&self, kb: u32) -> Option<OwnedSemaphorePermit> {
+        self.buffer
+            .clone()
+            .try_acquire_many_owned(kb.min(self.buffer_cap_kb).max(1))
+            .ok()
+    }
+
     /// Capacity of the byte budget in KiB.
     pub fn buffer_cap_kb(&self) -> u32 {
         self.buffer_cap_kb
+    }
+
+    /// Acquire `kb` KiB of the process-global fetch budget, capped at its capacity so a
+    /// row group larger than the whole budget still proceeds (alone).
+    pub async fn acquire_fetch_kb(&self, kb: u32) -> Result<OwnedSemaphorePermit> {
+        self.fetch
+            .clone()
+            .acquire_many_owned(kb.min(self.fetch_cap_kb).max(1))
+            .await
+            .map_err(|_| Error::Generic("process fetch-budget semaphore closed".into()))
+    }
+
+    /// Capacity of the fetch budget in KiB.
+    pub fn fetch_cap_kb(&self) -> u32 {
+        self.fetch_cap_kb
     }
 }
 
@@ -260,9 +344,26 @@ mod tests {
 
     #[tokio::test]
     async fn zero_capacities_are_clamped_to_one() {
-        let limits = ProcessLimits::new(0, 0, 0);
+        let limits = ProcessLimits::with_fetch(0, 0, 0, 0);
         let _p = limits.acquire_partition().await.unwrap();
         let _f = limits.acquire_file().await.unwrap();
         let _b = limits.acquire_buffer_kb(1).await.unwrap();
+        let _x = limits.acquire_fetch_kb(1).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetch_requests_are_capped_and_exclusive_when_oversized() {
+        let limits = ProcessLimits::with_fetch(1, 1, 1024 * 1024, 64 * 1024);
+        assert_eq!(limits.fetch_cap_kb(), 64);
+        // Larger than the whole budget: proceeds, holding all of it.
+        let whole = limits.acquire_fetch_kb(10_000).await.unwrap();
+        let pending = tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            limits.acquire_fetch_kb(1),
+        )
+        .await;
+        assert!(pending.is_err(), "an oversized holder must run alone");
+        drop(whole);
+        let _p = limits.acquire_fetch_kb(1).await.unwrap();
     }
 }

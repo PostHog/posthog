@@ -124,6 +124,18 @@ export function stripTrailingSlash(path: string): string {
     return path
 }
 
+/**
+ * Strips the trailing slash of the path only, so a query string or hash that ends in a slash
+ * (e.g. `?next=/oauth/authorize/`) survives. Safe on a full URL as well as a bare path.
+ */
+export function stripTrailingSlashFromUrl(url: string): string {
+    const separator = url.search(/[?#]/)
+    if (separator === -1) {
+        return stripTrailingSlash(url)
+    }
+    return stripTrailingSlash(url.slice(0, separator)) + url.slice(separator)
+}
+
 export function removeFlagIdIfPresent(path: string): string {
     if (path.match(/^\/feature_flags\/\d+/)) {
         return path.replace(/(feature_flags).*$/, '$1/')
@@ -176,4 +188,9 @@ export function getProjectSwitchTargetUrl(
 
     // Default: keep the same route structure but with new project ID
     return `/project/${newTeamId}${route}`
+}
+
+/** True for `root` itself and for any path below it. Takes paths without the project prefix. */
+export function isUnderPath(path: string, root: string): boolean {
+    return path === root || path.startsWith(`${root}/`)
 }

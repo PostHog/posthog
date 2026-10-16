@@ -1,11 +1,42 @@
-import type { StoredLogEntry } from "@posthog/shared";
+import {
+  getConfigOptionByCategory,
+  type StoredLogEntry,
+} from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   addMissingCloudRuntimeConfigOptions,
   buildCloudDefaultConfigOptions,
+  buildCloudResumeConfigOptions,
   extractLatestConfigOptionsFromEntries,
   getCloudReasoningConfigOptionId,
 } from "./cloudSessionConfig";
+
+it.each([
+  ["codex", "gpt-5.6-sol", "auto", "max"],
+  ["claude", "claude-sonnet-4-6", "acceptEdits", "high"],
+  ["claude", "moonshotai/kimi-k3", "acceptEdits", undefined],
+] as const)(
+  "updates controls for %s model %s",
+  (adapter, model, mode, effort) => {
+    const options = buildCloudResumeConfigOptions(
+      addMissingCloudRuntimeConfigOptions(
+        buildCloudDefaultConfigOptions("acceptEdits", "claude"),
+        "claude",
+        model,
+        "max",
+      ),
+      adapter,
+      model,
+    );
+    expect(getConfigOptionByCategory(options, "mode")?.currentValue).toBe(mode);
+    expect(getConfigOptionByCategory(options, "model")?.currentValue).toBe(
+      model,
+    );
+    expect(
+      getConfigOptionByCategory(options, "thought_level")?.currentValue,
+    ).toBe(effort);
+  },
+);
 
 function configUpdateEntry(
   configOptions: unknown,

@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -17,7 +18,12 @@ import { ActivityScope } from '~/types'
 
 import type { TicketAssignee } from '../../components/Assignee'
 import type { Ticket, TicketStatus } from '../../types'
-import { EmailReplyBlockedReason, getEmailReplyBlockedReason, supportTicketSceneLogic } from './supportTicketSceneLogic'
+import {
+    EmailReplyBlockedReason,
+    getEmailReplyBlockedReason,
+    getImpersonationTicketContext,
+    supportTicketSceneLogic,
+} from './supportTicketSceneLogic'
 
 const FEEDBACK_STORAGE_KEY = 'conversations_ai_reply_feedback'
 
@@ -32,6 +38,7 @@ jest.mock('~/lib/api', () => {
     const actual = jest.requireActual('~/lib/api')
     return {
         __esModule: true,
+        ApiConfig: actual.ApiConfig,
         default: {
             ...actual.default,
             createResponse: jest.fn(),
@@ -45,10 +52,7 @@ jest.mock('~/lib/api', () => {
             },
             conversationsTickets: {
                 ...actual.default?.conversationsTickets,
-                submitAiFeedback: jest.fn().mockResolvedValue(undefined),
-                submitAiHumanOutcome: jest.fn().mockResolvedValue(undefined),
                 get: jest.fn(),
-                update: jest.fn(),
                 list: jest.fn().mockResolvedValue({ results: [] }),
             },
             tags: {
@@ -60,6 +64,8 @@ jest.mock('~/lib/api', () => {
 })
 
 jest.mock('products/conversations/frontend/generated/api', () => ({
+    conversationsTicketsDestroy: jest.fn().mockResolvedValue(undefined),
+    conversationsTicketsAiFeedbackCreate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsAiHumanOutcomeCreate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsMessagesFullEmailRetrieve: jest.fn().mockResolvedValue({ content: 'Full email body' }),
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
@@ -67,16 +73,20 @@ jest.mock('products/conversations/frontend/generated/api', () => ({
     conversationsTicketsPartialUpdate: jest.fn(),
 }))
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+
 import api from '~/lib/api'
 
 import {
+    conversationsTicketsAiFeedbackCreate,
     conversationsTicketsAiHumanOutcomeCreate,
+    conversationsTicketsDestroy,
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
 } from 'products/conversations/frontend/generated/api'
 
-const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
+const submitAiFeedbackMock = conversationsTicketsAiFeedbackCreate as jest.Mock
 const submitAiHumanOutcomeMock = conversationsTicketsAiHumanOutcomeCreate as jest.Mock
 const fullEmailRetrieveMock = conversationsTicketsMessagesFullEmailRetrieve as jest.Mock
 
@@ -164,7 +174,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
             })
 
         expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
-        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith('997', 'ticket-1', {
             message_id: 'msg-ai-1',
             rating: 'good',
         })
@@ -180,7 +190,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
             })
 
         expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
-        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith('997', 'ticket-1', {
             message_id: 'msg-ai-1',
             rating: 'bad',
         })
@@ -193,7 +203,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
         await new Promise((r) => setTimeout(r, 10))
 
         expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
-        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith('997', 'ticket-1', {
             message_id: 'msg-ai-1',
             rating: 'bad',
             feedback_text: 'Wrong answer',
@@ -256,6 +266,28 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
         expect(logic.values.chatMessages[0].authorName).toBe(expectedName)
     })
 
+    it('shows a workflow reply as a teammate message named Workflow', () => {
+        logic.actions.setMessages([
+            {
+                id: 'msg-workflow',
+                content: 'We are on it.',
+                scope: 'conversations_ticket',
+                item_id: 'ticket-1',
+                item_context: { author_type: 'workflow', author_name: 'Workflow', is_private: false },
+                created_at: '2026-01-01T00:00:00Z',
+                created_by: null,
+            } as unknown as CommentType,
+        ])
+
+        expect(logic.values.chatMessages[0]).toEqual(
+            expect.objectContaining({
+                authorType: 'human',
+                authorName: 'Workflow',
+                isPrivate: false,
+            })
+        )
+    })
+
     it('loads the full email when the inbound message retained one', async () => {
         logic.actions.setMessages([makeCustomerComment('msg-1', { has_full_email_content: true })])
         expect(logic.values.chatMessages[0].hasFullEmailContent).toBe(true)
@@ -302,6 +334,34 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
                 citations: ['https://example.com/docs/sdk'],
                 clarifyingQuestions: ['Which SDK?'],
             })
+        )
+    })
+
+    it('selects the latest applicable AI draft', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
+        logic.actions.setMessages([
+            { ...makeAiComment('new-draft'), created_at: '2026-01-01T00:02:00Z' },
+            { ...makeAiComment('not-a-draft', false), created_at: '2026-01-01T00:01:00Z' },
+            { ...makeAiComment('old-draft'), created_at: '2026-01-01T00:00:00Z' },
+        ])
+
+        expect(logic.values.latestAiDraftId).toBe('new-draft')
+    })
+
+    it('selects widget delivery statuses for public team messages', () => {
+        logic.actions.setTicket({ ...makeTicket(), unread_customer_count: 1 })
+        logic.actions.setMessages([
+            makeSupportComment({ id: 'read', created_at: '2026-01-01T00:00:00Z' }),
+            makeCustomerComment('customer'),
+            makeSupportComment({ id: 'private', item_context: { author_type: 'support', is_private: true } }),
+            makeSupportComment({ id: 'sent', created_at: '2026-01-01T00:03:00Z' }),
+        ])
+
+        expect(logic.values.deliveryStatusByMessageId).toEqual(
+            new Map([
+                ['read', 'read'],
+                ['sent', 'sent'],
+            ])
         )
     })
 })
@@ -403,6 +463,112 @@ describe('getEmailReplyBlockedReason', () => {
         ['fully configured email ticket', emailTicket(), { email_enabled: true }, null],
     ])('%s', (_name, ticket, settings, expected) => {
         expect(getEmailReplyBlockedReason(ticket, settings)).toBe(expected)
+    })
+})
+
+describe('getImpersonationTicketContext', () => {
+    type ContextTicket = Parameters<typeof getImpersonationTicketContext>[0]
+
+    const widgetTicket = (overrides: Partial<ContextTicket> = {}): ContextTicket => ({
+        id: 'ticket-1',
+        channel_source: 'widget',
+        distinct_id: 'user-distinct-id',
+        identity_verified: true,
+        anonymous_traits: { email: 'typed@example.com' },
+        ...overrides,
+    })
+
+    // A server check attests the distinct ID of a verified ticket, but a form can supply the traits
+    // email. Using that email, or the distinct ID of a ticket nothing attested, points the staff
+    // lookup at an account the sender picked.
+    test.each<[string, ContextTicket, ReturnType<typeof getImpersonationTicketContext>]>([
+        [
+            'verified widget ticket carries its signed distinct ID',
+            widgetTicket(),
+            {
+                ticketId: 'ticket-1',
+                email: 'typed@example.com',
+                isEmailUnverified: true,
+                verifiedDistinctId: 'user-distinct-id',
+            },
+        ],
+        [
+            'unverified widget ticket has no signed distinct ID',
+            widgetTicket({ identity_verified: false }),
+            { ticketId: 'ticket-1', email: 'typed@example.com', isEmailUnverified: true },
+        ],
+        [
+            'verified email ticket keeps the email lookup',
+            widgetTicket({
+                channel_source: 'email',
+                distinct_id: 'customer@example.com',
+                anonymous_traits: {},
+                email_from: 'customer@example.com',
+            }),
+            {
+                ticketId: 'ticket-1',
+                email: 'customer@example.com',
+                isEmailUnverified: false,
+                verifiedDistinctId: 'customer@example.com',
+            },
+        ],
+        [
+            'Slack ticket with a changed email keeps the sender lookup',
+            widgetTicket({
+                channel_source: 'slack',
+                distinct_id: 'customer@example.com',
+                anonymous_traits: { email: 'other@example.com' },
+            }),
+            {
+                ticketId: 'ticket-1',
+                email: 'other@example.com',
+                isEmailUnverified: true,
+                verifiedDistinctId: 'customer@example.com',
+            },
+        ],
+        [
+            'unauthenticated email ticket has no verified sender',
+            widgetTicket({
+                channel_source: 'email',
+                distinct_id: 'customer@example.com',
+                identity_verified: false,
+                anonymous_traits: { email: 'customer@example.com' },
+                email_from: 'customer@example.com',
+            }),
+            { ticketId: 'ticket-1', email: 'customer@example.com', isEmailUnverified: true },
+        ],
+        [
+            'outbound email ticket verified by a reply looks up its sender',
+            widgetTicket({
+                channel_source: 'email',
+                distinct_id: 'recipient-analytics-id',
+                anonymous_traits: { email: 'customer@example.com' },
+                email_from: 'customer@example.com',
+            }),
+            {
+                ticketId: 'ticket-1',
+                email: 'customer@example.com',
+                isEmailUnverified: false,
+                verifiedDistinctId: 'customer@example.com',
+            },
+        ],
+        [
+            'non-string traits email falls back to email_from',
+            widgetTicket({
+                channel_source: 'email',
+                distinct_id: 'customer@example.com',
+                anonymous_traits: { email: 42 },
+                email_from: 'customer@example.com',
+            }),
+            {
+                ticketId: 'ticket-1',
+                email: 'customer@example.com',
+                isEmailUnverified: false,
+                verifiedDistinctId: 'customer@example.com',
+            },
+        ],
+    ])('%s', (_name, ticket, expected) => {
+        expect(getImpersonationTicketContext(ticket)).toEqual(expected)
     })
 })
 
@@ -1138,5 +1304,45 @@ describe('supportTicketSceneLogic discussion polling', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(commentsLogic.findMounted(discussionProps)).toBeNull()
+    })
+})
+
+describe('supportTicketSceneLogic deleteTicket', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+    const destroyMock = conversationsTicketsDestroy as jest.Mock
+
+    beforeEach(async () => {
+        initKeaTests()
+        destroyMock.mockReset().mockResolvedValue(undefined)
+        ;(api.conversationsTickets.get as jest.Mock).mockResolvedValue(makeTicket())
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
+    it('deletes only after confirmation and leaves the ticket list', async () => {
+        const open = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+
+        logic.actions.deleteTicket()
+
+        expect(destroyMock).not.toHaveBeenCalled()
+        expect(open).toHaveBeenCalled()
+        const dialog = open.mock.calls[0][0] as {
+            title: string
+            primaryButton: { onClick: () => Promise<void> }
+        }
+        expect(dialog.title).toBe('Delete ticket #42?')
+
+        await dialog.primaryButton.onClick()
+
+        expect(destroyMock).toHaveBeenCalledWith(expect.any(String), 'ticket-1')
+        expect(push).toHaveBeenCalled()
+        open.mockRestore()
+        push.mockRestore()
     })
 })

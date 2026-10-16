@@ -2,7 +2,7 @@ use crate::{
     api::errors::FlagError,
     flags::{
         flag_definitions_cache::FlagDefinitionsCache,
-        flag_models::{FeatureFlagList, HypercacheFlagsWrapper, PreparedFlagDefinitions},
+        flag_models::{HypercacheFlagsWrapper, PreparedFlagDefinitions},
     },
     handler::canonical_log::with_canonical_log,
     metrics::consts::{
@@ -180,7 +180,7 @@ impl FlagService {
 
     /// Fetches flags from the hypercache (Redis → S3), falling back to PostgreSQL
     /// on cache miss or infra errors. Parse errors (`Json`/`Pickle`) hard-fail with
-    /// a tombstone rather than serving degraded single-stage PG data.
+    /// a tombstone rather than silently serving PG data.
     ///
     /// On the hot path the in-memory `FlagDefinitionsCache` is keyed on the etag
     /// Django writes alongside the payload (`enable_etag=True`), so an in-memory
@@ -236,8 +236,7 @@ impl FlagService {
     /// invoke it lazily inside `get_or_load`. Returns `None` for the
     /// `__missing__` sentinel (team has no flags), `Some(wrapper)` otherwise.
     /// `Json`/`Pickle` parse errors hard-fail with a tombstone — we never want
-    /// to silently degrade to PG (which lacks dependency metadata) on data
-    /// corruption.
+    /// to silently degrade to PG on data corruption.
     async fn fetch_wrapper_or_pg(
         &self,
         team_id: TeamId,
@@ -281,10 +280,15 @@ impl FlagService {
                     1,
                 );
 
-                // PG has no dependency metadata, so all flags go in a single stage.
-                let flags = FeatureFlagList::from_pg(self.pg_client.clone(), team_id).await?;
+                let flags = crate::flags::cache_builder::load_supported_flags(
+                    self.pg_client.clone(),
+                    team_id,
+                )
+                .await?;
                 let evaluation_metadata =
-                    crate::flags::flag_models::EvaluationMetadata::single_stage(&flags);
+                    crate::flags::cache_builder::compute_flag_dependencies_or_single_stage(
+                        team_id, &flags,
+                    );
                 let wrapper = HypercacheFlagsWrapper {
                     flags,
                     cohorts: None,
@@ -307,8 +311,8 @@ mod tests {
             feature_flag_list::PreparedFlags,
             flag_definitions_cache::FlagDefinitionsCache,
             flag_models::{
-                EvaluationMetadata, FeatureFlag, FlagFilters, FlagPropertyGroup,
-                HypercacheFlagsWrapper,
+                EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagFilters,
+                FlagPropertyGroup, HypercacheFlagsWrapper,
             },
             test_helpers::{hypercache_test_key, update_flags_in_hypercache},
         },
@@ -756,6 +760,31 @@ mod tests {
             .insert_new_team(None)
             .await
             .expect("Failed to insert team");
+        let dependency = context
+            .insert_flag(team.id, None)
+            .await
+            .expect("Failed to insert flag");
+        let dependent = context
+            .insert_flag(
+                team.id,
+                Some(crate::mock!(FeatureFlagRow,
+                    team_id: team.id,
+                    key: "dependent_flag".to_string(),
+                    filters: json!({
+                        "groups": [{
+                            "properties": [{
+                                "key": dependency.id.to_string(),
+                                "type": "flag",
+                                "value": true,
+                                "operator": "flag_evaluates_to",
+                            }],
+                            "rollout_percentage": 100,
+                        }],
+                    }),
+                )),
+            )
+            .await
+            .expect("Failed to insert dependent flag");
 
         // Don't populate hypercache - should fall back to PG
 
@@ -769,14 +798,18 @@ mod tests {
             false,
         );
 
-        // Should fall back to PostgreSQL and succeed (returns empty list for new team)
-        let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
-        assert!(result.is_ok());
-        let flag_result = result.unwrap();
+        let flag_result = flag_service
+            .get_flags_from_cache_or_pg(team.id)
+            .await
+            .expect("PG fallback should succeed");
         assert!(matches!(
             flag_result.cache_source,
             common_hypercache::CacheSource::Fallback
         ));
+        assert_eq!(
+            flag_result.prepared.evaluation_metadata.dependency_stages,
+            vec![vec![dependency.id], vec![dependent.id]]
+        );
     }
 
     #[tokio::test]
@@ -937,7 +970,7 @@ mod tests {
     }
 
     /// Corrupt Redis payload must hard-fail under `flag_data_parsing_error` rather
-    /// than silently fall back to PG (which would serve single-stage data).
+    /// than silently fall back to PG.
     #[tokio::test]
     async fn test_get_flags_hard_fails_on_hypercache_parse_error() {
         use common_redis::MockRedisClient;

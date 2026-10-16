@@ -11,13 +11,21 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.facade.github import update_pull_request_assignments
+from products.signals.backend.facade.github import (
+    refresh_pull_request_review_decisions,
+    update_pull_request_assignments,
+)
 from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.metrics import observe_github_webhook_task_run_lookup
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls
+from products.tasks.backend.pr_urls import (
+    canonical_github_pull_request_url,
+    merge_pr_output,
+    normalize_verified_pull_request_urls,
+    read_pr_urls,
+)
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
 logger = structlog.get_logger(__name__)
@@ -39,23 +47,25 @@ def find_task_run(
     pr_url: str | None = None,
     branch: str | None = None,
     repository: str | None = None,
-    team_ids: list[int] | None = None,
+    *,
+    team_ids: list[int],
 ) -> TaskRun | None:
-    """Find the TaskRun a GitHub webhook belongs to, preferably scoped to ``team_ids``.
+    """Find the TaskRun a GitHub webhook belongs to, among the runs of ``team_ids``.
 
-    Every leg below filters on a JSON containment or a plain ``branch`` value, none of which
-    is indexed, so an unscoped lookup walks all of ``posthog_task_run`` three times per
-    delivery. ``team_id`` is a plain FK and therefore already indexed: passing the teams the
-    webhook's installation belongs to turns those walks into index scans. When the caller
-    cannot resolve any team the old unscoped behaviour is kept, just counted.
+    An empty ``team_ids`` matches nothing, so a delivery whose installation no team links to is
+    not attributed to any run. Without the ``team_id`` filter, the legs below scan the whole table.
+
+    A checkout branch alone does not prove PR ownership: a discussion can inspect a shared
+    branch without authoring a change. Legacy branch matches also require the exact reported PR URL.
     """
     repository = repository.strip() if repository else None
 
     observe_github_webhook_task_run_lookup(scoped=bool(team_ids))
     if not team_ids:
         logger.info("github_webhook_task_run_lookup_unscoped", pr_url=pr_url, branch=branch, repository=repository)
+        return None
 
-    candidates = TaskRun.objects.filter(team_id__in=team_ids) if team_ids else TaskRun.objects.all()
+    candidates = TaskRun.objects.filter(team_id__in=team_ids)
     # ReviewHog runs check out the PR head branch to review it, but they never author a PR, so no
     # leg below may return one. The exclusion belongs here rather than on each leg: a stale
     # ``verified_pr_urls`` claim, left on a ReviewHog run by an earlier wrong branch match, would
@@ -68,7 +78,11 @@ def find_task_run(
         # original and its live resume can both claim the same PR URL. Scope to the
         # webhook's repo and prefer non-terminal runs so merge handling lands on the
         # run that can still act on it.
-        runs = candidates.filter(state__verified_pr_urls__contains=[pr_url])
+        verified_url = canonical_github_pull_request_url(pr_url)
+        verified_filter = Q(state__verified_pr_urls__contains=[pr_url])
+        if verified_url is not None:
+            verified_filter |= Q(state__verified_pr_urls__contains=[verified_url])
+        runs = candidates.filter(verified_filter)
         if repository:
             runs = runs.filter(_run_repository_filter(repository))
         # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
@@ -94,9 +108,7 @@ def find_task_run(
     if branch and repository:
         # A self-driving implementation run stamps its server-generated head branch into
         # PATCH-protected state (signals' auto_start). That stamp is the run->PR link no
-        # caller can forge, so resolve it before the generic branch legs below. Without
-        # this, a newer ReviewHog run whose checkout branch is the same head ref wins the
-        # branch match and every later webhook, misattributing the PR's lifecycle events.
+        # caller can forge, so resolve it before the reported head branches below.
         # FAILED and CANCELLED runs and soft-deleted tasks are dropped; a COMPLETED run
         # stays eligible because success flips the run to COMPLETED right after it opens
         # the PR. The task_run_sd_branch_idx index covers this filter.
@@ -107,22 +119,6 @@ def find_task_run(
                 task__deleted=False,
             )
             .exclude(status__in=(TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
-            .order_by("-created_at", "-id")
-            .select_related(*TASK_RUN_SELECT_RELATED)
-            .first()
-        )
-        if task_run:
-            return task_run
-
-        # Wizard runs are excluded here: their `branch` column holds the checkout (base)
-        # branch, so a same-repo PR whose head ref equals the base (e.g. "main") would
-        # otherwise claim the run before the dedicated leg below is consulted.
-        task_run = (
-            candidates.filter(
-                _run_repository_filter(repository),
-                branch=branch,
-                state__wizard_head_branch__isnull=True,
-            )
             .order_by("-created_at", "-id")
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
@@ -165,6 +161,21 @@ def find_task_run(
             if task_run:
                 return task_run
 
+        # Desktop clients can attach a PR URL and branch without reporting head_branches.
+        if pr_url:
+            return (
+                candidates.filter(
+                    _run_repository_filter(repository),
+                    Q(output__pr_url=pr_url) | Q(output__pr_urls__contains=[pr_url]),
+                    branch=branch,
+                    state__wizard_head_branch__isnull=True,
+                    state__self_driving_head_branch__isnull=True,
+                )
+                .order_by("-created_at", "-id")
+                .select_related(*TASK_RUN_SELECT_RELATED)
+                .first()
+            )
+
     return None
 
 
@@ -206,6 +217,16 @@ def handle_pull_request_event(payload: dict) -> None:
         logger.warning("github_pr_webhook_no_pr_url", action=action)
         return
 
+    refresh_review_decision = action in {
+        "opened",
+        "reopened",
+        "ready_for_review",
+        "converted_to_draft",
+        "synchronize",
+        "review_requested",
+        "review_request_removed",
+    }
+
     pr_state = pr_state_for_action(action, pull_request)
     analytics_event: GitHubWebhookAnalyticsEvent | None = None
     if action == "opened":
@@ -224,6 +245,8 @@ def handle_pull_request_event(payload: dict) -> None:
         # not worth an analytics event.
         event_action = action or ""
     else:
+        if refresh_review_decision:
+            refresh_pull_request_review_decisions(payload)
         logger.debug("github_pr_webhook_ignored_action", action=action, pr_url=pr_url)
         return
 
@@ -274,6 +297,8 @@ def handle_pull_request_event(payload: dict) -> None:
         _record_run_pr_state(task_run, pr_state)
 
     update_pull_request_assignments(payload, pr_state)
+    if refresh_review_decision:
+        refresh_pull_request_review_decisions(payload)
 
     if analytics_event is not None:
         _capture_task_pr_event(payload, task_run, analytics_event)
@@ -290,6 +315,9 @@ def handle_pull_request_event(payload: dict) -> None:
         if task_run and pr_url in claimed_pr_urls:
             _cancel_wizard_run_on_close(task_run)
 
+    if action == "closed" and task_run and pr_url in claimed_pr_urls:
+        _notify_slack_thread_on_close(task_run, pr_url, merged=merged)
+
 
 def handle_pull_request_review_event(payload: dict) -> None:
     """Process a verified pull_request_review webhook event.
@@ -299,7 +327,8 @@ def handle_pull_request_review_event(payload: dict) -> None:
     changes_requested, commented), attributed to the reviewer when their GitHub
     login resolves to an org member.
     """
-    if payload.get("action") != "submitted":
+    action = payload.get("action")
+    if action not in {"submitted", "dismissed"}:
         return
 
     review = payload.get("review") or {}
@@ -308,6 +337,11 @@ def handle_pull_request_review_event(payload: dict) -> None:
     pr_url = pull_request.get("html_url")
     if not pr_url:
         logger.warning("github_pr_review_webhook_no_pr_url")
+        return
+
+    refresh_pull_request_review_decisions(payload)
+
+    if action != "submitted":
         return
 
     # StampHog, ReviewHog, and CI apps review every self-driving PR, so without this
@@ -373,12 +407,14 @@ def _append_run_pr_url(task_run: TaskRun, pr_url: str) -> bool:
             locked = TaskRun.objects.select_for_update().get(id=task_run.id)
             state = locked.state if isinstance(locked.state, dict) else {}
             existing_verified = state.get("verified_pr_urls")
-            verified_pr_urls = list(
-                dict.fromkeys([*(existing_verified if isinstance(existing_verified, list) else []), pr_url])
+            verified_pr_urls = normalize_verified_pull_request_urls(
+                [*(existing_verified if isinstance(existing_verified, list) else []), pr_url]
             )
             locked.state = {**state, "verified_pr_urls": verified_pr_urls}
             if pr_url in read_pr_urls(locked.output):
-                locked.save(update_fields=["state", "updated_at"])
+                if verified_pr_urls != existing_verified:
+                    # Restart report linking when its earlier attempt ran before verification.
+                    locked.save(update_fields=["state", "output", "updated_at"])
                 task_run.state = locked.state
                 task_run.output = locked.output
                 return False
@@ -413,6 +449,16 @@ def _record_run_pr_merged(task_run: TaskRun) -> None:
     APIs expose.
     """
     if not _record_run_output_field(task_run, "pr_merged", True, "github_pr_webhook_record_pr_merged_failed"):
+        # A snapshot can record the merge before the webhook performs wizard lifecycle actions.
+        pr_url = (task_run.output or {}).get("pr_url")
+        if pr_url and (task_run.state or {}).get("reconciled_pr_merge_url") == pr_url:
+            with transaction.atomic():
+                locked = TaskRun.objects.select_for_update().get(id=task_run.id, team_id=task_run.team_id)
+                if (locked.state or {}).get("reconciled_pr_merge_url") != pr_url:
+                    return
+                locked.state = {key: value for key, value in locked.state.items() if key != "reconciled_pr_merge_url"}
+                locked.save(update_fields=["state", "updated_at"])
+                _complete_wizard_run_on_merge(locked)
         return
     # Publish-only (no append_log), same rationale and failure tolerance as _record_run_pr_url.
     try:
@@ -487,6 +533,28 @@ def _cancel_wizard_run_on_close(task_run: TaskRun) -> None:
     transaction.on_commit(_cancel)
 
 
+def _notify_slack_thread_on_close(task_run: TaskRun, pr_url: str, *, merged: bool) -> None:
+    """Queue the merged or closed card for the Slack thread that announced ``pr_url``.
+
+    The cheap check here keeps the queue free of closes that no thread announced. The task
+    repeats it under a row lock. Best-effort: the webhook must stay 2xx if the broker is down.
+    """
+    if task_run.task.slack_notified_pr_url != pr_url:
+        return
+
+    def _enqueue() -> None:
+        try:
+            from products.tasks.backend.tasks.tasks import (  # noqa: PLC0415 — keeps the Celery task module off the webhook import path
+                notify_slack_thread_pr_closed,
+            )
+
+            notify_slack_thread_pr_closed.delay(str(task_run.id), pr_url, merged=merged)
+        except Exception:
+            logger.warning("github_pr_webhook_slack_pr_closed_enqueue_failed", run_id=str(task_run.id), exc_info=True)
+
+    transaction.on_commit(_enqueue)
+
+
 def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, failure_log_event: str) -> bool:
     """Idempotently merge ``{key: value}`` into a run's ``output`` JSON under a row lock.
 
@@ -513,7 +581,7 @@ def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, fai
 
 
 def _task_run_scope_team_ids(payload: dict) -> list[int]:
-    """Teams to scope the TaskRun lookup to, or empty to leave the lookup unscoped.
+    """Teams to scope the TaskRun lookup to. Empty means no run can match the delivery.
 
     An installation reaches a team two ways. Team-level ``Integration`` rows are the obvious
     one. The other is a personal install: a task picks a ``UserIntegration`` through
@@ -524,7 +592,7 @@ def _task_run_scope_team_ids(payload: dict) -> list[int]:
 
     Accepted edge: a user who has since left the organization no longer widens the scope, so
     a delivery for a run they created that way stops matching. Anything with no installation
-    id, or an installation nothing is linked to, falls back to the unscoped lookup.
+    id, or an installation nothing is linked to, matches no run.
     """
     external_id = installation_id(payload)
     if external_id is None:

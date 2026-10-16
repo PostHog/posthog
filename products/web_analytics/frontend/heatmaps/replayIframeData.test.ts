@@ -48,6 +48,7 @@ describe('replayIframeData', () => {
         ['malformed json', '{not json'],
         ['a snapshot missing its dimensions', '{"html":"<body>x</body>"}'],
         ['a blank snapshot', '{"html":"  ","width":1,"height":2}'],
+        ['a snapshot wider than any screen', '{"html":"<body>x</body>","width":100000,"height":2}'],
     ])('reads %s as null', (_name, stored) => {
         localStorage.setItem('stored', stored)
 

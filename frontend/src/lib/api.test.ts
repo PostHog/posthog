@@ -51,7 +51,7 @@ describe('API helper', () => {
             )
 
             expect(fakeFetch).toHaveBeenCalledWith(
-                '/api/environments/2/events?properties=%5B%7B%22key%22%3A%22something%22%2C%22value%22%3A%22is_set%22%2C%22operator%22%3A%22is_set%22%2C%22type%22%3A%22event%22%7D%5D&limit=10&orderBy=%5B%22-timestamp%22%5D',
+                '/api/projects/2/events?properties=%5B%7B%22key%22%3A%22something%22%2C%22value%22%3A%22is_set%22%2C%22operator%22%3A%22is_set%22%2C%22type%22%3A%22event%22%7D%5D&limit=10&orderBy=%5B%22-timestamp%22%5D',
                 {
                     signal: undefined,
                     headers: {
@@ -60,6 +60,38 @@ describe('API helper', () => {
                 }
             )
         })
+    })
+
+    describe('agent stream recovery requests', () => {
+        it.each(['history', 'django', 'proxy'] as const)(
+            'keeps the captured project and cancellation on the %s path',
+            async (path) => {
+                const controller = new AbortController()
+                ApiConfig.setCurrentTeamId(999)
+                if (path === 'history') {
+                    await api.tasks.runs.getLogEntries('task-1', 'run-1', { projectId: 123, signal: controller.signal })
+                } else {
+                    await api.tasks.runs.openStream('task-1', 'run-1', {
+                        projectId: 123,
+                        signal: controller.signal,
+                        lastEventId: '100-0',
+                        ...(path === 'proxy'
+                            ? { proxyTarget: { baseUrl: 'https://example.com', token: 'fake-stream-token' } }
+                            : {}),
+                    })
+                }
+                const streamHeaders = expect.objectContaining({ 'Last-Event-ID': '100-0' })
+                expect(fakeFetch).toHaveBeenCalledWith(
+                    path === 'proxy'
+                        ? 'https://example.com/v1/runs/run-1/stream?resync=1'
+                        : `/api/projects/123/tasks/task-1/runs/run-1/${path === 'history' ? 'logs' : 'stream'}/`,
+                    expect.objectContaining({
+                        signal: controller.signal,
+                        ...(path !== 'history' ? { headers: streamHeaders } : {}),
+                    })
+                )
+            }
+        )
     })
 
     describe('dashboard tile streaming', () => {
@@ -113,7 +145,7 @@ describe('API helper', () => {
             const connectionError = new TypeError('Failed to fetch')
             streamOptions.onerror?.(connectionError)
             expect(onApiResponse).toHaveBeenCalledWith(undefined, connectionError)
-            expect(onError).toHaveBeenCalledWith(connectionError)
+            expect(onError).toHaveBeenCalledWith(connectionError, true)
 
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             streamOptions.onerror?.(abortError)
@@ -122,6 +154,19 @@ describe('API helper', () => {
 
             fetchEventSourceSpy.mockRestore()
             apiStatusLogicSpy.mockRestore()
+        })
+
+        it('ends a stream with an unreadable message so a new load can recover', async () => {
+            const fetchEventSourceSpy = jest
+                .spyOn(fetchEventSourceModule, 'fetchEventSource')
+                .mockReturnValueOnce(new Promise<void>(() => {}))
+            const onError = jest.fn()
+            await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), onError)
+            const options = fetchEventSourceSpy.mock.calls[0][1]
+            options.onmessage?.({ data: 'invalid json', event: '', id: '' })
+            expect(onError).toHaveBeenCalledWith(expect.any(SyntaxError))
+            expect(options.signal?.aborted).toBe(true)
+            fetchEventSourceSpy.mockRestore()
         })
 
         it('reports a stream that closes before completion', async () => {
@@ -134,7 +179,8 @@ describe('API helper', () => {
             expect(onError).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: 'Dashboard stream ended before loading finished. Refresh the page.',
-                })
+                }),
+                false
             )
             fetchEventSourceSpy.mockRestore()
         })
@@ -144,7 +190,7 @@ describe('API helper', () => {
         it('adds query kind to the query URL when present', async () => {
             await api.query({ kind: NodeKind.HogQLQuery, query: 'select 1' })
 
-            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/HogQLQuery/')
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/query/HogQLQuery/')
         })
 
         it('uses the accounts table endpoint for AccountsTableQuery', async () => {
@@ -157,7 +203,7 @@ describe('API helper', () => {
         it('keeps the query URL kind optional', async () => {
             await api.query({} as Record<string, any>)
 
-            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/')
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/query/')
         })
 
         it('throws when the query URL kind does not match the request body', async () => {
@@ -179,23 +225,13 @@ describe('API helper', () => {
             [
                 'hogFlows.updateHogFlow',
                 () => api.hogFlows.updateHogFlow('flow-1', {}),
-                '/api/environments/2/hog_flows/flow-1/',
+                '/api/projects/2/hog_flows/flow-1/',
             ],
-            ['hogFlows.createHogFlow', () => api.hogFlows.createHogFlow({}), '/api/environments/2/hog_flows/'],
+            ['hogFlows.createHogFlow', () => api.hogFlows.createHogFlow({}), '/api/projects/2/hog_flows/'],
             [
                 'messaging.updateTemplate',
                 () => api.messaging.updateTemplate('template-1', {}),
-                '/api/environments/2/messaging_templates/template-1/',
-            ],
-            [
-                'messaging.getCategory',
-                () => api.messaging.getCategory('category-1'),
-                '/api/environments/2/messaging_categories/category-1/',
-            ],
-            [
-                'messaging.generateMessagingPreferencesLink',
-                () => api.messaging.generateMessagingPreferencesLink(),
-                '/api/environments/2/messaging_preferences/generate_link/',
+                '/api/projects/2/messaging_templates/template-1/',
             ],
         ])("%s targets the tab's team, not @current", async (_name, request, expected) => {
             await request()
@@ -629,6 +665,14 @@ describe('API helper', () => {
             expect(request.assembleEndpointUrl()).toEqual(
                 'organizations/123/feature_flags/my-feature-flag%2Ffoo%2Fbar%3Fbaz%3Dqux'
             )
+        })
+    })
+
+    describe('tracing', () => {
+        it('sends the trace id as one path segment', async () => {
+            await api.tracing.getTrace('a/b?c')
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/tracing/spans/trace/a%2Fb%3Fc/')
         })
     })
 

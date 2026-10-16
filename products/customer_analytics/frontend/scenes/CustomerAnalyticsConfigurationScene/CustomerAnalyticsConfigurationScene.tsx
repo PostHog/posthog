@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+
 import { SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
 
@@ -15,10 +17,12 @@ export const scene: SceneExport = {
 }
 
 export function CustomerAnalyticsConfigurationScene(): JSX.Element {
+    const { backTarget } = useValues(customerAnalyticsConfigurationSceneLogic)
+
     return (
         <FeaturePreviewSceneGate config={customerAnalyticsFeaturePreviewGate}>
             <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
-                <SceneBreadcrumbBackButton />
+                <SceneBreadcrumbBackButton forceBackTo={backTarget ?? undefined} />
             </div>
             <Settings
                 logicKey={CUSTOMER_ANALYTICS_LOGIC_KEY}

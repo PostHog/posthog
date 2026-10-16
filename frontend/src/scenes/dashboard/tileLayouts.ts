@@ -9,9 +9,15 @@ import {
 import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { isFunnelsQuery, isMetricInsightQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel } from '~/types'
+import {
+    isFunnelsQuery,
+    isInsightVizNode,
+    isMetricInsightQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isTrendsQuery,
+} from '~/queries/utils'
+import { ChartDisplayType, DashboardLayoutSize, DashboardTile } from '~/types'
 
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
 
@@ -203,11 +209,8 @@ export function defaultSmLayoutAtBottom(smLayout: Layout | undefined, w: number,
     return { x: 0, y: maxBottom, w, h }
 }
 
-export const sortTilesByLayout = (
-    tiles: Array<DashboardTile<QueryBasedInsightModel>>,
-    col: DashboardLayoutSize
-): Array<DashboardTile<QueryBasedInsightModel>> => {
-    return [...tiles].sort((a: DashboardTile<QueryBasedInsightModel>, b: DashboardTile<QueryBasedInsightModel>) => {
+export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLayoutSize): Array<DashboardTile> => {
+    return [...tiles].sort((a: DashboardTile, b: DashboardTile) => {
         const ax = a.layouts?.[col]?.x ?? 0
         const ay = a.layouts?.[col]?.y ?? 0
         const bx = b.layouts?.[col]?.x ?? 0
@@ -221,9 +224,7 @@ export const sortTilesByLayout = (
         return 0
     })
 }
-export const calculateLayouts = (
-    tiles: DashboardTile<QueryBasedInsightModel>[]
-): Partial<Record<DashboardLayoutSize, Layout>> => {
+export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<DashboardLayoutSize, Layout>> => {
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout>> = {}
     const imageTileIds = new Set(
         tiles
@@ -237,7 +238,7 @@ export const calculateLayouts = (
     for (const breakpoint of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
         const columnCount = BREAKPOINT_COLUMN_COUNTS[breakpoint]
 
-        let sortedDashboardTiles: DashboardTile<QueryBasedInsightModel>[] | undefined
+        let sortedDashboardTiles: DashboardTile[] | undefined
         if (referenceOrder === undefined) {
             sortedDashboardTiles = sortTilesByLayout(tiles, 'sm')
         } else {
@@ -248,7 +249,8 @@ export const calculateLayouts = (
         }
 
         const layouts = (sortedDashboardTiles || []).map((tile) => {
-            const query = tile.insight ? getQueryBasedInsightModel(tile.insight) : null
+            const query = tile.insight?.query
+            const source = isInsightVizNode(query) ? query.source : query
             // Base constraints
             let defaultW = 6
             let defaultH = 5
@@ -256,19 +258,19 @@ export const calculateLayouts = (
             if (tile.text) {
                 defaultW = 2
                 defaultH = 2
-            } else if (isFunnelsQuery(query)) {
+            } else if (isFunnelsQuery(source)) {
                 defaultW = 4
                 defaultH = 4
-            } else if (isRetentionQuery(query)) {
+            } else if (isRetentionQuery(source)) {
                 defaultW = 6
                 defaultH = 7
-            } else if (isPathsQuery(query)) {
+            } else if (isPathsQuery(source)) {
                 defaultW = columnCount // Paths take up so much space that they need to be full width to be readable
                 defaultH = 7
-            } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
+            } else if (isTrendsQuery(source) && source.trendsFilter?.display === ChartDisplayType.BoldNumber) {
                 defaultW = 2
                 defaultH = 2
-            } else if (isMetricInsightQuery(query?.query)) {
+            } else if (isMetricInsightQuery(query)) {
                 defaultW = 3
                 defaultH = 3
             }

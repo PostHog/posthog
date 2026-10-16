@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -23,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
     SENTRY_RATE_LIMITED_MESSAGE,
+    SESSIONS_REJECTED_MESSAGE,
     STATS_SUMMARY_REJECTED_MESSAGE,
     SentryResumeConfig,
     _normalize_organization_slug,
@@ -42,6 +46,253 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
+    codebase_detection = detect(
+        env=("^SENTRY_", "^NEXT_PUBLIC_SENTRY_DSN$", "^NUXT_PUBLIC_SENTRY_DSN$"),
+        script_hosts=("browser.sentry-cdn.com", "js.sentry-cdn.com", "cdn.ravenjs.com"),
+        npm=(
+            "@sentry/node",
+            "@sentry/browser",
+            "@sentry/react",
+            "@sentry/nextjs",
+            "@sentry/vue",
+            "@sentry/angular",
+            "@sentry/react-native",
+            "@sentry/sveltekit",
+            "@sentry/svelte",
+            "@sentry/remix",
+            "@sentry/nuxt",
+            "@sentry/astro",
+            "@sentry/nestjs",
+            "@sentry/bun",
+            "@sentry/deno",
+            "@sentry/cloudflare",
+            "@sentry/aws-serverless",
+            "@sentry/electron",
+            "@sentry/angular-ivy",
+            "@sentry/capacitor",
+            "@sentry/cli",
+            "@sentry/wizard",
+            "@sentry/core",
+            "@sentry/types",
+            "@sentry/utils",
+            "@sentry/hub",
+            "@sentry/minimal",
+            "@sentry/integrations",
+            "@sentry/tracing",
+            "@sentry/serverless",
+            "@sentry/replay",
+            "@sentry/replay-canvas",
+            "@sentry/feedback",
+            "@sentry/wasm",
+            "@sentry/ember",
+            "@sentry/gatsby",
+            "@sentry/google-cloud-serverless",
+            "@sentry/vercel-edge",
+            "@sentry/solid",
+            "@sentry/solidstart",
+            "@sentry/react-router",
+            "@sentry/tanstackstart-react",
+            "@sentry/tanstackstart",
+            "@sentry/hono",
+            "@sentry/elysia",
+            "@sentry/effect",
+            "@sentry/nitro",
+            "@sentry/lynx-react",
+            "@sentry/node-core",
+            "@sentry/node-native",
+            "@sentry/profiling-node",
+            "@sentry/opentelemetry",
+            "@sentry/opentelemetry-node",
+            "@sentry/node-experimental",
+            "@sentry/webpack-plugin",
+            "@sentry/vite-plugin",
+            "@sentry/esbuild-plugin",
+            "@sentry/rollup-plugin",
+            "@sentry/bundler-plugins",
+            "@sentry/babel-plugin-component-annotate",
+            "@sentry/component-annotate-plugin",
+            "@sentry/expo-upload-sourcemaps",
+            "@sentry/netlify-build-plugin",
+            "@sentry/fullstory",
+            "@sentry/toolbar",
+            "@sentry/mcp-server",
+            "@sentry/api",
+            "raven-js",
+            "raven",
+            "react-native-sentry",
+            "sentry-cordova",
+            "sentry-expo",
+        ),
+        pypi=("sentry-sdk", "raven", "sentry-cli", "raven-aiohttp"),
+        cargo=(
+            "sentry",
+            "sentry-core",
+            "sentry-tracing",
+            "sentry-tower",
+            "sentry-actix",
+            "sentry-anyhow",
+            "sentry-log",
+            "sentry-slog",
+            "sentry-panic",
+            "sentry-opentelemetry",
+            "sentry-failure",
+            "sentry-error-chain",
+            "sentry-minidump",
+        ),
+        cocoapods=("Sentry",),
+        composer=(
+            "sentry/sentry",
+            "sentry/sentry-laravel",
+            "sentry/sentry-symfony",
+            "sentry/sdk",
+            "sentry/sentry-agent",
+            "stayallive/wp-sentry",
+        ),
+        go=(
+            "github.com/getsentry/sentry-go",
+            "github.com/getsentry/sentry-go/otel",
+            "github.com/getsentry/sentry-go/otel/otlp",
+            "github.com/getsentry/sentry-go/gin",
+            "github.com/getsentry/sentry-go/echo",
+            "github.com/getsentry/sentry-go/fiber",
+            "github.com/getsentry/sentry-go/fiberv3",
+            "github.com/getsentry/sentry-go/fasthttp",
+            "github.com/getsentry/sentry-go/iris",
+            "github.com/getsentry/sentry-go/negroni",
+            "github.com/getsentry/sentry-go/logrus",
+            "github.com/getsentry/sentry-go/zerolog",
+            "github.com/getsentry/sentry-go/slog",
+            "github.com/getsentry/sentry-go/zap",
+            "github.com/getsentry/sentry-go/grpc",
+            "github.com/getsentry/sentry-go/sql",
+            "github.com/getsentry/sentry-go/cron",
+            "github.com/getsentry/raven-go",
+        ),
+        hex=("sentry",),
+        maven=(
+            "io.sentry:sentry",
+            "io.sentry:sentry-android",
+            "io.sentry:sentry-spring-boot-starter",
+            "io.sentry:sentry-kotlin-multiplatform",
+            "io.sentry:sentry-spring-boot-starter-jakarta",
+            "io.sentry:sentry-logback",
+            "io.sentry:sentry-all",
+            "io.sentry:sentry-android-core",
+            "io.sentry:sentry-android-distribution",
+            "io.sentry:sentry-android-fragment",
+            "io.sentry:sentry-android-gradle-plugin",
+            "io.sentry:sentry-android-navigation",
+            "io.sentry:sentry-android-navigation3",
+            "io.sentry:sentry-android-ndk",
+            "io.sentry:sentry-android-okhttp",
+            "io.sentry:sentry-android-replay",
+            "io.sentry:sentry-android-sqlite",
+            "io.sentry:sentry-android-timber",
+            "io.sentry:sentry-apache-http-client-5",
+            "io.sentry:sentry-apollo",
+            "io.sentry:sentry-apollo-3",
+            "io.sentry:sentry-apollo-4",
+            "io.sentry:sentry-apollo-5",
+            "io.sentry:sentry-appengine",
+            "io.sentry:sentry-async-profiler",
+            "io.sentry:sentry-bom",
+            "io.sentry:sentry-compose",
+            "io.sentry:sentry-compose-android",
+            "io.sentry:sentry-compose-desktop",
+            "io.sentry:sentry-core",
+            "io.sentry:sentry-graphql",
+            "io.sentry:sentry-graphql-22",
+            "io.sentry:sentry-graphql-core",
+            "io.sentry:sentry-jcache",
+            "io.sentry:sentry-jdbc",
+            "io.sentry:sentry-jul",
+            "io.sentry:sentry-kafka",
+            "io.sentry:sentry-kotlin-compiler-plugin",
+            "io.sentry:sentry-kotlin-extensions",
+            "io.sentry:sentry-kotlin-multiplatform-gradle-plugin",
+            "io.sentry:sentry-ktor-client",
+            "io.sentry:sentry-launchdarkly-android",
+            "io.sentry:sentry-launchdarkly-server",
+            "io.sentry:sentry-log4j",
+            "io.sentry:sentry-log4j2",
+            "io.sentry:sentry-maven-plugin",
+            "io.sentry:sentry-okhttp",
+            "io.sentry:sentry-openfeature",
+            "io.sentry:sentry-openfeign",
+            "io.sentry:sentry-opentelemetry-agent",
+            "io.sentry:sentry-opentelemetry-agentless",
+            "io.sentry:sentry-opentelemetry-agentless-spring",
+            "io.sentry:sentry-opentelemetry-bom",
+            "io.sentry:sentry-opentelemetry-core",
+            "io.sentry:sentry-opentelemetry-extra",
+            "io.sentry:sentry-opentelemetry-otlp",
+            "io.sentry:sentry-opentelemetry-otlp-spring",
+            "io.sentry:sentry-quartz",
+            "io.sentry:sentry-reactor",
+            "io.sentry:sentry-servlet",
+            "io.sentry:sentry-servlet-jakarta",
+            "io.sentry:sentry-snapshots-runtime",
+            "io.sentry:sentry-spark_2.11",
+            "io.sentry:sentry-spotlight",
+            "io.sentry:sentry-spring",
+            "io.sentry:sentry-spring-7",
+            "io.sentry:sentry-spring-boot",
+            "io.sentry:sentry-spring-boot-4",
+            "io.sentry:sentry-spring-boot-4-starter",
+            "io.sentry:sentry-spring-boot-jakarta",
+            "io.sentry:sentry-spring-jakarta",
+            "com.getsentry.raven:raven",
+            "com.getsentry.raven:raven-all",
+            "com.getsentry.raven:raven-android",
+            "com.getsentry.raven:raven-appengine",
+            "com.getsentry.raven:raven-log4j",
+            "com.getsentry.raven:raven-log4j2",
+            "com.getsentry.raven:raven-logback",
+            "io.sentry.android.gradle:io.sentry.android.gradle.gradle.plugin",
+            "io.sentry.jvm.gradle:io.sentry.jvm.gradle.gradle.plugin",
+            "io.sentry.kotlin.multiplatform.gradle:io.sentry.kotlin.multiplatform.gradle.gradle.plugin",
+            "io.sentry.kotlin.compiler.gradle:io.sentry.kotlin.compiler.gradle.gradle.plugin",
+            "io.sentry.android.snapshot:io.sentry.android.snapshot.gradle.plugin",
+        ),
+        pub=(
+            "sentry",
+            "sentry_flutter",
+            "sentry_dio",
+            "sentry_logging",
+            "sentry_dart_plugin",
+            "sentry_link",
+            "sentry_drift",
+            "sentry_sqflite",
+            "sentry_hive",
+            "sentry_isar",
+            "sentry_file",
+            "sentry_firebase_remote_config",
+            "sentry_supabase",
+            "sentry_grpc",
+        ),
+        rubygems=(
+            "sentry-ruby",
+            "sentry-rails",
+            "sentry-sidekiq",
+            "sentry-raven",
+            "sentry-ruby-core",
+            "sentry-delayed_job",
+            "sentry-resque",
+            "sentry-opentelemetry",
+            "sentry-yabeda",
+            "fastlane-plugin-sentry",
+        ),
+        swiftpm=(
+            "github.com/getsentry/sentry-cocoa",
+            "github.com/getsentry/sentry-apple-binaries",
+            "github.com/getsentry/sentry-apple-cocoalumberjack",
+            "github.com/getsentry/sentry-apple-swift-log",
+            "github.com/getsentry/sentry-apple-swiftybeaver",
+            "github.com/getsentry/sentry-apple-pulse",
+        ),
+        alternative_to=(ProductKey.ERROR_TRACKING,),
+    )
+
     supported_versions = ("0",)
     default_version = "0"
     api_docs_url = "https://docs.sentry.io/api/"
@@ -71,8 +322,11 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             caption=(
                 "Enter a Sentry auth token and your organization slug to sync Sentry organization, "
                 "project, issue, and monitor datasets.\n\n"
-                "Create a token in Sentry and make sure it includes the scopes below if you want to "
-                "sync all datasets:\n" + "\n".join(f"- `{scope}`" for scope in REQUIRED_SENTRY_SCOPES) + "\n"
+                "Create a personal token in your "
+                "[Sentry account settings](https://sentry.io/settings/account/api/auth-tokens/) and make sure "
+                "it includes the scopes below if you want to sync all datasets:\n"
+                + "\n".join(f"- `{scope}`" for scope in REQUIRED_SENTRY_SCOPES)
+                + "\n"
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/sentry",
             fields=cast(
@@ -83,7 +337,7 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
                         label="Auth token",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
-                        placeholder="324587...",
+                        placeholder="sntryu_...",
                         secret=True,
                     ),
                     SourceFieldInputConfig(
@@ -125,11 +379,19 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             "403 Client Error": "Sentry token is missing required scopes. Make sure it includes the scopes required for your schemas — the full set is: "
             + ", ".join(REQUIRED_SENTRY_SCOPES)
             + ".",
-            "404 Client Error": "Sentry organization not found. Verify your organization slug.",
+            # The org itself is checked when the source is set up, so a 404 here is most often an
+            # org-level table behind a Sentry plan feature the org doesn't have. A slug renamed
+            # since setup 404s the same way.
+            "404 Client Error": (
+                "Sentry couldn't find this table for your organization. Check that your plan includes it "
+                "and the organization slug is correct, or turn off syncing for this table."
+            ),
             # Raised as `SentryStatsSummaryRejectedError` for any stats-summary 400 other than the
             # skipped no-projects case (see sentry.py). Deterministic for the request we build, so
             # stop retrying; the message is defined at the raise site so it stays credential-safe.
             STATS_SUMMARY_REJECTED_MESSAGE: None,
+            # Raised as `SentrySessionsRejectedError` for the same reason — see sentry.py.
+            SESSIONS_REJECTED_MESSAGE: None,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -142,7 +404,13 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
         # of error tracking; every other path still reaches `raise_for_status()`, which raises
         # `HTTPError: 429 Client Error: Too Many Requests`. Match both so persistent rate-limiting
         # lets Temporal retry instead of being reported to error tracking as a bug.
-        return {"Max retries exceeded with url", SENTRY_RATE_LIMITED_MESSAGE, "429 Client Error"}
+        #
+        # A persistent 5xx is retried the same way and, for endpoints with no per-request skip
+        # handler (e.g. the projects listing `_iter_projects` feeds project_ownership and
+        # project_stats from), reaches the same `raise_for_status()` once that budget is
+        # exhausted. `raise_for_status()` derives the "<code> Server Error" prefix from the status
+        # code alone, so it's stable to match on (see mailchimp/impact for the same pattern).
+        return {"Max retries exceeded with url", SENTRY_RATE_LIMITED_MESSAGE, "429 Client Error", "Server Error"}
 
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:
         # issue_tag_values fans out over issues through its custom two-level iterator, so it

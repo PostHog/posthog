@@ -52,7 +52,7 @@ class LeadTimeBucketSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p05_seconds": {
-                "help_text": "5th percentile of the stage's duration, in seconds — the lower whisker when "
+                "help_text": "5th percentile of the stage's duration, in seconds: the lower whisker when "
                 "outliers are excluded. Null when nothing deployed.",
                 "allow_null": True,
             },
@@ -73,7 +73,7 @@ class LeadTimeBucketSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th percentile of the stage's duration, in seconds — the upper whisker when "
+                "help_text": "95th percentile of the stage's duration, in seconds: the upper whisker when "
                 "outliers are excluded. Null when nothing deployed.",
                 "allow_null": True,
             },
@@ -92,7 +92,7 @@ class DoraOverviewSerializer(DataclassSerializer):
     )
     merge_to_deploy_series = LeadTimeBucketSerializer(
         many=True,
-        help_text="Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot "
+        help_text="Merge-to-deploy distribution per bucket across the window, oldest first: the box-plot "
         "series (min/p5/p25/p50/mean/p75/p95/max seconds per bucket). Empty when the deploy tables aren't "
         "synced, or when github_team was passed without membership data synced.",
     )
@@ -136,7 +136,7 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "silently unfiltered."
             },
             "github_teams": {
-                "help_text": "Distinct GitHub team slugs from the membership snapshot, sorted — the team "
+                "help_text": "Distinct GitHub team slugs from the membership snapshot, sorted: the team "
                 "picker's options. Empty when membership isn't synced."
             },
             "deployment_count": {
@@ -166,7 +166,7 @@ class DoraOverviewSerializer(DataclassSerializer):
             },
             "median_open_to_deploy_seconds": {
                 "help_text": "Median seconds from a PR's open to the first successful deployment "
-                "containing it — the full open-to-deploy lead time over the same deployed-PR "
+                "containing it: the full open-to-deploy lead time over the same deployed-PR "
                 "population as median_merge_to_deploy_seconds. Null when nothing deployed in the "
                 "window.",
                 "allow_null": True,
@@ -176,7 +176,7 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "deployed_pr_count": {
-                "help_text": "PRs first deployed in the window — the population behind the merge-to-deploy "
+                "help_text": "PRs first deployed in the window: the population behind the merge-to-deploy "
                 "median and box plot."
             },
             "deployed_pr_count_prev": {"help_text": "Previous-window twin of deployed_pr_count."},
@@ -207,7 +207,7 @@ class DoraOverviewSerializer(DataclassSerializer):
             },
             "merged_pr_count": {
                 "help_text": "PRs merged in the window (bots and drafts excluded; narrowed by github_team "
-                "when given) — the denominator behind unattributed_merged_pr_share."
+                "when given): the denominator behind unattributed_merged_pr_share."
             },
             "unattributed_merged_pr_share": {
                 "help_text": "Share of merged_pr_count no successful in-scope deployment attributed: recent "
@@ -216,7 +216,7 @@ class DoraOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "latest_deploy_status_at": {
-                "help_text": "The newest deployment status row synced, any environment — how fresh the deploy "
+                "help_text": "The newest deployment status row synced, any environment: how fresh the deploy "
                 "data is. Windows ending after this instant undercount. Null when the deploy tables are empty.",
                 "allow_null": True,
             },

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -76,6 +76,7 @@ describe('EvaluationCodeEditor', () => {
     beforeEach(() => {
         useMocks({
             get: {
+                '/api/llm_proxy/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [] },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
@@ -133,5 +134,19 @@ describe('EvaluationCodeEditor', () => {
                     element?.tagName === 'LI' && element.textContent === 'Return true (fail) or false (pass)'
             )
         ).toBeInTheDocument()
+    })
+
+    it.each([
+        ['Latency', 'return target.total_latency_seconds;'],
+        ['Cost', 'return target.total_cost_usd;'],
+    ])('enables N/A for the numeric %s example', (label, source) => {
+        logic.actions.loadEvaluationSuccess({ ...baseEvaluation, output_type: 'numeric' })
+        renderEditor()
+
+        fireEvent.click(screen.getByText(label))
+
+        expect(logic.values.evaluation?.evaluation_config).toEqual({ source })
+        expect(logic.values.evaluation?.output_config.allows_na).toBe(true)
+        expect(screen.getByText('Number or null')).toBeInTheDocument()
     })
 })

@@ -21,11 +21,12 @@ import type {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { ACCOUNTS_TABLE_DATA_NODE_KEY, ACCOUNTS_METRICS_DATA_NODE_KEY } from '../../constants'
-import { accountSidebarPropertiesLogic } from '../../scenes/CustomerAnalyticsAccountScene/accountSidebarPropertiesLogic'
+import { accountPropertyUpdatesLogic } from '../../scenes/CustomerAnalyticsAccountScene/accountPropertyUpdatesLogic'
 import { accountsColumnConfigLogic, ROLE_KEY_BY_NAME } from './accountsColumnConfigLogic'
+import { getTileString, type AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
 
-export interface AccountRelationshipsLogicProps {
+export interface AccountRelationshipsLogicProps extends AccountViewTileLogicProps {
     accountId: string
 }
 
@@ -131,9 +132,10 @@ export type accountRelationshipsLogicType = MakeLogicType<
 export const accountRelationshipsLogic = kea<accountRelationshipsLogicType>([
     path((key) => ['scenes', 'customerAnalytics', 'accounts', 'accountRelationshipsLogic', key]),
     props({} as AccountRelationshipsLogicProps),
-    key((props) => props.accountId),
+    key((props) => `${props.accountId}:${props.instanceId ?? 'default'}`),
     connect(() => ({
         values: [teamLogic, ['currentTeam', 'currentTeamId'], accountsColumnConfigLogic, ['relationshipDefinitions']],
+        logic: [accountPropertyUpdatesLogic],
     })),
     actions({
         openDeleteConfirmation: (relationship: AccountRelationshipApi) => ({ relationship }),
@@ -162,9 +164,9 @@ export const accountRelationshipsLogic = kea<accountRelationshipsLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         definitionFilter: [
-            null as string | null,
+            getTileString(props.initialConfig, 'definitionFilter') || null,
             {
                 setDefinitionFilter: (_, { definitionId }) => definitionId,
             },
@@ -189,7 +191,7 @@ export const accountRelationshipsLogic = kea<accountRelationshipsLogicType>([
                 closeDeleteConfirmation: () => null,
             },
         ],
-    }),
+    })),
     selectors({
         canDeleteRelationships: [
             (s) => [s.currentTeam],
@@ -236,89 +238,94 @@ export const accountRelationshipsLogic = kea<accountRelationshipsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, props, values }) => ({
-        loadRelationshipsSuccess: () => {
+    listeners(({ actions, props, values }) => {
+        const refreshRelationships = (): void => {
             if (values.currentTeamId) {
-                accountSidebarPropertiesLogic
-                    .findMounted({
-                        projectId: values.currentTeamId,
-                        accountId: props.accountId,
+                accountPropertyUpdatesLogic.actions.relationshipsUpdated(values.currentTeamId, props.accountId)
+            } else {
+                actions.loadRelationships()
+            }
+            refreshAccountsList()
+        }
+        return {
+            [accountPropertyUpdatesLogic.actionTypes.relationshipsUpdated]: ({ projectId, accountId }) => {
+                if (projectId === values.currentTeamId && accountId === props.accountId) {
+                    actions.loadRelationships()
+                }
+            },
+            setDefinitionFilter: () => {
+                props.onConfigChange?.({ definitionFilter: values.definitionFilter })
+            },
+            loadRelationshipsFailure: ({ error }) => {
+                // No toast: `relationships === null` renders the table's failure empty state.
+                posthog.captureException(error, { scope: 'accountRelationshipsLogic.loadRelationships' })
+            },
+            assignRelationship: async ({ definition, user }) => {
+                if (values.relationshipSaving) {
+                    return
+                }
+                actions.relationshipSaveStarted()
+                try {
+                    // Assigning a single-holder relationship ends the current holder server-side.
+                    await accountsRelationshipsCreate(String(values.currentTeamId), props.accountId, {
+                        definition: definition.id,
+                        user: user.id,
                     })
-                    ?.actions.loadPropertyData()
-            }
-        },
-        loadRelationshipsFailure: ({ error }) => {
-            // No toast: `relationships === null` renders the table's failure empty state.
-            posthog.captureException(error, { scope: 'accountRelationshipsLogic.loadRelationships' })
-        },
-        assignRelationship: async ({ definition, user }) => {
-            if (values.relationshipSaving) {
-                return
-            }
-            actions.relationshipSaveStarted()
-            try {
-                // Assigning a single-holder relationship ends the current holder server-side.
-                await accountsRelationshipsCreate(String(values.currentTeamId), props.accountId, {
-                    definition: definition.id,
-                    user: user.id,
-                })
-                posthog.capture(AccountsEvents.RoleAssigned, {
-                    role: ROLE_KEY_BY_NAME[definition.name] ?? definition.name,
-                    is_assigned: true,
-                    assigned_user_id: user.id,
-                    source: 'relationships_tab',
-                })
-                actions.setAssignDefinitionId(null)
-                actions.loadRelationships()
-                refreshAccountsList()
-            } catch (error) {
-                posthog.captureException(error as Error, { scope: 'accountRelationshipsLogic.assignRelationship' })
-                lemonToast.error(`Failed to assign ${definition.name}`)
-            } finally {
-                actions.relationshipSaveFinished()
-            }
-        },
-        endRelationship: async ({ relationship }) => {
-            if (values.relationshipSaving) {
-                return
-            }
-            actions.relationshipSaveStarted()
-            try {
-                await accountsRelationshipsEndCreate(String(values.currentTeamId), props.accountId, relationship.id)
-                posthog.capture(AccountsEvents.RoleAssigned, {
-                    role: ROLE_KEY_BY_NAME[relationship.definition.name] ?? relationship.definition.name,
-                    is_assigned: false,
-                    assigned_user_id: null,
-                    source: 'relationships_tab',
-                })
-                actions.loadRelationships()
-                refreshAccountsList()
-            } catch (error) {
-                posthog.captureException(error as Error, { scope: 'accountRelationshipsLogic.endRelationship' })
-                lemonToast.error(`Failed to end ${relationship.definition.name}`)
-            } finally {
-                actions.relationshipSaveFinished()
-            }
-        },
-        deleteRelationship: async ({ relationship }) => {
-            if (values.relationshipSaving) {
-                return
-            }
-            actions.relationshipSaveStarted()
-            try {
-                await accountsRelationshipsDestroy(String(values.currentTeamId), props.accountId, relationship.id)
-                posthog.capture(AccountsEvents.RelationshipDeleted)
-                actions.closeDeleteConfirmation()
-                actions.loadRelationships()
-                refreshAccountsList()
-            } catch (error) {
-                posthog.captureException(error as Error, { scope: 'accountRelationshipsLogic.deleteRelationship' })
-                lemonToast.error(`Failed to delete ${relationship.definition.name} assignment`)
-            } finally {
-                actions.relationshipSaveFinished()
-            }
-        },
-    })),
+                    posthog.capture(AccountsEvents.RoleAssigned, {
+                        role: ROLE_KEY_BY_NAME[definition.name] ?? definition.name,
+                        is_assigned: true,
+                        assigned_user_id: user.id,
+                        source: 'relationships_tab',
+                    })
+                    actions.setAssignDefinitionId(null)
+                    refreshRelationships()
+                } catch (error) {
+                    posthog.captureException(error as Error, { scope: 'accountRelationshipsLogic.assignRelationship' })
+                    lemonToast.error(`Failed to assign ${definition.name}`)
+                } finally {
+                    actions.relationshipSaveFinished()
+                }
+            },
+            endRelationship: async ({ relationship }) => {
+                if (values.relationshipSaving) {
+                    return
+                }
+                actions.relationshipSaveStarted()
+                try {
+                    await accountsRelationshipsEndCreate(String(values.currentTeamId), props.accountId, relationship.id)
+                    posthog.capture(AccountsEvents.RoleAssigned, {
+                        role: ROLE_KEY_BY_NAME[relationship.definition.name] ?? relationship.definition.name,
+                        is_assigned: false,
+                        assigned_user_id: null,
+                        source: 'relationships_tab',
+                    })
+                    refreshRelationships()
+                } catch (error) {
+                    posthog.captureException(error as Error, { scope: 'accountRelationshipsLogic.endRelationship' })
+                    lemonToast.error(`Failed to end ${relationship.definition.name}`)
+                } finally {
+                    actions.relationshipSaveFinished()
+                }
+            },
+            deleteRelationship: async ({ relationship }) => {
+                if (values.relationshipSaving) {
+                    return
+                }
+                actions.relationshipSaveStarted()
+                try {
+                    await accountsRelationshipsDestroy(String(values.currentTeamId), props.accountId, relationship.id)
+                    posthog.capture(AccountsEvents.RelationshipDeleted)
+                    actions.closeDeleteConfirmation()
+                    refreshRelationships()
+                } catch (error) {
+                    posthog.captureException(error as Error, { scope: 'accountRelationshipsLogic.deleteRelationship' })
+                    lemonToast.error(`Failed to delete ${relationship.definition.name} assignment`)
+                } finally {
+                    actions.relationshipSaveFinished()
+                }
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         actions.loadRelationships()
     }),

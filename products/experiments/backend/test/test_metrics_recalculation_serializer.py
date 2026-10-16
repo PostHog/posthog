@@ -8,14 +8,16 @@ from posthog.models.scoping import team_scope
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.presentation.serializers import (
-    ExperimentMetricsRecalculationSerializer,
+    ExperimentMetricsRecalculationJobSerializer,
+    ExperimentMetricsRecalculationLatestSerializer,
+    ExperimentMetricsRecalculationRunSerializer,
     MetricRecalculationResultSerializer,
     RecalculateMetricsRequestSerializer,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
-class TestExperimentMetricsRecalculationSerializer(BaseTest):
+class TestExperimentMetricsRecalculationSerializers(BaseTest):
     def test_serializes_status_payload(self):
         payload = {
             "id": "00000000-0000-0000-0000-000000000001",
@@ -29,11 +31,12 @@ class TestExperimentMetricsRecalculationSerializer(BaseTest):
             "completed_at": None,
             "query_to": "2026-05-28T10:00:01Z",
         }
-        data = ExperimentMetricsRecalculationSerializer(payload).data
+        data = ExperimentMetricsRecalculationRunSerializer(payload).data
         assert data["status"] == "in_progress"
         assert data["total_metrics"] == 3
         assert data["experiment_id"] == 7
-        assert data["trigger"] == "manual"
+        # trigger is model state for the window decision and analytics; no client reads it.
+        assert "trigger" not in data
         assert data["completed_at"] is None
         assert data["query_to"] == "2026-05-28T10:00:01Z"
         # Field is metric_errors (not errors) to avoid shadowing DRF's Serializer.errors property.
@@ -60,7 +63,7 @@ class TestExperimentMetricsRecalculationSerializer(BaseTest):
                 experiment=experiment,
                 metric_errors={"m1": {"step": "calculation", "message": "boom"}},
             )
-        data = ExperimentMetricsRecalculationSerializer(recalc).data
+        data = ExperimentMetricsRecalculationRunSerializer(recalc).data
         assert data["metric_errors"] == {"m1": {"step": "calculation", "message": "boom"}}
         assert "errors" not in data
 
@@ -72,7 +75,7 @@ class TestExperimentMetricsRecalculationSerializer(BaseTest):
     )
     def test_is_existing_round_trips_when_set(self, name: str, value: bool):
         # is_existing is required=False; when the caller populates it, it must round-trip with that value.
-        data = ExperimentMetricsRecalculationSerializer({"is_existing": value}).data
+        data = ExperimentMetricsRecalculationJobSerializer({"is_existing": value}).data
         assert data["is_existing"] is value
 
     def test_is_existing_omitted_when_absent_from_instance(self):
@@ -80,17 +83,17 @@ class TestExperimentMetricsRecalculationSerializer(BaseTest):
         # and the field disappears from the output entirely (rather than serializing as None). Pins the
         # contract so a future refactor — adding default=, switching to ModelSerializer, flipping required —
         # can't silently start emitting is_existing on payloads that never asked for it.
-        data = ExperimentMetricsRecalculationSerializer({}).data
+        data = ExperimentMetricsRecalculationJobSerializer({}).data
         assert "is_existing" not in data
 
     def test_result_source_defaults_to_recalculation_when_absent(self):
         # required=False + default means a real payload that never sets result_source still serializes it as
         # "recalculation", so clients can always read a concrete source.
-        data = ExperimentMetricsRecalculationSerializer({"status": "completed"}).data
+        data = ExperimentMetricsRecalculationLatestSerializer({"status": "completed"}).data
         assert data["result_source"] == "recalculation"
 
     def test_result_source_round_trips_timeseries_fallback(self):
-        data = ExperimentMetricsRecalculationSerializer(
+        data = ExperimentMetricsRecalculationLatestSerializer(
             {"status": "completed", "result_source": "timeseries_fallback"}
         ).data
         assert data["result_source"] == "timeseries_fallback"
@@ -105,13 +108,11 @@ class TestRecalculateMetricsRequestSerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ("manual",),
+            ("manual_retry",),
             ("cold_run",),
-            ("stale_refresh",),
-            ("auto_refresh",),
-            ("config_change",),
-            ("experiment_launch",),
-            ("experiment_stop",),
-            ("experiment_update",),
+            ("heal_latest_run",),
+            ("experiment_config_change",),
+            ("metric_config_change",),
         ]
     )
     def test_accepts_valid_trigger(self, trigger: str):
@@ -119,10 +120,24 @@ class TestRecalculateMetricsRequestSerializer(SimpleTestCase):
         assert s.is_valid(), s.errors
         assert s.validated_data["trigger"] == trigger
 
-    def test_rejects_unknown_trigger(self):
-        s = RecalculateMetricsRequestSerializer(data={"trigger": "nonsense"})
+    @parameterized.expand(
+        [
+            ("nonsense",),
+            (ExperimentMetricsRecalculation.Trigger.AGENT_MCP,),
+            (ExperimentMetricsRecalculation.Trigger.TIMESERIES_SYNC,),
+            (ExperimentMetricsRecalculation.Trigger.SCHEDULED,),
+            (ExperimentMetricsRecalculation.Trigger.AUTO_REFRESH,),
+        ]
+    )
+    def test_rejects_unknown_or_server_only_trigger(self, trigger: str):
+        s = RecalculateMetricsRequestSerializer(data={"trigger": trigger})
         assert not s.is_valid()
-        assert "trigger" in s.errors
+        assert s.errors["trigger"][0].code == "invalid_choice"
+
+    def test_every_request_trigger_is_a_trigger(self):
+        assert set(ExperimentMetricsRecalculation.RequestTrigger.values) <= set(
+            ExperimentMetricsRecalculation.Trigger.values
+        )
 
 
 class TestMetricRecalculationResultSerializer(SimpleTestCase):

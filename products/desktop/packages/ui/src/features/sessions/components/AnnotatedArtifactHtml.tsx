@@ -1,5 +1,6 @@
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import {
+  type CommentAnchor,
   commentAnchorSchema,
   type TextCommentAnchor,
 } from "@posthog/core/comments/anchors";
@@ -47,6 +48,7 @@ export function AnnotatedArtifactHtml({
   members,
   onActivateThread,
   onCreate,
+  onSendToAgent,
   onResolutionsChange,
 }: {
   html: string;
@@ -61,6 +63,11 @@ export function AnnotatedArtifactHtml({
     content: string,
     mentions?: number[],
   ) => void | Promise<void>;
+  onSendToAgent?: (
+    anchor: CommentAnchor,
+    content: string,
+    screenshot: string | null,
+  ) => void;
   onResolutionsChange: (resolutions: Map<string, HighlightResolution>) => void;
 }) {
   const channelRef = useRef(`artifact-comments-${crypto.randomUUID()}`);
@@ -221,6 +228,12 @@ export function AnnotatedArtifactHtml({
         onSubmit={async (_start, _end, content, mentions) => {
           if (pendingAnchor) await onCreate(pendingAnchor, content, mentions);
         }}
+        onSendToAgent={
+          onSendToAgent && pendingAnchor
+            ? (content, screenshot) =>
+                onSendToAgent(pendingAnchor, content, screenshot)
+            : undefined
+        }
       />
     </div>
   );

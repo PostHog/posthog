@@ -7,6 +7,7 @@ from django.conf import settings
 
 from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow, ScheduleIntervalSpec, ScheduleSpec
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.ai_observability.eval_reports.constants import (
     CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME,
     COUNT_TRIGGER_SCHEDULE_ID,
@@ -29,6 +30,7 @@ async def create_eval_reports_schedule(client: Client):
             id=SCHEDULE_ID,
             task_queue=settings.LLMA_TASK_QUEUE,
         ),
+        # nosemgrep: schedule-must-avoid-minute-zero -- delivers reports at the times customers schedule them, with a 15-minute lookahead
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
     )
 
@@ -47,7 +49,14 @@ async def create_count_trigger_schedule(client: Client):
             id=COUNT_TRIGGER_SCHEDULE_ID,
             task_queue=settings.LLMA_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=5))]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=timedelta(minutes=5),
+                    offset=deterministic_offset(COUNT_TRIGGER_SCHEDULE_ID, timedelta(minutes=5)),
+                )
+            ]
+        ),
     )
 
     if await a_schedule_exists(client, COUNT_TRIGGER_SCHEDULE_ID):

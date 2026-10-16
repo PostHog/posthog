@@ -1,13 +1,13 @@
 import time
 from collections.abc import Generator
-from typing import SupportsIndex
+from typing import SupportsFloat, SupportsIndex
 
 import pytest
 
 _real_sleep = time.sleep
 
 
-def _capped_sleep(seconds: SupportsIndex | float, /) -> None:
+def _capped_sleep(seconds: SupportsFloat | SupportsIndex, /) -> None:
     _real_sleep(min(float(seconds), 0.001))
 
 

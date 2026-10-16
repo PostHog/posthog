@@ -31,6 +31,9 @@ class CortexEndpointConfig:
     # Stable creation-time field to partition by. Left None for endpoints with no such field
     # (never a mutable field like lastUpdated/lastEvaluated).
     partition_key: str | None = None
+    # Extra query params for a top-level list request. A fan-out child takes its own params
+    # from `DependentEndpointConfig.child_params` instead.
+    extra_params: dict[str, str] = field(default_factory=dict)
     # Only the per-entity custom event stream documents a server-side time filter (`startTime`);
     # every other Cortex list endpoint is full-refresh only.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -75,6 +78,17 @@ CORTEX_ENDPOINTS: dict[str, CortexEndpointConfig] = {
         total_path="totalPages",
         partition_key="dateCreated",
     ),
+    # Scorecard-driven remediation campaigns. Drafts and expired Initiatives are both left out
+    # by default, which would drop rows the table is expected to carry.
+    "initiatives": CortexEndpointConfig(
+        name="initiatives",
+        path="/initiatives",
+        data_selector="initiatives",
+        primary_key=["cid"],
+        total_path="totalPages",
+        partition_key="dateCreated",
+        extra_params={"includeDrafts": "true", "includeExpired": "true"},
+    ),
     "entity_types": CortexEndpointConfig(
         name="entity_types",
         path="/catalog/definitions",
@@ -87,6 +101,15 @@ CORTEX_ENDPOINTS: dict[str, CortexEndpointConfig] = {
         path="/teams",
         data_selector="teams",
         primary_key=["id"],
+        paginated=False,
+    ),
+    # Parent/child team edges. Like `teams`, the endpoint returns its whole collection in one
+    # response with no page/pageSize params documented.
+    "team_hierarchies": CortexEndpointConfig(
+        name="team_hierarchies",
+        path="/teams/relationships",
+        data_selector="edges",
+        primary_key=["parentTeamTag", "childTeamTag"],
         paginated=False,
     ),
     "relationship_types": CortexEndpointConfig(
@@ -187,6 +210,16 @@ CORTEX_ENDPOINTS: dict[str, CortexEndpointConfig] = {
             # edges would fetch every edge twice under two different callers.
             child_params={"includeOutgoing": "true", "includeIncoming": "false"},
         ),
+    ),
+    # Fans out over every entity and pulls the groups it belongs to. A row carries only the
+    # group's own `tag`, so the entity has to come from the fan-out to key the membership.
+    "entity_groups": CortexEndpointConfig(
+        name="entity_groups",
+        path="/catalog/{tagOrId}/groups",
+        data_selector="groups",
+        primary_key=["entity_id", "tag"],
+        total_path="totalPages",
+        fanout=_entity_fanout("tagOrId", {"tag": "entity_tag", "id": "entity_id"}),
     ),
 }
 

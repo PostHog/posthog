@@ -92,6 +92,12 @@
       "captureProduced": false
     },
     {
+      "type": "event_dropped_person_processing_disabled",
+      "category": "event",
+      "severity": "info",
+      "captureProduced": false
+    },
+    {
       "type": "event_dropped_too_old",
       "category": "event",
       "severity": "info",
@@ -240,6 +246,12 @@
       "category": "replay",
       "severity": "warning",
       "captureProduced": false
+    },
+    {
+      "type": "misrouted_event",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": true
     },
     {
       "type": "missing_distinct_id",

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DopplerSource(ResumableSource[DopplerSourceConfig, DopplerResumeConfig]):
+    codebase_detection = detect(env=("^DOPPLER_",), npm=("@dopplerhq/node-sdk",), pypi=("doppler-sdk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -103,12 +106,7 @@ Use a [personal token](https://docs.doppler.com/docs/personal-tokens) or a [serv
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
-                description=(
-                    "Workplace activity log of project, config, and access changes. Incremental syncs "
-                    "stop paging once they reach already-synced entries."
-                    if endpoint == "activity_logs"
-                    else None
-                ),
+                description=endpoint_config.description,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

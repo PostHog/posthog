@@ -2,6 +2,7 @@ from collections.abc import Callable, Iterable
 from uuid import UUID
 
 from django.db.models.signals import post_save
+from django.dispatch import Signal
 
 from products.tasks.backend.models import Task, TaskRun
 
@@ -11,6 +12,17 @@ TaskOriginProduct = Task.OriginProduct
 
 def connect_task_run_post_save(receiver: Callable[..., None], *, dispatch_uid: str) -> None:
     post_save.connect(receiver, sender=TaskRun, dispatch_uid=dispatch_uid)
+
+
+# Sent with `task_run=` once an interactive run finishes a turn, so other products react to it
+# without the tasks product importing them.
+task_run_turn_completed = Signal()
+
+
+def connect_task_run_turn_completed(receiver: Callable[..., None], *, dispatch_uid: str) -> None:
+    """``receiver`` gets ``task_run=`` each time an interactive run finishes a turn. A receiver
+    that raises is logged and never fails the report."""
+    task_run_turn_completed.connect(receiver, sender=TaskRun, dispatch_uid=dispatch_uid)
 
 
 # A guard gets (task_id, team_id, user_id) before a run starts and returns a message to refuse it with, or None.
@@ -43,3 +55,10 @@ def register_task_read_exclusion(exclusion: TaskReadExclusion, *, name: str) -> 
 def hidden_task_ids(team_id: int, user_id: int | None) -> set[UUID]:
     """Every registered product's task ids to hide from this user."""
     return {task_id for exclusion in _task_read_exclusions.values() for task_id in exclusion(team_id, user_id)}
+
+
+task_run_cost_updated = Signal()
+
+
+def connect_task_run_cost_updated(receiver: Callable[..., None], *, dispatch_uid: str) -> None:
+    task_run_cost_updated.connect(receiver, sender=TaskRun, dispatch_uid=dispatch_uid)

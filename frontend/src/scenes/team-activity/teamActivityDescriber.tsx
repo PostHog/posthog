@@ -396,7 +396,15 @@ const TEAM_PROPERTIES_MAPPING: Record<
 
         if (before?.appearance?.displayThankYouMessage !== after?.appearance?.displayThankYouMessage) {
             descriptions.push(
-                `${preamble} displayThankYouMessage was ${after?.appearance?.whiteLabel ? 'enabled' : 'disabled'}`
+                `${preamble} displayThankYouMessage was ${
+                    after?.appearance?.displayThankYouMessage ? 'enabled' : 'disabled'
+                }`
+            )
+        }
+
+        if (before?.appearance?.displayIntroScreen !== after?.appearance?.displayIntroScreen) {
+            descriptions.push(
+                `${preamble} Survey intro screen was ${after?.appearance?.displayIntroScreen ? 'enabled' : 'disabled'}`
             )
         }
 
@@ -408,6 +416,7 @@ const TEAM_PROPERTIES_MAPPING: Record<
         propertyChangeDesc('borderColor', (c) => c?.appearance?.borderColor)
         propertyChangeDesc('placeholder', (c) => c?.appearance?.placeholder)
         propertyChangeDesc('thankYouMessageHeader', (c) => c?.appearance?.thankYouMessageHeader)
+        propertyChangeDesc('intro screen header', (c) => c?.appearance?.introScreenHeader)
         propertyChangeDesc('position', (c) => c?.appearance?.position)
 
         return { description: descriptions }
@@ -597,6 +606,28 @@ const TEAM_PROPERTIES_MAPPING: Record<
             ],
         }
     },
+    home_tab_dashboard: (change) => {
+        if (!change.after) {
+            return {
+                description: [
+                    <>
+                        reset the <em>Home tab dashboard</em> to the generic view
+                    </>,
+                ],
+            }
+        }
+
+        return {
+            description: [
+                <>
+                    {change.action === 'created' ? 'set' : 'changed'} the <em>Home tab dashboard</em> to{' '}
+                    <Link to={urls.dashboard(change.after as number)}>
+                        <em>{String(change.after)}</em>
+                    </Link>
+                </>,
+            ],
+        }
+    },
     flags_persistence_default: (change) => {
         return {
             description: [
@@ -760,6 +791,7 @@ const TEAM_PROPERTIES_MAPPING: Record<
     web_analytics_pre_aggregated_tables_enabled: () => null,
     web_analytics_pre_aggregated_tables_version: () => null,
     managed_viewsets: () => null,
+    flag_evaluations_mode: () => null,
     workflows_config: () => null,
     feature_flag_policy_config: () => null,
 }

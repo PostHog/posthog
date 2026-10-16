@@ -83,4 +83,89 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "callback": "Callback delivery metadata, when the request used a callback URL.",
         },
     },
+    "models": {
+        "description": "A model the project can call, public or non-public, with the identifier that "
+        "request rows refer to. Speech-to-text and text-to-speech models share the table and are told "
+        "apart by `model_type`.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "project_id": "Identifier of the project the model is available to.",
+            "uuid": "Unique identifier for the model, as carried on request rows.",
+            "model_type": "Whether the model came from the speech-to-text (stt) or text-to-speech (tts) catalogue.",
+            "name": "The model's short name, for example nova-3.",
+            "canonical_name": "The fully qualified model name used when calling the API.",
+            "architecture": "The model family the model belongs to.",
+            "languages": "IETF language tags the model supports.",
+            "version": "Version identifier of the model.",
+            "batch": "Whether the model can be used for batch (pre-recorded) speech-to-text.",
+            "streaming": "Whether the model can be used for streaming speech-to-text.",
+            "formatted_output": "Whether the model can return formatted output.",
+            "metadata": "Voice metadata for a text-to-speech model, such as accent, age and sample audio.",
+        },
+    },
+    "usage_breakdown": {
+        "description": "Usage totals for one period of a project, broken down by the dimensions the "
+        "request grouped on. Synced incrementally on the period's start date.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "project_id": "Identifier of the project the usage belongs to.",
+            "start": "First day of the period the row covers.",
+            "end": "Last day of the period the row covers.",
+            "grouping_key": "The dimension values this row aggregates, joined into one value. Empty when the row covers a whole period rather than a slice of it.",
+            "hours": "Audio hours processed.",
+            "total_hours": "Total hours including all processing.",
+            "agent_hours": "Agent hours used.",
+            "tokens_in": "Number of input tokens.",
+            "tokens_out": "Number of output tokens.",
+            "tts_characters": "Number of text-to-speech characters processed.",
+            "requests": "Number of requests.",
+            "accessor": "The accessor the usage is attributed to, when grouped by accessor.",
+            "endpoint": "The API endpoint the usage came from, when grouped by endpoint.",
+            "feature_set": "The set of features used, when grouped by feature set.",
+            "models": "The models used, when grouped by model.",
+            "method": "The processing method used, when grouped by method.",
+            "tags": "The tags the requests carried, when grouped by tags.",
+            "deployment": "The deployment the usage ran on, when grouped by deployment.",
+        },
+    },
+    "billing_breakdown": {
+        "description": "What a project was billed for one period, broken down by the dimensions the "
+        "request grouped on. Synced incrementally on the period's start date.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "project_id": "Identifier of the project the spend belongs to.",
+            "start": "First day of the period the row covers.",
+            "end": "Last day of the period the row covers.",
+            "grouping_key": "The dimension values this row aggregates, joined into one value. Empty when the row covers a whole period rather than a slice of it.",
+            "dollars": "Cost in US dollars for the row's period and grouping.",
+            "accessor": "The accessor the spend is attributed to, when grouped by accessor.",
+            "deployment": "The deployment the spend ran on, when grouped by deployment.",
+            "line_item": "The billed line item, for example streaming::nova-3, when grouped by line item.",
+            "tags": "The tags the billed requests carried, when grouped by tags.",
+        },
+    },
+    "usage_fields": {
+        "description": "The models, tags, processing methods and features the project used in the "
+        "period. These are the dimensions a usage breakdown can be sliced by. One row per value.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "project_id": "Identifier of the project the value was seen in.",
+            "field": "Which set the value belongs to: models, tags, processing_methods or features.",
+            "value": "The value itself. For a model this is the model identifier.",
+            "name": "The model's name. Only set for a model row.",
+            "language": "The IETF language tag the model supports. Only set for a model row.",
+            "version": "Version identifier of the model. Only set for a model row.",
+        },
+    },
+    "billing_fields": {
+        "description": "The accessors, deployments, tags and line items the project was billed on in "
+        "the period. These are the dimensions a billing breakdown can be sliced by. One row per value.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "project_id": "Identifier of the project the value was seen in.",
+            "field": "Which set the value belongs to: accessors, deployments, tags or line_items.",
+            "value": "The value itself. For a line item this is the line item name.",
+            "description": "The human-readable description of the line item. Only set for a line item row.",
+        },
+    },
 }

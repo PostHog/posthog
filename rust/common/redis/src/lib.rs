@@ -215,6 +215,12 @@ pub trait Client: Send + Sync {
     /// Add a single (member, score) pair to a sorted set.
     async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError>;
 
+    /// Add a (member, score) pair only when the member is absent, so repeated writes keep
+    /// the first score. `zadd` overwrites it.
+    async fn zadd_nx(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError>;
+
+    async fn zrem(&self, k: String, member: String) -> Result<(), CustomRedisError>;
+
     async fn hincrby(&self, k: String, v: String, count: i64) -> Result<(), CustomRedisError>;
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError>;
@@ -268,6 +274,16 @@ pub trait Client: Send + Sync {
         &self,
         items: Vec<(String, i64)>,
         ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError>;
+
+    /// Increment each key and set its expiry to an absolute unix second, as
+    /// `(key, increment, expire_at)`.
+    ///
+    /// Prefer this over `batch_incr_by_expire` when the key fixes its own
+    /// deadline; do not add `NX`, which needs Redis 7 and buys nothing here.
+    async fn batch_incr_by_expire_at(
+        &self,
+        items: Vec<(String, i64, i64)>,
     ) -> Result<(), CustomRedisError>;
 
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;

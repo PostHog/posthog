@@ -56,6 +56,8 @@ from posthog.models.filters.mixins.utils import cached_property
 # _ROW_LIMIT lives in logic.py so the presentation layer can reach it through the
 # facade-allowed `logic` module; imported here (and re-exported) for the sibling runners.
 from .logic import _ROW_LIMIT, TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter, with_span_attribute_type_suffix
+from .models import TracingIdentityAttributeKeys
+from .span_identity import identity_value_expr
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -162,25 +164,32 @@ class _SpanAggregationMixin:
         compare_range = self._compare_query_date_range()
 
         if compare_range is None:
-            return self._run_period(self.query_date_range), None
+            return self._run_period(self.query_date_range, self.timings), None
 
         # Copy contextvars to worker threads so query tags (product/feature) set by the
         # viewset propagate. ThreadPoolExecutor does not inherit contextvars by default.
         primary_ctx = contextvars.copy_context()
         compare_ctx = contextvars.copy_context()
+        # HogQLTimings is not thread safe, so each worker gets its own clone.
+        primary_timings = self.timings.clone_for_subquery(0)
+        compare_timings = self.timings.clone_for_subquery(1)
 
         def run_primary() -> list:
-            return primary_ctx.run(self._run_period, self.query_date_range)
+            return primary_ctx.run(self._run_period, self.query_date_range, primary_timings)
 
         def run_compare() -> list:
-            return compare_ctx.run(self._run_period, compare_range)
+            return compare_ctx.run(self._run_period, compare_range, compare_timings)
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             current_future = pool.submit(run_primary)
             previous_future = pool.submit(run_compare)
-            return current_future.result(), previous_future.result()
+            results = current_future.result(), previous_future.result()
 
-    def _run_period(self, query_date_range: QueryDateRange) -> list:
+        self.timings.timings.update(primary_timings.timings)
+        self.timings.timings.update(compare_timings.timings)
+        return results
+
+    def _run_period(self, query_date_range: QueryDateRange, timings: HogQLTimings) -> list:
         query = self._build_query(query_date_range)
         response = execute_hogql_query(
             query_type=self.query.kind,
@@ -188,7 +197,7 @@ class _SpanAggregationMixin:
             modifiers=self.modifiers,
             team=self.team,
             workload=Workload.LOGS,
-            timings=self.timings,
+            timings=timings,
             limit_context=self.limit_context,
             settings=self.settings,
             filters=query_date_range.to_hogql_filters(),
@@ -241,6 +250,7 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         *args,
         limit: int | None = None,
         offset: int = 0,
+        identity_keys: TracingIdentityAttributeKeys | None = None,
         **kwargs,
     ) -> None:
         super().__init__(query, *args, **kwargs)
@@ -249,6 +259,7 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         self._extract_filters()
         self._limit = _ROW_LIMIT if limit is None else max(1, min(limit, _ROW_LIMIT))
         self._offset = max(0, offset)
+        self._identity_keys = identity_keys
 
     def get_cache_payload(self) -> dict:
         # Runner arguments, not query fields, so the base payload cannot see them.
@@ -260,6 +271,27 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
 
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
         # Single table scan plus hash aggregate. Cheap enough to run unscoped.
+        placeholders: dict[str, ast.Expr] = {
+            "where": self._where_without_date_range(),
+            "limit": ast.Constant(value=self._limit),
+            "offset": ast.Constant(value=self._offset),
+            **query_date_range.to_placeholders(),
+        }
+        # Appended rather than always present, because reading the attribute maps is the
+        # expensive part of this query and only the Operations columns need it. uniq() is
+        # HyperLogLog-based and skips NULLs. `_row_from_clickhouse` reads these by position.
+        impact_columns = ""
+        if self.query.includeImpact:
+            if self._identity_keys is None:
+                raise ValueError("includeImpact requires identity_keys")
+            placeholders["session_value"] = identity_value_expr(self._identity_keys.session)
+            placeholders["person_value"] = identity_value_expr(self._identity_keys.distinct_id)
+            impact_columns = """,
+                uniq({session_value}) AS sessions,
+                uniq({person_value}) AS users,
+                count({session_value}) AS spans_with_session_id,
+                count({person_value}) AS spans_with_distinct_id"""
+
         query = parse_select(
             """
             SELECT
@@ -269,7 +301,9 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
                 sum(duration_nano) AS total_duration_nano,
                 avg(duration_nano) AS avg_duration_nano,
                 quantiles(0.5, 0.95, 0.99, 0.999)(duration_nano) AS duration_quantiles,
-                countIf(status_code = 2) AS error_count
+                countIf(status_code = 2) AS error_count"""
+            + impact_columns
+            + """
             FROM posthog.trace_spans
             WHERE {where}
               AND """
@@ -282,18 +316,14 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             LIMIT {limit}
             OFFSET {offset}
             """,
-            placeholders={
-                "where": self._where_without_date_range(),
-                "limit": ast.Constant(value=self._limit),
-                "offset": ast.Constant(value=self._offset),
-                **query_date_range.to_placeholders(),
-            },
+            placeholders=placeholders,
         )
         assert isinstance(query, ast.SelectQuery)
         return query
 
     def _row_from_clickhouse(self, row: list) -> AggregatedSpanRow:
         p50, p95, p99, p999 = row[5] or (0.0, 0.0, 0.0, 0.0)
+        with_impact = self.query.includeImpact
         return AggregatedSpanRow(
             service_name=row[0] or "",
             name=row[1] or "",
@@ -305,6 +335,10 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             p99_duration_nano=float(p99 or 0),
             p999_duration_nano=float(p999 or 0),
             error_count=row[6] or 0,
+            sessions=row[7] if with_impact else None,
+            users=row[8] if with_impact else None,
+            spans_with_session_id=row[9] if with_impact else None,
+            spans_with_distinct_id=row[10] if with_impact else None,
         )
 
     def run(self, *args, **kwargs) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:

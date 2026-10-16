@@ -3,6 +3,13 @@ import datetime
 from django.db import models
 
 
+class AddedBy(models.TextChoices):
+    """Who created a knowledge source. Query filter only, not a stored column."""
+
+    HUMAN = "human", "Human"
+    LEARNED = "learned", "Learned"
+
+
 class SourceType(models.TextChoices):
     TEXT = "text", "Text"
     # Reserved for Stage 2 / Stage 3 — declared up front so the DB choice

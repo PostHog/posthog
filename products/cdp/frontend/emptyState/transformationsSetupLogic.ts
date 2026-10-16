@@ -14,6 +14,8 @@ import { hogFunctionsList } from '../generated/api'
 export const transformationsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.PIPELINE_TRANSFORMATIONS,
     path: ['products', 'cdp', 'frontend', 'emptyState', 'transformationsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const response = await hogFunctionsList(projectId, { type: ['transformation'], limit: 1 })

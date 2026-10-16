@@ -171,6 +171,8 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
         }
         assert mock_preflight.call_args.kwargs["query_type"] == "LLMOfflineEvaluationItemsResolve"
         assert mock_heavy.call_args.kwargs["query_type"] == "LLMOfflineEvaluationItems"
+        assert mock_preflight.call_args.kwargs["user"] == self.user
+        assert mock_heavy.call_args.kwargs["user"] == self.user
 
     @patch("products.ai_observability.backend.api.offline_evaluations.query_ai_events")
     @patch("products.ai_observability.backend.api.offline_evaluations.execute_hogql_query")

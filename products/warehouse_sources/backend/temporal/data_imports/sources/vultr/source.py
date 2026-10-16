@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -25,6 +26,23 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VultrSource(SimpleSource[VultrSourceConfig]):
+    codebase_detection = detect(
+        env=("^VULTR_",),
+        npm=("@vultr/vultr-node",),
+        go=(
+            "github.com/vultr/govultr",
+            "github.com/crossplane-contrib/provider-vultr",
+            "github.com/vultr/cert-manager-webhook-vultr",
+            "github.com/vultr/docker-machine-driver-vultr",
+            "github.com/vultr/external-dns-vultr-webhook",
+            "github.com/vultr/packer-plugin-vultr",
+            "github.com/vultr/vultr-cli",
+            "github.com/vultr/vultr-cloud-controller-manager",
+            "github.com/vultr/vultr-cluster-autoscaler",
+            "github.com/vultr/vultr-csi",
+        ),
+    )
+
     # get_schemas is a static endpoint catalog with no I/O, so the table list is safe for public docs.
     lists_tables_without_credentials = True
     supported_versions = ("v2",)

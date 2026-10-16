@@ -18,6 +18,7 @@ from django.db.models import Count, F, Prefetch
 from django.shortcuts import get_object_or_404
 
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema_view
 from openai import APIConnectionError
 from pydantic import ValidationError as PydanticValidationError
@@ -57,6 +58,7 @@ from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.data_modeling.backend.facade.api import HasDependentsError
 from products.data_modeling.backend.facade.models import DataModelingJob
 from products.endpoints.backend.facade.api import (
     REWRITE_CONTRACT,
@@ -93,14 +95,77 @@ from products.endpoints.backend.presentation.throttles import (
 )
 
 
+class EndpointDependentsValidationError(serializers.ValidationError):
+    def __init__(self, detail: str, node_id: str | None = None) -> None:
+        super().__init__(detail, code="has_dependents")
+        if node_id:
+            self.extra = {"node_id": node_id}
+
+
 class MaterializationPreviewRequestSerializer(serializers.Serializer):
-    version = serializers.IntegerField(required=False)
+    version = serializers.IntegerField(
+        required=False, help_text="Endpoint version to preview. Defaults to the current version."
+    )
     bucket_overrides = serializers.DictField(
         child=serializers.CharField(),
         required=False,
         allow_null=True,
         help_text='Per-column bucket function overrides, e.g. {"timestamp": "hour"}',
     )
+
+
+class MaterializationPreviewRangePairSerializer(serializers.Serializer):
+    column = serializers.CharField(help_text="Column the query buckets on.")
+    variables = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Query variables that filter on this column.",
+    )
+    bucket_fn = serializers.CharField(help_text="Bucket function applied to the column.")
+
+
+class MaterializationPreviewAggregateSerializer(serializers.Serializer):
+    expression = serializers.CharField(help_text="Aggregate expression in the transformed query.")
+    reaggregate_fn = serializers.CharField(
+        allow_null=True,
+        help_text="Function that combines materialized partials again, or null when there is none.",
+    )
+
+
+class MaterializationPreviewResponseSerializer(serializers.Serializer):
+    can_materialize = serializers.BooleanField(help_text="Whether the endpoint query can be materialized.")
+    reason = serializers.CharField(
+        allow_null=True,
+        help_text="Why the query cannot be materialized, or null when it can.",
+    )
+    transformed_query = serializers.CharField(
+        allow_null=True,
+        help_text="Query rewritten for materialization, when one could be produced.",
+    )
+    execution_query = serializers.CharField(
+        allow_null=True,
+        help_text="Query that would run against the materialized table.",
+    )
+    display_execution_query = serializers.CharField(
+        allow_null=True,
+        help_text="Execution query formatted for display.",
+    )
+    range_pairs = MaterializationPreviewRangePairSerializer(
+        many=True,
+        help_text="Bucketed columns and the variables that filter on them.",
+    )
+    aggregates = MaterializationPreviewAggregateSerializer(
+        many=True,
+        help_text="Aggregate expressions and how to re-aggregate them.",
+    )
+
+
+ENDPOINT_VERSION_PARAMETER = OpenApiParameter(
+    name="version",
+    type=OpenApiTypes.INT,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Endpoint version to act on. Defaults to the current version.",
+)
 
 
 @extend_schema_view(
@@ -278,7 +343,7 @@ class EndpointViewSet(
     def _with_materialization_job_prefetches(queryset):
         latest_jobs = DataModelingJob.objects.filter(engine=DataModelingJob.Engine.CLICKHOUSE).order_by("-last_run_at")
         latest_completed_jobs = latest_jobs.filter(status=DataModelingJob.Status.COMPLETED)
-        return queryset.select_related("saved_query").prefetch_related(
+        return queryset.select_related("saved_query", "team").prefetch_related(
             Prefetch("saved_query__datamodelingjob_set", queryset=latest_jobs[:1], to_attr="prefetched_latest_jobs"),
             Prefetch(
                 "saved_query__datamodelingjob_set",
@@ -415,6 +480,7 @@ class EndpointViewSet(
         return Response({"results": results})
 
     @extend_schema(
+        parameters=[ENDPOINT_VERSION_PARAMETER],
         responses={200: EndpointVersionResponseSerializer},
         description="Retrieve an endpoint, or a specific version via ?version=N.",
     )
@@ -502,7 +568,15 @@ class EndpointViewSet(
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
         endpoint = self._get_endpoint_with_object_access(name)
-        EndpointCrudService(self.team, request).destroy(endpoint)
+        try:
+            EndpointCrudService(self.team, request).destroy(endpoint)
+        except HasDependentsError as error:
+            can_read_lineage = self.user_access_control.check_access_level_for_resource(
+                "warehouse_view", required_level="viewer"
+            )
+            raise EndpointDependentsValidationError(
+                str(error), node_id=error.fallback_node_id if can_read_lineage else None
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     # ------------------------------------------------------------------
@@ -653,6 +727,7 @@ class EndpointViewSet(
         return Response({"results": results})
 
     @extend_schema(
+        parameters=[ENDPOINT_VERSION_PARAMETER],
         responses={200: EndpointMaterializationSerializer},
         description="Get materialization status for an endpoint. Supports ?version=N query param.",
     )
@@ -672,6 +747,7 @@ class EndpointViewSet(
 
     @validated_request(
         MaterializationPreviewRequestSerializer,
+        responses={200: OpenApiResponse(response=MaterializationPreviewResponseSerializer)},
         description="Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.",
     )
     @action(methods=["POST"], detail=True, url_path="materialization_preview")
@@ -809,15 +885,7 @@ class EndpointViewSet(
         # the `.` is rejected by lint_spec_consistency_hook + the MCP YAML scaffolder.
         operation_id="endpoints_openapi_spec_retrieve",
         description="Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.",
-        parameters=[
-            OpenApiParameter(
-                name="version",
-                type=int,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Specific endpoint version to generate the spec for. Defaults to latest.",
-            ),
-        ],
+        parameters=[ENDPOINT_VERSION_PARAMETER],
     )
     @action(methods=["GET"], detail=True, url_path="openapi.json")
     def openapi_spec(self, request: Request, name=None, *args, **kwargs) -> Response:

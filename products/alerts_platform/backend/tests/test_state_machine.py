@@ -1,0 +1,559 @@
+from datetime import UTC, datetime, timedelta
+
+from parameterized import parameterized
+
+from products.alerts_platform.backend.facade.contracts import IncidentAction
+from products.alerts_platform.backend.facade.lifecycle import (
+    LOGS_ALERT_POLICY,
+    PLATFORM_LOGS_ALERT_POLICY,
+    AlertCheckOutcome,
+    AlertPolicy,
+    AlertSnapshot,
+    AlertState,
+    CheckInput,
+    FiringEpisode,
+    NotificationAction,
+    decide_firing_episode,
+    decide_incident_action,
+    evaluate_alert_check,
+)
+
+NOW = datetime(2026, 3, 19, 12, 0, tzinfo=UTC)
+
+BREACH = CheckInput(threshold_breached=True)
+CLEAR = CheckInput(threshold_breached=False)
+ERROR = CheckInput(threshold_breached=False, error_message="query failed")
+TRANSIENT_ERROR = CheckInput(threshold_breached=False, error_message="timeout", is_transient_error=True)
+INCONCLUSIVE = CheckInput(threshold_breached=False, is_inconclusive=True)
+
+# Non-default flags one at a time, so a broken flag branch fails its own row.
+UNBREAKABLE = AlertPolicy(broken_is_terminal=False)
+TRANSIENT_BREAKS = AlertPolicy(transient_errors_count_toward_broken=True)
+NOISY_ERRORS = AlertPolicy(notify_error_on_every_failure=True)
+UNGATED_FIRST_FIRE = AlertPolicy(cooldown_gates_initial_fire=False)
+UNGATED_RESOLVE = AlertPolicy(cooldown_gates_resolve=False)
+RENOTIFY = AlertPolicy(renotify_while_firing=True)
+SNOOZE_UNTIL_CLEAR = AlertPolicy(clear_check_ends_snooze=True)
+DISABLE_ON_BROKEN = AlertPolicy(disable_when_broken=True)
+BREAKS_EARLY = AlertPolicy(max_consecutive_failures=2)
+NO_FAILURE_ESCALATION = AlertPolicy(max_consecutive_failures=None, notify_error_on_every_failure=True)
+NO_RESOLVE_NOTIFICATION = AlertPolicy(notify_resolve=False)
+VISIBLE_ERROR_STATE = AlertPolicy(errors_set_errored_state=True)
+
+
+def snapshot(**overrides) -> AlertSnapshot:
+    defaults: dict = {
+        "state": AlertState.NOT_FIRING,
+        "cooldown": timedelta(minutes=30),
+        "last_notified_at": None,
+        "snooze_until": None,
+        "consecutive_failures": 0,
+    }
+    return AlertSnapshot(**{**defaults, **overrides})
+
+
+IN_COOLDOWN = NOW - timedelta(minutes=5)
+SNOOZING = NOW + timedelta(hours=1)
+
+
+class TestPolicyDecisionTable:
+    @parameterized.expand(
+        [
+            # broken_is_terminal=False: a check on a BROKEN alert re-evaluates from scratch
+            (
+                "unbreak_clear",
+                UNBREAKABLE,
+                snapshot(state=AlertState.BROKEN),
+                CLEAR,
+                AlertState.NOT_FIRING,
+                NotificationAction.NONE,
+            ),
+            (
+                "unbreak_breach",
+                UNBREAKABLE,
+                snapshot(state=AlertState.BROKEN),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.FIRE,
+            ),
+            (
+                "terminal_broken_ignores_breach",
+                LOGS_ALERT_POLICY,
+                snapshot(state=AlertState.BROKEN),
+                BREACH,
+                AlertState.BROKEN,
+                NotificationAction.NONE,
+            ),
+            (
+                "resolve_without_notification",
+                NO_RESOLVE_NOTIFICATION,
+                snapshot(state=AlertState.FIRING),
+                CLEAR,
+                AlertState.NOT_FIRING,
+                NotificationAction.NONE,
+            ),
+            # transient_errors_count_toward_broken
+            (
+                "transient_error_spared",
+                LOGS_ALERT_POLICY,
+                snapshot(state=AlertState.ERRORED, consecutive_failures=4),
+                TRANSIENT_ERROR,
+                AlertState.ERRORED,
+                NotificationAction.NONE,
+            ),
+            (
+                "transient_error_breaks",
+                TRANSIENT_BREAKS,
+                snapshot(state=AlertState.ERRORED, consecutive_failures=4),
+                TRANSIENT_ERROR,
+                AlertState.BROKEN,
+                NotificationAction.BROKEN,
+            ),
+            # max_consecutive_failures: breaks at the policy's threshold, not the default constant
+            (
+                "custom_failure_threshold_breaks",
+                BREAKS_EARLY,
+                snapshot(state=AlertState.ERRORED, consecutive_failures=1),
+                ERROR,
+                AlertState.BROKEN,
+                NotificationAction.BROKEN,
+            ),
+            # notify_error_on_every_failure
+            (
+                "repeat_error_quiet",
+                LOGS_ALERT_POLICY,
+                snapshot(state=AlertState.ERRORED, consecutive_failures=1),
+                ERROR,
+                AlertState.ERRORED,
+                NotificationAction.NONE,
+            ),
+            (
+                "repeat_error_notifies",
+                NOISY_ERRORS,
+                snapshot(state=AlertState.ERRORED, consecutive_failures=1),
+                ERROR,
+                AlertState.ERRORED,
+                NotificationAction.ERROR,
+            ),
+            # cooldown_gates_initial_fire
+            (
+                "initial_fire_gated",
+                LOGS_ALERT_POLICY,
+                snapshot(last_notified_at=IN_COOLDOWN),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+            ),
+            (
+                "initial_fire_ungated",
+                UNGATED_FIRST_FIRE,
+                snapshot(last_notified_at=IN_COOLDOWN),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.FIRE,
+            ),
+            # cooldown never spares the re-fire of an already-FIRING alert, even ungated
+            (
+                "refire_still_gated",
+                AlertPolicy(cooldown_gates_initial_fire=False, renotify_while_firing=True),
+                snapshot(state=AlertState.FIRING, last_notified_at=IN_COOLDOWN),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+            ),
+            # cooldown_gates_resolve
+            (
+                "resolve_gated",
+                LOGS_ALERT_POLICY,
+                snapshot(state=AlertState.FIRING, last_notified_at=IN_COOLDOWN),
+                CLEAR,
+                AlertState.NOT_FIRING,
+                NotificationAction.NONE,
+            ),
+            (
+                "resolve_ungated",
+                UNGATED_RESOLVE,
+                snapshot(state=AlertState.FIRING, last_notified_at=IN_COOLDOWN),
+                CLEAR,
+                AlertState.NOT_FIRING,
+                NotificationAction.RESOLVE,
+            ),
+            # renotify_while_firing
+            (
+                "refire_quiet",
+                LOGS_ALERT_POLICY,
+                snapshot(state=AlertState.FIRING),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+            ),
+            (
+                "refire_notifies",
+                RENOTIFY,
+                snapshot(state=AlertState.FIRING),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.FIRE,
+            ),
+            # clear_check_ends_snooze
+            (
+                "snoozed_stays_untouched",
+                LOGS_ALERT_POLICY,
+                snapshot(state=AlertState.SNOOZED, snooze_until=SNOOZING),
+                CLEAR,
+                AlertState.SNOOZED,
+                NotificationAction.NONE,
+            ),
+            (
+                "breach_parks_in_snooze",
+                SNOOZE_UNTIL_CLEAR,
+                snapshot(state=AlertState.FIRING, snooze_until=SNOOZING),
+                BREACH,
+                AlertState.SNOOZED,
+                NotificationAction.NONE,
+            ),
+            (
+                "clear_ends_snooze_and_resolves",
+                SNOOZE_UNTIL_CLEAR,
+                snapshot(state=AlertState.SNOOZED, snooze_until=SNOOZING, cooldown=timedelta(0)),
+                CLEAR,
+                AlertState.NOT_FIRING,
+                NotificationAction.RESOLVE,
+            ),
+            # snooze expiry under defaults: re-evaluates from scratch, breach is an initial fire
+            (
+                "expired_snooze_refires",
+                LOGS_ALERT_POLICY,
+                snapshot(state=AlertState.SNOOZED, snooze_until=NOW - timedelta(minutes=1)),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.FIRE,
+            ),
+            # inconclusive: state and failure counter untouched
+            (
+                "inconclusive_preserves_state",
+                LOGS_ALERT_POLICY,
+                snapshot(state=AlertState.ERRORED, consecutive_failures=3),
+                INCONCLUSIVE,
+                AlertState.ERRORED,
+                NotificationAction.NONE,
+            ),
+        ]
+    )
+    def test_decision(
+        self,
+        _name: str,
+        policy: AlertPolicy,
+        snap: AlertSnapshot,
+        check: CheckInput,
+        expected_state: AlertState,
+        expected_notification: NotificationAction,
+    ) -> None:
+        outcome = evaluate_alert_check(snap, check, NOW, policy=policy)
+        assert outcome.new_state == expected_state
+        assert outcome.notification == expected_notification
+
+    @parameterized.expand(
+        [
+            (
+                "snooze_mutes_a_fire",
+                snapshot(snooze_until=SNOOZING),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.FIRE,
+            ),
+            (
+                "quiet_hours_mutes_a_fire",
+                snapshot(),
+                CheckInput(threshold_breached=True, muted=True),
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.FIRE,
+            ),
+            (
+                "snooze_mutes_a_resolve",
+                snapshot(state=AlertState.FIRING, snooze_until=SNOOZING, cooldown=timedelta(0)),
+                CLEAR,
+                AlertState.NOT_FIRING,
+                NotificationAction.NONE,
+                NotificationAction.RESOLVE,
+            ),
+            (
+                "a_mute_does_not_hold_an_error",
+                snapshot(snooze_until=SNOOZING),
+                ERROR,
+                AlertState.NOT_FIRING,
+                NotificationAction.ERROR,
+                NotificationAction.NONE,
+            ),
+            (
+                "unmute_announces_a_held_fire",
+                snapshot(state=AlertState.FIRING, firing_started_at=NOW, last_notified_at=None),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.FIRE,
+                NotificationAction.NONE,
+            ),
+            (
+                "unmute_stays_quiet_when_the_condition_cleared",
+                snapshot(state=AlertState.FIRING, firing_started_at=NOW, last_notified_at=None),
+                CLEAR,
+                AlertState.NOT_FIRING,
+                NotificationAction.NONE,
+                NotificationAction.NONE,
+            ),
+            (
+                # Without the mute guard, this re-enters NOT_FIRING and reports a held FIRE on
+                # every check for the length of the mute.
+                "a_steady_muted_fire_is_not_held_again",
+                snapshot(
+                    state=AlertState.FIRING,
+                    firing_started_at=NOW,
+                    last_notified_at=None,
+                    snooze_until=SNOOZING,
+                ),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.NONE,
+            ),
+            (
+                "a_firing_announced_at_its_start_does_not_refire",
+                snapshot(state=AlertState.FIRING, firing_started_at=NOW, last_notified_at=NOW),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.NONE,
+            ),
+            (
+                # No start to compare, so the firing reads as announced. The other reading re-fires
+                # it on every later check.
+                "a_firing_with_no_recorded_start_does_not_refire",
+                snapshot(state=AlertState.FIRING, firing_started_at=None, last_notified_at=NOW - timedelta(hours=1)),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.NONE,
+            ),
+            (
+                # A cooldown leaves the same pair of timestamps a mute does, so the fire it
+                # suppressed is owed an announcement once the cooldown is over.
+                "a_cooldown_suppressed_fire_is_still_owed",
+                snapshot(
+                    state=AlertState.FIRING,
+                    firing_started_at=NOW,
+                    last_notified_at=NOW - timedelta(minutes=20),
+                    cooldown=timedelta(0),
+                ),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.FIRE,
+                NotificationAction.NONE,
+            ),
+            (
+                "an_unmuted_check_still_announces",
+                snapshot(),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.FIRE,
+                NotificationAction.NONE,
+            ),
+        ]
+    )
+    def test_a_mute_holds_the_announcement_without_changing_the_transition(
+        self,
+        _name: str,
+        snap: AlertSnapshot,
+        check: CheckInput,
+        expected_state: AlertState,
+        expected_notification: NotificationAction,
+        expected_muted: NotificationAction,
+    ) -> None:
+        outcome = evaluate_alert_check(snap, check, NOW, policy=PLATFORM_LOGS_ALERT_POLICY)
+        assert outcome.new_state == expected_state
+        assert outcome.notification == expected_notification
+        assert outcome.muted_notification == expected_muted
+        if expected_muted is not NotificationAction.NONE:
+            assert outcome.update_last_notified_at is False
+
+    def test_inconclusive_preserves_failure_counter(self) -> None:
+        outcome = evaluate_alert_check(
+            snapshot(state=AlertState.ERRORED, consecutive_failures=3), INCONCLUSIVE, NOW, policy=LOGS_ALERT_POLICY
+        )
+        assert outcome.consecutive_failures == 3
+
+    def test_failures_can_skip_broken_escalation(self) -> None:
+        outcome = evaluate_alert_check(
+            snapshot(state=AlertState.ERRORED, consecutive_failures=10),
+            ERROR,
+            NOW,
+            policy=NO_FAILURE_ESCALATION,
+        )
+        assert outcome.new_state == AlertState.ERRORED
+        assert outcome.notification == NotificationAction.ERROR
+
+    def test_failure_can_enter_errored_state(self) -> None:
+        outcome = evaluate_alert_check(snapshot(), ERROR, NOW, policy=VISIBLE_ERROR_STATE)
+        assert outcome.new_state == AlertState.ERRORED
+
+    @parameterized.expand(
+        [
+            ("default_keeps_enabled", LOGS_ALERT_POLICY, False),
+            ("policy_disables", DISABLE_ON_BROKEN, True),
+        ]
+    )
+    def test_disable_when_broken(self, _name: str, policy: AlertPolicy, expected_disable: bool) -> None:
+        outcome = evaluate_alert_check(
+            snapshot(state=AlertState.ERRORED, consecutive_failures=4), ERROR, NOW, policy=policy
+        )
+        assert outcome == AlertCheckOutcome(
+            new_state=AlertState.BROKEN,
+            notification=NotificationAction.BROKEN,
+            consecutive_failures=5,
+            update_last_notified_at=False,
+            error_message="query failed",
+            disable=expected_disable,
+        )
+
+
+STARTED = NOW - timedelta(hours=2)
+
+
+def outcome(state: AlertState) -> AlertCheckOutcome:
+    return AlertCheckOutcome(
+        new_state=state,
+        notification=NotificationAction.NONE,
+        consecutive_failures=0,
+        update_last_notified_at=False,
+        error_message=None,
+    )
+
+
+def episode(started_at: datetime | None, *, ended: bool = False) -> FiringEpisode:
+    return FiringEpisode(started_at=started_at, ended=ended)
+
+
+class TestFiringEpisode:
+    @parameterized.expand(
+        [
+            ("first_fire", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, None, AlertState.FIRING, episode(NOW)),
+            (
+                "same_firing",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.FIRING,
+                episode(STARTED),
+            ),
+            # A resolve keeps the firing it ended, which is what a history row and a thread key name.
+            (
+                "resolved",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.NOT_FIRING,
+                episode(STARTED, ended=True),
+            ),
+            (
+                "errored",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.ERRORED,
+                episode(STARTED, ended=True),
+            ),
+            ("never_fired", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, None, AlertState.NOT_FIRING, None),
+            (
+                "firing_without_a_start",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                None,
+                AlertState.FIRING,
+                episode(None),
+            ),
+            # clear_check_ends_snooze parks a breached alert in SNOOZED, so the firing continues
+            # underneath the mute and resumes as the same one.
+            ("parked", SNOOZE_UNTIL_CLEAR, AlertState.FIRING, STARTED, AlertState.SNOOZED, episode(STARTED)),
+            (
+                "resumed",
+                SNOOZE_UNTIL_CLEAR,
+                AlertState.SNOOZED,
+                STARTED,
+                AlertState.FIRING,
+                episode(STARTED),
+            ),
+            # Without clear_check_ends_snooze a snooze is an exit from firing, so it ends the firing.
+            (
+                "snoozed_at_rest",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.SNOOZED,
+                episode(STARTED, ended=True),
+            ),
+            ("snoozed_while_clear", SNOOZE_UNTIL_CLEAR, AlertState.NOT_FIRING, None, AlertState.SNOOZED, None),
+            # PENDING_RESOLVE is inside the firing: the condition cleared and the resolution is
+            # not announced yet, so neither leaving nor entering it starts a second firing.
+            (
+                "awaiting_resolve",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.PENDING_RESOLVE,
+                episode(STARTED),
+            ),
+            (
+                "refired_while_awaiting",
+                LOGS_ALERT_POLICY,
+                AlertState.PENDING_RESOLVE,
+                STARTED,
+                AlertState.FIRING,
+                episode(STARTED),
+            ),
+        ]
+    )
+    def test_which_firing_a_check_concerns(
+        self,
+        _name: str,
+        policy: AlertPolicy,
+        state: AlertState,
+        started_at: datetime | None,
+        new_state: AlertState,
+        expected: FiringEpisode | None,
+    ) -> None:
+        assert (
+            decide_firing_episode(
+                snapshot(state=state, firing_started_at=started_at), outcome(new_state), NOW, policy=policy
+            )
+            == expected
+        )
+
+
+class TestIncidentAction:
+    @parameterized.expand(
+        [
+            ("first_fire", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, AlertState.FIRING, IncidentAction.TRIGGER),
+            ("same_firing", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.FIRING, None),
+            ("resolved", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.NOT_FIRING, IncidentAction.RESOLVE),
+            ("broken", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.BROKEN, IncidentAction.RESOLVE),
+            ("never_fired", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, AlertState.NOT_FIRING, None),
+            ("broken_while_clear", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, AlertState.BROKEN, None),
+            # A firing parked in SNOOZED under clear_check_ends_snooze is still the same firing.
+            ("parked", SNOOZE_UNTIL_CLEAR, AlertState.FIRING, AlertState.SNOOZED, None),
+            ("resumed", SNOOZE_UNTIL_CLEAR, AlertState.SNOOZED, AlertState.FIRING, None),
+            ("snoozed_at_rest", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.SNOOZED, IncidentAction.RESOLVE),
+            ("snoozed_while_clear", SNOOZE_UNTIL_CLEAR, AlertState.NOT_FIRING, AlertState.SNOOZED, None),
+            ("awaiting_resolve", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.PENDING_RESOLVE, None),
+            ("refired_while_awaiting", LOGS_ALERT_POLICY, AlertState.PENDING_RESOLVE, AlertState.FIRING, None),
+        ]
+    )
+    def test_which_transitions_open_or_close_an_incident(
+        self,
+        _name: str,
+        policy: AlertPolicy,
+        state: AlertState,
+        new_state: AlertState,
+        expected: IncidentAction | None,
+    ) -> None:
+        assert decide_incident_action(state, new_state, policy=policy) == expected

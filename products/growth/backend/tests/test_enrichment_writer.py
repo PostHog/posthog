@@ -23,16 +23,22 @@ from products.growth.backend.models import OrganizationEnrichment
 
 
 def _fit(score=72, **overrides):
-    kwargs = {
-        "status": "scored",
-        "score": score,
-        "components": {"traction": 25, "capital": 30, "ai_pilled": 15, "headcount_growth": 0, "software_relevance": 2},
+    flags = {
         "quality_investor": True,
         "data_coverage": 3,
         "low_confidence": False,
         "agency_flag": False,
         "nonprofit_flag": False,
+    }
+    flag_overrides = {key: overrides.pop(key) for key in flags if key in overrides}
+    flags = {**overrides.pop("flags", flags), **flag_overrides}
+    kwargs = {
+        "status": "scored",
+        "score": score,
+        "components": {"traction": 25, "capital": 30, "ai_pilled": 15, "headcount_growth": 0, "software_relevance": 2},
+        "flags": flags,
         "lists_version": "lists-1",
+        "input_hash": "fit-input-hash",
     }
     kwargs.update(overrides)
     return IcpFitResult(**kwargs)
@@ -115,12 +121,14 @@ class TestEnrichmentWriter(BaseTest):
         # The two families never share a key.
         assert record.data["icp_score"] == 9
         assert record.data["icp_fit_score"] == 72
-        assert record.data["icp_fit_version"] == "v0.6"
+        assert record.data["icp_fit_version"] == "v0.7"
         assert record.data["icp_fit_status"] == "scored"
         assert record.data["icp_fit_lists_version"] == "lists-1"
         assert record.data["icp_fit_evaluation_kind"] == "initial"
         assert record.data["icp_fit_evaluated_at"] == "2026-09-14T12:00:00+00:00"
         assert record.data["icp_fit_components"]["capital"] == 30
+        assert record.data["icp_fit_input_versions"] == {}
+        assert record.data["icp_fit_input_hash"] == "fit-input-hash"
         assert record.data["icp_fit_flags"] == {
             "quality_investor": True,
             "data_coverage": 3,
@@ -131,27 +139,60 @@ class TestEnrichmentWriter(BaseTest):
         properties = pha_client.group_identify.call_args.kwargs["properties"]
         assert properties["icp_score"] == 9
         assert properties["icp_fit_score"] == 72
-        assert properties["icp_fit_version"] == "v0.6"
+        assert properties["icp_fit_version"] == "v0.7"
         assert properties["icp_fit_status"] == "scored"
         assert "icp_fit_evaluated_at" not in properties
         assert "icp_fit_evaluation_kind" not in properties
 
-    def test_fit_flags_record_wizard_evidence_and_ai_pilled_source(self):
+    @parameterized.expand([("positive", True), ("negative", False), ("unknown", "unknown")])
+    def test_fit_records_generic_inputs_and_replaces_retired_flags(self, _name: str, result: bool | str) -> None:
+        OrganizationEnrichment.objects.create(
+            organization=self.organization, data={"icp_fit_projected_input_hash": "previous-input-hash"}
+        )
         pha_client = MagicMock()
         write_organization_enrichment(
             organization_id=str(self.organization.id),
             fields=None,
             pha_client=pha_client,
-            fit=_fit(wizard_ai_sdk=True, ai_pilled_source="both"),
+            fit=_fit(
+                flags={"segment": "b2b", "recurring_revenue": result, "owner": None},
+                input_versions={"enrichment/business_model": "example-result"},
+                input_hash="first-input-hash",
+                input_values={
+                    "signup": {"wizard_ai_sdk": True},
+                    "enrichments": {"business_model": {"recurring_revenue": result}},
+                },
+            ),
             fit_evaluation_kind=FIT_EVALUATION_KIND_INITIAL,
+            fit_mirror_distinct_id="signer",
         )
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert record.data["icp_fit_flags"]["wizard_ai_sdk"] is True
-        assert record.data["icp_fit_flags"]["ai_pilled_source"] == "both"
-        properties = pha_client.group_identify.call_args.kwargs["properties"]
-        assert "wizard_ai_sdk" not in properties
-        assert "ai_pilled_source" not in properties
+        assert record.data["icp_fit_flags"] == {
+            "segment": "b2b",
+            "recurring_revenue": result,
+            "owner": None,
+            "wizard_ai_sdk": True,
+        }
+        assert record.data["icp_fit_input_versions"] == {"enrichment/business_model": "example-result"}
+        assert record.data["icp_fit_input_hash"] == "first-input-hash"
+        assert "icp_fit_projected_input_hash" not in record.data
+        expected_projection = {"icp_fit_score": 72, "icp_fit_version": "v0.7", "icp_fit_status": "scored"}
+        assert pha_client.group_identify.call_args.kwargs["properties"] == expected_projection
+        assert pha_client.set.call_args.kwargs["properties"] == expected_projection
+
+        write_organization_enrichment(
+            organization_id=str(self.organization.id),
+            fields=None,
+            pha_client=pha_client,
+            fit=_fit(flags={"review_required": False}, input_versions={}, input_hash="second-input-hash"),
+            fit_evaluation_kind=FIT_EVALUATION_KIND_RECHECK,
+        )
+
+        record.refresh_from_db()
+        assert record.data["icp_fit_flags"] == {"review_required": False}
+        assert record.data["icp_fit_input_versions"] == {}
+        assert record.data["icp_fit_input_hash"] == "second-input-hash"
 
     def test_fit_only_write_carries_no_field_or_clay_keys(self):
         # The fit backfill passes fields=None and no clay score: only icp_fit_* keys move.
@@ -178,6 +219,10 @@ class TestEnrichmentWriter(BaseTest):
                 "icp_fit_score": 62,
                 "icp_fit_version": "v0.5",
                 "icp_fit_components": {"traction": 30},
+                "icp_fit_flags": {"retired_flag": True},
+                "icp_fit_input_versions": {"enrichment/business_model": "previous-result"},
+                "icp_fit_input_hash": "previous-input-hash",
+                "icp_fit_projected_input_hash": "previous-input-hash",
                 "icp_score": 6,  # clay key must survive fit stripping
                 "work_email": True,
             },
@@ -188,7 +233,12 @@ class TestEnrichmentWriter(BaseTest):
                 organization_id=str(self.organization.id),
                 fields=None,
                 pha_client=pha_client,
-                fit=IcpFitResult(status="insufficient_data", lists_version="lists-1"),
+                fit=IcpFitResult(
+                    status="insufficient_data",
+                    lists_version="lists-1",
+                    input_versions={"enrichment/business_model": "example-result"},
+                    input_hash="current-input-hash",
+                ),
                 fit_evaluation_kind=FIT_EVALUATION_KIND_SWEEP,
             )
 
@@ -197,10 +247,12 @@ class TestEnrichmentWriter(BaseTest):
             "work_email": True,
             "icp_score": 6,
             "icp_fit_status": "insufficient_data",
-            "icp_fit_version": "v0.6",
+            "icp_fit_version": "v0.7",
             "icp_fit_lists_version": "lists-1",
             "icp_fit_evaluated_at": "2026-09-01T12:00:00+00:00",
             "icp_fit_evaluation_kind": "sweep",
+            "icp_fit_input_versions": {"enrichment/business_model": "example-result"},
+            "icp_fit_input_hash": "current-input-hash",
         }
         # Group properties cannot be deleted, so only the status key is projected: pairing
         # the fresh version with the group's stale numeric score would misattribute it.
@@ -266,7 +318,7 @@ class TestEnrichmentWriter(BaseTest):
         )
         pha_client.set.assert_called_once_with(
             distinct_id="signer",
-            properties={"icp_fit_score": 55, "icp_fit_version": "v0.6", "icp_fit_status": "scored"},
+            properties={"icp_fit_score": 55, "icp_fit_version": "v0.7", "icp_fit_status": "scored"},
         )
 
         pha_client.reset_mock()

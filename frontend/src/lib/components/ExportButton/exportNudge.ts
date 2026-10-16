@@ -2,6 +2,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
+import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { ExportedAssetType } from '~/types'
 
@@ -39,6 +40,7 @@ const NO_NUDGE: ExportNudge = { message: null, resolving: Promise.resolve(null) 
 export interface KickoffToast {
     toastId: string
     nudge: ExportNudge
+    replayMode?: SessionRecordingPlayerMode
 }
 
 /**

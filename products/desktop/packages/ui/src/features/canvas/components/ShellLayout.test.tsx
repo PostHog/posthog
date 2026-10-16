@@ -10,6 +10,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => false,
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => false,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useSelectedCanvasId", () => ({
   useSelectedCanvasId: () => useSelectedCanvasId(),
 }));
@@ -94,7 +97,7 @@ vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
         content: "First",
         item_id: "canvas-1",
         item_context: { anchor: { kind: "document" } },
-        scope: "desktop_canvas",
+        scope: "canvas",
         source_comment: null,
         completed_at: null,
       },
@@ -104,7 +107,7 @@ vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
         content: "Second",
         item_id: "canvas-1",
         item_context: { anchor: { kind: "document" } },
-        scope: "desktop_canvas",
+        scope: "canvas",
         source_comment: null,
         completed_at: null,
       },

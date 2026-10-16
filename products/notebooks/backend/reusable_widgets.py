@@ -1,6 +1,7 @@
 import json
 from collections.abc import Callable
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol, cast
 from uuid import UUID
 
@@ -89,7 +90,7 @@ def reusable_widget_catalog_context(*, team_id: int, user: User | None) -> str:
 
 
 if TYPE_CHECKING:
-    from products.canvas.backend.notebook_integration import NotebookCanvasVersion
+    from products.canvas.backend.facade.contracts import NotebookCanvasVersion
 
 
 class _WidgetCounts(Protocol):
@@ -134,6 +135,7 @@ class ReusableWidgetVersionDetail:
     security_review: WidgetSecurityReviewState | None
     has_demo_data: bool
     created_at: datetime
+    generation_cost_usd: Decimal | None = None
 
 
 @frozen
@@ -213,9 +215,7 @@ def list_reusable_widgets(*, team_id: int, search: str = "", offset: int = 0, li
 
 
 def _canvas_version(widget: GeneratedWidget, version: GeneratedWidgetVersion):
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
-        notebook_integration as canvas_facade,
-    )
+    from products.canvas.backend.facade import notebooks as canvas_facade  # noqa: PLC0415
 
     try:
         versions = canvas_facade.list_notebook_canvas_versions(
@@ -246,6 +246,7 @@ def _version_detail(
         security_review=_security_review_state(version),
         has_demo_data=bool(version.demo_data),
         created_at=version.created_at,
+        generation_cost_usd=version.generation_cost_usd,
     )
 
 
@@ -539,9 +540,7 @@ def fork_reusable_widget(
     version_id: UUID | None = None,
     origin: str = "server",
 ) -> WidgetStatus:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas storage imports off notebook startup
-        notebook_integration as canvas_facade,
-    )
+    from products.canvas.backend.facade import notebooks as canvas_facade  # noqa: PLC0415
     from products.tasks.backend.facade import (  # noqa: PLC0415 — keeps Tasks imports off notebook startup
         api as tasks_facade,
     )
@@ -749,9 +748,7 @@ def save_reusable_widget_version(
     user_id: int,
     origin: str = "server",
 ) -> ReusableWidgetDetail:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
-        notebook_integration as canvas_facade,
-    )
+    from products.canvas.backend.facade import notebooks as canvas_facade  # noqa: PLC0415
 
     with transaction.atomic():
         widget = (
@@ -821,7 +818,7 @@ def discard_reusable_widget_version(
     origin: str = "server",
 ) -> ReusableWidgetDetail:
     # Keep Canvas build dependencies off notebook startup.
-    from products.canvas.backend import notebook_integration as canvas_facade  # noqa: PLC0415
+    from products.canvas.backend.facade import notebooks as canvas_facade  # noqa: PLC0415
 
     with transaction.atomic():
         widget = (
@@ -857,9 +854,7 @@ def discard_reusable_widget_version(
 
 
 def read_reusable_widget_source(*, team_id: int, widget_id: UUID, version_id: UUID | None = None) -> str:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas storage imports off notebook startup
-        notebook_integration as canvas_facade,
-    )
+    from products.canvas.backend.facade import notebooks as canvas_facade  # noqa: PLC0415
 
     widget = _published_widgets(team_id).filter(id=widget_id).first()
     if widget is None:

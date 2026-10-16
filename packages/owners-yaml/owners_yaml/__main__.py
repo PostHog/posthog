@@ -7,6 +7,8 @@ JSON object keyed by normalized path to stdout::
 
 ``--purpose notifications`` resolves ``slack`` to the team's automation channel
 (falls back to the people channel); the default is the people channel.
+``--producer NAME`` names the automation asking, which a team's per-producer
+``notifications`` mapping answers; without it such a mapping falls back to the people channel.
 
 ``--codeowners FILE`` switches to the other mode: it ignores the path arguments and writes a
 CODEOWNERS projection of every tracked test file's ownership to FILE (``-`` for stdout), for a
@@ -41,6 +43,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m owners_yaml")
     parser.add_argument("--purpose", choices=["slack", "notifications"], default=DEFAULT_PURPOSE)
     parser.add_argument(
+        "--producer",
+        default=None,
+        help="The automation asking, for a team that maps notifications per producer",
+    )
+    parser.add_argument(
         "--repo-root",
         default=None,
         help="Directory holding the ownership files; default: the enclosing git worktree",
@@ -65,9 +72,12 @@ def main() -> None:
         parser.error(f"--repo-root {ns.repo_root!r} is not a directory")
     repo_root = Path(ns.repo_root) if ns.repo_root is not None else None
     try:
-        resolver = OwnersResolver(repo_root=repo_root, purpose=cast("Purpose", ns.purpose))
+        resolver = OwnersResolver(repo_root=repo_root, purpose=cast("Purpose", ns.purpose), producer=ns.producer)
     except RepoRootNotFound as exc:
         parser.error(str(exc))
+    producer_error = resolver.producer_error()
+    if producer_error is not None:
+        parser.error(producer_error)
 
     if ns.codeowners:
         org = ns.org or resolver.settings().github_org

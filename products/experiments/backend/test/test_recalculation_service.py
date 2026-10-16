@@ -5,6 +5,7 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -14,8 +15,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.scoping import team_scope
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -24,6 +25,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.recalculation import (
+    RecalculationRateLimited,
     build_timeseries_cold_start_payload,
     get_active_recalculation,
     get_latest_recalculation,
@@ -32,7 +34,6 @@ from products.experiments.backend.recalculation import (
     get_run_results,
     request_recalculation,
 )
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -43,6 +44,12 @@ def _mean_metric(uuid: str) -> dict:
         "metric_type": "mean",
         "source": {"kind": "EventsNode", "event": "purchase"},
     }
+
+
+def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
+    calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.calculation_key()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -102,6 +109,90 @@ class TestRecalculationService(BaseTest):
         assert row.total_metrics == 3
         assert set(row.metric_uuids) == {"p1", "s1", "shared1"}
 
+    @parameterized.expand(
+        [
+            # (name, trigger, latest_status, latest_trigger, minutes_since_completed, expects_new_run)
+            ("manual_inside_window_is_rate_limited", "manual", "completed", "manual", 2, False),
+            ("agent_mcp_inside_window_is_rate_limited", "agent_mcp", "completed", "manual", 2, False),
+            ("manual_outside_window_starts_new", "manual", "completed", "manual", 6, True),
+            ("manual_after_failed_run_starts_new", "manual", "failed", "manual", 2, True),
+            ("manual_after_timeseries_sync_starts_new", "manual", "completed", "timeseries_sync", 2, True),
+            ("heal_inside_window_starts_new", "heal_latest_run", "completed", "manual", 2, True),
+            ("manual_retry_inside_window_starts_new", "manual_retry", "completed", "manual", 2, True),
+        ]
+    )
+    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
+    def test_request_recalculation_user_refresh_window(
+        self,
+        name: str,
+        trigger: str,
+        latest_status: str,
+        latest_trigger: str,
+        minutes_since_completed: int,
+        expects_new_run: bool,
+        _mock_flag,
+    ):
+        exp = self._launched_experiment(flag_key=f"window-{name}")
+        now = timezone.now()
+        # query_to sits a day back, as on a stopped experiment, so the window can only come from completed_at.
+        latest = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=latest_status,
+            trigger=latest_trigger,
+            query_to=now - timedelta(days=1),
+            completed_at=now - timedelta(minutes=minutes_since_completed),
+        )
+
+        if expects_new_run:
+            result = request_recalculation(exp, self.user, trigger)
+            assert result["is_existing"] is False
+            assert result["id"] != str(latest.id)
+            assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 2
+            return
+
+        with pytest.raises(RecalculationRateLimited) as exc_info:
+            request_recalculation(exp, self.user, trigger)
+        # Three minutes of the window remain; the wait tells the caller when to try again.
+        assert exc_info.value.wait is not None
+        assert 170 <= exc_info.value.wait <= 180
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
+
+    @override_settings(DEBUG=True, TEST=False)
+    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
+    def test_request_recalculation_skips_the_refresh_window_in_local_development(self, _mock_flag):
+        exp = self._launched_experiment(flag_key="window-debug")
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            trigger="manual",
+            query_to=timezone.now() - timedelta(days=1),
+            completed_at=timezone.now() - timedelta(minutes=2),
+        )
+
+        result = request_recalculation(exp, self.user, "manual")
+
+        assert result["is_existing"] is False
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 2
+
+    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=False)
+    def test_request_recalculation_skips_the_refresh_window_when_the_flag_is_off(self, _mock_flag):
+        exp = self._launched_experiment(flag_key="window-flag-off")
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            trigger="manual",
+            query_to=timezone.now() - timedelta(days=1),
+            completed_at=timezone.now() - timedelta(minutes=2),
+        )
+
+        result = request_recalculation(exp, self.user, "manual")
+
+        assert result["is_existing"] is False
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 2
+
     def test_request_recalculation_is_idempotent(self):
         exp = self._launched_experiment()
         first = request_recalculation(exp, self.user, "manual")
@@ -153,6 +244,14 @@ class TestRecalculationService(BaseTest):
         result = request_recalculation(exp, self.user, "manual")
         assert result["is_existing"] is True
         assert result["id"] == str(recent_row.id)
+
+    def test_request_recalculation_without_a_user(self):
+        exp = self._launched_experiment(flag_key="no-user")
+        result = request_recalculation(exp, None, "stale_refresh")
+        assert result["is_existing"] is False
+        recalc = ExperimentMetricsRecalculation.objects.get(id=result["id"])
+        assert recalc.created_by is None
+        assert recalc.trigger == "stale_refresh"
 
     def test_request_recalculation_rejects_unlaunched(self):
         exp = Experiment.objects.create(
@@ -279,14 +378,7 @@ class TestRecalculationService(BaseTest):
         # and we just set query_to on the recalc above.
         assert exp.metrics and exp.start_date is not None
         assert recalc.query_to is not None
-        config_fp = compute_metric_fingerprint(
-            exp.metrics[0],
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-        )
-        recalc_fp = compute_recalc_fingerprint(config_fp)
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
 
         # The row from THIS run (recalc-fingerprinted) — must be returned.
         ExperimentMetricResult.objects.create(
@@ -320,16 +412,7 @@ class TestRecalculationService(BaseTest):
         exp = self._launched_experiment(flag_key="reuse-excluded")
         assert exp.start_date is not None  # _launched_experiment always sets it; narrow for the create below
         query_to = datetime(2026, 1, 10, tzinfo=UTC)
-        recalc_fp = compute_recalc_fingerprint(
-            compute_metric_fingerprint(
-                _mean_metric("m1"),
-                exp.start_date,
-                get_experiment_stats_method(exp),
-                exp.exposure_criteria,
-                only_count_matured_users=exp.only_count_matured_users,
-                excluded_variants=exp.excluded_variants,
-            )
-        )
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -364,14 +447,7 @@ class TestRecalculationService(BaseTest):
         )
         assert exp.metrics and exp.start_date is not None
         assert recalc.query_to is not None
-        config_fp = compute_metric_fingerprint(
-            exp.metrics[0],
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-        )
-        recalc_fp = compute_recalc_fingerprint(config_fp)
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -445,15 +521,7 @@ class TestTimeseriesColdStartPayload(BaseTest):
         return exp
 
     def _config_fp(self, exp: Experiment, metric_uuid: str) -> str:
-        assert exp.metrics and exp.start_date is not None
-        metric_dict = next(m for m in exp.metrics if m["uuid"] == metric_uuid)
-        return compute_metric_fingerprint(
-            metric_dict,
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-        )
+        return _calculation_key(exp, metric_uuid)
 
     def _timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict | None) -> None:
         assert exp.start_date is not None

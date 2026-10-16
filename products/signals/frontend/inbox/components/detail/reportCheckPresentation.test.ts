@@ -28,6 +28,7 @@ function makeCheck(overrides: Partial<SignalReportCheckApi> = {}): SignalReportC
         expires_at: '2026-10-27T09:00:00Z',
         last_run_at: null,
         last_outcome: null,
+        last_outcome_reason: null,
         dispatched_at: null,
         consecutive_errors: 0,
         created_at: '2026-09-20T09:00:00Z',
@@ -57,6 +58,12 @@ describe('reportCheckPresentation', () => {
                 { status: 'pending' },
                 'Waiting',
                 'Starts 7 days after this report is resolved · Error tracking runs it',
+            ],
+            [
+                'a pending metric check names its minimum wait',
+                { status: 'pending', kind: 'metric_threshold', soak_minutes: 1440 },
+                'Waiting',
+                'At least 1 day after this report is resolved',
             ],
             [
                 'a scheduled check leads with its run date and its lane',
@@ -91,6 +98,23 @@ describe('reportCheckPresentation', () => {
                 { status: 'errored', last_run_at: '2026-09-27T09:00:00Z', consecutive_errors: 3 },
                 "Couldn't measure",
                 'Gave up after 3 tries · Sep 27 · 11 rageclicks in the last 14 days.',
+            ],
+            [
+                'an inconclusive check reads apart from errored and says why in plain words',
+                {
+                    status: 'inconclusive',
+                    last_run_at: '2026-09-27T09:00:00Z',
+                    last_outcome: 'inconclusive',
+                    last_outcome_reason: 'needs_manual_verification',
+                },
+                'Inconclusive',
+                'Needs a person to verify · Sep 27 · 11 rageclicks in the last 14 days.',
+            ],
+            [
+                'an open check waiting on data says why it looks again',
+                { last_outcome: 'inconclusive', last_outcome_reason: 'awaiting_data', soak_minutes: null },
+                'Runs Sep 27',
+                'Not enough data yet, looks again · 1 run',
             ],
             [
                 'a check that expired before its first run says so',
@@ -231,19 +255,28 @@ describe('reportCheckPresentation', () => {
             })
         })
 
-        it('says a check on an unresolved report waits for the resolve rather than naming a date it cannot keep', () => {
-            expect(
-                checkScheduledEntry({
-                    kind: 'metric_threshold',
-                    next_run_at: '2026-09-27T09:00:00Z',
-                    arms_on_resolve: true,
-                    soak_minutes: 4320,
+        it.each([
+            [4320, '3 days'],
+            [10076, '7 days'],
+            [2160, '1 day 12 hours'],
+            [95, '2 hours'],
+            [45, '45 minutes'],
+        ])(
+            'says a check on an unresolved report waits for the resolve, with a %i minute soak as %s',
+            (soakMinutes, label) => {
+                expect(
+                    checkScheduledEntry({
+                        kind: 'metric_threshold',
+                        next_run_at: '2026-09-27T09:00:00Z',
+                        arms_on_resolve: true,
+                        soak_minutes: soakMinutes,
+                    })
+                ).toEqual({
+                    tag: { label: 'Waiting for resolve', type: 'muted' },
+                    detail: `At least ${label} after this report is resolved · Waits for a full query window`,
                 })
-            ).toEqual({
-                tag: { label: 'Waiting for resolve', type: 'muted' },
-                detail: 'Starts 3 days after this report is resolved',
-            })
-        })
+            }
+        )
 
         it('separates a check that never ran from one that ran and never settled', () => {
             expect(checkExpiredEntry({}).tag.label).toEqual('Never ran')
@@ -256,6 +289,9 @@ describe('reportCheckPresentation', () => {
         it('names which path stopped a check, and falls back when the reason is unknown', () => {
             expect(checkCancelledEntry({ reason: 'replaced_by_research' }).detail).toEqual(
                 'Replaced when research re-ran on this report and wrote a new check'
+            )
+            expect(checkCancelledEntry({ reason: 'replaced_by_request' }).detail).toEqual(
+                'Replaced on request by a revised check'
             )
             expect(checkCancelledEntry({}).detail).toEqual('Stopped before it could settle')
         })

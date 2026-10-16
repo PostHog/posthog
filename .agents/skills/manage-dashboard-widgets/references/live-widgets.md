@@ -30,24 +30,21 @@ Conventions:
 
 ## Frontend toolkit — `products/dashboards/frontend/widgets/live/`
 
-Compose these; don't re-wire SSE/flush/tick by hand:
+Compose these:
 
 | Module                                                                        | What it does                                                                                                                                                                              |
 | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `liveWidgetTypes.ts` — `isLiveDashboardWidgetType()`, `LiveWidgetSeedPayload` | FE read of `WidgetSpec.is_live` from the generated manifest, plus the base seed-payload interface (`generatedAt`) — extend it in your result types                                        |
 | `LiveWidgetSlidingWindow`                                                     | Minute-bucketed window: overall count + named breakdown domains, each fed by an extractor `(event) => string \| null` (null = skip). Encodes the seed-merge correctness rules — see below |
-| `liveWidgetStream(options)`                                                   | Kea logic builder: livestream SSE connection (`/events`, `live_events_token`), flush-batched `onEvents` (300ms), 60s `onMinuteTick`, all via `cache.disposables` (pauses on hidden tabs)  |
 | `useLiveWidgetSeed(payload, seed)`                                            | The one prop→action React bridge: seeds your logic from the tile's `result` prop (pass `null` while the payload isn't ready)                                                              |
 | `components.tsx` — `LiveWidgetEmptyState`                                     | "No data in the window yet" body with optional CTA                                                                                                                                        |
 | `components.tsx` — `LiveWidgetIndicator`                                      | The pulsing "Live" header marker (platform-rendered — you don't wire this)                                                                                                                |
 
 **Seed-merge semantics (do not "simplify" these):** the SSE stream reads Kafka (fresh) while seeds read ClickHouse (can lag ingestion). `LiveWidgetSlidingWindow` therefore merges seeds via per-bucket `max` (never replace — an empty lagging re-seed must not wipe stream-accumulated counts) and drops streamed events at or before the domain's seed `generatedAt` (strict `>`), so a re-seed never double counts. `widgets/live/LiveWidgetSlidingWindow.test.ts` guards these.
 
-**kea-typegen constraint:** `liveWidgetStream` only adds `connect`/`events` wiring — typegen cannot see builder-injected symbols, so your logic declares its own actions/reducers/selectors and the builder dispatches into them via `onEvents`/`onMinuteTick` callbacks.
+**One connection per dashboard:** make the product's live logic unkeyed and share it across the family's tiles — kea ref-counting keeps one connection or poller no matter how many live tiles are placed, and tears it down when the last unmounts. Reset state in `afterMount` so data can't leak across dashboards.
 
-**One connection per dashboard:** make the product's live logic unkeyed and share it across the family's tiles — kea ref-counting keeps one SSE connection no matter how many live tiles are placed, and tears it down when the last unmounts. Reset state in `afterMount` so data can't leak across dashboards.
-
-**Transports:** the shipped helper is livestream SSE. The contract is transport-agnostic — a polling helper with the same `onEvents`/`onMinuteTick` shape could be added for products without livestream data, with no contract changes.
+**Transports:** no transport helper ships with the toolkit. The contract is transport-agnostic: feed the window from a polling helper with an `onEvents`/`onMinuteTick` shape, or re-run the seed query on an interval.
 
 ## Recipe: shipping a new live widget family
 
@@ -56,7 +53,7 @@ On top of the normal [new-type checklist](checklist-new-widget-type.md):
 1. Spec: `is_live=True`, `creation_flag="<your-rollout-flag>"`, no `dateRange`/`filterTestAccounts` on the config model (enforced at spec construction).
 2. Seed query in your product's backend returning `generatedAt`; thin `query_fn` wrapper in `widgets/<type>.py`.
 3. Catalog entry as normal — `showDateRange` hides automatically for live types. To keep the picker card hidden pre-release, land the FE catalog entry with the release; `creation_flag` is the backend gate either way ([availability-and-gating.md](availability-and-gating.md)).
-4. One unkeyed shared logic on `liveWidgetStream` + `LiveWidgetSlidingWindow` (or your own windowing if minute buckets don't fit — keep the idempotent-seed rule).
+4. One unkeyed shared logic on `LiveWidgetSlidingWindow` (or your own windowing if minute buckets don't fit — keep the idempotent-seed rule).
 5. Components: `useLiveWidgetSeed(payload, seedAction)`, render from selectors, `LiveWidgetEmptyState` when the window is empty.
 6. `hogli build:widget-types` (regenerates the manifest the FE catalog reads `live` from), then the normal verify suite.
 

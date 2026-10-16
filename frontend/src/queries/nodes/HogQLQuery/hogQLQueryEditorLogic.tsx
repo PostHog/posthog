@@ -70,11 +70,13 @@ export interface hogQLQueryEditorLogicActions {
         types: string[][]
     } // dataWarehouseSettingsSceneLogic
     createDataWarehouseSavedQuery: (
-        view: Partial<DataWarehouseSavedQuery> & {
+        payload: Partial<DataWarehouseSavedQuery> & {
+            deferCreatedToast?: boolean
             folder_id?: string | null
             types: string[][]
         }
     ) => Partial<DataWarehouseSavedQuery> & {
+        deferCreatedToast?: boolean
         folder_id?: string | null
         types: string[][]
     } // dataWarehouseViewsLogic
@@ -213,6 +215,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 )
             }
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 const result = await api.get(
                     combineUrl(`api/projects/${values.currentProjectId}/query/draft_sql/`, {
                         prompt: values.prompt,
@@ -234,6 +237,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 )
             }
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 const result = await api.get(
                     combineUrl(`api/projects/@current/query/draft_sql/`, {
                         prompt,

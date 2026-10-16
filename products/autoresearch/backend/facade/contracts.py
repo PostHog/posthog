@@ -34,6 +34,10 @@ class TrainingRunNotFound(LookupError):
     """No training run with that id in this team."""
 
 
+class SuggestionNotFound(LookupError):
+    """No suggestion with that id on this pipeline."""
+
+
 class AutoresearchConflict(ValueError):
     """The request is well-formed but the pipeline or run is in the wrong state for it.
 
@@ -67,6 +71,45 @@ class ArtifactStorageUnavailable(RuntimeError):
 # ── Model-backed read contracts ────────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class TrainingTrendPoint:
+    iteration_number: int
+    best_holdout_score: float
+
+
+@dataclass(frozen=True)
+class LiveTrainingRun:
+    """Progress of the pipeline's pending or running training run, read from its live iteration rows."""
+
+    id: UUID
+    iteration_budget: int
+    experiment_count: int
+    best_holdout_score: float | None
+    latest_agent_description: str
+    latest_summary: str | None
+    trend: list[TrainingTrendPoint]
+
+
+@dataclass(frozen=True)
+class PredictionCoverage:
+    """How much of the inference population had a champion score when a live run scored, and how old the scores were."""
+
+    population: int
+    with_score: int
+    never_scored: int
+    age_days_avg: float | None
+    age_days_p50: float | None
+    age_days_p90: float | None
+    age_days_max: float | None
+    lookback_days: int
+
+
+@dataclass(frozen=True)
+class RealizedAucPoint:
+    prediction_date: date
+    realized_auc: float
+
+
 @dataclass(frozen=True, config={"arbitrary_types_allowed": True})
 class Pipeline:
     """One prediction pipeline: a target, a population, and a horizon.
@@ -91,6 +134,7 @@ class Pipeline:
     success_auc: float | None
     plateau_iterations: int
     output_person_property: str
+    write_person_property: bool
     status: str
     created_by: Any
     created_at: datetime
@@ -98,6 +142,18 @@ class Pipeline:
     last_scored_at: datetime | None
     champion_holdout_auc: float | None
     champion_realized_auc: float | None
+    champion_lift_at_10: float | None
+    champion_is_preliminary: bool | None
+    champion_realized_auc_trend: list[RealizedAucPoint]
+    champion_training_trend: list[TrainingTrendPoint]
+    people_scored: int | None
+    likely_count: int | None
+    likely_threshold: float | None
+    first_check_expected_at: datetime | None
+    coverage: PredictionCoverage | None
+    training_run_count: int
+    experiment_count: int
+    live_training_run: LiveTrainingRun | None
 
 
 @dataclass(frozen=True)
@@ -123,6 +179,7 @@ class Model:
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    in_shadow_set: bool
 
 
 @dataclass(frozen=True)
@@ -134,6 +191,8 @@ class IterationTrailEntry:
     holdout_score: float | None
     train_score: float | None
     agent_description: str
+    summary: str | None
+    headline: str | None
     model_spec: dict[str, Any]
     recipe_snapshot: dict[str, Any]
 
@@ -159,6 +218,7 @@ class TrainingRunSummary:
     dead_ends: list[TrainingRunSummaryLadderItem]
     recommended_next: str
     distillation: str
+    report_notebook_short_id: str
 
 
 @dataclass(frozen=True)
@@ -175,6 +235,9 @@ class TrainingRun:
     iteration_count: int
     best_holdout_score: float | None
     summary: dict[str, Any] | None
+    reader_summary: str | None
+    headline: str | None
+    next_steps: list[str] | None
     iterations: list[IterationTrailEntry]
     error: str
     started_at: datetime | None
@@ -197,9 +260,28 @@ class Iteration:
     holdout_score: float | None
     status: str
     agent_description: str
+    summary: str | None
+    headline: str | None
     agent_confidence: float | None
     parent_suggestion: UUID | None
     created_at: datetime
+
+
+@dataclass(frozen=True, config={"arbitrary_types_allowed": True})
+class Suggestion:
+    """A free-text hypothesis injected into a running pipeline by a user or agent."""
+
+    id: UUID
+    pipeline: UUID
+    prompt: str
+    priority: str
+    status: str
+    source: str
+    agent_response: str
+    created_by: Any
+    linked_iteration_ids: list[UUID]
+    created_at: datetime
+    updated_at: datetime
 
 
 @dataclass(frozen=True)
@@ -213,6 +295,7 @@ class Run:
     status: str
     rows_scored: int | None
     metrics: dict[str, Any]
+    coverage: PredictionCoverage | None
     error: str
     started_at: datetime | None
     completed_at: datetime | None
@@ -244,6 +327,7 @@ class PipelineWrite:
     success_auc: float | None = None
     plateau_iterations: int = 10
     output_person_property: str = ""
+    write_person_property: bool = False
 
 
 # ── Validation and template contracts ──────────────────────────────────────
@@ -321,6 +405,85 @@ class TrainingRunHistory:
     runs: list[TrainingRunHistoryEntry]
 
 
+# ── Online performance ─────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class CalibrationBin:
+    n: int
+    mean_p_y: float
+    positive_rate: float
+
+
+@dataclass(frozen=True)
+class ConfusionCounts:
+    tp: int
+    fp: int
+    fn: int
+    tn: int
+    n_flagged: int
+    precision: float | None
+    recall: float | None
+
+
+@dataclass(frozen=True)
+class ConfusionByCutoff:
+    top_10: ConfusionCounts
+    top_20: ConfusionCounts
+    likely: ConfusionCounts
+
+
+@dataclass(frozen=True)
+class OnlinePerformanceRow:
+    """One model's realized metrics for one validated prediction date."""
+
+    validation_run_id: UUID
+    prediction_date: date
+    horizon_days: int
+    weekday: int
+    model_id: UUID
+    emitted_role: str
+    current_role: str
+    n_scored: int
+    n_positive: int
+    base_rate: float
+    mean_p_y: float | None
+    realized_auc: float | None
+    realized_auc_ci_low: float | None
+    realized_auc_ci_high: float | None
+    brier_score: float | None
+    calibration_error: float | None
+    lift_at_10: float | None
+    lift_at_20: float | None
+    average_precision: float | None
+    confusion: ConfusionByCutoff | None
+    likely_threshold: float | None
+    calibration_bins: list[CalibrationBin] | None
+    warning: str | None
+    validated_at: datetime | None
+
+
+@dataclass(frozen=True)
+class PredictionSegmentThresholds:
+    """The pipeline's current cut points between the Likely, Possible and Unlikely segments."""
+
+    likely_threshold: float
+    possible_threshold: float
+    likely_lift: float
+    base_rate: float | None
+    base_rate_dates: int
+    base_rate_source: str
+    champion_mean_p_y: float | None
+    champion_base_rate: float | None
+    scores_miscalibrated: bool
+
+
+@dataclass(frozen=True)
+class OnlinePerformance:
+    rows: list[OnlinePerformanceRow]
+    segment_thresholds: PredictionSegmentThresholds
+
+
 # ── Artifact bundle ────────────────────────────────────────────────────────
 
 
@@ -366,3 +529,6 @@ class MaterializedFeatures:
     n_holdout: int
     n_features: int
     feature_cols: list[str]
+    elapsed_s: float
+    rows_read: int
+    hints: list[str]

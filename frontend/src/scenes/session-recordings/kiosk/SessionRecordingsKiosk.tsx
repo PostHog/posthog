@@ -41,7 +41,7 @@ export function SessionRecordingsKiosk(): JSX.Element {
                 <div className="SessionRecordingsKiosk__message">
                     <h2>No recordings found</h2>
                     <p>No recordings matched your filters. Try adjusting the date range or page filter.</p>
-                    <LemonButton type="secondary" onClick={resetPlayback}>
+                    <LemonButton data-attr="kiosk-reset-playback" type="secondary" onClick={resetPlayback}>
                         Back to setup
                     </LemonButton>
                 </div>

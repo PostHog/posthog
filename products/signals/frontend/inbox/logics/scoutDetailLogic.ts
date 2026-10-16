@@ -2,9 +2,11 @@ import { MakeLogicType, connect, kea, key, listeners, path, props, reducers, sel
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { reconcileById } from 'lib/utils/objects'
+
+import { signalsScoutRunsEmissionReports, signalsScoutRunsEmissions } from 'products/signals/frontend/generated/api'
 
 import {
     LinkedSignalReport,
@@ -14,6 +16,7 @@ import {
     SignalScoutRunSummary,
 } from '../types'
 import type { ScoutRollup } from '../utils/scoutRunsWindow'
+import { isReportUnreachable, rememberUnreachableReport } from '../utils/unreachableReports'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
 export interface ScoutDetailLogicProps {
@@ -198,8 +201,9 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     }
                     // allSettled, not all: one failed run's fetch (transient 500, deleted run)
                     // shouldn't discard every other run's findings — surface the partial set.
+                    const projectId = String(ApiConfig.getCurrentProjectId())
                     const settled = await Promise.allSettled(
-                        runs.map((run) => api.signalScout.runs.emissions(run.run_id))
+                        runs.map((run) => signalsScoutRunsEmissions(projectId, run.run_id))
                     )
                     const fulfilled = settled.filter(
                         (result): result is PromiseFulfilledResult<SignalScoutEmission[]> =>
@@ -240,8 +244,9 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     // all). source_id is `run:<run_id>:finding:<id>`, so prior links for a run are the
                     // ones prefixed with its run_id.
                     const previous = values.emissionReports
+                    const projectId = String(ApiConfig.getCurrentProjectId())
                     const settled = await Promise.allSettled(
-                        runs.map((run) => api.signalScout.runs.emissionReports(run.run_id))
+                        runs.map((run) => signalsScoutRunsEmissionReports(projectId, run.run_id))
                     )
                     const merged = runs.flatMap((run, index) => {
                         const result = settled[index]
@@ -266,11 +271,21 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
             [] as SignalReport[],
             {
                 loadScoutReports: async () => {
-                    const touched = values.touchedReports.slice(0, MAX_TOUCHED_REPORTS)
+                    // Ids a previous round found unreachable are dropped before the cap: a deleted
+                    // report stays deleted, so re-asking only burns requests and a cached 404 must
+                    // not hold a slot a live report could take.
+                    const touched = values.touchedReports
+                        .filter(({ id }) => !isReportUnreachable(id))
+                        .slice(0, MAX_TOUCHED_REPORTS)
                     if (touched.length === 0) {
                         return []
                     }
                     const settled = await Promise.allSettled(touched.map(({ id }) => api.signalReports.get(id)))
+                    settled.forEach((result, index) => {
+                        if (result.status === 'rejected') {
+                            rememberUnreachableReport(touched[index].id, result.reason)
+                        }
+                    })
                     const fetched = settled
                         .filter(
                             (result): result is PromiseFulfilledResult<SignalReport> => result.status === 'fulfilled'

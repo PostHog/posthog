@@ -348,6 +348,27 @@ describe('BarChart', () => {
             expect(tooltip.series.b.value).toBeCloseTo(15 / 35, 5)
         })
 
+        it.each([
+            { index: 0, calls: 0, cursor: 'cursor-crosshair' },
+            { index: 1, calls: 1, cursor: 'cursor-pointer' },
+        ])('isPointClickable gates click and pointer at index $index', async ({ index, calls, cursor }) => {
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    onPointClick={onPointClick}
+                    onDateRangeZoom={jest.fn()}
+                    isPointClickable={(i) => i === 1}
+                />
+            )
+            chart.hoverAtIndex(index)
+            expect(chart.element.className).toContain(cursor)
+            await chart.clickAtIndex(index)
+            expect(onPointClick).toHaveBeenCalledTimes(calls)
+        })
+
         it('stacked onPointClick reports each series own value, not the cumulative stack total', async () => {
             const onPointClick = jest.fn()
             const { chart } = renderHogChart(

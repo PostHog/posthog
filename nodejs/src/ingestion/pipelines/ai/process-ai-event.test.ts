@@ -2584,6 +2584,29 @@ describe('processAiEvent() trace normalization', () => {
         expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
     })
 
+    it('normalizes trace properties on an unlisted $ai_* event without adding costs', () => {
+        const event: PluginEvent = {
+            event: '$ai_custom_step',
+            properties: {
+                $ai_trace_id: 123,
+                $ai_parent_id: 456,
+                $ai_model: 'gpt-4',
+                $ai_input_tokens: 10,
+            },
+            ip: '',
+            site_url: '',
+            team_id: 0,
+            now: '',
+            distinct_id: '',
+            uuid: '',
+            timestamp: '',
+        }
+        const result = processAiEvent(event)
+        expect(result.properties!.$ai_trace_id).toBe('123')
+        expect(result.properties!.$ai_parent_id).toBe('456')
+        expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
+    })
+
     it('does not normalize non-AI events', () => {
         const event: PluginEvent = {
             event: '$pageview',

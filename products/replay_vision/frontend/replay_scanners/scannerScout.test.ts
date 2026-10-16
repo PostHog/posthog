@@ -5,6 +5,7 @@ import type { ScannerScoutTemplate } from './scannerScout'
 import {
     SCOUT_DISPLAY_NAME_MAX_LENGTH,
     isScannerScoutConfig,
+    isTemplateScout,
     scannerScoutCreatePayload,
     scannerScoutTemplates,
     scoutBodyPlaceholders,
@@ -59,6 +60,7 @@ describe('scannerScout', () => {
         const templates = scannerScoutTemplates(scannerId, 'monitor', 'Rage clicks on checkout')
         expect(templates.map((template) => template.defaultName)).toEqual([
             'Rage clicks on checkout daily digest',
+            'Rage clicks on checkout root cause',
             'Rage clicks on checkout trend watch',
             'Rage clicks on checkout new issue watch',
             'Rage clicks on checkout custom scout',
@@ -88,46 +90,104 @@ describe('scannerScout', () => {
         expect(isScannerScoutConfig(config('', ''), scannerId)).toBe(false)
     })
 
-    it('gives every template a distinct key, its own cron, and a body scoped to the scanner', () => {
-        const templates = scannerScoutTemplates(scannerId, 'monitor', 'Rage clicks')
-        expect(templates).toHaveLength(4)
-        const keys = templates.map((template) => template.key)
-        expect(new Set(keys).size).toBe(keys.length)
-        for (const template of templates) {
-            expect(template.body).toContain(scannerId)
-            expect(template.cron).toMatch(/^\d+ \d+ \* \* \*$/)
-            // vision-scanners-get takes `id`; only the sibling vision-scanners-observations-* tools
-            // take `scanner_id`. Pairing the get call with scanner_id fails validation on the first
-            // move of every scheduled run.
-            expect(template.body).toContain(`\`vision-scanners-get\` with id \`${scannerId}\``)
+    it.each(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'] as const)(
+        'gives every %s template a distinct key, its own cron, and a body scoped to the scanner',
+        (scannerType) => {
+            const templates = scannerScoutTemplates(scannerId, scannerType, 'Rage clicks')
+            const keys = templates.map((template) => template.key)
+            expect(new Set(keys).size).toBe(keys.length)
+            for (const template of templates) {
+                expect(template.body).toContain(scannerId)
+                // Daily or Mondays: the two shapes the schedule form can edit without calling it custom.
+                expect(template.cron).toMatch(/^\d+ \d+ \* \* (\*|1)$/)
+                // vision-scanners-get takes `id`; only the sibling vision-scanners-observations-* tools
+                // take `scanner_id`. Pairing the get call with scanner_id fails validation on the first
+                // move of every scheduled run.
+                expect(template.body).toContain(`\`vision-scanners-get\` with id \`${scannerId}\``)
+            }
+            for (const template of templates) {
+                expect(template.defaultName.trim()).not.toBe('')
+            }
+            // The scratch body ships the machinery filled in and the judgment blank, so a user who
+            // saves it unedited gets a scout asking for instructions rather than a silently vague one.
+            const scratch = templates.find((template) => template.key === 'scratch')!
+            expect(scratch.body).toContain('vision-scanners-observations-list')
+            // Unfilled slots block the create button, so the scratch body must trip that gate and the
+            // ready-made ones must not.
+            expect(scoutBodyPlaceholders(scratch.body).length).toBeGreaterThan(0)
+            for (const template of templates.filter((candidate) => candidate.key !== 'scratch')) {
+                expect(scoutBodyPlaceholders(template.body)).toEqual([])
+            }
         }
-        for (const template of templates) {
-            expect(template.defaultName.trim()).not.toBe('')
-        }
-        // The scratch body ships the machinery filled in and the judgment blank, so a user who
-        // saves it unedited gets a scout asking for instructions rather than a silently vague one.
-        const scratch = templates.find((template) => template.key === 'scratch')!
-        expect(scratch.body).toContain('vision-scanners-observations-list')
-        // Unfilled slots block the create button, so the scratch body must trip that gate and the
-        // ready-made ones must not.
-        expect(scoutBodyPlaceholders(scratch.body).length).toBeGreaterThan(0)
-        for (const template of templates.filter((candidate) => candidate.key !== 'scratch')) {
-            expect(scoutBodyPlaceholders(template.body)).toEqual([])
-        }
+    )
+
+    it.each([
+        { scannerType: 'monitor', keys: ['daily-digest', 'root-cause', 'trend-watch', 'new-issues', 'scratch'] },
+        // A summarizer has no outcome to explain and no metric to trend.
+        { scannerType: 'summarizer', keys: ['daily-digest', 'weekly-themes', 'new-issues', 'scratch'] },
+        {
+            scannerType: 'experiment',
+            keys: ['variant-analysis', 'daily-digest', 'trend-watch', 'new-issues', 'scratch'],
+        },
+        // A scanner whose type hasn't loaded still gets a usable set rather than nothing.
+        { scannerType: undefined, keys: ['daily-digest', 'root-cause', 'trend-watch', 'new-issues', 'scratch'] },
+    ] as const)('offers a $scannerType scanner only the templates that fit it', ({ scannerType, keys }) => {
+        expect(scannerScoutTemplates(scannerId, scannerType, 'Rage clicks').map((template) => template.key)).toEqual(
+            keys
+        )
+    })
+
+    it.each([
+        { scannerType: 'monitor', bucket: "scanner_output_verdict = 'yes'" },
+        { scannerType: 'scorer', bucket: 'scanner_output_score' },
+        { scannerType: 'classifier', bucket: 'scanner_output_tags' },
+    ] as const)('explains the $scannerType bucket from the scanner reasoning first', ({ scannerType, bucket }) => {
+        const rootCause = scannerScoutTemplates(scannerId, scannerType, 'Rage clicks').find(
+            (template) => template.key === 'root-cause'
+        )!
+        expect(rootCause.body).toContain(bucket)
+        // The reasoning comes from the recording itself; event data may only corroborate it.
+        expect(rootCause.body).toContain('scanner_output_reasoning')
+        expect(rootCause.body.indexOf('scanner_output_reasoning')).toBeLessThan(rootCause.body.indexOf('`events`'))
+    })
+
+    it('has variant analysis record its comparison and ask the server for the record schema', () => {
+        const experimentTemplates = scannerScoutTemplates(scannerId, 'experiment', 'Checkout test')
+        expect(experimentTemplates[0].body).toContain('scout-record-output')
+        expect(scoutBodyPlaceholders(experimentTemplates[0].body)).toEqual([])
+
+        const payload = scannerScoutCreatePayload('Checkout test', {
+            name: 'signals-scout-checkout-test-variant-analysis',
+            body: experimentTemplates[0].body,
+            cron: experimentTemplates[0].cron,
+            templateKey: 'variant-analysis',
+        })
+        expect(payload.variant_analysis).toBe(true)
     })
 
     it('writes the trend template for the one output the scanner actually emits', () => {
-        const trendFor = (type: 'monitor' | 'scorer' | 'classifier' | 'summarizer'): ScannerScoutTemplate =>
+        const trendFor = (type: 'monitor' | 'scorer' | 'classifier' | 'experiment'): ScannerScoutTemplate =>
             scannerScoutTemplates(scannerId, type, 'Rage clicks').find((template) => template.key === 'trend-watch')!
 
-        expect(trendFor('monitor').description).toContain('yes-rate')
+        expect(trendFor('monitor').description).toContain('verdict mix')
         expect(trendFor('monitor').body).toContain('scanner_output_verdict')
-        expect(trendFor('scorer').description).toContain('mean score')
+        expect(trendFor('scorer').description).toContain('scores')
         expect(trendFor('scorer').body).toContain('scanner_output_score')
-        expect(trendFor('classifier').description).toContain('tag mix')
-        expect(trendFor('summarizer').description).toContain('themes')
-        // A scanner whose type hasn't loaded still gets a usable template rather than nothing.
-        expect(scannerScoutTemplates(scannerId, undefined, 'Rage clicks')).toHaveLength(4)
+        expect(trendFor('classifier').description).toContain('category mix')
+        // A tag's raw count rises with traffic, so the classifier series must break down by tag.
+        expect(trendFor('classifier').body).toContain('scanner_output_tags')
+        expect(trendFor('experiment').description).toContain('themes')
+    })
+
+    it.each([
+        { skillName: 'signals-scout-checkout-root-cause', expected: true },
+        // A second scanner with the same name gets a collision suffix, and is still a root cause scout.
+        { skillName: 'signals-scout-checkout-root-cause-2', expected: true },
+        { skillName: 'signals-scout-checkout-daily-digest', expected: false },
+        { skillName: 'signals-scout-root-cause-checkout-daily-digest', expected: false },
+    ])('recognizes $skillName as a root cause scout: $expected', ({ skillName, expected }) => {
+        // A missed match makes the prompt offer a second scout for the same question.
+        expect(isTemplateScout(skillName, 'root-cause')).toBe(expected)
     })
 
     it('gives the new-issue template a catalog to diff against, so "new" means something', () => {
@@ -156,6 +216,8 @@ describe('scannerScout', () => {
         // Slack rides on the platform's own delivery, which posts the one report each run files.
         expect(payload.config?.output_destinations).toEqual({})
         expect(payload.config?.run_cron_schedule).toBe('30 7 * * *')
+        // Only the variant analysis template asks the server for the record schema the variants view reads.
+        expect(payload).not.toHaveProperty('variant_analysis')
         expect(payload.config?.enabled).toBe(true)
         expect(payload.config?.emit).toBe(true)
     })

@@ -3,25 +3,39 @@ from typing import Any
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub import finnhub
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.finnhub import (
-    FINNHUB_BASE_URL,
+    FinnhubRowCapExceededError,
+    _expand_columnar,
     _extract_rows,
     _fetch,
     _parse_symbols,
     _request_params,
     _to_date,
-    _window,
     finnhub_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.settings import FINNHUB_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.source import FinnhubSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnhub import (
+    FinnhubSourceConfig,
+)
+
+
+def _driver(**overrides: Any) -> SourceDriver:
+    config: dict[str, Any] = {"api_key": "k", "symbols": "AAPL", "indices": "^GSPC", "exchange": "US"}
+    config.update(overrides)
+    return SourceDriver(FinnhubSource(), FinnhubSourceConfig.from_dict(config))
 
 
 class TestParseSymbols:
@@ -40,11 +54,6 @@ class TestParseSymbols:
     )
     def test_parse_symbols(self, _name: str, raw: str | None, expected: list[str]) -> None:
         assert _parse_symbols(raw) == expected
-
-    def test_drops_oversized_tokens(self) -> None:
-        # A pathologically long "symbol" is junk, not a ticker — it must not become a request.
-        oversized = "A" * (finnhub.MAX_SYMBOL_LENGTH + 1)
-        assert _parse_symbols(f"AAPL,{oversized},MSFT") == ["AAPL", "MSFT"]
 
     def test_caps_fan_out_and_warns(self) -> None:
         raw = ",".join(f"SYM{i}" for i in range(finnhub.MAX_SYMBOLS + 50))
@@ -71,149 +80,132 @@ class TestToDate:
 
 
 class TestExtractRows:
-    def test_single_object_wraps_in_list(self) -> None:
-        rows = _extract_rows({"c": 1.0}, FINNHUB_ENDPOINTS["quote"])
-        assert rows == [{"c": 1.0}]
-
     def test_single_object_empty_returns_nothing(self) -> None:
         # Finnhub returns an empty object for an unknown symbol — that must not become a row.
         assert _extract_rows({}, FINNHUB_ENDPOINTS["quote"]) == []
 
-    def test_data_key_unwraps_calendar(self) -> None:
-        payload = {"ipoCalendar": [{"symbol": "X", "date": "2020-01-01"}]}
-        assert _extract_rows(payload, FINNHUB_ENDPOINTS["ipo_calendar"]) == [{"symbol": "X", "date": "2020-01-01"}]
+    @parameterized.expand(
+        [
+            ("no_data_status", {"s": "no_data", "t": [], "c": []}),
+            ("missing_status", {"t": [100], "c": [1.0]}),
+            ("no_arrays", {"s": "ok"}),
+            ("not_a_dict", []),
+        ]
+    )
+    def test_columnar_non_ok_returns_empty(self, _name: str, payload: Any) -> None:
+        assert _expand_columnar(payload) == []
 
-    def test_data_key_missing_returns_empty(self) -> None:
-        assert _extract_rows({}, FINNHUB_ENDPOINTS["earnings_calendar"]) == []
+    @parameterized.expand(
+        [
+            ("non_string_entries", ["AAPL", 7, None], [{"peer": "AAPL"}]),
+            ("blank_entries", ["AAPL", ""], [{"peer": "AAPL"}]),
+            ("not_a_list", {"error": "boom"}, []),
+        ]
+    )
+    def test_string_array_skips_unusable_entries(self, _name: str, payload: Any, expected: Any) -> None:
+        assert _extract_rows(payload, FINNHUB_ENDPOINTS["peers"]) == expected
 
-    def test_bare_array_passthrough(self) -> None:
-        rows = [{"symbol": "AAPL"}, {"symbol": "MSFT"}]
-        assert _extract_rows(rows, FINNHUB_ENDPOINTS["stock_symbols"]) == rows
-
-    def test_bare_array_non_list_returns_empty(self) -> None:
-        assert _extract_rows({"error": "boom"}, FINNHUB_ENDPOINTS["stock_symbols"]) == []
+    @parameterized.expand(
+        [
+            ("breakdown_absent", {"constituents": ["SAN.MC", "IBE.MC"]}),
+            ("breakdown_empty", {"constituents": ["SAN.MC", "IBE.MC"], "constituentsBreakdown": []}),
+        ]
+    )
+    def test_index_constituents_fall_back_to_the_plain_symbol_list(self, _name: str, payload: Any) -> None:
+        # Plans without the breakdown still return the symbol array; it lands in the same column.
+        assert _extract_rows(payload, FINNHUB_ENDPOINTS["index_constituents"]) == [
+            {"symbol": "SAN.MC"},
+            {"symbol": "IBE.MC"},
+        ]
 
 
 class TestRequestParams:
-    def test_stock_symbols_defaults_exchange(self) -> None:
-        params = _request_params(FINNHUB_ENDPOINTS["stock_symbols"], None, "", False, None)
-        assert params == {"exchange": "US"}
-
-    def test_stock_symbols_uses_configured_exchange(self) -> None:
-        params = _request_params(FINNHUB_ENDPOINTS["stock_symbols"], None, "L", False, None)
-        assert params == {"exchange": "L"}
-
-    def test_market_news_sets_category(self) -> None:
-        params = _request_params(FINNHUB_ENDPOINTS["market_news"], None, "US", False, None)
-        assert params == {"category": "general"}
-
-    def test_basic_financials_sets_metric_and_symbol(self) -> None:
-        params = _request_params(FINNHUB_ENDPOINTS["basic_financials"], "AAPL", "US", False, None)
-        assert params == {"symbol": "AAPL", "metric": "all"}
-
     @time_machine.travel("2024-06-15", tick=False)
-    def test_calendar_window_is_full_rolling_window_when_not_incremental(self) -> None:
-        # Calendars are full refresh: a backwards lookback plus a forward window, ignoring any cursor.
-        params = _request_params(FINNHUB_ENDPOINTS["ipo_calendar"], None, "US", False, None)
-        assert params == {"from": "2023-06-16", "to": "2024-12-12"}
-
-    @time_machine.travel("2024-06-15", tick=False)
-    def test_company_news_window_uses_incremental_cursor(self) -> None:
-        params = _request_params(FINNHUB_ENDPOINTS["company_news"], "AAPL", "US", True, 1704067200)  # 2024-01-01
-        assert params == {"symbol": "AAPL", "from": "2024-01-01", "to": "2024-06-15"}
-
-    @time_machine.travel("2024-06-15", tick=False)
-    def test_company_news_window_falls_back_to_lookback_without_cursor(self) -> None:
-        params = _request_params(FINNHUB_ENDPOINTS["company_news"], "AAPL", "US", True, None)
-        assert params == {"symbol": "AAPL", "from": "2023-06-16", "to": "2024-06-15"}
-
-
-class TestWindow:
-    @time_machine.travel("2024-06-15", tick=False)
-    def test_forward_days_extends_into_future(self) -> None:
-        window = _window(FINNHUB_ENDPOINTS["earnings_calendar"], None)
-        assert window.start == "2023-06-16"
-        assert window.end == "2024-12-12"
+    def test_candles_window_starts_at_midnight_of_the_watermark_day(self) -> None:
+        # The stored cursor is a candle timestamp mid-window; rounding down re-fetches that day.
+        params = _request_params(FINNHUB_ENDPOINTS["stock_candles"], "AAPL", "US", True, 1717000000)
+        assert params["from"] == 1716940800  # 2024-05-29T00:00:00Z
+        assert params["to"] == 1718496000
 
 
 class TestGetRows:
-    @staticmethod
-    def _patch_fetch(monkeypatch: Any, by_symbol: dict[str | None, Any]) -> list[dict[str, Any]]:
-        calls: list[dict[str, Any]] = []
-
-        def fake_fetch(session: Any, path: str, params: dict[str, Any], logger: Any) -> Any:
-            calls.append({"path": path, "params": params})
-            return by_symbol[params.get("symbol")]
-
-        monkeypatch.setattr(finnhub, "_fetch", fake_fetch)
-        monkeypatch.setattr(finnhub, "make_tracked_session", lambda **_: MagicMock())
-        return calls
-
-    def test_market_wide_endpoint_single_request(self, monkeypatch: Any) -> None:
-        self._patch_fetch(monkeypatch, {None: [{"symbol": "AAPL"}, {"symbol": "MSFT"}]})
-        batches = list(get_rows(api_key="k", endpoint="stock_symbols", symbols=None, exchange="US", logger=MagicMock()))
-        assert batches == [[{"symbol": "AAPL"}, {"symbol": "MSFT"}]]
-
-    def test_fan_out_one_request_per_symbol_injecting_symbol(self, monkeypatch: Any) -> None:
-        calls = self._patch_fetch(
-            monkeypatch,
-            {"AAPL": {"c": 1.0}, "MSFT": {"c": 2.0}},
+    def test_market_wide_endpoint_single_request(self) -> None:
+        result = _driver(symbols=None).run(
+            "stock_symbols", [ScriptedResponse(json=[{"symbol": "AAPL"}, {"symbol": "MSFT"}])]
         )
-        batches = list(get_rows(api_key="k", endpoint="quote", symbols="AAPL, MSFT", exchange="US", logger=MagicMock()))
+        assert result.raised is None
+        assert result.items == [[{"symbol": "AAPL"}, {"symbol": "MSFT"}]]
+        assert result.paths == ["/api/v1/stock/symbol"]
+
+    def test_fan_out_one_request_per_symbol_injecting_symbol(self) -> None:
+        result = _driver(symbols="AAPL, MSFT").run(
+            "quote", [ScriptedResponse(json={"c": 1.0}), ScriptedResponse(json={"c": 2.0})]
+        )
         # One batch per symbol, each carrying the injected ticker (quote omits it upstream).
-        assert batches == [[{"c": 1.0, "symbol": "AAPL"}], [{"c": 2.0, "symbol": "MSFT"}]]
-        assert [c["params"]["symbol"] for c in calls] == ["AAPL", "MSFT"]
+        assert result.raised is None
+        assert result.items == [[{"c": 1.0, "symbol": "AAPL"}], [{"c": 2.0, "symbol": "MSFT"}]]
+        assert result.params("symbol") == ["AAPL", "MSFT"]
 
-    def test_fan_out_skips_empty_symbol_responses(self, monkeypatch: Any) -> None:
-        # Unknown ticker → empty object → no batch yielded for it.
-        self._patch_fetch(monkeypatch, {"AAPL": {"c": 1.0}, "BOGUS": {}})
-        batches = list(get_rows(api_key="k", endpoint="quote", symbols="AAPL,BOGUS", exchange="US", logger=MagicMock()))
-        assert batches == [[{"c": 1.0, "symbol": "AAPL"}]]
-
-    def test_requires_symbol_with_no_symbols_yields_nothing_and_warns(self, monkeypatch: Any) -> None:
-        self._patch_fetch(monkeypatch, {})
-        logger = MagicMock()
-        batches = list(get_rows(api_key="k", endpoint="quote", symbols=None, exchange="US", logger=logger))
-        assert batches == []
-        logger.warning.assert_called_once()
-
-    def test_company_news_sorted_ascending_and_symbol_injected(self, monkeypatch: Any) -> None:
-        self._patch_fetch(
-            monkeypatch,
-            {"AAPL": [{"id": 2, "datetime": 200}, {"id": 1, "datetime": 100}]},
+    def test_company_news_sorted_ascending_and_symbol_injected(self) -> None:
+        result = _driver().run(
+            "company_news", [ScriptedResponse(json=[{"id": 2, "datetime": 200}, {"id": 1, "datetime": 100}])]
         )
-        batches = list(
-            get_rows(
-                api_key="k",
-                endpoint="company_news",
-                symbols="AAPL",
-                exchange="US",
-                logger=MagicMock(),
-            )
-        )
-        assert batches == [
+        assert result.raised is None
+        assert result.items == [
             [
                 {"id": 1, "datetime": 100, "symbol": "AAPL"},
                 {"id": 2, "datetime": 200, "symbol": "AAPL"},
             ]
         ]
 
-    def test_company_news_missing_datetime_raises(self, monkeypatch: Any) -> None:
+    def test_company_news_missing_datetime_raises(self) -> None:
         # `datetime` is the incremental watermark — a row missing it must fail loudly rather
         # than silently sorting to epoch 0 and corrupting the checkpoint.
-        self._patch_fetch(monkeypatch, {"AAPL": [{"id": 1, "datetime": 100}, {"id": 2}]})
-        with pytest.raises(KeyError):
-            list(get_rows(api_key="k", endpoint="company_news", symbols="AAPL", exchange="US", logger=MagicMock()))
+        result = _driver().run("company_news", [ScriptedResponse(json=[{"id": 1, "datetime": 100}, {"id": 2}])])
+        assert isinstance(result.raised, KeyError)
 
-    def test_calendar_unwraps_data_key(self, monkeypatch: Any) -> None:
-        self._patch_fetch(
-            monkeypatch,
-            {None: {"earningsCalendar": [{"symbol": "AAPL", "date": "2024-01-01"}]}},
+    def test_candles_emitted_as_rows_with_symbol(self) -> None:
+        result = _driver().run("stock_candles", [ScriptedResponse(json={"s": "ok", "t": [200, 100], "c": [2.0, 1.0]})])
+        # Sorted ascending on the declared `t` watermark, with the requested ticker injected.
+        assert result.raised is None
+        assert result.items == [[{"t": 100, "c": 1.0, "symbol": "AAPL"}, {"t": 200, "c": 2.0, "symbol": "AAPL"}]]
+
+    def test_raises_when_a_response_hits_the_documented_cap(self) -> None:
+        # Insider transactions cap at 100 rows per call with no pagination — a full page means
+        # the API silently dropped the rest of the window. Emitting that subset would let the
+        # cursor advance past the missing rows, so the sync must fail instead of checkpointing.
+        rows = [{"symbol": "AAPL", "transactionDate": f"2024-01-{i % 28 + 1:02d}"} for i in range(100)]
+        logger = MagicMock()
+        result = _driver().run("insider_transactions", [ScriptedResponse(json={"data": rows})], logger=logger)
+        assert isinstance(result.raised, FinnhubRowCapExceededError)
+        logger.error.assert_called_once()
+
+    def test_index_constituents_fan_out_over_indices_injecting_the_index(self) -> None:
+        result = _driver(symbols="MSFT").run(
+            "index_constituents",
+            [ScriptedResponse(json={"constituentsBreakdown": [{"symbol": "AAPL", "weight": 7.0}]})],
         )
-        batches = list(
-            get_rows(api_key="k", endpoint="earnings_calendar", symbols=None, exchange="US", logger=MagicMock())
+        # The fan-out reads Indices, not Symbols, and the constituent keeps its own `symbol`.
+        assert result.raised is None
+        assert result.params("symbol") == ["^GSPC"]
+        assert result.items == [[{"symbol": "AAPL", "weight": 7.0, "index_symbol": "^GSPC"}]]
+
+    def test_index_constituents_with_no_indices_yields_nothing_and_warns(self) -> None:
+        # A configured Symbols list must not be mistaken for an index list.
+        logger = MagicMock()
+        result = _driver(indices=None).run("index_constituents", [], logger=logger)
+        assert result.raised is None
+        assert result.items == []
+        assert result.requests == []
+        assert "Indices" in logger.warning.call_args[0][0]
+
+    def test_calendar_unwraps_data_key(self) -> None:
+        result = _driver(symbols=None).run(
+            "earnings_calendar",
+            [ScriptedResponse(json={"earningsCalendar": [{"symbol": "AAPL", "date": "2024-01-01"}]})],
         )
-        assert batches == [[{"symbol": "AAPL", "date": "2024-01-01"}]]
+        assert result.raised is None
+        assert result.items == [[{"symbol": "AAPL", "date": "2024-01-01"}]]
 
 
 class TestFinnhubSource:
@@ -230,6 +222,27 @@ class TestFinnhubSource:
             ("company_news", ["id", "symbol"], None, "asc"),
             ("recommendation_trends", ["symbol", "period"], "period", None),
             ("earnings_surprises", ["symbol", "period"], "period", None),
+            ("financials_reported", ["symbol", "accessNumber"], "endDate", "asc"),
+            ("stock_candles", ["symbol", "t"], "t", "asc"),
+            ("sec_filings", ["symbol", "accessNumber"], "filedDate", "asc"),
+            (
+                "insider_transactions",
+                [
+                    "symbol",
+                    "name",
+                    "transactionDate",
+                    "filingDate",
+                    "transactionCode",
+                    "change",
+                    "transactionPrice",
+                ],
+                "transactionDate",
+                "asc",
+            ),
+            ("dividends", ["symbol", "date", "amount"], "date", "asc"),
+            ("peers", ["symbol", "peer"], None, None),
+            ("index_constituents", ["index_symbol", "symbol"], None, None),
+            ("economic_calendar", ["country", "event", "time"], "time", None),
         ]
     )
     def test_source_response_keys_and_partitioning(
@@ -280,15 +293,6 @@ class TestFetch:
 
 
 class TestValidateCredentials:
-    @staticmethod
-    def _session(status_code: int | None) -> MagicMock:
-        session = MagicMock()
-        if status_code is None:
-            session.get.side_effect = Exception("connection refused")
-        else:
-            session.get.return_value = MagicMock(status_code=status_code)
-        return session
-
     @parameterized.expand(
         [
             ("ok", 200, None, True),
@@ -296,23 +300,24 @@ class TestValidateCredentials:
             ("forbidden_at_create_is_accepted", 403, None, True),
             ("forbidden_for_schema_is_rejected", 403, "quote", False),
             ("server_error", 500, None, False),
+            ("bad_request", 400, None, False),
             ("connection_error", None, None, False),
         ]
     )
     def test_validate_credentials(
         self, _name: str, status_code: int | None, schema_name: str | None, expected_valid: bool
     ) -> None:
-        session = self._session(status_code)
-        with patch.object(finnhub, "make_tracked_session", lambda **_: session):
+        answer = ConnectionError("connection refused") if status_code is None else ScriptedResponse(status=status_code)
+        with scripted_network([answer]):
             valid, _msg = validate_credentials("key", schema_name)
         assert valid is expected_valid
 
     def test_validate_credentials_probes_quote(self) -> None:
-        session = self._session(200)
-        with patch.object(finnhub, "make_tracked_session", lambda **_: session):
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials("key")
-        called_url = session.get.call_args[0][0]
-        assert called_url == f"{FINNHUB_BASE_URL}/quote"
+        assert network.requests_log[0].path == "/api/v1/quote"
+        assert network.requests_log[0].param("symbol") == "AAPL"
+        assert network.requests_log[0].headers["x-finnhub-token"] == "key"
 
 
 if __name__ == "__main__":

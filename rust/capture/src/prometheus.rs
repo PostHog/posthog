@@ -239,7 +239,8 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         &[0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0];
     // Global rate limiter sync staleness (milliseconds)
     const GLOBAL_RATE_LIMITER_STALENESS_MS: &[f64] = &[
-        100.0, 500.0, 1000.0, 5000.0, 10000.0, 15000.0, 30000.0, 60000.0,
+        100.0, 500.0, 1000.0, 5000.0, 10000.0, 15000.0, 30000.0, 60000.0, 90000.0, 120000.0,
+        300000.0, 3600000.0,
     ];
 
     // Absolute client clock skew buckets (in seconds).
@@ -261,13 +262,6 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
     const KAFKA_PRODUCE_ACK_MS: &[f64] = &[
         0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 25.0, 50.0, 75.0, 100.0, 150.0, 250.0, 500.0, 1000.0,
         2500.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0, 300000.0,
-    ];
-
-    // Same shape as KAFKA_PRODUCE_ACK_MS, but in seconds for the v1 sink's
-    // `capture_v1_kafka_ack_duration_seconds` histogram.
-    const KAFKA_PRODUCE_ACK_SECONDS: &[f64] = &[
-        0.0005, 0.001, 0.002, 0.005, 0.01, 0.015, 0.025, 0.05, 0.075, 0.1, 0.15, 0.25, 0.5, 1.0,
-        2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0,
     ];
 
     PrometheusBuilder::new()
@@ -346,11 +340,6 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         .set_buckets_for_metric(
             Matcher::Full("capture_v1_response_time_seconds".to_string()),
             EXPONENTIAL_SECONDS,
-        )
-        .unwrap()
-        .set_buckets_for_metric(
-            Matcher::Full("capture_v1_kafka_ack_duration_seconds".to_string()),
-            KAFKA_PRODUCE_ACK_SECONDS,
         )
         .unwrap()
         // capture_v1_event_batch_size is covered by the Suffix("_batch_size")

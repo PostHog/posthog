@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,27 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DescopeSource(ResumableSource[DescopeSourceConfig, DescopeResumeConfig]):
+    codebase_detection = detect(
+        env=("^DESCOPE_", "^NEXT_PUBLIC_DESCOPE_PROJECT_ID$"),
+        npm=(
+            "@descope/node-sdk",
+            "@descope/nextjs-sdk",
+            "@descope/react-sdk",
+            "@descope/web-component",
+            "@descope/web-js-sdk",
+            "@descope/vue-sdk",
+            "@descope/angular-sdk",
+            "@descope/react-native-sdk",
+        ),
+        pypi=("descope",),
+        composer=("descope/descope-php",),
+        go=("github.com/descope/go-sdk", "github.com/descope/descopecli"),
+        maven=("com.descope:java-sdk", "com.descope:descope-kotlin"),
+        pub=("descope",),
+        rubygems=("descope",),
+        swiftpm=("github.com/descope/descope-swift",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.descope.com/api"
 
@@ -107,7 +129,7 @@ class DescopeSource(ResumableSource[DescopeSourceConfig, DescopeResumeConfig]):
             name=ExternalDataSourceType.DESCOPE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Descope",
-            caption="Sync users, audit trail events, tenants, roles, and access keys from your Descope project. Requires a Management Key, generated from the [Descope Console](https://app.descope.com) under Project Settings > Company/Management Keys.",
+            caption="Sync users, their authentication history, audit trail events, sign-in analytics, tenants, groups, roles, permissions, and access keys from your Descope project. Requires a Management Key, generated from the [Descope Console](https://app.descope.com) under Project Settings > Company/Management Keys.",
             docsUrl="https://posthog.com/docs/cdp/sources/descope",
             releaseStatus=ReleaseStatus.ALPHA,
             iconPath="/static/services/descope.png",

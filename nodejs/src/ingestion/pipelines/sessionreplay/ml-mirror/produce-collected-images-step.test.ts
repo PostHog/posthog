@@ -1,11 +1,12 @@
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PipelineResultType } from '~/ingestion/framework/results'
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-transport'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 
 import { MlMirrorMetrics } from './metrics'
 import { CollectedImage } from './parse-and-anonymize-step'
 import { createProduceCollectedImagesStep } from './produce-collected-images-step'
+import { ProducedImageRefs } from './produced-refs'
 
 describe('produceCollectedImagesStep', () => {
     const CAPTURED_AT = 1_700_000_000_000
@@ -24,6 +25,10 @@ describe('produceCollectedImagesStep', () => {
         outputs = { queueMessages } as unknown as IngestionOutputs<MlImageScrubOutput>
     })
 
+    function createStep(producedRefCacheMax = 500_000) {
+        return createProduceCollectedImagesStep(outputs, new ProducedImageRefs(producedRefCacheMax))
+    }
+
     function image(ref: string, byte = 1): CollectedImage {
         return { ref, bytes: Buffer.from([byte]) }
     }
@@ -41,7 +46,7 @@ describe('produceCollectedImagesStep', () => {
     }
 
     it('produces each image keyed by its ref as a side effect and strips them from the element', async () => {
-        const step = createProduceCollectedImagesStep(outputs)
+        const step = createStep()
         const images = [image('image:aa:h1', 1), image('image:aa:h2', 2)]
         const result = await run(step, { collectedImages: images, message: { timestamp: CAPTURED_AT } })
 
@@ -63,14 +68,14 @@ describe('produceCollectedImagesStep', () => {
     })
 
     it('passes through elements with no collected images without producing', async () => {
-        const step = createProduceCollectedImagesStep(outputs)
+        const step = createStep()
         await run(step, { collectedImages: undefined, message: { timestamp: CAPTURED_AT } })
         await run(step, { collectedImages: [], message: { timestamp: CAPTURED_AT } })
         expect(queueMessages).not.toHaveBeenCalled()
     })
 
     it('dedups refs it already produced across messages', async () => {
-        const step = createProduceCollectedImagesStep(outputs)
+        const step = createStep()
         await run(step, { collectedImages: [image('image:aa:h1')], message: { timestamp: CAPTURED_AT } })
         await run(step, {
             collectedImages: [image('image:aa:h1'), image('image:aa:h2')],
@@ -94,8 +99,31 @@ describe('produceCollectedImagesStep', () => {
         ])
     })
 
+    it('dedups a ref that another session of the team produced', async () => {
+        const step = createStep()
+        const ref = `image:v3:42:2026-09:${'h1'.padEnd(22, 'x')}`
+        const sessionInput = (sessionId: string) => {
+            const key = {
+                identity: { teamId: 42, sessionId, sessionMonth: '2026-09' },
+                plaintext: Buffer.alloc(32),
+                wrapped: Buffer.alloc(0),
+            }
+            return {
+                message: { timestamp: CAPTURED_AT },
+                headers: { session_id: sessionId },
+                mlKeys: { session: key, image: key },
+                collectedImages: [image(ref)],
+            }
+        }
+
+        await run(step, sessionInput('01a0c669-8800-7000-8000-000000000001'))
+        await run(step, sessionInput('01a0c669-8800-7000-8000-000000000002'))
+
+        expect(queued).toHaveLength(1)
+    })
+
     it('evicts oldest refs at capacity instead of forgetting the whole working set', async () => {
-        const step = createProduceCollectedImagesStep(outputs, 2)
+        const step = createStep(2)
         await run(step, {
             collectedImages: [image('image:aa:h1'), image('image:aa:h2')],
             message: { timestamp: CAPTURED_AT },
@@ -116,7 +144,7 @@ describe('produceCollectedImagesStep', () => {
 
     it('swallows produce failures (a dangling ref reads as a placeholder downstream)', async () => {
         queueMessages.mockRejectedValueOnce(new Error('broker down'))
-        const step = createProduceCollectedImagesStep(outputs)
+        const step = createStep()
         const result = await run(step, {
             collectedImages: [image('image:aa:h1')],
             message: { timestamp: CAPTURED_AT },
@@ -133,7 +161,7 @@ describe('produceCollectedImagesStep', () => {
         }
         const incrementVersion = jest.spyOn(MlMirrorMetrics, 'incrementMlProducedVersion')
         try {
-            const step = createProduceCollectedImagesStep(outputs)
+            const step = createStep()
             await run(step, { collectedImages: [image('image:aa:h1')], message: { timestamp: CAPTURED_AT } })
             expect(incrementVersion).toHaveBeenCalledTimes(expected)
         } finally {
@@ -143,7 +171,7 @@ describe('produceCollectedImagesStep', () => {
 
     it('un-marks refs whose produce failed so a recurring image re-produces naturally', async () => {
         queueMessages.mockRejectedValueOnce(new Error('broker down'))
-        const step = createProduceCollectedImagesStep(outputs)
+        const step = createStep()
         await run(step, { collectedImages: [image('image:aa:h1')], message: { timestamp: CAPTURED_AT } })
         await run(step, { collectedImages: [image('image:aa:h1')], message: { timestamp: CAPTURED_AT } })
         expect(queueMessages).toHaveBeenCalledTimes(2)

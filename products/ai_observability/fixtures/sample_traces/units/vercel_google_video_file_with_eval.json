@@ -1,0 +1,132 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Video walkthrough Q&A for a listing",
+  "scenario": "A buyer's agent asks an AI assistant (Gemini via the Vercel AI SDK) to review a seller-provided walkthrough video for a listing and flag anything concerning before scheduling an in-person visit; a follow-up sentiment evaluation reads the exchange as positive.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1,
+      "$ai_evaluation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ai",
+      "posthog-capture-v1-internal"
+    ],
+    "providers": [
+      "google"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "gemini-2.5-pro"
+    ],
+    "content_types": [
+      "file",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_reasoning_tokens": 1567,
+        "model_id": "gemini-2.5-pro",
+        "media_type": "video",
+        "$ai_tokens_source": "sdk",
+        "$ai_trace_id": "e20988fc-29fc-790b-56d6-790d840df019",
+        "$ai_framework_version": "6",
+        "$ai_model": "gemini-2.5-pro",
+        "$ai_lib": "posthog-ai",
+        "$ai_output_tokens": 2362,
+        "$ai_latency": 27.618,
+        "$ai_lib_version": "7.20.8",
+        "$ai_model_parameters": {},
+        "$ai_http_status": 200,
+        "$ai_base_url": "",
+        "action_name": "analyze_video",
+        "surface": "app",
+        "$lib_version": "5.26.0",
+        "$geoip_disable": true,
+        "$ai_stop_reason": "stop",
+        "$ai_input_tokens": 9553,
+        "$lib": "posthog-node",
+        "$ai_span_name": "analyze_video",
+        "$ai_framework": "vercel",
+        "$ai_provider": "google",
+        "$ai_text_input_tokens": 116,
+        "$ai_audio_input_tokens": 1021,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "Hey, I just got this walkthrough video from the seller's agent for\nthe Birchwood Ave listing. Can you go through it and tell me:\n1) does the roof look OK from the drone shots\n2) any visible water damage in the basement section\n3) what condition are the kitchen appliances in\n4) anything else that jumps out that I should flag to my client before\nwe schedule an in-person visit and get an inspector out there\nTrying to decide if it's even worth driving out this weekend or if we\nshould just wait for the inspection report first.",
+                "type": "text"
+              },
+              {
+                "file": "raw files not supported",
+                "mediaType": "video/mp4",
+                "type": "file"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": "I went through the full walkthrough video and here's a room-by-room\nbreakdown of what I could see:\n\n**Roof (drone shots, roughly 0:12-0:38)**\nThe shingles look even across both slopes and there's no obvious\nsagging along the ridge line, which is a good early sign structurally.\nA couple of dark streaks near the chimney flashing are most likely\nalgae staining rather than active damage, but streaking near flashing\nis exactly the kind of thing a physical inspection should confirm,\nsince video can't tell you whether the flashing itself is sealing\nproperly underneath. I also noticed a satellite dish mount still\nbolted to the back slope that isn't mentioned in the listing photos,\nwhich is a minor thing but worth asking whether it comes down before\nclosing or stays as-is.\n\n**Basement (roughly 1:45-2:20)**\nNo standing water or visible staining on the walls or floor in this\npass. There's a dehumidifier running in the far corner near the\nutility hookups, which could simply mean the owner runs it seasonally,\nor could mean there's a known humidity issue they're managing quietly.\nI didn't see any efflorescence (the white chalky residue that usually\nsignals moisture wicking through concrete) on the visible foundation\nwalls, which is a mildly reassuring sign, but the camera never pans\nbehind the water heater or into the crawlspace access, so that's a\nblind spot worth asking the listing agent about directly rather than\nassuming it's clean back there.\n\n**Kitchen appliances (roughly 2:50-3:15)**\nThe range and dishwasher look like a similar generation and are in\ndecent cosmetic shape overall, no visible rust, dents, or handle wear\nbeyond normal use. The refrigerator is noticeably newer than the other\ntwo and doesn't match their finish, so it was probably replaced more\nrecently, possibly after the older one failed. Cabinet fronts around\nthe sink show a bit of water swelling at the base, which lines up with\nnormal wear near a sink rather than anything structural.\n\n**A few other things worth flagging**\nThere's a hairline crack running along one living room ceiling corner\nthat's easy to miss on a first watch, worth asking whether that's\ncosmetic settling or something that's been monitored over time. The\nupstairs bathroom grout looks slightly discolored around the tub,\nwhich is often just normal wear but can also point to a slow leak\nbehind the tile. None of this reads as disqualifying on its own, and\nmost of it is exactly the kind of thing an inspector routinely checks.\n\nOverall, nothing in the video is an obvious dealbreaker, but a drone\npass and a short basement pan aren't a substitute for hands-on\ninspection, especially for the roof flashing and anything behind\nthe basement walls that the camera never reached. I'd still recommend\ngetting an inspector out before writing an offer, and I'd specifically\nask the roof and moisture questions up front rather than waiting for\nthe report to surface them on its own.",
+            "role": "assistant"
+          }
+        ]
+      },
+      "uuid": "d1a8886b-bb0f-794e-38c6-f0320ba88db4"
+    },
+    {
+      "event": "$ai_evaluation",
+      "offset_ms": 188140,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_evaluation_id": "bd4851ad-a303-74ce-30da-85dc4f44c9cc",
+        "$ai_evaluation_name": "response_sentiment",
+        "$ai_evaluation_type": "online",
+        "$ai_evaluation_runtime": "sentiment",
+        "$ai_evaluation_result_type": "sentiment",
+        "$ai_evaluation_start_time": "2026-09-25T07:06:32.481815+00:00",
+        "$ai_evaluation_reasoning": "Client sounds satisfied with the answer.",
+        "$ai_evaluation_trigger": "live",
+        "$ai_sentiment_label": "positive",
+        "$ai_sentiment_score": 0.8652,
+        "$ai_sentiment_scores": {
+          "negative": 0.054722,
+          "positive": 0.832556,
+          "neutral": 0.048208
+        },
+        "$ai_sentiment_messages": {
+          "0": {
+            "label": "positive",
+            "score": 0.8652,
+            "scores": {
+              "positive": 0.832556,
+              "negative": 0.054722,
+              "neutral": 0.048208
+            }
+          }
+        },
+        "$ai_sentiment_message_count": 1,
+        "$ai_target_event_id": "d1a8886b-bb0f-794e-38c6-f0320ba88db4",
+        "$ai_target_event_type": "$ai_generation",
+        "$ai_target_id": "d1a8886b-bb0f-794e-38c6-f0320ba88db4",
+        "$ai_target_type": "generation_uuid",
+        "$ai_trace_id": "e20988fc-29fc-790b-56d6-790d840df019",
+        "$lib": "posthog-capture-v1-internal",
+        "$lib_version": "1.0"
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

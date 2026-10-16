@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BackMarketSource(ResumableSource[BackMarketSourceConfig, BackMarketResumeConfig]):
+    codebase_detection = detect(env=("^(BACK_MARKET|BACKMARKET)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # Back Market's seller API has no path/header version token — a single, unversioned
@@ -117,6 +120,7 @@ class BackMarketSource(ResumableSource[BackMarketSourceConfig, BackMarketResumeC
 
 Generate a token from your Back Market Back Office under **Support & Technical Support**. The token stays valid until you reset your account password.""",
             iconPath="/static/services/back_market.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/back-market",
             fields=cast(
                 list[FieldType],
                 [

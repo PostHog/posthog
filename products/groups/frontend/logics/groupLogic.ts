@@ -7,7 +7,6 @@ import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
@@ -28,6 +27,19 @@ import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/feature
 import type { Noun } from '../../../../frontend/src/models/groupsModel'
 import type { GroupType } from '../../../../frontend/src/types'
 import { groupsFindRetrieve } from '../generated/api'
+
+function reportGroupPropertyUpdated(
+    action: 'added' | 'updated' | 'removed',
+    totalProperties: number,
+    oldPropertyType?: string,
+    newPropertyType?: string
+): void {
+    posthog.capture(`group property ${action}`, {
+        old_property_type: oldPropertyType !== 'undefined' ? oldPropertyType : undefined,
+        new_property_type: newPropertyType !== 'undefined' ? newPropertyType : undefined,
+        total_properties: totalProperties,
+    })
+}
 
 function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTableNode {
     return {
@@ -351,7 +363,7 @@ export const groupLogic = kea<groupLogicType>([
                 await api.groups.updateProperty(group.group_type_index, group.group_key, key, parsedValue)
                 lemonToast.success(`Group property ${action}`)
 
-                eventUsageLogic.actions.reportGroupPropertyUpdated(
+                reportGroupPropertyUpdated(
                     action,
                     Object.keys(group.group_properties).length,
                     oldPropertyType,
@@ -370,7 +382,7 @@ export const groupLogic = kea<groupLogicType>([
                 await api.groups.deleteProperty(group.group_type_index, group.group_key, key)
                 lemonToast.success(`Group property deleted`)
 
-                eventUsageLogic.actions.reportGroupPropertyUpdated('removed', 1, undefined, undefined)
+                reportGroupPropertyUpdated('removed', 1, undefined, undefined)
             }
         },
     })),

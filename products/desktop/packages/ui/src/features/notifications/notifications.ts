@@ -4,6 +4,7 @@ import {
   type NotificationTarget,
 } from "@posthog/platform/notifications";
 import type { TaskActivityKind } from "@posthog/shared/domain-types";
+import { notificationsPaused } from "@posthog/ui/features/settings/settingsStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openNotificationTarget } from "@posthog/ui/router/navigationBridge";
 import { logger } from "@posthog/ui/shell/logger";
@@ -102,6 +103,9 @@ export class NotificationBus {
     });
 
     const settings = this.settings.get();
+    // A pause keeps the silent in-app toast but stops every noise and every
+    // alert outside the app window.
+    const paused = notificationsPaused(settings.notificationsPausedUntil);
     const playbackRate =
       settings.scaleSoundWithTaskLength &&
       descriptor.soundDurationMs !== undefined
@@ -112,12 +116,16 @@ export class NotificationBus {
     // resolves to nothing. Under a `random-*` sound this re-picks, so it
     // reports whether a sound plays, not which one.
     const willPlaySound =
+      !paused &&
       resolveSoundUrl(settings.completionSound, settings.customSounds) !== null;
     // A native notification we leave unsilenced rings the OS chime instead, so
     // the line has to name that noise rather than read as silence.
     const nativeSilent = descriptor.silent ?? willPlaySound;
     const osChimePlayed =
-      channel === "native" && settings.desktopNotifications && !nativeSilent;
+      channel === "native" &&
+      !paused &&
+      settings.desktopNotifications &&
+      !nativeSilent;
 
     // One line for every notification, including the suppressed ones. At info
     // level on purpose: packaged builds drop debug, and "the app made a noise
@@ -130,6 +138,7 @@ export class NotificationBus {
       target: describeTarget(descriptor.target),
       viewingTarget: describeTarget(viewingTarget),
       appFocused,
+      paused,
       sound: settings.completionSound,
       soundPlayed: channel !== "suppress" && willPlaySound,
       osChimePlayed,
@@ -144,18 +153,21 @@ export class NotificationBus {
 
     // Sound fires on both delivered tiers (toast + native), not on suppress —
     // matching the pre-bus behavior where any non-suppressed notification rang.
-    playCompletionSound(
-      settings.completionSound,
-      settings.completionVolume,
-      settings.customSounds,
-      playbackRate,
-      descriptor.reason,
-    );
+    if (!paused) {
+      playCompletionSound(
+        settings.completionSound,
+        settings.completionVolume,
+        settings.customSounds,
+        playbackRate,
+        descriptor.reason,
+      );
+    }
 
     if (channel === "toast") {
       this.showToast(descriptor);
       return;
     }
+    if (paused) return;
 
     // native
     if (settings.desktopNotifications) {

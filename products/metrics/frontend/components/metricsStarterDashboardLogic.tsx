@@ -15,8 +15,7 @@ import type { DashboardType } from '~/types'
 import { metricsAttributeValuesRetrieve, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
 import type { _MetricPickerNameApi } from 'products/metrics/frontend/generated/api.schemas'
 
-import type { InsightModel } from '../../../../frontend/src/types'
-import { RECOMMENDED_AGGREGATION_BY_TYPE, nodeAggregationFields, toKnownMetricType } from './metricsViewerLogic'
+import { toKnownMetricType } from './metricsViewerLogic'
 
 // A metric name can appear under more than one OTel type, so option identity
 // must include both. \0 can't occur in ingest strings, so the key is collision-free.
@@ -51,7 +50,7 @@ export interface metricsStarterDashboardLogicActions {
         createdDashboard: DashboardType,
         warning?: string
     ) => {
-        createdDashboard: DashboardType<InsightModel>
+        createdDashboard: DashboardType
         warning: string | undefined
     }
     loadMetricOptions: (_: any) => any
@@ -103,9 +102,9 @@ export type metricsStarterDashboardLogicType = MakeLogicType<
     metricsStarterDashboardLogicActions
 >
 
-// One dashboard, one insight per picked metric, each charted with the
-// aggregation its type recommends and scoped to the picked service — the
-// onboarding doc's starter set, productized.
+// One dashboard, one insight per picked metric, each charted as one line per
+// series and scoped to the picked service — the onboarding doc's starter set,
+// productized.
 export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'metricsStarterDashboardLogic']),
     connect(() => ({
@@ -207,7 +206,7 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                 // The core dashboards create endpoint has no generated client yet
                 // (only its sharing sub-resources are in the codegen surface), so this
                 // stays a manual call until the Dashboard viewset is tagged.
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsCreate() from 'products/dashboards/frontend/generated/api' instead.
                 dashboard = await api.create<DashboardType>(`api/projects/${values.currentTeamId}/dashboards/`, {
                     name,
                 })
@@ -215,11 +214,9 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                     // The names endpoint reports raw ingest strings; only enum members
                     // may reach the API — mirrors the viewer's metricsQueryNode.
                     const metricType = toKnownMetricType(rawType)
-                    const recommended = (rawType && RECOMMENDED_AGGREGATION_BY_TYPE[rawType]) || 'avg'
                     const clause: MetricsQueryClause = {
                         name: 'a',
                         metricName,
-                        ...nodeAggregationFields(recommended),
                         ...(metricType ? { metricType } : {}),
                         ...(serviceName
                             ? { filters: [{ key: 'service.name', op: 'eq' as const, value: serviceName }] }
@@ -227,7 +224,7 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                     }
                     const query: MetricsQuery = { kind: NodeKind.MetricsQuery, clauses: [clause] }
                     await insightsApi.create({
-                        name: `${metricName} (${recommended})`,
+                        name: metricName,
                         saved: true,
                         dashboards: [dashboard.id],
                         query,

@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,7 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @SourceRegistry.register
@@ -54,6 +55,8 @@ class FeaturebaseSource(
     ResumableSource[FeaturebaseSourceConfig, FeaturebaseResumeConfig],
     WebhookSource[FeaturebaseSourceConfig],
 ):
+    codebase_detection = detect(env=("^FEATUREBASE_",), script_hosts=("do.featurebase.app",), npm=("featurebase-js",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -173,6 +176,8 @@ class FeaturebaseSource(
                     "Maps which users upvoted which post as one row per (post, voter). "
                     "Costs one request chain per post, so it's off by default"
                 )
+            if endpoint == "survey_responses":
+                return "Answers submitted to your surveys as one row per (survey, response)"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

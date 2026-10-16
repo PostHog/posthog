@@ -2,6 +2,7 @@ import time
 import itertools
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
+from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -14,7 +15,6 @@ import dagster
 import psycopg2
 from clickhouse_driver import Client
 from prometheus_client import CollectorRegistry
-from psycopg2 import OperationalError
 
 from posthog.clickhouse.cleanup_snapshots import (
     CLEANUP_DELETED_PERSONS_TABLE,
@@ -34,6 +34,7 @@ from posthog.dags.clickhouse_cleanup import (
     OrphanedDistinctIdsTable,
     clickhouse_deletion_sweep_job,
 )
+from posthog.dags.person_pg_cleanup_drain import person_pg_cleanup_drain_job
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.persons_db import persons_db_url
@@ -46,9 +47,17 @@ COHORT_ID = 77
 RUN_FOR_REAL = {"ops": {"clear_removed_cohort_data": {"config": {"dry_run": False}}}}
 
 
+def without_age_floor(run_config: dict | None) -> dict:
+    # Tests write their rows moments before the run, so the default minimum tombstone age would skip them all.
+    run_config = deepcopy(run_config or {})
+    op_config = run_config.setdefault("ops", {}).setdefault("clear_removed_cohort_data", {}).setdefault("config", {})
+    op_config.setdefault("min_tombstone_age_seconds", 0)
+    return run_config
+
+
 def run_job(cluster: ClickhouseCluster, persons_database, run_config=RUN_FOR_REAL, raise_on_error=True, instance=None):
     return clickhouse_deletion_sweep_job.execute_in_process(
-        run_config=run_config,
+        run_config=without_age_floor(run_config),
         resources={"cluster": cluster, "persons_database_url": persons_db_url(writer=True)},
         raise_on_error=raise_on_error,
         instance=instance,
@@ -181,7 +190,9 @@ def seed_decoy_run(cluster: ClickhouseCluster, spared_person: str, spared_distin
 
 def queued_rows(conn) -> list[tuple]:
     with conn.cursor() as cursor:
-        cursor.execute(f"SELECT team_id, person_uuid, deleted_at, blocked_at FROM {PG_CLEANUP_QUEUE_TABLE} ORDER BY 2")
+        cursor.execute(
+            f"SELECT team_id, person_uuid, deleted_at, blocked_at, max_version FROM {PG_CLEANUP_QUEUE_TABLE} ORDER BY 2"
+        )
         return cursor.fetchall()
 
 
@@ -277,9 +288,76 @@ def test_removes_every_version_of_a_distinct_id_repointed_to_a_deleted_person(
     assert cluster.any_host(current_owner("moved")).result() is None
 
 
+def insert_distinct_id(
+    cluster: ClickhouseCluster, distinct_id: str, person_id: str, version: int, produced_at: datetime, is_deleted=False
+) -> None:
+    # create_person_distinct_id stamps _timestamp with now(), so an older _timestamp needs a direct insert.
+    row = (TEAM_ID, distinct_id, UUID(person_id), int(is_deleted), version, produced_at, 0, 0)
+    cluster.any_host(
+        lambda client: client.execute(
+            "INSERT INTO person_distinct_id2"
+            " (team_id, distinct_id, person_id, is_deleted, version, _timestamp, _offset, _partition) VALUES",
+            [row],
+        )
+    ).result()
+
+
+@pytest.mark.django_db
+def test_the_age_floor_defers_tombstones_produced_too_recently(cluster: ClickhouseCluster, persons_database):
+    # The minimum age applies to the newest version's production time. Reading the oldest version or
+    # the first tombstone instead deletes a key whose newest tombstone is still recent.
+    old = datetime.now(UTC) - timedelta(days=2)
+    young = datetime.now(UTC) - timedelta(hours=1)
+    swept = create_person(team_id=TEAM_ID, version=0, is_deleted=True, timestamp=old)
+    held = create_person(team_id=TEAM_ID, version=0, is_deleted=True, timestamp=old)
+    young_tombstone = create_person(team_id=TEAM_ID, version=0, is_deleted=True, timestamp=young)
+    deleted_recently = create_person(team_id=TEAM_ID, version=0, timestamp=old)
+    create_person(uuid=deleted_recently, team_id=TEAM_ID, version=1, is_deleted=True, timestamp=young)
+    deleted_again = create_person(team_id=TEAM_ID, version=1, is_deleted=True, timestamp=old)
+    create_person(uuid=deleted_again, team_id=TEAM_ID, version=2, is_deleted=True, timestamp=young)
+
+    live = create_person(team_id=TEAM_ID, version=0)
+    for distinct_id, owner, tombstoned_at in [
+        ("young_tombstone", live, young),
+        ("old_tombstone", live, old),
+        # Its own tombstone is recent, so it waits and holds back its owner.
+        ("young_tombstone_of_held_person", held, young),
+    ]:
+        insert_distinct_id(cluster, distinct_id, owner, version=0, produced_at=old)
+        insert_distinct_id(cluster, distinct_id, owner, version=1, produced_at=tombstoned_at, is_deleted=True)
+    # A live mapping of a person old enough to delete goes with that person.
+    insert_distinct_id(cluster, "live_of_swept_person", swept, version=0, produced_at=young)
+
+    floor = clickhouse_cleanup.DEFAULT_MIN_TOMBSTONE_AGE_SECONDS
+    result = run_job(
+        cluster,
+        persons_database,
+        run_config={
+            "ops": {"clear_removed_cohort_data": {"config": {"dry_run": False, "min_tombstone_age_seconds": floor}}}
+        },
+    )
+
+    assert cluster.any_host(rows_for(swept)).result() == 0
+    assert cluster.any_host(rows_for(held)).result() == 1
+    assert cluster.any_host(rows_for(young_tombstone)).result() == 1
+    # A background merge may collapse two versions at any point, so only survival is stable.
+    assert cluster.any_host(rows_for(deleted_recently)).result() > 0
+    assert cluster.any_host(rows_for(deleted_again)).result() > 0
+    assert [str(row[1]) for row in queued_rows(persons_database)] == [swept]
+    assert result.output_for_node("publish_sweep_metrics").deferred_person_count == 1
+    assert cluster.any_host(surviving_distinct_ids).result() == {"young_tombstone", "young_tombstone_of_held_person"}
+
+
+def test_the_age_floor_rejects_a_negative_age():
+    # A negative minimum age puts the cutoff in the future, which deletes every tombstone however recent.
+    with pytest.raises(ValueError, match="greater than or equal to 0"):
+        clickhouse_cleanup.CleanupConfig(min_tombstone_age_seconds=-1)
+
+
 @pytest.mark.django_db
 def test_queues_the_deleted_persons_for_postgres(cluster: ClickhouseCluster, persons_database):
-    deleted = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
+    deleted = create_person(team_id=TEAM_ID, version=0)
+    create_person(uuid=deleted, team_id=TEAM_ID, version=3, is_deleted=True)
     create_person(team_id=TEAM_ID, version=0)
 
     result = run_job(cluster, persons_database)
@@ -287,15 +365,51 @@ def test_queues_the_deleted_persons_for_postgres(cluster: ClickhouseCluster, per
     assert result.output_for_node("publish_sweep_metrics").queued_for_postgres == 1
     rows = queued_rows(persons_database)
     assert len(rows) == 1
-    team_id, person_uuid, deleted_at, blocked_at = rows[0]
+    team_id, person_uuid, deleted_at, blocked_at, max_version = rows[0]
     assert (team_id, str(person_uuid)) == (TEAM_ID, deleted)
     assert deleted_at is not None
     assert blocked_at is None
+    # The highest version the run deleted from ClickHouse, which bounds the Postgres delete.
+    assert max_version == 3
 
     # A second run must not raise on the primary key: it re-queues persons the drain has not
     # reached yet.
     run_job(cluster, persons_database)
     assert len(queued_rows(persons_database)) == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("failing_op", ["delete_persons", "persist_deleted_persons"])
+def test_a_failed_person_delete_queues_nothing_for_postgres(
+    cluster: ClickhouseCluster, persons_database, failing_op: str
+):
+    # A person queued before a ClickHouse delete that then fails is drained from Postgres while
+    # ClickHouse still holds it.
+    doomed = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
+    real_runner = clickhouse_cleanup.LightweightDeleteMutationRunner
+
+    def fail_on_the_person_table(*args, **kwargs):
+        if kwargs["table"] == clickhouse_cleanup.PERSONS_TABLE:
+            raise RuntimeError("person delete failed")
+        return real_runner(*args, **kwargs)
+
+    def fail_the_queue_write(*args, **kwargs):
+        # allow_retries=False skips the op's retry policy, whose delays run on the wall clock.
+        raise dagster.Failure("queue write failed", allow_retries=False)
+
+    failure = (
+        patch.object(clickhouse_cleanup, "LightweightDeleteMutationRunner", fail_on_the_person_table)
+        if failing_op == "delete_persons"
+        else patch.object(clickhouse_cleanup, "_write_queue_page", fail_the_queue_write)
+    )
+    with failure, patch.object(clickhouse_cleanup, "_emit", wraps=clickhouse_cleanup._emit) as emit:
+        result = run_job(cluster, persons_database, raise_on_error=False)
+
+    assert not result.success
+    assert cluster.any_host(rows_for(doomed)).result() == (1 if failing_op == "delete_persons" else 0)
+    assert queued_rows(persons_database) == []
+    persist_failures = [call for call in emit.call_args_list if call.args[1] == "clickhouse_cleanup_persist_failed"]
+    assert len(persist_failures) == (1 if failing_op == "persist_deleted_persons" else 0)
 
 
 @pytest.mark.django_db
@@ -321,7 +435,7 @@ def test_resweeping_a_pending_person_refreshes_deleted_at_and_clears_blocked_at(
     # the row blocked forever and leak that person's Postgres rows for good.
     deleted = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
     run_job(cluster, persons_database)
-    [(_, _, first_deleted_at, _)] = queued_rows(persons_database)
+    [(_, _, first_deleted_at, _, _)] = queued_rows(persons_database)
 
     # Stand in for the drain having found the person blocked.
     with persons_database.cursor() as cursor:
@@ -337,6 +451,7 @@ def test_resweeping_a_pending_person_refreshes_deleted_at_and_clears_blocked_at(
     assert len(rows) == 1, "the row is keyed on (team_id, person_uuid), so this stays a single row"
     assert rows[0][2] > first_deleted_at, "deleted_at must move to the later sweep"
     assert rows[0][3] is None, "blocked_at must be cleared so the drain retries the person"
+    assert rows[0][4] == 10, "max_version must move to the later sweep, or the drain skips the newer tombstone"
 
 
 def _foreign_run_dictionary(cluster: ClickhouseCluster, run_id: str) -> clickhouse_cleanup.SnapshotDictionary:
@@ -477,7 +592,8 @@ def test_a_postgres_connect_failure_drops_the_dictionaries(cluster: ClickhouseCl
         # keep working, or the cohort op fails first and the wrong step trips the hook.
 
         if args and isinstance(args[0], str):
-            raise OperationalError("connection timed out")
+            # allow_retries=False skips the op's retry policy, whose delays run on the wall clock.
+            raise dagster.Failure("connection timed out", allow_retries=False)
 
         return real_connect(*args, **kwargs)
 
@@ -539,7 +655,7 @@ def test_a_same_run_retry_rewrites_no_rows(cluster: ClickhouseCluster, persons_d
     # upserts the same person twice. The op is invoked directly instead, as a retry would.
     create_person(team_id=TEAM_ID, version=0, is_deleted=True)
     run = clickhouse_cleanup.CleanupRun.for_run("persist_retry_run", clickhouse_cleanup.CleanupConfig(dry_run=False))
-    cluster.any_host(run.persons.populate).result()
+    cluster.any_host(partial(run.persons.populate, min_tombstone_age_seconds=0)).result()
     cluster.map_all_hosts(run.persons.sync_replica).result()
     run = replace(run, distinct_ids_deleted_at=datetime(2026, 1, 1, tzinfo=UTC), persons_count=1)
 
@@ -566,6 +682,33 @@ def test_a_same_run_retry_rewrites_no_rows(cluster: ClickhouseCluster, persons_d
     assert queue_row() == blocked
     assert blocked[2] is not None
 
+    # A row an older build queued without max_version gets one from a same-run retry; the drain
+    # never deletes a row without one.
+    with persons_database.cursor() as cursor:
+        cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET max_version = NULL")
+    persons_database.commit()
+    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_db_url(writer=True), run)
+    assert [row[4] for row in queued_rows(persons_database)] == [0]
+
+    # A later run queued the person with a newer bound; this older run's retry must not roll it back,
+    # or the drain skips the newer tombstone and no future sweep queues the person again.
+    with persons_database.cursor() as cursor:
+        cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET deleted_at = '2026-02-01T00:00:00Z', max_version = 7")
+    persons_database.commit()
+    newer = queue_row()
+    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_db_url(writer=True), run)
+    assert queue_row() == newer
+    assert [row[4] for row in queued_rows(persons_database)] == [7]
+
+    # A run re-executed from a later op keeps its old snapshot but gets a new deleted_at, so it can
+    # arrive after a newer run's row. It moves deleted_at forward and keeps the higher bound.
+    with persons_database.cursor() as cursor:
+        cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET deleted_at = '2025-12-01T00:00:00Z', max_version = 7")
+    persons_database.commit()
+    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_db_url(writer=True), run)
+    [(_, _, deleted_at, _, max_version)] = queued_rows(persons_database)
+    assert (deleted_at, max_version) == (datetime(2026, 1, 1, tzinfo=UTC), 7)
+
 
 @pytest.mark.django_db
 def test_excludes_a_person_revived_while_the_run_is_in_flight(cluster: ClickhouseCluster, persons_database):
@@ -576,11 +719,11 @@ def test_excludes_a_person_revived_while_the_run_is_in_flight(cluster: Clickhous
 
     original = OrphanedDistinctIdsTable.populate
 
-    def revive_then_populate(self, client, persons_dictionary, settings=None):
+    def revive_then_populate(self, client, persons_dictionary, **kwargs):
         # Fires after the snapshot is taken and the dictionary is loaded, so the checkpoint is
         # the only thing standing between the revived person and the delete.
         create_person(uuid=revived, team_id=TEAM_ID, version=10, is_deleted=False)
-        return original(self, client, persons_dictionary, settings=settings)
+        return original(self, client, persons_dictionary, **kwargs)
 
     with patch.object(OrphanedDistinctIdsTable, "populate", revive_then_populate):
         result = run_job(cluster, persons_database)
@@ -774,8 +917,8 @@ def test_keeps_a_distinct_id_recaptured_while_the_run_is_in_flight(cluster: Clic
 
     original = OrphanedDistinctIdsTable.populate
 
-    def recapture_then_populate(self, client, persons_dictionary, settings=None):
-        result = original(self, client, persons_dictionary, settings=settings)
+    def recapture_then_populate(self, client, persons_dictionary, **kwargs):
+        result = original(self, client, persons_dictionary, **kwargs)
         # A client captures the id again after the snapshot froze the reason it qualified. Trusting
         # that snapshot would delete every version of the mapping, including this live one.
         create_person_distinct_id(team_id=TEAM_ID, distinct_id="recaptured", person_id=live, version=200)
@@ -866,8 +1009,8 @@ def test_rows_written_after_the_snapshot_survive(cluster: ClickhouseCluster, per
 
     original = OrphanedDistinctIdsTable.populate
 
-    def write_after_snapshot(self, client, persons_dictionary, settings=None):
-        result = original(self, client, persons_dictionary, settings=settings)
+    def write_after_snapshot(self, client, persons_dictionary, **kwargs):
+        result = original(self, client, persons_dictionary, **kwargs)
         create_person_distinct_id(team_id=TEAM_ID, distinct_id="racing", person_id=deleted, version=500)
         return result
 
@@ -898,20 +1041,21 @@ def test_more_batches_than_teams_does_not_produce_empty_ranges():
 
 
 @pytest.mark.django_db
-def test_a_retried_snapshot_populate_cannot_skew_the_dictionary(cluster: ClickhouseCluster):
+def test_a_retried_snapshot_populate_cannot_skew_the_bounds(cluster: ClickhouseCluster, persons_database):
     # An op retry re-runs populate, leaving duplicate key rows until a merge collapses them. The
-    # dictionary must read the newest max_version bound, not whichever duplicate it happens upon.
+    # dictionary and the queue must read the newest max_version bound, not whichever duplicate
+    # they happen upon.
     person = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
-    table = clickhouse_cleanup.DeletedPersonsTable(run_id="retry_run")
-    cluster.any_host(table.populate).result()
+    run = clickhouse_cleanup.CleanupRun.for_run("retry_run", clickhouse_cleanup.CleanupConfig(dry_run=False))
+    table = run.persons
+    populate = partial(table.populate, min_tombstone_age_seconds=0)
+    cluster.any_host(populate).result()
     # The person gains a higher deleted version between the attempt and its retry.
     create_person(uuid=person, team_id=TEAM_ID, version=3, is_deleted=True)
-    cluster.any_host(table.populate).result()
+    cluster.any_host(populate).result()
     cluster.map_all_hosts(table.sync_replica).result()
 
-    dictionary = clickhouse_cleanup.SnapshotDictionary(
-        source=table, excluded=clickhouse_cleanup.RevivedPersonsTable(run_id="retry_run")
-    )
+    dictionary = clickhouse_cleanup.SnapshotDictionary(source=table, excluded=run.revived)
     try:
         cluster.map_all_hosts(partial(dictionary.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
         cluster.map_all_hosts(dictionary.load, concurrency=1).result()
@@ -919,6 +1063,12 @@ def test_a_retried_snapshot_populate_cannot_skew_the_dictionary(cluster: Clickho
             lambda client: client.execute(f"SELECT person_id, max_version FROM {dictionary.qualified_name}")
         ).result()
         assert rows == [(UUID(person), 3)]
+
+        run = replace(run, distinct_ids_deleted_at=datetime(2026, 1, 1, tzinfo=UTC), persons_count=1)
+        clickhouse_cleanup.persist_deleted_persons(
+            dagster.build_op_context(), cluster, persons_db_url(writer=True), run
+        )
+        assert [row[4] for row in queued_rows(persons_database)] == [3]
     finally:
         cluster.map_all_hosts(dictionary.drop).result()
         cluster.any_host(table.drop_run_partition).result()
@@ -1087,19 +1237,32 @@ def test_the_sweep_sensor_launches_a_real_run_after_deletes():
     assert request.run_key == "11111111-1111-1111-1111-111111111111"
 
 
-def test_the_job_carries_the_operational_tags():
+def test_the_job_carries_its_operational_settings():
     # The charts run-queue limit matches the concurrency tag, and the janitor's unconditional reap
     # depends on it. max_runtime is the only bound on total runtime.
     tags = clickhouse_deletion_sweep_job.tags
     assert tags["clickhouse_deletion_sweep_concurrency"] == "v1"
     assert int(tags["dagster/max_runtime"]) == 43200
+    # The persist follows the person delete, so a dropped connection without a retry leaves every
+    # person the run deleted in Postgres, where no later snapshot finds them.
+    persist_retries = clickhouse_cleanup.persist_deleted_persons.retry_policy
+    assert persist_retries is not None and persist_retries.max_retries >= 1
 
 
-def test_the_scheduled_config_pins_every_setting_the_sweep_reads():
+@pytest.mark.parametrize(
+    "op_name,config_class",
+    [
+        ("clear_removed_cohort_data", clickhouse_cleanup.CleanupConfig),
+        ("resolve_tombstone_queue", clickhouse_cleanup.TombstoneQueueConfig),
+    ],
+)
+def test_the_scheduled_config_pins_every_setting_the_sweep_reads(
+    op_name: str, config_class: type[dagster.Config]
+) -> None:
     # A field added to CleanupConfig without a scheduled value would run production on whatever
     # the code default happens to be, which is exactly what pinning this config prevents.
-    pinned = set(SCHEDULED_RUN_CONFIG["ops"]["clear_removed_cohort_data"]["config"])
-    declared = set(clickhouse_cleanup.CleanupConfig.model_fields)
+    pinned = set(SCHEDULED_RUN_CONFIG["ops"][op_name]["config"])
+    declared = set(config_class.model_fields)
     assert declared == pinned
 
 
@@ -1119,6 +1282,51 @@ def test_the_sweep_sensor_skips_while_a_sweep_is_already_active(status: dagster.
 
     result = clickhouse_cleanup.run_cleanup_sweep_after_deletes(_deletes_success_context(instance))
     assert isinstance(result, dagster.SkipReason)
+
+
+@pytest.mark.django_db
+def test_the_sweep_waits_for_an_executing_drain_before_it_touches_anything(
+    cluster: ClickhouseCluster, persons_database
+):
+    # The drain stops only before its next request, so a sweep that does not wait races a request in flight.
+    doomed = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
+    instance = dagster.DagsterInstance.ephemeral()
+    drain_run = instance.create_run_for_job(
+        job_def=person_pg_cleanup_drain_job, status=dagster.DagsterRunStatus.STARTED
+    )
+    real_sleep = time.sleep
+    seen_while_draining: list[tuple[int, list[tuple]]] = []
+
+    def stop_the_drain(seconds: float) -> None:
+        run = instance.get_run_by_id(drain_run.run_id)
+        if run is None or run.is_finished:
+            real_sleep(seconds)
+            return
+        seen_while_draining.append((cluster.any_host(rows_for(doomed)).result(), queued_rows(persons_database)))
+        instance.report_run_canceled(run)
+
+    # The patch replaces time.sleep for every caller in the process, so other callers keep the real one.
+    with patch("posthog.dags.clickhouse_cleanup.time.sleep", side_effect=stop_the_drain):
+        result = run_job(cluster, persons_database, instance=instance)
+
+    assert result.success
+    assert seen_while_draining == [(1, [])]
+    assert cluster.any_host(rows_for(doomed)).result() == 0
+
+
+def test_the_sweep_fails_when_the_drain_does_not_stop():
+    # An unbounded wait would hold the weekly sweep until its max_runtime kills it.
+    instance = dagster.DagsterInstance.ephemeral()
+    instance.create_run_for_job(job_def=person_pg_cleanup_drain_job, status=dagster.DagsterRunStatus.STARTED)
+    context = dagster.build_op_context(instance=instance)
+    clock = itertools.chain([0.0], itertools.repeat(float(clickhouse_cleanup.DRAIN_STOP_TIMEOUT_SECONDS)))
+
+    with (
+        patch("posthog.dags.clickhouse_cleanup.time.monotonic", side_effect=lambda: next(clock)),
+        patch("posthog.dags.clickhouse_cleanup.time.sleep"),
+        pytest.raises(dagster.Failure, match="did not stop"),
+    ):
+        clickhouse_cleanup.wait_for_drain_to_stop(context)
 
 
 def _sweep_run(dry_run: bool) -> clickhouse_cleanup.CleanupRun:
@@ -1158,6 +1366,7 @@ def test_publishes_every_measurement_the_run_took() -> None:
         _sweep_run(dry_run=False),
         persons_count=11,
         orphaned_count=22,
+        deferred_person_count=5,
         revived_person_count=3,
         revived_distinct_id_count=4,
         queued_for_postgres=7,
@@ -1171,6 +1380,7 @@ def test_publishes_every_measurement_the_run_took() -> None:
     prefix = "posthog_clickhouse_deletion_sweep_"
     assert registry.get_sample_value(f"{prefix}snapshot_deleted_persons") == 11
     assert registry.get_sample_value(f"{prefix}snapshot_orphaned_distinct_ids") == 22
+    assert registry.get_sample_value(f"{prefix}deferred_persons") == 5
     assert registry.get_sample_value(f"{prefix}revived_persons") == 3
     assert registry.get_sample_value(f"{prefix}revived_distinct_ids") == 4
     assert registry.get_sample_value(f"{prefix}queued_for_postgres") == 7
@@ -1180,3 +1390,69 @@ def test_publishes_every_measurement_the_run_took() -> None:
     # Wall clock, not the time.monotonic used elsewhere here: the alert subtracts it from time().
     assert last_success is not None
     assert abs(last_success - time.time()) < 60
+
+
+class _FakeQueueConnection:
+    def __init__(self) -> None:
+        self.rollbacks = 0
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+@pytest.mark.parametrize("pgcode", ["55P03", "40P01"])
+def test_a_queue_write_conflict_is_retried_rather_than_failing_the_sweep(pgcode, monkeypatch):
+    # A single lock conflict with the drain would otherwise fail the whole weekly sweep.
+    monkeypatch.setattr(clickhouse_cleanup.time, "sleep", lambda _: None)
+    attempts = []
+
+    def fake_execute_values(cursor, sql, rows, page_size):
+        attempts.append(list(rows))
+        if len(attempts) < 3:
+            raise type("_Conflict", (psycopg2.OperationalError,), {"pgcode": pgcode})()
+
+    monkeypatch.setattr(clickhouse_cleanup, "execute_values", fake_execute_values)
+    connection = _FakeQueueConnection()
+    retries = clickhouse_cleanup._write_queue_page(
+        connection,
+        object(),
+        [clickhouse_cleanup._QueuedPerson(team_id=1, person_id="uuid-a", max_version=0)],
+        datetime.now(UTC),
+    )
+
+    assert retries == 2
+    assert connection.rollbacks == 2, "an aborted transaction has to be rolled back before the replay"
+    assert attempts[0] == attempts[-1], "the replay writes the same page"
+
+
+def test_a_queue_write_error_that_is_not_a_conflict_still_fails_the_sweep(monkeypatch):
+    def fake_execute_values(cursor, sql, rows, page_size):
+        raise type("_ConnectionLost", (psycopg2.OperationalError,), {"pgcode": "08006"})()
+
+    monkeypatch.setattr(clickhouse_cleanup, "execute_values", fake_execute_values)
+    with pytest.raises(psycopg2.OperationalError):
+        clickhouse_cleanup._write_queue_page(
+            _FakeQueueConnection(),
+            object(),
+            [clickhouse_cleanup._QueuedPerson(team_id=1, person_id="uuid-a", max_version=0)],
+            datetime.now(UTC),
+        )
+
+
+def test_persistent_queue_conflicts_give_up_inside_the_retry_window(monkeypatch):
+    # An unbounded retry would hang the weekly sweep on a table it shares with the drain.
+    clock = itertools.count(0.0, 5.0)
+    monkeypatch.setattr(clickhouse_cleanup.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(clickhouse_cleanup.time, "sleep", lambda _: None)
+
+    def always_conflicts(cursor, sql, rows, page_size):
+        raise type("_Conflict", (psycopg2.OperationalError,), {"pgcode": "55P03"})()
+
+    monkeypatch.setattr(clickhouse_cleanup, "execute_values", always_conflicts)
+    with pytest.raises(psycopg2.OperationalError):
+        clickhouse_cleanup._write_queue_page(
+            _FakeQueueConnection(),
+            object(),
+            [clickhouse_cleanup._QueuedPerson(team_id=1, person_id="uuid-a", max_version=0)],
+            datetime.now(UTC),
+        )

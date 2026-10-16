@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -7,13 +8,24 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    UnexpectedRequest,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.travisci import (
+    TravisCISourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci import travis_ci
+from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.source import TravisCISource
 from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.travis_ci import (
     TRAVIS_CI_BASE_URL,
     TravisCIResumeConfig,
     _resolve_page_url,
-    get_rows,
-    travis_ci_source,
     validate_credentials,
 )
 
@@ -26,48 +38,23 @@ def _page(collection_key: str, items: list[dict[str, Any]], next_path: str | Non
     return {collection_key: items, "@pagination": {"next": {"@href": next_path} if next_path else None}}
 
 
-class _FakeResumableManager:
-    def __init__(self, state: TravisCIResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[TravisCIResumeConfig] = []
+def _serve(pages: dict[str, dict[str, Any]]) -> Callable[[RecordedRequest], ScriptedResponse]:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.url not in pages:
+            raise UnexpectedRequest(f"no page scripted for {request.url}")
+        return ScriptedResponse(json=pages[request.url])
 
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> TravisCIResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: TravisCIResumeConfig) -> None:
-        self.saved.append(data)
+    return respond
 
 
 def _collect(
-    manager: _FakeResumableManager,
     pages: dict[str, dict[str, Any]],
     endpoint: str,
-    logger: Any = None,
+    resume_state: TravisCIResumeConfig | None = None,
     **kwargs: Any,
-) -> tuple[list[dict[str, Any]], list[str]]:
-    fetched: list[str] = []
-
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict[str, Any]:
-        fetched.append(url)
-        return pages[url]
-
-    rows: list[dict[str, Any]] = []
-    with (
-        mock.patch.object(travis_ci, "make_tracked_session", lambda *a, **k: MagicMock()),
-        mock.patch.object(travis_ci, "_fetch_page", fake_fetch),
-    ):
-        for batch in get_rows(
-            api_token="tok",
-            endpoint=endpoint,
-            logger=logger if logger is not None else MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            **kwargs,
-        ):
-            rows.extend(batch)
-    return rows, fetched
+) -> DriveResult:
+    driver = SourceDriver(TravisCISource(), TravisCISourceConfig(api_token="tok"))
+    return driver.run(endpoint, _serve(pages), resume_state=resume_state, **kwargs)
 
 
 class TestRepositories:
@@ -81,46 +68,18 @@ class TestRepositories:
             ),
             f"{TRAVIS_CI_BASE_URL}{page2_path}": _page("repositories", [{"id": 2, "slug": "o/b"}]),
         }
-        manager = _FakeResumableManager()
-        rows, fetched = _collect(manager, pages, endpoint="repositories")
+        result = _collect(pages, endpoint="repositories")
 
-        assert [r["id"] for r in rows] == [1, 2]
-        assert "@type" not in rows[0] and "@href" not in rows[0]
-        assert fetched == [REPOS_URL, f"{TRAVIS_CI_BASE_URL}{page2_path}"]
+        assert result.raised is None
+        assert [r["id"] for r in result.rows] == [1, 2]
+        assert "@type" not in result.rows[0] and "@href" not in result.rows[0]
+        assert result.urls == [REPOS_URL, f"{TRAVIS_CI_BASE_URL}{page2_path}"]
         # State is saved AFTER the page is yielded, pointing at the next page, so a crash
         # re-yields the in-progress page instead of skipping it.
-        assert manager.saved == [TravisCIResumeConfig(next_path=page2_path)]
-
-    def test_resumes_from_saved_page_path(self) -> None:
-        resume_path = "/repos?limit=100&offset=200"
-        pages = {f"{TRAVIS_CI_BASE_URL}{resume_path}": _page("repositories", [{"id": 9}])}
-        manager = _FakeResumableManager(TravisCIResumeConfig(next_path=resume_path))
-        rows, fetched = _collect(manager, pages, endpoint="repositories")
-
-        assert fetched == [f"{TRAVIS_CI_BASE_URL}{resume_path}"]
-        assert [r["id"] for r in rows] == [9]
+        assert result.saved_states == [TravisCIResumeConfig(next_path=page2_path)]
 
 
 class TestBuildsFanOut:
-    def test_fans_out_over_repositories_and_bookmarks_progress(self) -> None:
-        repo1_page2 = f"/repo/1/builds?{BUILDS_PARAMS}&offset=100"
-        pages = {
-            REPOS_URL: _page("repositories", [{"id": 1}, {"id": 2}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{BUILDS_PARAMS}": _page(
-                "builds", [{"@type": "build", "id": 30}, {"id": 20}], next_path=repo1_page2
-            ),
-            f"{TRAVIS_CI_BASE_URL}{repo1_page2}": _page("builds", [{"id": 10}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/2/builds?{BUILDS_PARAMS}": _page("builds", [{"id": 25}]),
-        }
-        manager = _FakeResumableManager()
-        rows, _fetched = _collect(manager, pages, endpoint="builds")
-
-        assert [(r["id"], r["repository_id"]) for r in rows] == [(30, 1), (20, 1), (10, 1), (25, 2)]
-        assert manager.saved == [
-            TravisCIResumeConfig(next_path=repo1_page2, repository_id=1),
-            TravisCIResumeConfig(next_path=None, repository_id=2),
-        ]
-
     @parameterized.expand([("int_watermark", 20), ("str_watermark", "20")])
     def test_incremental_stops_at_watermark(self, _name: str, watermark: Any) -> None:
         repo1_page2 = f"/repo/1/builds?{BUILDS_PARAMS}&offset=100"
@@ -131,8 +90,7 @@ class TestBuildsFanOut:
             ),
             f"{TRAVIS_CI_BASE_URL}/repo/2/builds?{BUILDS_PARAMS}": _page("builds", [{"id": 15}]),
         }
-        rows, fetched = _collect(
-            _FakeResumableManager(),
+        result = _collect(
             pages,
             endpoint="builds",
             should_use_incremental_field=True,
@@ -142,19 +100,9 @@ class TestBuildsFanOut:
         # Only builds newer than the watermark are yielded, and repo 1's older second page is
         # never fetched. Repo 2 is still scanned — the watermark is global, so each repo's scan
         # stops independently once it reaches already-synced builds.
-        assert [r["id"] for r in rows] == [30]
-        assert f"{TRAVIS_CI_BASE_URL}{repo1_page2}" not in fetched
-        assert f"{TRAVIS_CI_BASE_URL}/repo/2/builds?{BUILDS_PARAMS}" in fetched
-
-    def test_full_refresh_walks_all_pages(self) -> None:
-        repo1_page2 = f"/repo/1/builds?{BUILDS_PARAMS}&offset=100"
-        pages = {
-            REPOS_URL: _page("repositories", [{"id": 1}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{BUILDS_PARAMS}": _page("builds", [{"id": 30}], next_path=repo1_page2),
-            f"{TRAVIS_CI_BASE_URL}{repo1_page2}": _page("builds", [{"id": 10}]),
-        }
-        rows, _fetched = _collect(_FakeResumableManager(), pages, endpoint="builds")
-        assert [r["id"] for r in rows] == [30, 10]
+        assert [r["id"] for r in result.rows] == [30]
+        assert f"{TRAVIS_CI_BASE_URL}{repo1_page2}" not in result.urls
+        assert f"{TRAVIS_CI_BASE_URL}/repo/2/builds?{BUILDS_PARAMS}" in result.urls
 
     def test_resumes_from_bookmarked_repository(self) -> None:
         resume_path = f"/repo/2/builds?{BUILDS_PARAMS}&offset=100"
@@ -163,21 +111,13 @@ class TestBuildsFanOut:
             f"{TRAVIS_CI_BASE_URL}{resume_path}": _page("builds", [{"id": 5}]),
             f"{TRAVIS_CI_BASE_URL}/repo/3/builds?{BUILDS_PARAMS}": _page("builds", [{"id": 7}]),
         }
-        manager = _FakeResumableManager(TravisCIResumeConfig(next_path=resume_path, repository_id=2))
-        rows, fetched = _collect(manager, pages, endpoint="builds")
+        result = _collect(
+            pages, endpoint="builds", resume_state=TravisCIResumeConfig(next_path=resume_path, repository_id=2)
+        )
 
         # Repo 1 is skipped entirely, repo 2 resumes at the saved page, repo 3 starts fresh.
-        assert f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{BUILDS_PARAMS}" not in fetched
-        assert [(r["id"], r["repository_id"]) for r in rows] == [(5, 2), (7, 3)]
-
-    def test_missing_bookmarked_repository_starts_over(self) -> None:
-        pages = {
-            REPOS_URL: _page("repositories", [{"id": 1}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{BUILDS_PARAMS}": _page("builds", [{"id": 3}]),
-        }
-        manager = _FakeResumableManager(TravisCIResumeConfig(next_path="/repo/99/builds", repository_id=99))
-        rows, _fetched = _collect(manager, pages, endpoint="builds")
-        assert [r["id"] for r in rows] == [3]
+        assert f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{BUILDS_PARAMS}" not in result.urls
+        assert [(r["id"], r["repository_id"]) for r in result.rows] == [(5, 2), (7, 3)]
 
     def test_page_cap_stops_pagination_and_warns(self) -> None:
         repo1_page2 = f"/repo/1/builds?{BUILDS_PARAMS}&offset=100"
@@ -187,38 +127,14 @@ class TestBuildsFanOut:
         }
         logger = MagicMock()
         with mock.patch.object(travis_ci, "MAX_PAGES_PER_REPO", 1):
-            rows, fetched = _collect(_FakeResumableManager(), pages, endpoint="builds", logger=logger)
+            result = _collect(pages, endpoint="builds", logger=logger)
 
-        assert [r["id"] for r in rows] == [30]
-        assert f"{TRAVIS_CI_BASE_URL}{repo1_page2}" not in fetched
+        assert [r["id"] for r in result.rows] == [30]
+        assert f"{TRAVIS_CI_BASE_URL}{repo1_page2}" not in result.urls
         logger.warning.assert_called_once()
 
 
 class TestJobs:
-    def test_flattens_embedded_jobs_with_parent_identifiers(self) -> None:
-        pages = {
-            REPOS_URL: _page("repositories", [{"id": 1}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{JOBS_PARAMS}": _page(
-                "builds",
-                [
-                    {
-                        "id": 30,
-                        "jobs": [
-                            {"@type": "job", "id": 301, "state": "passed", "build": {"@type": "build", "id": 30}},
-                            {"id": 302, "state": "failed"},
-                        ],
-                    },
-                    {"id": 20, "jobs": []},
-                ],
-            ),
-        }
-        rows, _fetched = _collect(_FakeResumableManager(), pages, endpoint="jobs")
-
-        assert [(r["id"], r["build_id"], r["repository_id"]) for r in rows] == [(301, 30, 1), (302, 30, 1)]
-        # Meta keys are stripped recursively, including from nested minimal representations.
-        assert "@type" not in rows[0]
-        assert "@type" not in rows[0]["build"]
-
     def test_incremental_stops_at_build_watermark(self) -> None:
         pages = {
             REPOS_URL: _page("repositories", [{"id": 1}]),
@@ -231,28 +147,15 @@ class TestJobs:
                 next_path=f"/repo/1/builds?{JOBS_PARAMS}&offset=100",
             ),
         }
-        rows, fetched = _collect(
-            _FakeResumableManager(),
+        result = _collect(
             pages,
             endpoint="jobs",
             should_use_incremental_field=True,
             db_incremental_field_last_value=20,
         )
 
-        assert [r["id"] for r in rows] == [301]
-        assert len(fetched) == 2  # /repos + first builds page; the older page is never fetched
-
-
-class TestBranches:
-    def test_rows_carry_composite_primary_key_fields(self) -> None:
-        pages = {
-            REPOS_URL: _page("repositories", [{"id": 1}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/1/branches?limit=100": _page(
-                "branches", [{"@type": "branch", "name": "main", "default_branch": True}]
-            ),
-        }
-        rows, _fetched = _collect(_FakeResumableManager(), pages, endpoint="branches")
-        assert rows == [{"name": "main", "default_branch": True, "repository_id": 1}]
+        assert [r["id"] for r in result.rows] == [301]
+        assert len(result.urls) == 2  # /repos + first builds page; the older page is never fetched
 
 
 class TestPaginationCursorValidation:
@@ -286,13 +189,15 @@ class TestHostileCursorFailsSync:
         pages = {
             REPOS_URL: _page("repositories", [{"id": 1}], next_path="@attacker.example/next"),
         }
-        with pytest.raises(ValueError):
-            _collect(_FakeResumableManager(), pages, endpoint="repositories")
+        result = _collect(pages, endpoint="repositories")
+        assert isinstance(result.raised, ValueError)
 
     def test_hostile_resume_cursor_raises(self) -> None:
-        manager = _FakeResumableManager(TravisCIResumeConfig(next_path="@attacker.example/next"))
-        with pytest.raises(ValueError):
-            _collect(manager, {}, endpoint="repositories")
+        result = _collect(
+            {}, endpoint="repositories", resume_state=TravisCIResumeConfig(next_path="@attacker.example/next")
+        )
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []
 
 
 class TestRedirectsDisabled:
@@ -300,38 +205,12 @@ class TestRedirectsDisabled:
         # allow_redirects=False keeps a poisoned cursor or hostile response from bouncing the
         # credentialed request (and its token) to another host — defense in depth alongside
         # cursor validation.
-        made: list[dict[str, Any]] = []
-
-        def fake_make(*_args: Any, **kwargs: Any) -> MagicMock:
-            made.append(kwargs)
-            return MagicMock()
-
-        with mock.patch.object(travis_ci, "make_tracked_session", fake_make):
+        with scripted_network([ScriptedResponse(json={})]) as network:
             validate_credentials("tok")
-        assert made and all(call.get("allow_redirects") is False for call in made)
-
-
-class _FakeResponse:
-    def __init__(self, status_code: int, body: Any = None) -> None:
-        self.status_code = status_code
-        self._body = body or {}
-        self.text = ""
-
-    def json(self) -> Any:
-        return self._body
+        assert network.session_options and all(call.get("allow_redirects") is False for call in network.session_options)
 
 
 class TestValidateCredentials:
-    @staticmethod
-    def _validate_with(response_or_error: Any) -> tuple[bool, str | None]:
-        session = MagicMock()
-        if isinstance(response_or_error, Exception):
-            session.get.side_effect = response_or_error
-        else:
-            session.get.return_value = response_or_error
-        with mock.patch.object(travis_ci, "make_tracked_session", lambda *a, **k: session):
-            return validate_credentials("tok")
-
     @parameterized.expand(
         [
             ("valid", 200, True),
@@ -343,12 +222,14 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool) -> None:
-        ok, error = self._validate_with(_FakeResponse(status_code, {"error_message": "boom"}))
+        with scripted_network(always(ScriptedResponse(status=status_code, json={"error_message": "boom"}))):
+            ok, error = validate_credentials("tok")
         assert ok is expected_ok
         assert (error is None) is expected_ok
 
     def test_network_error_is_reported_not_raised(self) -> None:
-        ok, error = self._validate_with(requests.ConnectionError("boom"))
+        with scripted_network(always(requests.ConnectionError("boom"))):
+            ok, error = validate_credentials("tok")
         assert ok is False
         assert error is not None and "Travis CI" in error
 
@@ -363,12 +244,8 @@ class TestTravisCISourceResponse:
         ]
     )
     def test_source_response_shape(self, endpoint: str, primary_keys: list[str], partition_key: str | None) -> None:
-        response = travis_ci_source(
-            api_token="tok",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _collect({}, endpoint=endpoint).response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == "desc"

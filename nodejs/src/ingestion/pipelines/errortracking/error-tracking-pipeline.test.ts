@@ -6,6 +6,7 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { TophogOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { COOKIELESS_SENTINEL_VALUE } from '~/common/persons/person-utils'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager, RestrictionType } from '~/common/utils/event-ingestion-restrictions'
@@ -13,7 +14,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
-import { COOKIELESS_SENTINEL_VALUE, CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
@@ -241,6 +242,7 @@ describe('ErrorTrackingPipeline', () => {
 
         mockTeamManager = {
             getTeamByToken: jest.fn().mockResolvedValue(team),
+            getTeamsByTokens: jest.fn().mockResolvedValue({}),
             getTeam: jest.fn().mockResolvedValue(team),
         } as unknown as jest.Mocked<TeamManager>
 
@@ -251,6 +253,7 @@ describe('ErrorTrackingPipeline', () => {
             fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
             createPerson: jest.fn(),
             updatePerson: jest.fn(),
+            handleOversizedPersonProperties: jest.fn(),
             updatePersonAssertVersion: jest.fn(),
             updatePersonsBatch: jest.fn(),
             deletePerson: jest.fn(),
@@ -266,6 +269,7 @@ describe('ErrorTrackingPipeline', () => {
                 .fn()
                 .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
             processInvocationResults: jest.fn().mockResolvedValue(undefined),
+            prefetchHogFunctionsForTeams: jest.fn().mockResolvedValue(undefined),
         }
 
         mockCymbalClient = {
@@ -323,6 +327,8 @@ describe('ErrorTrackingPipeline', () => {
             }),
             promiseScheduler,
             teamManager: mockTeamManager,
+            teamsPrefetchEnabled: true,
+            hogFunctionsPrefetchEnabled: true,
             personRepository: mockPersonRepository,
             hogTransformer: mockHogTransformer,
             cymbalClient: mockCymbalClient,
@@ -670,12 +676,11 @@ describe('ErrorTrackingPipeline', () => {
 
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
 
-            // Cymbal errors are retried 10 times (pipeline default), then propagate
-            // so Kafka doesn't commit and retries the batch
+            // Cymbal errors propagate once the retries are exhausted, so Kafka
+            // doesn't commit and retries the batch
             await expect(runErrorTrackingPipeline(pipeline, [message])).rejects.toThrow('Cymbal unavailable')
 
-            // Cymbal was called 3 times (initial + 2 retries) before giving up
-            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(3)
+            expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(5)
             expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
         })
 

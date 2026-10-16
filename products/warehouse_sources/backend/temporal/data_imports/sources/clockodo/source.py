@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -44,6 +45,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ClockodoSource(ResumableSource[ClockodoSourceConfig, ClockodoResumeConfig]):
+    codebase_detection = detect(env=("^CLOCKODO_",), npm=("clockodo",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = CLOCKODO_SUPPORTED_VERSIONS
     default_version = CLOCKODO_DEFAULT_API_VERSION

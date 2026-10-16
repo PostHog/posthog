@@ -376,4 +376,20 @@ describe('tasksLogic', () => {
             historyLogic.unmount()
         })
     })
+
+    describe('renameTask', () => {
+        // The loader next to this one archives by filtering the task out of the list. Renaming
+        // through the same shape would drop the row instead of relabelling it.
+        it('keeps the task in the list under its new title', async () => {
+            const renamed = { ...createMockTask('task-1'), title: 'Investigate slow dashboard load' }
+            useMocks({ patch: { '/api/projects/:team_id/tasks/:id/': () => [200, renamed] } })
+            logic.actions.loadTasksSuccess([createMockTask('task-1'), createMockTask('task-2')])
+
+            logic.actions.renameTask({ taskId: 'task-1', title: 'Investigate slow dashboard load' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tasks.map((t) => t.id)).toEqual(['task-1', 'task-2'])
+            expect(logic.values.tasks[0].title).toBe('Investigate slow dashboard load')
+        })
+    })
 })

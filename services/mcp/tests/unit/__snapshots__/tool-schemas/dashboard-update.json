@@ -123,6 +123,24 @@
             "enum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "type": "string"
         },
+        "group_titles": {
+            "anyOf": [
+                {
+                    "additionalProperties": {
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+        },
         "id": {
             "description": "A unique integer value identifying this dashboard.",
             "type": "number"
@@ -165,17 +183,10 @@
             "description": "List of quick filter IDs associated with this dashboard."
         },
         "restriction_level": {
-            "anyOf": [
-                {
-                    "const": 21,
-                    "type": "number"
-                },
-                {
-                    "const": 37,
-                    "type": "number"
-                }
-            ],
-            "description": "Who can edit this dashboard.\n\n* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit"
+            "description": "Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.",
+            "maximum": 21,
+            "minimum": 21,
+            "type": "number"
         },
         "tags": {
             "items": {
@@ -187,6 +198,31 @@
             "description": "Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches.",
             "items": {
                 "properties": {
+                    "badge": {
+                        "anyOf": [
+                            {
+                                "description": "* `winner` - Winner\n* `cheeky-hog` - Cheeky hog",
+                                "enum": ["winner", "cheeky-hog"],
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. More than one tile in a group can have the winner badge.\n\n* `winner` - Winner\n* `cheeky-hog` - Cheeky hog"
+                    },
+                    "group_key": {
+                        "anyOf": [
+                            {
+                                "maxLength": 100,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group."
+                    },
                     "id": {
                         "description": "Dashboard tile ID to update.",
                         "type": "number"
@@ -256,11 +292,44 @@
                         "required": ["sm"],
                         "type": "object"
                     },
+                    "show_description": {
+                        "description": "Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard.",
+                        "type": "boolean"
+                    },
                     "widget": {
                         "description": "Nested widget row updates.",
                         "properties": {
                             "config": {
                                 "anyOf": [
+                                    {
+                                        "properties": {
+                                            "notebookShortId": {
+                                                "anyOf": [
+                                                    {
+                                                        "maxLength": 128,
+                                                        "minLength": 1,
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Source notebook short ID."
+                                            },
+                                            "snapshotId": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Immutable notebook widget snapshot. Add one from a notebook widget's menu."
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
                                     {
                                         "properties": {
                                             "dateRange": {
@@ -1224,6 +1293,22 @@
                                             }
                                         },
                                         "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "canvasId": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Canvas to render in the tile. Null until the user picks one in the widget settings."
+                                            }
+                                        },
+                                        "type": "object"
                                     }
                                 ],
                                 "description": "Widget-specific configuration. Shape depends on the tile's widget_type."
@@ -1249,14 +1334,16 @@
                                 "description": "Optional custom display name for the widget tile."
                             },
                             "widget_type": {
-                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `conversations_recent_tickets` - conversations_recent_tickets\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
+                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `canvas_app` - canvas_app\n* `conversations_recent_tickets` - conversations_recent_tickets\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `notebook_widget` - notebook_widget\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
                                 "enum": [
                                     "activity_events_list",
+                                    "canvas_app",
                                     "conversations_recent_tickets",
                                     "error_tracking_list",
                                     "experiment_results",
                                     "experiments_list",
                                     "logs_list",
+                                    "notebook_widget",
                                     "session_replay_list",
                                     "survey_results"
                                 ],

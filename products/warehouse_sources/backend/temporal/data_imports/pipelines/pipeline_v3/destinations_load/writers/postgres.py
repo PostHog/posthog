@@ -26,10 +26,14 @@ outcome it could not confirm.
 from __future__ import annotations
 
 import io
+import re
 import csv
 import json
+import socket
+import asyncio
+import ipaddress
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any, ClassVar
 
 import psycopg
@@ -37,18 +41,24 @@ import pyarrow as pa
 from psycopg import sql
 
 from posthog.models.integration import Integration, PostgreSQLIntegration
+from posthog.psycopg_helpers import has_ipv6_route, is_resolvable_hostname, is_temporary_resolution_failure
 
-from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
+from products.batch_exports.backend.facade.destinations.postgres import (
     Fields,
     PostgreSQLClient,
+    PostgreSQLConnectionError,
     PostgreSQLIntegrationNotFoundError,
     run_in_retryable_transaction,
 )
-from products.batch_exports.backend.temporal.pipeline.transformer import CSVStreamTransformer
+from products.batch_exports.backend.facade.pipeline import CSVStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    MISSING_INTEGRATION_DETAIL,
+    DestinationConfigurationError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.merge_dedup import (
     dedupe_merge_source,
@@ -73,6 +83,110 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 
 class UnrelatedTableExistsError(RuntimeError):
     """A sync would have replaced or mutated a table this writer never created."""
+
+
+HOST_RESOLUTION_TIMEOUT_SECONDS = 10
+
+IPV6_ONLY_HOST_DETAIL = (
+    "The host has only IPv6 addresses, and PostHog connects to destinations over IPv4. "
+    "Use a host name or address that has an IPv4 address, then run the sync again."
+)
+HOST_NOT_FOUND_DETAIL = "The host name does not exist. Check the host on the destination, then run the sync again."
+NETWORK_UNREACHABLE_DETAIL = (
+    "PostHog cannot reach the host's network. Check that the host is reachable from the internet over IPv4, "
+    "then run the sync again."
+)
+AUTHENTICATION_FAILED_DETAIL = (
+    "The database refused the user name or password. Update the credentials on the destination, "
+    "then run the sync again."
+)
+ACCESS_RULE_DETAIL = (
+    "The database does not allow connections from PostHog. Allow PostHog's IP addresses in the database's "
+    "access rules, then run the sync again."
+)
+UNKNOWN_DATABASE_DETAIL = (
+    "The database does not exist on this server. Check the database name on the destination, then run the sync again."
+)
+
+# Connection failures carry no SQLSTATE: libpq reports them as text only, so these match the
+# text. Each one fails the same way on every attempt. A server that sends its messages in another
+# language matches none of them, which falls back to the retries, the safe side.
+_CONNECT_CONFIGURATION_ERRORS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"Network is unreachable"), NETWORK_UNREACHABLE_DETAIL),
+    (re.compile(r"password authentication failed for user"), AUTHENTICATION_FAILED_DETAIL),
+    (re.compile(r'role ".*" does not exist'), AUTHENTICATION_FAILED_DETAIL),
+    (re.compile(r"no pg_hba\.conf entry for host"), ACCESS_RULE_DETAIL),
+    (re.compile(r'database ".*" does not exist'), UNKNOWN_DATABASE_DETAIL),
+)
+
+# psycopg tries each address of a host in turn and, when all fail, puts the last attempt's error
+# first and then this line before the list of every attempt. Only the last attempt decides: an
+# IPv6 address that is unreachable before an IPv4 one that timed out is still a timeout.
+_MULTIPLE_ATTEMPTS_LINE = "Multiple connection attempts failed"
+
+
+def connect_configuration_error_detail(err: BaseException) -> str | None:
+    """What the customer must fix when `err` stops every connection attempt, or None to retry."""
+    if isinstance(err, psycopg.errors.ConnectionTimeout):
+        return None
+    if isinstance(err, psycopg.errors.InvalidPassword | psycopg.errors.InvalidAuthorizationSpecification):
+        return AUTHENTICATION_FAILED_DETAIL
+    if isinstance(err, psycopg.errors.InvalidCatalogName):
+        return UNKNOWN_DATABASE_DETAIL
+    if not isinstance(err, psycopg.OperationalError):
+        return None
+
+    last_attempt = str(err).split(_MULTIPLE_ATTEMPTS_LINE, 1)[0]
+    for pattern, detail in _CONNECT_CONFIGURATION_ERRORS:
+        if pattern.search(last_attempt):
+            return detail
+    return None
+
+
+def _is_connect_error_retryable(err: Exception) -> bool:
+    return connect_configuration_error_detail(err) is None
+
+
+def _is_ipv6(address: str) -> bool:
+    try:
+        return ipaddress.ip_address(address.strip("[]")).version == 6
+    except ValueError:
+        return False
+
+
+async def _resolve(host: str, port: int) -> list[str]:
+    loop = asyncio.get_running_loop()
+    infos = await asyncio.wait_for(
+        loop.getaddrinfo(host, port, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP),
+        timeout=HOST_RESOLUTION_TIMEOUT_SECONDS,
+    )
+    return [str(info[4][0]) for info in infos]
+
+
+async def host_configuration_error_detail(host: str, port: int) -> str | None:
+    """What the customer must fix when `host` cannot work from here, or None to go on and connect.
+
+    A lookup that fails on our side (a timeout, an unreachable resolver) returns None, and
+    the connect retries handle it. Only an answer about the name itself is the customer's.
+    """
+    if not host or host.startswith("/"):
+        return None
+
+    if is_resolvable_hostname(host):
+        try:
+            addresses = await _resolve(host, port)
+        except TimeoutError:
+            return None
+        except socket.gaierror as err:
+            return None if is_temporary_resolution_failure(err) else HOST_NOT_FOUND_DETAIL
+        if not addresses:
+            return HOST_NOT_FOUND_DETAIL
+    else:
+        addresses = [host]
+
+    if all(_is_ipv6(address) for address in addresses) and not has_ipv6_route():
+        return IPV6_ONLY_HOST_DETAIL
+    return None
 
 
 # Postgres truncates identifiers past this, dropping the end — which is where our suffixes go.
@@ -165,21 +279,39 @@ class PostgresDestinationWriter:
 
     async def _make_client(self) -> PostgreSQLClient:
         if self._ctx.integration_id is None:
-            raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
 
-        integration = await self._load_integration(self._ctx.integration_id)
+        try:
+            integration = await self._load_integration(self._ctx.integration_id)
+        except PostgreSQLIntegrationNotFoundError as err:
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL) from err
         return self._client_from_integration(integration)
 
     @asynccontextmanager
     async def _client(self) -> AsyncIterator[PostgreSQLClient]:
         client = await self._make_client()
+
+        # The pre-check resolves the host only to classify it; `connect()` resolves it again.
+        host_detail = await host_configuration_error_detail(client.host, client.port)
+        if host_detail is not None:
+            raise DestinationConfigurationError(self._ctx.destination_name, host_detail)
+
         # `connect()` resolves and dials the integration's hostname with no connection-time
         # address validation or pinning, same as batch exports' own Postgres destination on
         # this same client. An editor-controlled hostname could DNS-rebind to a private address
         # between resolution and connect; closing that needs pinning inside `PostgreSQLClient`
         # itself (posthog#86986 review discussion), which this product can't reach into, so
         # every caller of this shared client is fixed together rather than patched here alone.
-        async with client.connect():
+        async with AsyncExitStack() as stack:
+            # Entered apart from the body, so only a failure to connect is classified here, never
+            # an error the caller raises while it holds the connection.
+            try:
+                await stack.enter_async_context(client.connect(is_error_retryable=_is_connect_error_retryable))
+            except PostgreSQLConnectionError as err:
+                detail = connect_configuration_error_detail(err.__cause__) if err.__cause__ else None
+                if detail is not None:
+                    raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
+                raise
             yield client
 
     @asynccontextmanager

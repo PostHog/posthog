@@ -53,6 +53,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         out: dict[str, Any] = {
             "id": text_id,
             "body": body,
+            "agent_context": None,
             "created_by": self._serialised_user(created_by),
             "last_modified_at": last_modified_at,
             "last_modified_by": self._serialised_user(last_modified_by),
@@ -83,6 +84,8 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "layouts": {},
             "order": 0,
             "color": color,
+            "group_key": None,
+            "badge": None,
             "filters_overrides": {},
             "text": self._expected_text(
                 body,

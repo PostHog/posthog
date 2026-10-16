@@ -5,9 +5,13 @@ import {
   DEFAULT_CHANNEL_ITEM_FILTERS,
   DEFAULT_CHANNEL_ITEM_GROUPING,
   DEFAULT_CHANNEL_ITEM_SORT,
+  FIRST_PARTY_CLIENT_SOURCES,
+  migrateLegacySources,
+  migrateSourceFilter,
 } from "@posthog/core/canvas/channelItems";
 import { ALL_WORKSPACE_MODES } from "@posthog/core/sidebar/buildSidebarData";
 import type { WorkspaceMode } from "@posthog/shared";
+import type { PreferredWorkSectionHeights } from "@posthog/ui/features/canvas/workSectionLayout";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { SIDEBAR_MIN_WIDTH } from "./constants";
@@ -33,8 +37,12 @@ interface SidebarStoreState {
   // The space session list's narrowing. Held here rather than in the list so a
   // space switch, which remounts the list, keeps what the user chose.
   channelItemFilters: ChannelItemFilters;
+  // Every source the user has selected, so the filter menu keeps offering a
+  // source after it is unchecked, even when no loaded task comes from it.
+  pickedChannelItemSources: string[];
   channelItemSort: ChannelItemSort;
   channelItemGrouping: ChannelItemGrouping;
+  workSectionHeights: PreferredWorkSectionHeights;
   // Reveals the Channels feature in the unified sidebar (channel tree replaces
   // the task list, Canvas nav item appears). Off by default — Code merged into
   // the Bluebird chrome ships with channels hidden until the user opts in.
@@ -62,10 +70,22 @@ interface SidebarStoreActions {
   setChannelItemFilters: (filters: ChannelItemFilters) => void;
   setChannelItemSort: (sort: ChannelItemSort) => void;
   setChannelItemGrouping: (grouping: ChannelItemGrouping) => void;
+  setWorkSectionHeights: (heights: PreferredWorkSectionHeights) => void;
   setChannelsEnabled: (channelsEnabled: boolean) => void;
 }
 
 type SidebarStore = SidebarStoreState & SidebarStoreActions;
+type PersistedSidebarStoreState = Omit<
+  SidebarStoreState,
+  "isResizing" | "collapsedSections"
+> & {
+  collapsedSections: string[];
+};
+
+export const DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS: ChannelItemFilters = {
+  ...DEFAULT_CHANNEL_ITEM_FILTERS,
+  sources: FIRST_PARTY_CLIENT_SOURCES,
+};
 
 export const useSidebarStore = create<SidebarStore>()(
   persist(
@@ -83,9 +103,11 @@ export const useSidebarStore = create<SidebarStore>()(
       showAllUsers: false,
       showInternal: false,
       taskTypeFilter: [...ALL_WORKSPACE_MODES],
-      channelItemFilters: DEFAULT_CHANNEL_ITEM_FILTERS,
+      channelItemFilters: DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+      pickedChannelItemSources: [],
       channelItemSort: DEFAULT_CHANNEL_ITEM_SORT,
       channelItemGrouping: DEFAULT_CHANNEL_ITEM_GROUPING,
+      workSectionHeights: {},
       channelsEnabled: false,
       setOpen: (open) => set({ open, hasUserSetOpen: true }),
       setOpenAuto: (open) =>
@@ -147,13 +169,50 @@ export const useSidebarStore = create<SidebarStore>()(
         })),
       setChannelsEnabled: (channelsEnabled) => set({ channelsEnabled }),
       setChannelItemFilters: (channelItemFilters) =>
-        set({ channelItemFilters }),
+        set((state) => ({
+          channelItemFilters,
+          pickedChannelItemSources: Array.from(
+            new Set([
+              ...state.pickedChannelItemSources,
+              ...state.channelItemFilters.sources,
+              ...channelItemFilters.sources,
+            ]),
+          ),
+        })),
       setChannelItemSort: (channelItemSort) => set({ channelItemSort }),
       setChannelItemGrouping: (channelItemGrouping) =>
         set({ channelItemGrouping }),
+      setWorkSectionHeights: (workSectionHeights) =>
+        set({ workSectionHeights }),
     }),
     {
       name: "sidebar-storage",
+      version: 3,
+      migrate: (persisted, version) => {
+        const state = persisted as Omit<
+          Partial<PersistedSidebarStoreState>,
+          "channelItemFilters"
+        > & {
+          channelItemFilters?: Partial<ChannelItemFilters> & {
+            source?: unknown;
+          };
+        };
+        const saved = state.channelItemFilters;
+        if (version >= 3 || !saved) {
+          return state as unknown as PersistedSidebarStoreState;
+        }
+        const filters = version < 2 ? migrateSourceFilter(saved) : saved;
+        const sources = filters.sources
+          ? migrateLegacySources(filters.sources)
+          : filters.sources;
+        return {
+          ...state,
+          channelItemFilters:
+            version === 0 && !sources?.length
+              ? { ...filters, sources: FIRST_PARTY_CLIENT_SOURCES }
+              : { ...filters, sources },
+        } as unknown as PersistedSidebarStoreState;
+      },
       partialize: (state) => ({
         open: state.open,
         hasUserSetOpen: state.hasUserSetOpen,
@@ -168,8 +227,10 @@ export const useSidebarStore = create<SidebarStore>()(
         showInternal: state.showInternal,
         taskTypeFilter: state.taskTypeFilter,
         channelItemFilters: state.channelItemFilters,
+        pickedChannelItemSources: state.pickedChannelItemSources,
         channelItemSort: state.channelItemSort,
         channelItemGrouping: state.channelItemGrouping,
+        workSectionHeights: state.workSectionHeights,
         channelsEnabled: state.channelsEnabled,
       }),
       merge: (persisted, current) => {
@@ -187,8 +248,10 @@ export const useSidebarStore = create<SidebarStore>()(
           showInternal?: boolean;
           taskTypeFilter?: WorkspaceMode[];
           channelItemFilters?: Partial<ChannelItemFilters>;
+          pickedChannelItemSources?: string[];
           channelItemSort?: ChannelItemSort;
           channelItemGrouping?: ChannelItemGrouping;
+          workSectionHeights?: PreferredWorkSectionHeights;
           channelsEnabled?: boolean;
         };
         return {
@@ -219,10 +282,15 @@ export const useSidebarStore = create<SidebarStore>()(
             ...current.channelItemFilters,
             ...persistedState.channelItemFilters,
           },
+          pickedChannelItemSources:
+            persistedState.pickedChannelItemSources ??
+            current.pickedChannelItemSources,
           channelItemSort:
             persistedState.channelItemSort ?? current.channelItemSort,
           channelItemGrouping:
             persistedState.channelItemGrouping ?? current.channelItemGrouping,
+          workSectionHeights:
+            persistedState.workSectionHeights ?? current.workSectionHeights,
           channelsEnabled:
             persistedState.channelsEnabled ?? current.channelsEnabled,
         };
