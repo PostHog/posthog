@@ -36,6 +36,43 @@ describe('reply object rendering', () => {
         fireEvent.press(screen.getByText('Count'))
         expect(open).toHaveBeenCalledWith('https://example.com/project/7/insights/abc')
     })
+    test('opens explicit links and leaves bare URLs as text', () => {
+        const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
+        const screen = view(
+            'Read https://example.com/bare or [the guide](https://example.com/guide) or <https://example.com/auto>'
+        )
+        expect(screen.queryByText('https://example.com/bare')).toBeNull()
+        fireEvent.press(screen.getByText('the guide'))
+        fireEvent.press(screen.getByText('https://example.com/auto'))
+        expect(open.mock.calls).toEqual([['https://example.com/guide'], ['https://example.com/auto']])
+    })
+    test.each([
+        ['ordinary prose', 'plain words '],
+        ['a repeated mailto: scheme', 'mailto:'],
+        ['an opening angle bracket with no close', '<a '],
+        ['an unknown tag', '<a>'],
+        ['an object tag with no closing tag', '<insight>'],
+        ['an object tag with no closing bracket', '<insight '],
+    ])('parses %s with linear string copying', (_case, unit) => {
+        const text = unit.repeat(Math.ceil(12_000 / unit.length))
+        const slice = String.prototype.slice
+        let copied = 0
+        const spy = jest.spyOn(String.prototype, 'slice').mockImplementation(function (
+            this: string,
+            start?: number,
+            end?: number
+        ): string {
+            const part = slice.call(this, start, end)
+            copied += part.length
+            return part
+        })
+        try {
+            view(text)
+        } finally {
+            spy.mockRestore()
+        }
+        expect(copied).toBeLessThan(text.length * 50)
+    })
     test('shows loading, name and description without executing SQL', async () => {
         let resolve: (value: { name: string; description: string }) => void = () => undefined
         summary.mockReturnValue(

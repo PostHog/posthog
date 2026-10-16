@@ -11,8 +11,15 @@ export type ObjectCardSpec =
     | { mode: 'hogql'; query: string; title?: string }
 const kinds: Record<string, ObjectKindData> = OBJECT_KIND_DATA
 const aliases: Record<string, string> = OBJECT_KIND_ALIASES
-const TAG = /^<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*)\s*(?:\/>|>([\s\S]*?)<\/\1\s*>)/
-const PART = /\s+|[a-z][\w-]*|=|"[^"]*"|"[^"]*$|\/$/y
+/**
+ * Bounds each scan that starts at a `<`: an attribute value, a tag body, and the search for a close tag.
+ * Without it, every `<` in a reply can rescan to the end of the text, and a crafted reply costs O(n^2).
+ * With it, a reply costs at most O(n * MAX_TAG_LENGTH). A tag that goes past the bound is not an object.
+ */
+const MAX_TAG_LENGTH = 8192
+const OPEN = new RegExp(`<([a-z][\\w-]*)((?:\\s+[a-z][\\w-]*\\s*=\\s*"[^"]{0,${MAX_TAG_LENGTH}}")*)\\s*(\\/?)>`, 'y')
+const HEAD = /<\/?([a-z][\w-]*)/y
+const PART = new RegExp(`\\s+|[a-z][\\w-]*|=|"[^"]{0,${MAX_TAG_LENGTH}}"|"[^"]{0,${MAX_TAG_LENGTH}}$|\\/$`, 'y')
 export function objectKind(name: string): string | undefined {
     return kinds[name] ? name : aliases[name]
 }
@@ -22,16 +29,27 @@ function decode(value: string): string {
         (_, key: string) => ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" })[key] ?? ''
     )
 }
+function closeTag(name: string): RegExp {
+    return new RegExp(`([\\s\\S]{0,${MAX_TAG_LENGTH}}?)</${name}\\s*>`, 'y')
+}
 function matchTag(
-    src: string
+    src: string,
+    pos: number
 ): { raw: string; kind?: string; attrs: Record<string, string>; body?: string } | undefined {
-    const match = TAG.exec(src)
-    if (!match) return undefined
+    OPEN.lastIndex = pos
+    const open = OPEN.exec(src)
+    if (!open) return undefined
     const attrs: Record<string, string> = {}
-    for (const attr of (match[2] ?? '').matchAll(/([a-z][\w-]*)\s*=\s*"([^"]*)"/g))
+    for (const attr of (open[2] ?? '').matchAll(/([a-z][\w-]*)\s*=\s*"([^"]*)"/g))
         attrs[attr[1] ?? ''] = decode(attr[2] ?? '')
-    const kind = objectKind(match[1] ?? '')
-    return kind || 'id' in attrs ? { raw: match[0], kind, attrs, body: match[3] } : undefined
+    const name = open[1] ?? ''
+    const kind = objectKind(name)
+    if (!kind && !('id' in attrs)) return undefined
+    if (open[3]) return { raw: open[0], kind, attrs }
+    const close = closeTag(name)
+    close.lastIndex = OPEN.lastIndex
+    const body = close.exec(src)
+    return body ? { raw: open[0] + body[0], kind, attrs, body: body[1] } : undefined
 }
 export function objectRef(tag: NonNullable<ReturnType<typeof matchTag>>): ObjectRef | undefined {
     const { kind, attrs, body } = tag
@@ -44,14 +62,45 @@ export function objectRef(tag: NonNullable<ReturnType<typeof matchTag>>): Object
         label: attrs.title?.trim() || (kind === 'hogql' ? attrs.label?.trim() || 'SQL query' : body?.trim() || id),
     }
 }
-function unfinished(src: string): boolean {
-    const head = /^<([a-z][\w-]*)/.exec(src)
-    if (!head || !objectKind(head[1] ?? '')) return false
-    const open = /^<[a-z][\w-]*(?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*\s*>/.exec(src)
-    if (open) return !new RegExp(`</${head[1]}\\s*>`).test(src)
-    PART.lastIndex = head[0].length
-    while (PART.lastIndex < src.length) if (!PART.exec(src)) return false
+function knownName(src: string, pos: number): string | undefined {
+    HEAD.lastIndex = pos
+    const name = HEAD.exec(src)?.[1]
+    return name && objectKind(name) ? name : undefined
+}
+function unfinished(src: string, pos: number): boolean {
+    const name = src.charCodeAt(pos + 1) === 0x2f ? undefined : knownName(src, pos)
+    if (!name) return false
+    OPEN.lastIndex = pos
+    const open = OPEN.exec(src)
+    if (open && !open[3]) {
+        const close = closeTag(name)
+        close.lastIndex = pos
+        return !close.test(src)
+    }
+    PART.lastIndex = pos + 1 + name.length
+    while (PART.lastIndex < src.length) {
+        if (PART.lastIndex - pos > MAX_TAG_LENGTH || !PART.exec(src)) return false
+    }
     return true
+}
+interface BracketScan {
+    src: string
+    from: number
+    at: number
+}
+/** Keeps the first `>` at or after `from`, so that a run of `<` with no `>` scans the text once per parse. */
+function nextBracket(scan: BracketScan, src: string, pos: number): number {
+    if (scan.src !== src || pos < scan.from || (scan.at !== -1 && scan.at < pos)) {
+        scan.src = src
+        scan.at = src.indexOf('>', pos)
+    }
+    scan.from = pos
+    return scan.at
+}
+function hiddenMarkup(scan: BracketScan, src: string, pos: number): string | undefined {
+    if (!knownName(src, pos)) return undefined
+    const end = nextBracket(scan, src, pos)
+    return end !== -1 && end - pos <= MAX_TAG_LENGTH ? src.slice(pos, end + 1) : undefined
 }
 export function objectWebUrl(host: string, projectId: number, kind: string, id: string): string | undefined {
     const meta = kinds[objectKind(kind) ?? kind]
@@ -73,7 +122,8 @@ export function objectTagsPlugin(md: MarkdownIt): void {
         (state, startLine, endLine, silent) => {
             if ((state.sCount[startLine] ?? 0) - state.blkIndent >= 4) return false
             const start = (state.bMarks[startLine] ?? 0) + (state.tShift[startLine] ?? 0)
-            const tag = matchTag(state.src.slice(start))
+            if (state.src.charCodeAt(start) !== 0x3c) return false
+            const tag = matchTag(state.src, start)
             if (!tag || tag.attrs.display !== 'block') return false
             const end = start + tag.raw.length
             let line = startLine
@@ -98,20 +148,19 @@ export function objectTagsPlugin(md: MarkdownIt): void {
         { alt: ['paragraph', 'reference', 'blockquote', 'list'] }
     )
     md.inline.ruler.before('html_inline', 'object_ref', (state, silent) => {
-        const src = state.src.slice(state.pos)
-        if (!src.startsWith('<')) return false
-        const tag = matchTag(src)
-        const partial = !tag && unfinished(src)
-        const markup = /^<\/?([a-z][\w-]*)[^>]*>/.exec(src)
-        const hiddenMarkup = !partial && markup && objectKind(markup[1] ?? '') ? markup[0] : undefined
-        if (!tag && !hiddenMarkup && !partial) return false
+        if (state.src.charCodeAt(state.pos) !== 0x3c) return false
+        const tag = matchTag(state.src, state.pos)
+        const partial = !tag && unfinished(state.src, state.pos)
+        state.env.objectBracketScan ??= { src: '', from: 0, at: -1 } satisfies BracketScan
+        const markup = tag || partial ? undefined : hiddenMarkup(state.env.objectBracketScan, state.src, state.pos)
+        if (!tag && !markup && !partial) return false
         if (!silent) {
             const ref = tag && objectRef(tag)
             const token = state.push(ref ? 'object_ref' : 'text', '', 0)
             token.meta = ref
             token.content = ref ? ref.label : tag && !tag.kind ? tag.body?.trim() || tag.attrs.label?.trim() || '' : ''
         }
-        state.pos += tag?.raw.length ?? hiddenMarkup?.length ?? src.length
+        state.pos = tag ? state.pos + tag.raw.length : markup ? state.pos + markup.length : state.src.length
         return true
     })
 }
