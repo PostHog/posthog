@@ -75,8 +75,9 @@ export const experimentFeedbackTabLogic = kea<experimentFeedbackTabLogicType>([
                     archived: false,
                     limit: SURVEY_PAGE_SIZE,
                 })
-                // The surveys scene components this tab reuses are typed on the handwritten Survey type
-                return (response.results ?? []) as Survey[]
+                // The surveys scene components this tab reuses are typed on the handwritten Survey type,
+                // which declares the linked flag's filters more strictly than the generated type does
+                return (response.results ?? []) as unknown as Survey[]
             },
         },
     })),
