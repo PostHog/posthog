@@ -9,6 +9,8 @@ import {
     recentTaxonomicFiltersLogic,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -105,6 +107,46 @@ describe('infiniteListLogic', () => {
         logicWithProps.mount()
         return logicWithProps
     }
+
+    it.each([
+        [TaxonomicFilterGroupType.EmailAddresses, 'sample', true, false],
+        [TaxonomicFilterGroupType.EmailAddresses, 'sample@', true, true],
+        [TaxonomicFilterGroupType.EmailAddresses, 'a@', true, false],
+        [TaxonomicFilterGroupType.PageviewUrls, 'overview', true, false],
+        [TaxonomicFilterGroupType.PageviewUrls, '/overview', true, true],
+        [TaxonomicFilterGroupType.PageviewUrls, 'example.com', true, true],
+        [TaxonomicFilterGroupType.PageviewEvents, 'overview', true, false],
+        [TaxonomicFilterGroupType.PageviewEvents, 'https://example.com', true, true],
+        [TaxonomicFilterGroupType.EmailAddresses, 'sample', false, true],
+        [TaxonomicFilterGroupType.PageviewUrls, 'overview', false, true],
+        [TaxonomicFilterGroupType.PageviewEvents, 'overview', false, true],
+    ])('gates %s search %s with flag=%s and fetch=%s', async (groupType, query, enabled, shouldFetch) => {
+        const searches: string[] = []
+        const valuesResponse = ({
+            request,
+        }: {
+            request: Request
+        }): [number, { results: { name: string }[]; count: number }] => {
+            const value = new URL(request.url).searchParams.get('value') ?? ''
+            searches.push(value)
+            return [200, { results: [{ name: value }], count: 1 }]
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team/persons/values/': valuesResponse,
+                '/api/projects/:team/events/values/': valuesResponse,
+            },
+        })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]: enabled })
+        const list = logicWith({ listGroupType: groupType, taxonomicGroupTypes: [groupType] })
+        await expectLogic(list, () => list.actions.setSearchQuery(query)).toDispatchActions(['loadRemoteItemsSuccess'])
+        expect(searches).toEqual(shouldFetch ? [query] : [])
+        expect(list.values.remoteItems.results).toEqual(shouldFetch ? [{ name: query }] : [])
+        if (!shouldFetch) {
+            expect(posthog.capture).not.toHaveBeenCalledWith('taxonomic filter empty result', expect.anything())
+        }
+    })
 
     it('shows loading while the dashboard list loads', async () => {
         let completeDashboardLoad!: () => void

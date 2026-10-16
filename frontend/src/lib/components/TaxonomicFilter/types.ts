@@ -287,6 +287,8 @@ export interface TaxonomicFilterGroup {
     componentProps?: Record<string, any>
     /** Minimum number of characters before a remote search is issued. */
     minSearchQueryLength?: number
+    shouldSearch?: (query: string) => boolean
+    searchQueryHint?: string
     /** Description shown in the empty state when minSearchQueryLength is set. */
     searchDescription?: string
     /** Synthetic results surfaced inline when the search query matches a keyword.

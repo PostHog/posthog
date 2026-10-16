@@ -578,6 +578,19 @@ export const CategoryDropdown: Story = {
     },
 }
 
+export const EmailSearchQueryHint: Story = {
+    render: CategoryDropdownStoryRender,
+    args: {
+        taxonomicFilterLogicKey: 'email-search-query-hint',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.EmailAddresses],
+        searchQuery: 'sample',
+    },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING],
+        testOptions: { waitForSelector: '.no-infinite-results' },
+    },
+}
+
 export const CategoryRailPinned: Story = {
     render: CategoryRailStoryRender,
     args: CATEGORY_DROPDOWN_ARGS,

@@ -25,6 +25,7 @@ import {
     getMCPPropertyFilterOptions,
     includesMCPAnalyticsEvents,
 } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
+import { isEmailLikeSearch, isUrlLikeSearch } from 'lib/components/TaxonomicFilter/utils/valueSearchQuery'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
@@ -837,6 +838,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getValue: (option: SimpleOption) => option.name,
             getPopoverHeader: () => `Pageview URL`,
             minSearchQueryLength: 3,
+            shouldSearch: featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]
+                ? isUrlLikeSearch
+                : undefined,
+            searchQueryHint: 'Search for a URL, domain, or path.',
             searchDescription: 'URLs seen on pageview events',
         },
         {
@@ -849,6 +854,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getValue: (option: SimpleOption) => option.name,
             getPopoverHeader: () => `Pageview event`,
             minSearchQueryLength: 3,
+            shouldSearch: featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]
+                ? isUrlLikeSearch
+                : undefined,
+            searchQueryHint: 'Search for a URL, domain, or path.',
             searchDescription: 'pageview events filtered by URL',
         },
         // Screens returns a screen name value, used in paths and property filters.
@@ -888,6 +897,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getValue: (option: SimpleOption) => option.name,
             getPopoverHeader: () => `Email address`,
             minSearchQueryLength: 5,
+            shouldSearch: featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]
+                ? isEmailLikeSearch
+                : undefined,
+            searchQueryHint: 'Search for an email address using @.',
             searchDescription: 'email addresses seen in person properties',
         },
         {

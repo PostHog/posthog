@@ -919,7 +919,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         return createEmptyListStorage(searchQuery)
                     }
 
-                    if (minSearchQueryLength > 0 && searchQuery.length < minSearchQueryLength) {
+                    if (
+                        (minSearchQueryLength > 0 && searchQuery.length < minSearchQueryLength) ||
+                        values.group?.shouldSearch?.(searchQuery) === false
+                    ) {
                         return createEmptyListStorage(searchQuery)
                     }
 
@@ -2343,7 +2346,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             cache.lastFetchFailedDedupeKey = null
 
             const trimmedQuery = (remoteItems.searchQuery ?? '').trim()
-            const queryReachedBackend = trimmedQuery.length >= values.minSearchQueryLength
+            const queryReachedBackend =
+                trimmedQuery.length >= values.minSearchQueryLength &&
+                values.group?.shouldSearch?.(trimmedQuery) !== false
             // Only fire on the tab the user is actually looking at — every list runs the same
             // search in parallel, so without this gate one keystroke can fire 4-8 empty events
             // from background tabs the user never sees, inflating the dead-end metric.

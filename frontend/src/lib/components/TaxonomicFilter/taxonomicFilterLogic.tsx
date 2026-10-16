@@ -59,6 +59,7 @@ import {
     getMCPPropertyFilterOptions,
     includesMCPAnalyticsEvents,
 } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
+import { isEmailLikeSearch, isUrlLikeSearch } from 'lib/components/TaxonomicFilter/utils/valueSearchQuery'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
@@ -522,6 +523,7 @@ export interface taxonomicFilterLogicValues {
     allowNonCapturedEvents: boolean
     anyGroupLoading: boolean
     anyGroupStale: boolean
+    categoryGroupTypes: TaxonomicFilterGroupType[]
     cohortGroupOptions: {
         hideBehavioralCohorts: boolean
         showCohortFlagTargeting: boolean
@@ -768,6 +770,7 @@ export interface taxonomicFilterLogicMeta {
             taxonomicGroups: TaxonomicFilterGroup[],
             eventNames: any
         ) => TaxonomicFilterGroupType[]
+        categoryGroupTypes: (taxonomicGroupTypes: TaxonomicFilterGroupType[]) => TaxonomicFilterGroupType[]
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentTeamId: number | null,
@@ -799,10 +802,7 @@ export interface taxonomicFilterLogicMeta {
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             metaGroupTypes: Set<string>
         ) => TaxonomicFilterGroupType
-        currentTabIndex: (
-            taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            activeTab: TaxonomicFilterGroupType
-        ) => number
+        currentTabIndex: (categoryGroupTypes: TaxonomicFilterGroupType[], activeTab: TaxonomicFilterGroupType) => number
         searchPlaceholder: (
             taxonomicGroups: TaxonomicFilterGroup[],
             taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -1884,6 +1884,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             isQuickFilterItem(option) ? option.filterValue : option.name,
                         getPopoverHeader: () => `Pageview URL`,
                         minSearchQueryLength: 3,
+                        shouldSearch: featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]
+                            ? isUrlLikeSearch
+                            : undefined,
+                        searchQueryHint: 'Search for a URL, domain, or path.',
                         searchDescription: 'URLs seen on pageview events',
                     },
                     {
@@ -1896,6 +1900,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Pageview event`,
                         minSearchQueryLength: 3,
+                        shouldSearch: featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]
+                            ? isUrlLikeSearch
+                            : undefined,
+                        searchQueryHint: 'Search for a URL, domain, or path.',
                         searchDescription: 'pageview events filtered by URL',
                     },
                     // Screens returns a screen name value, used in paths and property filters.
@@ -1935,6 +1943,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Email address`,
                         minSearchQueryLength: 5,
+                        shouldSearch: featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]
+                            ? isEmailLikeSearch
+                            : undefined,
+                        searchQueryHint: 'Search for an email address using @.',
                         searchDescription: 'email addresses seen in person properties',
                     },
                     {
@@ -2265,6 +2277,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             },
             { resultEqualityCheck: objectsEqual },
         ],
+        categoryGroupTypes: [
+            (s) => [s.taxonomicGroupTypes],
+            (groupTypes: TaxonomicFilterGroupType[]): TaxonomicFilterGroupType[] =>
+                groupTypes.filter(
+                    (type) =>
+                        type !== TaxonomicFilterGroupType.RecentFilters &&
+                        type !== TaxonomicFilterGroupType.PinnedFilters
+                ),
+            { resultEqualityCheck: objectsEqual },
+        ],
         groupAnalyticsTaxonomicGroupNames: [
             (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],
             (
@@ -2454,7 +2476,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             },
         ],
         currentTabIndex: [
-            (s) => [s.taxonomicGroupTypes, s.activeTab],
+            (s) => [s.categoryGroupTypes, s.activeTab],
             (groupTypes: TaxonomicFilterGroupType[], activeTab: TaxonomicFilterGroupType) =>
                 Math.max(groupTypes.indexOf(activeTab || ''), 0),
         ],
@@ -2731,7 +2753,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         tabLeft: () => {
-            const { currentTabIndex, taxonomicGroupTypes, infiniteListCounts } = values
+            const { currentTabIndex, categoryGroupTypes: taxonomicGroupTypes, infiniteListCounts } = values
             for (let i = 1; i < taxonomicGroupTypes.length; i++) {
                 const newIndex = (currentTabIndex - i + taxonomicGroupTypes.length) % taxonomicGroupTypes.length
                 if (infiniteListCounts[taxonomicGroupTypes[newIndex]] > 0) {
@@ -2742,7 +2764,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         tabRight: () => {
-            const { currentTabIndex, taxonomicGroupTypes, infiniteListCounts } = values
+            const { currentTabIndex, categoryGroupTypes: taxonomicGroupTypes, infiniteListCounts } = values
             for (let i = 1; i < taxonomicGroupTypes.length; i++) {
                 const newIndex = (currentTabIndex + i) % taxonomicGroupTypes.length
                 if (infiniteListCounts[taxonomicGroupTypes[newIndex]] > 0) {
