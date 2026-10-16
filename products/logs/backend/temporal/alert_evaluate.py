@@ -23,6 +23,7 @@ with workflow.unsafe.imports_passed_through():
     from products.alerts_platform.backend.facade.contracts import (
         RECORD_OUTCOMES_ACTIVITY,
         AlertEventKind,
+        PlatformAlertOutcome,
         SourceBatchEvaluation,
         SourceEvaluationInputs,
         SourceOutcomeInputs,
@@ -124,24 +125,45 @@ def platform_signals(evaluation: SourceBatchEvaluation) -> list[PlatformAlertSig
     }
     signals: list[PlatformAlertSignal] = []
     for outcome in evaluation.outcomes:
-        if str(outcome.configuration_id) not in announced:
+        alert_id = announced.get(str(outcome.configuration_id))
+        if alert_id is None:
             continue
-        # A failed check reports on the outcome and carries no groups, so a broken alert signals from there.
-        verdicts: list[tuple[AlertEventKind, float | None]] = [(group.kind, group.value) for group in outcome.groups]
-        if outcome.failure is not None:
-            verdicts.append((outcome.failure.kind, None))
         signals.extend(
-            PlatformAlertSignal(
-                alert_id=announced[str(outcome.configuration_id)],
-                action=_SIGNAL_ACTIONS[kind],
-                result_count=int(value) if value is not None else None,
-                consecutive_failures=outcome.consecutive_failures,
-                evaluation_key=outcome.evaluation_key,
+            _signal(
+                alert_id,
+                outcome,
+                _SIGNAL_ACTIONS[group.kind],
+                group.value,
+                grouping_key=group.grouping_key,
+                labels=group.labels,
             )
-            for kind, value in verdicts
-            if kind in _SIGNAL_ACTIONS
+            for group in outcome.groups
+            if group.kind in _SIGNAL_ACTIONS
         )
+        # A failed check reports on the outcome and carries no groups, so a broken alert signals from there.
+        if outcome.failure is not None and outcome.failure.kind in _SIGNAL_ACTIONS:
+            signals.append(_signal(alert_id, outcome, _SIGNAL_ACTIONS[outcome.failure.kind], None))
     return signals
+
+
+def _signal(
+    alert_id: str,
+    outcome: PlatformAlertOutcome,
+    action: AlertSignalAction,
+    value: float | None,
+    *,
+    grouping_key: str = "",
+    labels: dict[str, str] | None = None,
+) -> PlatformAlertSignal:
+    return PlatformAlertSignal(
+        alert_id=alert_id,
+        action=action,
+        result_count=int(value) if value is not None else None,
+        consecutive_failures=outcome.consecutive_failures,
+        evaluation_key=outcome.evaluation_key,
+        grouping_key=grouping_key,
+        labels=labels or {},
+    )
 
 
 @activity.defn

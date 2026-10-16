@@ -1,4 +1,5 @@
 import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -367,8 +368,12 @@ class TestLogsAlertEvaluation(APIBaseTest):
             patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
             patch(f"{_MODULE}.GroupedAlertCheckQuery") as query,
         ):
-            query.return_value.execute_rolling_checks.return_value = GroupedRollingResult(
-                groups=groups, period_starts=[now], query_duration_ms=1
+            # `counts` is in the order the query ranks groups, and the query keeps one row past its limit.
+            query.return_value.execute_rolling_checks.side_effect = lambda *_args: GroupedRollingResult(
+                groups=groups[: query.call_args.kwargs["limit"] + 1],
+                period_starts=[now],
+                query_duration_ms=1,
+                truncated=len(groups) > query.call_args.kwargs["limit"],
             )
             return evaluate_logs_batch(self.team.id, slot_of(configuration.next_check_at, now), now)
 
@@ -384,19 +389,20 @@ class TestLogsAlertEvaluation(APIBaseTest):
             (outcome,) = self._run_grouped(configuration, counts).outcomes
             return {group.labels.get("service_name", group.grouping_key[:7]): group.kind for group in outcome.groups}
 
-        assert run_after({"api": 600, "web": 550}) == {}
+        assert run_after({"api": 600, "web": 550, "cron": 520}) == {}
         assert run_after({"api": 600}) == {"sha256:": AlertEventKind.RESOLVED}
 
     def test_a_grouped_alert_overflows_at_its_cap_until_a_resolved_group_gives_up_its_slot(self) -> None:
         grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",), max_instances=2)
         configuration = self._configuration(grouping=grouping.to_stored())
 
-        first = self._run_grouped(configuration, {"api": 500, "web": 3, "worker": 400, "cron": 300})
+        first = self._run_grouped(configuration, {"api": 500, "worker": 400, "cron": 300, "web": 3})
         self._record(first)
 
         (outcome,) = first.outcomes
         (delivery,) = first.deliveries
-        # The quiet group gets no row, and the cap admits the two worst of the three breaching.
+        # The cap admits the two worst of the three breaching, and the third is reported although
+        # a query cut at the cap would never have returned it.
         assert [(group.labels["service_name"], group.kind) for group in outcome.groups] == [
             ("api", AlertEventKind.FIRING),
             ("worker", AlertEventKind.FIRING),
@@ -813,6 +819,26 @@ class TestPlatformAlertSignals(SimpleTestCase):
         assert all(signal.alert_id == "legacy-1" for signal in signals)
         assert [(s.action, s.result_count, s.consecutive_failures) for s in signals] == expected
 
+    def test_each_firing_group_of_one_evaluation_signals_under_its_own_key(self) -> None:
+        groups = tuple(
+            GroupOutcome(
+                grouping_key=grouping_key_of({"service_name": service}),
+                kind=AlertEventKind.FIRING,
+                new_state="firing",
+                notified=True,
+                value=500.0,
+                labels={"service_name": service},
+            )
+            for service in ("api", "web")
+        )
+        outcome = replace(_outcome(AlertEventKind.FIRING), groups=groups)
+        evaluation = SourceBatchEvaluation(outcomes=(outcome,), deliveries=(_delivery_for(owned_by_platform=True),))
+
+        signals = platform_signals(evaluation)
+
+        assert [s.labels for s in signals] == [{"service_name": "api"}, {"service_name": "web"}]
+        assert len({s.idempotency_key for s in signals}) == 2
+
 
 class TestPlatformAlertSignalFacts(APIBaseTest):
     def test_a_signal_carries_the_logs_alert_as_it_is_and_skips_a_deleted_one(self) -> None:
@@ -833,11 +859,26 @@ class TestPlatformAlertSignalFacts(APIBaseTest):
                 PlatformAlertSignal(
                     alert_id=str(uuid4()), action="firing", result_count=1, consecutive_failures=0, evaluation_key="k-1"
                 ),
+                PlatformAlertSignal(
+                    alert_id=str(alert.id),
+                    action="firing",
+                    result_count=700,
+                    consecutive_failures=0,
+                    evaluation_key="k-1",
+                    grouping_key='{"service_name":"web"}',
+                    labels={"service_name": "web"},
+                ),
             ],
         )
 
         assert [(n.alert_id, n.alert_name, n.threshold_count, n.result_count, n.filters) for n in notified] == [
-            (str(alert.id), "API errors", 10, 500, {"serviceNames": ["api"]})
+            (str(alert.id), "API errors", 10, 500, {"serviceNames": ["api"]}),
+            (str(alert.id), "API errors", 10, 700, {"serviceNames": ["api"]}),
         ]
-        # A retried emission of the same announcement must not start a second signal.
-        assert notified[0].idempotency_key == f"{alert.id}:firing:k-1"
+        # A retried emission of the same announcement must not start a second signal, and a second
+        # group of the same evaluation is not a retry.
+        assert [n.idempotency_key for n in notified] == [
+            f"{alert.id}:firing:k-1",
+            f'{alert.id}:firing:k-1:{{"service_name":"web"}}',
+        ]
+        assert notified[1].group_labels == {"service_name": "web"}

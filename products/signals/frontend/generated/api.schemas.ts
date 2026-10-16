@@ -2070,6 +2070,8 @@ export const LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi = {
 
 export type LogsAlertStateChangeSignalExtraApiFilters = { [key: string]: unknown }
 
+export type LogsAlertStateChangeSignalExtraApiGroupLabels = { [key: string]: string } | null
+
 export interface LogsAlertStateChangeSignalExtraApi {
     alert_id: string
     alert_name: string
@@ -2081,6 +2083,7 @@ export interface LogsAlertStateChangeSignalExtraApi {
     consecutive_failures: number
     filters: LogsAlertStateChangeSignalExtraApiFilters
     url: string
+    group_labels?: LogsAlertStateChangeSignalExtraApiGroupLabels
 }
 
 export interface ReplayVisionScannerFindingSignalExtraApi {
