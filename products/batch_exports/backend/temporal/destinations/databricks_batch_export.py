@@ -226,6 +226,10 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
     use_automatic_schema_evolution: bool = True
 
 
+def _quote_databricks_identifier(identifier: str) -> str:
+    return "`" + identifier.replace("`", "``") + "`"
+
+
 class DatabricksClient:
     # How often to poll for query status. This is a trade-off between responsiveness and number of
     # queries we make to Databricks. 1 second has been chosen rather arbitrarily.
@@ -640,7 +644,7 @@ class DatabricksClient:
     async def acreate_table(self, table_name: str, fields: list[DatabricksField]):
         """Asynchronously create the Databricks delta table if it doesn't exist."""
         timeout = FIVE_MINUTES
-        field_ddl = ", ".join(f"`{field[0]}` {field[1]}" for field in fields)
+        field_ddl = ", ".join(f"{_quote_databricks_identifier(field[0])} {field[1]}" for field in fields)
         query = f"""
             CREATE TABLE IF NOT EXISTS `{table_name}` (
                 {field_ddl}
@@ -713,14 +717,15 @@ class DatabricksClient:
         """
         select_fields = []
         for field in fields:
+            quoted_field = _quote_databricks_identifier(field[0])
             if field[1] == "VARIANT":
-                select_fields.append(f"PARSE_JSON(`{field[0]}`) as `{field[0]}`")
+                select_fields.append(f"PARSE_JSON({quoted_field}) as {quoted_field}")
             elif field[1] == "BIGINT":
-                select_fields.append(f"CAST(`{field[0]}` as BIGINT) as `{field[0]}`")
+                select_fields.append(f"CAST({quoted_field} as BIGINT) as {quoted_field}")
             elif field[1] == "INTEGER":
-                select_fields.append(f"CAST(`{field[0]}` as INTEGER) as `{field[0]}`")
+                select_fields.append(f"CAST({quoted_field} as INTEGER) as {quoted_field}")
             else:
-                select_fields.append(f"`{field[0]}`")
+                select_fields.append(quoted_field)
         select_fields_str = ", ".join(select_fields)
 
         merge_schema = f"true" if with_schema_evolution else "false"
@@ -882,8 +887,12 @@ class DatabricksClient:
         merge_key: collections.abc.Iterable[str],
         update_key: collections.abc.Iterable[str],
     ) -> str:
-        merge_condition = " AND ".join([f"target.`{field}` = source.`{field}`" for field in merge_key])
-        update_condition = " OR ".join([f"target.`{field}` < source.`{field}`" for field in update_key])
+        merge_condition = " AND ".join(
+            f"target.{quoted} = source.{quoted}" for quoted in map(_quote_databricks_identifier, merge_key)
+        )
+        update_condition = " OR ".join(
+            f"target.{quoted} < source.{quoted}" for quoted in map(_quote_databricks_identifier, update_key)
+        )
         if update_condition:
             update_condition = f" AND ({update_condition})"
 
@@ -906,22 +915,34 @@ class DatabricksClient:
         source_table_fields: collections.abc.Iterable[DatabricksField],
         target_table_field_names: list[str],
     ) -> str:
-        merge_condition = " AND ".join([f"target.`{field}` = source.`{field}`" for field in merge_key])
-        update_condition = " OR ".join([f"target.`{field}` < source.`{field}`" for field in update_key])
+        merge_condition = " AND ".join(
+            f"target.{quoted} = source.{quoted}" for quoted in map(_quote_databricks_identifier, merge_key)
+        )
+        update_condition = " OR ".join(
+            f"target.{quoted} < source.{quoted}" for quoted in map(_quote_databricks_identifier, update_key)
+        )
         if update_condition:
             update_condition = f" AND ({update_condition})"
         update_clause = ", ".join(
             [
-                f"target.`{field[0]}` = source.`{field[0]}`"
+                f"target.{_quote_databricks_identifier(field[0])} = source.{_quote_databricks_identifier(field[0])}"
                 for field in source_table_fields
                 if field[0] in target_table_field_names
             ]
         )
         field_names = ", ".join(
-            [f"`{field[0]}`" for field in source_table_fields if field[0] in target_table_field_names]
+            [
+                _quote_databricks_identifier(field[0])
+                for field in source_table_fields
+                if field[0] in target_table_field_names
+            ]
         )
         values = ", ".join(
-            [f"source.`{field[0]}`" for field in source_table_fields if field[0] in target_table_field_names]
+            [
+                f"source.{_quote_databricks_identifier(field[0])}"
+                for field in source_table_fields
+                if field[0] in target_table_field_names
+            ]
         )
 
         return f"""

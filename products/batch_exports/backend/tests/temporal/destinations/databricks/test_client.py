@@ -270,6 +270,41 @@ class TestConnect:
 
 
 class TestQueryBuilders:
+    @pytest.mark.parametrize("schema_evolution", [True, False])
+    @pytest.mark.parametrize("versioned", [True, False])
+    async def test_merge_escapes_column_names(
+        self, client: DatabricksClient, schema_evolution: bool, versioned: bool
+    ) -> None:
+        with (
+            patch.object(client, "execute_async_query", new_callable=AsyncMock) as execute,
+            patch.object(
+                client, "aget_table_columns", new_callable=AsyncMock, return_value=["key`name", "version`name"]
+            ),
+        ):
+            await client.amerge_tables(
+                target_table="test_target",
+                source_table="test_source",
+                merge_key=["key`name"],
+                update_key=["version`name"] if versioned else [],
+                source_table_fields=[("key`name", "BIGINT"), ("version`name", "BIGINT")],
+                with_schema_evolution=schema_evolution,
+            )
+
+        query = " ".join(execute.call_args.args[0].split())
+        assert "ON target.`key``name` = source.`key``name`" in query
+        if versioned:
+            assert "WHEN MATCHED AND (target.`version``name` < source.`version``name`) THEN" in query
+        else:
+            assert "WHEN MATCHED THEN" in query
+        if schema_evolution:
+            assert "UPDATE SET * WHEN NOT MATCHED THEN INSERT *" in query
+        else:
+            assert (
+                "UPDATE SET target.`key``name` = source.`key``name`, target.`version``name` = source.`version``name`"
+                in query
+            )
+            assert "INSERT (`key``name`, `version``name`) VALUES (source.`key``name`, source.`version``name`)" in query
+
     @pytest.mark.parametrize("versioned", [True, False])
     async def test_merge_query_with_schema_evolution(self, client: DatabricksClient, versioned: bool) -> None:
         merge_key = ["team_id", "distinct_id"]
@@ -391,12 +426,17 @@ class TestQueryBuilders:
         """
         )
 
-    async def test_copy_into_table_from_volume_query(self, client: DatabricksClient):
+    @pytest.mark.parametrize(
+        "json_field,quoted_json_field", [("properties", "`properties`"), ("json`data", "`json``data`")]
+    )
+    async def test_copy_into_table_from_volume_query(
+        self, client: DatabricksClient, json_field: str, quoted_json_field: str
+    ) -> None:
         """Test that we construct the correct SQL for COPY INTO from a volume, including VARIANT/BIGINT casts."""
         fields = [
             ("uuid", "STRING"),
             ("event", "STRING"),
-            ("properties", "VARIANT"),
+            (json_field, "VARIANT"),
             ("distinct_id", "STRING"),
             ("team_id", "BIGINT"),
             ("timestamp", "TIMESTAMP"),
@@ -409,10 +449,10 @@ class TestQueryBuilders:
         )
         assert (
             query
-            == """
+            == f"""
         COPY INTO `test_table`
         FROM (
-            SELECT `uuid`, `event`, PARSE_JSON(`properties`) as `properties`, `distinct_id`, CAST(`team_id` as BIGINT) as `team_id`, `timestamp`, `databricks_ingested_timestamp` FROM '/Volumes/my_volume/path/file.parquet'
+            SELECT `uuid`, `event`, PARSE_JSON({quoted_json_field}) as {quoted_json_field}, `distinct_id`, CAST(`team_id` as BIGINT) as `team_id`, `timestamp`, `databricks_ingested_timestamp` FROM '/Volumes/my_volume/path/file.parquet'
         )
         FILEFORMAT = PARQUET
         COPY_OPTIONS ('force' = 'true', 'mergeSchema' = 'true')
