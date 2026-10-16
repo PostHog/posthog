@@ -886,6 +886,16 @@ const variantsDecorator = (readout: ExperimentVariantsReadoutApi): ReturnType<ty
         },
     })
 
+const runningExperiments = {
+    count: 2,
+    next: null,
+    previous: null,
+    results: [
+        { id: 11, name: 'AI creation flow', feature_flag: { filters: {} } },
+        { id: 12, name: 'Pricing page layout', feature_flag: { filters: {} } },
+    ],
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Replay Vision',
@@ -899,6 +909,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
+                '/api/projects/:team_id/experiments/': runningExperiments,
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
@@ -2197,21 +2208,6 @@ export const ScannerEditorGoalFlowExperimentPicker: StoryObj = {
         pageUrl: urls.replayVisionScannerTemplate('new'),
         featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' },
     },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/experiments/': {
-                    count: 2,
-                    next: null,
-                    previous: null,
-                    results: [
-                        { id: 11, name: 'AI creation flow', feature_flag: { filters: {} } },
-                        { id: 12, name: 'Pricing page layout', feature_flag: { filters: {} } },
-                    ],
-                },
-            },
-        }),
-    ],
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByText('Track an experiment'))

@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconChevronRight, IconFlask } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { urls } from 'scenes/urls'
 
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 
@@ -19,7 +18,7 @@ export interface ScannerGoalExperimentStarterProps {
 export function ScannerGoalExperimentStarter({
     disabledReason,
     onDraft,
-}: ScannerGoalExperimentStarterProps): JSX.Element {
+}: ScannerGoalExperimentStarterProps): JSX.Element | null {
     const { experimentOptions, experimentOptionsLoading, hasLoadedOptions, search } =
         useValues(experimentScannerPickerLogic)
     const { ensureOptionsLoaded, setSearch } = useActions(experimentScannerPickerLogic)
@@ -30,7 +29,15 @@ export function ScannerGoalExperimentStarter({
         experiment && !experimentOptions.some((option) => option.id === experiment.id)
             ? [experiment, ...experimentOptions]
             : experimentOptions
-    const noneRunning = hasLoadedOptions && !search && options.length === 0
+
+    useEffect(() => {
+        ensureOptionsLoaded()
+    }, [ensureOptionsLoaded])
+
+    // Hidden until the first load answers, and for good when the project runs no experiment to pick.
+    if (!hasLoadedOptions || (!search && options.length === 0)) {
+        return null
+    }
 
     return (
         <div className="flex flex-col gap-2">
@@ -40,10 +47,7 @@ export function ScannerGoalExperimentStarter({
                 sideIcon={<IconChevronRight className={cn('transition-transform', open && 'rotate-90')} />}
                 tooltip="Pick a running experiment and see how people experience each variant"
                 disabledReason={disabledReason}
-                onClick={() => {
-                    setOpen(!open)
-                    ensureOptionsLoaded()
-                }}
+                onClick={() => setOpen(!open)}
                 data-attr="vision-goal-starter-experiment"
             >
                 Track an experiment
@@ -57,75 +61,64 @@ export function ScannerGoalExperimentStarter({
                             variant plays out for them.
                         </span>
                     </div>
-                    {noneRunning ? (
-                        <span className="text-sm" data-attr="vision-goal-starter-experiment-none">
-                            No experiments are running in this project yet.{' '}
-                            <Link to={urls.experiments()}>Launch one in Experiments</Link>, then come back to watch it.
-                        </span>
-                    ) : (
-                        <>
-                            <LemonSelect<number>
-                                fullWidth
-                                placeholder="Select a running experiment"
-                                loading={experimentOptionsLoading}
-                                value={experiment?.id}
-                                options={[
-                                    {
-                                        title: (
-                                            // The menu closes on any click inside it, which would dismiss it when the search box is clicked.
-                                            <div onClick={(e) => e.stopPropagation()}>
-                                                <LemonInput
-                                                    type="search"
-                                                    size="small"
-                                                    fullWidth
-                                                    autoFocus
-                                                    placeholder="Search experiments"
-                                                    value={search}
-                                                    onChange={setSearch}
-                                                    data-attr="vision-goal-starter-experiment-search"
-                                                />
-                                            </div>
-                                        ),
-                                        // LemonSelect drops a section with no options, and the search box with it.
-                                        options:
-                                            options.length > 0
-                                                ? options.map((option) => ({ value: option.id, label: option.name }))
-                                                : [
-                                                      {
-                                                          value: 0,
-                                                          label: experimentOptionsLoading
-                                                              ? 'Searching...'
-                                                              : 'No running experiments match your search',
-                                                          disabledReason: 'Try a different search',
-                                                      },
-                                                  ],
-                                    },
-                                ]}
-                                onChange={(id) => setExperiment(options.find((option) => option.id === id) ?? null)}
-                                data-attr="vision-goal-starter-experiment-picker"
-                            />
-                            <div className="flex justify-end">
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    disabledReason={
-                                        disabledReason ?? (experiment ? null : 'Select an experiment first')
-                                    }
-                                    onClick={() => {
-                                        if (experiment) {
-                                            onDraft(
-                                                `Track how people experience the "${experiment.name}" experiment`,
-                                                experiment.id
-                                            )
-                                        }
-                                    }}
-                                    data-attr="vision-goal-starter-experiment-draft"
-                                >
-                                    Draft my scanner
-                                </LemonButton>
-                            </div>
-                        </>
-                    )}
+                    <LemonSelect<number>
+                        fullWidth
+                        placeholder="Select a running experiment"
+                        loading={experimentOptionsLoading}
+                        value={experiment?.id}
+                        options={[
+                            {
+                                title: (
+                                    // The menu closes on any click inside it, which would dismiss it when the search box is clicked.
+                                    <div onClick={(e) => e.stopPropagation()}>
+                                        <LemonInput
+                                            type="search"
+                                            size="small"
+                                            fullWidth
+                                            autoFocus
+                                            placeholder="Search experiments"
+                                            value={search}
+                                            onChange={setSearch}
+                                            data-attr="vision-goal-starter-experiment-search"
+                                        />
+                                    </div>
+                                ),
+                                // LemonSelect drops a section with no options, and the search box with it.
+                                options:
+                                    options.length > 0
+                                        ? options.map((option) => ({ value: option.id, label: option.name }))
+                                        : [
+                                              {
+                                                  value: 0,
+                                                  label: experimentOptionsLoading
+                                                      ? 'Searching...'
+                                                      : 'No running experiments match your search',
+                                                  disabledReason: 'Try a different search',
+                                              },
+                                          ],
+                            },
+                        ]}
+                        onChange={(id) => setExperiment(options.find((option) => option.id === id) ?? null)}
+                        data-attr="vision-goal-starter-experiment-picker"
+                    />
+                    <div className="flex justify-end">
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            disabledReason={disabledReason ?? (experiment ? null : 'Select an experiment first')}
+                            onClick={() => {
+                                if (experiment) {
+                                    onDraft(
+                                        `Track how people experience the "${experiment.name}" experiment`,
+                                        experiment.id
+                                    )
+                                }
+                            }}
+                            data-attr="vision-goal-starter-experiment-draft"
+                        >
+                            Draft my scanner
+                        </LemonButton>
+                    </div>
                 </div>
             ) : null}
         </div>
