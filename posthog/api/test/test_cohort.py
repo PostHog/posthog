@@ -5072,6 +5072,44 @@ email@example.org,
         self.assertEqual(response.status_code, 400)
         self.assertIn("operator_value", str(response.content))
 
+    @parameterized.expand(
+        [
+            ("field_cap", 1, "day", 10**12, "total_periods"),
+            ("lookback_range", 52, "week", 20, "10 years"),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_behavioral_filter_rejects_too_long_regular_event_range(
+        self, _name, time_value, time_interval, total_periods, expected_error, patch_capture
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "behavioral huge total_periods",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event_regularly",
+                                "event_type": "events",
+                                "operator": "gte",
+                                "operator_value": 1,
+                                "time_value": time_value,
+                                "time_interval": time_interval,
+                                "min_periods": 1,
+                                "total_periods": total_periods,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn(expected_error, str(response.content))
+
     @patch("posthog.api.cohort.report_user_action")
     def test_behavioral_filter_extra_field_forbidden(self, patch_capture):
         # Extra field not in model

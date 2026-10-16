@@ -51,7 +51,17 @@ export const cohortsCreateBodyNameMax = 400
 
 export const cohortsCreateBodyDescriptionMax = 1000
 
+export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneTimeValueOneMax = 10000
+
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
+export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneOperatorValueOneMax = 1000000
+
+export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneSeqTimeValueOneMax = 10000
+
+export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneTotalPeriodsOneMax = 10000
+
+export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneMinPeriodsOneMax = 10000
+
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemFourNegationDefault = false
@@ -77,19 +87,62 @@ export const CohortsCreateBody = () => zod.object({
                                     key: zod.union([zod.string(), zod.number()]),
                                     value: zod.string(),
                                     event_type: zod.string(),
-                                    time_value: zod.union([zod.number(), zod.null()]).optional(),
+                                    time_value: zod
+                                        .union([
+                                            zod
+                                                .number()
+                                                .max(cohortsCreateBodyFiltersOnePropertiesValuesItemOneTimeValueOneMax),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
                                     time_interval: zod.union([zod.string(), zod.null()]).optional(),
                                     negation: zod
                                         .boolean()
                                         .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneNegationDefault),
                                     operator: zod.union([zod.string(), zod.null()]).optional(),
-                                    operator_value: zod.union([zod.number(), zod.null()]).optional(),
+                                    operator_value: zod
+                                        .union([
+                                            zod
+                                                .number()
+                                                .max(
+                                                    cohortsCreateBodyFiltersOnePropertiesValuesItemOneOperatorValueOneMax
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
                                     seq_time_interval: zod.union([zod.string(), zod.null()]).optional(),
-                                    seq_time_value: zod.union([zod.number(), zod.null()]).optional(),
+                                    seq_time_value: zod
+                                        .union([
+                                            zod
+                                                .number()
+                                                .max(
+                                                    cohortsCreateBodyFiltersOnePropertiesValuesItemOneSeqTimeValueOneMax
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
                                     seq_event: zod.union([zod.string(), zod.number(), zod.null()]).optional(),
                                     seq_event_type: zod.union([zod.string(), zod.null()]).optional(),
-                                    total_periods: zod.union([zod.number(), zod.null()]).optional(),
-                                    min_periods: zod.union([zod.number(), zod.null()]).optional(),
+                                    total_periods: zod
+                                        .union([
+                                            zod
+                                                .number()
+                                                .max(
+                                                    cohortsCreateBodyFiltersOnePropertiesValuesItemOneTotalPeriodsOneMax
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                    min_periods: zod
+                                        .union([
+                                            zod
+                                                .number()
+                                                .max(
+                                                    cohortsCreateBodyFiltersOnePropertiesValuesItemOneMinPeriodsOneMax
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
                                     event_filters: zod
                                         .union([
                                             zod.array(
@@ -212,7 +265,17 @@ export const cohortsPartialUpdateBodyNameMax = 400
 
 export const cohortsPartialUpdateBodyDescriptionMax = 1000
 
+export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneTimeValueOneMax = 10000
+
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
+export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneOperatorValueOneMax = 1000000
+
+export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneSeqTimeValueOneMax = 10000
+
+export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneTotalPeriodsOneMax = 10000
+
+export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneMinPeriodsOneMax = 10000
+
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemFourNegationDefault = false
@@ -238,7 +301,16 @@ export const CohortsPartialUpdateBody = () => zod.object({
                                     key: zod.union([zod.string(), zod.number()]),
                                     value: zod.string(),
                                     event_type: zod.string(),
-                                    time_value: zod.union([zod.number(), zod.null()]).optional(),
+                                    time_value: zod
+                                        .union([
+                                            zod
+                                                .number()
+                                                .max(
+                                                    cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneTimeValueOneMax
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
                                     time_interval: zod.union([zod.string(), zod.null()]).optional(),
                                     negation: zod
                                         .boolean()
@@ -246,13 +318,49 @@ export const CohortsPartialUpdateBody = () => zod.object({
                                             cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault
                                         ),
                                     operator: zod.union([zod.string(), zod.null()]).optional(),
-                                    operator_value: zod.union([zod.number(), zod.null()]).optional(),
+                                    operator_value: zod
+                                        .union([
+                                            zod
+                                                .number()
+                                                .max(
+                                                    cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneOperatorValueOneMax
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
                                     seq_time_interval: zod.union([zod.string(), zod.null()]).optional(),
-                                    seq_time_value: zod.union([zod.number(), zod.null()]).optional(),
+                                    seq_time_value: zod
+                                        .union([
+                                            zod
+                                                .number()
+                                                .max(
+                                                    cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneSeqTimeValueOneMax
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
                                     seq_event: zod.union([zod.string(), zod.number(), zod.null()]).optional(),
                                     seq_event_type: zod.union([zod.string(), zod.null()]).optional(),
-                                    total_periods: zod.union([zod.number(), zod.null()]).optional(),
-                                    min_periods: zod.union([zod.number(), zod.null()]).optional(),
+                                    total_periods: zod
+                                        .union([
+                                            zod
+                                                .number()
+                                                .max(
+                                                    cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneTotalPeriodsOneMax
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                    min_periods: zod
+                                        .union([
+                                            zod
+                                                .number()
+                                                .max(
+                                                    cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneMinPeriodsOneMax
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
                                     event_filters: zod
                                         .union([
                                             zod.array(
