@@ -202,6 +202,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowState,
     WorkflowProposalStatus,
 )
+from products.workflows.backend.facade.extraction import ExtractionFieldType
 from products.workflows.backend.facade.message_assets import fetch_message_asset_html, fetch_message_assets
 from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.proposals import (
@@ -312,7 +313,6 @@ from products.workflows.backend.presentation.views.workflow_classifications impo
     WorkflowClassificationRequestSerializer,
 )
 from products.workflows.backend.presentation.views.workflow_extractions import WorkflowExtractionRequestSerializer
-from products.workflows.backend.services.ai_extraction import ExtractionFieldType
 
 logger = structlog.get_logger(__name__)
 

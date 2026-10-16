@@ -14,13 +14,7 @@ from posthog.models import Team
 
 from products.cdp.backend.presentation.hog_functions import gated_template_enabled
 from products.tasks.backend.facade.workflow_tasks import get_workflow_task_run_final_message
-from products.workflows.backend.facade.service_jwt import WORKFLOW_EXTRACT_PURPOSE
-from products.workflows.backend.presentation.views.workflow_classifications import (
-    MAX_CONTEXT_CHARS,
-    MAX_CONTEXT_DEPTH,
-    validate_workflow_context,
-)
-from products.workflows.backend.services.ai_extraction import (
+from products.workflows.backend.facade.extraction import (
     MAX_TEXT_VALUE_CHARS,
     ExtractionBudgetExceededError,
     ExtractionField,
@@ -30,6 +24,12 @@ from products.workflows.backend.services.ai_extraction import (
     ExtractionUnavailableError,
     ExtractionUnusableError,
     extract_fields,
+)
+from products.workflows.backend.facade.service_jwt import WORKFLOW_EXTRACT_PURPOSE
+from products.workflows.backend.presentation.views.workflow_classifications import (
+    MAX_CONTEXT_CHARS,
+    MAX_CONTEXT_DEPTH,
+    validate_workflow_context,
 )
 
 logger = structlog.get_logger(__name__)
