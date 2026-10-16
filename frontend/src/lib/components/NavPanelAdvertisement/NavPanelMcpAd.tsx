@@ -8,8 +8,6 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { agentConnectionLogic } from 'lib/components/MCPHint/agentConnectionLogic'
 import { MCP_INSTALL_COMMAND } from 'lib/components/MCPHint/constants'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { AdvertisementCard, NAV_PANEL_CARD_TYPE, ProductPushDisplay } from './navPanelAdShared'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
@@ -24,18 +22,13 @@ const MCP_HERO: ProductPushDisplay = {
 
 /**
  * Asks users whose agent has not connected to connect the PostHog MCP server. Renders `fallback`
- * when it has nothing to ask, so the ad slot falls through to the next card. Mount it only for users
- * in the experiment's rollout (see `isInMcpCardRollout`).
+ * when it has nothing to ask, so the ad slot falls through to the next card.
  */
 export function NavPanelMcpAd({ fallback }: { fallback: JSX.Element | null }): JSX.Element | null {
     const { hidden } = useValues(navPanelAdvertisementLogic(logicProps))
     const { hasConnectedAgent, connectedAppsLoading } = useValues(agentConnectionLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     // `null` means the lookup has not succeeded yet, which never counts as eligible.
-    const isEligible = !hidden && hasConnectedAgent === false
-    // Read the experiment flag only for users who would see the card: each read reports an exposure,
-    // and users who already connected or dismissed it would dilute the experiment.
-    const shouldShow = isEligible && featureFlags[FEATURE_FLAGS.NAV_PANEL_MCP_CARD] === 'test'
+    const shouldShow = !hidden && hasConnectedAgent === false
 
     useEffect(() => {
         if (shouldShow) {
