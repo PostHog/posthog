@@ -1116,39 +1116,6 @@ export interface eventUsageLogicActions {
         isPrimary: boolean
         metricUuid: string
     }
-    reportExperimentMetricFinished: (
-        experimentId: ExperimentIdType,
-        metric: ExperimentMetric,
-        teamId?: number | null,
-        queryId?: string | null,
-        context?: {
-            duration_ms: number
-            execution_mode: 'async' | 'sync'
-            is_cached: boolean
-            is_primary: boolean
-            is_retry: boolean
-            metric_index: number
-            metric_kind: string
-            refresh_id: string
-        }
-    ) => {
-        context:
-            | {
-                  duration_ms: number
-                  execution_mode: 'async' | 'sync'
-                  is_cached: boolean
-                  is_primary: boolean
-                  is_retry: boolean
-                  metric_index: number
-                  metric_kind: string
-                  refresh_id: string
-              }
-            | undefined
-        experimentId: ExperimentIdType
-        metric: ExperimentMetricUnion
-        queryId: string | null | undefined
-        teamId: number | null | undefined
-    }
     reportExperimentRecordingOpened: (
         experimentId: ExperimentIdType,
         context: ExperimentRecordingsFilterContext
@@ -1969,28 +1936,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             dashboardId,
         }),
-        reportExperimentMetricFinished: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric,
-            teamId?: number | null,
-            queryId?: string | null,
-            context?: {
-                duration_ms: number
-                is_cached: boolean
-                metric_index: number
-                is_primary: boolean
-                is_retry: boolean
-                refresh_id: string
-                metric_kind: string
-                execution_mode: 'sync' | 'async'
-            }
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-            context,
-        }),
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentTimeseriesViewed: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
             experimentId,
@@ -2637,16 +2582,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_name: experiment.name,
                 experiment_id: experiment.id,
                 dashboard_id: dashboardId,
-            })
-        },
-        reportExperimentMetricFinished: ({ experimentId, metric, teamId, queryId, context }) => {
-            posthog.capture('experiment metric finished', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                ...getEventPropertiesForMetric(metric),
-                metric,
-                ...context,
             })
         },
         reportExperimentFeatureFlagModalOpened: () => {
