@@ -75,7 +75,7 @@ Sizing a glyph does not change its button's tap target, which stays at least 44p
 | `Pressable44` | `ui/Pressable44.tsx` | Default 6pt hit slop so 34pt visuals reach 44pt; pressed and hover background; optional haptic |
 | `PillControl` | `ui/PillControl.tsx` | White bordered pill for icon buttons |
 | `SegmentedPill` | `ui/SegmentedPill.tsx` | Equal segments with inset dividers; `raised` adds the chip shadow; `selected` state |
-| `IconTile` | `ui/IconTile.tsx` | Source icon tile with the yellow needs-input badge |
+| `IconTile` | `ui/IconTile.tsx` | Source icon tile, muted for resolved, dismissed, or snoozed reports |
 | `Avatar` | `ui/Avatar.tsx` | Initials on a palette color picked from a seed |
 | `MonoText`, `Eyebrow`, `Dot` | `ui/` | Mono text, uppercase label with optional dot, colored dot |
 | `Scrim` | `ui/Scrim.tsx` | Fades with the overlay; optional tap to close |
@@ -120,6 +120,8 @@ Sizing a glyph does not change its button's tap target, which stays at least 44p
   A full swipe on a row changes its read state: swipe right past 30% of the row marks the report read (blue),
   swipe left marks it unread (ink). Both directions always play, and a swipe toward the state the row already has
   only plays the animation. Screen readers get the same change as a "Mark as read" or "Mark as unread" row action.
+  Unread reports have a bold title and an 8pt blue dot at the right. Read reports use a regular-weight title
+  without the dot. Resolved, dismissed, and snoozed reports keep their muted styling.
   Hand off uses the same eligibility rules and saved destination as the report's hand-off button;
   it waits for report details, blocks repeat taps while pending and keeps failures in the menu for retry.
   A report with a pull request shows View PR (with an external-link mark, it opens the browser) in

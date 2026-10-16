@@ -105,12 +105,17 @@ export const InboxRow = memo(function InboxRow({
                     accessibilityLabel={`${item.title}, ${item.sourceLabel}${prLabel(prNumber, item.pullRequestState)}, ${when}${!item.read ? ', unread' : ''}${item.needsInput ? ', needs your input' : ''}`}
                     testID={`inbox-row-${item.reportId}`}
                 >
-                    <IconTile muted={muted} needsInput={item.needsInput}>
+                    <IconTile muted={muted}>
                         <Icon size={iconSizes.navigation} color={muted ? colors.tertiary : colors.ink} />
                     </IconTile>
                     <View style={styles.body}>
                         <Text
-                            style={[styles.title, muted && styles.mutedTitle, done && styles.doneTitle]}
+                            style={[
+                                styles.title,
+                                !item.read && styles.unreadTitle,
+                                muted && styles.mutedTitle,
+                                done && styles.doneTitle,
+                            ]}
                             numberOfLines={1}
                         >
                             {item.title}
@@ -147,7 +152,7 @@ export const InboxRow = memo(function InboxRow({
 })
 
 const styles = StyleSheet.create({
-    unreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.ink, marginRight: 6 },
+    unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.blue, marginRight: 6, flexShrink: 0 },
     row: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -167,6 +172,10 @@ const styles = StyleSheet.create({
     title: {
         ...type.rowTitle,
         color: colors.ink,
+        fontWeight: '400',
+    },
+    unreadTitle: {
+        fontWeight: '700',
     },
     mutedTitle: {
         color: colors.tertiary,

@@ -6,18 +6,10 @@ import { colors, radii } from './tokens'
 interface IconTileProps {
     children: ReactNode
     muted?: boolean
-    needsInput?: boolean
 }
 
-export function IconTile({ children, muted = false, needsInput = false }: IconTileProps): ReactElement {
-    return (
-        <View style={[styles.tile, muted && styles.muted]}>
-            {children}
-            {needsInput ? (
-                <View style={styles.badge} accessibilityLabel="Needs your input" accessibilityRole="image" />
-            ) : null}
-        </View>
-    )
+export function IconTile({ children, muted = false }: IconTileProps): ReactElement {
+    return <View style={[styles.tile, muted && styles.muted]}>{children}</View>
 }
 
 const styles = StyleSheet.create({
@@ -34,16 +26,5 @@ const styles = StyleSheet.create({
     },
     muted: {
         backgroundColor: colors.pressed,
-    },
-    badge: {
-        position: 'absolute',
-        top: -6,
-        right: -6,
-        width: 16,
-        height: 16,
-        borderRadius: 8,
-        borderWidth: 2,
-        borderColor: colors.background,
-        backgroundColor: colors.yellow,
     },
 })
