@@ -10,8 +10,14 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
+import requests_mock
+
 from products.posthog_ai.eval_harness import long_lived_subprocess
-from products.posthog_ai.eval_harness.harness.services import package_local_skills_archive, start_mcp_server
+from products.posthog_ai.eval_harness.harness.services import (
+    package_local_skills_archive,
+    provision_ai_gateway_mint_key,
+    start_mcp_server,
+)
 from products.posthog_ai.eval_harness.long_lived_subprocess import (
     LongLivedSubprocessManager,
     SubprocessReadinessTimeout,
@@ -153,3 +159,22 @@ def test_service_startup_does_not_retry_permanent_errors_or_interrupts(
     with pytest.raises(type(error)):
         manager.start(name="test service", port=12345, cmd=["fake-service"], cwd=tmp_path, env={}, log_prefix="test")
     assert start.call_count == 1
+
+
+@pytest.mark.parametrize("credit_status", [200, 503])
+def test_gateway_provisioning_requires_test_credits(requests_mock: requests_mock.Mocker, credit_status: int) -> None:
+    base_url = "http://localhost:18080"
+    credits = requests_mock.post(f"{base_url}/internal/teams/42/credits", status_code=credit_status, json={})
+    requests_mock.get(f"{base_url}/v1/models", json={"data": [{"id": "test-model"}]})
+    requests_mock.post(f"{base_url}/v1/tokens", json={"token": "phe_test"})
+
+    with patch("products.posthog_ai.eval_harness.harness.services.call_command"):
+        if credit_status == 200:
+            assert provision_ai_gateway_mint_key(42, agent_model="test-model").startswith("phs_")
+        else:
+            with pytest.raises(SubprocessStartupError, match="refused eval test credits: HTTP 503"):
+                provision_ai_gateway_mint_key(42, agent_model="test-model")
+
+    assert credits.last_request is not None
+    assert credits.last_request.json() == {"amount_usd": "10000", "reason": "Local eval test credits"}
+    assert credits.last_request.headers["Idempotency-Key"] != credits.last_request.headers["Authorization"]
