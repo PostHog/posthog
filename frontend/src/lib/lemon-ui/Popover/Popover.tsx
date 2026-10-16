@@ -262,7 +262,9 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         []
     )
     const mergedReferenceRef = useMergeRefs([
-        referenceRef,
+        // setReference registers the trigger as useDismiss's domReference, so a press on it is not an outside press.
+        // An explicit referenceElement owns that slot instead.
+        referenceElement ? referenceRef : setReference,
         extraReferenceRef || null,
         (children as any)?.ref,
     ]) as React.RefCallback<HTMLElement>

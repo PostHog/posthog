@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { LemonDropdown } from './LemonDropdown'
 
@@ -9,6 +10,23 @@ describe('LemonDropdown', () => {
     afterEach(() => {
         cleanup()
         jest.useRealTimers()
+    })
+
+    it('closes when the open trigger is clicked again', async () => {
+        const onVisibilityChange = jest.fn()
+
+        render(
+            <LemonDropdown onVisibilityChange={onVisibilityChange} overlay={<div>Menu</div>}>
+                <button>Open</button>
+            </LemonDropdown>
+        )
+
+        await userEvent.click(screen.getByText('Open'))
+        expect(onVisibilityChange).toHaveBeenLastCalledWith(true)
+
+        onVisibilityChange.mockClear()
+        await userEvent.click(screen.getByText('Open'))
+        expect(onVisibilityChange.mock.calls).toEqual([[false]])
     })
 
     it('delays opening a hover dropdown when configured', () => {
