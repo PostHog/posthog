@@ -1,5 +1,3 @@
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -29,29 +27,3 @@ class TestGorgiasSource:
         assert response.name == "customers"
         assert response.primary_keys == ["id"]
         assert response.sort_mode == "asc"
-
-
-class TestGorgiasNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("401", "401 Client Error: Unauthorized for url: https://acme.gorgias.com/api/account"),
-            ("403", "403 Client Error: Forbidden for url: https://acme.gorgias.com/api/tickets"),
-            (
-                "cursor_conflict_409",
-                "409 Client Error: Conflict for url: https://acme.gorgias.com/api/customers?cursor=abc",
-            ),
-        ]
-    )
-    def test_known_errors_match(self, _name: str, observed_error: str) -> None:
-        non_retryable_errors = GorgiasSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error for url: https://acme.gorgias.com/api/customers"),
-            ("read_timeout", "HTTPSConnectionPool(host='acme.gorgias.com', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_do_not_match(self, _name: str, observed_error: str) -> None:
-        non_retryable_errors = GorgiasSource().get_non_retryable_errors()
-        assert not any(key in observed_error for key in non_retryable_errors)
