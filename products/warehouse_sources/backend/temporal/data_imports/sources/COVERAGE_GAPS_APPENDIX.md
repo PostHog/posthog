@@ -6318,7 +6318,7 @@ Note: https://api.insightly.com/v3.1/swagger/docs/v3 (the URL linked from the He
 
 ## Instagram — gaps
 
-Today (6): `account`, `account_insights`, `media`, `media_comments`, `media_insights`, `stories`
+Today (7): `account`, `account_insights`, `media`, `media_comments`, `media_insights`, `media_insights_breakdowns`, `stories`
 
 Diffed against: <https://raw.githubusercontent.com/facebook/facebook-python-business-sdk/main/facebook_business/adobjects/igmedia.py>
 

@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.
     GRAPH_API_HOST,
     INSTAGRAM_ENDPOINTS,
     MAX_INSIGHTS_LOOKBACK_DAYS,
+    MEDIA_INSIGHT_BREAKDOWNS,
     MEDIA_INSIGHT_METRICS,
     MEDIA_PARENT_FIELDS,
     PAGE_FIELDS,
@@ -423,7 +424,9 @@ def _fanout_rows(
                 # posts whose children were never fetched.
                 return
 
-            if config.child_edge == "insights":
+            if config.name == "media_insights_breakdowns":
+                rows = _media_insight_breakdown_rows(client, media, logger)
+            elif config.child_edge == "insights":
                 rows = _media_insight_rows(client, media, logger)
             else:
                 rows = _media_comment_rows(client, media, config, logger)
@@ -499,6 +502,67 @@ def _media_insight_rows(
         )
 
     return rows
+
+
+def _media_insight_breakdown_rows(
+    client: InstagramClient,
+    media: dict[str, Any],
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    media_id = str(media["id"])
+    product_type = str(media.get("media_product_type") or "")
+    media_timestamp = _normalize_timestamp(media.get("timestamp"))
+
+    rows: list[dict[str, Any]] = []
+    for metric, breakdown in MEDIA_INSIGHT_BREAKDOWNS.get(product_type, ()):
+        if not client.has_request_budget():
+            break
+
+        url = client.build_url(f"{media_id}/insights", {"metric": metric, "breakdown": breakdown})
+        try:
+            body = client.get(url)
+        except InstagramBadRequestError as error:
+            # Meta refuses some breakdowns on old or deleted posts. Skip this pair only.
+            logger.warning(f"Instagram: skipping {metric} by {breakdown} for media {media_id}: {error}")
+            continue
+
+        entries = body.get("data")
+        for entry in entries if isinstance(entries, list) else []:
+            if not isinstance(entry, dict):
+                continue
+            for breakdown_value, value in _breakdown_points(entry):
+                rows.append(
+                    {
+                        "media_id": media_id,
+                        "media_timestamp": media_timestamp,
+                        "media_product_type": product_type or None,
+                        "metric": entry.get("name") or metric,
+                        "breakdown": breakdown,
+                        "breakdown_value": breakdown_value,
+                        "period": entry.get("period"),
+                        "title": entry.get("title"),
+                        "description": entry.get("description"),
+                        "value": value,
+                    }
+                )
+
+    return rows
+
+
+def _breakdown_points(entry: dict[str, Any]) -> list[tuple[str, Any]]:
+    """Flatten `total_value.breakdowns[].results[]` into `(breakdown_value, value)` pairs."""
+    total_value = entry.get("total_value")
+    breakdowns = total_value.get("breakdowns") if isinstance(total_value, dict) else None
+
+    points: list[tuple[str, Any]] = []
+    for breakdown_set in breakdowns if isinstance(breakdowns, list) else []:
+        results = breakdown_set.get("results") if isinstance(breakdown_set, dict) else None
+        for result in results if isinstance(results, list) else []:
+            dimension_values = result.get("dimension_values") if isinstance(result, dict) else None
+            # Each request names one breakdown, so each result has one dimension value.
+            if isinstance(dimension_values, list) and dimension_values:
+                points.append((str(dimension_values[0]), result.get("value")))
+    return points
 
 
 def _insight_windows(since: int, until: int, window_days: int = ACCOUNT_INSIGHTS_WINDOW_DAYS) -> list[tuple[int, int]]:

@@ -489,6 +489,43 @@ class TestInstagramFanOut:
         assert result.raised is None
         assert result.rows == []
 
+    def test_media_insight_breakdowns_request_each_pair_alone_and_emit_one_row_per_value(self) -> None:
+        def breakdown_body(metric: str, key: str, values: dict[str, int]) -> dict[str, Any]:
+            results = [{"dimension_values": [name], "value": value} for name, value in values.items()]
+            breakdowns = [{"dimension_keys": [key], "results": results}]
+            return {"data": [{"name": metric, "period": "lifetime", "total_value": {"breakdowns": breakdowns}}]}
+
+        result = _drive(
+            "media_insights_breakdowns",
+            [
+                ScriptedResponse(
+                    json=_page(
+                        [
+                            {"id": "r1", "media_product_type": "REELS"},
+                            {"id": "s1", "media_product_type": "STORY", "timestamp": "2024-03-01T18:10:00+0000"},
+                        ]
+                    )
+                ),
+                ScriptedResponse(status=400, json={"error": {"code": 100, "message": "unsupported breakdown"}}),
+                ScriptedResponse(
+                    json=breakdown_body(
+                        "navigation", "story_navigation_action_type", {"tap_forward": 19, "tap_exit": 1}
+                    )
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(request.param("metric"), request.param("breakdown")) for request in result.requests[1:]] == [
+            ("profile_activity", "action_type"),
+            ("navigation", "story_navigation_action_type"),
+        ]
+        assert [(row["media_id"], row["metric"], row["breakdown_value"], row["value"]) for row in result.rows] == [
+            ("s1", "navigation", "tap_forward", 19),
+            ("s1", "navigation", "tap_exit", 1),
+        ]
+        assert result.rows[0]["media_timestamp"] == "2024-03-01T18:10:00+00:00"
+
     def test_the_parent_page_is_checkpointed_once_its_children_are_drained(self) -> None:
         result = _drive(
             "media_comments",
