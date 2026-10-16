@@ -50,6 +50,13 @@
             "intents": ["llm_prompts"]
         },
         {
+            "path": "Application observability",
+            "category": "Monitoring",
+            "iconType": null,
+            "type": null,
+            "intents": ["tracing"]
+        },
+        {
             "path": "Autoresearch",
             "category": "Tools",
             "iconType": "experiment",

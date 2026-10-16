@@ -49,6 +49,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     PlatformAlert: () => import('../../products/alerts_platform/frontend/PlatformAlertScene'),
     PrecomputeDebug: () => import('../../products/analytics_platform/frontend/PrecomputeDebugScene'),
     Annotations: () => import('../../products/annotations/frontend/pages/Annotations'),
+    ApplicationObservability: () => import('../../products/apm/frontend/ApplicationObservabilityScene'),
     Autoresearch: () => import('../../products/autoresearch/frontend/AutoresearchScene'),
     AutoresearchNew: () => import('../../products/autoresearch/frontend/AutoresearchNewScene'),
     AutoresearchPipeline: () => import('../../products/autoresearch/frontend/AutoresearchPipelineScene'),
