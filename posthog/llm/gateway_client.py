@@ -626,15 +626,21 @@ def build_gemini_client(
     )
     if privacy_mode:
         headers["X-PostHog-Privacy-Mode"] = "true"
+    # `files.upload` sends its chunks with none of the client's headers, so the transports carry them and the key.
+    transport_headers = {**headers, "x-goog-api-key": gateway.api_key}
     return genai.Client(
         api_key=gateway.api_key,
         http_options=genai_types.HttpOptions(
             base_url=anthropic_gateway_base_url(gateway.url),
             headers=headers,
             timeout=timeout_ms,
-            client_args={"trust_env": False},
+            client_args={"trust_env": False, "headers": transport_headers},
             # The SDK uses aiohttp for async whenever it is installed, and that session always trusts
             # proxy env vars. An explicit httpx transport switches async to httpx, which honours trust_env.
-            async_client_args={"trust_env": False, "transport": httpx.AsyncHTTPTransport()},
+            async_client_args={
+                "trust_env": False,
+                "transport": httpx.AsyncHTTPTransport(),
+                "headers": transport_headers,
+            },
         ),
     )

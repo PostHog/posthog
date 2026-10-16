@@ -4,7 +4,6 @@ import time
 import asyncio
 import tempfile
 from datetime import UTC, datetime
-from typing import Any
 
 import structlog
 from asgiref.sync import sync_to_async
@@ -19,7 +18,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
-from products.replay_vision.backend.gemini_client import GatewayGeminiClient, replay_gateway_client
+from products.replay_vision.backend.gemini_client import replay_gemini_client
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import (
@@ -27,7 +26,6 @@ from products.replay_vision.backend.temporal.gemini import (
     classify_gemini_file_error,
     describe_gemini_error,
     describe_gemini_file_error,
-    gemini_api_key,
 )
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.tracking import track_uploaded_file
 from products.replay_vision.backend.temporal.types import UploadedVideo, UploadVideoToGeminiInputs
@@ -89,28 +87,18 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
             f"ExportedAsset {inputs.asset_id} produced empty video bytes", kind=FailureKind.INTERNAL_ERROR
         )
 
-    gateway = await replay_gateway_client(asset.team_id)
+    gemini = await replay_gemini_client(asset.team_id)
     try:
-        return await _store_video(gateway, video_bytes, asset.export_format, workflow_id)
+        return await _store_video(gemini.raw, video_bytes, asset.export_format, workflow_id)
     finally:
-        if gateway is not None:
-            await gateway.aclose()
+        await gemini.aclose()
 
 
 async def _store_video(
-    gateway: GatewayGeminiClient | None, video_bytes: bytes, mime_type: str, workflow_id: str
+    raw_client: RawGenAIClient, video_bytes: bytes, mime_type: str, workflow_id: str
 ) -> UploadedVideo:
-    files: Any
-    if gateway is not None:
-        uploaded_file = await asyncio.to_thread(
-            gateway.upload_file, video_bytes, mime_type=mime_type, display_name=workflow_id
-        )
-        files = gateway.files
-    else:
-        raw_client = RawGenAIClient(api_key=gemini_api_key())
-        # `tmp_file.write` / `flush` are blocking disk I/O; offload the whole tempfile+upload block off the event loop.
-        uploaded_file = await asyncio.to_thread(_write_and_upload, raw_client, video_bytes, mime_type, workflow_id)
-        files = raw_client.files
+    # `tmp_file.write` / `flush` are blocking disk I/O; offload the whole tempfile+upload block off the event loop.
+    uploaded_file = await asyncio.to_thread(_write_and_upload, raw_client, video_bytes, mime_type, workflow_id)
 
     if uploaded_file.name is None:
         # Non-retryable: a retry would re-upload before the cleanup sweep can reap the unnamed file Gemini may have created.
@@ -126,7 +114,7 @@ async def _store_video(
     except Exception:
         logger.exception("replay_vision.upload_video_to_gemini.track_failed_rolling_back")
         try:
-            await sync_to_async(files.delete, thread_sensitive=False)(name=gemini_file_name)
+            await sync_to_async(raw_client.files.delete, thread_sensitive=False)(name=gemini_file_name)
         except Exception:
             logger.exception("replay_vision.upload_video_to_gemini.rollback_delete_failed")
         raise
@@ -140,7 +128,7 @@ async def _store_video(
                 kind=FailureKind.PROVIDER_TRANSIENT,
             )
         await asyncio.sleep(0.5)
-        uploaded_file = await sync_to_async(files.get, thread_sensitive=False)(name=gemini_file_name)
+        uploaded_file = await sync_to_async(raw_client.files.get, thread_sensitive=False)(name=gemini_file_name)
 
     final_state = uploaded_file.state.name if uploaded_file.state else None
     if final_state != "ACTIVE":

@@ -14,7 +14,6 @@ from typing import Any, TypeVar
 
 import structlog
 from google.genai import types
-from posthoganalytics.ai.gemini import genai
 from prometheus_client import Counter
 from pydantic import BaseModel
 
@@ -23,9 +22,9 @@ from products.ml_inference.backend.facade.contracts import DecisionQuestion, Dec
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.error_kinds import FailureKind
-from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gateway_client
+from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gemini_client
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
-from products.replay_vision.backend.temporal.gemini import gemini_api_key, is_gateway_refusal
+from products.replay_vision.backend.temporal.gemini import is_gateway_refusal
 
 logger = structlog.get_logger(__name__)
 
@@ -103,7 +102,7 @@ def _yes_probability(team_id: int, state: dict[str, Any], instructions: str, tra
                 state=state,
                 questions={"q": DecisionQuestion(type=DecisionQuestionType.NOUL, instructions=instructions)},
                 model=PII_CHECK_MODEL,
-                ai_product=AI_PRODUCT,
+                ai_product="replay_vision",
                 trace_id=trace_id,
                 # The state is recording-derived prose, which stays out of the internal AI observability project.
                 privacy_mode=True,
@@ -135,12 +134,7 @@ def contains_pii(*, team_id: int, text: dict[str, str], trace_id: str) -> bool |
 async def rewrite_without_pii(*, team_id: int, question: str, text: dict[str, str], trace_id: str) -> dict[str, str]:
     """Rewrite the answer's text fields without the personal data; fields the rewrite drops keep their old text."""
     properties = {"ai_product": AI_PRODUCT, "feature": "pii_rewrite", "team_id": team_id}
-    gateway = await replay_gateway_client(team_id, properties=properties)
-    client: Any = (
-        gateway.aio
-        if gateway is not None
-        else genai.AsyncClient(api_key=gemini_api_key(), posthog_privacy_mode=True, posthog_properties=properties)
-    )
+    client = await replay_gemini_client(team_id, properties=properties)
     try:
         response = await client.models.generate_content(
             model=_REWRITE_MODEL,
@@ -154,8 +148,7 @@ async def rewrite_without_pii(*, team_id: int, question: str, text: dict[str, st
             posthog_groups={"project": str(team_id)},
         )
     finally:
-        if gateway is not None:
-            await gateway.aclose()
+        await client.aclose()
     rewritten = _Rewrite.model_validate_json(response.text or "{}")
     return {field: new for field in text if isinstance(new := getattr(rewritten, field), str) and new.strip()}
 

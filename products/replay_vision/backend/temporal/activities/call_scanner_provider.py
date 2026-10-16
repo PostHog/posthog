@@ -29,7 +29,6 @@ from google.genai import (
     Client as GoogleGenAIClient,
     types,
 )
-from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
@@ -41,7 +40,7 @@ from posthog.temporal.session_replay.rasterize_recording.types import Navigation
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
-from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gateway_client
+from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gemini_client
 from products.replay_vision.backend.learned_rules import ScanRules, load_scan_rules
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.tags import slugify_tag
@@ -51,7 +50,6 @@ from products.replay_vision.backend.temporal.events_tool import build_events_ind
 from products.replay_vision.backend.temporal.gemini import (
     classify_gemini_error,
     describe_gemini_error,
-    gemini_api_key,
     is_gateway_refusal,
 )
 from products.replay_vision.backend.temporal.lookups import (
@@ -646,22 +644,10 @@ async def _run_mission(
             )
         steps.append(step)
 
-    gateway = await replay_gateway_client(team_id, properties=properties)
-    client: Any
-    cache_client: Any
-    if gateway is not None:
-        client, cache_client = gateway.aio, gateway
-    else:
-        client = genai.AsyncClient(
-            api_key=gemini_api_key(),
-            # Privacy mode keeps the recording's content out of the internal project, where it could not be deleted with the recording.
-            posthog_privacy_mode=True,
-            posthog_properties=properties,
-        )
-        cache_client = GoogleGenAIClient(api_key=gemini_api_key())
+    gemini = await replay_gemini_client(team_id, properties=properties)
     run = functools.partial(
         _run_steps,
-        client=client,
+        client=gemini,
         model=model,
         steps=steps,
         video_part=video_part,
@@ -673,13 +659,12 @@ async def _run_mission(
     )
     cache = None
     try:
-        cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text)
+        cache = await _maybe_create_video_cache(gemini.raw, model, video_part, preamble_text)
         step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
     finally:
         if cache is not None:
-            await _delete_video_cache(cache_client, cache.name)
-        if gateway is not None:
-            await gateway.aclose()
+            await _delete_video_cache(gemini.raw, cache.name)
+        await gemini.aclose()
 
     finalized, signals = scanner.assemble(step_outputs)
     return _MissionOutcome(

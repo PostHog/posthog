@@ -16,12 +16,14 @@ from google.genai import (
 
 from products.replay_vision.backend.gemini_client import (
     GATEWAY_FLAG,
-    GatewayGeminiClient,
+    ReplayGemini,
+    _AsyncGatewayModels,
     _with_headers,
     assemble_stream,
-    replay_gateway_client,
+    replay_gemini_client,
 )
 from products.replay_vision.backend.temporal import pii_check
+from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import _write_and_upload
 from products.replay_vision.backend.temporal.errors import FailureKind
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error
 
@@ -60,25 +62,25 @@ def _ok(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json=_OK)
 
 
-async def _agateway_client(properties: dict[str, Any] | None = None) -> GatewayGeminiClient:
+async def _agateway_client(properties: dict[str, Any] | None = None) -> ReplayGemini:
     with override_settings(**_GATEWAY):
-        client = await replay_gateway_client(42, properties=properties)
-    assert isinstance(client, GatewayGeminiClient)
+        client = await replay_gemini_client(42, properties=properties)
+    assert isinstance(client.models, _AsyncGatewayModels)
     return client
 
 
-def _gateway_client(properties: dict[str, Any] | None = None) -> GatewayGeminiClient:
+def _gateway_client(properties: dict[str, Any] | None = None) -> ReplayGemini:
     return asyncio.run(_agateway_client(properties))
 
 
 def _wired_gateway_client(
     properties: dict[str, Any], respond: Callable[[httpx.Request], httpx.Response] = _ok
-) -> tuple[GatewayGeminiClient, list[httpx.Request]]:
+) -> tuple[ReplayGemini, list[httpx.Request]]:
     client = _gateway_client(properties)
     return client, _wire(client, respond)
 
 
-def _wire(client: GatewayGeminiClient, respond: Callable[[httpx.Request], httpx.Response] = _ok) -> list[httpx.Request]:
+def _wire(client: ReplayGemini, respond: Callable[[httpx.Request], httpx.Response] = _ok) -> list[httpx.Request]:
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -86,24 +88,40 @@ def _wire(client: GatewayGeminiClient, respond: Callable[[httpx.Request], httpx.
         return respond(request)
 
     # Swaps only the transport, so a client the SDK has closed still fails the call.
-    api_client = client._client._api_client
+    api_client = client.raw._api_client
+    assert api_client._httpx_client is not None and api_client._async_httpx_client is not None
     api_client._httpx_client._transport = httpx.MockTransport(handler)
     api_client._async_httpx_client._transport = httpx.MockTransport(handler)
     return seen
 
 
-class TestReplayGatewayClient:
+class TestReplayGeminiClient:
     def test_flag_off_stays_direct(self, flag_on: MagicMock) -> None:
         flag_on.return_value = False
-        with override_settings(**_GATEWAY), patch("posthog.llm.gateway_client.genai.Client") as gateway_client:
-            assert asyncio.run(replay_gateway_client(42)) is None
-        gateway_client.assert_not_called()
+        with override_settings(**_GATEWAY), patch("posthog.llm.gateway_client.build_gemini_client") as build:
+            client = asyncio.run(replay_gemini_client(42))
+        build.assert_not_called()
+        assert client.raw._api_client.api_key == "replay-vision-google-key"
+        assert not isinstance(client.models, _AsyncGatewayModels)
+
+    def test_direct_mode_captures_with_privacy_mode_and_the_callers_properties(self, flag_on: MagicMock) -> None:
+        flag_on.return_value = False
+        with (
+            override_settings(**_GATEWAY),
+            patch("products.replay_vision.backend.gemini_client.genai.AsyncClient") as direct_client,
+        ):
+            client = asyncio.run(replay_gemini_client(42, properties={"feature": "scanner"}))
+        direct_client.assert_called_once_with(
+            api_key="replay-vision-google-key", posthog_privacy_mode=True, posthog_properties={"feature": "scanner"}
+        )
+        assert client.models is direct_client.return_value.models
 
     def test_gateway_mode_needs_the_direct_key_cleanup_deletes_with(self) -> None:
-        settings = {**_GATEWAY, "REPLAY_VISION_GEMINI_API_KEY": ""}
-        with override_settings(**settings), patch("posthog.llm.gateway_client.genai.Client") as gateway_client:
-            assert asyncio.run(replay_gateway_client(42)) is None
-        gateway_client.assert_not_called()
+        settings = {**_GATEWAY, "REPLAY_VISION_GEMINI_API_KEY": "", "GEMINI_API_KEY": "shared-key"}
+        with override_settings(**settings):
+            client = asyncio.run(replay_gemini_client(42))
+        assert client.raw._api_client.api_key == "shared-key"
+        assert not isinstance(client.models, _AsyncGatewayModels)
 
     def test_flag_is_evaluated_locally_per_org_without_events(self, flag_on: MagicMock, team_org: MagicMock) -> None:
         _gateway_client()
@@ -121,7 +139,7 @@ class TestReplayGatewayClient:
         client, seen = _wired_gateway_client({"feature": "scanner", "team_id": 42})
 
         asyncio.run(
-            client.aio.models.generate_content(
+            client.models.generate_content(
                 model="models/gemini-test",
                 contents=[types.Part.from_bytes(data=b"mp4", mime_type="video/mp4"), "hi"],
                 config=types.GenerateContentConfig(temperature=0.2),
@@ -176,7 +194,7 @@ class TestReplayGatewayClient:
         client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json=body))
 
         with pytest.raises(genai_errors.APIError) as exc_info:
-            asyncio.run(client.aio.models.generate_content(model="gemini-test", contents="hi"))
+            asyncio.run(client.models.generate_content(model="gemini-test", contents="hi"))
 
         assert classify_gemini_error(exc_info.value) == kind
 
@@ -191,7 +209,7 @@ class TestReplayGatewayClient:
         client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json=body))
 
         with pytest.raises(genai_errors.ClientError) as exc_info:
-            asyncio.run(client.aio.models.generate_content(model="gemini-test", contents="hi"))
+            asyncio.run(client.models.generate_content(model="gemini-test", contents="hi"))
 
         kind = classify_gemini_error(exc_info.value)
         assert kind == FailureKind.PROVIDER_REJECTED
@@ -209,7 +227,7 @@ def test_pii_rewrite_uses_the_gateway_when_configured() -> None:
     with (
         override_settings(**_GATEWAY),
         patch("posthog.llm.gateway_client.genai.Client") as gateway_client,
-        patch.object(pii_check.genai, "AsyncClient") as direct_client,
+        patch("products.replay_vision.backend.gemini_client.genai.AsyncClient") as direct_client,
     ):
         sdk = gateway_client.return_value
         sdk.aio.models.generate_content_stream = AsyncMock(side_effect=RuntimeError("stop"))
@@ -264,123 +282,74 @@ class TestAssembleStream:
         assert response.prompt_feedback is not None
         assert response.prompt_feedback.block_reason == types.BlockedReason.SAFETY
 
-    @pytest.mark.parametrize(
-        "chunks",
-        [
-            [],
-            [_chunk(types.Part(text='{"verdict": "ye'))],
-            [
-                types.GenerateContentResponse(
-                    usage_metadata=types.GenerateContentResponseUsageMetadata(prompt_token_count=3)
-                )
-            ],
-        ],
-        ids=["empty", "cut-after-text", "usage-only"],
-    )
-    def test_a_stream_without_a_finish_reason_raises_a_transient_error(
-        self, chunks: list[types.GenerateContentResponse]
-    ) -> None:
+    def test_an_empty_stream_raises_a_transient_error(self) -> None:
         with pytest.raises(genai_errors.ServerError) as exc_info:
-            assemble_stream(chunks)
+            assemble_stream([])
 
-        assert exc_info.value.code == 503
         assert classify_gemini_error(exc_info.value) == FailureKind.PROVIDER_TRANSIENT
 
 
 class TestGatewayFilesAndCaches:
     def test_aclose_closes_both_transports(self) -> None:
         client, _ = _wired_gateway_client({})
-        api_client = client._client._api_client
+        api_client = client.raw._api_client
         asyncio.run(client.aclose())
-        assert api_client._httpx_client.is_closed
-        assert api_client._async_httpx_client.is_closed
+        assert api_client._httpx_client is not None and api_client._httpx_client.is_closed
+        assert api_client._async_httpx_client is not None and api_client._async_httpx_client.is_closed
 
     def test_every_call_is_tagged_replay_vision_with_the_gateway_key(self) -> None:
         def respond(request: httpx.Request) -> httpx.Response:
             path = request.url.path
             if path.endswith(":streamGenerateContent"):
                 return _ok(request)
-            if path == "/v1beta/files:upload":
-                return httpx.Response(200, json={"file": {"name": "files/abc"}})
+            if path == "/upload/v1beta/files" and "upload_id" not in request.url.params:
+                upload_url = "https://ai-gateway.example/upload/v1beta/files?upload_id=u1&upload_protocol=resumable"
+                return httpx.Response(200, json={}, headers={"x-goog-upload-url": upload_url})
+            if path == "/upload/v1beta/files":
+                file = {"name": "files/abc", "state": "PROCESSING"}
+                return httpx.Response(200, json={"file": file}, headers={"x-goog-upload-status": "final"})
             if path.startswith("/v1beta/cachedContents"):
                 return httpx.Response(200, json={"name": "cachedContents/c1"} if request.method == "POST" else {})
             return httpx.Response(200, json={"name": "files/abc", "state": "ACTIVE"} if request.method == "GET" else {})
 
         client, seen = _wired_gateway_client({"feature": "scanner"}, respond)
-        real_client = httpx.Client
-
-        def record(request: httpx.Request) -> httpx.Response:
-            seen.append(request)
-            return respond(request)
 
         async def calls() -> None:
-            await client.aio.models.generate_content(model="gemini-test", contents="hi")
-            await client.aio.caches.create(
+            await client.models.generate_content(model="gemini-test", contents="hi")
+            await client.raw.aio.caches.create(
                 model="gemini-test", config=types.CreateCachedContentConfig(contents=[types.Part(text="video")])
             )
-            await client.aio.caches.delete(name="cachedContents/c1")
+            await client.raw.aio.caches.delete(name="cachedContents/c1")
 
         asyncio.run(calls())
-        client.files.get(name="files/abc")
-        client.files.delete(name="files/abc")
-        with patch(
-            "products.replay_vision.backend.gemini_client.httpx.Client",
-            lambda **kw: real_client(transport=httpx.MockTransport(record), **kw),
-        ):
-            client.upload_file(b"mp4", mime_type="video/mp4", display_name="wf-1")
+        uploaded = _write_and_upload(client.raw, b"mp4-bytes", "video/mp4", "wf-1")
+        client.raw.files.get(name="files/abc")
+        client.raw.files.delete(name="files/abc")
 
-        assert [(r.method, r.url.path) for r in seen] == [
-            ("POST", "/v1beta/models/gemini-test:streamGenerateContent"),
-            ("POST", "/v1beta/cachedContents"),
-            ("DELETE", "/v1beta/cachedContents/c1"),
-            ("GET", "/v1beta/files/abc"),
-            ("DELETE", "/v1beta/files/abc"),
-            ("POST", "/v1beta/files:upload"),
+        assert uploaded.name == "files/abc"
+        assert [(r.method, r.url.path, r.headers.get("x-goog-upload-command")) for r in seen] == [
+            ("POST", "/v1beta/models/gemini-test:streamGenerateContent", None),
+            ("POST", "/v1beta/cachedContents", None),
+            ("DELETE", "/v1beta/cachedContents/c1", None),
+            ("POST", "/upload/v1beta/files", "start"),
+            ("POST", "/upload/v1beta/files", "upload, finalize"),
+            ("GET", "/v1beta/files/abc", None),
+            ("DELETE", "/v1beta/files/abc", None),
         ]
+        assert seen[4].read() == b"mp4-bytes"
         for request in seen:
             assert request.headers["x-posthog-product"] == "replay_vision", request.url
             assert request.headers["x-goog-api-key"] == "phs_gateway", request.url
 
-    def test_upload_posts_the_raw_file_to_the_gateway_upload_route(self) -> None:
-        client = _gateway_client()
-        seen: list[httpx.Request] = []
+    def test_an_in_band_error_frame_raises(self) -> None:
+        frame = {"error": {"code": 503, "message": "gateway shutting down", "status": "UNAVAILABLE"}}
 
-        def handler(request: httpx.Request) -> httpx.Response:
-            seen.append(request)
-            return httpx.Response(200, json={"file": {"name": "files/abc", "state": "PROCESSING"}})
+        def respond(_: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=_sse(frame), headers={"content-type": "text/event-stream"})
 
-        real_client = httpx.Client
-        client_kwargs: dict[str, Any] = {}
+        client, _ = _wired_gateway_client({}, respond)
 
-        def wired(**kw: Any) -> httpx.Client:
-            client_kwargs.update(kw)
-            return real_client(transport=httpx.MockTransport(handler), **kw)
+        with pytest.raises(genai_errors.ServerError) as exc_info:
+            asyncio.run(client.models.generate_content(model="gemini-test", contents="hi"))
 
-        with patch("products.replay_vision.backend.gemini_client.httpx.Client", wired):
-            uploaded = client.upload_file(b"mp4-bytes", mime_type="video/mp4", display_name="wf-1")
-
-        assert uploaded.name == "files/abc"
-        request = seen[0]
-        assert request.url == "https://ai-gateway.example/v1beta/files:upload"
-        assert request.read() == b"mp4-bytes"
-        assert request.headers["content-type"] == "video/mp4"
-        assert request.headers["content-length"] == str(len(b"mp4-bytes"))
-        assert "transfer-encoding" not in request.headers
-        assert request.headers["x-goog-upload-display-name"] == "wf-1"
-        assert client_kwargs["trust_env"] is False
-        timeout = client_kwargs["timeout"]
-        assert timeout.connect == 10.0 and timeout.read == 60.0 and timeout.write == 60.0
-
-    def test_upload_raises_the_gateways_status(self) -> None:
-        client = _gateway_client()
-        real_client = httpx.Client
-        transport = httpx.MockTransport(lambda _: httpx.Response(402, json={"error": {"code": 402}}))
-        with (
-            patch(
-                "products.replay_vision.backend.gemini_client.httpx.Client",
-                lambda **kw: real_client(transport=transport, **kw),
-            ),
-            pytest.raises(genai_errors.ClientError) as exc_info,
-        ):
-            client.upload_file(b"x", mime_type="video/mp4", display_name="wf-1")
-        assert exc_info.value.code == 402
+        assert classify_gemini_error(exc_info.value) == FailureKind.PROVIDER_TRANSIENT

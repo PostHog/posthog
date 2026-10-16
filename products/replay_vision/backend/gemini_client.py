@@ -5,14 +5,15 @@ from typing import Any
 
 from django.conf import settings
 
-import httpx
-import structlog
-from google.genai import errors, types
+from google.genai import (
+    Client as RawGenAIClient,
+    errors,
+    types,
+)
+from posthoganalytics.ai.gemini import genai
 
 from posthog.llm.gateway_client import (
-    AIGatewayConfig,
     ai_gateway_headers,
-    anthropic_gateway_base_url,
     build_gemini_client,
     resolve_ai_gateway_config,
     team_distinct_id,
@@ -20,28 +21,34 @@ from posthog.llm.gateway_client import (
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
 
+from products.replay_vision.backend.temporal.gemini import gemini_api_key
+
 AI_PRODUCT = "replay_vision"
 GATEWAY_FLAG = "replay-vision-ai-gateway"
 
-logger = structlog.get_logger(__name__)
+
+async def replay_gemini_client(team_id: int, *, properties: Mapping[str, Any] | None = None) -> "ReplayGemini":
+    """The AI gateway client when gateway mode is on for the team's org, else Google directly with our key."""
+    base_properties = dict(properties or {})
+    if await _gateway_enabled(team_id) and (
+        client := build_gemini_client(
+            ai_product=AI_PRODUCT, properties=_gateway_labels(base_properties), privacy_mode=True
+        )
+    ):
+        return ReplayGemini(client, _AsyncGatewayModels(client.aio.models, base_properties))
+    # Privacy mode keeps recording content out of the internal project, where it can't be deleted with the recording.
+    direct = genai.AsyncClient(api_key=gemini_api_key(), posthog_privacy_mode=True, posthog_properties=base_properties)
+    return ReplayGemini(RawGenAIClient(api_key=gemini_api_key()), direct.models)
 
 
-async def replay_gateway_client(
-    team_id: int, *, properties: Mapping[str, Any] | None = None
-) -> "GatewayGeminiClient | None":
-    """The gateway client when gateway mode is on for the team's org, else None so the caller goes direct.
-
-    Cleanup and the sweep delete files with the direct key, so gateway mode also needs Replay Vision's own direct key.
-    """
-    if not settings.REPLAY_VISION_GEMINI_API_KEY:
-        return None
-    gateway = resolve_ai_gateway_config()
-    if gateway is None:
-        return None
+async def _gateway_enabled(team_id: int) -> bool:
+    # Cleanup and the sweep delete files with the direct key, so gateway mode also needs Replay Vision's own key.
+    if not settings.REPLAY_VISION_GEMINI_API_KEY or resolve_ai_gateway_config() is None:
+        return False
     organization_id = str(await Team.objects.values_list("organization_id", flat=True).aget(id=team_id))
     # Local evaluation only, so a flag outage leaves a scan's many calls direct and fast; conditions must use the
     # org or project id.
-    enabled = feature_enabled_or_false(
+    return feature_enabled_or_false(
         GATEWAY_FLAG,
         team_distinct_id(team_id),
         groups={"organization": organization_id, "project": str(team_id)},
@@ -49,13 +56,20 @@ async def replay_gateway_client(
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
-    if not enabled:
-        return None
-    base_properties = dict(properties or {})
-    client = build_gemini_client(ai_product=AI_PRODUCT, properties=_gateway_labels(base_properties), privacy_mode=True)
-    if client is None:
-        return None
-    return GatewayGeminiClient(client, base_properties, gateway)
+
+
+class ReplayGemini:
+    """One client for both routes: `models` takes the analytics wrapper's `posthog_*` kwargs; `raw` serves files and
+    caches."""
+
+    def __init__(self, raw: RawGenAIClient, models: Any) -> None:
+        self.raw = raw
+        self.models = models
+
+    async def aclose(self) -> None:
+        """Close both SDK transports; the sync one carries `files`, the async one `aio`."""
+        self.raw.close()
+        await self.raw.aio.aclose()
 
 
 class _AsyncGatewayModels:
@@ -110,51 +124,8 @@ class _AsyncGatewayModels:
         return assemble_stream(chunks)
 
 
-class _GatewayAio:
-    def __init__(self, aio: Any, base_properties: Mapping[str, Any]) -> None:
-        self.models = _AsyncGatewayModels(aio.models, base_properties)
-        self.caches = aio.caches
-
-
-_UPLOAD_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
-
-
-class GatewayGeminiClient:
-    """The gateway client with the analytics wrapper's call shape, so call sites stay the same in both modes."""
-
-    def __init__(self, client: Any, base_properties: Mapping[str, Any], gateway: AIGatewayConfig) -> None:
-        self._client = client
-        self.aio = _GatewayAio(client.aio, base_properties)
-        self.files = client.files
-        self._gateway = gateway
-
-    def upload_file(self, data: bytes, *, mime_type: str, display_name: str) -> types.File:
-        """Store `data` in Replay Vision's Files API; the gateway runs Google's resumable upload."""
-        with httpx.Client(trust_env=False, timeout=_UPLOAD_TIMEOUT) as http:
-            response = http.post(
-                f"{anthropic_gateway_base_url(self._gateway.url)}/v1beta/files:upload",
-                content=data,
-                headers={
-                    **(ai_gateway_headers(ai_product=AI_PRODUCT) or {}),
-                    "x-goog-api-key": self._gateway.api_key,
-                    "Content-Type": mime_type,
-                    "X-Goog-Upload-Display-Name": display_name,
-                },
-            )
-            errors.APIError.raise_for_response(response)
-        return types.File.model_validate(response.json()["file"])
-
-    async def aclose(self) -> None:
-        """Close both SDK transports; the sync one carries `files`, the async one `aio`."""
-        self._client.close()
-        await self._client.aio.aclose()
-
-
 def assemble_stream(chunks: list[types.GenerateContentResponse]) -> types.GenerateContentResponse:
-    """Fold streamed chunks into the response a buffered call returns, parts in arrival order. Raises a 503
-    `ServerError` when the stream ends with no finish reason and no prompt block: the SDK drops the gateway's in-band
-    error frame, so a cut stream would otherwise pass as a short answer.
-    """
+    """Fold streamed chunks into the response a buffered call returns, parts in arrival order."""
     parts: list[types.Part] = []
     last_candidate: types.Candidate | None = None
     finish_reason: types.FinishReason | None = None
@@ -169,17 +140,8 @@ def assemble_stream(chunks: list[types.GenerateContentResponse]) -> types.Genera
                 finish_reason = candidate.finish_reason
     usage = next((chunk.usage_metadata for chunk in reversed(chunks) if chunk.usage_metadata), None)
     prompt_feedback = next((chunk.prompt_feedback for chunk in chunks if chunk.prompt_feedback), None)
-    if finish_reason is None and not (prompt_feedback and prompt_feedback.block_reason):
-        raise errors.ServerError(
-            503,
-            {
-                "error": {
-                    "code": 503,
-                    "message": f"Gemini stream ended without a finish reason after {len(chunks)} chunks",
-                    "status": "UNAVAILABLE",
-                }
-            },
-        )
+    if not chunks:
+        raise errors.ServerError(503, {"error": {"code": 503, "message": "Gemini stream ended with no chunks"}})
     final = chunks[-1]
     if last_candidate is None:
         # A blocked prompt streams no candidate; the feedback says why.

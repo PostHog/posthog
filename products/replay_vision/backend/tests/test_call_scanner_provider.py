@@ -10,7 +10,7 @@ from google.genai import types
 from google.genai.errors import APIError, ClientError
 from pydantic import BaseModel
 
-from products.replay_vision.backend.gemini_client import GatewayGeminiClient
+from products.replay_vision.backend.gemini_client import ReplayGemini
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _key_moment_session_ms,
@@ -109,22 +109,26 @@ def _gateway_scan_snapshot() -> MagicMock:
     return snapshot
 
 
+def _gemini(models: Any = None) -> MagicMock:
+    gemini = MagicMock(spec=ReplayGemini)
+    gemini.raw = MagicMock()
+    gemini.models = models if models is not None else MagicMock()
+    gemini.aclose = AsyncMock()
+    return gemini
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fails", [None, "mission", "cache"])
-async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_it(fails: str | None) -> None:
+async def test_the_mission_runs_generate_and_caches_on_one_client_and_closes_it(fails: str | None) -> None:
     scanner = MagicMock()
     scanner.mission_steps.return_value = []
     scanner.assemble.return_value = (MagicMock(), [])
-    gateway = MagicMock(spec=GatewayGeminiClient)
-    gateway.aio = MagicMock()
-    gateway.aclose = AsyncMock()
+    gemini = _gemini()
     create_cache = AsyncMock(side_effect=RuntimeError("cache failed") if fails == "cache" else None, return_value=None)
     attempts = AsyncMock(side_effect=RuntimeError("mission failed") if fails == "mission" else None, return_value={})
     module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
     with (
-        patch(f"{module}.replay_gateway_client", return_value=gateway),
-        patch(f"{module}.genai.AsyncClient") as direct_cls,
-        patch(f"{module}.GoogleGenAIClient") as direct_cache_cls,
+        patch(f"{module}.replay_gemini_client", new=AsyncMock(return_value=gemini)),
         patch(f"{module}._maybe_create_video_cache", new=create_cache),
         patch(f"{module}._run_mission_attempts", new=attempts),
         patch(f"{module}.build_events_index", return_value={}),
@@ -141,28 +145,25 @@ async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_i
             trace_id="trace-1",
         )
 
-    assert create_cache.call_args.args[0] is gateway
+    assert create_cache.call_args.args[0] is gemini.raw
     if fails != "cache":
-        assert attempts.call_args.kwargs["run"].keywords["client"] is gateway.aio
-    direct_cls.assert_not_called()
-    direct_cache_cls.assert_not_called()
-    gateway.aclose.assert_awaited_once()
+        assert attempts.call_args.kwargs["run"].keywords["client"] is gemini
+    gemini.aclose.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_gateway_mode_deletes_its_cache_before_closing_the_gateway() -> None:
+async def test_the_mission_deletes_its_cache_before_closing_the_client() -> None:
     scanner = MagicMock()
     scanner.mission_steps.return_value = []
     scanner.assemble.return_value = (MagicMock(), [])
     order: list[str] = []
-    gateway = MagicMock(spec=GatewayGeminiClient)
-    gateway.aio = MagicMock()
-    gateway.aio.caches.create = AsyncMock(return_value=MagicMock(name="cache"))
-    gateway.aio.caches.delete = AsyncMock(side_effect=lambda **_: order.append("delete"))
-    gateway.aclose = AsyncMock(side_effect=lambda: order.append("aclose"))
+    gemini = _gemini()
+    gemini.raw.aio.caches.create = AsyncMock(return_value=MagicMock(name="cache"))
+    gemini.raw.aio.caches.delete = AsyncMock(side_effect=lambda **_: order.append("delete"))
+    gemini.aclose = AsyncMock(side_effect=lambda: order.append("aclose"))
     module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
     with (
-        patch(f"{module}.replay_gateway_client", return_value=gateway),
+        patch(f"{module}.replay_gemini_client", new=AsyncMock(return_value=gemini)),
         patch(f"{module}._run_mission_attempts", new=AsyncMock(return_value={})),
         patch(f"{module}.build_events_index", return_value={}),
     ):
@@ -181,38 +182,6 @@ async def test_gateway_mode_deletes_its_cache_before_closing_the_gateway() -> No
 
 
 @pytest.mark.asyncio
-async def test_gateway_off_runs_the_scan_direct() -> None:
-    scanner = MagicMock()
-    scanner.mission_steps.return_value = []
-    scanner.assemble.return_value = (MagicMock(), [])
-    create_cache = AsyncMock(return_value=None)
-    attempts = AsyncMock(return_value={})
-    module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
-    with (
-        patch(f"{module}.replay_gateway_client", return_value=None),
-        patch(f"{module}.genai.AsyncClient") as direct_cls,
-        patch(f"{module}.GoogleGenAIClient") as direct_cache_cls,
-        patch(f"{module}.gemini_api_key", return_value="direct-key"),
-        patch(f"{module}._maybe_create_video_cache", new=create_cache),
-        patch(f"{module}._run_mission_attempts", new=attempts),
-        patch(f"{module}.build_events_index", return_value={}),
-    ):
-        await _run_mission(
-            scanner=scanner,
-            snapshot=_gateway_scan_snapshot(),
-            video_part=_VIDEO,
-            video_clock=_IDENTITY_CLOCK,
-            preamble_text="PRE",
-            team_id=42,
-            llm_inputs=MagicMock(),
-            trace_id="trace-1",
-        )
-
-    assert create_cache.call_args.args[0] is direct_cache_cls.return_value
-    assert attempts.call_args.kwargs["run"].keywords["client"] is direct_cls.return_value
-
-
-@pytest.mark.asyncio
 async def test_scanner_generations_include_team_attribution() -> None:
     scanner = MagicMock()
     scanner.mission_steps.return_value = []
@@ -224,9 +193,9 @@ async def test_scanner_generations_include_team_attribution() -> None:
 
     with (
         patch(
-            "products.replay_vision.backend.temporal.activities.call_scanner_provider.genai.AsyncClient"
-        ) as client_cls,
-        patch("products.replay_vision.backend.temporal.activities.call_scanner_provider.GoogleGenAIClient"),
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider.replay_gemini_client",
+            new=AsyncMock(return_value=_gemini()),
+        ) as client_factory,
         patch(
             "products.replay_vision.backend.temporal.activities.call_scanner_provider._maybe_create_video_cache",
             new=AsyncMock(return_value=None),
@@ -251,7 +220,7 @@ async def test_scanner_generations_include_team_attribution() -> None:
             trace_id="trace-1",
         )
 
-    assert client_cls.call_args.kwargs["posthog_properties"] == {
+    assert client_factory.call_args.kwargs["properties"] == {
         "ai_product": "replay_vision",
         "feature": "scanner",
         "scanner_type": "monitor",
@@ -485,8 +454,7 @@ async def test_signal_timestamps_use_recording_duration(
     )
     module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
     with (
-        patch(f"{module}.genai.AsyncClient", return_value=client),
-        patch(f"{module}.GoogleGenAIClient"),
+        patch(f"{module}.replay_gemini_client", new=AsyncMock(return_value=_gemini(client.models))),
         patch(f"{module}.build_events_index", return_value={}),
         patch(f"{module}._maybe_create_video_cache", new=AsyncMock(return_value=None)),
     ):
