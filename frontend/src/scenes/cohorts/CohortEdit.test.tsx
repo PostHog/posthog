@@ -825,7 +825,7 @@ describe('cohortEditLogic', () => {
         const definitions = propertyDefinitionsModel.build()
         definitions.mount()
         definitions.actions.updatePropertyDefinitions({
-            'person/birth_date': { id: 'birth_date', name: 'birth_date', property_type: PropertyType.DateTime },
+            'person/$browser': { id: '$browser', name: '$browser', property_type: PropertyType.String },
         })
         const recentFilters = recentTaxonomicFiltersLogic.build()
         recentFilters.mount()
@@ -894,6 +894,10 @@ describe('cohortEditLogic', () => {
         await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
         await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-recent_filters'))
         await waitFor(() => expect(screen.getAllByTestId(/^prop-filter-recent_filters-/)).toHaveLength(2))
+        definitions.actions.updatePropertyDefinitions({
+            'person/birth_date': { id: 'birth_date', name: 'birth_date', property_type: PropertyType.DateTime },
+        })
+        expect(screen.getAllByTestId(/^prop-filter-recent_filters-/)).toHaveLength(2)
         await userEvent.click(await screen.findByTestId('prop-filter-recent_filters-1'))
 
         await waitFor(() => {
