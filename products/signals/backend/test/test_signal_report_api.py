@@ -1634,6 +1634,12 @@ class TestSignalReportListAPI(APIBaseTest):
         next_page = self.client.get(body["next"]).json()
         assert [row["id"] for row in next_page["results"]] == [str(waiting.id)]
 
+        without_shown = self.client.get(
+            self._list_url(view="for_you", sort="priority", exclude=str(reviewing.id), offset=0)
+        ).json()
+        assert [row["id"] for row in without_shown["results"]] == [str(waiting.id)]
+        assert without_shown["count"] == 1
+
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
         # suggested_reviewers is append-only: an older row listing the user must not keep them
         # flagged after a newer row drops them (latest-wins).

@@ -290,7 +290,7 @@ describe('todayLogic', () => {
         })
     })
 
-    it('pages through the reports past the ones it shows, and starts over when the list shows other reports', async () => {
+    it('pages through the reports past the list without the ones it shows, and starts over when the list shows other reports', async () => {
         const page = (prefix: string, length: number): ReturnType<typeof makeReport>[] =>
             Array.from({ length }, (_, index) => makeReport({ id: `${prefix}${index}` }))
         listResponse = [200, { results: [makeReport({ id: 'a' })], count: 5 }]
@@ -299,7 +299,7 @@ describe('todayLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ canLoadMoreReports: true })
 
         const first = page('p', MORE_REPORTS_PAGE_SIZE)
-        listResponse = [200, { results: first, count: MORE_REPORTS_PAGE_SIZE + 6 }]
+        listResponse = [200, { results: first, count: MORE_REPORTS_PAGE_SIZE + 5 }]
         await expectLogic(logic, () => {
             logic.actions.loadMoreReports()
         })
@@ -309,11 +309,12 @@ describe('todayLogic', () => {
             view: 'for_you',
             sort: 'priority',
             limit: String(MORE_REPORTS_PAGE_SIZE),
-            offset: '1',
+            offset: '0',
+            exclude: 'a',
         })
 
         const second = page('q', 3)
-        listResponse = [200, { results: second, count: MORE_REPORTS_PAGE_SIZE + 6 }]
+        listResponse = [200, { results: second, count: MORE_REPORTS_PAGE_SIZE + 5 }]
         await expectLogic(logic, () => {
             logic.actions.loadMoreReports()
         })
@@ -323,7 +324,7 @@ describe('todayLogic', () => {
                 canLoadMoreReports: false,
                 moreReportsInInbox: 2,
             })
-        expect(listParams!.get('offset')).toBe(String(MORE_REPORTS_PAGE_SIZE + 1))
+        expect(listParams!.get('offset')).toBe(String(MORE_REPORTS_PAGE_SIZE))
 
         listResponse = [200, { results: [makeReport({ id: 'z' })], count: 5 }]
         await expectLogic(logic, () => {
@@ -335,7 +336,7 @@ describe('todayLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.loadMoreReports()
         }).toDispatchActions(['loadMoreReportsSuccess'])
-        expect(listParams!.get('offset')).toBe('1')
+        expect(Object.fromEntries(listParams!.entries())).toMatchObject({ offset: '0', exclude: 'z' })
     })
 
     it('shows sample reports from ?sample=1 without asking the API, until ?sample=0 even if the reload fails', async () => {

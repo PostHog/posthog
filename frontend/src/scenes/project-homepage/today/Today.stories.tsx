@@ -696,7 +696,15 @@ const meta: Meta = {
                     }
                     const limit = Number(params.get('limit') ?? REPORTS.length)
                     const offset = Number(params.get('offset') ?? 0)
-                    return [200, { results: ALL_REPORTS.slice(offset, offset + limit), count: OPEN_REPORT_COUNT }]
+                    const excluded = new Set(params.get('exclude')?.split(',') ?? [])
+                    const ranked = ALL_REPORTS.filter((report) => !excluded.has(report.id))
+                    return [
+                        200,
+                        {
+                            results: ranked.slice(offset, offset + limit),
+                            count: OPEN_REPORT_COUNT - (ALL_REPORTS.length - ranked.length),
+                        },
+                    ]
                 },
                 '/api/projects/:team_id/signals/reports/available_reviewers/': {},
                 '/api/projects/:team_id/signals/reports/:id/pr_checks/': { checks: [] },
