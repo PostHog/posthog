@@ -6,7 +6,7 @@ The artefact's team/report IDs, creation timestamp, and actor attribution identi
 Selecting the current priority adds no correction. These records are available for future priority learning; they do not introduce a new ranking label or training head.
 Research already running when a priority is edited preserves that correction; a later research run can reassess it.
 
-The report-embedding and title-embedding ranking families use one example per report per head, from the report's birth-day snapshot.
+The report-embedding ranking family uses one example per report per head, from the report's birth-day snapshot.
 This prevents long-lived reports from receiving more weight in training because they appear in more daily snapshots.
 Birth days use the UTC interval returned by `snapshot_bounds`, including the start and excluding the end.
 The label comes from the snapshot `horizon_days` later, including outcomes already present on the birth day.
@@ -43,7 +43,7 @@ Each head in `metadata.json` records `cohort` (`everyone`) and `horizon_days`.
 ## Row budget
 
 A feature set can limit the rows one head keeps (`max_examples_per_head`).
-The embedding families set it to 100,000.
+The report-embedding family sets it to 100,000.
 The budget limits history, not the rows inside a day:
 
 - The head's examples are grouped by report-creation day, newest first.

@@ -28,8 +28,7 @@ graded on the same rows, not a competitor for another family's pointer.
 Both the candidate and the champion asset walk `families_trained_in(MAIN_LOCATION)`, so each family trains on the
 examples of the feature set it declares and decides against its own pointer. A family whose
 examples or metadata are missing that day is logged and skipped: its own series has a gap, and
-every other family still trains, promotes and gets graded. The two embedding families read one text
-rendering each, from separate snapshots, so a missing snapshot costs one family and not the pair.
+every other family still trains, promotes and gets graded.
 The `nn` family is trained by the `signals_ml` location (`nn/dag.py`) and never here.
 
 Two further assets grade the served models on data no example covers. `inbox_ranking_served_scores`
@@ -62,7 +61,6 @@ from products.signals.backend.ranking.features import (
     EMBEDDING_INSERTED_AT_COLUMN,
     FEATURE_SETS,
     REPORT_EMBEDDINGS_EXTRA,
-    TITLE_EMBEDDINGS_EXTRA,
     Extras,
     FeatureSet,
 )
@@ -95,7 +93,6 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
     LABELS_TABLE,
     PROJECT_VECTORS_TABLE,
     STATE_TABLE,
-    TITLE_EMBEDDINGS_TABLE,
 )
 from products.signals.dags.inbox_ranking.training.examples import (
     BASE_STATE_COLUMNS,
@@ -279,13 +276,10 @@ def load_snapshots(
     return snapshots
 
 
-# The dt=D snapshot table behind each embedding side input. One table per rendering, read on its
-# own: a rendering's snapshot can be missing while the other's is present, and the families must
-# not share a fate.
+# The dt=D snapshot table behind each embedding side input, one table per rendering.
 _EXTRA_SNAPSHOT_TABLES: Mapping[str, str] = MappingProxyType(
     {
         REPORT_EMBEDDINGS_EXTRA: EMBEDDINGS_TABLE,
-        TITLE_EMBEDDINGS_EXTRA: TITLE_EMBEDDINGS_TABLE,
     }
 )
 
@@ -372,10 +366,8 @@ _LOOKBACK_MAPPING = dagster.TimeWindowPartitionMapping(
     deps=[
         dagster.AssetDep(STATE_TABLE, partition_mapping=_LOOKBACK_MAPPING),
         dagster.AssetDep(LABELS_TABLE, partition_mapping=_LOOKBACK_MAPPING),
-        # Only dt=D: `embeddings_extras` explains why one snapshot serves the whole window. One
-        # dependency per rendering, so a missing title snapshot costs only the title family.
+        # Only dt=D: `embeddings_extras` explains why one snapshot serves the whole window.
         EMBEDDINGS_TABLE,
-        TITLE_EMBEDDINGS_TABLE,
     ],
     **COMMON_ASSET_KWARGS,
 )
