@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import type { IntegrationType, TeamType } from '~/types'
 
+import type { TeamPublicType } from '../../../../../frontend/src/types'
 import { newBroadcastAgentLogic } from '../../Broadcasts/newBroadcastAgentLogic'
 import type { HogFlowTemplate } from '../../Workflows/hogflows/types'
 import { newWorkflowLogic } from '../../Workflows/newWorkflowLogic'
@@ -45,16 +46,16 @@ function isOnboardingPath(value: unknown): value is WorkflowsOnboardingPath {
 export interface workflowsOnboardingWizardLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     integrations: IntegrationType[] | null // integrationsLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     workflowTemplates: HogFlowTemplate[] // workflowTemplatesLogic
     workflowTemplatesLoading: boolean // workflowTemplatesLogic
     guideSteps: SetupGuideStep[] | null // workflowsSetupGuideLogic
-    currentTeam: TeamType | null // teamLogic
     canEditSendingRules: boolean
-    connectionsNeeded: WizardConnection[]
     chosenFrequencyCap: FrequencyCap
+    connectionsNeeded: WizardConnection[]
     continueDisabledReason: string | null
-    customFrequencyCap: FrequencyCap | null
     currentStep: WizardStepKey
+    customFrequencyCap: FrequencyCap | null
     engagementEventsChoice: boolean | null
     frequencyCapChoice: FrequencyCapChoice | null
     frequencyCapError: string | null
@@ -93,13 +94,7 @@ export interface workflowsOnboardingWizardLogicActions {
     createWorkflowFromTemplate: (template: HogFlowTemplate) => {
         template: HogFlowTemplate
     } // newWorkflowLogic
-    updateCurrentTeam: (
-        payload: Partial<TeamType>,
-        breakpoint?: any
-    ) => {
-        payload: Partial<TeamType>
-        breakpoint?: any
-    } // teamLogic
+    updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
     loadHasMessagingWorkflow: () => any // workflowsSetupGuideLogic
     loadHasMessagingWorkflowFailure: (
         error: string,
@@ -174,21 +169,7 @@ export interface workflowsOnboardingWizardLogicActions {
 export interface workflowsOnboardingWizardLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         pushEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        stepKeys: (wizardPath: WorkflowsOnboardingPath, pushEnabled: boolean) => readonly WizardStepKey[]
-        currentStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => WizardStepKey
-        offersSuggestions: (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet) => boolean
-        suggestionsFirst: (offersSuggestions: boolean, currentStep: WizardStepKey, templatesShown: boolean) => boolean
-        isLastStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => boolean
-        templates: (workflowTemplates: HogFlowTemplate[], wizardPath: WorkflowsOnboardingPath) => HogFlowTemplate[]
-        selectedTemplate: (
-            workflowTemplates: HogFlowTemplate[],
-            selectedTemplateId: string | null
-        ) => HogFlowTemplate | null
-        startsBlank: (selectedTemplateId: string | null) => boolean
-        connectionsNeeded: (selectedTemplate: HogFlowTemplate | null) => WizardConnection[]
-        missingConnections: (connectionsNeeded: 'slack'[], integrations: IntegrationType[] | null) => WizardConnection[]
-        savedFrequencyCap: (currentTeam: TeamType | null) => FrequencyCap
-        shownEngagementEvents: (engagementEventsChoice: boolean | null) => boolean
+        savedFrequencyCap: (currentTeam: TeamPublicType | TeamType | null) => FrequencyCap
         shownFrequencyCapChoice: (
             frequencyCapChoice: FrequencyCapChoice | null,
             savedFrequencyCap: FrequencyCap
@@ -206,7 +187,21 @@ export interface workflowsOnboardingWizardLogicMeta {
             shownCustomFrequencyCap: FrequencyCap,
             canEditSendingRules: boolean
         ) => string | null
-        canEditSendingRules: (currentTeam: TeamType | null) => boolean
+        shownEngagementEvents: (engagementEventsChoice: boolean | null) => boolean
+        canEditSendingRules: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        stepKeys: (wizardPath: WorkflowsOnboardingPath, pushEnabled: boolean) => readonly WizardStepKey[]
+        currentStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => WizardStepKey
+        offersSuggestions: (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet) => boolean
+        suggestionsFirst: (offersSuggestions: boolean, currentStep: WizardStepKey, templatesShown: boolean) => boolean
+        isLastStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => boolean
+        templates: (workflowTemplates: HogFlowTemplate[], wizardPath: WorkflowsOnboardingPath) => HogFlowTemplate[]
+        selectedTemplate: (
+            workflowTemplates: HogFlowTemplate[],
+            selectedTemplateId: string | null
+        ) => HogFlowTemplate | null
+        startsBlank: (selectedTemplateId: string | null) => boolean
+        connectionsNeeded: (selectedTemplate: HogFlowTemplate | null) => WizardConnection[]
+        missingConnections: (connectionsNeeded: 'slack'[], integrations: IntegrationType[] | null) => WizardConnection[]
         stepDone: (
             wizardPath: WorkflowsOnboardingPath,
             guideSteps: SetupGuideStep[] | null,
