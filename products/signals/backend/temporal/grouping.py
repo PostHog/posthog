@@ -41,7 +41,8 @@ from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
-from products.signals.backend.spend import signal_spend_summaries
+from products.signals.backend.spend import complete_signal_pipeline, signal_spend_summaries
+from products.signals.backend.spend_billing import report_usage_billing_mode, system_source_exempt
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
@@ -888,6 +889,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     parent_report = report
                     inherit_content = not _is_safety_suppressed(str(parent_report.id), input.team_id)
                     report = SignalReport.objects.create(
+                        usage_based_billing=report_usage_billing_mode(team_id=input.team_id, signal_id=input.signal_id),
                         team_id=input.team_id,
                         status=SignalReport.Status.POTENTIAL,
                         total_weight=input.weight,
@@ -915,6 +917,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     report.save(update_fields=update_fields)
             else:
                 report = SignalReport.objects.create(
+                    usage_based_billing=report_usage_billing_mode(team_id=input.team_id, signal_id=input.signal_id),
                     team_id=input.team_id,
                     status=SignalReport.Status.POTENTIAL,
                     total_weight=input.weight,
@@ -1167,6 +1170,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             db_result.report_id, input.team_id
         ):
             report_title = ""
+        await database_sync_to_async(complete_signal_pipeline)(
+            team_id=input.team_id,
+            signal_id=input.signal_id,
+            report_id=db_result.report_id,
+            billing_exempt=system_source_exempt(input.source_product),
+        )
         return AssignAndEmitSignalOutput(
             report_id=db_result.report_id,
             promoted=db_result.promoted,

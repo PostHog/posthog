@@ -211,17 +211,15 @@ class TestScoutReportPersistence(BaseTest):
             patch("posthog.temporal.common.client.async_connect", new=AsyncMock()),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            TaskRun.objects.create(
-                team=self.team,
-                task=task,
+            task.create_run(
                 environment=TaskRun.Environment.CLOUD,
-                state={
+                extra_state={
                     "ai_stage": "implementation",
                     "unprocessed_request_ids": [],
                     "token_cost": {"model": {"provider": {"cost_microusd": 10_001}}},
                 },
             )
-        assert signal_spend_totals(team_id=self.team.id, signal_ids=doc_ids) == {doc_ids[0]: 5.0001}
+        assert signal_spend_totals(team_id=self.team.id, signal_ids=doc_ids) == {doc_ids[0]: 5.0001, doc_ids[1]: 0}
         report.refresh_from_db()
         assert str(report.triggering_signal_id) == doc_ids[0]
 

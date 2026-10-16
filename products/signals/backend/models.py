@@ -333,6 +333,7 @@ class SignalReport(UUIDModel):
     # set via `billing.mark_report_billing_exempt` while no billable PR run exists, and never
     # flipped afterwards, so no usage report can observe the value changing. Null = billable.
     billing_exempt_reason = models.CharField(max_length=30, choices=BillingExemptReason, null=True, blank=True)
+    usage_based_billing = models.BooleanField(default=False, db_default=False, null=True)
     # The status held immediately before the report was suppressed (archived). Lets "restore"
     # return the report to where it was instead of always dropping it back to POTENTIAL.
     # Null for reports that were never suppressed (and cleared again on restore).
@@ -3676,12 +3677,12 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
 
 
-class SignalSpend(TeamScopedRootMixin, UUIDModel):
-    """One absolute cost observation per gateway request or task run."""
+class LegacySignalSpend(TeamScopedRootMixin, UUIDModel):
+    """Read during the owner-spend cutover while old workers can still write sources."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     signal_id = models.UUIDField(null=True, blank=True)
-    scout_run = models.ForeignKey(SignalScoutRun, on_delete=models.CASCADE, null=True, blank=True)
+    scout_run = models.ForeignKey(SignalScoutRun, on_delete=models.CASCADE, null=True, blank=True, related_name="+")
     task_id = models.UUIDField(null=True, blank=True, db_index=True)
     source_id = models.CharField(max_length=255)
     stage = models.CharField(max_length=100, default="unknown")
@@ -3692,6 +3693,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        db_table = "signals_signalspend"
         constraints = [
             models.UniqueConstraint(fields=["team", "source_id", "is_task"], name="signals_spend_source_unique"),
             models.CheckConstraint(
@@ -3705,4 +3707,48 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
         ]
         indexes = [
             models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
+        ]
+
+
+class SignalSpend(TeamScopedRootMixin, UUIDModel):
+    """Cumulative spend for one signal or scout run, including unfinalized work."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    signal_id = models.UUIDField(null=True, blank=True)
+    scout_run = models.ForeignKey(
+        SignalScoutRun, on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True, related_name="+"
+    )
+    report_id = models.UUIDField(null=True, blank=True, db_index=True)
+    task_ids = ArrayField(models.UUIDField(), default=list)
+    llm_cost_microusd = models.BigIntegerField(default=0)
+    llm_failed_stages = ArrayField(models.CharField(max_length=100), default=list)
+    token_cost_microusd = models.BigIntegerField(default=0)
+    task_count = models.PositiveIntegerField(default=0)
+    accounting_failed = models.BooleanField(default=False)
+    finalized_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    usage_based_billing = models.BooleanField(default=False, null=True)
+    billing_exempt = models.BooleanField(default=False)
+    billing_amounts = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "signals_ownerspend"
+        indexes = [
+            GinIndex(fields=["task_ids"], name="signals_owner_spend_tasks"),
+            GinIndex(fields=["billing_amounts"], name="signals_spend_billing_days"),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "signal_id"], name="signals_owner_spend_signal"),
+            models.UniqueConstraint(fields=["team", "scout_run"], name="signals_owner_spend_scout"),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(signal_id__isnull=False, scout_run__isnull=True)
+                    | models.Q(signal_id__isnull=True, scout_run__isnull=False)
+                ),
+                name="signals_owner_spend_one_owner",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(token_cost_microusd__gte=0), name="signals_owner_spend_nonnegative"
+            ),
         ]

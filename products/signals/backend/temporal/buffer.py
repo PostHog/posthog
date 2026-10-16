@@ -25,6 +25,8 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.quota import is_team_signals_quota_limited
+from products.signals.backend.spend import complete_signal_pipeline
+from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped_event, signal_dropped_input
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
@@ -100,6 +102,13 @@ async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) ->
     if daily_gate.limited:
         capture_signal_report_daily_limit_paused(team, report_id=None, stage="ingestion", gate=daily_gate)
     if quota_limited:
+        for signal in input.signals:
+            if signal.signal_id:
+                await database_sync_to_async(complete_signal_pipeline)(
+                    team_id=input.team_id,
+                    signal_id=signal.signal_id,
+                    billing_exempt=system_source_exempt(signal.source_product),
+                )
         logger.info(
             "signals_buffer.dropped_batch_quota_limited",
             team_id=input.team_id,
@@ -115,6 +124,13 @@ async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) ->
             signal_count=input.signal_count,
         )
         metrics.increment_dropped(stage="ingestion", reason="daily_report_limit", count=input.signal_count)
+        for signal in input.signals:
+            if signal.signal_id:
+                await database_sync_to_async(complete_signal_pipeline)(
+                    team_id=input.team_id,
+                    signal_id=signal.signal_id,
+                    billing_exempt=system_source_exempt(signal.source_product),
+                )
         _capture_ingestion_drops(team, input.signals, "daily_report_limit", "Daily report limit reached")
         return True
     return False

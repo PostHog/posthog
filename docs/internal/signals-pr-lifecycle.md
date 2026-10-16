@@ -226,3 +226,21 @@ Missing data, failed checks, and inconclusive results do not establish that the 
 
 When a report has a linked task run, the View task button opens it in the PostHog AI sidebar.
 The button fits its label, including when it appears below the Solution section.
+
+## Spend completion
+
+Each signal or scout run owns one cumulative `SignalSpend` row. One-shot LLM calls add their cost when generation returns. A retried generation is another paid call. Task costs and request deduplication stay in Tasks; the owner reads those totals and counts each task run once. Resumed runs remain attached to the signal that originally started the task, even if the report has since acquired a different triggering signal.
+
+Workflows explicitly finalize spend. Task teardown waits for gateway accounting through a retrying activity before returning, and pipeline sessions await that completion. The summary workflow closes spend after its implementation dispatch decision; an implementation task closes it after execution and accounting finish. A dropped signal closes at the drop. Failed and cancelled tasks also settle their costs. Persistent missing usage leaves spend unfinalized and fails the completion activity; it is never treated as zero. A later run reopens the same owner row.
+
+The owner stores no request inventory or pending-work list. The old source table remains readable during rolling deployment so late writes from older workers remain visible without double counting. New workers write only owner rows. Removing the compatibility table requires a later migration after old workers have drained.
+
+## Usage-based billing rollout
+
+`self-driving-usage-based-billing` selects the meter for newly started work, by organization. Each owner and newly created report stores that choice. Existing reports, historical spend and in-flight legacy work keep report-based billing; turning the flag off does not reinterpret work already using the new meter. An unavailable local flag evaluation leaves the new work unbilled with an unknown billing mode; it never guesses a charge.
+
+Usage-mode owners record finalized cost on the UTC day it settles, in the same row as their spend. Reopening does not remove already recognized amounts: the next completion adds only the additional cost to its completion day. Unknown costs remain unreported. Repeating a usage report returns that day's full quantity, rather than another increment. Negative corrections to already recognized costs mark accounting incomplete and require a billing credit; the meter does not silently rewrite invoiced history.
+
+The shared usage counter combines those daily amounts with legacy report charges. It rounds the total once per team and UTC day to whole credits, including during period recounts. One credit is still one cent; the existing `inbox` product, `signals_credits` usage key, allowances, paid limits, reporting schedules and quota gates remain in use. The existing quota refresh sees settled usage; this change does not introduce request-level reservations or a hard provider-spend cap.
+
+Free-trial organizations retain the legacy meter, where no PR means no charge. System-funded signals, canonical health-check scouts and private scout trials remain excluded. Usage-mode reports do not generate the flat PR charge, so the existing fixed-PR refund is only available for legacy reports. The flag remains disabled until rollout; this backend change does not convert the existing PR-based billing presentation.

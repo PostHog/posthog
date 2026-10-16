@@ -79,7 +79,12 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
-from products.signals.backend.spend import SignalMetadataChange, submit_signal_metadata_updates
+from products.signals.backend.spend import (
+    SignalMetadataChange,
+    complete_signal_pipeline,
+    submit_signal_metadata_updates,
+)
+from products.signals.backend.spend_billing import report_usage_billing_mode
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, research_implementation_context
 
 if TYPE_CHECKING:
@@ -246,6 +251,9 @@ def create_scout_report(
         with transaction.atomic():
             report = SignalReport.objects.create(
                 team_id=team_id,
+                usage_based_billing=report_usage_billing_mode(
+                    team_id=team_id, scout_run_id=str(run.id) if run else None
+                ),
                 status=status,
                 title=title,
                 summary=summary,
@@ -1460,6 +1468,7 @@ def _emit_bound_signal(
         timestamp=signal.timestamp or timezone.now(),
         metadata=metadata,
     )
+    complete_signal_pipeline(team_id=team_id, signal_id=document_id, report_id=report_id)
 
 
 def _signal_metadata(*, report_id: str, source_id: str, weight: float, extra: dict | None) -> dict:

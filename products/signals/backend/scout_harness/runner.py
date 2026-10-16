@@ -77,6 +77,7 @@ from products.signals.backend.scout_harness.trial_launch import (
 )
 from products.signals.backend.scout_harness.trial_result import export_trial_result, validate_trial_runtime
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
+from products.signals.backend.spend import record_task_spend
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -1426,7 +1427,7 @@ def _create_run_row(
     # by it. Absent when no pre-check ran.
     if precheck_query_source:
         metadata["precheck_query_source"] = precheck_query_source
-    return SignalScoutRun.objects.unscoped().create(
+    run = SignalScoutRun.objects.for_team(team.id).create(
         id=run_id,
         task_run_id=task_run_id,
         team=team,
@@ -1436,6 +1437,12 @@ def _create_run_row(
         metadata=metadata,
         trial_state=initial_trial_state() if trial is not None else None,
     )
+    try:
+        with transaction.atomic():
+            record_task_spend(team_id=team.id, run_id=str(task_run_id), scout_run_id=str(run.id), stage="scout")
+    except Exception:
+        logger.exception("signals.spend.accounting_failed", extra={"stage": "scout", "team_id": team.id})
+    return run
 
 
 @dataclass(frozen=True)

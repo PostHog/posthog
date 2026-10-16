@@ -114,6 +114,7 @@ def create_layer_reports(
     for index, layer in enumerate(layers):
         child = SignalReport.objects.create(
             team_id=team_id,
+            usage_based_billing=parent.usage_based_billing,
             triggering_signal_id=parent.triggering_signal_id,
             status=SignalReport.Status.READY,
             title=layer.title,

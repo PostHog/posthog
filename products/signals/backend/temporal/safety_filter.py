@@ -17,10 +17,13 @@ from temporalio import activity
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.redis import get_async_client
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.facade.api import _telemetry_props_from_extra
+from products.signals.backend.spend import complete_signal_pipeline
+from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
@@ -358,6 +361,12 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
         raise
 
     if not result.safe:
+        if input.signal_id and input.team_id is not None:
+            await database_sync_to_async(complete_signal_pipeline)(
+                team_id=input.team_id,
+                signal_id=input.signal_id,
+                billing_exempt=system_source_exempt(input.source_product),
+            )
         metrics.increment_safety_blocked(input.source_product or "unknown")
         await _capture_signal_blocked_event(input, result)
 

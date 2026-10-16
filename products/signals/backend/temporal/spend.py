@@ -10,19 +10,13 @@ from posthog.temporal.common.base import PostHogWorkflow
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import asyncify
 
-    from products.signals.backend.spend import (
-        SignalMetadataChange,
-        SignalSpendPublication,
-        SignalSpendUpdate,
-        settle_signal_task_spend,
-    )
+    from products.signals.backend.spend import SignalMetadataChange, SignalSpendPublication, SignalSpendUpdate
     from products.signals.backend.spend_metadata import confirm_signal_spend_metadata, publish_signal_spend_metadata
 
 
 @activity.defn
 @asyncify
 def update_signal_spend_activity(input: SignalSpendUpdate) -> SignalSpendPublication:
-    settle_signal_task_spend(team_id=input.team_id, signal_id=input.signal_id)
     return publish_signal_spend_metadata(input)
 
 

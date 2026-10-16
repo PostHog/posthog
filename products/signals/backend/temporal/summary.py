@@ -51,7 +51,7 @@ from products.signals.backend.report_generation.research import ActionabilityCho
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metric_query_access import query_filter_shape_allows_read
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS
-from products.signals.backend.spend import publish_report_spend
+from products.signals.backend.spend import begin_report_spend, complete_report_spend, publish_report_spend
 from products.signals.backend.stack_plan import create_layer_reports, start_unblocked_layers_of_plan
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic.report import (
@@ -819,6 +819,10 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.IN_PROGRESS:
                 return report.run_count, True
+            if report.triggering_signal_id:
+                begin_report_spend(
+                    team_id=input.team_id, report_id=input.report_id, signal_id=str(report.triggering_signal_id)
+                )
             updated_fields = report.transition_to(
                 SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
             )
@@ -1480,4 +1484,5 @@ async def publish_report_completed_activity(input: PublishReportCompletedInput) 
 @temporalio.activity.defn
 @scoped_temporal()
 async def publish_report_spend_activity(input: SignalReportSummaryWorkflowInputs) -> None:
+    await complete_report_spend(team_id=input.team_id, report_id=input.report_id)
     await publish_report_spend(team_id=input.team_id, report_id=input.report_id)
