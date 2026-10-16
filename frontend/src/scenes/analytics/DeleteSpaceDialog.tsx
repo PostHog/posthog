@@ -22,10 +22,10 @@ export function DeleteSpaceDialog(): JSX.Element {
         <Dialog open={!!deletingSpace} onOpenChange={(open: boolean) => !open && closeDeleteSpace()}>
             <DialogContent data-attr="analytics-delete-space-dialog">
                 <DialogHeader>
-                    <DialogTitle>{deletingSpace ? `Delete "${deletingSpace.name}"` : 'Delete space'}</DialogTitle>
+                    <DialogTitle>{deletingSpace ? `Delete "${deletingSpace.name}"` : 'Delete collection'}</DialogTitle>
                     <DialogDescription>
                         Nothing inside gets deleted. Its dashboards, insights, notebooks and canvases go back to
-                        unfiled, as personal items outside every space. Folders in this space are removed.
+                        unfiled, outside every collection. Folders in this collection are removed.
                     </DialogDescription>
                 </DialogHeader>
                 <DialogFooter>
@@ -38,7 +38,7 @@ export function DeleteSpaceDialog(): JSX.Element {
                         onClick={() => deleteSpace()}
                         data-attr="analytics-delete-space-confirm"
                     >
-                        Delete space
+                        Delete collection
                     </Button>
                 </DialogFooter>
             </DialogContent>

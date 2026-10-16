@@ -34,22 +34,22 @@ export const ANALYTICS_PREFETCH_COUNT = ANALYTICS_FEED_PAGE_SIZE
 // A folder lists its direct children in one request. Deeper folders are opened by drilling in.
 const FOLDER_PAGE_SIZE = 100
 
-export const CREATED_BY_ME = 'me'
-
 export interface AnalyticsListFilters {
     type: AnalyticsTypeFilter
     search: string
-    /** `me`, a user uuid, or null for anyone. */
-    createdBy: string | null
+    /** User uuids; empty means anyone. */
+    createdBy: string[]
     /** A file system folder path to browse, '' for the project root, or null for the whole project. */
     folder: string | null
+    tags: string[]
 }
 
 export const DEFAULT_ANALYTICS_LIST_FILTERS: AnalyticsListFilters = {
     type: 'all',
     search: '',
-    createdBy: null,
+    createdBy: [],
     folder: null,
+    tags: [],
 }
 
 export type AnalyticsListMode = 'feed' | 'folder'
@@ -71,13 +71,24 @@ export interface FolderRow {
 
 export type AnalyticsListState = 'loading' | 'error' | 'empty' | 'no-matches' | 'ready'
 
+function stringList(value: unknown): string[] {
+    if (typeof value === 'string') {
+        return value ? [value] : []
+    }
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
 export function analyticsListFiltersFromUrl(params: Record<string, any>): AnalyticsListFilters {
     const type = typeof params.type === 'string' && isAnalyticsType(params.type) ? params.type : 'all'
+    const tags = Array.isArray(params.tags)
+        ? params.tags.filter((tag: unknown): tag is string => typeof tag === 'string')
+        : []
     return {
         type,
         search: typeof params.search === 'string' ? params.search : '',
-        createdBy: typeof params.createdBy === 'string' && params.createdBy ? params.createdBy : null,
+        createdBy: stringList(params.createdBy),
         folder: typeof params.folder === 'string' ? params.folder : null,
+        tags,
     }
 }
 
@@ -85,28 +96,32 @@ export function analyticsListUrlParams(filters: AnalyticsListFilters): Analytics
     return {
         type: filters.type === 'all' ? undefined : filters.type,
         search: filters.search.trim() || undefined,
-        createdBy: filters.createdBy ?? undefined,
+        createdBy: filters.createdBy.length ? filters.createdBy : undefined,
         folder: filters.folder ?? undefined,
+        tags: filters.tags.length ? filters.tags : undefined,
     }
 }
 
 export function analyticsListFiltersActive(filters: AnalyticsListFilters): boolean {
-    return filters.type !== 'all' || !!filters.search.trim() || !!filters.createdBy || filters.folder !== null
+    return (
+        filters.type !== 'all' ||
+        !!filters.search.trim() ||
+        filters.createdBy.length > 0 ||
+        filters.folder !== null ||
+        filters.tags.length > 0
+    )
 }
 
 /** Narrows rows the server did not filter: folder contents come back whole. */
-export function filterAnalytics(
-    items: AnalyticsItem[],
-    filters: AnalyticsListFilters,
-    currentUserUuid: string | null
-): AnalyticsItem[] {
+export function filterAnalytics(items: AnalyticsItem[], filters: AnalyticsListFilters): AnalyticsItem[] {
     const needle = filters.search.trim().toLowerCase()
-    const createdBy = filters.createdBy === CREATED_BY_ME ? currentUserUuid : filters.createdBy
+    const createdBy = filters.createdBy
     return items.filter(
         (item) =>
+            filters.tags.every((tag) => item.tags.includes(tag)) &&
             (filters.type === 'all' || item.type === filters.type) &&
             (!needle || item.name.toLowerCase().includes(needle)) &&
-            (!createdBy || item.createdBy?.uuid === createdBy)
+            (!createdBy.length || (!!item.createdBy && createdBy.includes(item.createdBy.uuid)))
     )
 }
 
@@ -117,7 +132,7 @@ export interface analyticsListLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
-    creator: string | null
+    creators: string[]
     currentFeed: AnalyticsFeed
     failedTypes: AnalyticsFeed['failedTypes']
     feed: AnalyticsFeed
@@ -249,8 +264,8 @@ export interface analyticsListLogicMeta {
         mode: (filters: AnalyticsListFilters) => AnalyticsListMode
         filtersActive: (filters: AnalyticsListFilters) => boolean
         narrowingFiltersActive: (filters: AnalyticsListFilters) => boolean
-        creator: (filters: AnalyticsListFilters, user: UserType | null, scope: AnalyticsListScope) => string | null
-        feedQuery: (filters: AnalyticsListFilters, feedSearch: string, creator: string | null) => AnalyticsFeedQuery
+        creators: (filters: AnalyticsListFilters, user: UserType | null, scope: AnalyticsListScope) => string[]
+        feedQuery: (filters: AnalyticsListFilters, feedSearch: string, creators: string[]) => AnalyticsFeedQuery
         currentFeed: (
             sources: Record<string, AnalyticsSourceState>,
             spaceNames: Record<string, string>,
@@ -270,7 +285,6 @@ export interface analyticsListLogicMeta {
             feed: AnalyticsFeed,
             folderContents: FolderContents | null,
             filters: AnalyticsListFilters,
-            user: UserType | null,
             scope: AnalyticsListScope,
             showPersonal: boolean
         ) => AnalyticsItem[]
@@ -434,21 +448,19 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             (s) => [s.filters],
             (filters: AnalyticsListFilters): boolean => analyticsListFiltersActive({ ...filters, folder: null }),
         ],
-        creator: [
+        // My work narrows to the person; View all narrows to whoever they picked.
+        creators: [
             (s) => [s.filters, s.user, s.scope],
-            (filters: AnalyticsListFilters, user: UserType | null, scope: AnalyticsListScope): string | null => {
-                if (scope === 'mine' || filters.createdBy === CREATED_BY_ME) {
-                    return user?.uuid ?? null
-                }
-                return filters.createdBy
-            },
+            (filters: AnalyticsListFilters, user: UserType | null, scope: AnalyticsListScope): string[] =>
+                scope === 'mine' ? (user?.uuid ? [user.uuid] : []) : filters.createdBy,
         ],
         feedQuery: [
-            (s) => [s.filters, s.feedSearch, s.creator],
-            (filters: AnalyticsListFilters, feedSearch: string, creator: string | null): AnalyticsFeedQuery => ({
+            (s) => [s.filters, s.feedSearch, s.creators],
+            (filters: AnalyticsListFilters, feedSearch: string, creators: string[]): AnalyticsFeedQuery => ({
                 type: filters.type,
                 search: feedSearch.trim(),
-                createdBy: creator,
+                createdBy: creators,
+                tags: filters.tags,
             }),
         ],
         currentFeed: [
@@ -482,13 +494,12 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             (currentFeed: AnalyticsFeed, feed: AnalyticsFeed): boolean => !currentFeed.initialized && feed.initialized,
         ],
         items: [
-            (s) => [s.mode, s.feed, s.folderContents, s.filters, s.user, s.scope, s.showPersonal],
+            (s) => [s.mode, s.feed, s.folderContents, s.filters, s.scope, s.showPersonal],
             (
                 mode: AnalyticsListMode,
                 feed: AnalyticsFeed,
                 folderContents: FolderContents | null,
                 filters: AnalyticsListFilters,
-                user: UserType | null,
                 scope: AnalyticsListScope,
                 showPersonal: boolean
             ): AnalyticsItem[] => {
@@ -505,7 +516,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                         : null
                     return item ? [item] : []
                 })
-                return filterAnalytics(items, filters, user?.uuid ?? null)
+                return filterAnalytics(items, filters)
             },
         ],
         subfolders: [
@@ -690,12 +701,13 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                     posthog.capture('views list filtered', {
                         type: values.filters.type,
                         changed,
-                        created_by: values.filters.createdBy
-                            ? values.filters.createdBy === CREATED_BY_ME
-                                ? 'me'
-                                : 'other'
-                            : 'anyone',
+                        created_by: !values.filters.createdBy.length
+                            ? 'anyone'
+                            : values.user?.uuid && values.filters.createdBy.includes(values.user.uuid)
+                              ? 'me'
+                              : 'other',
                         folder: values.filters.folder !== null,
+                        tag_count: values.filters.tags.length,
                     })
                 }
                 loadCurrentMode()

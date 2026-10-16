@@ -46,11 +46,13 @@ export function TodayAnalyticsNewFolderDialog(): JSX.Element {
                     }}
                 >
                     <DialogHeader>
-                        <DialogTitle>{newFolderParent ? `New folder in ${newFolderParent}` : 'New space'}</DialogTitle>
+                        <DialogTitle>
+                            {newFolderParent ? `New folder in ${newFolderParent}` : 'New collection'}
+                        </DialogTitle>
                         <DialogDescription>
                             {newFolderParent
                                 ? 'A folder inside this space, for grouping what the space shares.'
-                                : 'A space for a team or an area. Share dashboards, insights, notebooks and canvases into it from their own pages.'}
+                                : 'A collection for a team or an area. Add dashboards, insights, notebooks and canvases to it from their own pages.'}
                         </DialogDescription>
                     </DialogHeader>
                     <DialogBody>

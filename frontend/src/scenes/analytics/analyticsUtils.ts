@@ -272,7 +272,7 @@ export function fileSystemEntryToAnalytics(
         createdBy: creator
             ? { uuid: creator.uuid, first_name: creator.first_name, last_name: creator.last_name, email: creator.email }
             : null,
-        tags: [],
+        tags: stringTags(Array.isArray(entry.meta?.tags) ? entry.meta.tags : undefined),
         spaceId: analyticsSpaceOfPath(entry.path),
         spaceName: analyticsSpaceOfPath(entry.path),
         firstBuildTaskId: null,

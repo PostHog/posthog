@@ -42,7 +42,7 @@ export function InsightShareMenu({ insight }: InsightShareMenuProps): JSX.Elemen
             <LemonMenu
                 items={[
                     {
-                        label: insightSpace ? `Move from ${insightSpace}` : 'Share into a space',
+                        label: insightSpace ? `Move from ${insightSpace}` : 'Add to a collection',
                         icon: <IconShare />,
                         onClick: () => openShareToSpace({ type: 'insight', ref: shortId, name: insightName }),
                         'data-attr': 'insight-share-into-space',

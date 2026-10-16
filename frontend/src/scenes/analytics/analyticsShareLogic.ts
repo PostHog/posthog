@@ -193,7 +193,11 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
                 const folder = space ? space.path : `${UNFILED_FOLDER}/${ANALYTICS_TYPE_INFO[target.type].pluralLabel}`
                 await api.fileSystem.move(entry.id, `${folder}/${escapePath(target.name)}`)
                 lemonToast.success(
-                    space ? (wasShared ? `Moved to ${space.name}` : `Shared into ${space.name}`) : 'Made personal'
+                    space
+                        ? wasShared
+                            ? `Moved to ${space.name}`
+                            : `Added to ${space.name}`
+                        : 'Removed from its collection'
                 )
                 actions.itemSpaceLoaded(shareTargetKey(target), space ? space.name : null)
                 actions.loadSpaces()

@@ -189,7 +189,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                     sidebarVisible && (
                         <aside
                             ref={sidebarRef}
-                            className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative bg-[var(--scene-layout-background)]"
+                            className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative bg-surface-primary"
                             aria-label={paneTitle}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: sidebarWidth }}

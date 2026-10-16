@@ -346,7 +346,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.AnalyticsSpaces]: {
         projectBased: true,
-        name: 'Spaces',
+        name: 'Collections',
     },
     [Scene.AnalyticsProductHome]: {
         projectBased: true,

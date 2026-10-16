@@ -1,17 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEye, IconHide, IconSearch, IconTrends } from '@posthog/icons'
+import { IconSearch, IconTrends } from '@posthog/icons'
 import {
     Button,
     InputGroup,
     InputGroupAddon,
     InputGroupInput,
     InputGroupText,
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
     ToggleGroup,
     ToggleGroupItem,
 } from '@posthog/quill'
@@ -20,27 +15,29 @@ import { fullName } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { CREATED_BY_ME, analyticsListLogic } from './analyticsListLogic'
+import { tagsModel } from '~/models/tagsModel'
+
+import { AnalyticsFilterOption, AnalyticsFilterPicker } from './AnalyticsFilterPicker'
+import { analyticsListLogic } from './analyticsListLogic'
+import { AnalyticsOwnerAvatar } from './AnalyticsOwner'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
 import { ANALYTICS_TYPES, AnalyticsTypeFilter } from './analyticsUtils'
 
-const ANYONE = 'anyone'
-
 /** Search, type, creator and the personal toggle, all one height so the row reads as one bar. */
 export function AnalyticsListFilters(): JSX.Element {
-    const { filters, filtersActive, searchInput, scope, showPersonal, mode } = useValues(analyticsListLogic)
-    const { setSearchInput, setFilters, clearFilters, setShowPersonal } = useActions(analyticsListLogic)
-    const { meFirstMembers } = useValues(membersLogic)
+    const { filters, filtersActive, searchInput, scope } = useValues(analyticsListLogic)
+    const { setSearchInput, setFilters, clearFilters } = useActions(analyticsListLogic)
+    const { tags: allTags, tagsLoading } = useValues(tagsModel)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
+    const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
     const { user } = useValues(userLogic)
-
-    const memberNames = new Map<string, string>([
-        [ANYONE, 'Created by anyone'],
-        [CREATED_BY_ME, 'Created by me'],
-        ...meFirstMembers
-            .filter((member) => member.user.uuid !== user?.uuid)
-            .map((member): [string, string] => [member.user.uuid, fullName(member.user) || member.user.email]),
-    ])
+    const memberOptions: AnalyticsFilterOption[] = meFirstMembers.map((member) => ({
+        value: member.user.uuid,
+        label: fullName(member.user) || member.user.email,
+        media: <AnalyticsOwnerAvatar owner={member.user} />,
+        hint: member.user.uuid === user?.uuid ? '(you)' : undefined,
+    }))
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -92,42 +89,29 @@ export function AnalyticsListFilters(): JSX.Element {
                 ))}
             </ToggleGroup>
             {scope === 'all' && (
-                <Select
-                    value={filters.createdBy ?? ANYONE}
-                    onValueChange={(value: string | null) =>
-                        setFilters({ createdBy: !value || value === ANYONE ? null : value })
-                    }
-                    onOpenChange={(open: boolean) => open && ensureAllMembersLoaded()}
-                >
-                    <SelectTrigger
-                        size="sm"
-                        aria-label="Filter by creator"
-                        className="h-8 w-44"
-                        data-attr="analytics-list-created-by"
-                    >
-                        <SelectValue>{(value: string) => memberNames.get(value) ?? 'Created by anyone'}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                        {[...memberNames.entries()].map(([value, label]) => (
-                            <SelectItem key={value} value={value}>
-                                {label}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                <AnalyticsFilterPicker
+                    label="Created by"
+                    value={filters.createdBy}
+                    onChange={(createdBy) => setFilters({ createdBy })}
+                    onOpen={ensureAllMembersLoaded}
+                    loading={membersLoading}
+                    options={memberOptions}
+                    searchPlaceholder="Search people"
+                    emptyText="No one matches"
+                    dataAttr="analytics-list-created-by"
+                />
             )}
-            {scope === 'all' && mode === 'feed' && (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8"
-                    onClick={() => setShowPersonal(!showPersonal)}
-                    data-attr="analytics-list-toggle-personal"
-                >
-                    {showPersonal ? <IconHide /> : <IconEye />}
-                    {showPersonal ? 'Hide personal' : 'Show personal'}
-                </Button>
-            )}
+            <AnalyticsFilterPicker
+                label="Tags"
+                value={filters.tags}
+                onChange={(tags) => setFilters({ tags })}
+                onOpen={loadTagsIfNeeded}
+                loading={tagsLoading}
+                options={allTags.map((tag) => ({ value: tag, label: tag }))}
+                searchPlaceholder="Search tags"
+                emptyText="No tag matches"
+                dataAttr="analytics-list-tags"
+            />
             {filtersActive && (
                 <Button variant="link-muted" size="sm" onClick={() => clearFilters()} data-attr="analytics-list-clear">
                     Clear filters

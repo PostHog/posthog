@@ -36,9 +36,10 @@ import type { SettingId, SettingLevelId, SettingSectionId } from './settings/typ
 /** The filters the analytics list reads from its URL. */
 export interface AnalyticsListUrlParams {
     type?: string
-    createdBy?: string
+    createdBy?: string[]
     folder?: string
     search?: string
+    tags?: string[]
 }
 
 export const urls = {

@@ -18,11 +18,11 @@ import { TodayPaneRow } from './TodayPaneRow'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
 import { TodayPaneSection } from './TodayPaneSection'
 
-/** The Analyses sub-nav: the three ways to browse, the spaces a person starred, and what to keep an eye on. */
+/** The Analyses sub-nav: the three ways to browse, the collections a person pinned, and what to keep an eye on. */
 export function TodayAnalyticsSidebar(): JSX.Element {
     const { collapsedSections, fromPostHog } = useValues(todayAnalyticsLogic)
     const { toggleSection } = useActions(todayAnalyticsLogic)
-    const { starredSpaces } = useValues(analyticsSpacesLogic)
+    const { pinnedSpaces } = useValues(analyticsSpacesLogic)
     const { location, searchParams } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
     const isOpen = (section: TodayAnalyticsSection): boolean => !collapsedSections.includes(section)
@@ -45,7 +45,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 <TodayPaneSection
                     label="Browse"
                     open={isOpen('browse')}
-                    count={3 + starredSpaces.length}
+                    count={3 + pinnedSpaces.length}
                     showCount={false}
                     onToggle={() => toggleSection('browse')}
                     dataAttr="analytics-section-browse"
@@ -60,7 +60,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                     />
                     <TodayPaneRow
                         value="browse:mine"
-                        label="My analyses"
+                        label="My work"
                         icon={<IconPerson />}
                         to={urls.analyticsMine()}
                         active={path === urls.analyticsMine()}
@@ -68,13 +68,13 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                     />
                     <TodayPaneRow
                         value="browse:spaces"
-                        label="Spaces"
+                        label="Collections"
                         icon={<IconBox />}
                         to={urls.analyticsSpaces()}
                         active={path === urls.analyticsSpaces()}
                         dataAttr="analytics-sidebar-browse"
                     />
-                    {starredSpaces.map((space) => (
+                    {pinnedSpaces.map((space) => (
                         <TodayPaneRow
                             key={space.path}
                             value={`space:${space.path}`}

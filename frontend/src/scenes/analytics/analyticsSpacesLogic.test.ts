@@ -35,7 +35,12 @@ describe('analyticsSpacesLogic', () => {
         rows = [row('insight/trends', 'i1', 'Scratch/Inner/I'), row('canvas', 'c1', 'Scratch/C')]
         useMocks({
             get: {
-                '/api/projects/:team_id/file_system_shortcut/': { results: [] },
+                '/api/projects/:team_id/file_system_shortcut/': {
+                    results: [
+                        { id: 'sc-home', type: 'folder', path: 'Ada', ref: 'Users/Ada' },
+                        { id: 'sc-growth', type: 'folder', path: 'Growth', ref: 'Growth' },
+                    ],
+                },
                 '/api/projects/:team_id/file_system/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     const parent = params.get('parent')
@@ -85,16 +90,24 @@ describe('analyticsSpacesLogic', () => {
         initKeaTests()
     })
 
-    it('lists spaces alphabetically with counts from the API, leaving out Unfiled and Users', async () => {
+    it('lists spaces alphabetically with counts from the API, pinned ones first, leaving out Unfiled and Users', async () => {
         const logic = analyticsSpacesLogic()
         logic.mount()
-        await expectLogic(logic, () => logic.actions.loadSpaces()).toDispatchActions(['loadSpacesSuccess'])
+        await expectLogic(logic, () => {
+            logic.actions.loadShortcuts()
+            logic.actions.loadSpaces()
+        }).toDispatchActions(['loadShortcutsSuccess', 'loadSpacesSuccess'])
 
         expect(logic.values.spaces.map((space) => [space.name, space.total])).toEqual([
             ['Finance', 0],
             ['Growth', 9],
         ])
         expect(logic.values.spaces[1].counts).toEqual({ canvas: 0, dashboard: 2, insight: 7, notebook: 0 })
+        // The shortcut's ref names the folder; a home folder shortcut is not a space.
+        expect(logic.values.pinnedSpaces.map((space) => space.path)).toEqual(['Growth'])
+        expect(logic.values.visibleSpaces.map((space) => space.name)).toEqual(['Growth', 'Finance'])
+        logic.actions.setSearch('fin')
+        expect(logic.values.visibleSpaces.map((space) => space.name)).toEqual(['Finance'])
     })
 
     it('empties a space to unfiled, then removes its folders deepest first without a recursive delete', async () => {

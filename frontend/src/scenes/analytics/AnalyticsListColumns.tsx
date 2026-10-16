@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { IconFolderMove, IconFolderOpen, IconShare, IconX } from '@posthog/icons'
 import {
     Button,
+    Chip,
+    ChipGroup,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
@@ -49,6 +51,34 @@ function TimeCell({ time, label }: { time: string | null; label?: string }): JSX
     )
 }
 
+// Two chips fit the fixed tags column; the rest fold into a count.
+const VISIBLE_TAGS = 2
+
+function TagsCell({ tags }: { tags: string[] }): JSX.Element {
+    if (!tags.length) {
+        return (
+            <Text size="xs" variant="muted">
+                –
+            </Text>
+        )
+    }
+    const hidden = tags.length - VISIBLE_TAGS
+    return (
+        <ChipGroup className="flex-nowrap overflow-hidden">
+            {tags.slice(0, VISIBLE_TAGS).map((tag) => (
+                <Chip key={tag} size="xs" className="max-w-24 truncate">
+                    {tag}
+                </Chip>
+            ))}
+            {hidden > 0 && (
+                <Text size="xs" variant="muted">
+                    {`+${hidden}`}
+                </Text>
+            )}
+        </ChipGroup>
+    )
+}
+
 function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
     const { openShareToSpace, moveItem } = useActions(analyticsShareLogic)
     const target = { type: item.type, ref: item.id, name: item.name }
@@ -66,10 +96,10 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
                         />
                     }
                 >
-                    Personal
+                    None
                     <IconShare className="size-3" />
                 </TooltipTrigger>
-                <TooltipContent>Share into a space</TooltipContent>
+                <TooltipContent>Add to a collection</TooltipContent>
             </Tooltip>
         )
     }
@@ -96,11 +126,11 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
                     data-attr="analytics-list-row-open-space"
                 >
                     <IconFolderOpen />
-                    {`Open "${item.spaceName}" space`}
+                    {`Open "${item.spaceName}"`}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openShareToSpace(target)} data-attr="analytics-list-row-move">
                     <IconFolderMove />
-                    Move to another space
+                    Move to another collection
                 </DropdownMenuItem>
                 <DropdownMenuItem
                     variant="destructive"
@@ -124,7 +154,7 @@ function MoveCell({ item }: { item: AnalyticsItem }): JSX.Element {
                     <Button
                         variant="default"
                         size="icon-sm"
-                        aria-label="Move to another space"
+                        aria-label="Move to another collection"
                         onClick={() => openShareToSpace({ type: item.type, ref: item.id, name: item.name })}
                         data-attr="analytics-list-row-move"
                     />
@@ -132,7 +162,7 @@ function MoveCell({ item }: { item: AnalyticsItem }): JSX.Element {
             >
                 <IconFolderMove />
             </TooltipTrigger>
-            <TooltipContent>Move to another space</TooltipContent>
+            <TooltipContent>Move to another collection</TooltipContent>
         </Tooltip>
     )
 }
@@ -184,7 +214,7 @@ export function analyticsListColumns({
             ? ([
                   {
                       id: 'space',
-                      header: 'Space',
+                      header: 'Collection',
                       enableSorting: false,
                       cell: ({ row }) => (
                           <div className="w-36">
@@ -194,6 +224,16 @@ export function analyticsListColumns({
                   },
               ] satisfies AnalyticsListColumns)
             : []),
+        {
+            id: 'tags',
+            header: 'Tags',
+            enableSorting: false,
+            cell: ({ row }) => (
+                <div className="w-36 overflow-hidden">
+                    <TagsCell tags={row.original.tags} />
+                </div>
+            ),
+        },
         {
             id: 'owner',
             header: 'Owner',

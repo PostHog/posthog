@@ -15,11 +15,13 @@ export const ANALYTICS_FEED_PAGE_SIZE = 50
 export interface AnalyticsFeedQuery {
     type: AnalyticsTypeFilter
     search: string
-    /** A creator's uuid. The file system cannot filter on it, so the rows are narrowed on the client. */
-    createdBy: string | null
+    /** Creators' uuids; empty means anyone. The file system cannot filter on it, so the rows are narrowed on the client. */
+    createdBy: string[]
+    /** Tag names a row must all carry. Like the creator, narrowed on the client. */
+    tags: string[]
 }
 
-export const EMPTY_ANALYTICS_FEED_QUERY: AnalyticsFeedQuery = { type: 'all', search: '', createdBy: null }
+export const EMPTY_ANALYTICS_FEED_QUERY: AnalyticsFeedQuery = { type: 'all', search: '', createdBy: [], tags: [] }
 
 export interface AnalyticsSourcePage {
     items: AnalyticsItem[]
@@ -61,7 +63,10 @@ export function analyticsSourceKey(projectId: string, query: AnalyticsFeedQuery,
 
 /** Keeps the rows a source's API could not filter itself. */
 export function matchesAnalyticsQuery(item: AnalyticsItem, query: AnalyticsFeedQuery): boolean {
-    return !query.createdBy || item.createdBy?.uuid === query.createdBy
+    return (
+        (!query.createdBy.length || (!!item.createdBy && query.createdBy.includes(item.createdBy.uuid))) &&
+        query.tags.every((tag) => item.tags.includes(tag))
+    )
 }
 
 // Insights file as `insight` or under a subtype such as `insight/trends`, so they match on the prefix.
@@ -81,6 +86,7 @@ export async function fetchAnalyticsSourcePage(
         ...fileSystemTypeParams(type),
         search: query.search.trim() || undefined,
         orderBy: '-created_at',
+        includeTags: true,
         limit,
         offset,
     })

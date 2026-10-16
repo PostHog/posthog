@@ -134,7 +134,7 @@ const FILE_SYSTEM = [
         depth: 2,
         created_at: at(2),
         last_viewed_at: at(28, 8),
-        meta: { created_by: ADA.id },
+        meta: { created_by: ADA.id, tags: ['finance', 'weekly', 'board'] },
     },
     {
         id: 'fs-ins-signups',
@@ -167,7 +167,7 @@ const FILE_SYSTEM = [
         depth: 2,
         created_at: at(20),
         last_viewed_at: at(26),
-        meta: { created_by: GRACE.id },
+        meta: { created_by: GRACE.id, tags: ['growth'] },
     },
 ]
 
@@ -232,7 +232,7 @@ export const List: Story = {
 }
 
 export const ListFiltered: Story = {
-    parameters: { pageUrl: urls.analyticsList({ type: 'dashboard', createdBy: 'user-ada' }) },
+    parameters: { pageUrl: urls.analyticsList({ type: 'dashboard', createdBy: ['user-ada'] }) },
 }
 
 export const Mine: Story = {

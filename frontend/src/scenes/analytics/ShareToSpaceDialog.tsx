@@ -35,12 +35,12 @@ export function ShareToSpaceDialog(): JSX.Element {
         <Dialog open={!!target} onOpenChange={(open: boolean) => !open && closeShareToSpace()}>
             <DialogContent className="max-h-[32rem]" data-attr="analytics-share-dialog">
                 <DialogHeader>
-                    <DialogTitle>{moving ? 'Move to a space' : 'Share into a space'}</DialogTitle>
+                    <DialogTitle>{moving ? 'Move to a collection' : 'Add to a collection'}</DialogTitle>
                     <DialogDescription>
                         {target
                             ? moving
                                 ? `"${target.name}" is in ${currentSpace}. Pick where it goes next.`
-                                : `Everyone in the space you pick will find "${target.name}" in Analytics.`
+                                : `Everyone in the collection you pick will find "${target.name}" in Analytics.`
                             : ''}
                     </DialogDescription>
                 </DialogHeader>
@@ -91,7 +91,7 @@ export function ShareToSpaceDialog(): JSX.Element {
                                             <ItemTitle>{space.name}</ItemTitle>
                                             <ItemDescription>
                                                 {isCurrent
-                                                    ? 'Current space'
+                                                    ? 'Current collection'
                                                     : space.total === 0
                                                       ? 'Empty'
                                                       : `${space.total} shared`}
@@ -115,8 +115,8 @@ export function ShareToSpaceDialog(): JSX.Element {
                                     className="cursor-pointer text-start text-foreground hover:bg-fill-button-tertiary-hover"
                                 >
                                     <ItemContent className="min-w-0">
-                                        <ItemTitle>Make it personal</ItemTitle>
-                                        <ItemDescription>Takes it out of every space.</ItemDescription>
+                                        <ItemTitle>No collection</ItemTitle>
+                                        <ItemDescription>Takes it out of every collection.</ItemDescription>
                                     </ItemContent>
                                 </Item>
                             )}

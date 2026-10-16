@@ -179,7 +179,7 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
                 actions.folderCreated()
                 // pinned: analytics event name. Renaming it breaks dashboards.
                 posthog.capture('analytics folder created', { nested: parent !== null })
-                toast.success({ title: parent ? 'Folder created' : 'Space created' })
+                toast.success({ title: parent ? 'Folder created' : 'Collection created' })
             } catch {
                 actions.folderCreationFailed()
                 toast.error({

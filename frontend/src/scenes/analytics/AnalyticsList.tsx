@@ -188,7 +188,7 @@ function AnalyticsListContent(): JSX.Element {
                         </EmptyTitle>
                         <EmptyDescription>
                             {mode === 'folder'
-                                ? 'Share something into this space from its page and it shows up here.'
+                                ? 'Add something to this collection from its page and it shows up here.'
                                 : scope === 'mine'
                                   ? 'Canvases, dashboards, notebooks and insights you create show up here.'
                                   : 'Canvases, dashboards, notebooks and insights show up here as people create them.'}
@@ -204,7 +204,7 @@ function AnalyticsListContent(): JSX.Element {
                                 render={<LinkPrimitive to={urls.analyticsSpaces()} />}
                                 data-attr="analytics-list-browse-all"
                             >
-                                Back to spaces
+                                Back to collections
                             </Button>
                         )}
                     </EmptyContent>
@@ -252,7 +252,7 @@ function AnalyticsListContent(): JSX.Element {
                         // the table past its container, so the filters above keep their width across types.
                         // Below the minimum width the table scrolls sideways instead of squeezing the title away.
                         className="w-full min-w-0 **:data-expand:max-w-0 **:data-[slot=table]:min-w-208"
-                        empty={<Text size="sm">Nothing in this space.</Text>}
+                        empty={<Text size="sm">Nothing in this collection.</Text>}
                     />
                 )}
                 {hasMore && (
@@ -270,7 +270,7 @@ function AnalyticsListContent(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={spaceName ?? (scope === 'mine' ? 'My analyses' : 'Analytics')}
+                name={spaceName ?? (scope === 'mine' ? 'My work' : 'Analytics')}
                 description={
                     mode === 'folder'
                         ? null
@@ -310,7 +310,7 @@ function AnalyticsListContent(): JSX.Element {
                                         data-attr="analytics-space-delete"
                                     >
                                         <IconTrash />
-                                        Delete space…
+                                        Delete collection…
                                     </DropdownMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenu>

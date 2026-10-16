@@ -19,12 +19,12 @@ export function ShareToSpaceModal(): JSX.Element {
         <LemonModal
             isOpen={!!target}
             onClose={closeShareToSpace}
-            title={moving ? 'Move to a space' : 'Share into a space'}
+            title={moving ? 'Move to a collection' : 'Add to a collection'}
             description={
                 target
                     ? moving
                         ? `"${target.name}" is in ${currentSpace}. Pick where it goes next.`
-                        : `Everyone in the space you pick will find "${target.name}" in Analytics.`
+                        : `Everyone in the collection you pick will find "${target.name}" in Analytics.`
                     : undefined
             }
             width={480}
@@ -60,7 +60,7 @@ export function ShareToSpaceModal(): JSX.Element {
                                     <span>{space.name}</span>
                                     <span className="text-xs text-secondary">
                                         {isCurrent
-                                            ? 'Current space'
+                                            ? 'Current collection'
                                             : space.total === 0
                                               ? 'Empty'
                                               : `${space.total} shared`}
@@ -78,9 +78,9 @@ export function ShareToSpaceModal(): JSX.Element {
                             data-attr="analytics-share-make-personal"
                         >
                             <span className="flex flex-col items-start">
-                                <span>Make it personal</span>
+                                <span>No collection</span>
                                 <span className="text-xs text-secondary">
-                                    Take it out of every space. It stays in View all as a personal item.
+                                    Takes it out of every collection. It stays in View all.
                                 </span>
                             </span>
                         </LemonButton>
