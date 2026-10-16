@@ -64,8 +64,9 @@ class VendorReport:
 
 
 _RETAIL_OPTIONS = {"reportPeriod": "DAY", "distributorView": "MANUFACTURING", "sellingProgram": "RETAIL"}
-# Daily retail analytics: 15 days per request, 1,460 days back, final 72 hours after the day closes.
-_DAILY_WINDOW = timedelta(days=15)
+# Daily retail analytics: 1,460 days back, final 72 hours after the day closes. Amazon allows 15 days
+# per request, but 7 keeps one document of a large catalog small enough to parse in memory.
+_DAILY_WINDOW = timedelta(days=7)
 _DAILY_LOOKBACK = timedelta(days=1459)
 _DAILY_DELAY = timedelta(days=4)
 

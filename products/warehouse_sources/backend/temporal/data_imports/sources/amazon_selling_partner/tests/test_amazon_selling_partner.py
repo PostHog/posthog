@@ -441,36 +441,55 @@ class TestErrors:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        ("token_answer", "probe_answer", "expected"),
+        ("token_answer", "sellers_answer", "reports_answer", "marketplace_ids", "expected"),
         [
-            (LWA_INVALID_GRANT, None, (False, LWA_REJECTED_MESSAGE)),
-            (ScriptedResponse(status=503, json={}), None, (False, UNAVAILABLE_MESSAGE)),
-            (TOKEN, ScriptedResponse(json={"payload": []}), (True, None)),
-            # Vendor accounts get 403 from the Sellers API, so creation accepts it.
-            (TOKEN, SP_API_FORBIDDEN, (True, None)),
+            (LWA_INVALID_GRANT, None, None, ["A"], (False, LWA_REJECTED_MESSAGE)),
+            (ScriptedResponse(status=503, json={}), None, None, ["A"], (False, UNAVAILABLE_MESSAGE)),
+            (TOKEN, ScriptedResponse(json={"payload": []}), None, [], (True, None)),
+            # Vendor accounts get 403 from the Sellers API, so the Reports API decides.
+            (TOKEN, SP_API_FORBIDDEN, ScriptedResponse(json={"reports": []}), ["A"], (True, None)),
+            (
+                TOKEN,
+                SP_API_FORBIDDEN,
+                ScriptedResponse(json={"reports": []}),
+                [],
+                (False, MISSING_MARKETPLACES_MESSAGE),
+            ),
+            # Wrong region or an app with no roles: both APIs refuse, so creation fails.
+            (TOKEN, SP_API_FORBIDDEN, SP_API_FORBIDDEN, ["A"], (False, ACCESS_DENIED_MESSAGE)),
             (
                 TOKEN,
                 ScriptedResponse(status=401, json={"errors": [{"code": "Unauthorized"}]}),
+                None,
+                ["A"],
                 (False, ACCESS_DENIED_MESSAGE),
             ),
         ],
     )
     def test_maps_the_vendor_answers(
-        self, token_answer: ScriptedResponse, probe_answer: ScriptedResponse | None, expected: tuple[bool, str | None]
+        self,
+        token_answer: ScriptedResponse,
+        sellers_answer: ScriptedResponse | None,
+        reports_answer: ScriptedResponse | None,
+        marketplace_ids: list[str],
+        expected: tuple[bool, str | None],
     ) -> None:
-        def respond(request: RecordedRequest) -> ScriptedResponse:
-            if request.path == TOKEN_PATH:
-                return token_answer
-            assert probe_answer is not None
-            return probe_answer
+        answers = {TOKEN_PATH: token_answer, PARTICIPATIONS_PATH: sellers_answer, REPORTS_PATH: reports_answer}
 
-        with scripted_network(respond) as network:
-            assert validate_credentials("na", "client", "secret", "Atzr|refresh") == expected
-        assert network.requests_log[-1].path == (TOKEN_PATH if probe_answer is None else PARTICIPATIONS_PATH)
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            answer = answers[request.path]
+            assert answer is not None, request.path
+            return answer
+
+        with scripted_network(respond):
+            assert validate_credentials("na", "client", "secret", "Atzr|refresh", marketplace_ids) == expected
 
     def test_a_network_failure_is_reported_as_unavailable(self) -> None:
         with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("na", "client", "secret", "Atzr|refresh") == (False, UNAVAILABLE_MESSAGE)
+            assert validate_credentials("na", "client", "secret", "Atzr|refresh", ["A"]) == (
+                False,
+                UNAVAILABLE_MESSAGE,
+            )
 
 
 @pytest.mark.parametrize(
@@ -549,13 +568,13 @@ class TestVendorReports:
         vendor = _ReportsVendor(
             ["IN_QUEUE", "IN_PROGRESS", "DONE"],
             [
-                {"salesByAsin": [{"asin": "B01", "startDate": "2026-09-20", "shippedUnits": 3}]},
+                {"salesByAsin": [{"asin": "B01", "startDate": "2026-09-28", "shippedUnits": 3}]},
                 {"salesByAsin": [{"asin": "B02", "startDate": "2026-10-05", "shippedUnits": 1}]},
             ],
         )
 
         result = _driver("ATVPDKIKX0DER").run(
-            "vendor_sales", vendor, incremental_field="startDate", db_incremental_field_last_value=date(2026, 9, 20)
+            "vendor_sales", vendor, incremental_field="startDate", db_incremental_field_last_value=date(2026, 9, 28)
         )
 
         assert result.raised is None
@@ -568,7 +587,7 @@ class TestVendorReports:
                     "distributorView": "MANUFACTURING",
                     "sellingProgram": "RETAIL",
                 },
-                "dataStartTime": "2026-09-20T00:00:00Z",
+                "dataStartTime": "2026-09-28T00:00:00Z",
                 "dataEndTime": "2026-10-04T23:59:59Z",
             },
             {
@@ -584,7 +603,7 @@ class TestVendorReports:
             },
         ]
         assert result.rows == [
-            {"marketplaceId": "ATVPDKIKX0DER", "asin": "B01", "startDate": "2026-09-20", "shippedUnits": 3},
+            {"marketplaceId": "ATVPDKIKX0DER", "asin": "B01", "startDate": "2026-09-28", "shippedUnits": 3},
             {"marketplaceId": "ATVPDKIKX0DER", "asin": "B02", "startDate": "2026-10-05", "shippedUnits": 1},
         ]
         download = next(request for request in result.requests if request.path == "/doc.json")
@@ -592,7 +611,7 @@ class TestVendorReports:
         assert result.committed_states[:2] == [
             AmazonSellingPartnerResumeConfig(
                 marketplace_id="ATVPDKIKX0DER",
-                window_start="2026-09-20T00:00:00Z",
+                window_start="2026-09-28T00:00:00Z",
                 window_end="2026-10-04T23:59:59Z",
                 report_id="r1",
             ),
@@ -758,6 +777,39 @@ class TestVendorReports:
         assert result.raised is None
         assert [request.method for request in result.requests if request.path == REPORTS_PATH] == ["POST", "POST"]
 
+    def test_a_fatal_old_window_is_skipped_and_the_walk_continues(self) -> None:
+        vendor = _ReportsVendor(["DONE"], [{"salesByAsin": [{"asin": "B07", "startDate": "2026-10-05"}]}])
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == f"{REPORTS_PATH}/r1":
+                return ScriptedResponse(json={"reportId": "r1", "processingStatus": "FATAL"})
+            return vendor(request)
+
+        result = _driver("ATVPDKIKX0DER").run(
+            "vendor_sales", respond, incremental_field="startDate", db_incremental_field_last_value=date(2026, 9, 21)
+        )
+
+        assert result.raised is None
+        assert [body["dataStartTime"] for body in vendor.created] == [
+            "2026-09-21T00:00:00Z",
+            "2026-09-28T00:00:00Z",
+            "2026-10-05T00:00:00Z",
+        ]
+        assert [row["asin"] for row in result.rows] == ["B07", "B07"]
+
+    def test_a_document_url_outside_amazon_is_refused(self) -> None:
+        vendor = _ReportsVendor(["DONE"], [])
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.startswith(f"{DOCUMENTS_PATH}/"):
+                return ScriptedResponse(json={"reportDocumentId": "doc", "url": "https://evil.example.com/doc.json"})
+            return vendor(request)
+
+        result = _driver("ATVPDKIKX0DER").run("vendor_forecasts", respond)
+
+        assert isinstance(result.raised, ValueError)
+        assert all(request.origin != "https://evil.example.com" for request in result.requests)
+
     def test_vendor_tables_need_marketplace_ids(self) -> None:
         result = _driver().run("vendor_sales", [])
 
@@ -767,31 +819,42 @@ class TestVendorReports:
 
 
 @pytest.mark.parametrize(
-    ("endpoint", "start", "expected"),
+    ("endpoint", "start", "resumed", "expected"),
     [
-        # A full refresh of a daily report starts at the oldest day Amazon keeps.
-        ("vendor_sales", None, ("2022-10-17T00:00:00Z", "2022-10-31T23:59:59Z", 98)),
+        # A full refresh of a daily report starts at the oldest day Amazon keeps and stops four days back.
+        ("vendor_sales", None, False, ("2022-10-17T00:00:00Z", "2022-10-23T23:59:59Z", 208, "2026-10-11T23:59:59Z")),
         # An hourly report stops at the last hour that closed five minutes before now.
-        ("vendor_real_time_sales", None, ("2026-09-16T12:00:00Z", "2026-09-17T12:00:00Z", 29)),
-        ("vendor_sales", datetime(2026, 10, 12, tzinfo=UTC), None),
+        (
+            "vendor_real_time_sales",
+            None,
+            False,
+            ("2026-09-16T12:00:00Z", "2026-09-17T12:00:00Z", 29, "2026-10-15T11:00:00Z"),
+        ),
+        ("vendor_sales", datetime(2026, 10, 12, tzinfo=UTC), False, None),
         # A resumed report keeps its start after the lookback floor moved past it.
         (
             "vendor_real_time_sales",
             datetime(2026, 9, 16, 11, tzinfo=UTC),
-            ("2026-09-16T11:00:00Z", "2026-09-17T11:00:00Z", 29),
+            True,
+            ("2026-09-16T11:00:00Z", "2026-09-17T11:00:00Z", 29, "2026-10-15T11:00:00Z"),
         ),
     ],
 )
-def test_report_windows(endpoint: str, start: datetime | None, expected: tuple[str, str, int] | None) -> None:
-    # Only the hour-11 start stands for a resumed report; the others start fresh.
-    windows = report_windows(VENDOR_REPORTS[endpoint], start, NOW, resumed=start is not None and start.hour == 11)
+def test_report_windows(
+    endpoint: str, start: datetime | None, resumed: bool, expected: tuple[str, str, int, str] | None
+) -> None:
+    windows = report_windows(VENDOR_REPORTS[endpoint], start, NOW, resumed=resumed)
 
     if expected is None:
         assert windows == []
         return
-    first_start, first_end, count = expected
-    assert (windows[0].data_start_time, windows[0].data_end_time, len(windows)) == (first_start, first_end, count)
-    assert windows[-1].data_end_time in ("2026-10-11T23:59:59Z", "2026-10-15T11:00:00Z")
+    first_start, first_end, count, last_end = expected
+    assert (windows[0].data_start_time, windows[0].data_end_time, len(windows), windows[-1].data_end_time) == (
+        first_start,
+        first_end,
+        count,
+        last_end,
+    )
 
 
 PARTICIPATING_IN_A = ScriptedResponse(

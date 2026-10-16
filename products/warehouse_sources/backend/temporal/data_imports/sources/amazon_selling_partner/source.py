@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfigOption,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.amazon_selling_partner import (
+    MISSING_MARKETPLACES_MESSAGE,
     AmazonSellingPartnerResumeConfig,
     amazon_selling_partner_source,
     parse_marketplace_ids,
@@ -66,7 +67,8 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
             "HTTP 401 from the OAuth2 token endpoint": "Amazon rejected the Login with Amazon client ID or client secret. Check them in the Amazon developer console and update the source.",
             "401 Client Error: Unauthorized for url: https://sellingpartnerapi": "Amazon rejected the access token. Re-authorize the app for this seller and update the refresh token.",
             "403 Client Error: Forbidden for url: https://sellingpartnerapi": "Amazon refused access to this table. Check that the app has the role the table needs and that the account authorized it.",
-            "Vendor reports need marketplace IDs": "Vendor reports need marketplace IDs. Add them in the source settings.",
+            MISSING_MARKETPLACES_MESSAGE: MISSING_MARKETPLACES_MESSAGE,
+            "Unknown Amazon marketplace ID for real-time sales": "A marketplace ID in the source settings is not one Amazon lists. Check the IDs and update the source.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -100,7 +102,11 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_amazon_selling_partner_credentials(
-            config.region, config.client_id, config.client_secret, config.refresh_token
+            config.region,
+            config.client_id,
+            config.client_secret,
+            config.refresh_token,
+            parse_marketplace_ids(config.marketplace_ids),
         )
 
     def get_endpoint_permissions(

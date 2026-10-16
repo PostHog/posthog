@@ -9,6 +9,7 @@ from typing import Any, Optional
 from urllib.parse import parse_qsl, urlsplit
 
 import requests
+import structlog
 from requests import PreparedRequest
 
 from posthog.dataclasses import frozen
@@ -58,13 +59,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
+logger = structlog.get_logger(__name__)
+
 LWA_REJECTED_MESSAGE = (
     "Amazon rejected the Login with Amazon credentials. "
     "Check the client ID, client secret and refresh token, then try again."
 )
 ACCESS_DENIED_MESSAGE = (
-    "Amazon accepted the login but refused the Selling Partner API call. "
-    "Check that the account authorized the app and that the app has the roles the tables need."
+    "Amazon accepted the login but refused the Selling Partner API calls. "
+    "Check that the region matches the account, that the account authorized the app, "
+    "and that the app has the roles the tables need."
 )
 UNAVAILABLE_MESSAGE = "Couldn't reach Amazon to check the credentials. Try again in a few minutes."
 MISSING_MARKETPLACES_MESSAGE = "Vendor reports need marketplace IDs. Add them in the source settings."
@@ -80,6 +84,8 @@ REPORT_POLL_BUDGET_SECONDS = 60 * 60
 REPORT_CREATE_ATTEMPTS = 5
 REPORT_CREATE_BACKOFF_SECONDS = 60
 REPORT_DOWNLOAD_TIMEOUT = (10.0, 300.0)
+# A FATAL report for a window that ended this recently may only mean Amazon has not published it yet.
+REPORT_PUBLISH_GRACE = timedelta(days=7)
 REPORT_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 REPORT_ROWS_PER_BATCH = 2000
 # The document sits on presigned Amazon storage. Pinning the host keeps a tampered `url` from
@@ -472,7 +478,7 @@ def _inventory_rows(
 
 
 class VendorReportError(Exception):
-    """Amazon finished a report with FATAL status, so a retry asks for the same failure."""
+    """Amazon finished a report with FATAL status. The retry requests a new report for the same window."""
 
 
 class VendorReportPendingError(Exception):
@@ -618,6 +624,12 @@ def await_report_document(
         waited += REPORT_POLL_INTERVAL_SECONDS
 
 
+def _may_be_unpublished(report: VendorReport, data_end_time: str, now: datetime) -> bool:
+    """Whether a FATAL report for this window can mean Amazon has not published the data yet."""
+    end = parse_datetime_value(data_end_time)
+    return end is None or end >= now - report.availability_delay - REPORT_PUBLISH_GRACE
+
+
 def _after(report: VendorReport, data_end_time: str) -> datetime | None:
     """Where the window after one ending at `data_end_time` starts."""
     end = parse_datetime_value(data_end_time)
@@ -716,7 +728,18 @@ def _vendor_report_rows(
             )
             try:
                 document = await_report_document(client, report, report_id, manager.safe_point)
-            except VendorReportError:
+            except VendorReportError as error:
+                if window_end is not None and not _may_be_unpublished(report, window_end, now):
+                    # Amazon fails an old window it has no data for, and asking again fails the same way.
+                    logger.warning(
+                        "amazon_selling_partner_report_window_skipped",
+                        report_type=report.report_type,
+                        window_start=window_start,
+                        error=str(error),
+                    )
+                    manager.save_state(next_state)
+                    manager.safe_point()
+                    continue
                 # A failed report stays failed. The retry asks for a new one for the same window.
                 manager.save_state(
                     AmazonSellingPartnerResumeConfig(
@@ -820,22 +843,30 @@ def amazon_selling_partner_source(
 
 
 def validate_credentials(
-    region: str, client_id: str, client_secret: str, refresh_token: str
+    region: str, client_id: str, client_secret: str, refresh_token: str, marketplace_ids: list[str]
 ) -> tuple[bool, str | None]:
     auth = LwaAuth(client_id, client_secret, refresh_token)
     session = make_tracked_session(redact_values=auth.secret_values(), capture=False)
+    base_url = _base_url(region)
     try:
-        response = session.get(
-            f"{_base_url(region)}{MARKETPLACE_PARTICIPATIONS_PATH}", auth=auth, timeout=PROBE_TIMEOUT
-        )
+        response = session.get(f"{base_url}{MARKETPLACE_PARTICIPATIONS_PATH}", auth=auth, timeout=PROBE_TIMEOUT)
+        if response.status_code == 403:
+            # Vendor accounts always get 403 from the Sellers API, so ask the Reports API instead.
+            response = session.get(
+                f"{base_url}{REPORTS_PATH}",
+                params={"reportTypes": VENDOR_REPORTS[VENDOR_SALES].report_type, "pageSize": "1"},
+                auth=auth,
+                timeout=PROBE_TIMEOUT,
+            )
+            if response.status_code == 200 and not marketplace_ids:
+                return False, MISSING_MARKETPLACES_MESSAGE
     except OAuth2AuthRequestError as e:
         return False, LWA_REJECTED_MESSAGE if e.is_permanent else UNAVAILABLE_MESSAGE
     except requests.RequestException:
         return False, UNAVAILABLE_MESSAGE
-    # Vendor accounts get 403 from the Sellers API, and the table picker reports each table's access.
-    if response.status_code in (200, 403):
+    if response.status_code == 200:
         return True, None
-    if response.status_code == 401:
+    if response.status_code in (401, 403):
         return False, ACCESS_DENIED_MESSAGE
     return False, UNAVAILABLE_MESSAGE
 
