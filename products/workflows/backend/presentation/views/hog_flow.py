@@ -93,6 +93,7 @@ from products.cdp.backend.presentation.hog_functions import (
     filter_action_ids,
     filter_cohort_ids,
     gated_template_enabled,
+    validate_realtime_cohorts,
 )
 from products.cdp.backend.presentation.hog_invocations.cancel import (
     HogInvocationCancelRequestSerializer,
@@ -117,6 +118,7 @@ from products.cdp.backend.presentation.serializers import (
     HogFunctionFiltersSerializer,
     InputsSchemaSerializer,
     InputsSerializer,
+    require_viewer_access_to_added_actions,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -264,6 +266,7 @@ from products.workflows.backend.facade.validation import (
 from products.workflows.backend.facade.workflows import (
     BILLABLE_ACTION_TYPES,
     BROADCAST_STATUSES,
+    COHORT_TRIGGER_TRANSITIONS,
     PERSON_DEPENDENT_ACTION_TYPES,
     ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
@@ -1317,6 +1320,23 @@ class HogFlowActionSerializer(serializers.Serializer):
         except Exception:
             return False
 
+    def _validate_cohort_trigger(self, action: dict) -> None:
+        config = action.get("config") or {}
+        cohort_id = config.get("cohort_id")
+        if isinstance(cohort_id, bool) or not isinstance(cohort_id, int):
+            raise serializers.ValidationError({"cohort_id": "Choose a cohort for this trigger."})
+        if config.get("transition") not in COHORT_TRIGGER_TRANSITIONS:
+            raise serializers.ValidationError({"transition": "Must be 'entered' or 'left'."})
+        # The flag polices new adoption only, so an active flow keeps saving after a dial-down.
+        stored = (self.context.get("stored_cohort_triggers") or {}).get(action.get("id"))
+        unchanged = stored == {"cohort_id": cohort_id, "transition": config.get("transition")}
+        if not unchanged and not self._cohort_conditions_enabled():
+            raise serializers.ValidationError({"type": "Cohort triggers aren't available for this organization."})
+        try:
+            validate_realtime_cohorts([cohort_id], self.context["get_team"]())
+        except serializers.ValidationError as error:
+            raise serializers.ValidationError({"cohort_id": error.detail})
+
     def _reject_behavioral_cohorts_in_audience(self, properties) -> None:
         # Batch/schedule audiences resolve offline by precalculated membership and can't evaluate event
         # behavior the way it's intended; the UI hides behavioral cohorts from the audience picker. Mirror
@@ -1486,6 +1506,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                         data["config"]["filters"] = serializer.validated_data
                 elif not is_draft:
                     raise serializers.ValidationError({"filters": _EVENT_TRIGGER_NEEDS_A_TARGET})
+            elif data.get("config", {}).get("type") == "cohort":
+                if strict:
+                    self._validate_cohort_trigger(data)
             elif data.get("config", {}).get("type") == "batch":
                 filters = data.get("config", {}).get("filters", {})
                 if strict:
@@ -2910,6 +2933,18 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
         }
 
+        self.context["stored_cohort_triggers"] = {
+            action["id"]: {
+                "cohort_id": (action.get("config") or {}).get("cohort_id"),
+                "transition": (action.get("config") or {}).get("transition"),
+            }
+            for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
+            if isinstance(action, dict)
+            and action.get("id")
+            and action.get("type") == "trigger"
+            and (action.get("config") or {}).get("type") == "cohort"
+        }
+
         self.context["stored_cohort_conditions"] = {
             action["id"]: [
                 _authored_condition(stored_condition)
@@ -3039,6 +3074,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 raise serializers.ValidationError({"actions": f"Duplicate action id(s): {', '.join(duplicate_ids)}"})
 
         actions = data.get("actions", instance.actions if instance else [])
+        stored = instance or self.context.get("instance")
+        require_viewer_access_to_added_actions(
+            self.context,
+            {"actions": submitted_actions, "conversion": data.get("conversion")},
+            {"actions": stored.actions, "conversion": stored.conversion} if stored else None,
+        )
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
         status = data.get("status", instance.status if instance else "draft")

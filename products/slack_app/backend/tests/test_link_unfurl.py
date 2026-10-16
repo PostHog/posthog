@@ -278,25 +278,21 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("allowed", True, True, True),
-            ("flag_off", False, True, False),
-            ("public_sharing_off", True, False, False),
+            ("allowed", True, True),
+            ("public_sharing_off", False, False),
         ]
     )
     @patch("products.slack_app.backend.tasks.start_slack_unfurl_charts.delay")
     @patch("products.slack_app.backend.slack_link_unfurl.sync_connect")
-    @patch("products.slack_app.backend.slack_link_unfurl.is_slack_app_insight_unfurl_charts_enabled")
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_insight_unfurl_starts_the_chart_workflow_only_when_allowed(
         self,
         _name: str,
-        flag_on: bool,
         public_sharing: bool,
         expect_started: bool,
         mock_slack_integration_class: MagicMock,
         mock_resolve: MagicMock,
-        mock_flag: MagicMock,
         mock_sync_connect: MagicMock,
         mock_delay: MagicMock,
     ) -> None:
@@ -305,7 +301,6 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self.organization.allow_publicly_shared_resources = public_sharing
         self.organization.save()
         mock_resolve.return_value = MagicMock(user=self.user)
-        mock_flag.return_value = flag_on
         mock_sync_connect.return_value.start_workflow = AsyncMock()
         url = f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"
 
@@ -327,7 +322,6 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
     @parameterized.expand([("query_access", True), ("no_query_access", False)])
     @patch("products.slack_app.backend.tasks.start_slack_unfurl_charts.delay")
     @patch("products.slack_app.backend.slack_link_unfurl.sync_connect")
-    @patch("products.slack_app.backend.slack_link_unfurl.is_slack_app_insight_unfurl_charts_enabled", return_value=True)
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_adhoc_insight_link_posts_no_card_and_queues_its_chart(
@@ -336,7 +330,6 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         query_access: bool,
         mock_slack_integration_class: MagicMock,
         mock_resolve: MagicMock,
-        _mock_flag: MagicMock,
         mock_sync_connect: MagicMock,
         mock_delay: MagicMock,
     ) -> None:
@@ -370,14 +363,12 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @patch("products.slack_app.backend.tasks.start_slack_unfurl_charts.delay")
     @patch("products.slack_app.backend.slack_link_unfurl.sync_connect")
-    @patch("products.slack_app.backend.slack_link_unfurl.is_slack_app_insight_unfurl_charts_enabled", return_value=True)
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_adhoc_link_beside_another_link_is_not_unfurled(
         self,
         mock_slack_integration_class: MagicMock,
         mock_resolve: MagicMock,
-        _mock_flag: MagicMock,
         mock_sync_connect: MagicMock,
         mock_delay: MagicMock,
     ) -> None:

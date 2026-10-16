@@ -91,6 +91,17 @@ WAITING_CASES = [
         ),
         expected=_offer(True),
     ),
+    # A reader often wants only the check. One button that also opens the pull request takes that choice away.
+    BaseEvalCase(
+        name="investigation_before_a_change",
+        prompt=(
+            "Export jobs got slower this week. The median run went from 40s to 3 minutes, and only the jobs "
+            "that read the `invoices` table slowed down. A missing index is the most likely cause, but I did "
+            "not check the query plan. Next I can run EXPLAIN on the slow query, and if the index is missing, "
+            "add it in a migration and open a pull request. Do you want me to do that?"
+        ),
+        expected=_offer(True),
+    ),
     BaseEvalCase(
         name="permission_in_german",
         prompt=(

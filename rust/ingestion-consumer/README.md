@@ -11,7 +11,7 @@ Each guarantee has a violation counter that must stay flat and a denominator tha
 
 | Guarantee | Violations (must stay 0) | Denominator / supporting |
 | --- | --- | --- |
-| Commits are contiguous, monotonic, non-empty per partition | `ingestion_consumer_commit_violations_total{kind=gap\|out_of_order\|overlap\|empty}` | `ingestion_consumer_commits_checked_total`, `ingestion_consumer_committed_offset{topic,partition}` |
+| Commits are contiguous, monotonic, non-empty per partition, and cover only completed offsets | `ingestion_consumer_commit_violations_total{kind=gap\|out_of_order\|overlap\|empty\|uncredited}` | `ingestion_consumer_commits_checked_total`, `ingestion_consumer_committed_offset{topic,partition}` |
 | Async commits actually succeed | `ingestion_consumer_commit_confirmation_lag{topic,partition}` persistently > 0 | `ingestion_consumer_broker_committed_offset{topic,partition}`, `ingestion_consumer_last_successful_commit_timestamp_seconds`, `ingestion_consumer_commit_monitor_errors_total` |
 | Per-key sends are in offset order, never re-sent after ACK (keyed messages only) | `ingestion_consumer_key_order_violations_total{kind=intra_group_disorder\|resend_after_ack}` | `ingestion_consumer_key_replays_total` (legal at-least-once retries), `ingestion_consumer_key_sentinel_keys`, `ingestion_consumer_key_sentinel_unkeyed_total` (skipped null-key messages) |
 | Messages enter the worker pipeline in per-key offset order (end to end) | `ingestion_api_out_of_order_messages_total` (worker-side) | `ingestion_api_replayed_messages_total`, `ingestion_api_order_sentinel_keys` |
@@ -23,7 +23,8 @@ Alerts should gate on `ingestion_consumer_offset_commits_total > 0` — an idle 
 Both sides default to enabled and have kill switches: `CONSUMER_ORDER_SENTINEL_ENABLED` here, `INGESTION_API_FEED_ORDER_SENTINEL_ENABLED` (plus `INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS`) on the worker.
 The rebalance metrics from the consumer context stay on regardless, and the `consumer_id`/`replay` request fields are always stamped so either side can be toggled independently.
 The worker-side check lives in `nodejs/src/ingestion/api/feed-order-sentinel.ts`, fed by the `consumer_id` (process incarnation) and `replay` fields the transport stamps on every sub-batch.
-It measures the invariant at its end point: the worker's grouping stage processes each key strictly in feed order, so "fed in offset order per key" is "processed in order per key".
+It measures the invariant at its end point: the worker groups each key's messages by distinct id and processes each group in feed order, so "fed in offset order per key" is "processed in order per distinct id".
+A partial ack keeps that, because the worker leaves only the last messages of a distinct id unfinished and the consumer resends them in order.
 Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.
 Null-key messages (e.g. overflow rerouting) are excluded from both checks: the producer deliberately forfeits per-key order for them, and the consumer routes each one individually rather than pinning it, so there is no invariant to check on either side.
 
@@ -53,17 +54,23 @@ Under `key_table`:
 
 - One task owns the state machine and applies polls, worker responses, revokes and retry wakeups one at a time.
 - Each key has a FIFO queue, and at most one request per key is in flight, which preserves per-key order.
-- The packer builds a request only for a free worker slot, from ready keys up to a target size. Keys stay unclaimed until then, so a key's run keeps growing while every slot is busy, up to the target. A key's backlog past the target leaves in consecutive requests, one in flight at a time. A request never mixes assignment epochs or fresh and replayed messages.
+- The packer builds a request only for a free worker slot, from ready keys up to a target size. Keys stay unclaimed until then, so a key's run keeps growing while every slot is busy, up to the run cap. A key's backlog past the run cap leaves in consecutive requests, one in flight at a time. The run cap is the target unless `INGESTION_RUN_CAP_*` sets it apart. A request never mixes assignment epochs or fresh and replayed messages.
 - A request is placed on a worker when it is sent, against the load at that moment. Each worker takes at most `INGESTION_WORKER_CONCURRENT_BATCHES` requests at a time.
 - A failed send returns its messages to the front of their keys' queues. They retry through the packer as replay after the retry delay.
+- A partial ack completes the messages the worker finished. Its unfinished messages return to the front of their keys' queues and go out again at once as replay. They need not be the last messages of their key.
+- A key resends without a budget once `INGESTION_REQUEST_BUDGET_ATTEMPTS` settles have left its messages unfinished since it last finished a run, or at once when its request finished nothing, because a budgeted retry would wait out the same budget again. So a message that never fits the budget still finishes. A failed request neither counts nor resets the count. The resend rides in a request that holds only such keys, ahead of budgeted replays.
 - A revoke drops the pending messages of the revoked partitions, because the new owner replays them.
 - Pending work with nothing in flight and nothing accepted for `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` fails the consumer, which restarts and replays.
 
 | Setting | Default | Effect under `key_table` |
 | --- | --- | --- |
-| `INGESTION_PACK_TARGET_EVENTS` | `500` | Send a request to a free slot once this many events are ready. It also caps one key's run. `0` disables the event target and the cap, and needs a byte target. |
-| `INGESTION_PACK_TARGET_BYTES` | `0` | Send a request to a free slot once this many key-plus-value bytes are ready. It also caps one key's run. `0` disables the byte target and the cap, and needs an event target. |
-| `INGESTION_PACK_LATENCY_BUDGET_MS` | `0` | Once a slot is free, wait this long for ready events below the target to reach it. `0` waits for nothing: each free slot gets what is ready, packed up to the target. Replays never wait, because they already waited out a retry delay. |
+| `INGESTION_PACK_TARGET_EVENTS` | `500` | Send a request to a free slot once this many events are ready. Unless a run cap is set, it also caps one key's run. `0` disables the event target and the cap, and needs a byte target. |
+| `INGESTION_PACK_TARGET_BYTES` | `0` | Send a request to a free slot once this many key-plus-value bytes are ready. Unless a run cap is set, it also caps one key's run. `0` disables the byte target and the cap, and needs an event target. |
+| `INGESTION_RUN_CAP_EVENTS` | `0` | The most events one key's run holds, which is the most of its backlog a key sends per round trip. With both run caps at `0`, the pack targets cap runs. When either is set, the run caps replace them, and a `0` cap leaves that dimension uncapped. |
+| `INGESTION_RUN_CAP_BYTES` | `0` | One key's run stops growing once it holds this many key-plus-value bytes. Works with `INGESTION_RUN_CAP_EVENTS`. |
+| `INGESTION_PACK_LATENCY_BUDGET_MS` | `0` | Once a slot is free, wait this long for ready events below the target to reach it. `0` waits for nothing: each free slot gets what is ready, packed up to the target. Replays never wait, because they already waited out a retry delay or a worker's time budget. |
+| `INGESTION_REQUEST_SOFT_BUDGET_MS` | `0` | How long a worker may spend on one request before it stops starting work and acks what finished as partial. The rest goes out again at once. `0` sends no budget. A request split into several frames goes without one. Startup fails if it is below `100` or above `2147483647`, if it is set under `pin_stash`, if it times `INGESTION_WORKER_CONCURRENT_BATCHES` reaches `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`, or if it plus `INGESTION_PACK_LATENCY_BUDGET_MS` reaches `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`. |
+| `INGESTION_REQUEST_BUDGET_ATTEMPTS` | `3` | How many budgeted attempts may leave a key's messages unfinished, since the key last finished a run, before it resends without a budget. At least 1, or startup fails. Only read when `INGESTION_REQUEST_SOFT_BUDGET_MS` is set. |
 | `INGESTION_PARKED_RETRY_INTERVAL_MS` | `200` | The delay before a failed send retries, and how often a request with no routable worker tries again. |
 
 Metrics:
@@ -71,6 +78,8 @@ Metrics:
 - `ingestion_consumer_request_events` and `ingestion_consumer_request_bytes` record each request as sent. They show whether requests reach the pack target.
 - `ingestion_consumer_request_queue_wait_seconds{kind=fresh|replay}` records how long a request's oldest message waited, including the pack budget.
 - `ingestion_consumer_batcher_packed_requests_total{reason=target|deadline|replay|shutdown}` counts why the packer built each request: at the target, at the budget deadline, as a replay, or at shutdown.
+- `ingestion_consumer_request_budget_partials_total` counts partial acks, and `ingestion_consumer_request_budget_unfinished_messages_total` counts the messages they left unfinished.
+- `ingestion_consumer_request_budget_escalations_total` counts keys that resend without a budget, after their budgeted attempts or after a partial ack that finished nothing. A steady rate means the budget is too tight for the lane, or that the workers are saturated: a frame that waits out its budget for a pipeline slot comes back as a partial ack with nothing finished, and the worker counts it in `ingestion_api_grpc_admission_expired_total`.
 - The `ingestion_consumer_batcher_*` gauges report keys, queued messages and bytes, claimed and waiting keys, unplaced work, and in-flight requests.
 
 ## Debug API
