@@ -551,7 +551,7 @@ export function buildBarValueChartConfig({
     legendRenderItem,
     embedded,
 }: BuildBarConfigArgs): SqlBarGraphConfig {
-    const categoryAxis = buildXAxisConfig(xData, chartSettings, timezone)
+    const categoryAxis = buildXAxisConfig(xData, { ...chartSettings, showXAxisTicks: true }, timezone)
     const valueAxis = buildYAxisConfig(chartSettings.leftYAxisSettings, ySeriesData ?? [], chartSettings.yAxisAtZero)
     const dateLabelFormatter = buildSqlDateLabelFormatter(xData, timezone)
     const categoryLabelFormatter = (label: string): string => {

@@ -936,6 +936,10 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     if (!draft?.expression.trim() || !source) {
                         return null
                     }
+                    const cached = values.calculatedFieldMetadata
+                    if (cached?.expression === draft.expression && cached.sourceKey === getBIDataSourceKey(source)) {
+                        return cached
+                    }
                     await breakpoint(300)
                     const metadata = await performQuery<HogQLMetadata>({
                         kind: NodeKind.HogQLMetadata,
@@ -1600,6 +1604,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setCalculatedMeasureDraft: () => {
             if (
                 !values.calculatedMeasureDraft ||
+                values.calculatedFieldMetadataLoading ||
                 values.calculatedMeasureDraft.expression !== values.calculatedFieldMetadata?.expression ||
                 (values.config.source &&
                     values.calculatedFieldMetadata?.sourceKey !== getBIDataSourceKey(values.config.source))

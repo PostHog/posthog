@@ -4,7 +4,9 @@ import { expectLogic } from 'kea-test-utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { useMocks } from '~/mocks/jest'
+import * as queryRunner from '~/queries/query'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
+import { HogQLMetadataResponse } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
@@ -135,6 +137,50 @@ describe('biEditorLogic', () => {
         logic.actions.saveCalculatedMeasure()
         expect(logic.values.config.localFields).toBeUndefined()
         logic.unmount()
+    })
+
+    it('keeps cached validation when a superseded expression finishes after undo', async () => {
+        const validMetadata: HogQLMetadataResponse = {
+            isValid: true,
+            errors: [],
+            warnings: [],
+            notices: [],
+            output_columns: [{ name: 'value', type: 'String' }],
+        }
+        let finishPending!: (metadata: HogQLMetadataResponse) => void
+        const pending = new Promise<HogQLMetadataResponse>((resolve) => {
+            finishPending = resolve
+        })
+        const performQuery = jest
+            .spyOn(queryRunner, 'performQuery')
+            .mockResolvedValueOnce(validMetadata as never)
+            .mockImplementationOnce(() => pending as never)
+        const logic = biEditorLogic({ tabId: TAB_ID })
+        logic.mount()
+        logic.actions.setAutoUpdate(false)
+        logic.actions.restoreState({ editorView: BIEditorView.BI, config })
+        const draft = { index: null, kind: 'dimension' as const, name: 'Label', expression: 'event' }
+        try {
+            logic.actions.setCalculatedMeasureDraft(draft)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.calculatedFieldValidation).toBe('valid')
+            jest.useFakeTimers()
+            logic.actions.setCalculatedMeasureDraft({ ...draft, expression: 'lower(event)' })
+            await jest.advanceTimersByTimeAsync(300)
+            expect(performQuery).toHaveBeenCalledTimes(2)
+            logic.actions.setCalculatedMeasureDraft(draft)
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.calculatedFieldValidation).toBe('valid')
+            finishPending(validMetadata)
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.calculatedFieldMetadata?.expression).toBe('event')
+            expect(logic.values.calculatedFieldValidation).toBe('valid')
+        } finally {
+            finishPending(validMetadata)
+            logic.unmount()
+            performQuery.mockRestore()
+            jest.useRealTimers()
+        }
     })
 
     it('renames shelf labels without changing the source expression and preserves them on reload', () => {

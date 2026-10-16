@@ -89,7 +89,7 @@ export interface biDataSourcePickerLogicMeta {
             selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined
         ) => TreeDataItem[]
         filteredTree: (sourceTree: TreeDataItem[], search: string) => TreeDataItem[]
-        visibleExpandedIds: (filteredTree: TreeDataItem[], _search: string, expandedIds: string[] | null) => string[]
+        visibleExpandedIds: (filteredTree: TreeDataItem[], search: string, expandedIds: string[] | null) => string[]
     }
 }
 

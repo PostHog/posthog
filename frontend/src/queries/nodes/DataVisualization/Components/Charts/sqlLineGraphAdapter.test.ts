@@ -1027,6 +1027,20 @@ describe('sqlLineGraphAdapter', () => {
             ])
         })
 
+        it.each([true, false])('keeps custom date tooltip headings with ticks %s', (showXAxisTicks) => {
+            const config = buildBarValueChartConfig({
+                xData: {
+                    column: { name: 'date', type: { name: 'DATE', isNumerical: false }, label: 'date', dataIndex: 0 },
+                    data: ['2024-01-01'],
+                },
+                chartSettings: { showXAxisTicks, xAxisDateFormat: 'MMM YYYY' },
+                timezone: 'America/Los_Angeles',
+                visualizationType: ChartDisplayType.ActionsBarValue,
+            })
+            expect(config.xTickFormatter!('0', 0)).toBe(showXAxisTicks ? 'Jan 2024' : '')
+            expect(config.tooltip!.labelFormatter!('0')).toBe('Jan 2024')
+        })
+
         it.each([
             { category: null, label: '0', expected: '[No value]' },
             { category: undefined, label: '0', expected: '[No value]' },

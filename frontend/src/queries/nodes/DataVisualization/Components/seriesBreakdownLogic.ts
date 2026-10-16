@@ -312,6 +312,17 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 // xData is unique x values
                 const xData = Array.from(new Set(data.map((n) => n[xColumn.dataIndex])))
 
+                const rowsByBreakdown = new Map<unknown, any[]>()
+                for (const row of data) {
+                    const value = row[breakdownColumn.dataIndex]
+                    const rows = rowsByBreakdown.get(value)
+                    if (rows) {
+                        rows.push(row)
+                    } else {
+                        rowsByBreakdown.set(value, [row])
+                    }
+                }
+
                 let isUnaggregated = false
 
                 const multipleYSeries = yAxis.length > 1
@@ -344,8 +355,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                             resultCustomizations[breakdownValue]?.customColor ??
                             (customColorToken && theme ? getColorFromToken(theme, customColorToken) : undefined)
 
-                        // first filter data by breakdown column value
-                        const filteredData = data.filter((n) => n[breakdownColumn.dataIndex] === value)
+                        const filteredData = rowsByBreakdown.get(value) ?? []
                         if (filteredData.length === 0) {
                             return {
                                 name: seriesName,
@@ -358,30 +368,20 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                             }
                         }
 
-                        // check if there are any duplicates of xColumn values
-                        // (if we know there is unaggregated data, we don't need to check again)
-                        if (!isUnaggregated) {
-                            const xColumnValues = filteredData.map((n) => n[xColumn.dataIndex])
-                            const xColumnValuesSet = new Set(xColumnValues)
-                            if (xColumnValues.length !== xColumnValuesSet.size) {
+                        const totalsByX = new Map<unknown, number | null>()
+                        for (const row of filteredData) {
+                            const xValue = row[xColumn.dataIndex]
+                            if (totalsByX.has(xValue)) {
                                 isUnaggregated = true
                             }
+                            const numeric = parseBreakdownSeriesValue(row[yColumn.dataIndex], selectedYAxis)
+                            const previous = totalsByX.get(xValue)
+                            totalsByX.set(xValue, numeric === null ? (previous ?? null) : (previous ?? 0) + numeric)
                         }
 
                         // Missing buckets should remain null unless the chart explicitly
                         // requests zero-filling, matching the non-breakdown series path.
-                        const dataset = xData.map((xValue) => {
-                            const numericValues = filteredData
-                                .filter((n) => n[xColumn.dataIndex] === xValue)
-                                .map((n) => parseBreakdownSeriesValue(n[yColumn.dataIndex], selectedYAxis))
-                                .filter((value): value is number => value !== null)
-
-                            if (numericValues.length === 0) {
-                                return showNullsAsZero ? 0 : null
-                            }
-
-                            return numericValues.reduce((a, b) => a + b, 0)
-                        })
+                        const dataset = xData.map((xValue) => totalsByX.get(xValue) ?? (showNullsAsZero ? 0 : null))
 
                         return {
                             name: seriesName,

@@ -21,10 +21,10 @@ export function BIFilterPill({ index }: { index: number }): JSX.Element | null {
 
     const editorKey = getBIShelfEditorKey('filters', filter.field.id)
     const visible = activeExpressionEditorId === editorKey
-    const close = (): void => {
+    const close = (removed = false): void => {
         if (activeExpressionEditorId === editorKey) {
             setActiveExpressionEditorId(null)
-            if (!filter.field.expression.trim() && !filter.customExpression?.trim()) {
+            if (!removed && !filter.field.expression.trim() && !filter.customExpression?.trim()) {
                 removeFieldFromShelf('filters', index)
             }
         }

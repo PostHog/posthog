@@ -51,6 +51,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.sample_hogql_query: dict[str, Any] = {
             "connectionId": None,
             "executionTarget": None,
+            "useBusinessIntelligenceLimits": None,
             "explain": None,
             "filters": None,
             "kind": "HogQLQuery",
@@ -366,6 +367,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         want_query = {
             "connectionId": None,
             "executionTarget": None,
+            "useBusinessIntelligenceLimits": None,
             "explain": None,
             "filters": None,
             "kind": "HogQLQuery",
