@@ -27,7 +27,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { Breadcrumb, SidePanelTab, UserType } from '~/types'
 
 import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
@@ -983,8 +982,6 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             try {
                 const canvas = await canvasesPartialUpdate(String(values.currentProjectId), props.id, { name: trimmed })
                 actions.canvasUpdated(canvas)
-                // The Views sidebar lists canvases by name.
-                todayAnalyticsLogic.findMounted()?.actions.loadRecentAnalytics()
             } catch (error) {
                 toast.error({
                     title: "Couldn't rename the canvas",
@@ -1054,7 +1051,6 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 const unrestored = await restoreCanvasTasks(projectId, restoreTasks)
                 actions.canvasUpdated(updated)
                 actions.loadSpace()
-                todayAnalyticsLogic.findMounted()?.actions.loadRecentAnalytics()
                 captureCanvasAction('visibility_change', { ...properties, channel_id: spaceId, success: true })
                 toast.success(
                     visibility

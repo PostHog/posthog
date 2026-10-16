@@ -43,7 +43,7 @@ const NewSpaceDialog = lazyWithRetry(() =>
 export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
-    // Records the tools and sessions visited while other panes are open, so each pane's Recent group is ready.
+    // Records the tools visited while other panes are open, so the Tools pane's Recent group is ready.
     useMountedLogic(todayRecentsLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     useShortcut({

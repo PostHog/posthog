@@ -51,7 +51,7 @@ export function TodayAnalyticsNewFolderDialog(): JSX.Element {
                         </DialogTitle>
                         <DialogDescription>
                             {newFolderParent
-                                ? 'A folder inside this space, for grouping what the space shares.'
+                                ? 'A folder inside this collection.'
                                 : 'A collection for a team or an area. Add dashboards, insights, notebooks and canvases to it from their own pages.'}
                         </DialogDescription>
                     </DialogHeader>
@@ -79,7 +79,7 @@ export function TodayAnalyticsNewFolderDialog(): JSX.Element {
                             disabled={!trimmed}
                             data-attr="analytics-new-folder-create"
                         >
-                            {newFolderParent ? 'Create folder' : 'Create space'}
+                            {newFolderParent ? 'Create folder' : 'Create collection'}
                         </Button>
                     </DialogFooter>
                 </form>

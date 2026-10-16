@@ -53,12 +53,16 @@ export interface AnalyticsFeed {
     loadFailed: boolean
 }
 
+// Only dashboards and insights carry tags, so a tag filter leaves the other types out of the read.
+const TAGGABLE_ANALYTICS_TYPES: ReadonlySet<AnalyticsType> = new Set<AnalyticsType>(['dashboard', 'insight'])
+
 export function analyticsFeedTypes(query: AnalyticsFeedQuery): AnalyticsType[] {
-    return query.type === 'all' ? ANALYTICS_TYPES.map((info) => info.type) : [query.type]
+    const types = query.type === 'all' ? ANALYTICS_TYPES.map((info) => info.type) : [query.type]
+    return query.tags.length ? types.filter((type) => TAGGABLE_ANALYTICS_TYPES.has(type)) : types
 }
 
 export function analyticsSourceKey(projectId: string, query: AnalyticsFeedQuery, type: AnalyticsType): string {
-    return JSON.stringify([projectId, query.search.trim(), query.createdBy, type])
+    return JSON.stringify([projectId, query.search.trim(), query.createdBy, [...query.tags].sort(), type])
 }
 
 /** Keeps the rows a source's API could not filter itself. */
@@ -134,21 +138,12 @@ export function mergeAnalyticsSources(sources: (AnalyticsSourceState | undefined
     }
 }
 
-export function analyticsFeedFromSources(
-    sources: (AnalyticsSourceState | undefined)[],
-    spaceNames: Record<string, string>
-): AnalyticsFeed {
+export function analyticsFeedFromSources(sources: (AnalyticsSourceState | undefined)[]): AnalyticsFeed {
     const { items, blocking } = mergeAnalyticsSources(sources)
     const initialized = sources.every((source) => source?.initialized)
     const failed = sources.filter((source): source is AnalyticsSourceState => !!source?.failed)
     return {
-        items: initialized
-            ? items.map((item) =>
-                  item.spaceId && !item.spaceName && spaceNames[item.spaceId]
-                      ? { ...item, spaceName: spaceNames[item.spaceId] }
-                      : item
-              )
-            : [],
+        items: initialized ? items : [],
         initialized,
         loading: sources.some((source) => !source || source.loading || source.refreshing),
         hasMore: blocking.length > 0,

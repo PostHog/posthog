@@ -40,7 +40,7 @@ export function ShareToSpaceDialog(): JSX.Element {
                         {target
                             ? moving
                                 ? `"${target.name}" is in ${currentSpace}. Pick where it goes next.`
-                                : `Everyone in the collection you pick will find "${target.name}" in Analytics.`
+                                : `Pick the collection "${target.name}" goes in.`
                             : ''}
                     </DialogDescription>
                 </DialogHeader>
@@ -53,7 +53,7 @@ export function ShareToSpaceDialog(): JSX.Element {
                     ) : !spaces.length ? (
                         <div className="flex flex-col items-start gap-2">
                             <Text size="sm" variant="muted">
-                                No spaces yet. Create one first, then share into it.
+                                No collections yet. Create one first, then add to it.
                             </Text>
                             <Button
                                 variant="outline"
@@ -62,7 +62,7 @@ export function ShareToSpaceDialog(): JSX.Element {
                                 render={<LinkPrimitive to={urls.analyticsSpaces()} />}
                                 onClick={() => closeShareToSpace()}
                             >
-                                Open spaces
+                                Open collections
                             </Button>
                         </div>
                     ) : (
@@ -94,7 +94,7 @@ export function ShareToSpaceDialog(): JSX.Element {
                                                     ? 'Current collection'
                                                     : space.total === 0
                                                       ? 'Empty'
-                                                      : `${space.total} shared`}
+                                                      : `${space.total} ${space.total === 1 ? 'item' : 'items'}`}
                                             </ItemDescription>
                                         </ItemContent>
                                     </Item>

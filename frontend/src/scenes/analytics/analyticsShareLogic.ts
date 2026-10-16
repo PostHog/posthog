@@ -1,9 +1,13 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { toast } from '@posthog/quill'
+
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -163,9 +167,8 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
     }),
     listeners(({ actions, values }) => ({
         openShareToSpace: async ({ target }, breakpoint) => {
-            if (!values.spaces.length && !values.spacesLoading) {
-                actions.loadSpaces()
-            }
+            // The collections and their counts change behind this dialog, so each open reads them again.
+            actions.loadSpaces()
             const entry = await findEntry(target).catch(() => null)
             breakpoint()
             actions.entryLoaded(entry)
@@ -192,15 +195,17 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
                 const wasShared = analyticsSpaceOfPath(entry.path) !== null
                 const folder = space ? space.path : `${UNFILED_FOLDER}/${ANALYTICS_TYPE_INFO[target.type].pluralLabel}`
                 await api.fileSystem.move(entry.id, `${folder}/${escapePath(target.name)}`)
-                lemonToast.success(
-                    space
+                toast.success({
+                    title: space
                         ? wasShared
                             ? `Moved to ${space.name}`
                             : `Added to ${space.name}`
-                        : 'Removed from its collection'
-                )
+                        : 'Removed from its collection',
+                })
                 actions.itemSpaceLoaded(shareTargetKey(target), space ? space.name : null)
-                actions.loadSpaces()
+                if (removeProjectIdIfPresent(router.values.location.pathname) === urls.analyticsSpaces()) {
+                    actions.loadSpaces()
+                }
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('analytics item moved', {
                     type: target.type,
@@ -208,7 +213,7 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
                     to: space ? 'space' : 'personal',
                 })
             } catch (error) {
-                lemonToast.error(error instanceof Error ? error.message : 'Could not move this item.')
+                toast.error({ title: error instanceof Error ? error.message : 'Couldn’t move this item.' })
             }
             actions.shareToSpaceDone()
         },

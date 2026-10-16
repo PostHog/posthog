@@ -3,9 +3,10 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { toast } from '@posthog/quill'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -346,15 +347,15 @@ export const analyticsSpacesLogic = kea<analyticsSpacesLogicType>([
                 const pinned = values.pinnedSpaces.find((candidate) => candidate.path === space.path)
                 if (pinned) {
                     await api.fileSystemShortcuts.delete(pinned.shortcutId)
-                    lemonToast.success(`Removed ${space.name} from your sidebar`)
+                    toast.success({ title: `Unpinned ${space.name}` })
                 } else {
                     // A folder shortcut keeps its path as ref, so a rename moves the star with the folder.
                     await api.fileSystemShortcuts.create({ path: space.path, type: 'folder', ref: space.path })
-                    lemonToast.success(`Added ${space.name} to your sidebar`)
+                    toast.success({ title: `Pinned ${space.name} to the sidebar` })
                 }
                 actions.loadShortcuts()
             } catch {
-                lemonToast.error('Could not update the pin.')
+                toast.error({ title: 'Couldn’t update the pin. Try again.' })
             }
             actions.togglePinDone()
         },
@@ -405,21 +406,23 @@ export const analyticsSpacesLogic = kea<analyticsSpacesLogicType>([
                 if (pin) {
                     await api.fileSystemShortcuts.delete(pin.shortcutId)
                 }
-                lemonToast.success(`Deleted ${space.name}. Everything inside is unfiled again.`)
+                toast.success({ title: `Deleted ${space.name}. Everything inside is unfiled again.` })
                 // pinned: analytics event name. Renaming it breaks dashboards.
-                posthog.capture('analytics space deleted')
+                posthog.capture('analytics collection deleted')
                 actions.deleteSpaceDone(true)
                 actions.loadShortcuts()
                 actions.loadSpaces()
                 router.actions.push(urls.analyticsSpaces())
             } catch (error) {
-                lemonToast.error(error instanceof Error ? error.message : 'Could not delete this space.')
+                toast.error({
+                    title: error instanceof Error ? error.message : 'Couldn’t delete this collection. Try again.',
+                })
                 actions.deleteSpaceDone(false)
             }
         },
         togglePinDone: () => {
             // pinned: analytics event name and property. Renaming them breaks dashboards.
-            posthog.capture('analytics space starred', { starred_count: values.pinnedSpaces.length })
+            posthog.capture('analytics collection pinned', { pinned_count: values.pinnedSpaces.length })
         },
     })),
     // The sidebar mounts this logic for the stars alone; counting every space is for the Spaces page.

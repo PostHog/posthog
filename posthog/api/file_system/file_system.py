@@ -20,6 +20,7 @@ from rest_framework.response import Response
 
 from posthog.api.file_system.access_levels import (
     FileSystemAccessLevelSerializerMixin,
+    _coerce_refs_for_lookup,
     denied_short_id_refs,
     entries_missing_access_level,
 )
@@ -673,18 +674,18 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         tags_by_entry: dict[tuple[str, int, str], builtins.list[str]] = {}
         if include_tags:
             for entry_type, app_label, model_name, ref_field in TAGGED_FILE_SYSTEM_TYPES:
-                refs = {
+                refs = [
                     item["ref"]
                     for item in results
                     if item.get("type") == entry_type
                     and item.get("user_access_level") != "none"
                     and isinstance(item.get("ref"), str)
                     and item["ref"]
-                    and (ref_field != "id" or str(item["ref"]).isdigit())
-                }
+                ]
+                model = apps.get_model(app_label, model_name)
+                refs = _coerce_refs_for_lookup(model, ref_field, refs)
                 if not refs:
                     continue
-                model = apps.get_model(app_label, model_name)
                 rows = model.objects.filter(
                     team__project_id=self.team.project_id, deleted=False, **{f"{ref_field}__in": refs}
                 ).values_list("pk", "team_id", ref_field)

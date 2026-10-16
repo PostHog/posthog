@@ -19,7 +19,10 @@ export function DeleteSpaceDialog(): JSX.Element {
     const { closeDeleteSpace, deleteSpace } = useActions(analyticsSpacesLogic)
 
     return (
-        <Dialog open={!!deletingSpace} onOpenChange={(open: boolean) => !open && closeDeleteSpace()}>
+        <Dialog
+            open={!!deletingSpace}
+            onOpenChange={(open: boolean) => !open && !deleteInProgress && closeDeleteSpace()}
+        >
             <DialogContent data-attr="analytics-delete-space-dialog">
                 <DialogHeader>
                     <DialogTitle>{deletingSpace ? `Delete "${deletingSpace.name}"` : 'Delete collection'}</DialogTitle>
@@ -29,7 +32,15 @@ export function DeleteSpaceDialog(): JSX.Element {
                     </DialogDescription>
                 </DialogHeader>
                 <DialogFooter>
-                    <DialogClose render={<Button variant="outline" data-attr="analytics-delete-space-cancel" />}>
+                    <DialogClose
+                        render={
+                            <Button
+                                variant="outline"
+                                disabled={deleteInProgress}
+                                data-attr="analytics-delete-space-cancel"
+                            />
+                        }
+                    >
                         Cancel
                     </DialogClose>
                     <Button

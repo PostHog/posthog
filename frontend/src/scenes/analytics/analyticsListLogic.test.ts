@@ -64,15 +64,17 @@ describe('analyticsListLogic', () => {
         capture.mockRestore()
     })
 
-    it('shows personal rows by default, and hides unfiled and home folder rows on request', async () => {
+    it('lists every row, in and out of collections, including home folder rows', async () => {
         const logic = analyticsListLogic()
         logic.mount()
         router.actions.push(urls.analyticsList())
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.items.map((item) => item.id).sort()).toEqual(['i1', 'i3', 'n1'])
-        logic.actions.setShowPersonal(false)
-        expect(logic.values.items.map((item) => item.id)).toEqual(['i1'])
+        expect(logic.values.items.map((item) => [item.id, item.spaceName]).sort()).toEqual([
+            ['i1', 'Growth'],
+            ['i3', null],
+            ['n1', null],
+        ])
     })
 
     it('reports a folder visit once, however it starts, and a space only when it changes', async () => {
@@ -88,7 +90,7 @@ describe('analyticsListLogic', () => {
             .map(([name, properties]) => [name, properties?.mode ?? properties?.nested])
         expect(events).toEqual([
             ['views list loaded', 'folder'],
-            ['analytics space opened', false],
+            ['analytics collection opened', false],
             ['views list loaded', 'folder'],
         ])
     })

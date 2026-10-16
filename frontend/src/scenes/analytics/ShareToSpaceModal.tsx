@@ -24,7 +24,7 @@ export function ShareToSpaceModal(): JSX.Element {
                 target
                     ? moving
                         ? `"${target.name}" is in ${currentSpace}. Pick where it goes next.`
-                        : `Everyone in the collection you pick will find "${target.name}" in Analytics.`
+                        : `Pick the collection "${target.name}" goes in.`
                     : undefined
             }
             width={480}
@@ -36,9 +36,9 @@ export function ShareToSpaceModal(): JSX.Element {
                 </div>
             ) : !spaces.length ? (
                 <div className="flex flex-col gap-2">
-                    <p className="m-0 text-secondary">No spaces yet. Create one first, then share into it.</p>
+                    <p className="m-0 text-secondary">No collections yet. Create one first, then add to it.</p>
                     <LemonButton type="secondary" to={urls.analyticsSpaces()} onClick={closeShareToSpace}>
-                        Open spaces
+                        Open collections
                     </LemonButton>
                 </div>
             ) : (
@@ -63,7 +63,7 @@ export function ShareToSpaceModal(): JSX.Element {
                                             ? 'Current collection'
                                             : space.total === 0
                                               ? 'Empty'
-                                              : `${space.total} shared`}
+                                              : `${space.total} ${space.total === 1 ? 'item' : 'items'}`}
                                     </span>
                                 </span>
                             </LemonButton>

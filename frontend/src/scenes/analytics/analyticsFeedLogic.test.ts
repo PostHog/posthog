@@ -91,12 +91,9 @@ describe('analyticsFeedLogic', () => {
     })
 
     const feed = (logic: ReturnType<typeof analyticsFeedLogic.build>, query: AnalyticsFeedQuery = ALL): string[] =>
-        selectAnalyticsFeed(
-            logic.values.sources,
-            logic.values.spaceNames,
-            teamLogic.values.currentTeamId,
-            query
-        ).items.map((item) => `${item.type}:${item.id}`)
+        selectAnalyticsFeed(logic.values.sources, teamLogic.values.currentTeamId, query).items.map(
+            (item) => `${item.type}:${item.id}`
+        )
 
     it('shows only rows whose order is final, and loads more from the type that holds them back', async () => {
         const logic = analyticsFeedLogic()
@@ -125,12 +122,7 @@ describe('analyticsFeedLogic', () => {
             'insight:0:-created_at',
             'notebook:0:-created_at',
         ])
-        const result = selectAnalyticsFeed(
-            logic.values.sources,
-            logic.values.spaceNames,
-            teamLogic.values.currentTeamId,
-            ALL
-        )
+        const result = selectAnalyticsFeed(logic.values.sources, teamLogic.values.currentTeamId, ALL)
         expect(result.hasMore).toBe(false)
         expect(result.items.map((item) => item.spaceName)).toEqual([
             'Growth',
