@@ -88,6 +88,7 @@ class TestTrinoShadowMaterialization(BaseTest):
             bypass_warehouse_access_control=True,
             expansion_mode=TrinoExpansionMode.DJANGO,
             select_transform=ANY,
+            preserve_clickhouse_output_names=True,
         )
         connect.assert_called_once_with(
             str(self.organization.pk),
@@ -169,38 +170,66 @@ class TestTrinoShadowMaterialization(BaseTest):
 
     @parameterized.expand(
         [
-            ("full_build", "SELECT event, count(), max(timestamp) AS ts FROM events GROUP BY event", None),
+            (
+                "full_build",
+                "SELECT event, count(), max(timestamp) AS ts FROM events GROUP BY event",
+                None,
+                ("count()",),
+            ),
             (
                 "merge_stage",
                 "SELECT event, count(), max(timestamp) AS ts FROM events GROUP BY event",
                 dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("count()",),
             ),
             (
                 "columns_regex",
                 "SELECT COLUMNS('^event$'), count(), max(timestamp) AS ts FROM events GROUP BY event",
                 None,
+                ("count()",),
             ),
             (
                 "columns_list",
                 "SELECT COLUMNS(event), count(), max(timestamp) AS ts FROM events GROUP BY event",
                 dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("count()",),
             ),
             (
                 "union_repeats_expressions",
                 "SELECT event, count(), count() AS hits, max(timestamp) AS ts FROM events GROUP BY event "
                 "UNION ALL SELECT event, count(), count(), max(timestamp) FROM events GROUP BY event",
                 None,
+                ("count()",),
             ),
             (
                 "union_by_name",
-                "SELECT event, count(), max(timestamp) AS ts, 1 FROM events GROUP BY event "
-                "UNION ALL BY NAME SELECT 1, max(timestamp) AS ts, count(), event FROM events GROUP BY event",
+                "SELECT event, count() AS hits, max(timestamp) AS ts, 1 AS one FROM events GROUP BY event "
+                "UNION ALL BY NAME SELECT 1 AS one, max(timestamp) AS ts, count() AS hits, event "
+                "FROM events GROUP BY event",
                 dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("hits", "one"),
+            ),
+            (
+                "resolved_calls",
+                "SELECT max(timestamp), toStartOfDay(timestamp), toDate(timestamp), timestamp AS ts "
+                "FROM events GROUP BY timestamp",
+                None,
+                (
+                    "max(toTimeZone(timestamp, 'UTC'))",
+                    "toStartOfDay(toTimeZone(timestamp, 'UTC'))",
+                    "toDate(toTimeZone(timestamp, 'UTC'))",
+                ),
+            ),
+            (
+                "resolved_property_and_boolean",
+                "SELECT person.properties.x, true, timestamp AS ts FROM events",
+                None,
+                ("x", "1"),
             ),
         ]
     )
     def test_names_unaliased_columns_in_create_table_as(
-        self, _name: str, query: str, since: dt.datetime | None
+        self, _name: str, query: str, since: dt.datetime | None, expected_names: tuple[str, ...]
     ) -> None:
         self.query = {"kind": "HogQLQuery", "query": query}
         membership = ManagedWarehouseTeamMembership(
@@ -240,7 +269,8 @@ class TestTrinoShadowMaterialization(BaseTest):
             )
 
         (write,) = [statement for statement, _ in cursor.statements if statement.startswith("CREATE OR REPLACE TABLE")]
-        assert 'count(*) AS "count()"' in write
+        for expected_name in expected_names:
+            assert f'AS "{expected_name}"' in write
         assert ("__ph_incremental_stage" in write) == (since is not None)
 
     def test_compilation_failure_does_not_connect_or_write(self) -> None:
@@ -273,7 +303,6 @@ class TestTrinoShadowMaterialization(BaseTest):
 
     @parameterized.expand([(None,), ("legacy_orders",)])
     def test_materialized_dependency_matches_downstream_locator(self, model_label: str | None) -> None:
-
         backing_table = DataWarehouseTable.objects.create(
             team=self.team, name="orders", format="Parquet", url_pattern="https://example.com/orders/*.parquet"
         )
