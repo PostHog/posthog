@@ -9,6 +9,8 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import NodeKind
 
+from posthog.hogql.errors import QueryError
+
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.insight_result import InsightResult
 from posthog.errors import CHQueryErrorNoCommonType, CHQueryErrorS3FileChangedDuringRead
@@ -99,6 +101,16 @@ def test_a_sql_query_clickhouse_rejects_becomes_an_extraction_error() -> None:
 def test_a_clickhouse_error_outside_the_owners_sql_keeps_the_ordinary_failure_path(error, query) -> None:
     with pytest.raises(type(error)):
         _run(error, query)
+
+
+def test_a_sql_query_hogql_rejects_becomes_an_extraction_error() -> None:
+    with pytest.raises(AlertExtractionError, match=r"^Cannot query tables from different clusters$"):
+        _run(QueryError("Cannot query tables from different clusters"), {"kind": NodeKind.HOG_QL_QUERY})
+
+
+def test_a_hogql_error_in_a_posthog_built_query_keeps_the_ordinary_failure_path() -> None:
+    with pytest.raises(QueryError):
+        _run(QueryError("Unknown property"), {"kind": NodeKind.TRENDS_QUERY, "series": []})
 
 
 def test_a_successful_extraction_passes_through() -> None:
