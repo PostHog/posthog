@@ -593,10 +593,9 @@ class OAuthValidator(OAuth2Validator):
         authenticates or fails, and the grant-type gate excludes requests without a token
         grant, which is how revocation stays on the declared method.
 
-        Provisioning partners get it only while their unsigned grace lasts, as they do at the
-        agentic token endpoint. Otherwise the key is the credential their registration is built
-        on, and the fallback would hand every partner a way to downgrade itself by sending
-        nothing."""
+        Provisioning partners never get it. The key is the credential their registration is
+        built on, and the fallback would hand every partner a way to downgrade itself by
+        sending nothing."""
         if getattr(request, "grant_type", None) not in ("authorization_code", "refresh_token"):
             return None
         if getattr(request, "client_assertion", None):
