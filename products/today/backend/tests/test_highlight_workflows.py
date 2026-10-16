@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -12,10 +13,10 @@ from products.today.backend.facade.enums import HighlightLabel
 from products.today.backend.logic.highlight_registry import load_sources
 from products.today.backend.logic.highlight_sources import workflow_ideas, workflows
 from products.today.backend.logic.highlight_types import Context
-from products.workflows.backend.facade.contracts import OwnedWorkflowHealth
+from products.workflows.backend.facade.contracts import EmailSendingState, OwnedWorkflowHealth
 
 WORKFLOW_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
-CONTEXT = cast(Context, SimpleNamespace(team=None, user=None))
+CONTEXT = cast(Context, SimpleNamespace(team=SimpleNamespace(id=1), user=None))
 
 
 def _workflow(**fields: Any) -> OwnedWorkflowHealth:
@@ -93,10 +94,40 @@ class TestWorkflows(SimpleTestCase):
     ) -> None:
         registered = next(s for s in load_sources() if s.name == "workflows")
 
-        with patch.object(workflows, "list_owned_workflow_health", return_value=[workflow]):
+        with (
+            patch.object(workflows, "list_owned_workflow_health", return_value=[workflow]),
+            patch.object(workflows, "get_email_sending_state", return_value=None),
+        ):
             found = registered.find(CONTEXT)
 
         self.assertEqual([(c.label, c.title, c.detail, c.url) for c in found.items], expected)
+
+    @parameterized.expand(
+        [
+            ("suspended", [_workflow()], True, ["Email sending is suspended for this project"]),
+            ("suspended, with no live workflow of yours", [], True, []),
+            ("sending on", [_workflow()], False, []),
+        ]
+    )
+    def test_a_suspended_project_shows_to_workflow_owners(
+        self, _name: str, owned: list[OwnedWorkflowHealth], suspended: bool, expected: list[str]
+    ) -> None:
+        registered = next(s for s in load_sources() if s.name == "workflows")
+        state = EmailSendingState(
+            suspended_at=datetime(2026, 10, 1, tzinfo=UTC) if suspended else None,
+            suspension_reason="",
+            tier=1,
+            tier_pinned=False,
+            tier_updated_at=None,
+        )
+
+        with (
+            patch.object(workflows, "list_owned_workflow_health", return_value=owned),
+            patch.object(workflows, "get_email_sending_state", return_value=state),
+        ):
+            found = registered.find(CONTEXT)
+
+        self.assertEqual([c.title for c in found.items], expected)
 
     @parameterized.expand(
         [

@@ -1,10 +1,12 @@
-from products.workflows.backend.facade.api import list_owned_workflow_health
+from products.workflows.backend.facade.api import get_email_sending_state, list_owned_workflow_health
 from products.workflows.backend.facade.contracts import OwnedWorkflowHealth
 
 from ...facade.enums import HighlightLabel
 from ..highlight_rules import exact, short
 from ..highlight_types import Candidate, Context, Found, Source
 
+SENDING_SUSPENDED = "Email sending is suspended for this project"
+SENDING_SUSPENDED_DETAIL = "Workflow and broadcast emails are not delivered. Contact support to turn sending back on"
 EMAILS_PAUSED = "Emails are paused for workflow ‘{workflow}’"
 EMAILS_PAUSED_DETAIL = "It sends no emails until sending resumes"
 FAILING = "Workflow ‘{workflow}’ failed {failed} times in the last 7 days"
@@ -19,7 +21,27 @@ MIN_FAILED_SHARE = 0.1
 
 def find(context: Context) -> Found:
     workflows = list_owned_workflow_health(team=context.team, user=context.user, limit=20)
-    return Found(items=tuple(candidate for workflow in workflows for candidate in _candidates(workflow)))
+    if not workflows:
+        return Found()
+    candidates = [candidate for workflow in workflows for candidate in _candidates(workflow)]
+    state = get_email_sending_state(context.team.id)
+    if state is not None and state.suspended_at is not None:
+        candidates.insert(0, _sending_suspended())
+    return Found(items=tuple(candidates))
+
+
+def _sending_suspended() -> Candidate:
+    # Suspension stops every email step in the project, so it outranks any one workflow's problem.
+    return Candidate(
+        key="workflows:email-sending-suspended",
+        label=HighlightLabel.RISK,
+        family="workflows",
+        importance=0.95,
+        relevance=1.0,
+        title=SENDING_SUSPENDED,
+        detail=SENDING_SUSPENDED_DETAIL,
+        url="/workflows/reputation",
+    )
 
 
 def _candidates(workflow: OwnedWorkflowHealth) -> list[Candidate]:
