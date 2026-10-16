@@ -11,13 +11,14 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { isWelcomeNavItemShown } from 'scenes/onboarding/welcome/welcomeNavItem'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { fileSystemShortcutBulkUpdateCreate } from '~/generated/core/api'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import type { PreflightStatus } from '~/types'
+import type { PreflightStatus, TeamPublicType, TeamType } from '~/types'
 
 import * as decisionsApi from 'products/ml_inference/frontend/generated/api'
 
@@ -26,7 +27,7 @@ import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
 import { findProductShortcut, shortcutFromEntry } from '../../ProjectTree/utils'
 import { APP_MATCH_THRESHOLD, AppMatchGroups, buildAppRankingQuestions, readAppRankings } from './appRanking'
-import { PINNED_CATEGORY, getNavProductItems } from './navProductItems'
+import { PINNED_CATEGORY, WELCOME_NAV_ITEM, getNavProductItems } from './navProductItems'
 import { ProductsItemGroup, groupProducts, productMatchesSearch, productsItemName } from './productsCatalog'
 
 // projectTreeLogic persists state under its logic key, so renaming this value resets it.
@@ -42,6 +43,7 @@ export interface navProductsTabLogicValues {
     shortcutData: FileSystemEntry[] // projectTreeDataLogic
     shortcutDataHasLoaded: boolean // projectTreeDataLogic
     shortcutDataLoading: boolean // projectTreeDataLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
     allItems: FileSystemImport[]
     allProductsCollapsible: boolean
@@ -131,10 +133,10 @@ export interface navProductsTabLogicActions {
         url: string
     } // router
     loadCurrentTeamSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType,
+        currentTeam: TeamPublicType | null,
         payload?: any
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType
+        currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
     rankApps: ({ query }: { query: string }) => {
@@ -224,7 +226,12 @@ export interface navProductsTabLogicMeta {
             appRecommendationsEnabled: boolean
         ) => AppMatchGroups | null
         allItems: (featureFlags: FeatureFlagsSet) => FileSystemImport[]
-        pinnedItems: (allItems: FileSystemImport[], search: string) => FileSystemImport[]
+        pinnedItems: (
+            allItems: FileSystemImport[],
+            search: string,
+            currentTeam: any,
+            featureFlags: FeatureFlagsSet
+        ) => FileSystemImport[]
         groupedItems: (allItems: FileSystemImport[], search: string) => ProductsItemGroup[]
         configurableProducts: (allItems: FileSystemImport[]) => FileSystemImport[]
         starredProductIds: (allItems: FileSystemImport[], shortcutData: FileSystemEntry[]) => Record<string, string>
@@ -267,7 +274,7 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
     connect(() => ({
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeamId', 'currentTeam'],
             preflightLogic,
             ['preflight'],
             featureFlagLogic,
@@ -476,9 +483,14 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
             (featureFlags: FeatureFlagsSet): FileSystemImport[] => getNavProductItems(featureFlags),
         ],
         pinnedItems: [
-            (s) => [s.allItems, s.search],
-            (items: FileSystemImport[], search: string): FileSystemImport[] =>
-                items
+            (s) => [s.allItems, s.search, s.currentTeam, s.featureFlags],
+            (
+                items: FileSystemImport[],
+                search: string,
+                currentTeam: TeamPublicType | TeamType | null,
+                featureFlags: FeatureFlagsSet
+            ): FileSystemImport[] =>
+                [...(isWelcomeNavItemShown(currentTeam?.created_at, featureFlags) ? [WELCOME_NAV_ITEM] : []), ...items]
                     .filter((item) => item.category === PINNED_CATEGORY && productMatchesSearch(item, search))
                     .sort((a, b) => (a.visualOrder ?? Infinity) - (b.visualOrder ?? Infinity)),
         ],
