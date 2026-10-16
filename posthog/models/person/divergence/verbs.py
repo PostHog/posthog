@@ -173,7 +173,16 @@ def run_verb(
             if apply:
                 undelivered = context.deliveries.undelivered(repairs._FLUSH_TIMEOUT_SECONDS)
                 if undelivered:
-                    counts["undelivered"] += undelivered
+                    # A key whose publish did not land gets a last action that is not done, so resume retries it.
+                    by_key = {RowKey(kind=r["kind"], key=r["key"]): r for r in rows}
+                    for key in context.deliveries.undelivered_keys():
+                        row = by_key.get(RowKey(kind=key.kind, key=key.key)) or {
+                            "kind": key.kind,
+                            "key": key.key,
+                            "group": None,
+                        }
+                        context.action(row, "undelivered")
+                    counts["undelivered"] += undelivered - len(context.deliveries.undelivered_keys())
                     log(f"{verb}: {undelivered} ClickHouse messages were not delivered; rerun with resume")
     return counts
 
@@ -207,7 +216,7 @@ def _republish_persons(
     stale_merge_distinct_ids: dict[str, str] | None = None,
 ) -> None:
     rows_by_key = {row["key"]: row for row in rows}
-    summary = repairs.repair_persons(
+    repairs.repair_persons(
         [datatypes.PersonRef(team_id=context.team_id, person_uuid=u) for u in dict.fromkeys(person_uuids)],
         apply=context.apply,
         max_writes_per_second=context.max_calls_per_second,
@@ -215,9 +224,8 @@ def _republish_persons(
         log=context.log,
         republish_equal=frozenset(republish_equal),
         stale_merge_distinct_ids=stale_merge_distinct_ids,
+        deliveries=context.deliveries,
     )
-    if summary.undelivered:
-        context.log(f"{context.verb}: {summary.undelivered} ClickHouse messages were not delivered; rerun with resume")
 
 
 def republish(rows: list[dict[str, Any]], context: VerbContext) -> None:
@@ -291,12 +299,22 @@ def _bury_persons(rows: list[dict[str, Any]], context: VerbContext) -> None:
             for orphan in orphans:
                 context.action(by_uuid[orphan.uuid], "skipped_share_limit")
             return
-    tombstone_orphaned_ch_persons(
-        context.team_id,
-        orphans,
-        dry_run=False,
-        on_outcome=lambda person_uuid, outcome: context.action(by_uuid[person_uuid], outcome),
-    )
+    # The orphan repair reports an outcome before it publishes and raises when a publish fails, so outcomes are
+    # recorded only once every publish landed; otherwise each key is recorded as undelivered for resume to retry.
+    outcomes: list[tuple[str, str]] = []
+    try:
+        tombstone_orphaned_ch_persons(
+            context.team_id,
+            orphans,
+            dry_run=False,
+            on_outcome=lambda person_uuid, outcome: outcomes.append((person_uuid, outcome)),
+        )
+    except Exception:
+        for person_uuid, _ in outcomes:
+            context.action(by_uuid[person_uuid], "undelivered")
+        raise
+    for person_uuid, outcome in outcomes:
+        context.action(by_uuid[person_uuid], outcome)
 
 
 def _strong_row(team_id: int, distinct_id: str) -> DistinctIdRow | None:
@@ -329,7 +347,8 @@ def _bury_mapping(row: dict[str, Any], context: VerbContext) -> None:
         return
     owner = confirmed.person_uuid if confirmed.HasField("person_uuid") else ch.winner_person_uuid
     context.deliveries.track(
-        create_person_distinct_id(team_id, distinct_id, owner, version=int(confirmed.version), is_deleted=True)
+        create_person_distinct_id(team_id, distinct_id, owner, version=int(confirmed.version), is_deleted=True),
+        repairs.PublishedKey(kind="mapping", key=distinct_id),
     )
     context.action(row, "buried", version=int(confirmed.version))
 

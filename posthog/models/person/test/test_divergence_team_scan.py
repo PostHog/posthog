@@ -16,6 +16,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.models.person.divergence import team_scan
+from posthog.models.person.divergence.inspection import hash_distinct_id
 from posthog.models.person.test.divergence_fixtures import DivergenceFixturesMixin
 from posthog.models.person.util import tombstone_persons_in_postgres
 from posthog.personhog_client.fake_client import get_active_fake
@@ -108,6 +109,10 @@ class TestTeamScan(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         }
         summary = json.loads((scan_dir / team_scan.SUMMARY_FILE).read_text())
         assert summary["complete"] is True
+        assert [g["group"] for g in summary["groups"]["largest"] if g["verb"] == "fold"] == [
+            f"fold:{hash_distinct_id(self.team.pk, fold)}"
+        ]
+        assert keys["ghost"] not in json.dumps(summary)
         assert summary["verbs"]["fold"] == {"person_rows": 1, "mapping_rows": 2, "groups": 1}
         assert summary["groups"]["fold_modes"] == {"full": 1}
         assert summary["classified"]["person/ok/-"] == 4
@@ -149,6 +154,17 @@ class TestTeamScan(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
 
         assert _report(split) == _report(whole)
         assert len(_report(whole)) == 11
+
+    def test_the_scan_directory_is_private_to_its_owner(self):
+        scan_dir = self.scan_root / "private"
+        team_scan.create_plan(scan_dir, self.team.pk)
+        assert scan_dir.stat().st_mode & 0o077 == 0
+
+        shared = self.scan_root / "shared"
+        shared.mkdir(mode=0o755)
+        shared.chmod(0o755)
+        with pytest.raises(team_scan.ScanError, match="readable by other users"):
+            team_scan.create_plan(shared, self.team.pk)
 
 
 def _mapping(old: str, new: str, sub: str = "a_absent", key: str | None = None) -> dict[str, Any]:
