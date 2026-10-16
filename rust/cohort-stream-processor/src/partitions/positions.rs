@@ -1,5 +1,5 @@
-//! Where each input topic resumes, read from its consumer group on the broker. A checkpoint records
-//! these positions, and a restore commits them back.
+//! Where each input topic resumes, and who committed it, read from its consumer group on the
+//! broker. A checkpoint records these positions, and a restore commits them back.
 //!
 //! Every commit the processor makes follows a WAL fsync, so a group's committed offset is at or
 //! below the durable state, and a checkpoint taken after reading it contains at least that state.
@@ -16,6 +16,8 @@ use rdkafka::types::RDKafkaErrorCode;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use serde::{Deserialize, Serialize};
 
+use super::fence::{CommitLedger, Committed, InputCommits};
+use super::stamp::{CommitStamp, Stamp};
 use crate::config::Config;
 
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -163,8 +165,8 @@ pub enum PositionsError {
     Negative(#[from] NegativeOffset),
 }
 
-/// Reads one input's consumer-group positions without joining the group. Every method blocks, so
-/// async callers go through `spawn_blocking`.
+/// Reads and commits one input's consumer-group positions without joining the group. Every method
+/// blocks, so async callers go through `spawn_blocking`.
 struct GroupReader {
     topic: InputTopic,
     config: ClientConfig,
@@ -190,38 +192,96 @@ impl GroupReader {
         &self.topic
     }
 
-    /// The group's committed offset per partition, or the low watermark where the group has none.
-    /// A consumer without a commit starts at or after the low watermark, so replay from there
-    /// misses nothing.
-    fn resume_positions(
+    /// The group's last commit on each of `partitions`, from one `OffsetFetch`.
+    fn commits(
         &self,
+        client: &BaseConsumer,
         partitions: &BTreeSet<u16>,
-    ) -> Result<InputPositions, PositionsError> {
+    ) -> Result<InputCommits, PositionsError> {
         let topic = self.topic.as_str();
         let mut request = TopicPartitionList::new();
         for &partition in partitions {
             request.add_partition(topic, i32::from(partition));
         }
-        let client = self.client()?;
-        let committed = client.committed_offsets(request, FETCH_TIMEOUT)?;
-
-        let mut offsets = BTreeMap::new();
-        let mut uncommitted = Vec::new();
+        let answered = client.committed_offsets(request, FETCH_TIMEOUT)?;
+        let mut commits = BTreeMap::new();
         for &partition in partitions {
-            let commit = committed.find_partition(topic, i32::from(partition));
-            match commit.as_ref().map(|elem| (elem.error(), elem.offset())) {
-                Some((Err(err), _)) => return Err(err.into()),
-                Some((Ok(()), Offset::Offset(next))) => {
-                    offsets.insert(partition, ResumeOffset::try_from(next)?);
+            let committed = match answered.find_partition(topic, i32::from(partition)) {
+                Some(elem) => {
+                    elem.error()?;
+                    match elem.offset() {
+                        Offset::Offset(next) => Committed::At {
+                            offset: ResumeOffset::try_from(next)?,
+                            stamp: Stamp::parse(elem.metadata()),
+                        },
+                        _ => Committed::Never,
+                    }
                 }
-                _ => uncommitted.push((&self.topic, partition)),
+                None => Committed::Never,
+            };
+            commits.insert(partition, committed);
+        }
+        Ok(InputCommits::new(self.topic.clone(), commits))
+    }
+
+    /// Where the group resumes on each partition of `commits`: its committed offset, or the low
+    /// watermark where it has none. Every consumer here starts at `earliest`, so replay from the low
+    /// watermark misses nothing.
+    fn resume_positions(
+        &self,
+        client: &BaseConsumer,
+        commits: &InputCommits,
+    ) -> Result<BTreeMap<u16, ResumeOffset>, PositionsError> {
+        let mut positions = BTreeMap::new();
+        let mut uncommitted = Vec::new();
+        for (&partition, committed) in commits.commits() {
+            match committed {
+                Committed::At { offset, .. } => {
+                    positions.insert(partition, *offset);
+                }
+                Committed::Never => uncommitted.push((&self.topic, partition)),
             }
         }
-        let lows = list_offsets(&client, &uncommitted, Offset::Beginning)?;
+        let lows = list_offsets(client, &uncommitted, Offset::Beginning)?;
         for (&(_, partition), low) in uncommitted.iter().zip(lows) {
-            offsets.insert(partition, ResumeOffset::try_from(low)?);
+            positions.insert(partition, ResumeOffset::try_from(low)?);
         }
-        Ok(InputPositions::new(self.topic.clone(), offsets))
+        Ok(positions)
+    }
+
+    /// The group's resume positions on `partitions`.
+    fn positions(&self, partitions: &BTreeSet<u16>) -> Result<InputPositions, PositionsError> {
+        let client = self.client()?;
+        let commits = self.commits(&client, partitions)?;
+        let positions = self.resume_positions(&client, &commits)?;
+        Ok(InputPositions::new(self.topic.clone(), positions))
+    }
+
+    /// Commits each of `partitions` again at its resume position, with `stamp`.
+    fn restamp(
+        &self,
+        stamp: &CommitStamp,
+        partitions: &BTreeSet<u16>,
+    ) -> Result<(), PositionsError> {
+        let client = self.client()?;
+        let positions = self.resume_positions(&client, &self.commits(&client, partitions)?)?;
+        Ok(self.commit(stamp, &positions)?)
+    }
+
+    fn commit(
+        &self,
+        stamp: &CommitStamp,
+        positions: &BTreeMap<u16, ResumeOffset>,
+    ) -> KafkaResult<()> {
+        if positions.is_empty() {
+            return Ok(());
+        }
+        let offsets = positions
+            .iter()
+            .map(|(&partition, &offset)| (i32::from(partition), offset.get()));
+        stamp
+            .list(self.topic.as_str(), offsets)?
+            .commit(&self.client()?, CommitMode::Sync)
     }
 
     fn watermarks(
@@ -241,19 +301,12 @@ impl FollowerGroup {
         self.0.topic()
     }
 
-    pub fn commit(&self, positions: &BTreeMap<u16, ResumeOffset>) -> KafkaResult<()> {
-        if positions.is_empty() {
-            return Ok(());
-        }
-        let mut tpl = TopicPartitionList::new();
-        for (&partition, &offset) in positions {
-            tpl.add_partition_offset(
-                self.topic().as_str(),
-                i32::from(partition),
-                Offset::Offset(offset.get()),
-            )?;
-        }
-        self.0.client()?.commit(&tpl, CommitMode::Sync)
+    pub fn commit(
+        &self,
+        stamp: &CommitStamp,
+        positions: &BTreeMap<u16, ResumeOffset>,
+    ) -> KafkaResult<()> {
+        self.0.commit(stamp, positions)
     }
 }
 
@@ -317,13 +370,35 @@ impl InputGroups {
         &self.followers
     }
 
+    /// The last commit on `partitions`, on every enabled group.
+    pub fn ledger(&self, partitions: &BTreeSet<u16>) -> Result<CommitLedger, PositionsError> {
+        let read = |reader: &GroupReader| reader.commits(&reader.client()?, partitions);
+        let events = read(&self.events)?;
+        let followers = self
+            .followers
+            .iter()
+            .map(|follower| read(&follower.0))
+            .collect::<Result<_, _>>()?;
+        Ok(CommitLedger::new(events, followers))
+    }
+
+    /// Commits `partitions` again with `stamp` on every enabled group.
+    pub(super) fn restamp(
+        &self,
+        stamp: &CommitStamp,
+        partitions: &BTreeSet<u16>,
+    ) -> Result<(), PositionsError> {
+        self.readers()
+            .try_for_each(|reader| reader.restamp(stamp, partitions))
+    }
+
     /// Every input's resume positions on `partitions`.
     pub fn resume_positions(
         &self,
         partitions: &BTreeSet<u16>,
     ) -> Result<Vec<InputPositions>, PositionsError> {
         self.readers()
-            .map(|reader| reader.resume_positions(partitions))
+            .map(|reader| reader.positions(partitions))
             .collect()
     }
 

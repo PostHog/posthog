@@ -41,6 +41,7 @@ use crate::partitions::pacing::{
 };
 use crate::partitions::pause::PartitionPauser;
 use crate::partitions::rebalance::CohortConsumerContext;
+use crate::partitions::stamp::CommitStamp;
 use crate::partitions::watermarks::WatermarkMs;
 
 /// Back-off after a Kafka transport error, mirroring the sibling consume loops.
@@ -454,6 +455,7 @@ fn run_admission_cycle(
 pub struct SeedFollowerConsumer {
     consumer: Arc<StreamConsumer>,
     topic: String,
+    stamp: CommitStamp,
     /// The events group's consumer, shared for the idle probe's watermark + boot-committed reads.
     events_consumer: Arc<StreamConsumer<CohortConsumerContext>>,
     events_topic: String,
@@ -474,6 +476,7 @@ impl SeedFollowerConsumer {
     pub fn new(
         consumer: Arc<StreamConsumer>,
         topic: String,
+        stamp: CommitStamp,
         events_consumer: Arc<StreamConsumer<CohortConsumerContext>>,
         events_topic: String,
         dispatcher: Arc<EventDispatcher>,
@@ -490,6 +493,7 @@ impl SeedFollowerConsumer {
         Self {
             consumer,
             topic,
+            stamp,
             events_consumer,
             events_topic,
             dispatcher,
@@ -541,6 +545,7 @@ impl SeedFollowerConsumer {
                         fsync_then_commit(
                             self.dispatcher.handle(),
                             &self.consumer,
+                            &self.stamp,
                             self.owned_committable_offsets(),
                             &self.topic,
                             CommitMode::Async,
@@ -570,6 +575,7 @@ impl SeedFollowerConsumer {
         fsync_then_commit(
             self.dispatcher.handle(),
             &self.consumer,
+            &self.stamp,
             offsets,
             &self.topic,
             CommitMode::Sync,

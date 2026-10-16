@@ -307,6 +307,12 @@ pub const PARTITIONS_ASSIGNED_TOTAL: &str = "partitions_assigned_total";
 pub const OWNED_PARTITIONS: &str = "owned_partitions";
 /// This pod's place in the partition split, labelled by `pods` and `ordinal`. Always 1 (gauge).
 pub const PARTITION_OWNERSHIP_INFO: &str = "partition_ownership_info";
+/// 1 while the ownership fence holds the boot, labelled by `reason` (`foreign_split`|`unrecognized`),
+/// else 0 (gauge). **Alert on it**: the pod reads not ready until the logged cause clears.
+pub const OWNERSHIP_FENCE_BLOCKED: &str = "ownership_fence_blocked";
+/// Commits by another split, or with unreadable metadata, that the run-time audit found on an owned
+/// partition, labelled by `topic` (counter). Each one stops the pod.
+pub const OWNERSHIP_FENCE_VIOLATIONS_TOTAL: &str = "ownership_fence_violations_total";
 
 /// Events fully processed (counter).
 pub const STAGE1_EVENTS_PROCESSED: &str = "stage1_events_processed_total";
@@ -859,6 +865,11 @@ mod tests {
             "durable_restore_pending_transfers_recovered_partitions_total",
         );
         // Alerts select on these.
+        assert_eq!(OWNERSHIP_FENCE_BLOCKED, "ownership_fence_blocked");
+        assert_eq!(
+            OWNERSHIP_FENCE_VIOLATIONS_TOTAL,
+            "ownership_fence_violations_total"
+        );
         assert_eq!(SLICES_ADOPTED_TOTAL, "cohort_slices_adopted_total");
         assert_eq!(SLICES_BEGUN_TOTAL, "cohort_slices_begun_total");
         assert_eq!(

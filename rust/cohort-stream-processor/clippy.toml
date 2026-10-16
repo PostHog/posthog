@@ -1,3 +1,6 @@
+# Every offset commit carries this pod's stamp, so `Consumer::commit` is disallowed outside
+# `StampedList::commit` in `partitions/stamp.rs`, which a `CommitStamp` builds.
+#
 # Async code must reach the store through `StoreHandle` (which offloads I/O to the blocking pool),
 # never a raw `CohortStore` I/O method on a runtime thread. Every direct `CohortStore` I/O method is
 # disallowed here; the workspace lint level (`rust/Cargo.toml`) raises `disallowed_methods` to deny.
@@ -32,4 +35,6 @@ disallowed-methods = [
     { path = "cohort_stream_processor::store::rocks::CohortStore::reset_slices", reason = "async code must not write the store on a runtime thread; sync contexts need a module-level allow — see store/handle.rs" },
     { path = "cohort_stream_processor::store::rocks::CohortStore::create_checkpoint", reason = "async code must go through the checkpoint sweeper's own offload; sync contexts need a module-level allow — see store/handle.rs" },
     { path = "cohort_stream_processor::store::rocks::CohortStore::stats_snapshot", reason = "async code must use StoreHandle::stats_snapshot; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "rdkafka::consumer::Consumer::commit", reason = "every offset commit must carry this pod's stamp; commit a StampedList — see partitions/stamp.rs" },
+    { path = "rdkafka::consumer::Consumer::commit_consumer_state", reason = "every offset commit must carry this pod's stamp; commit a StampedList — see partitions/stamp.rs" },
 ]

@@ -6,6 +6,7 @@
 //! runs the Stage 1 loop lives in [`crate::workers`].
 
 pub mod backpressure;
+pub mod fence;
 pub mod follower;
 pub mod intake;
 pub mod offset_tracker;
@@ -16,11 +17,16 @@ pub mod positions;
 pub mod rebalance;
 pub mod router;
 pub mod shuffle_message;
+pub mod stamp;
 pub mod watermarks;
 
 pub use cohort_core::partitioner;
 
 pub use backpressure::{Backpressure, PartitionHoldover};
+pub use fence::{
+    AdmittedSplit, ClaimedSplit, CommitLedger, Committed, FenceBlock, FenceError, InputCommits,
+    OwnershipAudit, AUDIT_INTERVAL,
+};
 pub use follower::{Follower, FollowerSet};
 pub use intake::{Admission, MeteredReceiver, PartitionIntake};
 pub use offset_tracker::{DeferredOffset, MarkOutcome, OffsetTracker};
@@ -41,4 +47,5 @@ pub use router::{
     WorkerInbox,
 };
 pub use shuffle_message::ShuffleMessage;
+pub use stamp::{CommitStamp, Stamp, StampedList};
 pub use watermarks::{LiveWatermarks, WatermarkMs};
