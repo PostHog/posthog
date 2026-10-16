@@ -437,7 +437,7 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Optional prompt trials need explicit opt-in even when product surfaces default on locally.
+        // Recruitment and intent experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
                 flags: Object.fromEntries(

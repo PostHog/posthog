@@ -60,7 +60,7 @@ import {
     type ToolCallAnalyticsMeta,
 } from './analytics'
 import type { InstructionsBuilder } from './instructions'
-import type { IntentPrompt } from './intent-prompt'
+import { loadIntentPrompt } from './intent-prompt'
 import { getEffectiveMCPClientContext, getEffectiveMCPClientIdentity, resolveSessionKey } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
@@ -155,7 +155,8 @@ export class ToolExecutor {
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
-        const tools = this.injectAnalyticsParameters(this.buildAdvertisedTools(state), state.intentPrompt)
+        const description = await loadIntentPrompt(state.intentPrompt)
+        const tools = this.injectAnalyticsParameters(this.buildAdvertisedTools(state), description)
 
         void trackToolsList(
             tools.map((t) => t.name),
@@ -166,15 +167,9 @@ export class ToolExecutor {
     }
 
     // Guarded because analytics must never break `tools/list`.
-    private injectAnalyticsParameters(
-        tools: ListToolsResult['tools'],
-        intentPrompt?: IntentPrompt
-    ): ListToolsResult['tools'] {
+    private injectAnalyticsParameters(tools: ListToolsResult['tools'], description?: string): ListToolsResult['tools'] {
         try {
-            return getPostHogClient().prepareToolList(
-                tools,
-                intentPrompt ? { context: { description: intentPrompt.prompt } } : undefined
-            )
+            return getPostHogClient().prepareToolList(tools, description ? { context: { description } } : undefined)
         } catch {
             return tools
         }

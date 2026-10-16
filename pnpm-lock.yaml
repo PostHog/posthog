@@ -5622,6 +5622,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+      '@posthog/ai':
+        specifier: ^8.14.1
+        version: 8.14.1(@ai-sdk/provider@3.0.8)(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-http@0.218.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.7.1(@opentelemetry/api@1.9.0))(posthog-node@5.56.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1))
       '@posthog/llm-normalizer':
         specifier: workspace:*
         version: link:../../packages/llm-normalizer
@@ -10851,6 +10854,49 @@ packages:
   '@poppinss/exception@1.2.3':
     resolution: {integrity: sha512-dCED+QRChTVatE9ibtoaxc+WkdzOSjYTKi/+uacHWIsfodVfpsueo3+DKpgU5Px8qXjgmXkSvhXvSCz3fnP9lw==}
 
+  '@posthog/ai@8.14.1':
+    resolution: {integrity: sha512-ZomvP3+PkO75xp4Zu+o5rVUSeP+xGmAtbOig6NMOmZqXKtzV/NTg4M7M042Kc0YoTcSIw3IWUVPUEY4JvXGcyA==}
+    engines: {node: ^20.20.0 || >=22.22.0}
+    peerDependencies:
+      '@ai-sdk/provider': ^2.0.0 || ^3.0.0 || ^4.0.0
+      '@anthropic-ai/claude-agent-sdk': ^0.3.251
+      '@anthropic-ai/sdk': '>=0.112.3 <0.135.0'
+      '@google/adk': ^2.0.0
+      '@google/genai': ^1.52.0
+      '@langchain/core': ^1.2.3
+      '@openai/agents': ^0.8.0
+      '@opentelemetry/api': ^1.9.0
+      '@opentelemetry/exporter-trace-otlp-http': '>=0.200.0 <1.0.0'
+      '@opentelemetry/sdk-trace-base': ^2.0.0
+      langchain: '>=1.5.5 <2.0.0'
+      openai: ^6.48.0
+      posthog-node: ^5.0.0
+    peerDependenciesMeta:
+      '@ai-sdk/provider':
+        optional: true
+      '@anthropic-ai/claude-agent-sdk':
+        optional: true
+      '@anthropic-ai/sdk':
+        optional: true
+      '@google/adk':
+        optional: true
+      '@google/genai':
+        optional: true
+      '@langchain/core':
+        optional: true
+      '@openai/agents':
+        optional: true
+      '@opentelemetry/api':
+        optional: true
+      '@opentelemetry/exporter-trace-otlp-http':
+        optional: true
+      '@opentelemetry/sdk-trace-base':
+        optional: true
+      langchain:
+        optional: true
+      openai:
+        optional: true
+
   '@posthog/brand@0.12.3':
     resolution: {integrity: sha512-Vym1t9Cf4z1IGRH8Hd0ln1QiG8cyKva38ocZso6ROhltAawY6YLJ5kisvg/Y82dz1w28SfYB12Jw+bvUT9P4RQ==}
     engines: {node: '>=22.18'}
@@ -10874,6 +10920,9 @@ packages:
 
   '@posthog/core@1.59.0':
     resolution: {integrity: sha512-KRq26v5fXYnwV5wqTAXzPyQLCrBzzhK78QRl7UyEaPFZ4RPmVo1pBObRDbK350ah+8hTfQPanu5mM8c4CaSn5g==}
+
+  '@posthog/core@1.59.1':
+    resolution: {integrity: sha512-P39YgzQVDh6oz6wAzQXEnoHgTYpM7gifonmVKq1scAJco79h31XmmNVurRq9tTmmyIrr1uX8FHT0riCsyfV9AQ==}
 
   '@posthog/hedgehog-mode@0.0.63':
     resolution: {integrity: sha512-e323bc717Xk0IA8w2IFv5+q/xki7Z2rcNA0SAEAXp/uXBnYv8kq0s7f6JvTIvTDdoZRHzH5Z18Ao9WYT0ZE4Dg==}
@@ -30431,6 +30480,18 @@ snapshots:
 
   '@poppinss/exception@1.2.3': {}
 
+  '@posthog/ai@8.14.1(@ai-sdk/provider@3.0.8)(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-http@0.218.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.7.1(@opentelemetry/api@1.9.0))(posthog-node@5.56.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1))':
+    dependencies:
+      '@posthog/core': 1.59.1
+      posthog-node: 5.56.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
+      uuid: 11.1.1
+      zod: 4.3.6
+    optionalDependencies:
+      '@ai-sdk/provider': 3.0.8
+      '@opentelemetry/api': 1.9.0
+      '@opentelemetry/exporter-trace-otlp-http': 0.218.0(@opentelemetry/api@1.9.0)
+      '@opentelemetry/sdk-trace-base': 2.7.1(@opentelemetry/api@1.9.0)
+
   '@posthog/brand@0.12.3(react@18.3.1)':
     optionalDependencies:
       react: 18.3.1
@@ -30453,6 +30514,10 @@ snapshots:
       '@posthog/types': 1.415.2
 
   '@posthog/core@1.59.0':
+    dependencies:
+      '@posthog/types': 1.416.0
+
+  '@posthog/core@1.59.1':
     dependencies:
       '@posthog/types': 1.416.0
 

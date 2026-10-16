@@ -97,24 +97,25 @@ The `mcp-intent-prompt` flag can select a different description for ordinary ext
 Disabled flags, missing or invalid payloads, impersonation, and analytics-suppressed requests retain the SDK default.
 
 Keep prompt versions in Prompt management under `mcp-tool-call-intent`.
-Publish a version, then copy its immutable text into the flag payload:
+Publish a version, then select it in the flag payload:
 
 ```json
 {
   "prompt_name": "mcp-tool-call-intent",
-  "prompt_version": 2,
-  "prompt": "The exact published prompt text, including its privacy instructions."
+  "prompt_version": 2
 }
 ```
 
-The payload is a snapshot: editing the managed prompt does not update it.
-Publish and copy a new version to change the trial.
-The server validates the name, positive integer version, and nonblank text of at most 2,000 characters.
-It reads the snapshot from the existing flag evaluation, without another prompt fetch during tool discovery.
+The server fetches that exact version during tool discovery using the PostHog prompt SDK, which caches fetched prompts.
+Publish a new version and update the flag's version number to change the trial.
+The server accepts only nonblank prompt text of at most 2,000 characters and keeps the SDK default if retrieval fails.
+Configure `POSTHOG_PROMPTS_HOST` with the app/API host and `POSTHOG_PROMPTS_PERSONAL_API_KEY` with a dedicated key restricted to `llm_prompt:read` in the analytics project.
+The prompt SDK uses `POSTHOG_ANALYTICS_API_KEY` to select that project; it never uses the MCP caller's credentials to read this prompt.
+Missing server configuration retains the default description.
 Start with a release condition matching one authenticated user's distinct ID; do not add an unconditional release condition.
 
 Clients cache tool schemas. Refresh the client's tool list or reconnect after deployment before collecting trial data.
-Use the targeted user's calls after that refresh for offline evaluation, and record when the prompt snapshot changes.
+Use the targeted user's calls after that refresh for offline evaluation, and record when the selected version changes.
 Existing intent analytics stay unchanged; the server does not capture the prompt text separately.
 
 This collection trial changes no tool results and adds no recommendations or elicitation.

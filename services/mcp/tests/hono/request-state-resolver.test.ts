@@ -612,8 +612,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         { value: true, missingPayload: true, enabled: false },
         { value: true, payload: { prompt_name: 'another-prompt' }, enabled: false },
         { value: true, payload: { prompt_version: 0 }, enabled: false },
-        { value: true, payload: { prompt: ' ' }, enabled: false },
-        { value: true, payload: { prompt: 'x'.repeat(2001) }, enabled: false },
+        { value: true, payload: { prompt_version: '2' }, enabled: false },
         { value: true, impersonated: true, enabled: false },
         { value: true, suppressed: true, enabled: false },
         { value: true, consumer: 'posthog-cli', enabled: false },
@@ -621,7 +620,6 @@ describe('RequestStateResolver MCP client contexts', () => {
         const prompt = {
             prompt_name: MCP_INTENT_PROMPT_NAME,
             prompt_version: 2,
-            prompt: 'State the task objective before the tool action. Omit identifying details.',
         }
         mockApiKey.is_impersonated = input.impersonated
         mockApiKey.suppress_analytics = input.suppressed
