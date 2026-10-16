@@ -79,23 +79,37 @@ def enforce_warehouse_metric_timestamp_types(
     if not pairs:
         return
 
-    # Cached sources: this only reads column types, and the query itself still builds fresh ones.
-    database = Database.create_for(
-        team=team,
-        user=user,
-        bypass_warehouse_access_control=bypass_warehouse_access_control,
-        use_cached_sources=True,
-        build_postgres_foreign_keys=False,
+    def build_database(use_cached_sources: bool) -> Database:
+        return Database.create_for(
+            team=team,
+            user=user,
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
+            use_cached_sources=use_cached_sources,
+            build_postgres_foreign_keys=False,
+        )
+
+    # Cached sources are enough to accept a metric. A rejection is re-checked against fresh sources,
+    # so a column converted within the cache TTL is not rejected on a stale type.
+    rejected = _find_non_date_column(build_database(use_cached_sources=True), pairs)
+    if rejected is None:
+        return
+    rejected = _find_non_date_column(build_database(use_cached_sources=False), {rejected[:2]})
+    if rejected is None:
+        return
+    table_name, column, column_type = rejected
+    raise ValidationError(
+        f"Column '{column}' on data warehouse table '{table_name}' has type {column_type}, but the "
+        "timestamp field must be a date or datetime column. Create a view that converts it and use the view."
     )
+
+
+def _find_non_date_column(database: Database, pairs: set[tuple[str, str]]) -> tuple[str, str, str] | None:
+    """The first (table_name, column, column_type) whose column is a plain non-date type, or None."""
     for table_name, column in sorted(pairs):
         # A missing table or column fails later with its own error.
         if not database.has_table(table_name) or database.is_table_access_denied(table_name):
             continue
         field = database.get_table(table_name).fields.get(column)
-        if not isinstance(field, _NON_DATE_FIELD_TYPES):
-            continue
-        column_type = type(field).__name__.removesuffix("DatabaseField").lower()
-        raise ValidationError(
-            f"Column '{column}' on data warehouse table '{table_name}' has type {column_type}, but the "
-            "timestamp field must be a date or datetime column. Create a view that converts it and use the view."
-        )
+        if isinstance(field, _NON_DATE_FIELD_TYPES):
+            return table_name, column, type(field).__name__.removesuffix("DatabaseField").lower()
+    return None

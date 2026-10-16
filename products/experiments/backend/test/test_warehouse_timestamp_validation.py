@@ -52,6 +52,14 @@ class TestEnforceWarehouseMetricTimestampTypes(SimpleTestCase):
         ):
             enforce_warehouse_metric_timestamp_types([self._metric()], team=MagicMock())
 
+    def test_rechecks_a_cached_rejection_against_fresh_sources(self) -> None:
+        # A column converted to a datetime within the sources cache TTL must not be rejected on the stale type.
+        stale = self._database(StringDatabaseField(name="created_at"))
+        fresh = self._database(DateTimeDatabaseField(name="created_at"))
+        with patch.object(Database, "create_for", side_effect=[stale, fresh]) as create_for:
+            enforce_warehouse_metric_timestamp_types([self._metric()], team=MagicMock())
+        assert [call.kwargs["use_cached_sources"] for call in create_for.call_args_list] == [True, False]
+
     def test_skips_table_the_caller_is_denied(self) -> None:
         # The query must fail on access later, without this message revealing the column's type.
         database = self._database(StringDatabaseField(name="created_at"), denied=True)
