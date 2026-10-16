@@ -1,10 +1,13 @@
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
+import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
+import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
     evaluateFeatureFlags,
+    type FlagEvaluation,
     type FlagGroups,
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
@@ -25,8 +28,14 @@ import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import {
+    type InterviewRecruitmentConfig,
+    resolveInterviewRecruitmentConfig,
+    MCP_INTERVIEW_RECRUITMENT_FLAG,
+} from './interview-recruitment'
+import {
     buildMCPRequestContext,
     getEffectiveMCPClientContext,
+    getEffectiveMCPClientIdentity,
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
@@ -40,6 +49,7 @@ export interface ResolvedState {
     context: Context
     useSingleExec: boolean
     toolFeatureFlags: EvaluatedFlags | undefined
+    interviewRecruitmentConfig?: InterviewRecruitmentConfig
     apiKeyScopes: string[]
     isImpersonated?: boolean
     suppressAnalytics?: boolean
@@ -154,21 +164,59 @@ export class RequestStateResolver {
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
         // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands the same way.
-        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), MCP_GATEWAY_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG])]
+        const allFlagKeys = [
+            ...new Set([
+                ...getRequiredFeatureFlags(),
+                MCP_GATEWAY_FLAG,
+                MCP_EXEC_SKILLS_FEATURE_FLAG,
+                MCP_INTERVIEW_RECRUITMENT_FLAG,
+            ]),
+        ]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
-        const [allFlags, _apiKey, distinctId] = await Promise.all([
+        const [{ flags: allFlags, payloads }, _apiKey, distinctId] = await Promise.all([
             this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
+        const [oauthClientName, oauthClientId] = await Promise.all([
+            reqCtx.tokenCache.get('clientName'),
+            reqCtx.tokenCache.get('oauthClientId'),
+        ])
         props.suppressAnalytics = _apiKey?.suppress_analytics === true
+        const liveClient = getEffectiveMCPClientIdentity(requestContext, sessionContext)
+        const source = resolveEventSource({
+            mcpConsumer: liveClient.mcpConsumer,
+            clientUserAgent: props.clientUserAgent,
+            apiKeyScopes: _apiKey?.scopes,
+            oauthClientId: oauthClientId || undefined,
+        })
 
         // Dev/test-only overrides win over evaluated values (no-op in production).
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
         const mergedFlags = { ...allFlags, ...overrides }
+        let recruitmentPayload = payloads[MCP_INTERVIEW_RECRUITMENT_FLAG]
+        if (
+            recruitmentPayload === undefined &&
+            isLocalApi() &&
+            (env.NODE_ENV === 'development' || env.NODE_ENV === 'test') &&
+            overrides[MCP_INTERVIEW_RECRUITMENT_FLAG]
+        ) {
+            try {
+                recruitmentPayload = JSON.parse(env.MCP_INTERVIEW_RECRUITMENT_PAYLOAD ?? '')
+            } catch {
+                // Local opt-in still requires explicit, valid invitation content.
+            }
+        }
+        const interviewRecruitmentConfig =
+            source === EVENT_SOURCE.MCP &&
+            !_apiKey?.scopes?.includes('internal_run:read') &&
+            !props.taskId &&
+            !props.taskOriginProduct
+                ? resolveInterviewRecruitmentConfig(mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG], recruitmentPayload)
+                : undefined
         // Preserve variant strings (and `undefined` for unevaluated flags) — the
         // tool filter needs raw values to support `feature_flag_variant` matching.
         // Include override keys so a forced flag reaches the tool/instructions layer
@@ -176,14 +224,11 @@ export class RequestStateResolver {
         const flagKeysForState = [...new Set([...allFlagKeys, ...Object.keys(overrides)])]
         const toolFeatureFlags = Object.fromEntries(flagKeysForState.map((k) => [k, mergedFlags[k]]))
 
-        const oauthClientName = (await reqCtx.tokenCache.get('clientName')) || undefined
-        const oauthClientId = (await reqCtx.tokenCache.get('oauthClientId')) || undefined
-
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,
             clientVersion: clientContext.mcpClientVersion,
             consumer: clientContext.mcpConsumer,
-            oauthClientName,
+            oauthClientName: oauthClientName || undefined,
             vendorClient: clientContext.mcpVendorClient,
             userAgent: props.clientUserAgent,
         })
@@ -243,10 +288,11 @@ export class RequestStateResolver {
             context,
             useSingleExec,
             toolFeatureFlags,
+            interviewRecruitmentConfig,
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,
-            oauthClientId,
+            oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
             sessionContext,
@@ -378,21 +424,23 @@ export class RequestStateResolver {
         reqCtx: RequestContext,
         flagKeys: string[],
         groups?: FlagGroups
-    ): Promise<EvaluatedFlags> {
+    ): Promise<FlagEvaluation> {
         if (flagKeys.length === 0) {
-            return {}
+            return { flags: {}, payloads: {} }
         }
-        // Local dev runs against the locally-running project, where the dev-only
-        // surfaces these flags gate exist. The flags only hide those surfaces on
-        // prod until GA, so enable them all locally — the analytics flag-eval client is disabled in dev anyway.
+        // Enable product surfaces locally because the analytics flag client is disabled there.
+        // Recruitment still needs an explicit override so development tasks do not ask for interviews.
         if (isLocalApi()) {
-            return Object.fromEntries(flagKeys.map((key) => [key, true]))
+            return {
+                flags: Object.fromEntries(flagKeys.map((key) => [key, key !== MCP_INTERVIEW_RECRUITMENT_FLAG])),
+                payloads: {},
+            }
         }
         try {
             const distinctId = await reqCtx.getDistinctId()
             return await evaluateFeatureFlags(flagKeys, distinctId, groups)
         } catch {
-            return {}
+            return { flags: {}, payloads: {} }
         }
     }
 }

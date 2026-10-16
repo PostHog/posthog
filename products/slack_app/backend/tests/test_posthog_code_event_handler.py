@@ -1788,9 +1788,8 @@ class TestQueueWorkflowDispatch(TestCase):
         # Every message in a conversation must land in ONE per-thread workflow
         # via signal-with-start — the conversation ID anchors on the thread
         # root so followups reach the same instance.
-        from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
-
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+        from products.slack_app.backend.temporal.slack_app_mention import SlackAppMentionWorkflow
 
         mock_slack.return_value.missing_scopes.return_value = set()
         event = {

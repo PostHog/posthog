@@ -431,7 +431,7 @@ class TestApplyEnvConfig:
                 needs_secrets_commands={"start"},
             ),
         )
-        for k in ("PRELOADED", "HOGLI_SECRETS_WRAPPED"):
+        for k in ("PRELOADED", "HOGLI_SECRETS_WRAPPED", "HOGLI_STDOUT_TTY"):
             monkeypatch.delenv(k, raising=False)
         # Re-exec only fires when hogli owns the process (real CLI entrypoint).
         monkeypatch.setattr("hogli.cli._is_process_entrypoint", True)
@@ -439,10 +439,12 @@ class TestApplyEnvConfig:
         with (
             patch("shutil.which", return_value="/usr/local/bin/op"),
             patch("os.execvp") as mock_exec,
+            patch("sys.stdout.isatty", return_value=True),
         ):
             _apply_env_config("start")
 
         mock_exec.assert_called_once()
+        assert os.environ["HOGLI_STDOUT_TTY"] == "1"
         args, _kwargs = mock_exec.call_args
         binary, argv = args
         assert binary == "op"

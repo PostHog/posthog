@@ -118,7 +118,7 @@ export type SwitchPlanPayload = {
 export type YcCreditsState = 'renewing' | 'used_until_renewal' | 'ending' | 'ended'
 
 // Billing can answer with an empty body (a proxy error page, an upstream failure), so this takes null.
-const parseBillingResponse = (data: Partial<BillingType> | null): BillingType | null => {
+export const parseBillingResponse = (data: Partial<BillingType> | null): BillingType | null => {
     if (!data) {
         return null
     }
@@ -233,6 +233,8 @@ export interface billingLogicValues {
     billingLoading: boolean
     billingManagedByPartnerDisabledReason: string | null
     billingManagedByPartnerNotice: string | null
+    billingManagedByVercelDisabledReason: string | null
+    billingManagedByVercelNotice: string | null
     billingPeriodUTC: BillingPeriod
     billingPlan: BillingPlan | null
     canAccessBilling: boolean
@@ -283,6 +285,7 @@ export interface billingLogicValues {
     isActivateLicenseValid: boolean
     isAnnualPlanCustomer: boolean
     isBillingManagedByPartner: boolean
+    isBillingManagedByVercel: boolean
     isCreditCTAHeroDismissed: boolean
     isCreditFormSubmitting: boolean
     isCreditFormValid: boolean
@@ -303,6 +306,8 @@ export interface billingLogicValues {
     redirectPath: string
     registeredCustomLimitKeys: string[]
     scrollToProductKey: ProductKey | null
+    selfServeBillingDisabledReason: string | null
+    selfServeBillingNotice: string | null
     showActivateLicenseErrors: boolean
     showBillingHero: boolean
     showBillingSummary: boolean
@@ -674,6 +679,23 @@ export interface billingLogicMeta {
         isBillingManagedByPartner: (billing: BillingType | null) => boolean
         billingManagedByPartnerDisabledReason: (billing: BillingType | null) => string | null
         billingManagedByPartnerNotice: (billingManagedByPartnerDisabledReason: string | null) => string | null
+        isBillingManagedByVercel: (billing: BillingType | null) => boolean
+        billingManagedByVercelDisabledReason: (
+            billing: BillingType | null,
+            isBillingManagedByVercel: boolean
+        ) => string | null
+        billingManagedByVercelNotice: (
+            isBillingManagedByVercel: boolean,
+            billingManagedByVercelDisabledReason: string | null
+        ) => string | null
+        selfServeBillingDisabledReason: (
+            billingManagedByPartnerDisabledReason: string | null,
+            billingManagedByVercelDisabledReason: string | null
+        ) => string | null
+        selfServeBillingNotice: (
+            billingManagedByPartnerNotice: string | null,
+            billingManagedByVercelDisabledReason: string | null
+        ) => string | null
         showCreditCTAHero: (
             creditOverview: {
                 cc_last_four: null
@@ -691,7 +713,7 @@ export interface billingLogicMeta {
             billing: BillingType | null,
             billingPlan: BillingPlan | null,
             showCreditCTAHero: boolean,
-            isBillingManagedByPartner: boolean
+            selfServeBillingDisabledReason: string | null
         ) => boolean
         isManagedAccount: (billing: BillingType | null) => boolean
         isExternallyBilled: (billing: BillingType | null) => boolean
@@ -1310,6 +1332,43 @@ export const billingLogic = kea<billingLogicType>([
                     ? `${billingManagedByPartnerDisabledReason} Contact them to change your plan or payment details.`
                     : null,
         ],
+        isBillingManagedByVercel: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean => billing?.billing_provider === BillingProvider.Vercel,
+        ],
+        billingManagedByVercelDisabledReason: [
+            (s) => [s.billing, s.isBillingManagedByVercel],
+            (billing: BillingType | null, isBillingManagedByVercel: boolean): string | null =>
+                isBillingManagedByVercel && !billing?.has_active_subscription
+                    ? 'Billing for this organization is managed by Vercel. Contact support to change your plan.'
+                    : null,
+        ],
+        billingManagedByVercelNotice: [
+            (s) => [s.isBillingManagedByVercel, s.billingManagedByVercelDisabledReason],
+            (isBillingManagedByVercel: boolean, billingManagedByVercelDisabledReason: string | null): string | null => {
+                if (!isBillingManagedByVercel) {
+                    return null
+                }
+                return (
+                    billingManagedByVercelDisabledReason ??
+                    'Billing for this organization is managed by Vercel, including the payment method and invoices. To cap your spend, set a billing limit on each product on this page.'
+                )
+            },
+        ],
+        selfServeBillingDisabledReason: [
+            (s) => [s.billingManagedByPartnerDisabledReason, s.billingManagedByVercelDisabledReason],
+            (
+                billingManagedByPartnerDisabledReason: string | null,
+                billingManagedByVercelDisabledReason: string | null
+            ): string | null => billingManagedByPartnerDisabledReason ?? billingManagedByVercelDisabledReason,
+        ],
+        selfServeBillingNotice: [
+            (s) => [s.billingManagedByPartnerNotice, s.billingManagedByVercelDisabledReason],
+            (
+                billingManagedByPartnerNotice: string | null,
+                billingManagedByVercelDisabledReason: string | null
+            ): string | null => billingManagedByPartnerNotice ?? billingManagedByVercelDisabledReason,
+        ],
         showCreditCTAHero: [
             (s) => [s.creditOverview, s.isBillingManagedByPartner],
             (
@@ -1330,17 +1389,22 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         showBillingHero: [
-            (s) => [s.billing, s.billingPlan, s.showCreditCTAHero, s.isBillingManagedByPartner],
+            (s) => [s.billing, s.billingPlan, s.showCreditCTAHero, s.selfServeBillingDisabledReason],
             (
                 billing: BillingType | null,
                 billingPlan: BillingPlan | null,
                 showCreditCTAHero: boolean,
-                isBillingManagedByPartner: boolean
+                selfServeBillingDisabledReason: string | null
             ): boolean => {
                 const platformAndSupportProduct = billing?.products?.find(
                     (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
                 )
-                return !!billingPlan && !!platformAndSupportProduct && !showCreditCTAHero && !isBillingManagedByPartner
+                return (
+                    !!billingPlan &&
+                    !!platformAndSupportProduct &&
+                    !showCreditCTAHero &&
+                    !selfServeBillingDisabledReason
+                )
             },
         ],
         isManagedAccount: [
@@ -1563,9 +1627,14 @@ export const billingLogic = kea<billingLogicType>([
         switchFlatrateSubscriptionPlan: async (payload) => {
             actions.setSwitchPlanLoading(payload.to_product_key)
         },
-        loadBillingSuccess: async (_, breakpoint) => {
+        loadBillingSuccess: async ({ payload }, breakpoint) => {
             actions.registerInstrumentationProps()
             actions.determineBillingAlert()
+            // Scoped payment refreshes update their organization's entitlements separately.
+            // The endpoints below read the server's selected organization.
+            if (payload) {
+                return
+            }
             actions.loadCreditOverview()
 
             // If the activation is successful, we reload the user/organization to get the updated available features
@@ -1669,7 +1738,7 @@ export const billingLogic = kea<billingLogicType>([
                     productsAtOrOverLimit,
                     values.canAccessBilling,
                     values.minimumBillingAccessLevel,
-                    values.billingManagedByPartnerNotice
+                    values.selfServeBillingNotice
                 )
 
                 actions.setBillingAlert({

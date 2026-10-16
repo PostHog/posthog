@@ -58,11 +58,11 @@ class MotionSource(ResumableSource[MotionSourceConfig, MotionResumeConfig]):
             name=ExternalDataSourceType.MOTION,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Motion",
-            caption="""Enter your Motion API key to sync your workspaces, users, projects, and tasks into the PostHog Data warehouse.
+            caption="""Enter your Motion API key to sync your workspaces, users, projects, tasks, recurring tasks, comments, and custom fields into the PostHog Data warehouse.
 
 Create an API key in Motion under Settings, then API. Motion shows the key once, so copy it before closing the dialog.
 
-Motion rate limits API keys, and individual accounts get a much smaller allowance than teams, so a first sync of a large workspace can take a while.""",
+Motion rate limits API keys, and individual accounts get a much smaller allowance than teams, so a first sync of a large workspace can take a while. The comments table makes one request for each task, so it is the slowest table to sync.""",
             iconPath="/static/services/motion.png",
             docsUrl="https://posthog.com/docs/cdp/sources/motion",
             keywords=["usemotion", "calendar", "tasks"],
