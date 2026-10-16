@@ -220,6 +220,56 @@ async fn test_create_group_returns_existing_group_on_duplicate_key() {
 }
 
 #[tokio::test]
+async fn test_create_group_returns_a_group_committed_while_its_insert_waits() {
+    let ctx = TestContext::new().await;
+    let held_created_at = chrono::Utc::now() - chrono::Duration::hours(1);
+
+    let mut holder = ctx.pool.begin().await.unwrap();
+    let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *holder)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO posthog_group (team_id, group_type_index, group_key, group_properties, created_at, version) VALUES ($1, 0, 'company_race', '{}'::jsonb, $2, 0)",
+    )
+    .bind(ctx.team_id)
+    .bind(held_created_at)
+    .execute(&mut *holder)
+    .await
+    .unwrap();
+
+    let storage = ctx.storage.clone();
+    let team_id = ctx.team_id;
+    let create = tokio::spawn(async move {
+        storage
+            .create_group(
+                team_id,
+                0,
+                "company_race",
+                &serde_json::json!({}),
+                chrono::Utc::now(),
+            )
+            .await
+    });
+
+    // Commit the held row only after the create's INSERT waits on it. The row then commits
+    // after the INSERT starts.
+    wait_for_a_statement_blocked_by(&ctx.pool, holder_pid, "INSERT INTO posthog_group").await;
+    holder.commit().await.unwrap();
+
+    let group = create
+        .await
+        .unwrap()
+        .expect("a create that waits on a committed insert should return the stored group");
+    assert_eq!(
+        group.created_at.timestamp_micros(),
+        held_created_at.timestamp_micros()
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn test_get_group_type_mappings() {
     let ctx = TestContext::new().await;
 
@@ -632,7 +682,7 @@ async fn test_delete_persons_tombstone_mode_waits_for_an_inflight_attach_and_tom
     let delete = tokio::spawn(async move { storage.delete_persons(team_id, &[uuid]).await });
 
     // Commit the attach only once the delete waits on the mark, so the delete cannot finish first.
-    wait_for_a_mark_claim_blocked_by(&ctx.pool, attach_pid).await;
+    wait_for_a_statement_blocked_by(&ctx.pool, attach_pid, "INSERT INTO lifecycle_op_person").await;
     attach.commit().await.unwrap();
 
     let outcome = delete.await.unwrap().expect("delete persons");
@@ -645,15 +695,16 @@ async fn test_delete_persons_tombstone_mode_waits_for_an_inflight_attach_and_tom
     ctx.cleanup().await.ok();
 }
 
-async fn wait_for_a_mark_claim_blocked_by(pool: &sqlx::PgPool, holder_pid: i32) {
+async fn wait_for_a_statement_blocked_by(pool: &sqlx::PgPool, holder_pid: i32, statement: &str) {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let waiting: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM pg_stat_activity
              WHERE wait_event_type = 'Lock' AND $1 = ANY(pg_blocking_pids(pid))
-               AND query LIKE '%INSERT INTO lifecycle_op_person%'",
+               AND query LIKE '%' || $2 || '%'",
         )
         .bind(holder_pid)
+        .bind(statement)
         .fetch_one(pool)
         .await
         .unwrap();
@@ -662,7 +713,7 @@ async fn wait_for_a_mark_claim_blocked_by(pool: &sqlx::PgPool, holder_pid: i32) 
         }
         assert!(
             Instant::now() < deadline,
-            "the delete never waited on the held mark"
+            "no `{statement}` waited on the held transaction"
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
@@ -692,7 +743,7 @@ async fn test_delete_persons_tombstone_mode_leaves_a_person_created_after_the_cl
     let delete = tokio::spawn(async move { storage.delete_persons(team_id, &uuids).await });
 
     // Create the second person only after the delete's claim read missed it.
-    wait_for_a_mark_claim_blocked_by(&ctx.pool, holder_pid).await;
+    wait_for_a_statement_blocked_by(&ctx.pool, holder_pid, "INSERT INTO lifecycle_op_person").await;
     let recreated = ctx
         .insert_person_with_uuid("recreate_new", None, recreated_uuid)
         .await
