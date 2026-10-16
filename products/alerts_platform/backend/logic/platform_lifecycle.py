@@ -433,8 +433,7 @@ def _without_stale_groups(
     """
     if outcome.grouping is None:
         return outcome
-    stored = Grouping.from_stored(configuration.grouping)
-    if (outcome.grouping.mode, outcome.grouping.keys) == (stored.mode, stored.keys):
+    if outcome.grouping.splits_like(Grouping.from_stored(configuration.grouping)):
         return outcome
     return replace(outcome, groups=(), overflowed=0)
 
