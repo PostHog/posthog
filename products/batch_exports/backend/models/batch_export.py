@@ -182,6 +182,10 @@ class BatchExportRun(UUIDTModel):
                 name="run_has_exactly_one_parent_batch_export_or_batch_export_on_demand",
             )
         ]
+        indexes = [
+            # Serves the lookup of the latest completed run of an export, which each scheduled run does.
+            models.Index(fields=["batch_export", "-data_interval_end"], name="batchexportrun_export_end_idx"),
+        ]
 
     Status = enums.BatchExportRunStatus
 
