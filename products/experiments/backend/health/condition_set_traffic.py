@@ -34,7 +34,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
-from posthog.utils import safe_cache_add, safe_cache_delete
+from posthog.utils import safe_cache_add
 
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.health.checks.forced_variant import (
@@ -184,18 +184,15 @@ def _load_condition_set_traffic(experiment: Experiment, ctx: HealthContext) -> C
     hit, traffic = _cached(cache_key)
     if hit:
         return traffic
-    # Readers share one scan. A request that finds another scan in flight waits for its answer.
-    scan_lock_key = f"{cache_key}:scanning"
-    if not safe_cache_add(scan_lock_key, True, _SCAN_LOCK_SECONDS):
+    # Readers share one scan. A request that finds another scan in flight waits for its answer. The lock is
+    # never released: every scan caches an answer, which readers check first, so the lock only has to expire.
+    if not safe_cache_add(f"{cache_key}:scanning", True, _SCAN_LOCK_SECONDS):
         return _wait_for_scan(cache_key)
-    try:
-        # A scan can finish between the read above and the lock.
-        hit, traffic = _cached(cache_key)
-        if hit:
-            return traffic
-        return _scan(experiment, ctx, cache_key, launched_at)
-    finally:
-        safe_cache_delete(scan_lock_key)
+    # A scan can finish between the read above and the lock.
+    hit, traffic = _cached(cache_key)
+    if hit:
+        return traffic
+    return _scan(experiment, ctx, cache_key, launched_at)
 
 
 def _scan(
