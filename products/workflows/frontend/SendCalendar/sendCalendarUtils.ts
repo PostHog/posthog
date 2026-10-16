@@ -101,11 +101,14 @@ export function sendAudience(flow: Pick<HogFlowMinimalApi, 'trigger' | 'actions'
         const email = emailAction(flow)?.config.inputs.email?.value as { to?: { email?: string } } | undefined
         return { cohortIds: [], filters: [], accounts: false, address: email?.to?.email || null }
     }
-    const properties = trigger.filters?.properties ?? []
+    return audienceFromProperties(trigger.filters?.properties ?? [], trigger.filters?.audience_type === 'accounts')
+}
+
+export function audienceFromProperties(properties: AnyPropertyFilter[], accounts = false): SendAudience {
     return {
         cohortIds: audienceCohortIds(properties),
         filters: properties.filter((filter) => filter.type !== PropertyFilterType.Cohort),
-        accounts: trigger.filters?.audience_type === 'accounts',
+        accounts,
         address: null,
     }
 }
