@@ -419,6 +419,7 @@ from .eurostat.source import EurostatSource
 from .eventbrite.source import EventbriteSource
 from .eventee.source import EventeeSource
 from .eventzilla.source import EventzillaSource
+from .everflow.source import EverflowSource
 from .everhour.source import EverhourSource
 from .exact_online.source import ExactOnlineSource
 from .exchange_rates_api.source import ExchangeRatesApiSource
