@@ -99,6 +99,7 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
 from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
+from products.experiments.backend.warehouse_timestamp_validation import enforce_warehouse_metric_timestamp_types
 from products.feature_flags.backend.api.feature_flag import parse_created_by_ids
 from products.feature_flags.backend.facade.api import (
     archive_flag,
@@ -1182,6 +1183,10 @@ class ExperimentService:
             ],
             team=self.team,
             user=self.user,
+        )
+        enforce_warehouse_metric_timestamp_types(
+            [*(metrics or []), *(metrics_secondary or []), *self._collect_saved_metric_queries(saved_metrics_ids)],
+            team=self.team,
         )
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
@@ -3453,6 +3458,14 @@ class ExperimentService:
             ],
             team=self.team,
             user=self.user,
+        )
+        enforce_warehouse_metric_timestamp_types(
+            [
+                *(update_data.get("metrics") or []),
+                *(update_data.get("metrics_secondary") or []),
+                *self._collect_saved_metric_queries(update_data.get("saved_metrics_ids")),
+            ],
+            team=self.team,
         )
 
         context = serializer_context or self._build_serializer_context()
