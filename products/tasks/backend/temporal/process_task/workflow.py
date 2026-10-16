@@ -149,6 +149,7 @@ from .activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
     UpdateTaskRunStatusInput,
+    complete_signal_spend,
     update_task_run_status,
 )
 from .credential_refresh import CredentialRefreshExitReason, run_credential_refresh_loop, sandbox_gone_error_message
@@ -228,6 +229,8 @@ class ResumedSandboxState:
     image_source: str | None = None
     agent_ready_at: str | None = None
     agent_boot_interaction_telemetry_enabled: bool | None = None
+    startup_worker_started_at: str | None = None
+    startup_context_loaded_at: str | None = None
     sandbox_backend: str | None = None
 
 
@@ -1866,6 +1869,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 if sandbox_cleaned and self._slack_thread_context and self._context:
                     await self._post_slack_update(sandbox_cleaned=True)
 
+                if (
+                    self._context
+                    and self.context.origin_product in {_ORIGIN_PRODUCT_SIGNAL_REPORT, "signals_scout"}
+                    and workflow.patched("signals-publish-spend-on-completion")
+                ):
+                    try:
+                        await workflow.execute_activity(
+                            complete_signal_spend,
+                            run_id,
+                            start_to_close_timeout=timedelta(minutes=20),
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                        )
+                    except Exception:
+                        workflow.logger.exception("Failed to finalize signal spend", extra={"run_id": run_id})
+
     async def _provision_and_start_agent(self, input: ProcessTaskInput, run_id: str) -> tuple[str, str, str | None]:
         """Initial-run setup: resolve agent-design, provision the sandbox, start the agent
         server. Returns (sandbox_id, sandbox_url, connect_token). Skipped on continue_as_new."""
@@ -2074,6 +2092,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 image_source=self._image_source,
                 agent_ready_at=self._agent_ready_at.isoformat() if self._agent_ready_at else None,
                 agent_boot_interaction_telemetry_enabled=self._agent_boot_interaction_telemetry_enabled,
+                startup_worker_started_at=(
+                    self._startup_worker_started_at.isoformat() if self._startup_worker_started_at else None
+                ),
+                startup_context_loaded_at=(
+                    self._startup_context_loaded_at.isoformat() if self._startup_context_loaded_at else None
+                ),
                 sandbox_backend=self.context.sandbox_backend,
             ),
         )
@@ -2119,6 +2143,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._image_source = resumed.image_source
         self._agent_ready_at = datetime.fromisoformat(resumed.agent_ready_at) if resumed.agent_ready_at else None
         self._agent_boot_interaction_telemetry_enabled = resumed.agent_boot_interaction_telemetry_enabled is True
+        self._startup_worker_started_at = (
+            datetime.fromisoformat(resumed.startup_worker_started_at) if resumed.startup_worker_started_at else None
+        )
+        self._startup_context_loaded_at = (
+            datetime.fromisoformat(resumed.startup_context_loaded_at) if resumed.startup_context_loaded_at else None
+        )
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         context = await workflow.execute_activity(
@@ -2792,32 +2822,33 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             "prewarmed": self._prewarmed,
         }
         if self._startup_worker_started_at is not None:
+            accepted_at = self._chain_start_time()
+            requested_at = self.context.startup_requested_at
+            if requested_at is None and not is_same_run_resume_state(self.context.state or {}):
+                requested_at = (self.context.state or {}).get("startup_requested_at")
             properties.update(
                 {
                     "observed_at": now.isoformat(),
-                    "workflow_accepted_at": workflow.info().start_time.isoformat(),
+                    "workflow_accepted_at": accepted_at.isoformat(),
                     "worker_started_at": self._startup_worker_started_at.isoformat(),
                     "context_loaded_at": self._startup_context_loaded_at.isoformat()
                     if self._startup_context_loaded_at
                     else None,
-                    "startup_requested_at": (self.context.state or {}).get("startup_requested_at"),
+                    "startup_requested_at": requested_at,
                     "run_environment": self.context.environment,
                     "agent_ready_at": self._agent_ready_at.isoformat() if self._agent_ready_at else None,
                 }
             )
-            requested_at = properties["startup_requested_at"]
-            if isinstance(requested_at, str) and not is_same_run_resume_state(self.context.state or {}):
+            if isinstance(requested_at, str):
                 try:
                     requested = datetime.fromisoformat(requested_at)
                     if requested.tzinfo is not None and requested <= now:
                         properties["since_startup_requested_ms"] = int((now - requested).total_seconds() * 1000)
-                        properties["handoff_ms"] = max(
-                            0, int((workflow.info().start_time - requested).total_seconds() * 1000)
-                        )
+                        properties["handoff_ms"] = max(0, int((accepted_at - requested).total_seconds() * 1000))
                 except ValueError:
                     pass
             properties["worker_wait_ms"] = max(
-                0, int((self._startup_worker_started_at - workflow.info().start_time).total_seconds() * 1000)
+                0, int((self._startup_worker_started_at - accepted_at).total_seconds() * 1000)
             )
             if self._startup_context_loaded_at is not None:
                 properties["task_setup_ms"] = max(
