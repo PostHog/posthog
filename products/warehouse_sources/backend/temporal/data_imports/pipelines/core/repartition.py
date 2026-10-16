@@ -1008,6 +1008,7 @@ async def _rewrite_into_temp(
     copied_files: frozenset[str] = frozenset(),
     should_stop: Callable[[], bool] | None = None,
     stop_grace_seconds: float = STOP_GRACE_SECONDS,
+    pause_at_file_end: Callable[[], bool] | None = None,
 ) -> tuple[int, RepartitionTarget]:
     """Stream the live table into a temp table under the new partition scheme.
 
@@ -1281,7 +1282,9 @@ async def _rewrite_into_temp(
             files_left -= 1
             # After the last file only the final commit is left, so finishing costs less than a stop
             # and a new attempt.
-            stopping = files_left > 0 and stop_requested()
+            # A pause never abandons an open file, unlike a stop, so a file longer than the grace
+            # still ends in a commit and the next attempt does not read it again.
+            stopping = files_left > 0 and (stop_requested() or (pause_at_file_end is not None and pause_at_file_end()))
             if (
                 (writer is not None and writer.bytes_since_commit >= budget.commit_bytes)
                 or len(completed_sources) >= budget.max_source_files_per_commit
@@ -1416,9 +1419,9 @@ async def repartition_table_in_place(
     Both raise `RepartitionStoppedError` and keep what the next attempt needs to resume (see
     `_rewrite_into_temp` and `_swap_temp_into_live`).
 
-    `rewrite_stop_at` (a `time.monotonic()` value) stops the rewrite the same way, so the sync can
-    import between two parts of a long rewrite. It never stops the swap, because a staged swap holds
-    the import until it lands.
+    `rewrite_stop_at` (a `time.monotonic()` value) stops the rewrite at the end of its open source file,
+    so the sync can import between two parts of a long rewrite. It never stops the swap, because a
+    staged swap holds the import until it lands.
     """
     live_uri = await table_ref.get_table_uri()
     storage_options = table_ref.get_storage_options()
@@ -1624,7 +1627,8 @@ async def repartition_table_in_place(
                 if (rewrite_checkpoint or {}).get("sliced"):
                     # The import between two slices changed a file the rewrite had copied, so a
                     # sliced rewrite of this table restarts after every slice and never finishes.
-                    await asyncio.to_thread(schema.disable_repartition_slicing)
+                    await asyncio.to_thread(retry_on_db_connection_drop, schema.disable_repartition_slicing)
+                    rewrite_stop_at = None
                 await asyncio.to_thread(schema.clear_repartition_rewrite)
                 resuming_rewrite = False
                 temp_uri = _temp_uri_for(live_uri, claim_token)
@@ -1689,10 +1693,8 @@ async def repartition_table_in_place(
                 deadline=deadline,
                 total_rows=old_row_count,
                 copied_files=copied,
-                should_stop=lambda: (
-                    (should_stop is not None and should_stop())
-                    or (rewrite_stop_at is not None and time.monotonic() >= rewrite_stop_at)
-                ),
+                should_stop=should_stop,
+                pause_at_file_end=lambda: rewrite_stop_at is not None and time.monotonic() >= rewrite_stop_at,
             )
         except RepartitionBudgetExceededError as e:
             # Only a checkpoint this attempt could build on marks a restart. One the resume path

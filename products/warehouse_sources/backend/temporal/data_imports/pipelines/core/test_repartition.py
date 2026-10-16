@@ -1034,6 +1034,34 @@ class TestRewriteIntoTemp:
         final = deltalake.DeltaTable(temp_uri).to_pyarrow_table()
         assert sorted(cast(list[int], final.column("id").to_pylist())) == [row[0] for row in rows]
 
+    def test_a_slice_pause_finishes_the_open_source_file_however_long_it_takes(self, tmp_path):
+        rows = [(i, datetime.datetime(2024, 1, 1 + i)) for i in range(3)] + [(3, datetime.datetime(2024, 2, 1))]
+        live = _write_month_partitioned(str(tmp_path / "live"), rows)
+        save_checkpoint = AsyncMock()
+
+        with pytest.raises(RepartitionStoppedError) as stopped:
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=live,
+                    temp_uri=str(tmp_path / "tmp"),
+                    storage_options={},
+                    target=RepartitionTarget(
+                        partition_keys=["created_at"],
+                        trigger_reason="t",
+                        partition_mode="datetime",
+                        partition_format="day",
+                    ),
+                    budget=_budget(),
+                    logger=logger,
+                    save_checkpoint=save_checkpoint,
+                    pause_at_file_end=lambda: True,
+                    stop_grace_seconds=0.0,
+                )
+            )
+
+        assert stopped.value.rows_written in (1, 3)
+        save_checkpoint.assert_awaited()
+
     def test_a_stop_request_on_the_last_source_file_lets_the_rewrite_finish(self, tmp_path):
         rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 1, 20))]
         live = _write_month_partitioned(str(tmp_path / "live"), rows)
@@ -2776,7 +2804,12 @@ class TestRewriteCheckpointResume:
         ):
             asyncio.run(
                 repartition_table_in_place(
-                    table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok"
+                    table_ref=table_ref,
+                    schema=schema,
+                    target=target,
+                    logger=logger,
+                    claim_token="tok",
+                    rewrite_stop_at=0.0,
                 )
             )
 
@@ -2785,6 +2818,7 @@ class TestRewriteCheckpointResume:
         assert rewrite.await_args_list[0].kwargs["temp_uri"].endswith("__repartitioned_tok")
         assert rewrite.await_args_list[0].kwargs["copied_files"] == frozenset()
         assert schema.disable_repartition_slicing.call_count == (1 if sliced else 0)
+        assert rewrite.await_args_list[0].kwargs["pause_at_file_end"]() is (not sliced)
 
     def test_a_sync_slice_stops_the_rewrite_but_never_the_swap(self, tmp_path):
         live = _write_month_partitioned(
@@ -2818,7 +2852,8 @@ class TestRewriteCheckpointResume:
             )
 
         assert rewrite.await_args is not None and swap.await_args is not None
-        assert rewrite.await_args.kwargs["should_stop"]() is True
+        assert rewrite.await_args.kwargs["pause_at_file_end"]() is True
+        assert rewrite.await_args.kwargs["should_stop"]() is False
         assert swap.await_args.kwargs["should_stop"]() is False
 
     @pytest.mark.parametrize(
