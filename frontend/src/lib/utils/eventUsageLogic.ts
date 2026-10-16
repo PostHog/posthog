@@ -73,7 +73,6 @@ import {
 
 import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
-import { getSurveyConfigurationProperties } from 'products/surveys/frontend/surveyUsage'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
@@ -1582,22 +1581,6 @@ export interface eventUsageLogicActions {
         survey: Survey
         totalDurationMs: number
     }
-    reportSurveyCreated: (
-        survey: Survey,
-        isDuplicate?: boolean,
-        creationSource?: 'form_builder' | 'full_editor' | 'llm_analytics' | 'quick_create' | 'template' | 'wizard'
-    ) => {
-        creationSource:
-            | 'form_builder'
-            | 'full_editor'
-            | 'llm_analytics'
-            | 'quick_create'
-            | 'template'
-            | 'wizard'
-            | undefined
-        isDuplicate: boolean | undefined
-        survey: Survey
-    }
     reportSurveyCycleDetected: (survey: NewSurvey | Survey) => {
         survey: NewSurvey | Survey
     }
@@ -2083,11 +2066,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFlagsCodeExampleLanguage: (language: string) => ({
             language,
         }),
-        reportSurveyCreated: (
-            survey: Survey,
-            isDuplicate?: boolean,
-            creationSource?: 'wizard' | 'full_editor' | 'quick_create' | 'template' | 'llm_analytics' | 'form_builder'
-        ) => ({ survey, isDuplicate, creationSource }),
         reportUserFeedbackButtonClicked: (source: SURVEY_CREATED_SOURCE, meta: Record<string, any>) => ({
             source,
             meta,
@@ -2831,23 +2809,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFlagsCodeExampleLanguage: ({ language }) => {
             posthog.capture('flags code example language selected', {
                 language,
-            })
-        },
-        reportSurveyCreated: ({ survey, isDuplicate, creationSource }) => {
-            posthog.capture('survey created', {
-                // The web app is the only place this event is emitted from — there is no backend
-                // equivalent — so stamping the surface here is what puts surveys in a `source`
-                // breakdown at all, rather than showing up as unattributed.
-                source: 'web',
-                name: survey.name,
-                id: survey.id,
-                survey_type: survey.type,
-                questions_length: survey.questions.length,
-                question_types: survey.questions.map((question) => question.type),
-                is_duplicate: isDuplicate ?? false,
-                creation_source: creationSource ?? 'full_editor',
-                linked_insight_id: survey.linked_insight_id,
-                ...getSurveyConfigurationProperties(survey),
             })
         },
         reportSurveyTemplateClicked: ({ template, source }) => {

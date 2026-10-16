@@ -8,7 +8,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
@@ -22,6 +21,8 @@ import {
     SurveyQuestionType,
     SurveyType,
 } from '~/types'
+
+import { reportSurveyCreated } from 'products/surveys/frontend/surveyUsage'
 
 import type { SurveyAppearance, SurveyDisplayConditions } from '../../../types'
 import { NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE, defaultSurveyAppearance } from '../constants'
@@ -262,7 +263,7 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
 
                 const response = await api.surveys.create(surveyData)
 
-                eventUsageLogic.actions.reportSurveyCreated(response)
+                reportSurveyCreated(response)
                 addProductIntent({
                     product_type: ProductKey.SURVEYS,
                     intent_context: ProductIntentContext.SURVEY_CREATED,
