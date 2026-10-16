@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiClient } from '@/api/client'
 import { MCP_CLIENT_IP_HEADERS, verifySignedClientIp } from '@/lib/client-ip-signature'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
-import { PostHogTransportError } from '@/lib/errors'
+import { PostHogApiError, PostHogTransportError } from '@/lib/errors'
 import { getToolByName } from '@/shared/test-utils'
 import { GENERATED_TOOLS } from '@/tools/generated/skills'
 import type { Context } from '@/tools/types'
@@ -469,6 +469,9 @@ describe('ApiClient', () => {
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
             expect(result.success).toBe(false)
+            const error = result.success ? undefined : result.error
+            expect(error).toBeInstanceOf(PostHogApiError)
+            expect((error as PostHogApiError).status).toBe(404)
 
             vi.unstubAllGlobals()
         })
