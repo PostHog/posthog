@@ -427,6 +427,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
 
     organization_scoped_overrides = {
         "AITrainingConsent",  # Plain organization_id survives organization deletion.
+        "SignalTrialOrganization",  # Lifetime grant history uses a durable organization UUID.
         # Billing alerts inherit scope through BillingAlertConfiguration; team is an execution context.
         "BillingAlertConfiguration",
         "BillingAlertEvaluationClaim",

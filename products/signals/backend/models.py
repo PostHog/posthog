@@ -51,6 +51,12 @@ from products.signals.backend.enums import (
     signal_source_product_choices,
 )
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
+from products.signals.backend.trial_models import (  # noqa: F401 -- register Signals' durable trial ledger
+    SignalTrialGrant,
+    SignalTrialOperation,
+    SignalTrialOrganization,
+    SignalTrialReportReservation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -506,6 +512,32 @@ class SignalReport(UUIDModel):
         if self.status == self.Status.MONITORING and not self._monitoring_enabled():
             return self.Status.RESOLVED
         return self.Status(self.status)
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        from products.signals.backend.trial_policy import (
+            TrialPolicy,  # noqa: PLC0415 -- trial policy imports registered models lazily
+        )
+
+        terminal = self.status in {
+            self.Status.POTENTIAL,
+            self.Status.READY,
+            self.Status.PENDING_INPUT,
+            self.Status.FAILED,
+            self.Status.SUPPRESSED,
+            self.Status.DELETED,
+        }
+        writes_status = kwargs.get("update_fields") is None or "status" in kwargs["update_fields"]
+        if terminal and writes_status:
+            with transaction.atomic():
+                if not self._state.adding:
+                    # Report writers already lock this row; keep publication in the same lock order.
+                    SignalReport.objects.select_for_update().filter(id=self.id, team_id=self.team_id).exists()
+                with TrialPolicy(self.team).publish_report(
+                    self.id, delivered=self.status in {self.Status.READY, self.Status.PENDING_INPUT}
+                ):
+                    super().save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
 
     def transition_to(
         self,
@@ -2552,6 +2584,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         NO_OUTPUT = "no_output", "No output"
         IGNORED = "ignored", "Ignored"
         REPEATED_FAILURES = "repeated_failures", "Repeated failures"
+        TRIAL_SCOUT_LIMIT = "trial_scout_limit", "Free trial scout limit"
         # PostHog retired the scout this config runs: its canonical skill declared a sunset that
         # has passed, or it left the fleet on disk altogether. Owned by the retirement pass
         # (`scout_harness/deprecation.py`) alone, so no other system writer resumes a scout that
@@ -2952,7 +2985,12 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                     touched.add("status_changed_at")
             if fields is not None:
                 kwargs["update_fields"] = fields | touched
-        super().save(*args, **kwargs)
+        from products.signals.backend.trial_scouts import (
+            scout_capacity,  # noqa: PLC0415 -- capacity policy depends on this model
+        )
+
+        with scout_capacity(self):
+            super().save(*args, **kwargs)
 
     @classmethod
     def _pause_reasons_share_writer(cls, current: str | None, incoming: "SignalScoutConfig.PauseReason") -> bool:
@@ -3722,6 +3760,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     task_ids = ArrayField(models.UUIDField(), default=list)
     llm_cost_microusd = models.BigIntegerField(default=0)
     llm_failed_stages = ArrayField(models.CharField(max_length=100), default=list)
+    trial_sources = models.JSONField(default=dict)
     token_cost_microusd = models.BigIntegerField(default=0)
     task_count = models.PositiveIntegerField(default=0)
     accounting_failed = models.BooleanField(default=False)
@@ -3737,6 +3776,9 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
         indexes = [
             GinIndex(fields=["task_ids"], name="signals_owner_spend_tasks"),
             GinIndex(fields=["billing_amounts"], name="signals_spend_billing_days"),
+            models.Index(
+                fields=["updated_at"], condition=models.Q(accounting_failed=True), name="signals_spend_incomplete"
+            ),
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "signal_id"], name="signals_owner_spend_signal"),

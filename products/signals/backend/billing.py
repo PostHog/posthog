@@ -47,7 +47,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
-from django.db.models import F, Min, OuterRef, QuerySet, Subquery, Sum
+from django.db.models import F, Min, OuterRef, Q, QuerySet, Subquery, Sum
 from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
@@ -99,6 +99,8 @@ def _bridges_with_pr_run(**run_created_at: datetime) -> QuerySet[SignalReportTas
     against the same `TaskRun` row.
     """
     return SignalReportTask.objects.filter(
+        Q(task__runs__state__self_driving_funding__funding__isnull=True)
+        | ~Q(task__runs__state__self_driving_funding__funding="trial"),
         relationship=_IMPLEMENTATION,
         report__usage_based_billing=False,
         task__runs__output__pr_url__startswith=GITHUB_PR_URL_PREFIX,

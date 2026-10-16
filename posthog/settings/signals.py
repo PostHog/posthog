@@ -5,6 +5,11 @@ from posthog.settings.utils import get_list, get_set
 
 SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE = os.getenv("SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", "false").lower() == "true"
 
+SELF_DRIVING_TRIAL_V2_BILLING_READY = os.getenv("SELF_DRIVING_TRIAL_V2_BILLING_READY", "false").lower() == "true"
+SELF_DRIVING_TRIAL_AGENT_MODEL = os.getenv("SELF_DRIVING_TRIAL_AGENT_MODEL", "gpt-6-luna")
+SELF_DRIVING_TRIAL_AGENT_RUNTIME = os.getenv("SELF_DRIVING_TRIAL_AGENT_RUNTIME", "codex")
+SELF_DRIVING_TRIAL_SHORT_MODEL = os.getenv("SELF_DRIVING_TRIAL_SHORT_MODEL", "deepseek-ai/deepseek-v4-flash-0731")
+
 # Signs the per-delivery map of already-rendered chart assets that scout Slack delivery keeps in the
 # shared Redis, so a process able to write that Redis cannot swap in another asset id. Dedicated and
 # rotatable rather than SECRET_KEY, which is fleet-wide and backs session/CSRF signing: give this

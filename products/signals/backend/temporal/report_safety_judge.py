@@ -22,6 +22,7 @@ from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, Mode
 from products.signals.backend.system_one_prompts import bundled_prompt, current_prompt
 from products.signals.backend.temporal.llm import SAFETY_MODEL, call_llm
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
+from products.signals.backend.trial_reports import trial_report_activity
 
 logger = structlog.get_logger(__name__)
 
@@ -254,6 +255,7 @@ class SafetyJudgeOutput:
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
+@trial_report_activity
 async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOutput:
     """Assess report for prompt injection attacks and store result as artefact."""
     try:
