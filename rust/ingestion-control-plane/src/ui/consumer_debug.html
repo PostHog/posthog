@@ -54,7 +54,7 @@
       td .bar { height: 6px; border-radius: 3px; background: var(--accent); min-width: 2px; }
       .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
       .pill.healthy, .pill.committed { background: rgba(63,185,80,0.16); color: var(--good); }
-      .pill.degraded, .pill.retrying, .pill.stashed { background: rgba(210,153,34,0.16); color: var(--warn); }
+      .pill.degraded, .pill.retrying { background: rgba(210,153,34,0.16); color: var(--warn); }
       .pill.unhealthy, .pill.stalled, .pill.failed { background: rgba(248,81,73,0.16); color: var(--error); }
       .pill.draining, .pill.inflight { background: rgba(139,147,161,0.18); color: var(--muted); }
       .pill.accent { background: rgba(79,124,255,0.18); color: #a9c0ff; }
@@ -101,7 +101,6 @@
       .node { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; min-width: 150px; }
       .node .title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
       .node .big { font-family: var(--mono); font-size: 15px; }
-      .node.stash { border-color: rgba(210,153,34,0.5); }
       .node.worker.acked { border-color: rgba(63,185,80,0.4); }
       .node.worker.stalled { border-color: rgba(248,81,73,0.5); }
       .arrow { align-self: center; color: var(--muted); font-size: 20px; }
@@ -111,7 +110,6 @@
       .flow { position: relative; padding: 6px 4px 10px; overflow-x: auto; margin-bottom: 18px; }
       .flow-main { display: flex; gap: 82px; align-items: center; }
       .flow-col { display: flex; flex-direction: column; gap: 16px; justify-content: center; }
-      .flow-defer { margin-top: 32px; padding-left: 250px; }
       .flow .node { position: relative; z-index: 1; min-width: 122px; }
       .flow svg { position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none; overflow: visible; }
       .node.src { border-color: rgba(79,124,255,0.45); }
@@ -158,14 +156,14 @@
       <!-- left: live state -->
       <div style="display:flex; flex-direction:column; gap:14px;">
         <section class="panel">
-          <h2>Dispatcher load</h2>
+          <h2>Batcher load</h2>
           <div class="stats" id="disp-stats"></div>
         </section>
         <section class="panel">
           <h2>Workers</h2>
           <table>
             <thead>
-              <tr><th>Worker</th><th>State</th><th>In-flight</th><th>Fails</th><th>Err</th></tr>
+              <tr><th>Worker</th><th>State</th><th>Busy</th><th>Fails</th><th>Err</th></tr>
             </thead>
             <tbody id="workers"><tr><td class="empty" colspan="5">Waiting for data…</td></tr></tbody>
           </table>
@@ -185,7 +183,6 @@
             Event stream
             <span class="controls">
               <label><input type="checkbox" id="pause" /> pause</label>
-              <label><input type="checkbox" id="hide-resolved" /> hide resolves</label>
             </span>
           </h2>
           <div id="feed"><div class="empty">Waiting for events…</div></div>
@@ -287,8 +284,8 @@
         $("routing").textContent = routingText;
         const sliceSet = new Set(r.slice || []);
 
-        const d = s.dispatcher;
-        // In-flight is transient (a batch is assigned→sent→resolved in ms), so a
+        const d = s.batcher;
+        // In-flight is transient (a request is sent→resolved in ms), so a
         // single sample often reads 0. Hold the peak over a short window so the
         // panel reflects the concurrency actually happening.
         const now = Date.now();
@@ -299,12 +296,9 @@
         $("disp-stats").innerHTML = [
           ["in-flight", d.total_in_flight],
           ["peak 4s", peak],
-          ["pins", d.pin_count],
-          ["stashed", d.stashed_messages],
-          ["stash batches", d.stashed_batches],
+          ["pending", d.pending_messages],
         ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
 
-        const maxLoad = Math.max(1, ...s.workers.map((w) => w.in_flight_messages));
         // Stable order — slice members first, then by IP. Sorting by load made
         // rows jump around on every poll.
         const workerSortKey = (url) => {
@@ -320,14 +314,12 @@
               workerSortKey(a.url).localeCompare(workerSortKey(b.url))).map((w) => {
               const cls = w.draining ? "draining" : w.state;
               const label = w.draining ? "draining" : w.state;
-              const pct = Math.round((w.in_flight_messages / maxLoad) * 100);
               const rate = (w.passive_error_rate * 100).toFixed(0) + "%";
-              const slice = sliceSet.has(w.url) ? ` <span class="badge-min" title="in this dispatcher's aperture slice">slice</span>` : "";
+              const slice = sliceSet.has(w.url) ? ` <span class="badge-min" title="in this consumer's aperture slice">slice</span>` : "";
               return `<tr>
                 <td class="mono">${shortWorker(w.url)}${slice}</td>
                 <td><span class="pill ${cls}">${label}</span></td>
-                <td class="mono"><div style="display:flex;align-items:center;gap:8px;">
-                  <div class="bar" style="width:${pct}%"></div><span>${w.in_flight_messages}</span></div></td>
+                <td><span class="pill ${w.busy ? "accent" : "inflight"}">${w.busy ? "busy" : "idle"}</span></td>
                 <td class="mono">${w.consecutive_probe_failures}</td>
                 <td class="mono">${rate}</td>
               </tr>`;
@@ -349,7 +341,7 @@
         let b = batches[id];
         if (!b) {
           b = { id, ts: null, messages: 0, distinct_ids: 0, partitions: [],
-                assigned: [], flushed: [], deferred: [], retries: [], exhausted: [], splits: [],
+                assigned: [], retries: [], exhausted: [], splits: [],
                 committed: null, events: [] };
           batches[id] = b;
           batchOrder.push(id);
@@ -366,11 +358,6 @@
           b.events.push(ev);
           switch (ev.type) {
             case "BatchDispatched": b.messages = ev.messages; b.partitions = ev.partitions; break;
-            case "BatchAssigned":
-              b.assigned = ev.sub_batches; b.distinct_ids = ev.distinct_ids;
-              b.deferredGroups = (b.deferredGroups || 0) + ev.deferred_groups + ev.unroutable_groups; break;
-            case "Deferred": b.deferred.push({ reason: ev.reason, groups: ev.groups, ts: ev.ts_ms }); break;
-            case "DeferredFlushed": ev.sub_batches.forEach((s) => b.flushed.push({ ...s, ts: ev.ts_ms })); break;
             case "SendRetry": b.retries.push({ worker: ev.worker, attempt: ev.attempt, reason: ev.reason, ts: ev.ts_ms }); break;
             case "SendSplit": b.splits.push({ worker: ev.worker, reason: ev.reason, chunks: ev.chunks, messages: ev.messages, ts: ev.ts_ms }); break;
             case "SendExhausted": b.exhausted.push({ worker: ev.worker, error: ev.error, ts: ev.ts_ms }); break;
@@ -399,15 +386,14 @@
       function batchStatus(b) {
         if (b.committed) return "committed";
         if (b.exhausted.length) return "stalled";
-        if (b.deferred.length) return "stashed";
         if (b.retries.length) return "retrying";
         return "inflight";
       }
 
-      // A batch whose lifecycle involved a retry or stash — the interesting ones,
-      // even if they ultimately committed cleanly.
+      // A batch whose lifecycle involved a retry or a failure: the interesting
+      // ones, even if they ultimately committed cleanly.
       function hadIssue(b) {
-        return b.retries.length || b.deferred.length || b.exhausted.length;
+        return b.retries.length || b.exhausted.length;
       }
 
       // ---------- live feed rendering ----------
@@ -415,19 +401,6 @@
         switch (ev.type) {
           case "ConsumerStarted": return ["accent", `▶ consumer started — group <code>${ev.group_id}</code>, ${ev.workers.length} worker(s)`];
           case "BatchDispatched": return ["", `batch <code>${shortId(ev.batch_id)}</code> dispatched — ${ev.messages} msgs, ${ev.partitions.length} partition(s)`];
-          case "BatchAssigned": {
-            const routes = ev.sub_batches.map((s) => `${shortWorker(s.worker)}:${s.messages}`).join("  ");
-            let extra = "";
-            if (ev.deferred_groups) extra += `  ⏸${ev.deferred_groups} deferred`;
-            if (ev.unroutable_groups) extra += `  ⚠${ev.unroutable_groups} unroutable`;
-            return ["accent", `batch <code>${shortId(ev.batch_id)}</code> assigned — ${ev.distinct_ids} distinct_ids → ${routes || "—"}<span class="tag">${extra}</span>`];
-          }
-          case "SubBatchResolved": return ["", `resolved — ${shortWorker(ev.worker)} acked ${ev.messages} msgs (${ev.distinct_ids} ids)${ev.cleared_deferral ? '<span class="tag"> · cleared deferral</span>' : ""}`];
-          case "Deferred": return ["warn", `⏸ deferred [${ev.reason}] — ${ev.groups} group(s), batch <code>${shortId(ev.batch_id)}</code>`];
-          case "DeferredFlushed": {
-            const routes = ev.sub_batches.map((s) => `${shortWorker(s.worker)}:${s.messages}`).join("  ");
-            return ["warn", `↻ flushed deferred — batch <code>${shortId(ev.batch_id)}</code> → ${routes}`];
-          }
           case "BatchCommitted": return ["good", `✓ committed batch <code>${shortId(ev.batch_id)}</code> — ${ev.accepted} msgs in ${ev.duration_ms}ms`];
           case "BatchFailed": return ["error", `✗ batch failed — ${ev.error}`];
           case "SendRetry": return ["warn", `↻ retry #${ev.attempt} [${ev.reason}] — ${shortWorker(ev.worker)}, batch <code>${shortId(ev.batch_id)}</code>`];
@@ -440,7 +413,6 @@
       }
 
       function appendFeed(ev) {
-        if (ev.type === "SubBatchResolved" && $("hide-resolved").checked) return;
         const [cls, html] = describe(ev);
         const feed = $("feed");
         if (feedEmpty) { feed.innerHTML = ""; feedEmpty = false; }
@@ -468,8 +440,8 @@
           renderPending = false;
           $("badge-batches").textContent = batchOrder.length ? `(${batchOrder.length})` : "";
           $("badge-commits").textContent = commits.length ? (oooCount ? `(${commits.length} · ⚠${oooCount})` : `(${commits.length})`) : "";
-          // While the list is paused, freeze it so a stashed batch doesn't scroll
-          // away before you can click it — but keep an open detail view live.
+          // While the list is paused, freeze it so a batch doesn't scroll away
+          // before you can click it, but keep an open detail view live.
           if (activeTab === "batches" && (!$("batches-pause").checked || selectedBatch)) renderBatches();
           if (activeTab === "commits") renderCommits();
         }, 250);
@@ -477,9 +449,8 @@
 
       function workerAgg(b) {
         const m = {};
-        const touch = (w) => (m[w] = m[w] || { worker: w, messages: 0, assignedMsgs: 0, flushedMsgs: 0, flushCount: 0, retries: 0, splits: 0, flushed: false, exhausted: false });
+        const touch = (w) => (m[w] = m[w] || { worker: w, messages: 0, assignedMsgs: 0, retries: 0, splits: 0, exhausted: false });
         b.assigned.forEach((s) => { const x = touch(s.worker); x.messages += s.messages; x.assignedMsgs += s.messages; });
-        b.flushed.forEach((s) => { const x = touch(s.worker); x.messages += s.messages; x.flushedMsgs += s.messages; x.flushed = true; x.flushCount += 1; });
         b.retries.forEach((r) => (touch(r.worker).retries += 1));
         b.splits.forEach((s) => (touch(s.worker).splits += 1));
         b.exhausted.forEach((e) => (touch(e.worker).exhausted = true));
@@ -495,7 +466,7 @@
         let ids = batchOrder.slice().reverse();
         if (issuesOnly) ids = ids.filter((id) => hadIssue(batches[id]));
         if (!ids.length) {
-          view.innerHTML = `<div class="empty">${issuesOnly ? "No batches with retries or stash yet…" : "Waiting for batches…"}</div>`;
+          view.innerHTML = `<div class="empty">${issuesOnly ? "No batches with retries or failures yet…" : "Waiting for batches…"}</div>`;
           return;
         }
         const rows = ids.map((id) => {
@@ -507,7 +478,6 @@
           const retries = b.retries.length;
           if (retries) badges.push(`<span class="badge-min warn">↻${retries}</span>`);
           if (b.splits.length) badges.push(`<span class="badge-min warn">✂${b.splits.length}</span>`);
-          if (b.deferred.length) badges.push(`<span class="badge-min warn">⏸${b.deferred.length}</span>`);
           if (b.exhausted.length) badges.push(`<span class="badge-min error">✗${b.exhausted.length}</span>`);
           return `<div class="brow" data-id="${id}">
             <span class="id">${shortId(id)}</span>
@@ -532,25 +502,13 @@
           ["workers", workers.length],
           ["retries", b.retries.length],
           ["splits", b.splits.length],
-          ["stashed", b.deferred.reduce((a, d) => a + d.groups, 0)],
         ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
 
         const flow = buildFlow(b, workers);
 
-        // Annotate flushes with the stash dwell time so defer → retry gaps are
-        // readable without diffing timestamps by hand. Measured from the first
-        // deferral of the current stash cycle: several Deferred events can pile
-        // up before one flush, and the earliest is what waited longest.
-        let cycleDeferTs = null;
         const timeline = b.events.map((ev) => {
           const [cls, html] = describe(ev);
-          let extra = "";
-          if (ev.type === "Deferred" && cycleDeferTs === null) cycleDeferTs = ev.ts_ms;
-          if (ev.type === "DeferredFlushed" && cycleDeferTs !== null) {
-            extra = `<span class="tag"> · waited ${fmtDur(ev.ts_ms - cycleDeferTs)}</span>`;
-            cycleDeferTs = null;
-          }
-          return `<div class="item ${cls}"><span class="t">${fmtTime(ev.ts_ms)}</span>${html}${extra}</div>`;
+          return `<div class="item ${cls}"><span class="t">${fmtTime(ev.ts_ms)}</span>${html}</div>`;
         }).join("");
 
         const fresh = openDetailId !== b.id;
@@ -561,7 +519,6 @@
           <h2 style="border:none;padding:0 0 8px;">Flow · batch ${shortId(b.id)}</h2>
           <div class="flow-legend">
             <span><i style="background:#4f7cff"></i>routed</span>
-            <span><i style="background:#d29922"></i>deferred / flushed</span>
             <span><i style="background:#f85149"></i>send failed</span>
             <span><i style="background:#3fb950"></i>acked / committed</span>
           </div>
@@ -575,51 +532,21 @@
       }
 
       // Build the node/edge model for a batch's flow graph. Nodes sit in four
-      // lanes (Kafka → assign → workers → commit); the stash lane hangs below and
-      // the defer/flush edges connect it explicitly to assign and the workers.
+      // lanes (Kafka → assign → workers → commit).
       function buildFlow(b, workers) {
-        const idx = {};
-        workers.forEach((w, i) => (idx[w.worker] = i));
-        const deferBy = { drain: 0, queued_behind_deferral: 0, unroutable: 0, send_failed: 0 };
-        b.deferred.forEach((d) => (deferBy[d.reason] = (deferBy[d.reason] || 0) + d.groups));
-        const hasStash = b.deferred.length > 0;
-        const totalDeferred = b.deferred.reduce((a, d) => a + d.groups, 0);
-        const firstDefer = hasStash ? b.deferred[0].ts : null;
-        const firstFlush = b.flushed.length ? Math.min(...b.flushed.map((s) => s.ts)) : null;
-        const flushedBy = {};
-        b.flushed.forEach((s) => {
-          const f = (flushedBy[s.worker] = flushedBy[s.worker] || { messages: 0, ts: s.ts });
-          f.messages += s.messages;
-          f.ts = Math.max(f.ts, s.ts);
-        });
-
         const partsShort = b.partitions.map((p) => `${p.partition}@${p.offset}`).join(" ") || "—";
         const sourceNode = `<div class="node src" id="n-source"><div class="title">Kafka batch</div><div class="big">${b.messages}</div><div class="sub">msgs · p ${partsShort}</div></div>`;
         const assignNode = `<div class="node" id="n-assign"><div class="title">Assign</div><div class="big">${b.distinct_ids}</div><div class="sub">distinct_ids</div></div>`;
 
         const workerNodes = workers.map((w, i) => {
           const cls = w.exhausted ? "stalled" : b.committed ? "acked" : "";
-          // Headline = messages this worker was initially assigned (bounded by the
-          // batch), or, for a worker that only received re-routed work, the flushed
-          // count. Re-routes are shown as a count, not summed into the headline —
-          // a re-flushed sub-batch is the same messages retried, not new ones.
-          const primary = w.assignedMsgs > 0 ? w.assignedMsgs : w.flushedMsgs;
           const badges = [];
           if (w.retries) badges.push(`<span class="badge-min warn">↻${w.retries}</span>`);
           if (w.splits) badges.push(`<span class="badge-min warn">✂×${w.splits}</span>`);
-          if (w.flushCount) badges.push(`<span class="badge-min warn">re-routed ×${w.flushCount}</span>`);
           if (w.exhausted) badges.push(`<span class="badge-min error">exhausted</span>`);
           if (!w.exhausted && b.committed) badges.push(`<span class="badge-min">✓ acked</span>`);
-          return `<div class="node worker ${cls}" id="n-w-${i}"><div class="title">${shortWorker(w.worker)}</div><div class="big">${primary}</div><div class="sub">${badges.join(" ") || "sent"}</div></div>`;
+          return `<div class="node worker ${cls}" id="n-w-${i}"><div class="title">${shortWorker(w.worker)}</div><div class="big">${w.assignedMsgs}</div><div class="sub">${badges.join(" ") || "sent"}</div></div>`;
         }).join("") || '<div class="node" id="n-w-none"><div class="sub">not yet assigned</div></div>';
-
-        const reasons = Object.entries(deferBy).filter(([, n]) => n > 0).map(([r, n]) => `${r}: ${n}`).join(" · ");
-        const stashTiming = b.flushed.length
-          ? `↻ flushed after ${fmtDur(firstFlush - firstDefer)}`
-          : "awaiting flush";
-        const stashNode = hasStash
-          ? `<div class="node stash" id="n-stash"><div class="title">Stash / defer</div><div class="big">${totalDeferred}</div><div class="sub">${reasons}</div><div class="sub">⏸ ${fmtTime(firstDefer)}</div><div class="sub">${stashTiming}</div></div>`
-          : "";
 
         const sinkNode = b.committed
           ? `<div class="node sink-ok" id="n-sink"><div class="title">Committed</div><div class="big">${b.committed.accepted}</div><div class="sub">${b.committed.duration_ms}ms · ${b.committed.partitions.map((p) => `${p.partition}@${p.offset}`).join(" ")}</div></div>`
@@ -632,7 +559,6 @@
             <div class="flow-col">${workerNodes}</div>
             <div class="flow-col">${sinkNode}</div>
           </div>
-          ${hasStash ? `<div class="flow-defer">${stashNode}</div>` : ""}
           <svg></svg>
         </div>`;
 
@@ -640,19 +566,6 @@
         const edges = [];
         edges.push({ from: "n-source", to: "n-assign", label: `${b.messages} msgs`, color: C.accent });
         workers.forEach((w, i) => { if (w.assignedMsgs > 0) edges.push({ from: "n-assign", to: `n-w-${i}`, label: `sent ${w.assignedMsgs}${w.retries ? ` · ↻${w.retries}` : ""}`, color: w.retries ? C.warn : C.muted }); });
-
-        if (hasStash) {
-          let incoming = 0;
-          const da = deferBy.drain + deferBy.queued_behind_deferral + deferBy.unroutable;
-          if (da > 0) {
-            const lbl = [deferBy.drain ? "drain" : "", deferBy.queued_behind_deferral ? "queued" : "", deferBy.unroutable ? "unroutable" : ""].filter(Boolean).join("/");
-            edges.push({ from: "n-assign", to: "n-stash", label: `deferred (${lbl})`, color: C.warn });
-            incoming++;
-          }
-          workers.forEach((w, i) => { if (w.exhausted) { edges.push({ from: `n-w-${i}`, to: "n-stash", label: "send failed", color: C.error }); incoming++; } });
-          if (deferBy.send_failed > 0 && incoming === 0) edges.push({ from: "n-assign", to: "n-stash", label: "send failed", color: C.error });
-          Object.entries(flushedBy).forEach(([worker, f]) => { const i = idx[worker]; if (i != null) edges.push({ from: "n-stash", to: `n-w-${i}`, label: `flushed ${f.messages} · +${fmtDur(f.ts - firstDefer)}`, color: C.warn }); });
-        }
 
         if (b.committed) {
           if (workers.length) workers.forEach((w, i) => { if (!w.exhausted) edges.push({ from: `n-w-${i}`, to: "n-sink", label: "acked", color: C.good }); });

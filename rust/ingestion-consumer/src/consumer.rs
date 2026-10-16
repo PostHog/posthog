@@ -204,28 +204,25 @@ struct RevokedPartition {
 }
 
 /// The consumer's revocation hook: purge the batcher, and record the revoked
-/// partitions when the batcher's purge means their polls never complete.
+/// partitions, because the purge means their polls never complete.
 fn revoke_hook(
     revoker: Revoker,
     ledger: Arc<TopicOffsetLedger>,
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
 ) -> RevokeHook {
-    let records_revocations = revoker.drops_revoked_polls();
     Box::new(move |partitions| {
         revoker.purge_revoked(partitions);
-        if records_revocations {
-            revoked_partitions
-                .lock()
-                .unwrap()
-                .extend(partitions.iter().map(|(topic, partition)| {
-                    let topic_partition = TopicPartition::new(topic, *partition);
-                    let generation = ledger.generation(&topic_partition);
-                    RevokedPartition {
-                        topic_partition,
-                        generation,
-                    }
-                }));
-        }
+        revoked_partitions
+            .lock()
+            .unwrap()
+            .extend(partitions.iter().map(|(topic, partition)| {
+                let topic_partition = TopicPartition::new(topic, *partition);
+                let generation = ledger.generation(&topic_partition);
+                RevokedPartition {
+                    topic_partition,
+                    generation,
+                }
+            }));
     })
 }
 
@@ -381,7 +378,7 @@ pub struct IngestionConsumer {
     /// partitions on rebalance.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
     /// Partitions revoked since the loop last looked, fed by the rebalance
-    /// callback. Only populated under the key-table scheduler.
+    /// callback.
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
 }
 

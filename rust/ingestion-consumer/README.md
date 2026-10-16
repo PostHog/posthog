@@ -1,8 +1,8 @@
 # ingestion-consumer
 
-Rust Kafka consumer that routes analytics events to Node.js ingestion workers over ordered gRPC streams with sticky per-key assignment.
-It reads batches from Kafka, groups messages by Kafka message key, pins each key to a worker (preserving per-key ordering; unkeyed messages can go to any worker), sends each worker's sub-batches on its `WorkerIngest` stream, and commits offsets only after every message in the batch is accepted.
-Worker health combines active `/_ready` probes with passive send outcomes; workers that leave the pool drain gracefully — in-flight work finishes, new work for their keys defers and re-routes to survivors in order.
+Rust Kafka consumer that routes analytics events to Node.js ingestion workers over ordered gRPC streams, with at most one request per key in flight.
+It reads batches from Kafka, groups messages by Kafka message key, packs each key's messages into requests (preserving per-key ordering; unkeyed messages can go to any worker), sends each request on its worker's `WorkerIngest` stream, and commits offsets only after every message in the batch is accepted.
+Worker health combines active `/_ready` probes with passive send outcomes; workers that leave the pool drain gracefully: in-flight work finishes, and new work for their keys waits and goes to survivors in order.
 
 ## Ordering sentinels
 
@@ -26,7 +26,7 @@ The worker-side check lives in `nodejs/src/ingestion/api/feed-order-sentinel.ts`
 It measures the invariant at its end point: the worker groups each key's messages by distinct id and processes each group in feed order, so "fed in offset order per key" is "processed in order per distinct id".
 A partial ack keeps that, because the worker leaves only the last messages of a distinct id unfinished and the consumer resends them in order.
 Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.
-Null-key messages (e.g. overflow rerouting) are excluded from both checks: the producer deliberately forfeits per-key order for them, and the consumer routes each one individually rather than pinning it, so there is no invariant to check on either side.
+Null-key messages (e.g. overflow rerouting) are excluded from both checks: the producer deliberately forfeits per-key order for them, and the consumer routes each one on its own, so there is no invariant to check on either side.
 
 ## Offset ledger
 
@@ -43,14 +43,9 @@ The ledger emits its own metrics, so any consumer built on the crate reports the
 `kafka_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.
 `kafka_consumer_ledger_errors_total{stage,kind}` counts contract violations in the ledger's accounting; it must stay 0. A violation resets that partition's ledger and the consumer keeps running; the consumer logs the rejected slice with the batch and ledger generations and the window depth before the reset.
 
-## Schedulers
+## Batcher
 
-`INGESTION_SCHEDULER` selects how runs are ordered and placed on workers.
-
-- `pin_stash` (default) pins each key to a worker and stashes a batch's groups while a pinned worker drains. It is the fallback.
-- `key_table` runs the batcher state machine in `src/batcher/`.
-
-Under `key_table`:
+The batcher state machine in `src/batcher/` orders runs and places them on workers.
 
 - One task owns the state machine and applies polls, worker responses, revokes and retry wakeups one at a time.
 - Each key has a FIFO queue, and at most one request per key is in flight, which preserves per-key order.
@@ -62,14 +57,14 @@ Under `key_table`:
 - A revoke drops the pending messages of the revoked partitions, because the new owner replays them.
 - Pending work with nothing in flight and nothing accepted for `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` fails the consumer, which restarts and replays.
 
-| Setting | Default | Effect under `key_table` |
+| Setting | Default | Effect |
 | --- | --- | --- |
 | `INGESTION_PACK_TARGET_EVENTS` | `500` | Send a request to a free slot once this many events are ready. Unless a run cap is set, it also caps one key's run. `0` disables the event target and the cap, and needs a byte target. |
 | `INGESTION_PACK_TARGET_BYTES` | `0` | Send a request to a free slot once this many key-plus-value bytes are ready. Unless a run cap is set, it also caps one key's run. `0` disables the byte target and the cap, and needs an event target. |
 | `INGESTION_RUN_CAP_EVENTS` | `0` | The most events one key's run holds, which is the most of its backlog a key sends per round trip. With both run caps at `0`, the pack targets cap runs. When either is set, the run caps replace them, and a `0` cap leaves that dimension uncapped. |
 | `INGESTION_RUN_CAP_BYTES` | `0` | One key's run stops growing once it holds this many key-plus-value bytes. Works with `INGESTION_RUN_CAP_EVENTS`. |
 | `INGESTION_PACK_LATENCY_BUDGET_MS` | `0` | Once a slot is free, wait this long for ready events below the target to reach it. `0` waits for nothing: each free slot gets what is ready, packed up to the target. Replays never wait, because they already waited out a retry delay or a worker's time budget. |
-| `INGESTION_REQUEST_SOFT_BUDGET_MS` | `0` | How long a worker may spend on one request before it stops starting work and acks what finished as partial. The rest goes out again at once. `0` sends no budget. A request split into several frames goes without one. Startup fails if it is below `100` or above `2147483647`, if it is set under `pin_stash`, if it times `INGESTION_WORKER_CONCURRENT_BATCHES` reaches `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`, or if it plus `INGESTION_PACK_LATENCY_BUDGET_MS` reaches `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`. |
+| `INGESTION_REQUEST_SOFT_BUDGET_MS` | `0` | How long a worker may spend on one request before it stops starting work and acks what finished as partial. The rest goes out again at once. `0` sends no budget. A request split into several frames goes without one. Startup fails if it is below `100` or above `2147483647`, if it times `INGESTION_WORKER_CONCURRENT_BATCHES` reaches `INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS`, or if it plus `INGESTION_PACK_LATENCY_BUDGET_MS` reaches `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`. |
 | `INGESTION_REQUEST_BUDGET_ATTEMPTS` | `3` | How many budgeted attempts may leave a key's messages unfinished, since the key last finished a run, before it resends without a budget. At least 1, or startup fails. Only read when `INGESTION_REQUEST_SOFT_BUDGET_MS` is set. |
 | `INGESTION_PARKED_RETRY_INTERVAL_MS` | `200` | The delay before a failed send retries, and how often a request with no routable worker tries again. |
 
@@ -88,9 +83,9 @@ Set `DEBUG_API_ENABLED=true` **and** `DEBUG_API_SECRET` to mount a real-time deb
 Every request must present the secret as `X-Debug-Api-Secret`; enabling without a secret fails closed (nothing is mounted).
 The secret is dedicated to this control-plane→consumer hop — deliberately not `INTERNAL_API_SECRET` (see `.agents/security.md`).
 The ingestion control plane UI consumes these endpoints to render the consumer's live state.
-`debug_recorder.rs` keeps a bounded in-memory buffer of structured lifecycle events — batch dispatch/assignment/commit, deferrals and flushes, worker health and membership — recorded at the same points that emit metrics, and it never influences routing.
+`debug_recorder.rs` keeps a bounded in-memory buffer of structured lifecycle events (batch dispatch, commit and failure, worker health and membership), recorded at the same points that emit metrics, and it never influences routing.
 
-- `/debug/load` — cheap JSON snapshot (worker health + dispatcher in-flight/pins/stash), safe to poll fast.
+- `/debug/load` — cheap JSON snapshot (worker health + the batcher's in-flight and pending counts), safe to poll fast.
 - `/debug/state` — the same plus the retained event backlog.
 - `/debug/events` — SSE stream: backlog replay, then live events (concurrent subscribers capped at 8; 429 beyond).
 
@@ -116,14 +111,14 @@ Remaining: alert rules on the new metrics.
 
 ### 3. DLQ for poison messages
 
-A message a worker permanently rejects (a nack on every delivery) has no dead-letter path: after the flush timeout the batch fails and the process crash-loops on redelivery.
+A message a worker permanently rejects (a nack on every delivery) has no dead-letter path: after the stall timeout (`CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`) the consumer fails and the process crash-loops on redelivery.
 `poison_batch_fails_safely_without_committing` pins the safe half of the trade-off (never commit past unaccepted messages).
 Needs a design pass: DLQ topic, retry budget before giving up, the per-key ordering caveat (DLQ-ing one message then delivering later ones for the same person), and replay ownership.
 Non-UTF-8 payloads — currently nulled in `collect_batch` with no metric — should route to the same DLQ as malformed input; a bytes-preserving wire format is not worth it while the producer (capture) guarantees UTF-8 JSON.
 
 ### 4. Revoke-aware partition handoff
 
-Sticky pins and the deferral stash are per-process.
+The batcher's key queues are per-process.
 During a consumer-group rebalance another instance can start a partition from the last commit while this instance still has uncommitted in-flight work — duplicates and possible cross-pod interleaving per key (`second_consumer_joining_the_group_preserves_all_messages` asserts no loss only, deliberately).
 Fix: on partition revoke (cooperative-sticky callback, via the same `ConsumerContext` as item 2), finish and commit in-flight batches for the revoked partitions before acknowledging the revoke.
 
