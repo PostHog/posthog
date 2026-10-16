@@ -1,8 +1,9 @@
 import { parseBucketStart } from '@/lib/dates'
 import { breakdownLabel, isRankingQuery } from '@/model/adapters/breakdown'
 import { isDrawableFunnel } from '@/model/adapters/funnel'
+import { formatInsightValue } from '@/model/adapters/insightFormatting'
 import { capabilitiesOf, kindLabelOf } from '@/model/adapters/insightSnapshot'
-import { asTrendsInsight, formatMetricValue, timeSeriesChartKind } from '@/model/adapters/metric'
+import { asTrendsInsight, timeSeriesChartKind } from '@/model/adapters/metric'
 import { isDrawableRetention } from '@/model/adapters/retention'
 import type { MetricInterval } from '@/model/types'
 import type { InsightSeriesView, InsightSnapshot, NumberDelta, ResolvedRange } from '@/model/views'
@@ -80,8 +81,7 @@ export function noDataText(snapshot: Pick<InsightSnapshot, 'resolvedRange'>): st
 }
 
 export function snapshotFormatter(snapshot: Pick<InsightSnapshot, 'format'>): (value: number) => string {
-    const { valueFormat, unit } = snapshot.format
-    return (value) => formatMetricValue(value, valueFormat, unit)
+    return (value) => formatInsightValue(value, snapshot.format)
 }
 
 function seriesLabel(series: InsightSeriesView): string {

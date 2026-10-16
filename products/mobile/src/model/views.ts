@@ -182,6 +182,17 @@ export interface InsightCapabilities {
     people: boolean
 }
 
+export interface InsightValueFormat extends MetricFormat {
+    presentation?: {
+        kind: 'sql' | 'trends'
+        style: string | null
+        prefix: string
+        suffix: string
+        decimalPlaces?: number
+        minDecimalPlaces?: number
+    }
+}
+
 /** One read of an insight, as the list and the view screens see it. */
 export interface InsightSnapshot extends Freshness {
     insightId: number
@@ -196,7 +207,7 @@ export interface InsightSnapshot extends Freshness {
     timezone: string | null
     savedRange: SavedRange
     interval: MetricInterval
-    format: MetricFormat
+    format: InsightValueFormat
     /** The big number. See `valueAt`. */
     value: number | null
     /** The bucket `value` is for. Null when `value` is the window's total. */

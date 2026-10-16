@@ -1,6 +1,11 @@
 import type { InsightApi } from '@/api/insights'
 import { pointActorsInput } from '@/features/views/pointSheet/pointActorsInput'
-import { insightDisplay, insightRenderState, snapshotChartSeries } from '@/features/views/snapshotChart'
+import {
+    insightDisplay,
+    insightRenderState,
+    snapshotChartSeries,
+    snapshotFormatter,
+} from '@/features/views/snapshotChart'
 
 import { insightSnapshot, numberParts, usesOwnRange } from './insightSnapshot'
 
@@ -50,6 +55,70 @@ const RETENTION = viz({ kind: 'RetentionQuery', retentionFilter: { period: 'Week
 const COHORT_ROW = { date: '2026-10-05T00:00:00Z', values: [{ count: 10 }] }
 
 describe('insightSnapshot', () => {
+    test.each<[string, Record<string, unknown>, number, string]>([
+        ['prefix and suffix', { prefix: '£', suffix: 'M', decimalPlaces: 2 }, 42.7, '£42.70M'],
+        ['percent', { style: 'percent', decimalPlaces: 2 }, 12.375, '12.38%'],
+        ['grouped number', { style: 'number', decimalPlaces: 2 }, 12345.6, '12,345.60'],
+        ['short number', { style: 'short', prefix: '$' }, 2345678, '$2.35\u00a0M'],
+        ['raw number', { style: 'none' }, 12345.6789, '12345.6789'],
+        ['zero precision', { style: 'number', decimalPlaces: 0, suffix: ' users' }, 1234.6, '1,235 users'],
+        ['negative number', { prefix: '$', decimalPlaces: 2 }, -24.5, '$-24.50'],
+        ['zero', { style: 'percent', decimalPlaces: 1 }, 0, '0.0%'],
+        ['default precision', {}, 0.123456, '0.123456'],
+        ['invalid precision', { style: 'number', decimalPlaces: -1 }, 1234.5678, '1,234.568'],
+    ])('preserves SQL big number formatting: %s', (_name, formatting, value, expected) => {
+        const snapshot = insightSnapshot(
+            insight({
+                query: {
+                    kind: 'DataVisualizationNode',
+                    display: 'BoldNumber',
+                    source: { kind: 'HogQLQuery', query: 'select 1 as value' },
+                    tableSettings: {
+                        columns: [
+                            { column: 'other', settings: { formatting: { prefix: 'wrong' } } },
+                            { column: 'value', settings: { formatting } },
+                        ],
+                    },
+                },
+                columns: ['value'],
+                result: [[value]],
+            }),
+            undefined,
+            CONTEXT
+        )
+
+        expect(snapshotFormatter(snapshot)(snapshot.value as number)).toBe(expected)
+    })
+
+    test.each<[string, Record<string, unknown>, number, string]>([
+        [
+            'custom units',
+            { aggregationAxisPrefix: '$', aggregationAxisPostfix: 'M', decimalPlaces: 2 },
+            42.756,
+            '$42.76M',
+        ],
+        ['minimum precision', { decimalPlaces: 3, minDecimalPlaces: 2 }, 12.3, '12.30'],
+        ['percentage', { aggregationAxisFormat: 'percentage', decimalPlaces: 2 }, 12.375, '12.38%'],
+        ['scaled percentage', { aggregationAxisFormat: 'percentage_scaled', decimalPlaces: 2 }, 0.12375, '12.38%'],
+        ['short number', { aggregationAxisFormat: 'short' }, 2345678, '2.35\u00a0M'],
+        ['currency', { aggregationAxisFormat: 'currency', aggregationAxisPrefix: '$' }, 1234.5, '$1,234.50'],
+        ['small values', {}, 0.001234, '0.0012'],
+        ['seconds', { aggregationAxisFormat: 'duration' }, 3.125, '3.13s'],
+        ['milliseconds', { aggregationAxisFormat: 'duration_ms' }, 3.125, '3.13ms'],
+        ['nanoseconds', { aggregationAxisFormat: 'duration_ns' }, 1250, '1.25µs'],
+    ])('preserves trends formatting: %s', (_name, formatting, value, expected) => {
+        const snapshot = insightSnapshot(
+            insight({
+                query: trends(undefined, 'BoldNumber', { trendsFilter: { display: 'BoldNumber', ...formatting } }),
+                result: [{ aggregated_value: value }],
+            }),
+            undefined,
+            CONTEXT
+        )
+
+        expect(snapshotFormatter(snapshot)(snapshot.value as number)).toBe(expected)
+    })
+
     test.each<[string, Partial<InsightApi>]>([
         [
             'a rate-limited response',

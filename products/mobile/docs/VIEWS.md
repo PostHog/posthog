@@ -184,6 +184,7 @@ Number and Chart pins in the list keep the saved range. Ranges last for the sess
 
 - `FunnelSteps`, `RetentionGrid` and `BarList` live in `src/ui/chart/` and draw React Native rows, not a Skia canvas. Their data comes from `src/model/adapters/funnel.ts`, `retention.ts` and `breakdown.ts` through `InsightSnapshot.funnel`, `.retention` and `.ranking`.
 - Pins keep one series: `capabilities.chart` still means one series without a breakdown, and `pinChartSeries` draws the first current series only.
+- Numbers keep the insight's saved units, prefixes, suffixes, number style and decimal precision across dashboard tiles, pins, insight screens and chart labels. SQL big numbers use the first result column's table formatting; trends use the aggregation axis settings.
 - A breakdown insight has no big number, because no one value stands for it. A trends insight with a breakdown, or a ranking with several values, has `capabilities.number = false`.
 - A tap on a funnel step, bar row or retention cell selects it (`useItemSelection`), under the same one-selected-chart rule as a line chart tooltip: an outside tap, a scroll away, Android back or new data clears it. A funnel step shows the median time from the previous step, a bar row its share of the total (or its rank when the values do not add up), and a retention cell a callout under the grid.
 - A tile ranks six values; "+N more" opens the bar list full screen.

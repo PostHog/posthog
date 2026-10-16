@@ -13,9 +13,9 @@ import type {
 } from '../views'
 import { displaySeriesLabel, rankingView } from './breakdown'
 import { funnelView } from './funnel'
+import { insightValueFormat } from './insightFormatting'
 import {
     asTrendsInsight,
-    chartFormat,
     drawableChartKind,
     hasBreakdown,
     isSummableMath,
@@ -442,7 +442,7 @@ export function insightSnapshot(
             resolvedRange: null,
             timezone: response.timezone ?? null,
             interval: trendsInterval(sourceOf(query)),
-            format: chartFormat(asTrendsInsight(query)),
+            format: insightValueFormat(query, response.columns),
             value: null,
             valueAt: null,
             previous: null,
@@ -459,7 +459,7 @@ export function insightSnapshot(
         }
     }
     const interval = trendsInterval(sourceOf(query))
-    const format = chartFormat(asTrendsInsight(query))
+    const format = insightValueFormat(query, response.columns)
     const resolvedRange = resolvedRangeOf(response)
     const isTrends = metadata.queryKind === 'TrendsQuery'
     const entries = isTrends ? trendsEntries(response.result) : []
