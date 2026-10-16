@@ -152,6 +152,44 @@ describe('runStream', () => {
             ],
             'Editing b.ts',
         ],
+        [
+            'a PostHog call by its inner tool, not the exec wrapper',
+            [
+                frame(
+                    update({
+                        sessionUpdate: 'tool_call',
+                        toolCallId: 't1',
+                        title: 'exec',
+                        rawInput: { command: 'call reports-get {"id":"r1"}', context: 'Look up the newest report' },
+                        _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                    })
+                ),
+            ],
+            'Call reports-get',
+        ],
+        [
+            'a bare update to a PostHog call keeps the inner tool, not the exec wrapper',
+            [
+                frame(
+                    update({
+                        sessionUpdate: 'tool_call',
+                        toolCallId: 't1',
+                        title: 'exec',
+                        rawInput: { command: 'call reports-get {"id":"r1"}' },
+                        _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                    })
+                ),
+                frame(
+                    update({
+                        sessionUpdate: 'tool_call_update',
+                        toolCallId: 't1',
+                        title: 'exec',
+                        status: 'in_progress',
+                    })
+                ),
+            ],
+            'Call reports-get',
+        ],
     ])('stage: %s', (_name, events, expected) => {
         expect(displayStage(feed(events).state)).toBe(expected)
     })

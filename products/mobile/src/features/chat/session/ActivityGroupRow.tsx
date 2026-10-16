@@ -9,6 +9,7 @@ import { MonoText } from '@/ui/MonoText'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, iconSizes, motion, type } from '@/ui/tokens'
 
+import { ChatMarkdown } from '../ChatMarkdown'
 import { isActivityRunning, summarizeActivity } from './sessionDisplay'
 import type { SessionActivityGroup, SessionThoughtItem, SessionToolInvocation } from './types'
 
@@ -43,8 +44,13 @@ function ToolRow({ invocation }: { invocation: SessionToolInvocation }): ReactEl
                 <MonoText color={colors.muted} numberOfLines={1}>
                     {invocation.title ?? invocation.toolName}
                 </MonoText>
+                {invocation.detail ? (
+                    <Text style={styles.toolNote} numberOfLines={2}>
+                        {invocation.detail}
+                    </Text>
+                ) : null}
                 {invocation.status === 'failed' && invocation.errorMessage ? (
-                    <Text style={styles.toolError} numberOfLines={2}>
+                    <Text style={styles.toolNote} numberOfLines={2}>
                         {invocation.errorMessage}
                     </Text>
                 ) : null}
@@ -55,9 +61,9 @@ function ToolRow({ invocation }: { invocation: SessionToolInvocation }): ReactEl
 
 function ThoughtRow({ item }: { item: SessionThoughtItem }): ReactElement | null {
     return item.text ? (
-        <Text style={styles.thought} numberOfLines={4}>
-            {item.text}
-        </Text>
+        <View style={styles.thought}>
+            <ChatMarkdown tone="thought" text={item.text} streaming={!item.complete} />
+        </View>
     ) : null
 }
 
@@ -185,14 +191,13 @@ const styles = StyleSheet.create({
         flex: 1,
         minWidth: 0,
     },
-    toolError: {
+    toolNote: {
         ...type.meta,
         color: colors.muted,
         marginTop: 2,
     },
     thought: {
-        ...type.bodySmall,
-        color: colors.muted,
-        fontStyle: 'italic',
+        // Markdown blocks end with a 10pt bottom margin; this keeps the details gap even.
+        marginBottom: -10,
     },
 })

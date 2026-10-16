@@ -126,13 +126,84 @@ describe('session thread reducer', () => {
             'user: Fix the flaky checkout test',
             'thought: Find the test first.',
             'tool: Read completed "Reading checkout.spec.ts"',
-            'tool: insights-get failed',
+            'tool: insights-get failed "Call insights-get"',
             'assistant: The test waited on a timer. I replaced it with a wait for the request.',
             '---',
         ])
         expect(state.invocations.get('tc-exec')?.errorMessage).toBe('Insight not found')
         // The subagent's inner call keeps its invocation for the parent card but gets no row.
         expect(state.invocations.has('tc-inner')).toBe(true)
+    })
+
+    test.each<[string, Record<string, unknown>, string, string | undefined]>([
+        [
+            'a PostHog call by its inner tool',
+            {
+                title: 'exec',
+                rawInput: {
+                    command: 'call reports-get {"id":"r1"}',
+                    context: 'Look up the newest report created today',
+                },
+                _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+            },
+            'tool: reports-get in_progress "Call reports-get"',
+            'Look up the newest report created today',
+        ],
+        [
+            'a PostHog discovery command by its verb',
+            {
+                title: 'exec',
+                rawInput: { command: 'tools', context: 'See which tools can read reports' },
+                _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+            },
+            'tool: mcp__posthog__exec in_progress "List tools"',
+            'See which tools can read reports',
+        ],
+        [
+            'another tool by its name when the title only repeats it',
+            { title: 'Exec', toolName: 'exec', serverName: 'sandbox' },
+            'tool: exec in_progress',
+            undefined,
+        ],
+        [
+            'another MCP tool by its short title',
+            { title: 'search', _meta: { claudeCode: { toolName: 'mcp__linear__search' } } },
+            'tool: mcp__linear__search in_progress "search"',
+            undefined,
+        ],
+    ])('names %s', (_name, call, expectedRow, expectedDetail) => {
+        const state = play([
+            update({ sessionUpdate: 'tool_call', toolCallId: 'tc-1', kind: 'other', status: 'in_progress', ...call }),
+        ])
+        expect(rows(state)).toEqual([expectedRow])
+        expect(state.invocations.get('tc-1')?.detail).toBe(expectedDetail)
+    })
+
+    test('names a PostHog call once its command streams in on an update', () => {
+        const meta = { claudeCode: { toolName: 'mcp__posthog__exec' } }
+        const started = play([
+            update({
+                sessionUpdate: 'tool_call',
+                toolCallId: 'tc-1',
+                title: 'exec',
+                status: 'in_progress',
+                _meta: meta,
+            }),
+        ])
+        expect(rows(started)).toEqual(['tool: mcp__posthog__exec in_progress "Run command"'])
+        const described = play(
+            [
+                update({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 'tc-1',
+                    rawInput: { command: 'call reports-get {"id":"r1"}', context: 'Look up the newest report' },
+                }),
+            ],
+            LIVE,
+            started
+        )
+        expect(rows(described)).toEqual(['tool: reports-get in_progress "Call reports-get"'])
+        expect(described.invocations.get('tc-1')?.detail).toBe('Look up the newest report')
     })
 
     test('streams chunks into one bubble, starts a new one after a tool call, and closes on a mismatched finalize', () => {

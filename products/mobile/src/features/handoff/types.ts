@@ -1,5 +1,7 @@
 import type { DecisionAnswer, TaskRunStatus, TaskRunView } from '@/model/types'
 
+import type { ToolCallSource } from './toolTitle'
+
 export interface PermissionOption {
     optionId: string
     name: string
@@ -57,6 +59,8 @@ export interface RunStreamState {
     serverStage?: string
     toolTitle?: string
     latestToolCallId?: string
+    /** The latest call's source, so a bare update can still be described by what the call runs. */
+    latestToolCall?: ToolCallSource
     progressLabel?: string
     messageOpen: boolean
     prUrl?: string

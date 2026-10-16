@@ -19,7 +19,7 @@ export function isPostHogExecTool(toolName: string): boolean {
 
 // Mirrors the backend exec `parseCommand` (`services/mcp/src/tools/exec.ts`) token for token. Security: a divergence
 // lets a crafted command resolve here to a safer-looking inner tool than the one the server runs.
-function splitFirstToken(input: string): { head: string; rest: string } {
+export function splitFirstToken(input: string): { head: string; rest: string } {
     const trimmed = input.trim()
     const index = trimmed.indexOf(' ')
     if (index === -1) {
@@ -28,7 +28,7 @@ function splitFirstToken(input: string): { head: string; rest: string } {
     return { head: trimmed.slice(0, index), rest: trimmed.slice(index + 1).trim() }
 }
 
-function parseExecVerb(command: string): { verb: string | null; rest: string } {
+export function parseExecVerb(command: string): { verb: string | null; rest: string } {
     const { head, rest } = splitFirstToken(command)
     return POSTHOG_EXEC_VERBS.has(head) ? { verb: head, rest } : { verb: null, rest }
 }
