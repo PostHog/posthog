@@ -802,6 +802,9 @@ async def _write_batch_export_record_batches_to_internal_stage(
             query = query_or_model
             query_settings = {}
 
+        if str(team_id) in settings.BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS:
+            query_settings["output_format_arrow_compression_method"] = settings.BATCH_EXPORT_ARROW_COMPRESSION_METHOD
+
         base_s3_staging_folder = get_base_s3_staging_folder(
             batch_export_id=batch_export_id,
             data_interval_start=data_interval_start,

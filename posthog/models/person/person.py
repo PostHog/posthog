@@ -387,7 +387,8 @@ class Person(models.Model):
         SplitPerson RPC. Personhog owns this write — there is no ORM path.
 
         The server creates each new person with a deterministic UUIDv5
-        (matching ``uuidFromDistinctId``) and bumps versions by 101, higher
+        (matching ``uuidFromDistinctId``), or a random UUID when a live person
+        already holds that one, and bumps versions by 101, higher
         than delete events (which use version + 100) so the split overrides
         any deleted rows. Keep in sync with:
         posthog/models/person/util.py (_delete_person) and

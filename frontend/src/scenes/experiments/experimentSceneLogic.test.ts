@@ -27,7 +27,6 @@ type ExperimentLogicMock = {
         __logic: {
             mount: jest.Mock<any, any>
             actions: {
-                setEditExperiment: jest.Mock
                 resetExperiment: jest.Mock
                 loadExperiment: jest.Mock
                 loadExposures: jest.Mock
@@ -43,7 +42,6 @@ jest.mock('./experimentLogic', () => {
     const logicInstance = {
         mount: jest.fn(() => jest.fn()),
         actions: {
-            setEditExperiment: jest.fn(),
             resetExperiment: jest.fn(),
             loadExperiment: jest.fn(),
             loadExposures: jest.fn(),
