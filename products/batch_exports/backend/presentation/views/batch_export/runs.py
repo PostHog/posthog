@@ -221,11 +221,8 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Gene
     def dangerously_get_object(self) -> contracts.BatchExportRunDetail:
         # This replaces the queryset read only. The facade scopes the read to the team and the
         # export, and the object permissions run on the contract as they ran on the model.
-        # Like the list, a lookup only finds a run that matches the list filters.
         try:
-            run = batch_exports_api.get_batch_export_run(
-                self.team_id, self._get_export_id(), self._get_run_id(), filters=self._get_run_filters()
-            )
+            run = batch_exports_api.get_batch_export_run(self.team_id, self._get_export_id(), self._get_run_id())
         except contracts.BatchExportRunNotFoundError as e:
             raise NotFound(*e.args) from e
         self.check_object_permissions(self.request, run)
@@ -257,9 +254,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Gene
         run = self.get_object()
 
         try:
-            backfill_id = batch_exports_api.retry_batch_export_run(
-                self.team_id, self._get_export_id(), run.id, filters=self._get_run_filters()
-            )
+            backfill_id = batch_exports_api.retry_batch_export_run(self.team_id, self._get_export_id(), run.id)
         except contracts.BatchExportRunNotFoundError as e:
             raise NotFound(*e.args) from e
 
@@ -272,9 +267,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Gene
         run = self.get_object()
 
         try:
-            batch_exports_api.cancel_batch_export_run(
-                self.team_id, self._get_export_id(), run.id, filters=self._get_run_filters()
-            )
+            batch_exports_api.cancel_batch_export_run(self.team_id, self._get_export_id(), run.id)
         except contracts.InvalidBatchExportRunRequestError as e:
             raise ValidationError(str(e)) from e
         except contracts.BatchExportRunNotFoundError as e:
