@@ -3481,8 +3481,7 @@ export namespace Schemas {
     export type WebAnalyticsPreComputeStrategy =
         | "pre_aggregated"
         | "lazy_precompute"
-        | "live"
-        | "dimensional";
+        | "live";
     export type SamplingRate = {
         denominator?: (number | null) | undefined;
         numerator: number;
@@ -3495,7 +3494,6 @@ export namespace Schemas {
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
-        preComputeComputedAt?: (string | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
         preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
@@ -3587,7 +3585,6 @@ export namespace Schemas {
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
-        preComputeComputedAt?: (string | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
@@ -6885,7 +6882,6 @@ export namespace Schemas {
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
-        preComputeComputedAt?: (string | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
@@ -6915,7 +6911,6 @@ export namespace Schemas {
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
-        preComputeComputedAt?: (string | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
         preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:

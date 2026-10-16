@@ -6605,7 +6605,6 @@ export namespace Schemas {
       PreAggregated: 'pre_aggregated',
       LazyPrecompute: 'lazy_precompute',
       Live: 'live',
-      Dimensional: 'dimensional',
     } as const;
 
     export interface SamplingRate {
@@ -6624,8 +6623,6 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
-      /** When the oldest precomputed window used was computed. Unset for live responses. */
-      preComputeComputedAt?: string | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
@@ -6726,8 +6723,6 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** When the oldest precomputed window used was computed. Unset for live responses. */
-      preComputeComputedAt?: string | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -8362,8 +8357,6 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** When the oldest precomputed window used was computed. Unset for live responses. */
-      preComputeComputedAt?: string | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -8394,8 +8387,6 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
-      /** When the oldest precomputed window used was computed. Unset for live responses. */
-      preComputeComputedAt?: string | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
@@ -92542,8 +92533,6 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** When the oldest precomputed window used was computed. Unset for live responses. */
-      preComputeComputedAt?: string | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -92574,8 +92563,6 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
-      /** When the oldest precomputed window used was computed. Unset for live responses. */
-      preComputeComputedAt?: string | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
@@ -93093,8 +93080,6 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** When the oldest precomputed window used was computed. Unset for live responses. */
-      preComputeComputedAt?: string | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
@@ -93125,8 +93110,6 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
-      /** When the oldest precomputed window used was computed. Unset for live responses. */
-      preComputeComputedAt?: string | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
