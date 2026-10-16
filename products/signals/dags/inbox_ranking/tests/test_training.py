@@ -30,8 +30,6 @@ from products.signals.backend.ranking.features import (
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_GRAIN,
     SCORING_MOMENT_GRAIN,
-    TITLE_EMBEDDINGS_EXTRA,
-    TITLE_EMBEDDINGS_FEATURE_SET,
     Extras,
     FeatureSet,
     feature_set_by_name,
@@ -60,7 +58,6 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
     LABELS_TABLE,
     PROJECT_VECTORS_TABLE,
     STATE_TABLE,
-    TITLE_EMBEDDINGS_TABLE,
 )
 from products.signals.dags.inbox_ranking.training.calibration import (
     BUCKETS,
@@ -143,10 +140,10 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     LEGACY_POOL_NAME,
     MODEL_FAMILIES,
+    NN_MODEL_NAME,
     POOL_NAME,
     REPORT_EMBEDDINGS_MODEL_NAME,
     SERVED_SCORES_TABLE,
-    TITLE_EMBEDDINGS_MODEL_NAME,
     ModelFamily,
     calibration_rows,
     chance_band,
@@ -163,9 +160,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
 from products.signals.dags.inbox_ranking.training.within_team import NO_TEAMS, WithinTeamAuc, within_team_auc
 
 EMBEDDINGS_MODEL_NAME = REPORT_EMBEDDINGS_MODEL_NAME
-# The two renderings' sets. Every rule about a vector holds for both, because they are one class
-# parameterized by the input it reads, so the embedding tests below run over the pair.
-EMBEDDING_FEATURE_SETS = (REPORT_EMBEDDINGS_FEATURE_SET, TITLE_EMBEDDINGS_FEATURE_SET)
+EMBEDDING_FEATURE_SETS = (REPORT_EMBEDDINGS_FEATURE_SET,)
 
 
 class _StateFeatureSet(FeatureSet):
@@ -186,7 +181,7 @@ STATE_MODEL_NAME = "state_xgb"
 
 
 EMBEDDING_SET_IDS = [feature_set.name for feature_set in EMBEDDING_FEATURE_SETS]
-_EMBEDDING_EXTRA_KEYS = (REPORT_EMBEDDINGS_EXTRA, TITLE_EMBEDDINGS_EXTRA)
+_EMBEDDING_EXTRA_KEYS = (REPORT_EMBEDDINGS_EXTRA,)
 
 D0 = datetime.date(2026, 8, 10)
 NOW = datetime.datetime(2026, 8, 20, tzinfo=datetime.UTC)
@@ -736,8 +731,7 @@ def test_birth_grain_keeps_one_row_per_report_on_the_day_it_was_created(feature_
     ]
     snapshots = _daily_snapshots(ids, head, created, days=3)
     snapshots[D0 + datetime.timedelta(days=head.horizon_days)].labels.loc[:, "open_count"] = 0
-    # Both renderings' inputs, so the parameter that varies is the set under test and not what it
-    # was handed. The state set reads neither.
+    # The state set does not read the vectors, so the same extras serve every set under test.
     extras = {key: _vector_frame({report_id: _embedding() for report_id in ids}) for key in _EMBEDDING_EXTRA_KEYS}
 
     examples = build_examples(snapshots, head, feature_set, extras)
@@ -1183,16 +1177,14 @@ def test_with_model_names_drops_rows_that_name_no_family(scores, expected):
 
 def test_head_grades_keep_every_family_apart_on_the_same_rows():
     # A grade keyed on version and role alone would pool the families into one meaningless AUC.
-    # Three of them now, and the paired title-against-combined read is a difference of two of these
-    # grades, so a family whose rows leaked into another's would be read as a text effect.
     head = HEADS_BY_NAME["open"]
     labels = _labels(["a", "e"], open_count=[1, 0])
     per_family = {
         STATE_MODEL_NAME: [0.9, 0.1],
         EMBEDDINGS_MODEL_NAME: [0.1, 0.9],
-        TITLE_EMBEDDINGS_MODEL_NAME: [0.8, 0.2],
+        NN_MODEL_NAME: [0.8, 0.2],
     }
-    thresholds = {STATE_MODEL_NAME: 0.5, EMBEDDINGS_MODEL_NAME: 0.05, TITLE_EMBEDDINGS_MODEL_NAME: 0.95}
+    thresholds = {STATE_MODEL_NAME: 0.5, EMBEDDINGS_MODEL_NAME: 0.05, NN_MODEL_NAME: 0.95}
     graded = pd.concat(
         [
             graded_rows(
@@ -1212,15 +1204,15 @@ def test_head_grades_keep_every_family_apart_on_the_same_rows():
     )
     grades = head_grades(graded, head, pool=POOL_NAME, scoring_partition="2026-08-10")
     assert [(grade.model_name, grade.rows, grade.auc) for grade in grades] == [
+        (NN_MODEL_NAME, 2, 1.0),
         (EMBEDDINGS_MODEL_NAME, 2, 0.0),
         (STATE_MODEL_NAME, 2, 1.0),
-        (TITLE_EMBEDDINGS_MODEL_NAME, 2, 1.0),
     ]
     # Each model keeps the cut it saved, and never borrows another model's.
     assert [(grade.classification.threshold, grade.classification.predicted_positive_rate) for grade in grades] == [
+        (0.95, 0.0),
         (0.05, 1.0),
         (0.5, 0.5),
-        (0.95, 0.0),
     ]
     # And the calibration read follows the grade, so each family has its own deciles.
     assert {row["model_name"] for row in calibration_rows(grades)} == set(per_family)
@@ -1268,9 +1260,9 @@ def test_an_empty_scores_write_is_refused_over_a_partition_that_holds_rows(exist
     "existing,scored,expected",
     [
         (
-            [STATE_MODEL_NAME, EMBEDDINGS_MODEL_NAME, TITLE_EMBEDDINGS_MODEL_NAME],
+            [STATE_MODEL_NAME, EMBEDDINGS_MODEL_NAME, NN_MODEL_NAME],
             [STATE_MODEL_NAME, EMBEDDINGS_MODEL_NAME],
-            [TITLE_EMBEDDINGS_MODEL_NAME],
+            [NN_MODEL_NAME],
         ),
         (
             [STATE_MODEL_NAME, EMBEDDINGS_MODEL_NAME],
@@ -1280,8 +1272,8 @@ def test_an_empty_scores_write_is_refused_over_a_partition_that_holds_rows(exist
         ([STATE_MODEL_NAME], [], [STATE_MODEL_NAME]),
         ([], [STATE_MODEL_NAME], []),
         (
-            ["tabular_xgb", EMBEDDINGS_MODEL_NAME, TITLE_EMBEDDINGS_MODEL_NAME],
-            [EMBEDDINGS_MODEL_NAME, TITLE_EMBEDDINGS_MODEL_NAME],
+            ["tabular_xgb", "title_embeddings", EMBEDDINGS_MODEL_NAME],
+            [EMBEDDINGS_MODEL_NAME],
             [],
         ),
     ],
@@ -2035,14 +2027,6 @@ def _model_metadata(**overrides) -> dict[str, Any]:
         (_model_metadata(), None),
         # No declared set is left unscored rather than read as a default.
         ({key: value for key, value in _model_metadata().items() if key != "feature_set"}, "this build can produce"),
-        (
-            _model_metadata(
-                feature_set=TITLE_EMBEDDINGS_FEATURE_SET.name,
-                feature_schema_version=TITLE_EMBEDDINGS_FEATURE_SET.schema_version,
-                feature_names=list(TITLE_EMBEDDINGS_FEATURE_SET.feature_names),
-            ),
-            None,
-        ),
         # A set a later build introduced, or one that has been withdrawn.
         (_model_metadata(feature_set="mmoe_trunk"), "this build can produce"),
         (_model_metadata(feature_schema_version=99), "feature_schema_version 99"),
@@ -2106,14 +2090,10 @@ def test_examples_key_layout_is_per_feature_set():
         examples_object_key("inbox_ranking", REPORT_EMBEDDINGS_FEATURE_SET.name, "2026-08-19")
         == "inbox_ranking/inbox_ranking_training_examples/v1/report_embeddings/dt=2026-08-19/part-00000.parquet"
     )
+    # And one models prefix per family, so one family's booster never lands on another's.
     assert (
-        examples_object_key("inbox_ranking", TITLE_EMBEDDINGS_FEATURE_SET.name, "2026-08-19")
-        == "inbox_ranking/inbox_ranking_training_examples/v1/title_embeddings/dt=2026-08-19/part-00000.parquet"
-    )
-    # And one models prefix per family, so a title booster never lands on the combined family's.
-    assert (
-        model_object_key("inbox_ranking", TITLE_EMBEDDINGS_MODEL_NAME, "2026-08-19", "open.ubj")
-        == "inbox_ranking/inbox_ranking_models/v1/title_embeddings/dt=2026-08-19/open.ubj"
+        model_object_key("inbox_ranking", EMBEDDINGS_MODEL_NAME, "2026-08-19", "open.ubj")
+        == "inbox_ranking/inbox_ranking_models/v1/report_embeddings/dt=2026-08-19/open.ubj"
     )
 
 
@@ -2122,18 +2102,6 @@ def test_every_registered_set_is_reachable_by_the_name_a_model_records(feature_s
     # A model names its set in `metadata.json`, and a name this build cannot resolve is left
     # unscored, so registering the set is what makes the family's boosters loadable at all.
     assert feature_set_by_name(feature_set.name) is feature_set
-
-
-def test_the_two_embedding_families_share_one_recipe():
-    # The pair measures the text choice, so everything except the input must match. A budget, grain
-    # or width that drifted on one side would make the paired AUC difference read as content.
-    report, title = REPORT_EMBEDDINGS_FEATURE_SET, TITLE_EMBEDDINGS_FEATURE_SET
-    assert report.extras_keys != title.extras_keys
-    for attribute in ("schema_version", "feature_names", "state_columns", "example_grain", "max_examples_per_head"):
-        assert getattr(report, attribute) == getattr(title, attribute)
-    families = {family.name: family.feature_set for family in MODEL_FAMILIES}
-    assert families[TITLE_EMBEDDINGS_MODEL_NAME] is title
-    assert families[EMBEDDINGS_MODEL_NAME] is report
 
 
 # Before every snapshot the tests build, so a vector counts as present unless a test says otherwise.
@@ -2222,33 +2190,25 @@ def test_a_missing_rendering_is_left_out_while_an_empty_one_keeps_its_key():
     # day the family genuinely has nothing to fit, and takes the ordinary thin-input path.
     empty = _vector_frame({}).astype({EMBEDDING_COLUMN: object})
 
-    missing_title = _extras_for(
-        _snapshot_objects(report_embeddings=_vector_frame({"a": _embedding()}), title_embeddings=None)
-    )
-    assert set(missing_title) == {REPORT_EMBEDDINGS_EXTRA}
-    assert TITLE_EMBEDDINGS_FEATURE_SET.missing_extras(missing_title) == (TITLE_EMBEDDINGS_EXTRA,)
-    assert REPORT_EMBEDDINGS_FEATURE_SET.missing_extras(missing_title) == ()
+    missing = _extras_for(_snapshot_objects(report_embeddings=None))
+    assert missing == {}
+    assert REPORT_EMBEDDINGS_FEATURE_SET.missing_extras(missing) == (REPORT_EMBEDDINGS_EXTRA,)
 
-    empty_title = _extras_for(
-        _snapshot_objects(report_embeddings=_vector_frame({"a": _embedding()}), title_embeddings=empty)
-    )
-    assert TITLE_EMBEDDINGS_FEATURE_SET.missing_extras(empty_title) == ()
-    assert TITLE_EMBEDDINGS_FEATURE_SET.buildable(_state(["a"]), empty_title).tolist() == [False]
+    empty_snapshot = _extras_for(_snapshot_objects(report_embeddings=empty))
+    assert REPORT_EMBEDDINGS_FEATURE_SET.missing_extras(empty_snapshot) == ()
+    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(_state(["a"]), empty_snapshot).tolist() == [False]
 
 
 def test_a_rendering_is_read_only_when_a_set_asks_for_it():
     # The examples asset reads one set's inputs at a time, so a family it is not building must not
     # pull a fleet-wide vector table across the network.
-    objects = _snapshot_objects(
-        report_embeddings=_vector_frame({"a": _embedding()}), title_embeddings=_vector_frame({"a": _embedding()})
-    )
-    assert set(_extras_for(objects, TITLE_EMBEDDINGS_FEATURE_SET.extras_keys)) == {TITLE_EMBEDDINGS_EXTRA}
+    objects = _snapshot_objects(report_embeddings=_vector_frame({"a": _embedding()}))
+    assert set(_extras_for(objects, REPORT_EMBEDDINGS_FEATURE_SET.extras_keys)) == {REPORT_EMBEDDINGS_EXTRA}
     assert _extras_for(objects, ()) == {}
 
 
-def test_only_the_set_whose_snapshot_is_missing_is_skipped(monkeypatch):
-    # One rendering's failed snapshot must cost one family's day. The others have to keep building,
-    # or a title-side gap silently stops the combined family the title is measured against.
+def test_a_set_whose_snapshot_is_missing_is_skipped(monkeypatch):
+    # A failed snapshot must leave the family's examples as they stand, not rebuild them from nothing.
     module = "products.signals.dags.inbox_ranking.training.dag"
     written: list[str] = []
     monkeypatch.setattr(f"{module}.skip_unconfigured", lambda context: False)
@@ -2258,7 +2218,7 @@ def test_only_the_set_whose_snapshot_is_missing_is_skipped(monkeypatch):
     monkeypatch.setattr(
         f"{module}.embeddings_extras",
         lambda context, client, bucket, prefix, partition_key, keys: {
-            key: _vector_frame({}) for key in keys if key != TITLE_EMBEDDINGS_EXTRA
+            key: _vector_frame({}) for key in keys if key != REPORT_EMBEDDINGS_EXTRA
         },
     )
 
@@ -2272,31 +2232,15 @@ def test_only_the_set_whose_snapshot_is_missing_is_skipped(monkeypatch):
         inbox_ranking_training_examples(context)
         metadata = context.get_output_metadata("result")
 
-    assert written == [REPORT_EMBEDDINGS_FEATURE_SET.name]
-    assert metadata[f"{TITLE_EMBEDDINGS_FEATURE_SET.name}_skipped"].value is True
+    assert written == []
+    assert metadata[f"{REPORT_EMBEDDINGS_FEATURE_SET.name}_skipped"].value is True
 
 
-def test_both_renderings_snapshots_are_upstream_of_the_examples_that_read_them():
+def test_the_embeddings_snapshot_is_upstream_of_the_examples_that_read_it():
     # An asset that reads a snapshot without declaring it can run before the day's snapshot lands
-    # and record the family as having no input. One dependency per rendering, so the two renderings
-    # are scheduled independently rather than as one edge that either family's failure breaks.
+    # and record the family as having no input.
     deps = {key.path[-1] for key in inbox_ranking_training_examples.keys_by_input_name.values()}
-    assert {EMBEDDINGS_TABLE, TITLE_EMBEDDINGS_TABLE} <= deps
-
-
-def test_a_rendering_never_falls_back_to_the_other_renderings_vector():
-    # The families exist to measure the title against the title plus summary, so a row that took
-    # the other rendering's vector would compare the two models on partly the same text. The inputs
-    # also diverge in practice: a summary-only edit re-embeds only the combined rendering, and
-    # either snapshot can hold a report the other does not.
-    rows = _state(["combined_only", "title_only"])
-    extras = {
-        **_report_vectors({"combined_only": _embedding()}, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
-        **_report_vectors({"title_only": _embedding()}, feature_set=TITLE_EMBEDDINGS_FEATURE_SET),
-    }
-
-    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(rows, extras).tolist() == [True, False]
-    assert TITLE_EMBEDDINGS_FEATURE_SET.buildable(rows, extras).tolist() == [False, True]
+    assert EMBEDDINGS_TABLE in deps
 
 
 @pytest.mark.parametrize("feature_set", EMBEDDING_FEATURE_SETS, ids=EMBEDDING_SET_IDS)
@@ -2404,14 +2348,6 @@ def test_reading_a_moment_needs_the_vectors_landing_time(feature_set):
         (STATE_FEATURE_SET, NO_EXTRAS, ()),
         (REPORT_EMBEDDINGS_FEATURE_SET, _report_vectors({"a": _embedding()}), ()),
         (REPORT_EMBEDDINGS_FEATURE_SET, NO_EXTRAS, (REPORT_EMBEDDINGS_EXTRA,)),
-        # Each rendering answers for its own input: the other one being present is not its input.
-        (
-            TITLE_EMBEDDINGS_FEATURE_SET,
-            _report_vectors({"a": _embedding()}, feature_set=TITLE_EMBEDDINGS_FEATURE_SET),
-            (),
-        ),
-        (TITLE_EMBEDDINGS_FEATURE_SET, NO_EXTRAS, (TITLE_EMBEDDINGS_EXTRA,)),
-        (TITLE_EMBEDDINGS_FEATURE_SET, _report_vectors({"a": _embedding()}), (TITLE_EMBEDDINGS_EXTRA,)),
     ],
 )
 def test_a_set_declares_the_side_inputs_it_needs(feature_set, extras, expected):
@@ -2581,8 +2517,7 @@ def test_the_served_family_candidate_is_paired_only_when_it_is_a_second_model(
 
 
 def test_a_family_with_no_readable_head_is_left_out():
-    # The title family has no readable head today. A manifest lists only models a store can load
-    # and a reader can judge, so it must not gain an entry the sweep would score blind.
+    # A manifest lists only models a store can load and a reader can judge, so it must not gain an entry the sweep would score blind.
     decision = _compose(
         [
             FamilyModels(
@@ -2594,9 +2529,9 @@ def test_a_family_with_no_readable_head_is_left_out():
                 name=STATE_MODEL_NAME, candidate=None, champion=_serving_metadata(STATE_MODEL_NAME, "2026-08-10")
             ),
             FamilyModels(
-                name=TITLE_EMBEDDINGS_MODEL_NAME,
+                name=NN_MODEL_NAME,
                 candidate=None,
-                champion=_serving_metadata(TITLE_EMBEDDINGS_MODEL_NAME, "2026-08-12", readable=False),
+                champion=_serving_metadata(NN_MODEL_NAME, "2026-08-12", readable=False),
             ),
         ]
     )
@@ -2979,7 +2914,7 @@ _CANDIDATE_EVENT = {
     "model_version": CANDIDATE_VERSION,
     "roles": [DAILY_CANDIDATE_ROLE],
 }
-_TITLE_EVENT = {"model_name": TITLE_EMBEDDINGS_MODEL_NAME, "model_version": V1, "roles": [CROSS_FAMILY_ROLE]}
+_NN_EVENT = {"model_name": NN_MODEL_NAME, "model_version": V1, "roles": [CROSS_FAMILY_ROLE]}
 _SERVED_POOL = ["tie", "low", "legacy_low", "legacy_high", "challenger_only", "late"]
 
 
@@ -2995,7 +2930,7 @@ def _served_rows() -> pd.DataFrame:
         # The sweep scores the same report with the daily candidate too, under its own model key.
         _served_event("tie", "2026-08-10T14:00:00Z", p_open=0.7, **_CANDIDATE_EVENT),
         _served_event("tie", "2026-08-10T22:00:00Z", p_open=0.1, **_CANDIDATE_EVENT),
-        _served_event("challenger_only", "2026-08-10T13:00:00Z", p_open=0.5, **_TITLE_EVENT),
+        _served_event("challenger_only", "2026-08-10T13:00:00Z", p_open=0.5, **_NN_EVENT),
         _served_event("challenger_only", "2026-08-10T14:00:00Z", p_open=0.5, status="skipped", **_V1_EVENT),
         # Born before D, so not a newborn of the pool.
         _served_event("older", "2026-08-10T13:00:00Z", p_open=0.5, **_V1_EVENT),
@@ -3043,7 +2978,7 @@ def test_served_score_rows_keep_the_earliest_score_of_each_newborn_per_model_key
     assert sorted(
         zip(others["report_id"], others["model_name"], others["model_version"], others["model_role"], others["score"])
     ) == [
-        ("challenger_only", TITLE_EMBEDDINGS_MODEL_NAME, V1, CROSS_FAMILY_ROLE, 0.5),
+        ("challenger_only", NN_MODEL_NAME, V1, CROSS_FAMILY_ROLE, 0.5),
         ("tie", REPORT_EMBEDDINGS_MODEL_NAME, CANDIDATE_VERSION, DAILY_CANDIDATE_ROLE, 0.7),
     ]
     metadata = served_metadata(_state(_SERVED_POOL), rows)
@@ -3052,7 +2987,7 @@ def test_served_score_rows_keep_the_earliest_score_of_each_newborn_per_model_key
         f"{REPORT_EMBEDDINGS_MODEL_NAME}@{V1}/{SERVED_ROLE}": 2 / 6,
         f"{REPORT_EMBEDDINGS_MODEL_NAME}@{V2}/{SERVED_ROLE}": 3 / 6,
         f"{REPORT_EMBEDDINGS_MODEL_NAME}@{CANDIDATE_VERSION}/{DAILY_CANDIDATE_ROLE}": 1 / 6,
-        f"{TITLE_EMBEDDINGS_MODEL_NAME}@{V1}/{CROSS_FAMILY_ROLE}": 1 / 6,
+        f"{NN_MODEL_NAME}@{V1}/{CROSS_FAMILY_ROLE}": 1 / 6,
     }
 
 
@@ -3104,7 +3039,7 @@ def test_served_scores_grade_per_version_at_the_threshold_that_was_served(monkey
         (REPORT_EMBEDDINGS_MODEL_NAME, V1, SERVED_ROLE),
         (REPORT_EMBEDDINGS_MODEL_NAME, V2, SERVED_ROLE),
         (REPORT_EMBEDDINGS_MODEL_NAME, CANDIDATE_VERSION, DAILY_CANDIDATE_ROLE),
-        (TITLE_EMBEDDINGS_MODEL_NAME, V1, CROSS_FAMILY_ROLE),
+        (NN_MODEL_NAME, V1, CROSS_FAMILY_ROLE),
     }
     graded = {version: row for (_, version, role), row in graded_by_key.items() if role == SERVED_ROLE}
     # The tie is a positive, at the threshold V1 saved at birth.
