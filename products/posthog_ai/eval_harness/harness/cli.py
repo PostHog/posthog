@@ -10,8 +10,7 @@ from .retries import DEFAULT_INFRA_RETRIES
 
 # Bare model ids, no "anthropic/"/"openai/" prefix: the LLM gateway checks the model against a
 # bare-id allowlist with startswith, so the prefixed form is rejected with a 403 and the agent
-# finishes without doing anything. `start_llm_gateway` declares this exact id free-tier on the
-# harness's own gateway, and a run that dies at the gate anyway now fails as an error rather than
+# finishes without doing anything. A run that dies at the gate fails as an error rather than
 # scoring zero on every outcome scorer.
 DEFAULT_AGENT_MODEL = "claude-opus-5"
 DEFAULT_CODEX_AGENT_MODEL = "gpt-5.5"

@@ -155,6 +155,15 @@ procs:
             layer: Product services
             tech: Node
 
+    push-api:
+        sandbox: true
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=push-api HTTP_SERVER_PORT=6746 ./bin/posthog-node'
+        capability: nodejs_cdp_workflows
+        ready_pattern: 'All systems go'
+        groups:
+            layer: Product services
+            tech: Node
+
     frontend:
         sandbox: true
         shell: './bin/start-frontend'
@@ -466,6 +475,16 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service personhog-identity
+        capability: personhog
+        ready_pattern: 'Metrics server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    personhog-publisher:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-publisher
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
         groups:

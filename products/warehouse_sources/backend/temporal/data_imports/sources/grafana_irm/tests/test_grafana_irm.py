@@ -25,6 +25,7 @@ STACK_URL = "https://acme.grafana.net"
 ONCALL_URL = "https://oncall-prod-us-central-0.grafana.net/oncall"
 INCIDENT_PATH = "/api/plugins/grafana-irm-app/resources/api/v1/IncidentsService.QueryIncidentPreviews"
 ACTIVITY_PATH = "/api/plugins/grafana-irm-app/resources/api/v1/ActivityService.QueryActivity"
+MEMBERSHIP_PATH = "/api/plugins/grafana-irm-app/resources/api/v1/IncidentsService.GetIncidentMembership"
 
 
 def _driver() -> SourceDriver:
@@ -198,6 +199,95 @@ def test_incident_activity_fans_out_over_every_incident() -> None:
     assert result.response.primary_keys == ["incidentID", "activityItemID"]
 
 
+def test_alerts_fan_out_over_every_alert_group() -> None:
+    result = _driver().run(
+        "alerts",
+        [
+            ScriptedResponse(json=_oncall_page([{"id": "IG1"}], 1, total_pages=2)),
+            ScriptedResponse(json=_oncall_page([{"id": "AL1", "alert_group_id": "IG1"}], 1, total_pages=2)),
+            ScriptedResponse(json=_oncall_page([{"id": "AL2", "alert_group_id": "IG1"}], 2, total_pages=2)),
+            ScriptedResponse(json=_oncall_page([{"id": "IG2"}, {"title": "no id"}], 2, total_pages=2)),
+            ScriptedResponse(json=_oncall_page([], 1, total_pages=1)),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [{"id": "AL1", "alert_group_id": "IG1"}, {"id": "AL2", "alert_group_id": "IG1"}]
+    assert [(request.path, request.param("alert_group_id"), request.param("page")) for request in result.requests] == [
+        ("/oncall/api/v1/alert_groups/", None, "1"),
+        ("/oncall/api/v1/alerts/", "IG1", "1"),
+        ("/oncall/api/v1/alerts/", "IG1", "2"),
+        ("/oncall/api/v1/alert_groups/", None, "2"),
+        ("/oncall/api/v1/alerts/", "IG2", "1"),
+    ]
+    for request in result.requests:
+        assert request.param("perpage") == "100"
+        assert request.headers["x-grafana-url"] == STACK_URL
+    assert result.response is not None
+    assert result.response.primary_keys == ["id"]
+    assert result.response.partition_keys == ["created_at"]
+
+
+def test_incident_membership_lifts_ids_onto_each_assignment() -> None:
+    commander = {"roleID": 1, "name": "commander"}
+    result = _driver().run(
+        "incident_membership",
+        [
+            ScriptedResponse(
+                json={"incidentPreviews": [{"incidentID": "1"}, {"incidentID": "2"}], "cursor": {"hasMore": False}}
+            ),
+            ScriptedResponse(
+                json={
+                    "assignments": [
+                        {"role": commander, "roleID": 1, "user": {"userID": "user-a", "name": "Ada"}},
+                        {"role": commander, "roleID": 1, "user": None},
+                        {"roleID": 2, "user": {"userID": "user-b"}},
+                    ],
+                    "error": "",
+                }
+            ),
+            ScriptedResponse(json={"assignments": None, "error": ""}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {
+            "role": commander,
+            "roleID": 1,
+            "user": {"userID": "user-a", "name": "Ada"},
+            "incidentID": "1",
+            "userID": "user-a",
+        },
+        {"roleID": 2, "user": {"userID": "user-b"}, "incidentID": "1", "userID": "user-b"},
+    ]
+    assert result.paths == [INCIDENT_PATH, MEMBERSHIP_PATH, MEMBERSHIP_PATH]
+    assert [request.json() for request in result.requests[1:]] == [{"incidentID": "1"}, {"incidentID": "2"}]
+    assert result.response is not None
+    assert result.response.primary_keys == ["incidentID", "roleID", "userID"]
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "path", "body", "primary_key"),
+    [
+        ("incident_roles", "RolesService.GetRoles", {"roles": [{"roleID": 1}, {"roleID": 2}]}, "roleID"),
+        ("incident_custom_fields", "FieldsService.GetFields", {"fields": [{"uuid": "f-1"}, {"uuid": "f-2"}]}, "uuid"),
+    ],
+)
+def test_incident_lookup_tables_are_one_unfiltered_request(
+    endpoint: str, path: str, body: dict[str, Any], primary_key: str
+) -> None:
+    result = _driver().run(endpoint, [ScriptedResponse(json={**body, "error": ""})])
+
+    assert result.raised is None
+    assert result.rows == next(iter(body.values()))
+    assert result.paths == [f"/api/plugins/grafana-irm-app/resources/api/v1/{path}"]
+    assert result.requests[0].method == "POST"
+    assert result.requests[0].json() == {}
+    assert result.response is not None
+    assert result.response.primary_keys == [primary_key]
+
+
 @pytest.mark.parametrize(
     ("oncall_status", "incident_status", "schema_name", "expected_ok", "message_part"),
     [
@@ -208,6 +298,8 @@ def test_incident_activity_fans_out_over_every_incident() -> None:
         (404, 200, None, False, "Admin & API"),
         (200, 404, None, False, "isn't enabled"),
         (403, None, "alert_groups", False, "permission"),
+        (200, None, "alerts", True, None),
+        (403, None, "alerts", False, "permission"),
         (None, 403, "incidents", False, "permission"),
         (500, 200, None, False, "HTTP 500"),
     ],

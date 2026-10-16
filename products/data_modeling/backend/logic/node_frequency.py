@@ -9,7 +9,7 @@ typed column.
 
 import uuid
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from datetime import timedelta
 
 from django.db.models import Q, QuerySet
@@ -28,7 +28,7 @@ from products.data_modeling.backend.logic.freshness import (
 )
 from products.data_modeling.backend.logic.node_suspension import merged_suspension_state
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.edge import Edge
+from products.data_modeling.backend.models.edge import NON_SCHEDULING_EDGES, Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
@@ -260,7 +260,9 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     nodes = list(Node.objects.filter(dag=dag).exclude(saved_query__deleted=True))
     edges = [
         (str(source_id), str(target_id))
-        for source_id, target_id in Edge.objects.filter(dag=dag).values_list("source_id", "target_id")
+        for source_id, target_id in Edge.objects.filter(dag=dag)
+        .exclude(NON_SCHEDULING_EDGES)
+        .values_list("source_id", "target_id")
     ]
 
     schedulable = {str(node.id) for node in nodes if node.type in SAVED_QUERY_NODE_TYPES}
@@ -354,11 +356,13 @@ def schedulable_nodes(dag: DAG) -> QuerySet[Node]:
     return Node.objects.filter(dag=dag, type__in=SAVED_QUERY_NODE_TYPES).exclude(saved_query__deleted=True)
 
 
-def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
+def persist_seed_targets(
+    dag: DAG, default: timedelta | None = None, only_node_ids: Collection[str] | None = None
+) -> int:
     """Persist a seed target on every schedulable node lacking one; never overwrites. Each seed is
     normalized (see `normalize_seed_target`) so the persisted target equals what the scheduler will
     run. `default` is the operator escape hatch for scheduled DAGs with no interval metadata
-    anywhere. Returns how many targets were written.
+    anywhere. `only_node_ids` limits the seeding to those nodes. Returns how many targets were written.
     """
     graph = build_frequency_graph(dag)
     floors = all_source_floors(graph.edges, graph.source_intervals)
@@ -366,6 +370,8 @@ def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
     written = 0
     for node in schedulable_nodes(dag):
         node_id = str(node.id)
+        if only_node_ids is not None and node_id not in only_node_ids:
+            continue
         if get_declared_target(node) is not None:
             continue
         raw = seeds.get(node_id, default)

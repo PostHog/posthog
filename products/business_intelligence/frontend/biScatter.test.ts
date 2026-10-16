@@ -84,7 +84,10 @@ it('keeps coincident members distinct and category colors stable across order, a
             },
         ],
     })
-    const build = (query: BIVisualizationNode, rows: unknown[][]): ReturnType<typeof buildBIScatterSeries> =>
+    const build = (
+        query: BIVisualizationNode,
+        rows: unknown[][]
+    ): NonNullable<ReturnType<typeof buildBIScatterSeries>> =>
         buildBIScatterSeries(
             query,
             columns,
@@ -99,7 +102,7 @@ it('keeps coincident members distinct and category colors stable across order, a
                     rows.map((row) => Number(row[3]))
                 ),
             ]
-        )
+        )!
     const series = build(colored, rows)
     expect(series).toHaveLength(4)
     expect(series.filter((series) => series.label === 'Same')).toHaveLength(2)
@@ -125,7 +128,7 @@ it('omits missing/non-numeric coordinates while retaining zero and negative valu
         axis('x', ['', 'bad', '0', '-2', '4']),
         [axis('y', [1, 2, 3, -4, null])]
     )
-    expect(series.flatMap(({ points }) => points.map(({ x, y }) => [x, y]))).toEqual([
+    expect(series!.flatMap(({ points }) => points.map(({ x, y }) => [x, y]))).toEqual([
         [0, 3],
         [-2, -4],
     ])
@@ -182,3 +185,23 @@ it('keeps exact selected tuples AND existing OR restrictions, including null and
     expect(keepBIScatterRows(config, [])).toBeNull()
     expect(keepBIScatterRows(config, Array(201).fill({ [itemColumn]: 'A' }))).toBeNull()
 })
+
+it.each(['month', 'quarter', 'day_of_week'] as const)(
+    'keeps numeric %s members without converting them to dates',
+    (datePart) => {
+        const worksheet: BIConfig = {
+            ...config,
+            rows: [],
+            columns: [{ ...field('placed_at', 'date'), datePart }],
+            values: [config.values[0]],
+        }
+        const column = getBIResultDimensions(worksheet)[0].column
+        const selected = keepBIScatterRows(worksheet, [{ [column]: 2 }, { [column]: 3 }])!
+        expect(selected.filters.map(({ value }) => value)).toEqual(['2', '3'])
+        const sql = buildBIQuery(selected)!.query
+        expect(sql).toContain(`${column} = 2`)
+        expect(sql).toContain(`${column} = 3`)
+        expect(sql).not.toContain('1970-01-01')
+        expect(buildBIQuery({ ...selected, filters: [{ ...selected.filters[0], value: 'not a number' }] })).toBeNull()
+    }
+)

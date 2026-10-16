@@ -21,8 +21,12 @@ import { BIChartAxis } from './BIChartAxisControls'
 import { BIChartAxisModal } from './BIChartAxisModal'
 import { BIEditor } from './BIEditor'
 import { biEditorLogic } from './biEditorLogic'
+import { BIEditorView } from './biEditorTypes'
+import { getBIHierarchyParent } from './biHierarchies'
 import { BIResultSummary } from './BIResultSummary'
+import { keepBIScatterRows } from './biScatter'
 import { biSceneLogic } from './biSceneLogic'
+import { BISQLPreviewModal } from './BISQLPreviewModal'
 
 export const scene: SceneExport = {
     component: BusinessIntelligenceScene,
@@ -35,7 +39,7 @@ export const scene: SceneExport = {
 export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { activePanel, dataPaneFields, dataPaneFieldsLoading } = useValues(biEditorLogic({ tabId }))
-    const { setActivePanel, startSuggestedChart } = useActions(biEditorLogic({ tabId }))
+    const { setActivePanel, startSuggestedChart, restoreState, runAfterChange } = useActions(biEditorLogic({ tabId }))
     const [settingsContainer, setSettingsContainer] = useState<HTMLDivElement | null>(null)
     const [editingAxis, setEditingAxis] = useState<BIChartAxis | null>(null)
     const logic = biSceneLogic({ tabId })
@@ -53,6 +57,8 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         canRedo,
         copyDisabledReason,
         worksheet,
+        displayedQueryIsCurrent,
+        generatedQuery,
     } = useValues(logic)
     const {
         setName,
@@ -66,7 +72,11 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         exportView,
         undo,
         redo,
+        navigateHierarchy,
+        setSqlPreviewOpen,
     } = useActions(logic)
+
+    const hierarchyParent = getBIHierarchyParent(worksheet)
 
     useKeyboardHotkeys({
         z: {
@@ -93,6 +103,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
     return (
         <BindLogic logic={biSceneLogic} props={{ tabId }}>
             <div className="flex h-full min-h-0 flex-col" data-attr="bi-worksheet">
+                <BISQLPreviewModal />
                 <header className="flex flex-wrap items-center gap-1 border-b px-2 py-1">
                     <LemonButton size="small" to={urls.businessIntelligence()}>
                         Worksheets
@@ -124,6 +135,15 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                     </LemonButton>
                     <LemonMenu
                         items={[
+                            {
+                                label: 'View SQL',
+                                onClick: () => setSqlPreviewOpen(true),
+                                disabledReason:
+                                    !generatedQuery && !lastRunQuery
+                                        ? 'Select fields to build a query first'
+                                        : undefined,
+                                'data-attr': 'bi-view-sql',
+                            },
                             {
                                 label: 'Save a copy',
                                 onClick: () => saveInsight({ asCopy: true }),
@@ -177,6 +197,37 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                     </div>
                 ) : (
                     <BIEditor tabId={tabId} settingsPanelRef={setSettingsContainer}>
+                        {!!worksheet.config.hierarchyDrillPath?.length && (
+                            <div
+                                className="flex flex-wrap items-center gap-2 px-3 py-1 text-xs"
+                                data-attr="bi-hierarchy-path"
+                            >
+                                <span>
+                                    {[
+                                        worksheet.config.hierarchyDrillPath[0].previousField.name,
+                                        ...worksheet.config.hierarchyDrillPath.map((step) => step.nextField.name),
+                                    ].join(' → ')}
+                                </span>
+                                <LemonButton
+                                    size="xsmall"
+                                    disabledReason={
+                                        !hierarchyParent ? 'The hierarchy or active field has changed' : undefined
+                                    }
+                                    onClick={() => {
+                                        if (hierarchyParent) {
+                                            navigateHierarchy(hierarchyParent)
+                                        }
+                                    }}
+                                >
+                                    Drill up to{' '}
+                                    {hierarchyParent?.config.hierarchyDrillPath?.at(-1)?.nextField.name ??
+                                        worksheet.config.hierarchyDrillPath[0].previousField.name}
+                                </LemonButton>
+                                <span className="text-secondary">
+                                    Drill up removes only filters added by this drill.
+                                </span>
+                            </div>
+                        )}
                         {lastRunQuery ? (
                             <Query
                                 query={lastRunQuery}
@@ -192,6 +243,19 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                     showOpenEditorButton: false,
                                     chartTypeSelectorClassName: 'hidden',
                                     onEditBIAxis: setEditingAxis,
+                                    onDrillBIHierarchy: (next) => navigateHierarchy(next),
+                                    biHierarchyDrillDisabledReason: displayedQueryIsCurrent
+                                        ? undefined
+                                        : 'Run the worksheet before drilling into edited fields',
+                                    onKeepBISelection: displayedQueryIsCurrent
+                                        ? (records) => {
+                                              const config = keepBIScatterRows(worksheet.config, records)
+                                              if (config) {
+                                                  restoreState({ editorView: BIEditorView.BI, config })
+                                                  runAfterChange()
+                                              }
+                                          }
+                                        : undefined,
                                     visualizationSettingsPanel: {
                                         isOpen: activePanel === 'display',
                                         onToggle: () => setActivePanel(activePanel === 'display' ? null : 'display'),
