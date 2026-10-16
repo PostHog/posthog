@@ -9,6 +9,7 @@ import time_machine
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_cloudwatch.amazon_cloudwatch import (
     GENERIC_VALIDATION_ERROR,
+    MAX_ATTEMPTS,
     TRANSIENT_VALIDATION_ERROR,
     VALIDATION_ERROR_MESSAGES,
     AmazonCloudWatchResumeConfig,
@@ -90,6 +91,16 @@ def xml_response(action: str, result_xml: str, status: int = 200) -> ScriptedRes
         f"<ResponseMetadata><RequestId>r</RequestId></ResponseMetadata></{action}Response>"
     )
     return ScriptedResponse(status=status, body=body.encode(), headers={"Content-Type": "text/xml"})
+
+
+CALLER_IDENTITY = ScriptedResponse(
+    body=(
+        b'<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><GetCallerIdentityResult>'
+        b"<Arn>arn:aws:iam::000000000000:user/example</Arn><UserId>AIDAEXAMPLE</UserId><Account>000000000000</Account>"
+        b"</GetCallerIdentityResult><ResponseMetadata><RequestId>r</RequestId></ResponseMetadata></GetCallerIdentityResponse>"
+    ),
+    headers={"Content-Type": "text/xml"},
+)
 
 
 def xml_error(code: str, message: str, status: int = 400) -> ScriptedResponse:
@@ -204,18 +215,30 @@ class TestLogEvents:
         assert all("nextToken" not in r.json() for r in result.requests)
 
     @pytest.mark.parametrize(
-        ("incremental_field", "watermark", "expected_start"),
+        ("start_date", "incremental_field", "watermark", "expected_start"),
         [
-            ("timestamp", dt.datetime(2024, 3, 9, 6, tzinfo=dt.UTC), dt.datetime(2024, 3, 9, 6, tzinfo=dt.UTC)),
+            (
+                "2024-03-08",
+                "timestamp",
+                dt.datetime(2024, 3, 9, 6, tzinfo=dt.UTC),
+                dt.datetime(2024, 3, 9, 6, tzinfo=dt.UTC),
+            ),
             # A watermark older than the configured start date never widens the window.
-            ("timestamp", dt.datetime(2024, 1, 1, tzinfo=dt.UTC), dt.datetime(2024, 3, 8, tzinfo=dt.UTC)),
-            (None, None, dt.datetime(2024, 3, 8, tzinfo=dt.UTC)),
+            ("2024-03-08", "timestamp", dt.datetime(2024, 1, 1, tzinfo=dt.UTC), dt.datetime(2024, 3, 8, tzinfo=dt.UTC)),
+            ("2024-03-08", None, None, dt.datetime(2024, 3, 8, tzinfo=dt.UTC)),
+            # The 7-day default only bounds a first run. After a longer pause the gap is still read.
+            ("", "timestamp", dt.datetime(2024, 2, 20, tzinfo=dt.UTC), dt.datetime(2024, 2, 20, tzinfo=dt.UTC)),
+            ("", None, None, dt.datetime(2024, 3, 3, 12, tzinfo=dt.UTC)),
         ],
     )
     def test_an_incremental_run_starts_at_the_watermark(
-        self, incremental_field: str | None, watermark: dt.datetime | None, expected_start: dt.datetime
+        self,
+        start_date: str,
+        incremental_field: str | None,
+        watermark: dt.datetime | None,
+        expected_start: dt.datetime,
     ) -> None:
-        result = driver(log_group_names="/aws/lambda/one").run(
+        result = driver(log_group_names="/aws/lambda/one", start_date=start_date).run(
             "log_events",
             by_origin(logs=[logs_page([])]),
             incremental_field=incremental_field,
@@ -529,10 +552,17 @@ class TestAlarmHistory:
                 monitoring=[
                     xml_response(
                         "DescribeAlarmHistory",
-                        "<AlarmHistoryItems><member><AlarmName>cpu-high</AlarmName><AlarmType>MetricAlarm</AlarmType>"
-                        "<Timestamp>2024-03-09T08:00:00.123Z</Timestamp><HistoryItemType>StateUpdate</HistoryItemType>"
-                        '<HistorySummary>Alarm updated from OK to ALARM</HistorySummary><HistoryData>{"x":1}</HistoryData>'
-                        "</member></AlarmHistoryItems>",
+                        "<AlarmHistoryItems>"
+                        + "".join(
+                            "<member><AlarmName>cpu-high</AlarmName><AlarmType>MetricAlarm</AlarmType>"
+                            "<Timestamp>2024-03-09T08:00:00.123Z</Timestamp>"
+                            "<HistoryItemType>AlarmContributorStateUpdate</HistoryItemType>"
+                            f"<AlarmContributorId>{contributor}</AlarmContributorId>"
+                            '<HistorySummary>Alarm updated from OK to ALARM</HistorySummary><HistoryData>{"x":1}</HistoryData>'
+                            "</member>"
+                            for contributor in ("c1", "c2")
+                        )
+                        + "</AlarmHistoryItems>",
                     )
                 ]
             ),
@@ -546,15 +576,19 @@ class TestAlarmHistory:
         assert params["StartDate"] == "2024-03-09T06:00:00Z"
         assert params["EndDate"] == "2024-03-10T12:00:00Z"
         assert params["ScanBy"] == "TimestampAscending"
+        # An alarm with contributors records one item per contributor at the same instant.
+        assert len({row.pop("history_id") for row in result.rows}) == 2
         assert result.rows == [
             {
                 "alarm_name": "cpu-high",
                 "alarm_type": "MetricAlarm",
                 "timestamp": dt.datetime(2024, 3, 9, 8, 0, 0, 123000, tzinfo=dt.UTC),
-                "history_item_type": "StateUpdate",
+                "history_item_type": "AlarmContributorStateUpdate",
+                "alarm_contributor_id": contributor,
                 "history_summary": "Alarm updated from OK to ALARM",
                 "history_data": '{"x":1}',
             }
+            for contributor in ("c1", "c2")
         ]
         assert result.response is not None and result.response.sort_mode == "asc"
 
@@ -632,31 +666,16 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("response", "expected"),
         [
-            (ScriptedResponse(json={"logGroups": []}), (True, None)),
+            (CALLER_IDENTITY, (True, None)),
             (
-                ScriptedResponse(
-                    status=400,
-                    json={
-                        "__type": "UnrecognizedClientException",
-                        "message": "The security token included in the request is invalid.",
-                    },
-                ),
-                (False, VALIDATION_ERROR_MESSAGES["UnrecognizedClientException"]),
+                xml_error("InvalidClientTokenId", "The security token included in the request is invalid."),
+                (False, VALIDATION_ERROR_MESSAGES["InvalidClientTokenId"]),
             ),
             (
-                ScriptedResponse(
-                    status=400,
-                    json={
-                        "__type": "AccessDeniedException",
-                        "message": "User: arn:aws:iam::000000000000:user/example is not authorized to perform: logs:DescribeLogGroups",
-                    },
-                ),
-                (False, VALIDATION_ERROR_MESSAGES["AccessDeniedException"]),
+                xml_error("SignatureDoesNotMatch", "The request signature we calculated does not match."),
+                (False, VALIDATION_ERROR_MESSAGES["SignatureDoesNotMatch"]),
             ),
-            (
-                ScriptedResponse(status=400, json={"__type": "SomethingNewException", "message": "?"}),
-                (False, GENERIC_VALIDATION_ERROR),
-            ),
+            (xml_error("SomethingNewException", "?"), (False, GENERIC_VALIDATION_ERROR)),
         ],
     )
     def test_the_probe_result_is_translated_and_never_echoes_the_aws_text(
@@ -672,26 +691,37 @@ class TestValidateCredentials:
                 == expected
             )
 
+        # STS answers any valid key without an IAM permission, so a key scoped to one table connects.
         probe = network.requests_log[0]
-        assert probe.origin == LOGS_ORIGIN
-        assert probe.headers["x-amz-target"] == "Logs_20140328.DescribeLogGroups"
-        assert probe.json() == {"limit": 1}
+        assert probe.origin == "https://sts.us-east-1.amazonaws.com"
+        assert b"Action=GetCallerIdentity" in (probe.body or b"")
 
     def test_a_china_region_is_reached_through_its_own_partition(self) -> None:
         c = config(aws_region="cn-north-1")
 
-        with scripted_network([ScriptedResponse(json={"logGroups": []})]) as network:
+        with scripted_network([CALLER_IDENTITY]) as network:
             assert validate_credentials(
                 c.aws_access_key_id, c.aws_secret_access_key, c.aws_session_token, c.aws_region, c.metric_queries
             ) == (True, None)
 
-        assert network.requests_log[0].origin == "https://logs.cn-north-1.amazonaws.com.cn"
+        assert network.requests_log[0].origin == "https://sts.cn-north-1.amazonaws.com.cn"
 
-    def test_a_throttled_probe_asks_the_user_to_retry(self) -> None:
+    @pytest.mark.parametrize(
+        "response",
+        [
+            xml_error("Throttling", "Rate exceeded"),
+            # A load balancer error page: botocore cannot parse it, and it carries no AWS code.
+            ScriptedResponse(
+                status=503, body=b"<html>Service Unavailable</html>", headers={"Content-Type": "text/html"}
+            ),
+        ],
+    )
+    def test_a_throttled_or_unavailable_probe_asks_the_user_to_retry(self, response: ScriptedResponse) -> None:
         c = config()
-        throttled = ScriptedResponse(status=400, json={"__type": "ThrottlingException", "message": "Rate exceeded"})
 
-        with scripted_network(lambda _request: throttled):
+        with scripted_network(lambda _request: response) as network:
             assert validate_credentials(
                 c.aws_access_key_id, c.aws_secret_access_key, c.aws_session_token, c.aws_region, c.metric_queries
             ) == (False, TRANSIENT_VALIDATION_ERROR)
+
+        assert 1 < network.requests <= MAX_ATTEMPTS

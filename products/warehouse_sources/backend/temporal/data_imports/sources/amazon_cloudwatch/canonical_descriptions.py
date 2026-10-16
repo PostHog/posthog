@@ -79,6 +79,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "history_summary": "Summary of the change.",
             "history_data": "JSON detail of the change, as CloudWatch recorded it.",
             "alarm_contributor_id": "Contributor the item relates to, for alarms with contributors.",
+            "history_id": "Hash of the whole history item. CloudWatch gives items no id, and an alarm with contributors records several at the same instant.",
         },
     },
     "metric_data": {
@@ -86,10 +87,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": f"{_MONITORING_API}API_GetMetricData.html",
         "columns": {
             "query_id": "Id of the metric query the datapoint belongs to.",
-            "label": "Label of the query, defaulting to the metric name.",
+            "label": "Label of the query, defaulting to its id.",
             "timestamp": "Start of the period the datapoint covers.",
             "value": "Value of the statistic for the period.",
-            "status_code": "Complete, InternalError or PartialData for the query result the datapoint came from.",
+            "status_code": "Complete, or PartialData when CloudWatch sent the query's datapoints across several pages.",
         },
     },
 }

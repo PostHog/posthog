@@ -3,15 +3,19 @@ from typing import Literal
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-# Both APIs are regional. The service name doubles as the botocore model name, the SigV4 signing
-# name and the endpoint prefix (`logs.<region>.amazonaws.com`, `monitoring.<region>.amazonaws.com`).
-AwsService = Literal["logs", "monitoring"]
+# All three APIs are regional. The service name doubles as the SigV4 signing name and the endpoint
+# prefix (`logs.<region>.amazonaws.com`, `monitoring.<region>.amazonaws.com`, `sts.<region>...`).
+AwsService = Literal["logs", "monitoring", "sts"]
 
 LOGS_SERVICE: AwsService = "logs"
 MONITORING_SERVICE: AwsService = "monitoring"
-MONITORING_MODEL_NAME = "cloudwatch"
-MONITORING_API_VERSION = "2010-08-01"
-LOGS_API_VERSION = "2014-03-28"
+STS_SERVICE: AwsService = "sts"
+# botocore model name and API version of each service, pinned so a botocore upgrade cannot change them.
+SERVICE_MODELS: dict[AwsService, tuple[str, str]] = {
+    LOGS_SERVICE: ("logs", "2014-03-28"),
+    MONITORING_SERVICE: ("cloudwatch", "2010-08-01"),
+    STS_SERVICE: ("sts", "2011-06-15"),
+}
 
 # FilterLogEvents caps a page at 10,000 events or 1 MB. DescribeLogGroups caps at 50.
 LOG_EVENTS_PAGE_SIZE = 10_000
@@ -41,9 +45,9 @@ class CloudWatchEndpointConfig:
     # Seconds an incremental run re-reads behind its watermark, for rows that arrive late. The
     # merge key drops the rows read twice.
     incremental_lookback_seconds: int | None = None
-    # Whether rows arrive in ascending timestamp order across the whole run. Log events are read
-    # per log group and metric values per query, so neither is globally ordered.
-    sorted_ascending: bool = False
+    # `desc` makes the pipeline commit the highest timestamp only when the run completes. Log events
+    # arrive per log group and datapoints per query, so neither is ordered across the run.
+    sort_mode: Literal["asc", "desc"] = "asc"
 
 
 AMAZON_CLOUDWATCH_ENDPOINTS: dict[str, CloudWatchEndpointConfig] = {
@@ -63,6 +67,7 @@ AMAZON_CLOUDWATCH_ENDPOINTS: dict[str, CloudWatchEndpointConfig] = {
         incremental_lookback_seconds=3600,
         partition_key="timestamp",
         partition_format="day",
+        sort_mode="desc",
     ),
     "alarms": CloudWatchEndpointConfig(
         name="alarms",
@@ -74,13 +79,13 @@ AMAZON_CLOUDWATCH_ENDPOINTS: dict[str, CloudWatchEndpointConfig] = {
         name="alarm_history",
         service=MONITORING_SERVICE,
         operation="DescribeAlarmHistory",
-        # A history item has no id. An alarm records one item per type per instant.
-        primary_key=["alarm_name", "timestamp", "history_item_type"],
+        # A history item has no id, and an alarm with contributors records several items per instant,
+        # so the key is a hash of the whole item.
+        primary_key=["history_id"],
         # CloudWatch keeps alarm history for 30 days.
         lookback_days=30,
         partition_key="timestamp",
         partition_format="month",
-        sorted_ascending=True,
     ),
     "metric_data": CloudWatchEndpointConfig(
         name="metric_data",
@@ -94,6 +99,7 @@ AMAZON_CLOUDWATCH_ENDPOINTS: dict[str, CloudWatchEndpointConfig] = {
         incremental_lookback_seconds=3600,
         partition_key="timestamp",
         partition_format="day",
+        sort_mode="desc",
     ),
 }
 
