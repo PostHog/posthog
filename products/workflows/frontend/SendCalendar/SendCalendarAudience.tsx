@@ -14,13 +14,13 @@ export function SendCalendarAudience({ audience }: { audience: SendAudience }): 
     const { cohortsById } = useValues(sendCalendarLogic)
 
     if (audience.address) {
-        return <div className="font-mono text-xs break-all">{audience.address}</div>
+        return <div className="font-mono break-all">{audience.address}</div>
     }
     if (!audience.cohortIds.length && !audience.filters.length) {
-        return <div className="text-xs">{audience.accounts ? 'All accounts' : 'Everyone'}</div>
+        return <div>{audience.accounts ? 'All accounts' : 'Everyone'}</div>
     }
     return (
-        <div className="flex flex-col gap-1 text-xs" data-attr="send-calendar-audience">
+        <div className="flex flex-col gap-1" data-attr="send-calendar-audience">
             {audience.cohortIds.map((id) => {
                 const cohort = cohortsById[id]
                 return (
