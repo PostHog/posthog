@@ -842,14 +842,14 @@ impl IngestionConsumer {
     }
 
     fn commit_due(&self) -> anyhow::Result<()> {
-        match self.settlement.pacer().take_due(Instant::now()) {
+        match self.settlement.take_due(Instant::now()) {
             Some(offsets) => self.commit_offsets(&offsets),
             None => Ok(()),
         }
     }
 
     fn commit_all(&self) -> anyhow::Result<()> {
-        match self.settlement.pacer().take_all() {
+        match self.settlement.take_all() {
             Some(offsets) => self.commit_offsets(&offsets),
             None => Ok(()),
         }
@@ -1571,7 +1571,6 @@ mod tests {
     fn a_covered_head_is_popped_before_a_redelivered_offset_is_matched() {
         let ledger = Arc::new(TopicOffsetLedger::new());
         let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::ZERO);
-        let pacer = settlement.pacer();
         let partition = TopicPartition::new("test", 0);
         ledger.forget_partitions([("test", 0)]);
         charge_offsets(&ledger, &partition, 1, &[0, 1]);
@@ -1592,7 +1591,7 @@ mod tests {
         assert_eq!(in_flight[0].poll_id, "old");
         assert!(in_flight[0].is_complete());
         assert!(
-            pacer.take_due(Instant::now()).is_none(),
+            settlement.take_due(Instant::now()).is_none(),
             "the old generation's settle is stale"
         );
         in_flight.pop_front();
@@ -1601,7 +1600,7 @@ mod tests {
         assert_eq!(in_flight[0].poll_id, "replay");
         assert!(in_flight[0].is_complete());
         assert_eq!(
-            pacer.take_due(Instant::now()),
+            settlement.take_due(Instant::now()),
             Some(HashMap::from([(partition, MessageOffset(2))]))
         );
     }

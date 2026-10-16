@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{Offset, TopicOffsetLedger, TopicPartition};
 
@@ -48,41 +49,45 @@ impl Settlement for GroupSettlement {
 
     fn settle_poll(&self, _slices: &[ChargedSlice<'_>]) {}
 
-    fn pacer(&self) -> &Arc<CommitPacer> {
-        &self.pacer
+    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+        self.pacer.take_due(now)
+    }
+
+    fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
+        self.pacer.take_all()
+    }
+
+    fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
+        self.pacer.forget_partitions(topic_partitions);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::time::Instant;
-
     use super::super::charge_offsets;
     use super::*;
 
-    fn settlement() -> (Arc<TopicOffsetLedger>, Arc<CommitPacer>, GroupSettlement) {
+    fn settlement() -> (Arc<TopicOffsetLedger>, GroupSettlement) {
         let ledger = Arc::new(TopicOffsetLedger::new());
         let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::ZERO);
-        let pacer = Arc::clone(settlement.pacer());
-        (ledger, pacer, settlement)
+        (ledger, settlement)
     }
 
     #[test]
     fn a_partition_commits_only_once_its_completed_prefix_is_contiguous() {
-        let (ledger, pacer, settlement) = settlement();
+        let (ledger, settlement) = settlement();
         let p0 = TopicPartition::new("events", 0);
         charge_offsets(&ledger, &p0, 0, &[10, 11, 12]);
 
         settlement.settle_run(&p0, 0, &[Offset(12)]);
         assert!(
-            pacer.take_due(Instant::now()).is_none(),
+            settlement.take_due(Instant::now()).is_none(),
             "the window base is still incomplete"
         );
 
         settlement.settle_run(&p0, 0, &[Offset(10), Offset(11)]);
         assert_eq!(
-            pacer.take_due(Instant::now()),
+            settlement.take_due(Instant::now()),
             Some(HashMap::from([(p0, Offset(13))])),
             "the late completion releases the whole prefix"
         );
@@ -90,7 +95,7 @@ mod tests {
 
     #[test]
     fn a_partition_with_a_held_prefix_does_not_hold_back_another() {
-        let (ledger, pacer, settlement) = settlement();
+        let (ledger, settlement) = settlement();
         let p0 = TopicPartition::new("events", 0);
         let p1 = TopicPartition::new("events", 1);
         charge_offsets(&ledger, &p0, 0, &[10, 11]);
@@ -100,7 +105,7 @@ mod tests {
         settlement.settle_run(&p1, 0, &[Offset(21)]);
 
         assert_eq!(
-            pacer.take_due(Instant::now()),
+            settlement.take_due(Instant::now()),
             Some(HashMap::from([(p0, Offset(12))])),
             "partition 1 waits for offset 20"
         );
@@ -108,7 +113,7 @@ mod tests {
 
     #[test]
     fn a_stale_stamp_run_commits_nothing() {
-        let (ledger, pacer, settlement) = settlement();
+        let (ledger, settlement) = settlement();
         let p0 = TopicPartition::new("events", 0);
         charge_offsets(&ledger, &p0, 0, &[10]);
 
@@ -117,7 +122,7 @@ mod tests {
 
         settlement.settle_run(&p0, 0, &[Offset(10)]);
 
-        assert!(pacer.take_due(Instant::now()).is_none());
+        assert!(settlement.take_due(Instant::now()).is_none());
         assert_eq!(
             ledger.held(&p0).offsets,
             1,
@@ -127,7 +132,7 @@ mod tests {
 
     #[test]
     fn a_retired_poll_settles_nothing_more() {
-        let (ledger, pacer, settlement) = settlement();
+        let (ledger, settlement) = settlement();
         let p0 = TopicPartition::new("events", 0);
         charge_offsets(&ledger, &p0, 0, &[10]);
         let charges = [(Offset(10), common_kafka_consumer::Charge::ZERO)];
@@ -142,7 +147,7 @@ mod tests {
             charges: &charges,
         }]);
 
-        assert!(pacer.take_due(Instant::now()).is_none());
+        assert!(settlement.take_due(Instant::now()).is_none());
         assert_eq!(ledger.held(&p0).offsets, 1);
     }
 }
