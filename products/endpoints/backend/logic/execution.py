@@ -139,6 +139,16 @@ def _is_query_guardrail_error(error: BaseException) -> bool:
     return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
 
 
+# ClickHouse cannot parse a value the customer sent (e.g. a bad date variable). execute() returns a 400.
+_CUSTOMER_INPUT_ERROR_CODES = frozenset(
+    {"cannot_parse_date", "cannot_parse_datetime", "cannot_parse_number", "decimal_overflow"}
+)
+
+
+def _is_customer_input_error(error: BaseException) -> bool:
+    return isinstance(error, ExposedCHQueryError) and error.code_name in _CUSTOMER_INPUT_ERROR_CODES
+
+
 # Connection loss outside SQLSTATE class 08 (connection_exception).
 _CONNECTION_LOSS_SQLSTATES = frozenset(
     {
@@ -886,8 +896,8 @@ class EndpointExecutionService(PydanticModelMixin):
 
             return result
         except Exception as e:
-            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e):
+            # Guardrail and input errors are customer-caused, not faults: skip capture and let execute() classify them.
+            if _is_query_guardrail_error(e) or _is_customer_input_error(e):
                 raise
             logger.exception(
                 "Materialized endpoint execution failed",
@@ -996,8 +1006,8 @@ class EndpointExecutionService(PydanticModelMixin):
 
         except Exception as e:
             self.handle_column_ch_error(e)
-            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e):
+            # Guardrail and input errors are customer-caused, not faults: skip capture and let execute() classify them.
+            if _is_query_guardrail_error(e) or _is_customer_input_error(e):
                 raise
             logger.exception(
                 "Inline endpoint execution failed",
