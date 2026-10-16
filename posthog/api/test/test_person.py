@@ -23,6 +23,7 @@ from unittest import mock
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+import grpc
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
@@ -2398,6 +2399,26 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         person_after = get_person_by_uuid(self.team.pk, shared_uuid)
         assert person_after is not None
         assert person_after.version is not None and person_after.version > 105
+
+    @parameterized.expand(
+        [
+            ("mark_held_by_another_operation", grpc.StatusCode.FAILED_PRECONDITION),
+            ("row_lock_timed_out", grpc.StatusCode.DEADLINE_EXCEEDED),
+        ]
+    )
+    def test_reset_person_distinct_id_asks_for_a_retry_when_the_person_is_busy(
+        self, _name: str, code: grpc.StatusCode
+    ) -> None:
+        busy = grpc.RpcError()
+        busy.code = mock.MagicMock(return_value=code)
+
+        with mock.patch("posthog.api.person.repair_distinct_id", side_effect=busy):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/persons/reset_person_distinct_id/", {"distinct_id": "busy"}
+            )
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == "This person is being updated right now. Try again in a few seconds."
 
     @mock.patch(
         f"{posthog.models.person.divergence.repairs.__name__}.create_person_distinct_id",

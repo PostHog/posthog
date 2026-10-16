@@ -54,8 +54,15 @@ _REREAD_BACKOFF_SECONDS = (0.025, 0.05, 0.1, 0.15, 0.175)
 
 _TRANSIENT_RETRY_BACKOFF_SECONDS = (1.0, 2.0)
 
+# FAILED_PRECONDITION is transient for the repair writes: personhog returns it only for a person whose lifecycle
+# mark another operation holds, or for a row that changed between its read and its lock, and both clear on a retry.
 _TRANSIENT_RPC_CODES = frozenset(
-    {grpc.StatusCode.INTERNAL, grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED}
+    {
+        grpc.StatusCode.INTERNAL,
+        grpc.StatusCode.UNAVAILABLE,
+        grpc.StatusCode.DEADLINE_EXCEEDED,
+        grpc.StatusCode.FAILED_PRECONDITION,
+    }
 )
 
 _FLUSH_TIMEOUT_SECONDS = 5 * 60
@@ -187,6 +194,11 @@ def _is_transient(exc: BaseException) -> bool:
     return isinstance(exc, (*CH_TRANSIENT_ERRORS, ClickHouseQueryTimeOut)) or is_transient_rpc_error(
         exc, codes=_TRANSIENT_RPC_CODES
     )
+
+
+def is_retryable(exc: BaseException) -> bool:
+    """Whether a repair failed on a race that a later attempt can win, such as a merge holding the person."""
+    return _is_transient(exc)
 
 
 def _retry_transient(fn: Callable[[], _T], *, what: str, log: Callable[[str], None]) -> _T:

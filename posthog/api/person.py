@@ -14,6 +14,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
+    OpenApiResponse,
     extend_schema,
     extend_schema_field,
     extend_schema_serializer,
@@ -61,7 +62,7 @@ from posthog.models.person.bulk_delete import (
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
 )
-from posthog.models.person.divergence.repairs import repair_distinct_id
+from posthog.models.person.divergence.repairs import is_retryable, repair_distinct_id
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
@@ -1721,6 +1722,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         description="Fix a distinct_id that stays hidden after its person was deleted and created again. Does nothing if no live person uses this distinct_id. In that case, send a new event for it instead.",
+        responses={
+            202: OpenApiResponse(description="The fix was applied, or nothing needed fixing."),
+            409: OpenApiResponse(description="The person is being updated by another operation. Try again shortly."),
+        },
     )
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
     def reset_person_distinct_id(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -1728,9 +1733,18 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not distinct_id or not isinstance(distinct_id, str):
             raise ValidationError(detail="distinct_id is required")
 
-        summary = repair_distinct_id(
-            self.team_id, distinct_id, delivery_timeout_seconds=RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS
-        )
+        try:
+            summary = repair_distinct_id(
+                self.team_id, distinct_id, delivery_timeout_seconds=RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS
+            )
+        except Exception as error:
+            # A merge or delete of the person holds it for a moment; the request rolled back and can be sent again.
+            if not is_retryable(error):
+                raise
+            return response.Response(
+                {"detail": "This person is being updated right now. Try again in a few seconds."},
+                status=409,
+            )
         if summary is not None:
             logger.info(
                 "person_reset_distinct_id",
