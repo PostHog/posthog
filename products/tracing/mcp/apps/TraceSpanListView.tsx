@@ -4,6 +4,7 @@ import { DataTable, type DataTableColumn, ListDetailView } from '@posthog/mcp-ui
 import { Badge, Button } from '@posthog/quill'
 
 import { TraceSpanView, type TraceSpanData } from './TraceSpanView'
+import { TraceWaterfallView, type TraceWaterfallData } from './TraceWaterfallView'
 
 export interface TraceSpanListData {
     results: TraceSpanData[]
@@ -13,7 +14,8 @@ export interface TraceSpanListData {
 
 export interface TraceSpanListViewProps {
     data: TraceSpanListData
-    onSpanClick?: (span: TraceSpanData) => Promise<TraceSpanData | null>
+    // The click calls `apm-trace-get`, which returns the whole trace, not the span.
+    onSpanClick?: (span: TraceSpanData) => Promise<TraceSpanData | TraceWaterfallData | null>
 }
 
 function formatDuration(nanos: number): string {
@@ -54,11 +56,13 @@ const statusLabel: Record<string, string> = {
 
 export function TraceSpanListView({ data, onSpanClick }: TraceSpanListViewProps): ReactElement {
     return (
-        <ListDetailView<TraceSpanData>
+        <ListDetailView<TraceSpanData, TraceSpanData | TraceWaterfallData>
             onItemClick={onSpanClick}
             backLabel="All spans"
             getItemName={(span) => span.name}
-            renderDetail={(span) => <TraceSpanView data={span} />}
+            renderDetail={(detail) =>
+                'results' in detail ? <TraceWaterfallView data={detail} /> : <TraceSpanView data={detail} />
+            }
             renderList={(handleClick) => {
                 const columns: DataTableColumn<TraceSpanData>[] = [
                     {

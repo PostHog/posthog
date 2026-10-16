@@ -24,7 +24,7 @@ export type TraceDialogRow = TraceDialogRowBase &
     )
 
 export function rowSpanNode(row: TraceDialogRow): SpanNode | null {
-    return row.kind === 'span' ? row.node : row.kind === 'chain' ? row.nodes[0] : null
+    return row.kind === 'span' ? row.node : row.kind === 'chain' ? (row.nodes[0] ?? null) : null
 }
 
 function byStart(nodes: SpanNode[]): SpanNode[] {
@@ -43,7 +43,7 @@ export function countDescendantsById(roots: SpanNode[]): Map<string, number> {
     const counts = new Map<string, number>()
     // Children come after their parent in `order`, so walking it backwards totals each child first.
     for (let i = order.length - 1; i >= 0; i--) {
-        const node = order[i]
+        const node = order[i]!
         counts.set(
             node.span.span_id,
             node.children.reduce((total, child) => total + 1 + (counts.get(child.span.span_id) ?? 0), 0)
@@ -102,13 +102,13 @@ export function buildTraceDialogRows(
             next.push({ kind: 'more', parent: owner, hiddenCount, depth, isLast: true, parentRow })
         }
         for (let i = next.length - 1; i >= 0; i--) {
-            stack.push(next[i])
+            stack.push(next[i]!)
         }
     }
 
     const sortedRoots = byStart(roots)
     for (let i = sortedRoots.length - 1; i >= 0; i--) {
-        stack.push({ node: sortedRoots[i], depth: 0, isLast: i === sortedRoots.length - 1, parentRow: null })
+        stack.push({ node: sortedRoots[i]!, depth: 0, isLast: i === sortedRoots.length - 1, parentRow: null })
     }
     while (stack.length > 0) {
         const item = stack.pop()!
@@ -119,14 +119,14 @@ export function buildTraceDialogRows(
         const { node, depth, isLast, parentRow } = item
         const run =
             node.parent?.children.length === 1 && !noFold.has(node) ? singleChildRun(node, collapsedSpanIds) : []
-        const pinnedAt = run.findLastIndex((member) => pinnedPath.has(member))
+        const pinnedAt = run.map((member) => pinnedPath.has(member)).lastIndexOf(true)
         // Spans below the pinned one can still fold, so only the part down to it is ruled out.
         run.slice(0, pinnedAt + 1).forEach((member) => noFold.add(member))
         const foldable = run.length >= TRACE_DIALOG_MIN_CHAIN && pinnedAt < 0
         if (foldable && !openChainIds.has(node.span.span_id)) {
             const chainRow: TraceDialogRow = { kind: 'chain', nodes: run, depth, isLast, parentRow }
             rows.push(chainRow)
-            const after = run[run.length - 1].children[0]
+            const after = run[run.length - 1]!.children[0]!
             stack.push({ node: after, depth: depth + 1, isLast: true, parentRow: chainRow })
             continue
         }
