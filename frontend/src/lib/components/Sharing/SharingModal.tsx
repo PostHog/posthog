@@ -121,6 +121,7 @@ export function SharingModalContent({
         accessControlAvailable,
         sharingConfiguration,
         sharingConfigurationLoading,
+        sharingEnabledUpdating,
         showPreview,
         embedCode,
         iframeProperties,
@@ -204,30 +205,6 @@ export function SharingModalContent({
 
     return (
         <div className="deprecated-space-y-4">
-            {dashboardId ? (
-                <>
-                    <AccessControlPopoutCTA
-                        resourceType={AccessControlResourceType.Dashboard}
-                        callback={() => {
-                            push(urls.dashboard(dashboardId))
-                        }}
-                    />
-                    <LemonDivider />
-                </>
-            ) : undefined}
-
-            {insightShortId ? (
-                <>
-                    <AccessControlPopoutCTA
-                        resourceType={AccessControlResourceType.Insight}
-                        callback={() => {
-                            push(urls.insightView(insightShortId))
-                        }}
-                    />
-                    <LemonDivider />
-                </>
-            ) : undefined}
-
             <div className="flex flex-col gap-4">
                 {!sharingConfiguration && sharingConfigurationLoading ? (
                     <LemonSkeleton.Row repeat={3} />
@@ -235,9 +212,7 @@ export function SharingModalContent({
                     <p>Something went wrong...</p>
                 ) : (
                     <div>
-                        <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-secondary">
-                            Public sharing
-                        </h4>
+                        <h3 className="mb-3">Public sharing</h3>
                         {!sharingAllowed ? (
                             <LemonBanner type="warning">Public sharing is disabled for this organization.</LemonBanner>
                         ) : (
@@ -249,7 +224,7 @@ export function SharingModalContent({
                                 onChange={(active) => setIsEnabled(active)}
                                 bordered
                                 fullWidth
-                                loading={sharingConfigurationLoading}
+                                loading={sharingEnabledUpdating}
                                 disabledReason={sharingManageDisabledReason}
                             />
                         )}
@@ -327,9 +302,7 @@ export function SharingModalContent({
                         <LemonDivider />
                         <div>
                             <div>
-                                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-secondary">
-                                    Shared {resource} appearance
-                                </h4>
+                                <h3 className="mb-2">Shared {resource} appearance</h3>
                                 <p className="mb-0 text-sm text-secondary">
                                     Choose how the shared {resource} appears to viewers.
                                 </p>
@@ -493,9 +466,7 @@ export function SharingModalContent({
                                     </Tooltip>
                                 }
                             >
-                                <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-secondary">
-                                    Embed {resource}
-                                </h4>
+                                <h3 className="mb-3">Embed {resource}</h3>
                             </TitleWithIcon>
                             <CodeSnippet language={Language.HTML}>{embedCode}</CodeSnippet>
                         </div>
@@ -535,6 +506,29 @@ export function SharingModalContent({
                     )}
                 </>
             )}
+            {dashboardId ? (
+                <>
+                    <LemonDivider />
+                    <AccessControlPopoutCTA
+                        resourceType={AccessControlResourceType.Dashboard}
+                        callback={() => {
+                            push(urls.dashboard(dashboardId))
+                        }}
+                    />
+                </>
+            ) : undefined}
+
+            {insightShortId ? (
+                <>
+                    <LemonDivider />
+                    <AccessControlPopoutCTA
+                        resourceType={AccessControlResourceType.Insight}
+                        callback={() => {
+                            push(urls.insightView(insightShortId))
+                        }}
+                    />
+                </>
+            ) : undefined}
         </div>
     )
 }

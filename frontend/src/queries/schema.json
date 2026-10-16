@@ -52933,9 +52933,6 @@
         "SharingConfigurationSettings": {
             "additionalProperties": false,
             "properties": {
-                "brandLinkUrl": {
-                    "type": "string"
-                },
                 "detailed": {
                     "type": "boolean"
                 },

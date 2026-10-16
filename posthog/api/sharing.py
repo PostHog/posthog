@@ -356,16 +356,6 @@ class SharePasswordCreateSerializer(serializers.Serializer):
         return value
 
 
-def _is_http_url(value: str) -> bool:
-    try:
-        parsed = urlparse(value)
-        # Reading .port validates it, and raises for a non-numeric or out-of-range port
-        _ = parsed.port
-    except ValueError:
-        return False
-    return parsed.scheme in ("http", "https") and bool(parsed.hostname)
-
-
 class SharingConfigurationSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     settings = serializers.JSONField(required=False, allow_null=True)
     share_passwords = serializers.SerializerMethodField()
@@ -392,16 +382,10 @@ class SharingConfigurationSerializer(UserAccessControlSerializerMixin, serialize
             filtered_data = {k: v for k, v in value.items() if k in known_fields}
 
             validated_settings = SharingConfigurationSettings.model_validate(filtered_data, strict=False)
-            result = validated_settings.model_dump(exclude_none=True)
+            return validated_settings.model_dump(exclude_none=True)
         except Exception as e:
             capture_exception(e)
             raise serializers.ValidationError("Invalid settings format")
-
-        brand_link_url = result.get("brandLinkUrl")
-        if brand_link_url is not None and not _is_http_url(brand_link_url):
-            raise serializers.ValidationError("The logo link must start with http:// or https://.")
-
-        return result
 
     @extend_schema_field(SharePasswordSerializer(many=True))
     def get_share_passwords(self, obj):
@@ -1439,7 +1423,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             for field_name in base_settings.model_fields.keys():
                 if field_name in request.GET:
                     # Branding is the owner's choice and is validated on save, so a viewer's URL must not override it
-                    if field_name in ("showOrganizationLogo", "brandLinkUrl"):
+                    if field_name == "showOrganizationLogo":
                         continue
                     raw_value = request.GET.get(field_name)
                     if field_name == "theme":
@@ -1472,8 +1456,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             logo_media_id = resource.team.organization.logo_media_id
             if resource.dashboard and final_settings.showOrganizationLogo and logo_media_id:
                 exported_data["brandLogoMediaId"] = str(logo_media_id)
-                if final_settings.brandLinkUrl and _is_http_url(final_settings.brandLinkUrl):
-                    exported_data["brandLinkUrl"] = final_settings.brandLinkUrl
 
         if final_settings.noHeader:
             exported_data.update({"noHeader": True})

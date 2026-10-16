@@ -17,9 +17,6 @@ import { AvailableFeature, InsightShortId, InsightModel } from '~/types'
 import { SharingModal, SharingModalProps } from './SharingModal'
 
 const MOCK_ORGANIZATION_LOGO_ID = '0190a3c2-0000-0000-0000-000000000001'
-const MOCK_ORGANIZATION_LOGO_SVG =
-    '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="32"><rect width="120" height="32" rx="4" fill="#1d4aff"/><text x="60" y="21" font-family="sans-serif" font-size="14" fill="#fff" text-anchor="middle">Acme</text></svg>'
-
 const fakeInsight: Partial<InsightModel> = {
     id: 123,
     short_id: 'insight123' as InsightShortId,
@@ -73,10 +70,8 @@ const meta: Meta<StoryArgs> = {
                               logo_media_id: MOCK_ORGANIZATION_LOGO_ID,
                               available_product_features: getAvailableProductFeatures(),
                           },
-                          '/uploaded_media/:id': () =>
-                              new Response(MOCK_ORGANIZATION_LOGO_SVG, {
-                                  headers: { 'Content-Type': 'image/svg+xml' },
-                              }),
+                          '/uploaded_media/:id': ({ request }: MockResolverInfo) =>
+                              Response.redirect(new URL('/static/not-found-astrohog.png', request.url).toString()),
                       }
                     : {}),
             },
@@ -139,7 +134,7 @@ export default meta
 type Story = StoryObj<StoryArgs>
 
 export const DashboardSharing: Story = {
-    args: { title: 'Dashboard permissions', dashboardId: 123 },
+    args: { title: 'Share dashboard', dashboardId: 123 },
     decorators: [
         (Story) => (
             <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
@@ -150,7 +145,7 @@ export const DashboardSharing: Story = {
 }
 
 export const DashboardSharingLicensed: Story = {
-    args: { title: 'Dashboard permissions', licensed: true, passwordRequired: true, dashboardId: 123 },
+    args: { title: 'Share dashboard', licensed: true, passwordRequired: true, dashboardId: 123 },
     decorators: [
         (Story) => (
             <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
@@ -162,11 +157,11 @@ export const DashboardSharingLicensed: Story = {
 
 export const DashboardSharingCustomBranding: Story = {
     args: {
-        title: 'Dashboard permissions',
+        title: 'Share dashboard',
         licensed: true,
         dashboardId: 123,
         organizationHasLogo: true,
-        sharingSettings: { whitelabel: true, showOrganizationLogo: true, brandLinkUrl: 'https://example.com' },
+        sharingSettings: { whitelabel: true, showOrganizationLogo: true },
     },
     decorators: [
         (Story) => (

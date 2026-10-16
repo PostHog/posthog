@@ -47,21 +47,20 @@ describe('Exporter (shared dashboard)', () => {
         document.title = initialTitle
     })
 
-    it.each([ExportType.Scene, ExportType.Embed])('shows the custom logo with its link in the %s view', (type) => {
+    it.each([ExportType.Scene, ExportType.Embed])('shows the custom logo in the %s view', (type) => {
         const { container } = render(
             <Exporter
                 {...makeDashboardExport({
                     type,
                     whitelabel: true,
                     brandLogoMediaId: 'logo-id',
-                    brandLinkUrl: 'https://example.com',
                 })}
             />
         )
 
         const logo = container.querySelector('[data-attr="shared-dashboard-brand-logo"]')
         expect(logo?.getAttribute('src')).toContain('/uploaded_media/logo-id')
-        expect(logo?.closest('a')?.getAttribute('href')).toBe('https://example.com')
+        expect(logo?.closest('a')).toBeNull()
     })
 
     it('shows auto refresh text in header', () => {

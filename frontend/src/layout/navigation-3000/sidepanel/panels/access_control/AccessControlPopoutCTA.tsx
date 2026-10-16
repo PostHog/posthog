@@ -1,10 +1,9 @@
 import { useActions } from 'kea'
 
 import { IconOpenSidebar } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import { captureAccessControlEvent, resourceTypeToString } from 'lib/utils/accessControlUtils'
-import { toSentenceCase } from 'lib/utils/strings'
+import { captureAccessControlEvent } from 'lib/utils/accessControlUtils'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AccessControlResourceType, SidePanelTab } from '~/types'
@@ -18,12 +17,8 @@ export const AccessControlPopoutCTA = ({ callback, resourceType }: AccessControl
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
     return (
-        <div>
-            <h3>Access control</h3>
-            <LemonBanner type="info" className="mb-4">
-                {toSentenceCase(resourceTypeToString(resourceType))} permissions are moving. We're rolling out our new
-                access control system. Click below to open it.
-            </LemonBanner>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="mb-0">Access control</h3>
             <LemonButton
                 type="primary"
                 icon={<IconOpenSidebar />}
@@ -33,7 +28,7 @@ export const AccessControlPopoutCTA = ({ callback, resourceType }: AccessControl
                     callback?.()
                 }}
             >
-                Open access control
+                Change permissions
             </LemonButton>
         </div>
     )

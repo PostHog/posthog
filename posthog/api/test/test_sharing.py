@@ -1173,32 +1173,6 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_link", None, status.HTTP_200_OK),
-            ("https_link", "https://example.com", status.HTTP_200_OK),
-            ("javascript_link", "javascript:alert(1)", status.HTTP_400_BAD_REQUEST),
-            ("malformed_ipv6_link", "https://[", status.HTTP_400_BAD_REQUEST),
-            ("invalid_port_link", "https://example.com:invalid", status.HTTP_400_BAD_REQUEST),
-        ]
-    )
-    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
-    def test_brand_settings_validation(
-        self, _name: str, link: str | None, expected_status: int, _patched_exporter_task: Mock
-    ) -> None:
-        settings: dict[str, object] = {"whitelabel": True, "showOrganizationLogo": True}
-        if link is not None:
-            settings["brandLinkUrl"] = link
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"enabled": True, "settings": settings},
-        )
-
-        assert response.status_code == expected_status, response.json()
-        if expected_status == status.HTTP_200_OK:
-            assert response.json()["settings"] == settings
-
-    @parameterized.expand(
-        [
             ("boost_with_whitelabel", True, True, True, True, True),
             ("boost_without_whitelabel", True, False, True, True, False),
             ("free_with_whitelabel", False, True, True, True, False),
@@ -1230,17 +1204,15 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
             settings={
                 "whitelabel": whitelabel,
                 "showOrganizationLogo": show_organization_logo,
-                "brandLinkUrl": "https://example.com",
             },
         )
 
         exported = self.client.get(f"/shared/{config.access_token}.json").json()
 
-        brand = {key: exported.get(key) for key in ("brandLogoMediaId", "brandLinkUrl")}
         if expect_brand:
-            assert brand == {"brandLogoMediaId": str(media.id), "brandLinkUrl": "https://example.com"}
+            assert exported.get("brandLogoMediaId") == str(media.id)
         else:
-            assert brand == {"brandLogoMediaId": None, "brandLinkUrl": None}
+            assert exported.get("brandLogoMediaId") is None
 
     def test_invalid_settings_type_rejected(self):
         """Test that invalid settings type is rejected"""

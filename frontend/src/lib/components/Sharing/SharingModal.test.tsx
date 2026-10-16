@@ -12,7 +12,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
-import { NodeKind } from '~/queries/schema/schema-general'
+import type { MockResolverInfo } from '~/mocks/utils'
+import { NodeKind, SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, InsightModel } from '~/types'
 import { AvailableFeature } from '~/types'
@@ -88,13 +89,16 @@ describe('SharingModal (dashboard)', () => {
     function DashboardSharingModalWrapper({
         extraProps,
         licensed = true,
+        organizationHasLogo = false,
     }: {
         extraProps?: Partial<SharingModalProps>
         licensed?: boolean
+        organizationHasLogo?: boolean
     }): JSX.Element {
         useAvailableFeatures(licensed ? [AvailableFeature.WHITE_LABELLING] : [])
         initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
             ...MOCK_DEFAULT_ORGANIZATION,
+            logo_media_id: organizationHasLogo ? '0190a3c2-0000-0000-0000-000000000001' : null,
             available_product_features: licensed
                 ? [{ key: AvailableFeature.WHITE_LABELLING, name: 'White labelling' }]
                 : [],
@@ -109,7 +113,7 @@ describe('SharingModal (dashboard)', () => {
             isOpen: true,
             closeModal: () => {},
             dashboardId,
-            title: 'Dashboard permissions & sharing',
+            title: 'Share dashboard',
             ...extraProps,
         }
 
@@ -125,17 +129,17 @@ describe('SharingModal (dashboard)', () => {
 
         expect(screen.getByTestId('sharing-branding-posthog')).toBeChecked()
         expect(screen.queryByTestId('sharing-show-organization-logo')).toBeNull()
+        expect(screen.getByText('Show your organization logo')).toBeInTheDocument()
         if (licensed) {
+            expect(screen.getByRole('link', { name: 'Add your logo' })).toHaveAttribute('target', '_blank')
             await waitFor(() => expect(screen.getByTestId('sharing-branding-posthog')).toBeEnabled())
             await user.click(screen.getByTestId('sharing-branding-posthog'))
             expect(screen.getByTestId('sharing-branding-posthog')).not.toBeChecked()
-            expect(screen.getByText('Dashboard logo')).toBeInTheDocument()
-            expect(screen.getByTestId('sharing-show-organization-logo')).toBeDisabled()
-            expect(screen.getByText('organization settings')).toBeInTheDocument()
-            expect(screen.queryByTestId('sharing-branding-upgrade')).toBeNull()
+            expect(screen.queryByTestId('sharing-show-organization-logo')).toBeNull()
         } else {
+            expect(screen.queryByRole('link', { name: 'Add your logo' })).toBeNull()
             expect(screen.getByTestId('sharing-branding-posthog')).toBeDisabled()
-            await user.click(screen.getByTestId('sharing-branding-upgrade'))
+            await user.click(screen.getByRole('button', { name: 'Upgrade to Boost to show your logo' }))
             expect(upgradeModalLogic.values.upgradeModalFeatureKey).toBe(AvailableFeature.WHITE_LABELLING)
         }
         expect(screen.getByText('Public sharing')).toBeInTheDocument()
@@ -146,13 +150,136 @@ describe('SharingModal (dashboard)', () => {
         expect(screen.queryByText(/Show insight details/i)).toBeNull()
     })
 
-    it('updates the shared dashboard theme', async () => {
+    it.each([true, false])('shows the organization logo preview only when licensed: %s', async (licensed) => {
+        render(<DashboardSharingModalWrapper licensed={licensed} organizationHasLogo />)
+
+        expect(await screen.findByText('Show organization logo')).toBeInTheDocument()
+        if (licensed) {
+            expect(screen.getByTestId('sharing-show-organization-logo')).toBeInTheDocument()
+            expect(screen.getByAltText('Your organization logo')).toBeInTheDocument()
+            expect(screen.getByRole('link', { name: 'Change your logo here' })).toBeInTheDocument()
+        } else {
+            expect(screen.queryByTestId('sharing-show-organization-logo')).toBeNull()
+            expect(screen.getByRole('button', { name: 'Upgrade to Boost to show your logo' })).toBeInTheDocument()
+            expect(screen.queryByAltText('Your organization logo')).toBeNull()
+            expect(screen.queryByRole('link', { name: 'Change your logo here' })).toBeNull()
+        }
+    })
+
+    it('switches between PostHog branding and the organization logo in one save', async () => {
         const user = userEvent.setup()
-        render(<DashboardSharingModalWrapper />)
+        render(<DashboardSharingModalWrapper organizationHasLogo />)
+
+        const savedSettings: SharingConfigurationSettings[] = []
+        const saveRequest = jest.fn(async ({ request }: MockResolverInfo) => {
+            const body = (await request.json()) as { settings: SharingConfigurationSettings }
+            savedSettings.push(body.settings)
+            return [200, { created_at: createdAt, enabled: true, access_token: accessToken, ...body }]
+        })
+        useMocks({
+            patch: { '/api/environments/:team_id/dashboards/:dashboard_id/sharing/': saveRequest },
+        })
+
+        const posthogSwitch = await screen.findByTestId('sharing-branding-posthog')
+        const organizationSwitch = screen.getByTestId('sharing-show-organization-logo')
+        expect(posthogSwitch).toBeChecked()
+        expect(organizationSwitch).not.toBeChecked()
+        expect(organizationSwitch).toBeEnabled()
+
+        await user.click(organizationSwitch)
+        expect(sharingLogic({ dashboardId }).values.sharingSettings).toMatchObject({
+            whitelabel: true,
+            showOrganizationLogo: true,
+        })
+        await waitFor(() => expect(screen.getByTestId('sharing-branding-posthog')).not.toBeChecked())
+        expect(screen.getByTestId('sharing-show-organization-logo')).toBeChecked()
+        await waitFor(() => expect(saveRequest).toHaveBeenCalledTimes(1))
+        expect(savedSettings[0]).toMatchObject({
+            whitelabel: true,
+            showOrganizationLogo: true,
+        })
+
+        await waitFor(() => expect(screen.getByTestId('sharing-branding-posthog')).toBeEnabled())
+        await user.click(screen.getByTestId('sharing-branding-posthog'))
+        await waitFor(() => expect(screen.getByTestId('sharing-branding-posthog')).toBeChecked())
+        expect(screen.getByTestId('sharing-show-organization-logo')).not.toBeChecked()
+        await waitFor(() => expect(saveRequest).toHaveBeenCalledTimes(2))
+        expect(savedSettings[1]).toMatchObject({
+            whitelabel: false,
+            showOrganizationLogo: false,
+        })
+    })
+
+    it('saves rapid changes in order so the latest settings persist', async () => {
+        const user = userEvent.setup()
+        render(<DashboardSharingModalWrapper organizationHasLogo />)
+        let finishFirstSave!: () => void
+        const firstSave = new Promise<void>((resolve) => {
+            finishFirstSave = resolve
+        })
+        const savedSettings: SharingConfigurationSettings[] = []
+        const saveRequest = jest.fn(async ({ request }: MockResolverInfo) => {
+            const body = (await request.json()) as { settings: SharingConfigurationSettings }
+            savedSettings.push(body.settings)
+            if (savedSettings.length === 1) {
+                await firstSave
+            }
+            return [200, { created_at: createdAt, enabled: true, access_token: accessToken, ...body }]
+        })
+        useMocks({ patch: { '/api/environments/:team_id/dashboards/:dashboard_id/sharing/': saveRequest } })
 
         await user.click(await screen.findByTestId('sharing-theme-dark'))
+        await waitFor(() => expect(saveRequest).toHaveBeenCalledTimes(1))
+        await user.click(screen.getByTestId('sharing-show-organization-logo'))
+        expect(saveRequest).toHaveBeenCalledTimes(1)
 
-        expect(sharingLogic({ dashboardId }).values.sharingSettings.theme).toBe('dark')
+        finishFirstSave()
+        await waitFor(() => expect(saveRequest).toHaveBeenCalledTimes(2))
+        expect(savedSettings[1]).toMatchObject({ theme: 'dark', whitelabel: true, showOrganizationLogo: true })
+    })
+
+    it.each([
+        { setting: 'whitelabel', status: 200 },
+        { setting: 'theme', status: 200 },
+        { setting: 'whitelabel', status: 500 },
+    ])('keeps unrelated switches idle while saving $setting ($status)', async ({ setting, status }) => {
+        const user = userEvent.setup()
+        render(<DashboardSharingModalWrapper />)
+        await waitFor(() => expect(screen.getByTestId('sharing-branding-posthog')).toBeEnabled())
+        const logic = sharingLogic({ dashboardId })
+        const embedCode = logic.values.embedCode
+        let finishSave!: () => void
+        const pendingSave = new Promise<void>((resolve) => {
+            finishSave = resolve
+        })
+        const saveRequest = jest.fn(async ({ request }: MockResolverInfo) => {
+            const body = (await request.json()) as { settings: SharingConfigurationSettings }
+            await pendingSave
+            return [status, { created_at: createdAt, enabled: true, access_token: accessToken, ...body }]
+        })
+        useMocks({
+            patch: { '/api/environments/:team_id/dashboards/:dashboard_id/sharing/': saveRequest },
+        })
+
+        const control = setting === 'whitelabel' ? 'sharing-branding-posthog' : 'sharing-theme-dark'
+        await user.click(screen.getByTestId(control))
+        await waitFor(() => expect(saveRequest).toHaveBeenCalledTimes(1))
+
+        expect(screen.getByTestId('sharing-switch')).toBeEnabled()
+        if (setting === 'whitelabel') {
+            expect(screen.getByTestId('sharing-branding-posthog')).toBeDisabled()
+        } else {
+            expect(screen.getByTestId('sharing-branding-posthog')).toBeEnabled()
+        }
+
+        finishSave()
+        await waitFor(() => expect(screen.getByTestId('sharing-branding-posthog')).toBeEnabled())
+        await waitFor(() => expect(logic.values.sharingConfigurationLoading).toBe(false))
+        expect(logic.values.embedCode).toBe(embedCode)
+        expect(logic.values.embedCode).not.toMatch(/\skey=/)
+        if (status === 500) {
+            await waitFor(() => expect(logic.values.sharingSettings.whitelabel).toBe(false))
+        }
     })
 
     it('calls onSharingEnabledChange after the dashboard sharing switch update succeeds', async () => {

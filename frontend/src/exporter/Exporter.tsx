@@ -90,7 +90,7 @@ export function Exporter(props: ExportedData): JSX.Element {
         exportToken,
         ...exportOptions
     } = props
-    const { whitelabel, showInspector = false, brandLogoMediaId, brandLinkUrl } = exportOptions
+    const { whitelabel, showInspector = false, brandLogoMediaId } = exportOptions
     const forcedTheme = useResolvedForcedTheme(exportOptions.theme)
 
     // A metric insight sizes to a compact card rather than filling the viewport, so drop the 100vh floor
@@ -154,7 +154,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                                     <Logo size="xs" />
                                 </Link>
                             ) : brandLogoMediaId ? (
-                                <SharedDashboardBrandLogo mediaId={brandLogoMediaId} linkUrl={brandLinkUrl} />
+                                <SharedDashboardBrandLogo mediaId={brandLogoMediaId} />
                             ) : null}
                             <div className="SharedDashboard-header-title">
                                 <h1 className="mb-2" data-attr="dashboard-item-title">
@@ -177,7 +177,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                             <Logo size="xs" />
                         </Link>
                     ) : type === ExportType.Embed && brandLogoMediaId ? (
-                        <SharedDashboardBrandLogo mediaId={brandLogoMediaId} linkUrl={brandLinkUrl} />
+                        <SharedDashboardBrandLogo mediaId={brandLogoMediaId} />
                     ) : type === ExportType.Image && !whitelabel ? (
                         <>
                             <h1 className="mb-2">{dashboard.name}</h1>
