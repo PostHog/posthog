@@ -254,7 +254,7 @@ The required check is `Backend CI on Depot / Django Tests Pass on Depot`, and th
 `Django Tests Pass` on GitHub Actions only prints a notice on a PR.
 
 GitHub's Re-run button does nothing on a Depot check.
-A `/retry` comment on the PR from someone with write access retries the failed and cancelled jobs of the newest run, also while the rest of the run still goes.
+A `/retry` comment on the PR from an organization member or collaborator retries the failed and cancelled jobs of the newest run, also while the rest of the run still goes.
 Do not post that comment yourself.
 With the user's permission, retry from the CLI instead: `depot ci retry <run-id> --failed --workflow <workflow-id>`.
 A run that Depot still shows as running past its job timeouts is stuck. Cancel the stuck job with `depot ci cancel` before you retry.

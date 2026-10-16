@@ -11,7 +11,7 @@ permissions:
 jobs:
     retry:
         name: Retry failed Depot CI jobs
-        # The repository is public, so only people with write access can start a retry.
+        # The repository is public, so only organization members and collaborators can start a retry.
         if: >
             github.event.issue.pull_request
             && startsWith(github.event.comment.body, '/retry')
