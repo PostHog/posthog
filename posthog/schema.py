@@ -30769,10 +30769,6 @@ class HogQLQuery(BaseModel):
         description=("Run the selected connection query directly without translating it through HogQL first"),
     )
     tags: QueryLogTags | None = None
-    useBusinessIntelligenceLimits: bool | None = Field(
-        default=None,
-        description=("BI worksheets can explicitly request up to one million aggregated rows."),
-    )
     values: dict[str, Any] | None = Field(
         default=None,
         description=("Constant values that can be referenced with the {placeholder} syntax in the query"),

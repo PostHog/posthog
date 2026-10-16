@@ -425,7 +425,6 @@ describe('BI editor query generation', () => {
                 source: {
                     kind: NodeKind.HogQLQuery,
                     query: expectedQuery,
-                    useBusinessIntelligenceLimits: true,
                     connectionId: undefined,
                     filters: { dateRange: { date_from: 'all' } },
                 },

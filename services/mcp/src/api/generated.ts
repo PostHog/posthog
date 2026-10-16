@@ -7610,8 +7610,6 @@ export namespace Schemas {
       /** Run the selected connection query directly without translating it through HogQL first */
       sendRawQuery?: boolean | null;
       tags?: QueryLogTags | null;
-      /** BI worksheets can explicitly request up to one million aggregated rows. */
-      useBusinessIntelligenceLimits?: boolean | null;
       /** Constant values that can be referenced with the {placeholder} syntax in the query */
       values?: HogQLQueryValues;
       /** Variables to be substituted into the query */
@@ -10924,9 +10922,6 @@ export namespace Schemas {
       Number1000: 1000,
       Number10000: 10000,
       Number50000: 50000,
-      Number100000: 100000,
-      Number500000: 500000,
-      Number1000000: 1000000,
     } as const;
 
     export interface Alias {

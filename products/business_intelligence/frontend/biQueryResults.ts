@@ -45,7 +45,7 @@ export function getBIResultSummary(
             0
         ),
         limited: 'hasMore' in visible && visible.hasMore === true,
-        ...(query.config.limit === 1000000 && visible.results.length >= 1000000
+        ...(query.config.limit === 50000 && visible.results.length >= 50000
             ? { possiblyLimited: !('hasMore' in visible && visible.hasMore === true) }
             : {}),
     }
@@ -65,7 +65,7 @@ export function getBIVisualizationSource(query: VisualizationNode): Visualizatio
         return query.source
     }
     const probe = buildBIQuery(getBIDataConfig(query.config), true)
-    return probe ? { ...query.source, query: probe.query, useBusinessIntelligenceLimits: true } : query.source
+    return probe ? { ...query.source, query: probe.query } : query.source
 }
 
 export function getBIVisualizationResponse(

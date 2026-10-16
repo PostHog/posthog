@@ -33,7 +33,7 @@ it.each([0, 99, 100, 101, 50000])(
         expect(summary.groups).toBe(Math.min(count, config.limit))
         expect(summary.marks).toBe(Math.max(0, Math.min(count, config.limit) - 1))
         expect(summary.limited).toBe(count > config.limit)
-        expect(!!summary.possiblyLimited).toBe(false)
+        expect(!!summary.possiblyLimited).toBe(count === 50000)
     }
 )
 

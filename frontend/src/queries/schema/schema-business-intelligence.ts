@@ -27,7 +27,7 @@ export type BIAggregation = 'count' | 'count_distinct' | 'sum' | 'average' | 'mi
 
 export type BIDateBucket = 'minute' | 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year'
 
-export type BIQueryLimit = 100 | 1000 | 10000 | 50000 | 100000 | 500000 | 1000000
+export type BIQueryLimit = 100 | 1000 | 10000 | 50000
 
 export type BISortDirection = 'asc' | 'desc'
 

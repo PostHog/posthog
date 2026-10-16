@@ -707,9 +707,6 @@ class BIQueryLimit(float, Enum):
     NUMBER_1000 = 1000
     NUMBER_10000 = 10000
     NUMBER_50000 = 50000
-    NUMBER_100000 = 100000
-    NUMBER_500000 = 500000
-    NUMBER_1000000 = 1000000
 
 
 class Operator2(StrEnum):

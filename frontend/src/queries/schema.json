@@ -6614,7 +6614,7 @@
             "type": "object"
         },
         "BIQueryLimit": {
-            "enum": [100, 1000, 10000, 50000, 100000, 500000, 1000000],
+            "enum": [100, 1000, 10000, 50000],
             "type": "number"
         },
         "BIResultFilter": {
@@ -29642,10 +29642,6 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
-                },
-                "useBusinessIntelligenceLimits": {
-                    "description": "BI worksheets can explicitly request up to one million aggregated rows.",
-                    "type": "boolean"
                 },
                 "values": {
                     "description": "Constant values that can be referenced with the {placeholder} syntax in the query",

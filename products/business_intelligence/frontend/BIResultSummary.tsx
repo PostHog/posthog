@@ -71,7 +71,7 @@ export function BIResultSummary({ tabId }: { tabId: string }): JSX.Element | nul
                         ? 'Some result groups are omitted.'
                         : 'The result cap was reached. More groups may exist.'}
                     {' Narrow the filters'}
-                    {lastRunQuery.config.limit < 1000000 ? ' or increase the aggregated row limit' : ''}. Totals,
+                    {lastRunQuery.config.limit < 50000 ? ' or increase the aggregated row limit' : ''}. Totals,
                     rankings, and comparisons may be incomplete.
                 </span>
             )}

@@ -723,8 +723,6 @@ export interface HogQLVariable {
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
-    /** BI worksheets can explicitly request up to one million aggregated rows. */
-    useBusinessIntelligenceLimits?: boolean
     query: string
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
