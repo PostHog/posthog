@@ -94,7 +94,7 @@ export function CyclotronJobInputIntegrationField({
     if (!integration) {
         return (
             <div className="p-2 h-10 italic rounded border border-dashed text-secondary">
-                Configure {relatedSchemaIntegration.label} to continue
+                Connect or select {relatedSchemaIntegration.label} above to continue
             </div>
         )
     }

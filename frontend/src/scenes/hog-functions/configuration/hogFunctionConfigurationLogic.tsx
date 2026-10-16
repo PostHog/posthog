@@ -30,6 +30,7 @@ import {
     CyclotronJobInputsValidationResult,
 } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { dayjs } from 'lib/dayjs'
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { uuid } from 'lib/utils/dom'
@@ -297,6 +298,31 @@ export type SparklineData = {
     count: number
     labels: string[]
     warning?: string
+}
+
+export function describeFirstConfigurationError(
+    errors: Record<string, any>,
+    inputsSchema: CyclotronJobInputSchemaType[] = []
+): string | null {
+    if (errors.name) {
+        return errors.name
+    }
+    if (typeof errors.filters === 'string') {
+        return errors.filters
+    }
+    const inputErrors: Record<string, string> = errors.inputs ?? {}
+    // Follow the schema order, so the toast names the same input the page shows first.
+    const inputKey = [...inputsSchema.map((schema) => schema.key), ...Object.keys(inputErrors)].find(
+        (key) => inputErrors[key]
+    )
+    if (inputKey) {
+        const label = inputsSchema.find((schema) => schema.key === inputKey)?.label || inputKey
+        return `${label}: ${inputErrors[inputKey]}`
+    }
+    if (typeof errors.mappings === 'string') {
+        return errors.mappings
+    }
+    return null
 }
 
 // Helper function to check if code might return null/undefined
@@ -1943,6 +1969,22 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
         upsertHogFunctionSuccess: () => {
             actions.resetForm()
+        },
+
+        submitConfigurationFailure: () => {
+            // The save button sits in the scene header, away from the fields, so a failed check
+            // must say what to fix and bring the field into view. A failed API call also lands
+            // here with no client-side errors, and upsertHogFunctionFailure reports that one.
+            // kea-forms passes an undefined `errors` payload, so read the validation errors here.
+            const firstError = describeFirstConfigurationError(
+                values.configurationValidationErrors,
+                values.configuration.inputs_schema ?? []
+            )
+            if (!firstError) {
+                return
+            }
+            lemonToast.error(`Can't save yet. ${firstError}`)
+            scrollToFormError()
         },
 
         upsertHogFunctionFailure: ({ errorObject }) => {
