@@ -395,6 +395,7 @@ def register_core_file_system_types() -> None:
             type_string,
             "cdp",
             "HogFunction",
+            queryset_modifier=lambda queryset: queryset.filter(mcp_event_subscription__isnull=True),
             undo_message="Send PATCH /api/projects/@current/hog_functions/{id} with deleted=false.",
         )
         register_pre_delete_hook(type_string, _hog_function_pre_delete)
