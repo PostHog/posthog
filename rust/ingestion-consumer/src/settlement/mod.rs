@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{Charge, Offset, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Charge, Held, Offset, TopicOffsetLedger, TopicPartition};
 
 use crate::config::CompletionGranularity;
 use crate::order_sentinel::OffsetSpan;
@@ -34,6 +34,9 @@ pub(crate) trait Settlement: Send + Sync {
     fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>>;
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
+
+    /// A partition's offsets that no submitted commit covers, and their charge.
+    fn uncommitted(&self, topic_partition: &TopicPartition) -> Held;
 }
 
 fn release_taken(
