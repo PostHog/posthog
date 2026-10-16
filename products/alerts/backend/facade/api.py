@@ -12,16 +12,19 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
 
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.user import User
+from posthog.schema_enums import AlertState
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.alerts.backend.facade import contracts
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.judge.contract import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -39,7 +42,7 @@ from products.alerts.backend.llm_detector_limits import (
     is_llm_detector_config,
     llm_detector_access_error,
 )
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import METRICS_INSIGHT_QUERY_FILTER, AlertCheck, AlertConfiguration
 
 logger = structlog.get_logger(__name__)
 
@@ -175,6 +178,29 @@ def snooze_alert_from_slack(
             )
 
     return "snoozed"
+
+
+def list_firing_alerts_on_insights_created_by(
+    team_id: int, user_id: int, *, include_metrics_insights: bool, limit: int
+) -> list[contracts.FiringAlert]:
+    alerts = AlertConfiguration.objects.filter(
+        team_id=team_id,
+        enabled=True,
+        state=AlertState.FIRING,
+        insight__created_by_id=user_id,
+        insight__deleted=False,
+    ).filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=timezone.now()))
+    if not include_metrics_insights:
+        alerts = alerts.exclude(id__in=alerts.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
+    rows = alerts.order_by("-created_at").values_list(
+        "id", "name", "insight__name", "insight__derived_name", "insight__short_id"
+    )[:limit]
+    return [
+        contracts.FiringAlert(
+            id=alert_id, name=name, insight_name=insight_name or derived_name, insight_short_id=short_id
+        )
+        for alert_id, name, insight_name, derived_name, short_id in rows
+    ]
 
 
 __all__ = [
