@@ -302,6 +302,7 @@ class TestTrinoIncrementalMaterialization(BaseTest):
             except Exception as error:
                 result = error
         transforms = [call.kwargs["select_transform"] for call in compile_query.call_args_list]
+        self.window_starts = [call.args[1].values["incremental_window_start"] for call in compile_query.call_args_list]
         return result, [statement for statement, _ in cursor.statements], transforms
 
     def test_merges_staged_rows_and_reports_their_watermark(self) -> None:
@@ -313,6 +314,7 @@ class TestTrinoIncrementalMaterialization(BaseTest):
         assert isinstance(result, DuckLakeTableResult)
         assert (result.row_count, result.watermark, result.merged) == (3, latest, True)
         assert len(transforms) == 1 and transforms[0] is not None
+        assert self.window_starts == [self.since]
         table = f'"cat"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}"'
         stage = table[:-1] + '__ph_incremental_stage"'
         assert f"CREATE OR REPLACE TABLE {stage} AS SELECT id, ts FROM orders" in statements
@@ -353,6 +355,7 @@ class TestTrinoIncrementalMaterialization(BaseTest):
         assert (result.row_count, result.watermark, result.merged) == (9, latest, False)
         # The table is rebuilt from the unfiltered query.
         assert transforms[-1] is None
+        assert self.window_starts[-1] is None
         table = f'"cat"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}"'
         assert f"CREATE OR REPLACE TABLE {table} AS SELECT id, ts FROM orders" in statements
         assert not any("__ph_incremental_stage" in statement for statement in statements)
