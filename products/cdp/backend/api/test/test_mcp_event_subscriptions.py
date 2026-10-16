@@ -14,6 +14,7 @@ from pydantic import JsonValue
 from posthog.schema import HogQLQueryResponse
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 if TYPE_CHECKING:
@@ -110,16 +111,38 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         self.client.force_login(other_user)
         self.assertEqual(self.client.get(self.url + str(subscription.pk) + "/").status_code, 404)
 
-    def test_generic_destination_api_cannot_modify_subscription(self) -> None:
+    @parameterized.expand(["destination", "file_system"])
+    def test_generic_destination_api_cannot_modify_subscription(self, surface: str) -> None:
         subscription = self.subscribe()
         assert subscription.hog_function is not None
-        key = self.create_personal_api_key_with_scopes(["hog_function:write"])
-        response = self.client.patch(
-            f"/api/projects/{self.team.pk}/hog_functions/{subscription.hog_function_id}/",
-            {"enabled": False},
-            HTTP_AUTHORIZATION=f"Bearer {key}",
-        )
-        self.assertEqual(response.status_code, 403, response.json())
+        function = subscription.hog_function
+        if surface == "destination":
+            key = self.create_personal_api_key_with_scopes(["hog_function:write"])
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/hog_functions/{function.pk}/",
+                {"enabled": False},
+                HTTP_AUTHORIZATION=f"Bearer {key}",
+            )
+            self.assertEqual(response.status_code, 403, response.json())
+        else:
+            self.assertFalse(FileSystem.objects.filter(team=self.team, ref=str(function.pk)).exists())
+            self.assertFalse(HogFunction.get_file_system_unfiled(self.team).filter(pk=function.pk).exists())
+            entry = FileSystem.objects.create(
+                team=self.team,
+                path="Example managed destination",
+                type="hog_function/destination",
+                ref=str(function.pk),
+                created_by=self.user,
+            )
+            self.client.force_login(self.user)
+            response = self.client.delete(f"/api/projects/{self.team.pk}/file_system/{entry.pk}/")
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertFalse(FileSystem.objects.filter(pk=entry.pk).exists())
+        function.refresh_from_db()
+        subscription.refresh_from_db()
+        self.assertTrue(subscription.active)
+        self.assertTrue(function.enabled)
+        self.assertFalse(function.deleted)
 
     @parameterized.expand(["query_scope", "credential", "membership"])
     def test_revocation_stops_queued_delivery(self, revoked: str) -> None:

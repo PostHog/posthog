@@ -3628,6 +3628,10 @@ snapshots:
         hash: v1.k794b7964.56b8792ce05a2bd6639b561f1330df09e67cf01fa9307301aa91560ff69442dd.mnfSSv24JeDgvtTRf6YX_-olqjQUQIzvd7GVi6CFMNU
     filters-taxonomic-filter--empty-events-with-value-hint--light:
         hash: v1.k794b7964.97ddd61650806011675ac41c4ca31e0409b894993096eaa1e645e5748502be1a.NtvmxNSJzpPc-osNFNOzk85H2kVtbmQKDUClTvwYPfA
+    filters-taxonomic-filter--empty-tab-with-jumps-to-other-categories--dark:
+        hash: v1.k794b7964.cb129e04c8d6a9e6c4603e87a645e9bb1136bb222f0fdfcf53e25b1e32983873.43FF8fvDP9re3M194WgDHHJxMQvZsCWKfVt122ELNHg
+    filters-taxonomic-filter--empty-tab-with-jumps-to-other-categories--light:
+        hash: v1.k794b7964.8f51c139da9698fb2cb652e0703c4a363a4b69b5cc027fb31668dcb9853e0b97.BOiCdx3Mx2E44hxeIqqDbL0HtInOBvE_HVS8W2l44n4
     filters-taxonomic-filter--events-free--dark:
         hash: v1.k794b7964.66ffbc1a41e65685646edaa051c0112d431e5f99dcca205d6a62f2bd3ce60f4c.9sxt-JbSQIxs9w_imI-y34flHbdgcsTC57Md7yFCVzM
     filters-taxonomic-filter--events-free--light:
