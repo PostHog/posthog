@@ -9,22 +9,23 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 
 import type { OrganizationType } from '~/types'
 
+import { billingAlertsCreate, billingAlertsPartialUpdate } from 'products/billing/frontend/generated/api'
+import type {
+    BillingAlertConfigurationApi,
+    BillingAlertConfigurationMetricEnumApi,
+    PatchedBillingAlertConfigurationApi,
+} from 'products/billing/frontend/generated/api.schemas'
+
 import { billingAlertNotificationLogic } from './billingAlertNotificationLogic'
 import type { PendingBillingAlertDestination } from './billingAlertNotificationLogic'
 import { billingAlertsLogic } from './billingAlertsLogic'
 import { billingAlertRequestError } from './billingAlertUtils'
-import { billingAlertsCreate, billingAlertsPartialUpdate } from './generated/api'
-import type {
-    BillingAlertConfigurationApi,
-    BillingAlertMetricEnumApi,
-    PatchedBillingAlertConfigurationApi,
-} from './generated/api.schemas'
 
 export interface BillingAlertFormValues {
     name: string
     description: string
     enabled: boolean
-    metric: BillingAlertMetricEnumApi
+    metric: BillingAlertConfigurationMetricEnumApi
     /** null while the input is cleared, so an empty threshold fails validation instead of saving as 0. */
     thresholdValue: number | null
 }
