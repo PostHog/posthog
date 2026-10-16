@@ -1,4 +1,12 @@
 //! The v4 index files: Parquet in `rrweb-v4/index/`. Column names are the ones in `replay-data.md`.
+//!
+//! A flush can store its blocks and index rows and then fail before it commits its Kafka offsets. The next attempt
+//! for the partition, in this process or after a restart, starts again at the same committed offset and writes the
+//! same messages again. Every block index row therefore names its flush attempt (`flush_id`, `flushed_at_ms`) and the
+//! Kafka data it came from (`topic`, `partition`, `start_offset` of the flush on that partition, the block's own
+//! `end_offset`). A retry can cover a different range than the attempts it replaces, so the rule for readers works on
+//! ranges: per (`topic`, `partition`), a flush covers its `start_offset` to its highest `end_offset`. Walk the flushes
+//! from the highest (`flushed_at_ms`, `flush_id`) and keep a flush only if its range overlaps no flush already kept.
 
 use std::sync::Arc;
 
@@ -6,13 +14,15 @@ use arrow_array::builder::{
     Int64Builder, ListBuilder, StringBuilder, StructBuilder, UInt32Builder,
 };
 use arrow_array::{
-    ArrayRef, BooleanArray, Int64Array, RecordBatch, StringArray, UInt32Array, UInt64Array,
+    ArrayRef, BooleanArray, Int32Array, Int64Array, RecordBatch, StringArray, UInt32Array,
+    UInt64Array,
 };
 use arrow_schema::{ArrowError, DataType, Field, Fields, Schema};
 use replay_core_v4::inspect::session::Moment;
 use replay_core_v4::inspect::stats::BlockStats;
 
-use crate::write::Written;
+use crate::batch::Origin;
+use crate::write::{FlushAttempt, Written};
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::errors::ParquetError;
@@ -91,6 +101,8 @@ pub fn image_index(rows: &[ImageIndexRow]) -> Result<RecordBatch, IndexError> {
 /// One block's index row: where it is, what the inspector found, and its sealed URLs.
 pub struct BlockIndexRow<'a> {
     pub written: &'a Written,
+    pub origin: &'a Origin,
+    pub attempt: &'a FlushAttempt,
     pub stats: &'a BlockStats,
     pub moments: &'a [Moment],
     pub snapshot_source: Option<&'a str>,
@@ -187,6 +199,40 @@ pub fn block_index(rows: &[BlockIndexRow<'_>]) -> Result<RecordBatch, IndexError
     utf8!("session_id", |r| r.written.session.session_id.clone());
     utf8!("key_day", |r| r.written.key_day.clone());
     utf8!("block_s3_key", |r| r.written.object_key.clone());
+    utf8!("topic", |r| r.origin.tp.topic);
+    push(
+        "partition",
+        DataType::Int32,
+        false,
+        Arc::new(Int32Array::from_iter_values(
+            rows.iter().map(|r| r.origin.tp.partition),
+        )),
+    );
+    push(
+        "start_offset",
+        DataType::Int64,
+        false,
+        Arc::new(Int64Array::from_iter_values(
+            rows.iter().map(|r| r.origin.start_offset),
+        )),
+    );
+    push(
+        "end_offset",
+        DataType::Int64,
+        false,
+        Arc::new(Int64Array::from_iter_values(
+            rows.iter().map(|r| r.origin.end_offset),
+        )),
+    );
+    utf8!("flush_id", |r| r.attempt.flush_id.clone());
+    push(
+        "flushed_at_ms",
+        DataType::Int64,
+        false,
+        Arc::new(Int64Array::from_iter_values(
+            rows.iter().map(|r| r.attempt.flushed_at_ms),
+        )),
+    );
     push(
         "block_byte_start",
         DataType::UInt64,

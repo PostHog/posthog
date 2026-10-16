@@ -130,12 +130,14 @@ pub fn prepare_block(
     (lines, images, counts)
 }
 
-/// Builds, compresses and seals one block.
+/// Builds, compresses and seals one block for `object_key`. The key is in the frame's authenticated data, so a
+/// frame does not open from another object, even one of the same session.
 pub fn seal_block(
     block: &Block,
     key: &Key,
     team_key: &[u8; 32],
     write_day: &str,
+    object_key: &str,
     already_stored: &dyn Fn(&str) -> bool,
 ) -> Result<SealedBlock, WriteError> {
     let (lines, images, counts) = prepare_block(block, team_key, write_day, already_stored);
@@ -144,7 +146,7 @@ pub fn seal_block(
     let frame = seal_frame(
         &key.key,
         Version::V4,
-        &block_context(&block.session, &key.key_day),
+        &block_context(&block.session, &key.key_day, object_key),
         &compressed,
     )
     .map_err(|e| WriteError::Seal(e.to_string()))?;
@@ -158,13 +160,14 @@ pub fn seal_block(
 }
 
 /// The authenticated data of a block frame.
-pub fn block_context(session: &SessionKey, key_day: &str) -> Context {
+pub fn block_context(session: &SessionKey, key_day: &str, object_key: &str) -> Context {
     Context {
         team_id: session.team_id,
         session_id: Some(session.session_id.clone()),
         key_day: Some(key_day.to_owned()),
         kind: "rrweb".to_owned(),
         codec: Some(Codec::Zstd),
+        reference: Some(object_key.to_owned()),
         ..Context::default()
     }
 }
@@ -319,11 +322,28 @@ pub fn block_urls(block: &Block) -> Vec<String> {
     urls
 }
 
+/// Which flush attempt wrote a block index row. See `crate::index` for how readers use it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FlushAttempt {
+    pub flush_id: String,
+    pub flushed_at_ms: i64,
+}
+
+impl FlushAttempt {
+    pub fn new(at: DateTime<Utc>) -> Self {
+        Self {
+            flush_id: format!("{:016x}", rand::thread_rng().gen::<u64>()),
+            flushed_at_ms: at.timestamp_millis(),
+        }
+    }
+}
+
 /// Writes one block index file for the flush, after its blocks, so no row points at a block that is not stored.
 /// Each entry is a block, its stats as this attempt filled them, and where it landed.
 pub async fn write_block_index(
     entries: &[(&Block, &BlockStats, &Written)],
     keys: &FlushKeys,
+    attempt: &FlushAttempt,
     rrweb_bucket: &str,
     store: &dyn BlobStore,
     at: DateTime<Utc>,
@@ -359,6 +379,8 @@ pub async fn write_block_index(
         let first = block.messages.first();
         rows.push(BlockIndexRow {
             written,
+            origin: &block.origin,
+            attempt,
             stats,
             moments: &block.moments,
             snapshot_source: first.and_then(|m| m.snapshot_source.as_deref()),
@@ -388,7 +410,9 @@ mod tests {
 
     use aes_gcm::aead::{Aead, KeyInit, Payload};
     use aes_gcm::{Aes256Gcm, Nonce};
-    use arrow_array::{Array, ListArray, RecordBatch, StringArray, StructArray, UInt64Array};
+    use arrow_array::{
+        Array, Int64Array, ListArray, RecordBatch, StringArray, StructArray, UInt64Array,
+    };
     use async_trait::async_trait;
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
@@ -400,6 +424,7 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::*;
+    use crate::batch::{Origin, Tp};
 
     #[derive(Default)]
     struct MemoryStore {
@@ -447,6 +472,17 @@ mod tests {
         }
     }
 
+    fn origin(partition: i32, start_offset: i64, end_offset: i64) -> Origin {
+        Origin {
+            tp: Tp {
+                topic: "main",
+                partition,
+            },
+            start_offset,
+            end_offset,
+        }
+    }
+
     fn block(session: &str, events: Value) -> Block {
         let inner = json!({"event": "$snapshot_items", "properties": {"$session_id": session, "$window_id": "w1", "$snapshot_items": events}});
         let message = read_message(
@@ -460,6 +496,7 @@ mod tests {
                 team_id: 7,
                 session_id: session.to_owned(),
             },
+            origin: origin(0, 100, 105),
             messages: vec![message],
             stats: BlockStats::default(),
             moments: Vec::new(),
@@ -528,6 +565,7 @@ mod tests {
                     &keys.sessions[&session_key(&b.session.session_id).0],
                     &[6; 32],
                     "2026-10-15",
+                    &object,
                     &|reference| reference == old_ref,
                 )
                 .unwrap()
@@ -568,12 +606,19 @@ mod tests {
         let block = &written[0];
         let frame = &memory.get("rrweb-v4", &block.object_key)
             [block.byte_start as usize..=block.byte_end as usize];
-        let context = block_context(&blocks[0].session, "2026-10-14");
+        let context = block_context(&blocks[0].session, "2026-10-14", &object);
         let lines = String::from_utf8(
             zstd::decode_all(&open_frame(&[5; 32], Version::V4, &context, frame).unwrap()[..])
                 .unwrap(),
         )
         .unwrap();
+        // The frame is bound to its object: it does not open as a block of another one.
+        let elsewhere = block_context(
+            &blocks[0].session,
+            "2026-10-14",
+            "blocks/dt=2026-10-15/other",
+        );
+        assert!(open_frame(&[5; 32], Version::V4, &elsewhere, frame).is_err());
         let first: Value = serde_json::from_str(lines.lines().nth(1).unwrap()).unwrap();
         let reference = first[1]["data"]["node"]["attributes"]["src"]
             .as_str()
@@ -611,6 +656,7 @@ mod tests {
             write_block_index(
                 &[(&blocks[0], &stats, &written[0])],
                 &keys,
+                &FlushAttempt::new(at()),
                 "rrweb-v4",
                 store.as_ref(),
                 at()
@@ -703,6 +749,144 @@ mod tests {
         assert_eq!(
             serde_json::from_slice::<Vec<String>>(&urls).unwrap(),
             ["https://app.example.com/a", "https://app.example.com/b"]
+        );
+    }
+
+    #[tokio::test]
+    async fn readers_drop_the_rows_of_earlier_attempts_that_a_retry_covers() {
+        let store = MemoryStore::default();
+        let mut keys = FlushKeys::default();
+        for session in ["a", "b", "c"] {
+            let (id, key) = session_key(session);
+            keys.sessions.insert(id, key);
+        }
+        let mouse = json!([{"type": 3, "timestamp": 3, "data": {"source": 1, "positions": []}}]);
+        let stats = BlockStats::default();
+        let written = |session: &str| Written {
+            session: SessionKey {
+                team_id: 7,
+                session_id: session.to_owned(),
+            },
+            key_day: "2026-10-14".to_owned(),
+            object_key: format!("blocks/{session}"),
+            byte_start: 0,
+            byte_end: 9,
+        };
+        // Two attempts wrote their rows and failed before the commit: offsets 100-105 and 106-110 of partition 0.
+        // The retry starts at the committed offset 100, reads both ranges in one flush, and also writes partition 1.
+        let a = block("a", mouse.clone());
+        let mut early_b = block("b", mouse.clone());
+        early_b.origin = origin(0, 106, 110);
+        let mut b = block("b", mouse.clone());
+        b.origin = origin(0, 100, 110);
+        let mut c = block("c", mouse);
+        c.origin = origin(1, 40, 41);
+        let (wa, wb, wc) = (written("a"), written("b"), written("c"));
+        let first = FlushAttempt {
+            flush_id: "0000000000000001".to_owned(),
+            flushed_at_ms: 1_000,
+        };
+        let between = FlushAttempt {
+            flush_id: "0000000000000003".to_owned(),
+            flushed_at_ms: 1_500,
+        };
+        let second = FlushAttempt {
+            flush_id: "0000000000000002".to_owned(),
+            flushed_at_ms: 2_000,
+        };
+        for (attempt, entries) in [
+            (&first, vec![(&a, &stats, &wa)]),
+            (&between, vec![(&early_b, &stats, &wb)]),
+            (
+                &second,
+                vec![(&a, &stats, &wa), (&b, &stats, &wb), (&c, &stats, &wc)],
+            ),
+        ] {
+            write_block_index(&entries, &keys, attempt, "rrweb-v4", &store, at())
+                .await
+                .unwrap();
+        }
+
+        let mut rows = Vec::new();
+        for key in store.keys("index/blocks/") {
+            let batch = store.parquet(&key);
+            let text = |name: &str| {
+                batch
+                    .column_by_name(name)
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .unwrap()
+                    .clone()
+            };
+            let int = |name: &str| {
+                batch
+                    .column_by_name(name)
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .clone()
+            };
+            let partition = batch
+                .column_by_name("partition")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<arrow_array::Int32Array>()
+                .unwrap()
+                .clone();
+            let (topic, session, flush_id) = (text("topic"), text("session_id"), text("flush_id"));
+            let (start, end, at_ms) =
+                (int("start_offset"), int("end_offset"), int("flushed_at_ms"));
+            for i in 0..batch.num_rows() {
+                rows.push((
+                    (topic.value(i).to_owned(), partition.value(i)),
+                    (start.value(i), end.value(i)),
+                    (at_ms.value(i), flush_id.value(i).to_owned()),
+                    session.value(i).to_owned(),
+                ));
+            }
+        }
+        assert_eq!(rows.len(), 5);
+
+        // The documented rule, per (topic, partition): a flush covers its start offset to its highest end offset.
+        // Walk the flushes from the latest and keep one only if it overlaps no flush already kept.
+        type Flush = ((String, i32), (i64, String));
+        let mut ranges: HashMap<Flush, (i64, i64)> = HashMap::new();
+        for (tp, (start, end), flush, _) in &rows {
+            let range = ranges
+                .entry((tp.clone(), flush.clone()))
+                .or_insert((*start, *end));
+            range.1 = range.1.max(*end);
+        }
+        let mut flushes: Vec<_> = ranges.into_iter().collect();
+        flushes.sort_by(|a, b| b.0 .1.cmp(&a.0 .1));
+        let mut kept_flushes: Vec<(Flush, (i64, i64))> = Vec::new();
+        for (flush, range) in flushes {
+            let overlaps = kept_flushes
+                .iter()
+                .any(|(k, r)| k.0 == flush.0 && range.0 <= r.1 && r.0 <= range.1);
+            if !overlaps {
+                kept_flushes.push((flush, range));
+            }
+        }
+        let mut kept: Vec<_> = rows
+            .iter()
+            .filter(|(tp, _, flush, _)| {
+                kept_flushes
+                    .iter()
+                    .any(|(k, _)| k.0 == *tp && k.1 == *flush)
+            })
+            .map(|(_, _, flush, session)| (session.as_str(), flush.1.as_str()))
+            .collect();
+        kept.sort();
+        assert_eq!(
+            kept,
+            [
+                ("a", "0000000000000002"),
+                ("b", "0000000000000002"),
+                ("c", "0000000000000002")
+            ]
         );
     }
 }
