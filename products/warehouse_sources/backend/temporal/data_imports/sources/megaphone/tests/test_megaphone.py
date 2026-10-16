@@ -1,8 +1,6 @@
 from datetime import UTC, datetime
 from typing import Any
 
-import pytest
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -40,7 +38,7 @@ class TestMegaphoneEpisodes:
         assert result.urls[1] == NEXT_URL
         assert {r.headers.get("authorization") for r in result.requests} == {f'Token token="{API_TOKEN}"'}
         assert [row["id"] for row in result.rows] == ["e1", "e2", "e3"]
-        assert result.saved_states == [MegaphoneResumeConfig(next_url=NEXT_URL)]
+        assert result.committed_states == [MegaphoneResumeConfig(next_url=NEXT_URL)]
 
     def test_resume_continues_from_the_saved_link(self) -> None:
         result = _driver().run("episodes", [_episodes(["e3"])], resume_state=MegaphoneResumeConfig(next_url=NEXT_URL))
@@ -65,22 +63,30 @@ class TestMegaphoneEpisodes:
                     "incremental_field": "updatedAt",
                     "db_incremental_field_last_value": datetime(2026, 9, 30, 8, 15, tzinfo=UTC),
                 },
+                "updatedAt",
+                "updatedAt",
                 "2026-09-30T08:15:00.000Z",
                 "desc",
             ),
-            ("full_refresh", {}, None, "asc"),
+            ("full_refresh", {}, "pubdate", None, None, "asc"),
         ]
     )
     def test_search_request_shaping(
-        self, _name: str, inputs: dict[str, Any], expected_filter_min: str | None, expected_sort: str
+        self,
+        _name: str,
+        inputs: dict[str, Any],
+        order_by: str,
+        filter_by: str | None,
+        expected_filter_min: str | None,
+        expected_sort: str,
     ) -> None:
         result = _driver().run("episodes", [_episodes(["e1"])], **inputs)
 
         request = result.requests[0]
         assert request.path == "/api/search/episodes"
         assert request.param("organizationId") == ORG_ID
-        assert request.param("orderBy") == "updatedAt"
-        assert request.param("filterBy") == "updatedAt"
+        assert request.param("orderBy") == order_by
+        assert request.param("filterBy") == filter_by
         assert request.param("filterMin") == expected_filter_min
         assert result.response is not None
         assert result.response.sort_mode == expected_sort
@@ -103,21 +109,37 @@ class TestMegaphonePodcasts:
         assert [row["id"] for row in result.rows] == ["p1", "p2"]
         assert {r.param("per_page") for r in result.requests} == {"500"}
 
+    def test_resume_skips_networks_already_read(self) -> None:
+        result = _driver().run(
+            "podcasts",
+            route(
+                {
+                    f"/api/organizations/{ORG_ID}/networks": [ScriptedResponse(json=[{"id": "n1"}, {"id": "n2"}])],
+                    "/api/networks/n2/podcasts": [ScriptedResponse(json=[{"id": "p2", "networkId": "n2"}])],
+                }
+            ),
+            resume_state=MegaphoneResumeConfig(
+                fanout_state={"completed": ["/networks/n1/podcasts"], "current": None, "child_state": None}
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == [f"/api/organizations/{ORG_ID}/networks", "/api/networks/n2/podcasts"]
+
 
 class TestMegaphoneValidateCredentials:
-    @pytest.mark.parametrize(
-        ("organization_id", "status", "expected_valid"),
+    @parameterized.expand(
         [
-            (ORG_ID, 200, True),
-            (ORG_ID, 401, False),
-            (ORG_ID, 403, False),
-            (ORG_ID, 404, False),
-            ("../users", 200, False),
-        ],
+            ("ok", ORG_ID, 200, True),
+            ("bad_token", ORG_ID, 401, False),
+            ("other_organization", ORG_ID, 403, False),
+            ("path_escape", "../users", 200, False),
+        ]
     )
-    def test_maps_probe_status(self, organization_id: str, status: int, expected_valid: bool) -> None:
+    def test_maps_probe_status(self, _name: str, organization_id: str, status: int, expected_valid: bool) -> None:
         config = MegaphoneSourceConfig(api_token=API_TOKEN, organization_id=organization_id)
-        with scripted_network(always(ScriptedResponse(status=status, json=[]))) as network:
+        body = {} if status == 200 else {"error": "Not authorized to access this organization"}
+        with scripted_network(always(ScriptedResponse(status=status, json=body))) as network:
             valid, message = MegaphoneSource().validate_credentials(config, team_id=1)
 
         assert valid is expected_valid

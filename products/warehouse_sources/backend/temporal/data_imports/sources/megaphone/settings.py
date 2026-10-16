@@ -31,6 +31,14 @@ class MegaphoneEndpointConfig:
     default_incremental_field: Optional[str] = None
     page_size: int = PAGE_SIZE
     fanout: Optional[DependentEndpointConfig] = None
+    # Query param that carries the organization id, for endpoints scoped by query instead of path.
+    organization_param: Optional[str] = None
+    full_refresh_params: Optional[dict[str, str]] = None
+    incremental_params: Optional[dict[str, str]] = None
+    # Query param that takes the incremental watermark.
+    incremental_param: Optional[str] = None
+    # Stable, never-updated datetime used for partitioning.
+    partition_key: Optional[str] = "createdAt"
 
 
 # Podcasts are only listable per network.
@@ -57,12 +65,19 @@ MEGAPHONE_ENDPOINTS: dict[str, MegaphoneEndpointConfig] = {
     ),
     # The organization-wide episode search avoids a walk over every network and podcast. It always
     # sorts by `orderBy` descending and filters on `filterBy` from `filterMin`, inclusive.
+    # A full refresh orders by `pubdate`, which changes only when an episode is rescheduled. Ordering
+    # by `updatedAt` would move an episode edited mid-walk onto a page already read, so the
+    # replaced table would miss it.
     "episodes": MegaphoneEndpointConfig(
         name="episodes",
         path="/search/episodes",
         primary_keys=["id"],
         incremental_fields=[UPDATED_AT_INCREMENTAL_FIELD],
         default_incremental_field="updatedAt",
+        organization_param="organizationId",
+        full_refresh_params={"orderBy": "pubdate"},
+        incremental_params={"orderBy": "updatedAt", "filterBy": "updatedAt"},
+        incremental_param="filterMin",
     ),
 }
 

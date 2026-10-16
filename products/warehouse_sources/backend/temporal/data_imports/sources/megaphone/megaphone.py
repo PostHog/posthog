@@ -26,7 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.megaphone.
     MEGAPHONE_BASE_URL,
     MEGAPHONE_ENDPOINTS,
     MEGAPHONE_HOST,
-    PAGE_SIZE,
     MegaphoneEndpointConfig,
 )
 
@@ -71,16 +70,17 @@ def _client_config(api_token: str) -> ClientConfig:
 
 
 def get_resource(config: MegaphoneEndpointConfig, organization_id: str, is_incremental: bool) -> EndpointResource:
-    params: dict[str, Any] = {"per_page": PAGE_SIZE}
-    if config.name == "episodes":
-        params.update({"organizationId": organization_id, "orderBy": "updatedAt", "filterBy": "updatedAt"})
-        if is_incremental:
-            params["filterMin"] = {
-                "type": "incremental",
-                "cursor_path": "updatedAt",
-                "initial_value": "1970-01-01T00:00:00.000Z",
-                "convert": format_filter_min,
-            }
+    params: dict[str, Any] = {"per_page": config.page_size}
+    if config.organization_param:
+        params[config.organization_param] = organization_id
+    params.update((config.incremental_params if is_incremental else config.full_refresh_params) or {})
+    if is_incremental and config.incremental_param and config.default_incremental_field:
+        params[config.incremental_param] = {
+            "type": "incremental",
+            "cursor_path": config.default_incremental_field,
+            "initial_value": "1970-01-01T00:00:00.000Z",
+            "convert": format_filter_min,
+        }
     return {
         "name": config.name,
         "table_name": config.name,
@@ -154,6 +154,11 @@ def megaphone_source(
         primary_keys=config.primary_keys,
         # The episode search always returns the most recently updated episodes first.
         sort_mode="desc" if is_incremental else "asc",
+        partition_count=1 if config.partition_key else None,
+        partition_size=1 if config.partition_key else None,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
     )
 
 
