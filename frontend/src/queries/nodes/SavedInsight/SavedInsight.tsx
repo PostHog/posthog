@@ -39,7 +39,8 @@ export function SavedInsight({
     useAttachedLogic(insightLogic(insightProps), attachTo)
     useAttachedLogic(insightDataLogic(insightProps), attachTo)
 
-    if (insightLoading) {
+    // A retained definition can render retained results while the latest definition loads.
+    if (insightLoading && !(insightProps.retainResponseOnUnmount && insight.query)) {
         return (
             <div className="flex flex-col flex-1 justify-center items-center w-full h-full">
                 <LoadingBar />

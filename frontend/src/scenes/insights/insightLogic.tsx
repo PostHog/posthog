@@ -49,6 +49,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
+import { getRetainedInsight, insightCacheKey, retainInsight } from '~/queries/nodes/DataNode/responseCache'
 import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
 import {
     convertDataTableNodeToDataVisualizationNode,
@@ -1114,6 +1115,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ],
     }),
     listeners(({ actions, values, props }) => ({
+        loadInsightSuccess: ({ insight }) => {
+            retainInsight(insightCacheKey(props, values.user?.id, values.currentTeamId), insight)
+        },
         [insightsModel.actionTypes.insightSaved]: async ({ shortId }: { shortId: InsightShortId }, breakpoint) => {
             if ((props.dashboardId && !isInsightSceneInstance(props)) || values.insight.short_id !== shortId) {
                 return
@@ -1455,13 +1459,20 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             lemonToast.success(`Insight ${feedback}`)
         },
     })),
-    events(({ props, actions }) => ({
+    events(({ props, actions, values }) => ({
         afterMount: () => {
             if (!props.dashboardItemId || props.dashboardItemId === 'new' || props.dashboardItemId.startsWith('new-')) {
                 return
             }
 
             if (!props.doNotLoad && !props.cachedInsight) {
+                // Show the recent definition while the latest one loads, so retained results can render at once.
+                const retainedInsight = getRetainedInsight(
+                    insightCacheKey(props, values.user?.id, values.currentTeamId)
+                )
+                if (retainedInsight) {
+                    actions.setInsight(retainedInsight, { overrideQuery: false, fromPersistentApi: true })
+                }
                 actions.loadInsight(
                     props.dashboardItemId as InsightShortId,
                     props.filtersOverride,

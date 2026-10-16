@@ -451,6 +451,11 @@ describe('insightLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadInsightSuccess'])
             expect(requests).toHaveLength(1)
             expect(requests[0].searchParams.get('basic')).toBe(retain ? 'true' : null)
+
+            logic.unmount()
+            logic.mount()
+            expect(logic.values.insightLoading).toBe(true)
+            expect(logic.values.insight.query).toEqual(retain ? insightModelWith({}).query : undefined)
         })
 
         const verifyItLoadsFromTheAPI = async (logicUnderTest: ReturnType<typeof insightLogic.build>): Promise<void> =>

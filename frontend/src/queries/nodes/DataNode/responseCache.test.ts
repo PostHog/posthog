@@ -25,7 +25,7 @@ test.each([
     { result: null },
     { results: [], query_status: { complete: false } },
     { results: [], error: 'failed' },
-    { results: ['x'.repeat(200_001)] },
+    { results: ['x'.repeat(5_000_001)] },
 ])('does not retain unusable or oversized results: %p', (response) => {
     retainResponse('example', response)
     expect(getRetainedResponse('example')).toBeNull()
@@ -39,4 +39,14 @@ test('evicts the least recently used result when capacity is reached', () => {
     retainResponse('next', { results: [] })
     expect(getRetainedResponse('0')).toEqual({ results: [0] })
     expect(getRetainedResponse('1')).toBeNull()
+})
+
+test('retains large results until the total size budget is reached', () => {
+    const large = (index: number): { results: string[] } => ({ results: [String(index).repeat(4_000_000)] })
+    for (let index = 0; index < 5; index++) {
+        retainResponse(String(index), large(index))
+    }
+    expect(getRetainedResponse('0')).toBeNull()
+    expect(getRetainedResponse('1')).toEqual(large(1))
+    expect(getRetainedResponse('4')).toEqual(large(4))
 })
