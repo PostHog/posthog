@@ -50,6 +50,9 @@ fn main() -> Result<()> {
     config
         .request_budget()
         .map_err(|err| anyhow::anyhow!("invalid request budget: {err}"))?;
+    config
+        .partition_budget()
+        .map_err(|err| anyhow::anyhow!("invalid partition budget: {err}"))?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
