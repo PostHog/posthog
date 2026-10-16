@@ -53,7 +53,7 @@ export function MarketingAnalyticsOverview(props: {
     const samplingRate = marketingOverviewQueryResponse?.samplingRate
     const precomputeNotReady = !responseLoading && marketingOverviewQueryResponse?.precomputeNotReady === true
 
-    useRefetchWhileNotReady(precomputeNotReady, loadData)
+    useRefetchWhileNotReady(precomputeNotReady, props.query, loadData)
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 

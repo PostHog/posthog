@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     BaseMathType,
+    CachedMarketingAnalyticsTableQueryResponse,
     CompareFilter,
     ConversionGoalFilter1,
     ConversionGoalFilter3,
@@ -23,6 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tags_context
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.utils import uuid7
 
@@ -134,6 +136,30 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert response.precomputeNotReady is True
         assert response.results == []
         assert response.dataComputedAt is None
+
+    @patch(f"{_BASE_RUNNER}.handle_not_ready")
+    def test_not_ready_response_is_not_cached(self, _handle_not_ready):
+        # A cached not-ready entry keeps serving the "computing" state after the warm lands, until it goes stale.
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            draftConversionGoal=self._create_test_conversion_goal("warm_me"),
+        )
+        self.team._ma_precompute_flags = {"conversion": True, "costs": False, "sessions": False, "live_sessions": False}  # type: ignore[attr-defined]
+
+        with patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
+            first = self._create_query_runner(query).run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+            second = self._create_query_runner(query).run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        assert isinstance(first, CachedMarketingAnalyticsTableQueryResponse)
+        assert isinstance(second, CachedMarketingAnalyticsTableQueryResponse)
+        assert first.precomputeNotReady is True
+        assert second.precomputeNotReady is True
+        assert second.is_cached is False
+        assert report.call_args.args[1]["cache_skip_reason"] == "precompute_not_ready"
+        assert report.call_args.args[1]["cache_write_success"] is False
 
     @patch(f"{_BASE_RUNNER}.handle_not_ready")
     def test_compare_read_warms_the_period_that_missed(self, handle_not_ready):
