@@ -3911,23 +3911,11 @@ def _survey_not_available_response(request: HttpRequest) -> HttpResponse:
     )
 
 
-# A record reaches ISSUING only after its DNS check passes, so an organization cannot claim a domain it does not control.
-# ERRORING can also follow a failed DNS check. It stays in the list so a provisioned domain keeps its guard while it errors.
-_DNS_VERIFIED_PROXY_STATUSES = (
-    ProxyRecord.Status.ISSUING,
-    ProxyRecord.Status.VALID,
-    ProxyRecord.Status.WARNING,
-    ProxyRecord.Status.ERRORING,
-)
-
-
 def _is_another_organizations_proxy_domain(request: HttpRequest, survey: Survey) -> bool:
     # get_host() prefers X-Forwarded-Host, which a client can set. The managed proxy keeps the visitor's Host header.
     domain, _ = split_domain_port(request.META.get("HTTP_HOST", ""))
     return (
-        ProxyRecord.objects.filter(domain__iexact=domain, status__in=_DNS_VERIFIED_PROXY_STATUSES)
-        .exclude(organization_id=survey.team.organization_id)
-        .exists()
+        ProxyRecord.objects.filter(domain__iexact=domain).exclude(organization_id=survey.team.organization_id).exists()
     )
 
 

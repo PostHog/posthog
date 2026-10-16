@@ -399,12 +399,20 @@ class TestExternalSurveys(APIBaseTest):
                 "Survey not available",
             ),
             (
-                "other_org_record_without_dns_verification",
+                "other_org_record_being_deleted",
+                OTHER_PROXY_DOMAIN,
+                {"status": ProxyRecord.Status.DELETING},
+                {},
+                404,
+                "Survey not available",
+            ),
+            (
+                "other_org_record_retrying",
                 OTHER_PROXY_DOMAIN,
                 {"status": ProxyRecord.Status.WAITING},
                 {},
-                200,
-                "Quarterly feedback",
+                404,
+                "Survey not available",
             ),
             (
                 "other_org_proxy_domain_archived_survey",
