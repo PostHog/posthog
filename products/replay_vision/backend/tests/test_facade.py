@@ -280,6 +280,7 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
                 {"inline": WorkflowInlineScan(scanner_type="classifier", scanner_config={"prompt": "p"})},
                 "invalid",
             ),
+            ("experiment_scanner", {"inline": None}, "invalid"),
         ]
     )
     def test_refuses(self, name: str, overrides: dict[str, Any], kind: str) -> None:
@@ -296,6 +297,14 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
             ]
             self.organization.save()
             AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+        if name == "experiment_scanner":
+            scanner = ReplayScanner.objects.create(
+                team=self.team,
+                name="experiment",
+                scanner_type=ScannerType.EXPERIMENT,
+                scanner_config={"prompt": "p", "experiment_id": create_experiment(self.team, "workflow-flag").id},
+            )
+            overrides = {**overrides, "scanner_id": scanner.id}
 
         with pytest.raises(ObservationRequestRejected) as error:
             self._start(**overrides)

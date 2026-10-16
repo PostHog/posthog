@@ -522,6 +522,33 @@ def _internal_user_settings_url(team_id: int) -> str:
     return f"{site_url}/project/{team_id}/settings/project-customization#internal-user-filtering"
 
 
+class _LowerGroupKeyReferences(CloningVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self._lambda_scopes: list[set[str]] = []
+
+    def visit_lambda(self, node: ast.Lambda) -> ast.Lambda:
+        self._lambda_scopes.append(set(node.args))
+        try:
+            return super().visit_lambda(node)
+        finally:
+            self._lambda_scopes.pop()
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        field = super().visit_field(node)
+        root = field.chain[0] if field.chain else None
+        if (
+            len(field.chain) == 2
+            and isinstance(root, str)
+            and root.startswith("group_")
+            and "$" + root in FILTER_GLOBALS
+            and field.chain[1] == "key"
+            and not any(root in scope for scope in self._lambda_scopes)
+        ):
+            field.chain = ["$" + root]
+        return field
+
+
 class _LowerConstantMembership(CloningVisitor):
     """Rewrite `x IN (c1, c2, ...)` / `x NOT IN (...)` over constant literals into a coercing
     OR-of-EQ / AND-of-NotEq chain. The Hog VM evaluates the IN/NOT_IN opcode with strict equality
@@ -678,6 +705,7 @@ def compile_filters_bytecode(
         if SelectFinder.has_select(expr):
             raise Exception("Select queries are not allowed in filters")
 
+        expr = _LowerGroupKeyReferences().visit(expr)
         references = None
         if include_property_dependencies or "mcp_property_dependencies" in filters:
             references = FilterPropertyReferences()
