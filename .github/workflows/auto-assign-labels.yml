@@ -18,7 +18,7 @@ name: Auto Assign Labels
 # nosemgrep: semgrep.rules.github-actions-pull-request-target
 on:
     pull_request_target:
-        types: [opened, edited, reopened, ready_for_review]
+        types: [opened, edited, reopened, ready_for_review, synchronize]
 
 permissions:
     contents: read
