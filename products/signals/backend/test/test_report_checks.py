@@ -223,6 +223,7 @@ class TestCheckComparison(SimpleTestCase):
     @parameterized.expand(
         [
             ("count", "total", "linear", None, True),
+            ("null_count", None, "linear", None, True),
             ("sum", "sum", "linear", None, True),
             ("distinct", "dau", "linear", None, False),
             ("average", "avg", "linear", None, False),
@@ -233,7 +234,7 @@ class TestCheckComparison(SimpleTestCase):
         ]
     )
     def test_monitoring_targets_require_explicit_supported_scaling(
-        self, name: str, math: str, scaling: str, trends_filter: dict | None, valid: bool
+        self, name: str, math: str | None, scaling: str, trends_filter: dict | None, valid: bool
     ) -> None:
         query = trends_metric_query(
             series=[{"kind": "EventsNode", "event": "checkout_failed", "math": math, "math_property": "amount"}]

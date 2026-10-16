@@ -381,7 +381,7 @@ def validate_metric_check_for_write(config: MetricThresholdConfig) -> None:
             if (
                 len(series) != 1
                 or any((source.get("trendsFilter") or {}).get(key) for key in ("formula", "formulas", "formulaNodes"))
-                or series[0].get("math", "total") not in {"total", "sum"}
+                or series[0].get("math") not in {None, "total", "sum"}
             ):
                 raise CheckConfigValidationError(
                     "Linear Monitoring targets require one additive event count or property sum, without a formula."
