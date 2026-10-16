@@ -78,7 +78,8 @@ class ChannelIOSource(ResumableSource[ChannelIOSourceConfig, ChannelIOResumeConf
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # An incremental run reads each updated chat's new messages again, so append would duplicate them.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=("messages",))
 
     def validate_credentials(
         self,

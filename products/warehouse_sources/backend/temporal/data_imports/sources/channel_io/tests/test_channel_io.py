@@ -75,72 +75,86 @@ def test_list_tables_resume_from_the_saved_cursor() -> None:
     assert result.params("cursor") == ["c3"]
 
 
-def test_a_full_refresh_reads_every_chat_state_without_a_date_filter() -> None:
+CHANNEL_CREATED = NOW - timedelta(days=45)
+CHANNEL_CREATED_MS = int(CHANNEL_CREATED.timestamp() * 1000)
+THIRTY_DAYS_MS = 30 * 24 * 3600 * 1000
+WINDOWS = [
+    (CHANNEL_CREATED_MS, CHANNEL_CREATED_MS + THIRTY_DAYS_MS),
+    (CHANNEL_CREATED_MS + THIRTY_DAYS_MS, NOW_MS),
+]
+
+
+def pinned_state(**fields: Any) -> ChannelIOResumeConfig:
+    return ChannelIOResumeConfig(window_start_ms=CHANNEL_CREATED_MS, started_at_ms=NOW_MS, **fields)
+
+
+def channel_response() -> ScriptedResponse:
+    return ScriptedResponse(json={"channel": {"id": "1", "createdAt": CHANNEL_CREATED.isoformat()}})
+
+
+@pytest.mark.parametrize("incremental", [False, True])
+def test_chats_are_read_per_state_in_30_day_windows_that_end_at_the_run_start(incremental: bool) -> None:
     def respond(request: RecordedRequest) -> ScriptedResponse:
-        state = request.param("state")
-        if state == "opened" and request.param("cursor") is None:
-            return page("userChats", [{"id": "chat-1", "state": "opened"}], next_cursor="c2")
-        if state == "opened":
-            return page("userChats", [{"id": "chat-2", "state": "opened"}])
-        if state == "closed":
-            return page("userChats", [{"id": "chat-3", "state": "closed"}])
+        if request.path == "/open/channel":
+            return channel_response()
+        state, window_start = request.param("state"), int(request.param("from") or 0)
+        if state == "opened" and window_start == CHANNEL_CREATED_MS and request.param("cursor") is None:
+            return page("userChats", [{"id": "chat-1"}], next_cursor="c2")
+        if state == "opened" and window_start == CHANNEL_CREATED_MS:
+            return page("userChats", [{"id": "chat-2"}])
+        if state == "closed" and window_start != CHANNEL_CREATED_MS:
+            return page("userChats", [{"id": "chat-3"}])
         return page("userChats", [])
 
-    result = driver().run("user_chats", respond)
+    inputs: dict[str, Any] = (
+        {"incremental_field": "deskUpdatedAt", "db_incremental_field_last_value": CHANNEL_CREATED}
+        if incremental
+        else {}
+    )
+    result = driver().run("user_chats", respond, **inputs)
 
     assert result.raised is None
-    assert [request.param("state") for request in result.requests] == [
-        "opened",
-        *USER_CHAT_STATES,
-    ]
-    assert all(request.param("sortOrder") == "asc" for request in result.requests)
-    assert all(request.param("from") is None for request in result.requests)
+    # Without a watermark the first read starts at the channel's creation, never unbounded.
+    assert (result.paths[0] == "/open/channel") is not incremental
+    chat_requests = [request for request in result.requests if request.path == "/open/user-chats"]
+    assert sorted({(int(r.param("from") or 0), int(r.param("to") or 0)) for r in chat_requests}) == WINDOWS
+    assert len(chat_requests) == 2 * len(USER_CHAT_STATES) + 1
+    assert all(r.param("dateTimeFieldName") == "deskUpdatedAt" for r in chat_requests)
     assert [row["id"] for row in result.rows] == ["chat-1", "chat-2", "chat-3"]
-    assert result.response is not None and result.response.sort_mode == "asc"
+    # Rows arrive state by state, so an incremental watermark must wait for the end of the run.
+    assert result.response is not None and result.response.sort_mode == ("desc" if incremental else "asc")
     assert result.completed_state is None
 
 
-def test_an_incremental_sync_reads_each_state_in_windows_of_at_most_30_days() -> None:
-    watermark = NOW - timedelta(days=45)
-
+def test_user_chats_resume_at_the_saved_segment_and_cursor_without_reading_the_channel_again() -> None:
     result = driver().run(
         "user_chats",
         always(page("userChats", [])),
-        incremental_field="deskUpdatedAt",
-        db_incremental_field_last_value=watermark,
+        resume_state=pinned_state(segment=2, cursor="c9"),
     )
 
     assert result.raised is None
-    windows = sorted({(int(r.param("from") or 0), int(r.param("to") or 0)) for r in result.requests})
-    watermark_ms = int(watermark.timestamp() * 1000)
-    thirty_days_ms = 30 * 24 * 3600 * 1000
-    assert windows == [(watermark_ms, watermark_ms + thirty_days_ms), (watermark_ms + thirty_days_ms, NOW_MS)]
-    assert len(result.requests) == 2 * len(USER_CHAT_STATES)
-    assert all(request.param("dateTimeFieldName") == "deskUpdatedAt" for request in result.requests)
-    # Rows arrive state by state, so the watermark must wait for the end of the run.
-    assert result.response is not None and result.response.sort_mode == "desc"
-
-
-def test_user_chats_resume_at_the_saved_segment_and_cursor() -> None:
-    result = driver().run(
-        "user_chats",
-        always(page("userChats", [])),
-        resume_state=ChannelIOResumeConfig(segment=2, cursor="c9", started_at_ms=NOW_MS),
-    )
-
-    assert result.raised is None
-    assert [request.param("state") for request in result.requests] == list(USER_CHAT_STATES[2:])
+    assert "/open/channel" not in result.paths
+    assert [request.param("state") for request in result.requests] == [
+        *USER_CHAT_STATES[2:],
+        *USER_CHAT_STATES,
+    ]
     assert result.requests[0].param("cursor") == "c9"
     assert result.requests[1].param("cursor") is None
 
 
 def message_responder(chats: list[dict[str, Any]]) -> Any:
     def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/open/channel":
+            return channel_response()
         if request.path == "/open/user-chats":
-            return page("userChats", chats if request.param("state") == "opened" else [])
+            first_window = int(request.param("from") or 0) == CHANNEL_CREATED_MS
+            return page("userChats", chats if request.param("state") == "opened" and first_window else [])
         chat_id = request.path.split("/")[3]
         if chat_id == "gone":
             return ScriptedResponse(status=404, json={"type": "notFoundError", "status": 404, "errors": []})
+        if request.param("from") is not None:
+            return page("messages", [{"id": f"{chat_id}-{request.param('from')}", "chatId": chat_id}])
         if request.param("cursor") is None:
             return page("messages", [{"id": f"{chat_id}-m1", "chatId": chat_id}], next_cursor="m2")
         return page("messages", [{"id": f"{chat_id}-m2", "chatId": chat_id}])
@@ -163,12 +177,26 @@ def test_messages_fan_out_per_chat_carry_the_chat_activity_time_and_skip_a_delet
     assert result.rows[2]["userChatDeskUpdatedAt"] == datetime(2024, 3, 29, 3, 28, 37, tzinfo=UTC)
     remaining = [{"id": chat["id"], "deskUpdatedAt": chat["deskUpdatedAt"]} for chat in chats]
     assert result.committed_states[:4] == [
-        ChannelIOResumeConfig(pending_chats=remaining, started_at_ms=NOW_MS),
-        ChannelIOResumeConfig(pending_chats=remaining, message_cursor="m2", started_at_ms=NOW_MS),
-        ChannelIOResumeConfig(pending_chats=remaining[1:], started_at_ms=NOW_MS),
+        pinned_state(pending_chats=remaining),
+        pinned_state(pending_chats=remaining, message_cursor="m2"),
+        pinned_state(pending_chats=remaining[1:]),
         # The deleted chat yields no rows, and the run still commits past it before the next chat.
-        ChannelIOResumeConfig(pending_chats=remaining[2:], started_at_ms=NOW_MS),
+        pinned_state(pending_chats=remaining[2:]),
     ]
+
+
+def test_incremental_messages_read_only_the_windows_since_the_watermark() -> None:
+    result = driver().run(
+        "messages",
+        message_responder([{"id": "chat-1"}]),
+        incremental_field="userChatDeskUpdatedAt",
+        db_incremental_field_last_value=CHANNEL_CREATED,
+    )
+
+    assert result.raised is None
+    message_requests = [request for request in result.requests if request.path.endswith("/messages")]
+    assert [(int(r.param("from") or 0), int(r.param("to") or 0)) for r in message_requests] == WINDOWS
+    assert [row["id"] for row in result.rows] == [f"chat-1-{start}" for start, _ in WINDOWS]
 
 
 def test_messages_resume_from_the_saved_chats_without_reading_their_page_again() -> None:
@@ -176,15 +204,17 @@ def test_messages_resume_from_the_saved_chats_without_reading_their_page_again()
     result = driver().run(
         "messages",
         message_responder([{"id": "chat-1"}, {"id": "chat-2"}]),
-        resume_state=ChannelIOResumeConfig(
-            pending_chats=[{"id": "chat-2", "deskUpdatedAt": None}], message_cursor="m2", started_at_ms=NOW_MS
-        ),
+        resume_state=pinned_state(pending_chats=[{"id": "chat-2", "deskUpdatedAt": None}], message_cursor="m2"),
     )
 
     assert result.raised is None
     assert result.paths[0] == "/open/user-chats/chat-2/messages"
     assert result.requests[0].param("cursor") == "m2"
-    assert [request.param("state") for request in result.requests[1:]] == list(USER_CHAT_STATES[1:])
+    assert "/open/channel" not in result.paths
+    assert [request.param("state") for request in result.requests[1:]] == [
+        *USER_CHAT_STATES[1:],
+        *USER_CHAT_STATES,
+    ]
     assert [row["id"] for row in result.rows] == ["chat-2-m2"]
 
 
