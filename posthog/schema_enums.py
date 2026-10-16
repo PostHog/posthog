@@ -3266,6 +3266,7 @@ class WebAnalyticsPreComputeStrategy(StrEnum):
     PRE_AGGREGATED = "pre_aggregated"
     LAZY_PRECOMPUTE = "lazy_precompute"
     LIVE = "live"
+    DIMENSIONAL = "dimensional"
 
 
 class WebBotsBreakdown(StrEnum):

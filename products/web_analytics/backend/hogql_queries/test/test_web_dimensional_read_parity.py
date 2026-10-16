@@ -22,9 +22,11 @@ from posthog.schema import (
     EventPropertyFilter,
     HogQLQueryModifiers,
     PropertyOperator,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsQueryModifiers,
     WebStatsBreakdown,
     WebStatsTableQuery,
+    WebStatsTableQueryResponse,
 )
 
 from posthog.clickhouse.client import sync_execute
@@ -150,7 +152,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         modifiers: HogQLQueryModifiers | None,
         web_query_modifiers: WebAnalyticsQueryModifiers | None,
         properties=None,
-    ) -> tuple[str, list]:
+    ) -> tuple[str, list, WebStatsTableQueryResponse]:
         runner = WebStatsTableQueryRunner(
             query=WebStatsTableQuery(
                 dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
@@ -164,7 +166,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         )
         response = runner.calculate()
         assert runner.used_preaggregated_tables, "expected the pre-aggregated path, not a live fallback"
-        return runner.query_strategy(), self._sort_results(response.results)
+        return runner.query_strategy(), self._sort_results(response.results), response
 
     @staticmethod
     def _counts(results: list) -> dict:
@@ -186,14 +188,22 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         ]
     )
     def test_dimensional_matches_v2(self, _name, properties, expected_counts):
-        v2_strategy, v2 = self._run(WebStatsBreakdown.DEVICE_TYPE, LEGACY, None, properties=properties)
+        v2_strategy, v2, v2_response = self._run(WebStatsBreakdown.DEVICE_TYPE, LEGACY, None, properties=properties)
         # Only the request opt-in: the legacy modifier must not be needed to reach this path.
-        dimensional_strategy, dimensional = self._run(
+        dimensional_strategy, dimensional, dimensional_response = self._run(
             WebStatsBreakdown.DEVICE_TYPE, None, OPT_IN, properties=properties
         )
 
         assert v2_strategy == "stats_table_preaggregated"
         assert dimensional_strategy == "stats_table_dimensional"
+        assert (v2_response.preComputeStrategy, v2_response.preComputeComputedAt) == (
+            WebAnalyticsPreComputeStrategy.PRE_AGGREGATED,
+            None,
+        )
+        assert (dimensional_response.preComputeStrategy, dimensional_response.preComputeComputedAt) == (
+            WebAnalyticsPreComputeStrategy.DIMENSIONAL,
+            COMPUTED_AT.isoformat(),
+        )
         assert dimensional == v2, f"{_name} mismatch\nv2={v2}\ndimensional={dimensional}"
         assert self._counts(dimensional) == expected_counts
 

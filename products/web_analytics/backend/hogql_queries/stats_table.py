@@ -860,7 +860,7 @@ WHERE and(
                 results_mapped = [[*row, ""] for row in (results_mapped or [])]
 
         strategy = (
-            WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+            self.preaggregated_query_builder.served_strategy()
             if self.used_preaggregated_tables
             else WebAnalyticsPreComputeStrategy.LIVE
         )
@@ -873,6 +873,9 @@ WHERE and(
             hogql=response.hogql,
             modifiers=self.modifiers,
             preComputeStrategy=strategy,
+            preComputeComputedAt=self.preaggregated_query_builder.served_computed_at()
+            if self.used_preaggregated_tables
+            else None,
             preComputeIneligibleReason=lazy_precompute_ineligible_reason(strategy),
             **self.paginator.response_params(),
         )

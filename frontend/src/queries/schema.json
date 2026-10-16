@@ -17082,6 +17082,10 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "preComputeComputedAt": {
+                    "description": "When the oldest precomputed window used was computed. Unset for live responses.",
+                    "type": "string"
+                },
                 "preComputeIneligibleReason": {
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
@@ -17321,6 +17325,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "preComputeComputedAt": {
+                    "description": "When the oldest precomputed window used was computed. Unset for live responses.",
+                    "type": "string"
                 },
                 "preComputeIneligibleReason": {
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
@@ -19526,6 +19534,10 @@
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
                                 },
+                                "preComputeComputedAt": {
+                                    "description": "When the oldest precomputed window used was computed. Unset for live responses.",
+                                    "type": "string"
+                                },
                                 "preComputeIneligibleReason": {
                                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                                     "type": "string"
@@ -19613,6 +19625,10 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "preComputeComputedAt": {
+                                    "description": "When the oldest precomputed window used was computed. Unset for live responses.",
+                                    "type": "string"
                                 },
                                 "preComputeIneligibleReason": {
                                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
@@ -44259,6 +44275,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "preComputeComputedAt": {
+                            "description": "When the oldest precomputed window used was computed. Unset for live responses.",
+                            "type": "string"
+                        },
                         "preComputeIneligibleReason": {
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                             "type": "string"
@@ -44346,6 +44366,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "preComputeComputedAt": {
+                            "description": "When the oldest precomputed window used was computed. Unset for live responses.",
+                            "type": "string"
                         },
                         "preComputeIneligibleReason": {
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
@@ -45953,6 +45977,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "preComputeComputedAt": {
+                            "description": "When the oldest precomputed window used was computed. Unset for live responses.",
+                            "type": "string"
+                        },
                         "preComputeIneligibleReason": {
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                             "type": "string"
@@ -46040,6 +46068,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "preComputeComputedAt": {
+                            "description": "When the oldest precomputed window used was computed. Unset for live responses.",
+                            "type": "string"
                         },
                         "preComputeIneligibleReason": {
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
@@ -58498,7 +58530,7 @@
         },
         "WebAnalyticsPreComputeStrategy": {
             "description": "Which read path served a web analytics response.",
-            "enum": ["pre_aggregated", "lazy_precompute", "live"],
+            "enum": ["pre_aggregated", "lazy_precompute", "live", "dimensional"],
             "type": "string"
         },
         "WebAnalyticsPropertyFilter": {
@@ -59442,6 +59474,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "preComputeComputedAt": {
+                    "description": "When the oldest precomputed window used was computed. Unset for live responses.",
+                    "type": "string"
+                },
                 "preComputeIneligibleReason": {
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
@@ -59863,6 +59899,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "preComputeComputedAt": {
+                    "description": "When the oldest precomputed window used was computed. Unset for live responses.",
+                    "type": "string"
                 },
                 "preComputeIneligibleReason": {
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",

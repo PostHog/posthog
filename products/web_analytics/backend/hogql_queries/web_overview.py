@@ -516,9 +516,10 @@ WHERE and(
                 to_data("bounce rate", "percentage", row[8], get_prev_val(9), is_increase_bad=True),
             ]
 
+        served_pre_aggregated = response == pre_aggregated_response
         strategy = (
-            WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
-            if response == pre_aggregated_response
+            self.preaggregated_query_builder.served_strategy()
+            if served_pre_aggregated
             else WebAnalyticsPreComputeStrategy.LIVE
         )
 
@@ -528,6 +529,9 @@ WHERE and(
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
             preComputeStrategy=strategy,
+            preComputeComputedAt=self.preaggregated_query_builder.served_computed_at()
+            if served_pre_aggregated
+            else None,
             preComputeIneligibleReason=lazy_precompute_ineligible_reason(strategy),
         )
 

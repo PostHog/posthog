@@ -4,6 +4,8 @@ from typing import Optional
 
 import structlog
 
+from posthog.schema import WebAnalyticsPreComputeStrategy
+
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.property import property_to_expr
@@ -83,6 +85,22 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         if self._has_property_access_rules is None:
             self._has_property_access_rules = team_has_property_access_rules(team_id=self.runner.team.pk)
         return self._has_property_access_rules
+
+    def served_strategy(self) -> WebAnalyticsPreComputeStrategy:
+        if self.use_dimensional_tables():
+            return WebAnalyticsPreComputeStrategy.DIMENSIONAL
+        return WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+
+    def served_computed_at(self) -> str | None:
+        """When the oldest window the dimensional read uses was computed. None for the v2 tables."""
+        if not self.use_dimensional_tables():
+            return None
+        stamps = [
+            stamp
+            for stamp in (self._ready_jobs_for("stats").computed_at, self._ready_jobs_for("bounces").computed_at)
+            if stamp is not None
+        ]
+        return min(stamps).isoformat() if stamps else None
 
     @property
     def stats_table(self) -> str:
