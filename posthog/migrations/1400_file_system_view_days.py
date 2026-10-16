@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [('posthog', '1399_alter_user_ui_configuration_help_text')]
+    dependencies = [("posthog", "1399_alter_user_ui_configuration_help_text")]
 
     operations = [
         migrations.AddField(
