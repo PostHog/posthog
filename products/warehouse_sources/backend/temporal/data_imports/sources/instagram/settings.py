@@ -111,6 +111,10 @@ class InstagramEndpointConfig:
     supports_time_window: bool = False
     # Columns carrying Meta's `+0000` offset, normalized to ISO 8601 on the way out.
     timestamp_fields: tuple[str, ...] = field(default_factory=tuple)
+    # Account insight requests for each window: daily time series metrics, then
+    # `(metric, breakdown)` pairs asked for as `total_value` once per day.
+    insight_time_series_metrics: tuple[str, ...] = field(default_factory=tuple)
+    insight_total_value_metrics: tuple[tuple[str, Optional[str]], ...] = field(default_factory=tuple)
 
 
 INSTAGRAM_ENDPOINTS: dict[str, InstagramEndpointConfig] = {
@@ -183,6 +187,8 @@ INSTAGRAM_ENDPOINTS: dict[str, InstagramEndpointConfig] = {
         sort_mode="asc",
         supports_time_window=True,
         timestamp_fields=("date",),
+        insight_time_series_metrics=ACCOUNT_INSIGHT_TIME_SERIES_METRICS,
+        insight_total_value_metrics=tuple((metric, None) for metric in ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS),
     ),
     # Daily account metrics split by a breakdown dimension. A separate table, so the key
     # of `account_insights` stays the same for existing syncs.
@@ -195,6 +201,7 @@ INSTAGRAM_ENDPOINTS: dict[str, InstagramEndpointConfig] = {
         sort_mode="asc",
         supports_time_window=True,
         timestamp_fields=("date",),
+        insight_total_value_metrics=ACCOUNT_INSIGHT_BREAKDOWNS,
     ),
 }
 

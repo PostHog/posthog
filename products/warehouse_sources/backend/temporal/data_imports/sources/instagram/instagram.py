@@ -16,9 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.settings import (
-    ACCOUNT_INSIGHT_BREAKDOWNS,
-    ACCOUNT_INSIGHT_TIME_SERIES_METRICS,
-    ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS,
     ACCOUNT_INSIGHTS_WINDOW_DAYS,
     DEFAULT_INSIGHTS_LOOKBACK_DAYS,
     DEFAULT_MEDIA_INSIGHT_METRICS,
@@ -533,9 +530,9 @@ def _insight_windows(since: int, until: int, window_days: int = ACCOUNT_INSIGHTS
 def _account_insight_plan(
     client: InstagramClient,
     instagram_account_id: str,
+    config: InstagramEndpointConfig,
     since: int,
     until: int,
-    breakdowns: bool = False,
 ) -> list[list[_InsightRequest]]:
     """Build the request plan as one group of requests per time window.
 
@@ -546,15 +543,8 @@ def _account_insight_plan(
 
     A window opens with its time series requests, then one `total_value` request per
     metric for each complete day in the window. A day that has not ended yet is left
-    for the next sync. With `breakdowns`, a window has only the `total_value` requests,
-    one per `(metric, breakdown)` pair and day.
+    for the next sync.
     """
-    time_series_metrics: Sequence[str] = ()
-    total_value_specs: Sequence[tuple[str, Optional[str]]] = ACCOUNT_INSIGHT_BREAKDOWNS
-    if not breakdowns:
-        time_series_metrics = ACCOUNT_INSIGHT_TIME_SERIES_METRICS
-        total_value_specs = [(metric, None) for metric in ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS]
-
     path = _account_path(instagram_account_id, "insights")
     plan: list[list[_InsightRequest]] = []
     for window_since, window_until in _insight_windows(since, until):
@@ -572,7 +562,7 @@ def _account_insight_plan(
                     },
                 ),
             )
-            for metric in time_series_metrics
+            for metric in config.insight_time_series_metrics
         ]
         day_start = window_since
         while day_start + DAY_SECONDS <= window_until:
@@ -594,7 +584,7 @@ def _account_insight_plan(
                     day_end=day_end,
                     breakdown=breakdown,
                 )
-                for metric, breakdown in total_value_specs
+                for metric, breakdown in config.insight_total_value_metrics
             )
             day_start = day_end
         # A trailing window shorter than a day has no requests when there is no time series.
@@ -603,12 +593,28 @@ def _account_insight_plan(
     return plan
 
 
+def _insight_row(
+    instagram_account_id: str, request: _InsightRequest, entry: dict[str, Any], day: str, value: Any, **extra: Any
+) -> dict[str, Any]:
+    return {
+        "instagram_account_id": instagram_account_id,
+        "metric": entry.get("name") or request.metric,
+        **extra,
+        "period": entry.get("period"),
+        "date": day,
+        "value": value,
+        "title": entry.get("title"),
+        "description": entry.get("description"),
+    }
+
+
 def _breakdown_rows(instagram_account_id: str, request: _InsightRequest, entry: dict[str, Any]) -> list[dict[str, Any]]:
     """One row per breakdown value in a `total_value` entry requested with a `breakdown`."""
     total_value = entry.get("total_value")
     if not isinstance(total_value, dict) or request.day_end is None:
         return []
     breakdowns = total_value.get("breakdowns")
+    day = datetime.fromtimestamp(request.day_end, UTC).isoformat()
 
     rows: list[dict[str, Any]] = []
     for breakdown in breakdowns if isinstance(breakdowns, list) else []:
@@ -618,17 +624,15 @@ def _breakdown_rows(instagram_account_id: str, request: _InsightRequest, entry: 
             if not isinstance(dimension_values, list) or not dimension_values:
                 continue
             rows.append(
-                {
-                    "instagram_account_id": instagram_account_id,
-                    "metric": entry.get("name") or request.metric,
-                    "breakdown": request.breakdown,
-                    "breakdown_value": ",".join(str(value) for value in dimension_values),
-                    "period": entry.get("period"),
-                    "date": datetime.fromtimestamp(request.day_end, UTC).isoformat(),
-                    "value": result.get("value"),
-                    "title": entry.get("title"),
-                    "description": entry.get("description"),
-                }
+                _insight_row(
+                    instagram_account_id,
+                    request,
+                    entry,
+                    day,
+                    result.get("value"),
+                    breakdown=request.breakdown,
+                    breakdown_value=",".join(str(value) for value in dimension_values),
+                )
             )
     return rows
 
@@ -656,9 +660,7 @@ def _account_insight_rows(
     # this table does not have yet.
     start = start - start % DAY_SECONDS - DAY_SECONDS
 
-    plan = _account_insight_plan(
-        client, instagram_account_id, start, until, breakdowns=config.name == "account_insights_breakdowns"
-    )
+    plan = _account_insight_plan(client, instagram_account_id, config, start, until)
 
     resume_url = _resume_url(resumable_source_manager, logger, config.name)
     if resume_url is not None:
@@ -670,12 +672,12 @@ def _account_insight_rows(
             logger.warning(f"Instagram: saved {config.name} checkpoint is outside this run's window, restarting")
 
     # A metric Meta rejects once is rejected for every day, so stop asking for it.
-    rejected_metrics: set[tuple[str, Optional[str]]] = set()
+    rejected_metrics: set[str] = set()
 
     for index, window in enumerate(plan):
         rows: list[dict[str, Any]] = []
         for request in window:
-            if (request.metric, request.breakdown) in rejected_metrics:
+            if request.metric in rejected_metrics:
                 continue
             if not client.has_request_budget():
                 # Drop the part of the window fetched so far: emitting it would move the
@@ -689,7 +691,7 @@ def _account_insight_rows(
                 # `impressions` was retired in v22.0 and Meta rejects the whole request
                 # for a metric the account can't serve. Drop the metric, keep the window.
                 logger.warning(f"Instagram: skipping account insight metric '{request.metric}': {error}")
-                rejected_metrics.add((request.metric, request.breakdown))
+                rejected_metrics.add(request.metric)
                 continue
 
             entries = body.get("data")
@@ -707,17 +709,7 @@ def _account_insight_rows(
                         day = datetime.fromtimestamp(request.day_end, UTC).isoformat()
                     else:
                         continue
-                    rows.append(
-                        {
-                            "instagram_account_id": instagram_account_id,
-                            "metric": entry.get("name") or request.metric,
-                            "period": entry.get("period"),
-                            "date": day,
-                            "value": point.get("value"),
-                            "title": entry.get("title"),
-                            "description": entry.get("description"),
-                        }
-                    )
+                    rows.append(_insight_row(instagram_account_id, request, entry, day, point.get("value")))
 
         if rows:
             # Sorted so the batch is genuinely ascending by date, which is what
@@ -853,7 +845,7 @@ def get_rows(
 
     if endpoint == "account":
         yield from _account_row(client, instagram_account_id, config)
-    elif endpoint in ("account_insights", "account_insights_breakdowns"):
+    elif config.edge == "insights":
         yield from _account_insight_rows(
             client=client,
             instagram_account_id=instagram_account_id,

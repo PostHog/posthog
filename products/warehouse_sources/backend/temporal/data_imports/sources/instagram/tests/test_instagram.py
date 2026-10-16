@@ -595,7 +595,7 @@ class TestInstagramAccountInsights:
         with scripted_network([]):
             client = InstagramClient("tok", "v23.0", LOGGER)
 
-        plan = _account_insight_plan(client, ACCOUNT_ID, 0, 45 * 86400 + 3600)
+        plan = _account_insight_plan(client, ACCOUNT_ID, INSTAGRAM_ENDPOINTS["account_insights"], 0, 45 * 86400 + 3600)
 
         # 45 days is two windows. Each opens with the time series over the whole window,
         # then asks for every total_value metric once per complete day. The partial
@@ -776,7 +776,7 @@ class TestInstagramAccountInsights:
         # Without the clamp a start date like this fans out into tens of thousands of
         # empty 30-day windows; Meta only retains ~2 years anyway.
         # Only the windows matter here, so drop the per-day requests that would fill them.
-        with mock.patch(f"{MODULE}.ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS", ()):
+        with mock.patch.object(INSTAGRAM_ENDPOINTS["account_insights"], "insight_total_value_metrics", ()):
             result = _drive("account_insights", always(ScriptedResponse(json={"data": []})), start_date="0001-01-01")
 
         assert result.raised is None
