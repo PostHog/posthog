@@ -7696,18 +7696,16 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
-    /**
-     * Issue ranking column.
-     */
-    export type ErrorTrackingListWidgetConfigOrderBy = typeof ErrorTrackingListWidgetConfigOrderBy[keyof typeof ErrorTrackingListWidgetConfigOrderBy];
+    export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
 
 
-    export const ErrorTrackingListWidgetConfigOrderBy = {
+    export const ErrorTrackingOrderBy = {
       LastSeen: 'last_seen',
       FirstSeen: 'first_seen',
       Occurrences: 'occurrences',
       Users: 'users',
       Sessions: 'sessions',
+      Severity: 'severity',
     } as const;
 
     /**
@@ -7762,7 +7760,7 @@ export namespace Schemas {
          */
       limit?: number;
       /** Issue ranking column. */
-      orderBy?: ErrorTrackingListWidgetConfigOrderBy;
+      orderBy?: ErrorTrackingOrderBy;
       /** Sort direction for orderBy. */
       orderDirection?: ErrorTrackingListWidgetConfigOrderDirection;
       /** Issue status filter. */
@@ -10067,18 +10065,6 @@ export namespace Schemas {
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
-
-
-    export const ErrorTrackingOrderBy = {
-      LastSeen: 'last_seen',
-      FirstSeen: 'first_seen',
-      Occurrences: 'occurrences',
-      Users: 'users',
-      Sessions: 'sessions',
-      Severity: 'severity',
-    } as const;
 
     export type OrderDirection2 = typeof OrderDirection2[keyof typeof OrderDirection2];
 
@@ -41236,6 +41222,7 @@ export namespace Schemas {
      * * `occurrences` - occurrences
      * * `users` - users
      * * `sessions` - sessions
+     * * `severity` - severity
      */
     export type ErrorTrackingIssueOrderByEnum = typeof ErrorTrackingIssueOrderByEnum[keyof typeof ErrorTrackingIssueOrderByEnum];
 
@@ -41246,6 +41233,7 @@ export namespace Schemas {
       Occurrences: 'occurrences',
       Users: 'users',
       Sessions: 'sessions',
+      Severity: 'severity',
     } as const;
 
     export interface ErrorTrackingIssueQueryRequest {
@@ -41426,7 +41414,8 @@ export namespace Schemas {
        * * `first_seen` - first_seen
        * * `occurrences` - occurrences
        * * `users` - users
-       * * `sessions` - sessions */
+       * * `sessions` - sessions
+       * * `severity` - severity */
       orderBy?: ErrorTrackingIssueOrderByEnum;
       /** Sort direction. Defaults to DESC.
        *
