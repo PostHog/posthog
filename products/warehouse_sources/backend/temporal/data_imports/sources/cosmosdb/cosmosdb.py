@@ -32,21 +32,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cosmosdb.s
 )
 
 REQUEST_TIMEOUT_SECONDS = (30, 120)
-# Server errors get a few attempts. Throttles (429) are bounded by the time budget only, because
-# Cosmos asks for waits of milliseconds and a busy container throttles many times in a row.
+# Throttles (429) are bounded by the time budget only: Cosmos throttles in bursts of millisecond waits.
 MAX_SERVER_ERROR_ATTEMPTS = 5
 MAX_BACKOFF_SECONDS = 60.0
 # One request with its retries and waits holds the worker for five minutes at most (the source
 # contract), so a retry only starts when the wait and a full-length attempt still fit.
 RETRY_BUDGET_SECONDS = 300.0
 MAX_REQUEST_SECONDS = float(sum(REQUEST_TIMEOUT_SECONDS))
-# The next incremental run reads from this long before the current run started. Rows arrive
-# unordered across partitions, so a write that lands during the scan in an already-read partition
-# is read by the next run. The margin also covers clock skew and replication lag.
+# Rows arrive unordered across partitions, so the next run rereads from before this run started.
 TS_FLOOR_MARGIN_SECONDS = 5 * 60
 INVALID_KEY_MESSAGE = "Azure Cosmos DB account key is not valid base64"
-# Any account key can read the account, so a 403 is the account's network rules or disabled
-# key-based auth, not the choice of key.
+# Any account key can read the account, so a 403 comes from network rules or disabled key auth.
 FORBIDDEN_MESSAGE = (
     "Azure Cosmos DB refused the request. Check that the account's firewall allows PostHog's IP addresses, "
     "that public network access is on, and that key-based authentication isn't turned off."
@@ -61,8 +57,7 @@ class CosmosDBRetryableError(Exception):
 
 @frozen
 class CosmosDBResumeConfig:
-    # Cosmos continuation tokens are only valid for the exact query they came from, so the floor
-    # the query was built with travels with the token, and so does the floor the run hands on.
+    # A continuation token is only valid for the exact query it came from.
     continuation: str | None = None
     ts_floor: int | None = None
     next_ts_floor: int | None = None
@@ -136,8 +131,7 @@ def _error_description(response: requests.Response) -> str:
 
 
 def _retry_after_seconds(response: requests.Response) -> Optional[float]:
-    # Cosmos reports its throttle wait in milliseconds under its own header name. The wait is not
-    # capped: retrying before Cosmos said to only earns another 429.
+    # Not capped: retrying before Cosmos said to only earns another 429.
     for header, scale in (("x-ms-retry-after-ms", 1000.0), ("Retry-After", 1.0)):
         raw = response.headers.get(header)
         if raw is None:
@@ -209,7 +203,6 @@ class CosmosDBClient:
                 method, url, data=body, headers=request_headers, timeout=REQUEST_TIMEOUT_SECONDS
             )
 
-            # 408 is Cosmos's own transient request timeout.
             if response.status_code in (408, 429) or response.status_code >= 500:
                 attempt += 1
                 if response.status_code != 429:
@@ -357,8 +350,7 @@ def shape_document(document: dict[str, Any], paths: tuple[str, ...]) -> dict[str
 
 def build_query(ts_floor: int | None) -> tuple[str, list[dict[str, Any]]]:
     # No ORDER BY: the REST gateway refuses a cross-partition ORDER BY (the SDKs plan it client-side),
-    # so rows arrive in partition order. No upper bound either: a document rewritten every few
-    # seconds always has a fresh `_ts`, and an upper bound would skip it on every run.
+    # so rows arrive in partition order. No upper bound: it would skip a document rewritten every few seconds.
     if ts_floor is None:
         return "SELECT * FROM c", []
     return f"SELECT * FROM c WHERE c.{TIMESTAMP_FIELD} >= @floor", [{"name": "@floor", "value": ts_floor}]
@@ -416,7 +408,6 @@ def get_rows(
         next_ts_floor = resume.next_ts_floor
         logger.debug(f"Azure Cosmos DB: resuming {collection.id} from a saved continuation token")
 
-    # The pipeline stores the staged cursor only once this run's rows are written.
     if cursor_manager is not None and next_ts_floor is not None:
         cursor_manager.stage(CosmosDBTsCursor(ts_floor=next_ts_floor))
 

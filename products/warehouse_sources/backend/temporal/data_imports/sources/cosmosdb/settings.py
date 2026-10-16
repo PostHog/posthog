@@ -2,7 +2,6 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 
 # Newest version Microsoft lists for the Cosmos DB REST API; sent as `x-ms-version` on every call.
 API_VERSION = "2018-12-31"
-# Cosmos caps a query response at 4 MB whatever the item count, so this only bounds very small documents.
 PAGE_SIZE = 500
 # Written on every row: the document's partition key value, so `id` (unique only within a logical
 # partition) becomes a table-wide key with it.

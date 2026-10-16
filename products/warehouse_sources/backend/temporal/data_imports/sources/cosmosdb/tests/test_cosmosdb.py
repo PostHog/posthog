@@ -174,7 +174,6 @@ class TestQueryDocuments:
     @pytest.mark.parametrize(
         ("stored", "inputs", "expected_floor", "expected_staged"),
         [
-            # A full refresh reads every document, including ones written moments ago.
             (None, {}, None, None),
             (
                 CosmosDBTsCursor(ts_floor=1699995000),
@@ -186,16 +185,13 @@ class TestQueryDocuments:
                 None,
                 None,
             ),
-            # The first incremental run after a reset reads everything and hands on run start minus the margin.
             (None, {"incremental_field": "_ts"}, None, CosmosDBTsCursor(ts_floor=CURSOR_FLOOR)),
-            # A schema that synced before this source kept a cursor starts from its `_ts` watermark.
             (
                 None,
                 {"incremental_field": "_ts", "db_incremental_field_last_value": 1699990000},
                 1699990000,
                 CosmosDBTsCursor(ts_floor=CURSOR_FLOOR),
             ),
-            # The stored cursor wins over the watermark, which can sit ahead of writes made during the last run.
             (
                 CosmosDBTsCursor(ts_floor=1699995000),
                 {"incremental_field": "_ts", "db_incremental_field_last_value": 1699999999},
@@ -265,7 +261,6 @@ class TestQueryDocuments:
             json={"code": "TooManyRequests", "message": "Request rate is large."},
             headers={"x-ms-retry-after-ms": "250"},
         )
-        # More throttles than the server-error cap: a busy container throttles many times in a row.
         answers = iter([_collection(), *[throttled] * 7, _page([{"id": "1", "tenantId": "a", "_ts": 1}])])
 
         def respond(_request: RecordedRequest) -> ScriptedResponse:
