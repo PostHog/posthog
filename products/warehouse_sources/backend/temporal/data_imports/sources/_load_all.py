@@ -181,6 +181,7 @@ from .bland_ai.source import BlandAISource
 from .bling.source import BlingSource
 from .blogger.source import BloggerSource
 from .bloomerang.source import BloomerangSource
+from .blueshift.source import BlueshiftSource
 from .bluesky.source import BlueskySource
 from .bluetally.source import BluetallySource
 from .bol_retailer.source import BolRetailerSource
