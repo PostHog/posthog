@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerc
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     PARTITION_FIELDS,
+    PRIMARY_KEYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -141,7 +142,7 @@ class BigCommerceSource(ResumableSource[BigCommerceSourceConfig, BigCommerceResu
         response = SourceResponse(
             name=resource.name,
             items=lambda: resource,
-            primary_keys=["id"],
+            primary_keys=PRIMARY_KEYS.get(inputs.schema_name, ["id"]),
             column_hints=resource.column_hints,
             # Whether BigCommerce's `sort`/`direction` params hold a stable ascending order
             # page-to-page isn't verified against a live store. Deferring the watermark commit
@@ -170,7 +171,8 @@ class BigCommerceSource(ResumableSource[BigCommerceSourceConfig, BigCommerceResu
                 "Enter your BigCommerce store hash and API access token to pull your store data into "
                 "the PostHog Data warehouse. Create an API account under **Settings → API → "
                 "Store-level API accounts** with `read-only` scope for **Products**, **Orders** and "
-                "**Customers**."
+                "**Customers**. To sync channels and order transactions, also grant `read-only` scope for "
+                "**Channel Settings** and **Order Transactions**."
             ),
             iconPath="/static/services/bigcommerce.png",
             docsUrl="https://posthog.com/docs/cdp/sources/bigcommerce",

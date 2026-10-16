@@ -4,18 +4,22 @@ from typing import Any, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.settings import (
     ENDPOINT_PATHS,
-    INCREMENTAL_FIELDS,
+    FANOUT_PARENTS,
+    INCREMENTAL_FILTERS,
     V2_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
 )
@@ -29,7 +33,10 @@ PAGE_SIZE = 250
 
 @dataclasses.dataclass
 class BigCommerceResumeConfig:
-    page: int
+    # Next page of a flat listing.
+    page: Optional[int] = None
+    # Per-order progress of a fan-out endpoint, in the rest_source dependent-resource shape.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _to_v3_timestamp(value: Any) -> str:
@@ -54,24 +61,17 @@ def _to_v2_timestamp(value: Any) -> str:
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     path = ENDPOINT_PATHS[name]
     is_v2 = name in V2_ENDPOINTS
-    use_incremental = should_use_incremental_field and name in INCREMENTAL_FIELDS
+    use_incremental = should_use_incremental_field and name in INCREMENTAL_FILTERS
 
     params: dict[str, Any] = {"limit": PAGE_SIZE}
     if use_incremental:
-        if is_v2:
-            params["min_date_modified"] = {
-                "type": "incremental",
-                "cursor_path": "date_modified",
-                "initial_value": None,
-                "convert": _to_v2_timestamp,
-            }
-        else:
-            params["date_modified:min"] = {
-                "type": "incremental",
-                "cursor_path": "date_modified",
-                "initial_value": None,
-                "convert": _to_v3_timestamp,
-            }
+        filter_param, cursor_path = INCREMENTAL_FILTERS[name]
+        params[filter_param] = {
+            "type": "incremental",
+            "cursor_path": cursor_path,
+            "initial_value": None,
+            "convert": _to_v2_timestamp if is_v2 else _to_v3_timestamp,
+        }
 
     # V3 reports the page count directly, so pagination stops without an extra empty-page
     # request. V2 has no such envelope, so it falls back to stopping on a short/empty page.
@@ -99,6 +99,26 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
     }
 
 
+def get_fanout_resource(name: str) -> EndpointResource:
+    parent = FANOUT_PARENTS[name]
+    endpoint: Endpoint = {
+        "path": ENDPOINT_PATHS[name],
+        "params": {"order_id": {"type": "resolve", "resource": parent, "field": "id"}},
+        # Returns every transaction of the order in one response.
+        "paginator": SinglePagePaginator(),
+        "data_selector": "data",
+        # An order deleted between the parent listing and this request has no transactions to read.
+        "response_actions": [{"status_code": 404, "action": "ignore"}],
+    }
+    return {
+        "name": name,
+        "table_name": name,
+        "write_disposition": "replace",
+        "endpoint": endpoint,
+        "table_format": "delta",
+    }
+
+
 def bigcommerce_source(
     store_hash: str,
     access_token: str,
@@ -109,26 +129,53 @@ def bigcommerce_source(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
 ):
-    config: RESTAPIConfig = {
-        "client": {
-            "base_url": f"{BASE_URL}/stores/{store_hash}",
-            "auth": {
-                "type": "api_key",
-                "name": "X-Auth-Token",
-                "api_key": access_token,
-                "location": "header",
-            },
-            "headers": {"Accept": "application/json"},
+    resume_config: Optional[BigCommerceResumeConfig] = None
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+
+    client: ClientConfig = {
+        "base_url": f"{BASE_URL}/stores/{store_hash}",
+        "auth": {
+            "type": "api_key",
+            "name": "X-Auth-Token",
+            "api_key": access_token,
+            "location": "header",
         },
+        "headers": {"Accept": "application/json"},
+    }
+
+    if endpoint in FANOUT_PARENTS:
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(BigCommerceResumeConfig(fanout_state=state))
+
+        resources = rest_api_resources(
+            {
+                "client": client,
+                "resource_defaults": {},
+                "resources": [
+                    get_resource(FANOUT_PARENTS[endpoint], should_use_incremental_field=False),
+                    get_fanout_resource(endpoint),
+                ],
+            },
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume_config.fanout_state if resume_config else None,
+        )
+        return next(resource for resource in resources if resource.name == endpoint)
+
+    config: RESTAPIConfig = {
+        "client": client,
         "resource_defaults": {},
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
-            initial_paginator_state = {"page": resume_config.page}
+    if resume_config is not None and resume_config.page is not None:
+        initial_paginator_state = {"page": resume_config.page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Only persist when there's a next page to resume to; the Redis TTL handles cleanup
