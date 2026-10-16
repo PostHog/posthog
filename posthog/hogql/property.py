@@ -755,6 +755,21 @@ def validate_regex(value: ValueT) -> None:
         raise QueryError(f"Invalid regular expression: '{value}'") from err
 
 
+# EXACT and IS_NOT stay out because their _expr_to_compare_op arms compare against one scalar.
+_WHOLE_LIST_OPERATORS = frozenset(
+    {
+        PropertyOperator.IN_,
+        PropertyOperator.NOT_IN,
+        PropertyOperator.ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.ICONTAINS_MULTI,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
+        PropertyOperator.BETWEEN,
+        PropertyOperator.NOT_BETWEEN,
+    }
+)
+
+
 def _expr_to_compare_op(
     expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
 ) -> ast.Expr:
@@ -1436,7 +1451,10 @@ def property_to_expr(
                 chain = split[:-1]
                 property.key = split[-1]
 
-            if isinstance(value, list) and len(value) > 1:
+            # The shared list handling below rebuilds the Property from property.key to split a list
+            # per value. That key no longer holds the table chain, so this branch splits the list itself.
+            # It falls through for the whole-list operators, which the shared handling never splits.
+            if isinstance(value, list) and len(value) > 1 and operator not in _WHOLE_LIST_OPERATORS:
                 field = ast.Field(chain=[*chain, property.key])
                 exprs = [
                     _expr_to_compare_op(
@@ -1527,14 +1545,6 @@ def property_to_expr(
                 ],
             )
 
-        # _expr_to_compare_op combines every value of these into one multiSearchAnyCaseInsensitive
-        # call per 255 needles, so they must reach it with the list intact. Expanding them per
-        # value would build one call per needle.
-        combines_values_itself = operator in (
-            PropertyOperator.ICONTAINS_MULTI,
-            PropertyOperator.NOT_ICONTAINS_MULTI,
-        )
-
         if isinstance(value, list) and operator not in (
             PropertyOperator.BETWEEN,
             PropertyOperator.NOT_BETWEEN,
@@ -1551,30 +1561,27 @@ def property_to_expr(
                 # _expr_to_compare_op's ICONTAINS_MULTI/NOT_ICONTAINS_MULTI arms re-wrap a scalar
                 # into a single-element list, so collapsing here is a no-op round trip for them too.
                 value = value[0]
-            elif not combines_values_itself:
-                if operator in (
-                    PropertyOperator.EXACT,
-                    PropertyOperator.IS_NOT,
-                    PropertyOperator.IN_,
-                    PropertyOperator.NOT_IN,
-                ):
-                    coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
-                    values = ast.Tuple(exprs=[ast.Constant(value=v) for v in coerced])
-                    negate = operator_is_negative(operator)
-                    if array_field is not None:
-                        return _array_property_filter(
-                            array_field,
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.In, left=ast.Field(chain=["v"]), right=values
-                            ),
-                            negate=negate,
-                        )
-                    return ast.CompareOperation(
-                        op=ast.CompareOperationOp.NotIn if negate else ast.CompareOperationOp.In,
-                        left=expr,
-                        right=values,
+            elif operator in (
+                PropertyOperator.EXACT,
+                PropertyOperator.IS_NOT,
+                PropertyOperator.IN_,
+                PropertyOperator.NOT_IN,
+            ):
+                coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
+                values = ast.Tuple(exprs=[ast.Constant(value=v) for v in coerced])
+                negate = operator_is_negative(operator)
+                if array_field is not None:
+                    return _array_property_filter(
+                        array_field,
+                        ast.CompareOperation(op=ast.CompareOperationOp.In, left=ast.Field(chain=["v"]), right=values),
+                        negate=negate,
                     )
-
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotIn if negate else ast.CompareOperationOp.In,
+                    left=expr,
+                    right=values,
+                )
+            elif operator not in _WHOLE_LIST_OPERATORS:
                 exprs = [
                     property_to_expr(
                         Property(
@@ -1772,7 +1779,7 @@ def bound_property_to_expr(property: Property, expr: ast.Expr, team: Team) -> as
                 left=clone_expr(expr),
                 right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
             )
-        elif operator not in (PropertyOperator.ICONTAINS_MULTI, PropertyOperator.NOT_ICONTAINS_MULTI):
+        elif operator not in _WHOLE_LIST_OPERATORS:
             exprs = [
                 bound_property_to_expr(
                     Property(

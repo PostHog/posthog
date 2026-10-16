@@ -1312,25 +1312,43 @@ class TestProperty(BaseTest):
         [
             (
                 "exact",
+                ["control", "test"],
                 "foobars.properties.`$feature/test` = 'control' OR foobars.properties.`$feature/test` = 'test'",
             ),
             (
+                "is_not",
+                ["control", "test"],
+                "foobars.properties.`$feature/test` != 'control' AND foobars.properties.`$feature/test` != 'test'",
+            ),
+            (
                 "not_in",
-                "foobars.properties.`$feature/test` NOT IN ['control'] AND foobars.properties.`$feature/test` NOT IN ['test']",
+                ["control", "test"],
+                "foobars.properties.`$feature/test` NOT IN ('control', 'test')",
             ),
             (
                 "not_icontains_multi",
-                "NOT multiSearchAnyCaseInsensitive(toString(foobars.properties.`$feature/test`), ['control']) > 0"
-                " AND NOT multiSearchAnyCaseInsensitive(toString(foobars.properties.`$feature/test`), ['test']) > 0",
+                ["control", "test"],
+                "NOT multiSearchAnyCaseInsensitive(toString(foobars.properties.`$feature/test`), ['control', 'test']) > 0",
+            ),
+            (
+                "between",
+                [1, 10],
+                "foobars.properties.`$feature/test` >= 1 AND foobars.properties.`$feature/test` <= 10",
+            ),
+            (
+                "not_between",
+                [1, 10],
+                "foobars.properties.`$feature/test` < 1 OR foobars.properties.`$feature/test` > 10"
+                " OR isNull(foobars.properties.`$feature/test`)",
             ),
         ]
     )
-    def test_data_warehouse_property_with_list_values(self, operator: str, expected: str):
+    def test_data_warehouse_property_with_list_values(self, operator: str, value: list, expected: str):
         expr = self._property_to_expr(
             {
                 "type": "data_warehouse",
                 "key": "foobars.properties.$feature/test",
-                "value": ["control", "test"],
+                "value": value,
                 "operator": operator,
             },
             self.team,
