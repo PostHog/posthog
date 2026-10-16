@@ -1068,7 +1068,9 @@ class UserViewSet(
         "scene_personalisation",
         "product_intro_seen",
     ]
-    time_sensitive_allow_actions = ["hedgehog_config"]
+    # credentials_review_complete only dismisses the review screen. Requiring a fresh session for it
+    # sends a user with an older session back to the review screen on every load.
+    time_sensitive_allow_actions = ["hedgehog_config", "credentials_review_complete"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True).order_by("id")
