@@ -28,6 +28,7 @@ common_alloc::used!();
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::init_from_env().expect("invalid configuration");
+    config.validate()?;
     tracing_subscriber::registry()
         .with(fmt::layer().with_target(true).with_level(true))
         .with(
@@ -39,12 +40,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(topic = %config.kafka_topic, overflow_topic = %config.kafka_overflow_topic, group = %config.kafka_consumer_group, sample = config.sample_percentage, "starting replay-recorder-v4");
 
     let mut manager = Manager::builder("replay-recorder-v4")
-        .with_global_shutdown_timeout(Duration::from_secs(30))
+        .with_global_shutdown_timeout(Duration::from_secs(config.shutdown_flush_secs + 15))
         .build();
     let consumer_handle = manager.register(
         "consumer",
         ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(15))
+            .with_graceful_shutdown(Duration::from_secs(config.shutdown_flush_secs + 5))
             .with_liveness_deadline(Duration::from_secs(60)),
     );
     let restrictions_handle = manager.register(
@@ -138,6 +139,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             config.flush_concurrency
         },
+        flush_timeout: Duration::from_secs(config.flush_timeout_secs),
+        flush_retries: config.flush_retries,
+        shutdown_flush: Duration::from_secs(config.shutdown_flush_secs),
         session_idle: Duration::from_secs(config.session_idle_secs),
         redirecting_topic: (config.ingestion_overflow_mode == "redirect")
             .then(|| config.kafka_topic.clone()),
