@@ -142,10 +142,17 @@ const loadedByWorker = (
         return `the worker found no function with id ${invocation.functionId}`
     }
     const state = invocation.state as CyclotronJobInvocationHogFunction['state'] | null
-    if (!state?.globals?.project || !state.globals.event) {
+    if (!state) {
+        return 'the worker cannot read a job with no state'
+    }
+    if (!state.globals?.project || !state.globals.event) {
         return 'the worker skipped the job, because its globals have no project or event'
     }
-    const globals = { ...state.globals, groups: job.groups, person: state.globals.person ?? job.person }
+    const globals = {
+        ...state.globals,
+        groups: state.globals.groups ?? job.groups,
+        person: state.globals.person ?? job.person,
+    }
     return { ...invocation, state: { ...state, globals }, hogFunction: job.hogFunction }
 }
 
