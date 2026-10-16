@@ -583,7 +583,7 @@ def max_enabled_scouts_for_team(canonical_team_id: int) -> int:
     """
     payload = _read_flag_payload()
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
-    from products.signals.backend.trial_scouts import (
+    from products.signals.backend.trial.scouts import (
         trial_scout_limit,  # noqa: PLC0415 -- avoid model registration cycle
     )
 

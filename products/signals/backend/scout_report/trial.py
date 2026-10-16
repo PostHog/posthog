@@ -5,9 +5,9 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.trial_models import SignalTrialOperation
-from products.signals.backend.trial_policy import TrialPolicy
-from products.signals.backend.trial_reports import prepare_report_pass, report_trial_context, task_trial_context
+from products.signals.backend.trial.models import SignalTrialOperation
+from products.signals.backend.trial.policy import TrialPolicy
+from products.signals.backend.trial.reports import prepare_report_pass, report_trial_context, task_trial_context
 
 
 def reserve_report(team: Team, run_id: UUID | None, emission_key: str) -> UUID | None:

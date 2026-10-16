@@ -15,7 +15,7 @@ from rest_framework.exceptions import APIException
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
-from products.signals.backend.trial_models import (
+from products.signals.backend.trial.models import (
     SignalTrialGrant,
     SignalTrialOperation,
     SignalTrialOrganization,

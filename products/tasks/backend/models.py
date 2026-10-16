@@ -946,16 +946,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                     model=trial_model,
                     runtime=trial_runtime,
                 )
-                if (
-                    state["self_driving_funding"]["funding"] == "trial"
-                    and (state.get("ai_stage") or "implementation") != "implementation"
-                ):
-                    state["runtime_adapter"] = state["self_driving_funding"]["runtime"]
-                    state["model"] = state["self_driving_funding"]["model"]
-                    state["reasoning_effort"] = "medium"
-                    state.pop("service_tier", None)
-                    state.pop("claude_model_access", None)
-                    state.pop("codex_model_access", None)
             task_run = TaskRun.objects.create(
                 id=run_id,
                 task=task,

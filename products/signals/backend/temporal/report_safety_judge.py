@@ -22,7 +22,7 @@ from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, Mode
 from products.signals.backend.system_one_prompts import bundled_prompt, current_prompt
 from products.signals.backend.temporal.llm import SAFETY_MODEL, call_llm
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
-from products.signals.backend.trial_reports import trial_report_activity
+from products.signals.backend.trial.reports import trial_report_activity
 
 logger = structlog.get_logger(__name__)
 

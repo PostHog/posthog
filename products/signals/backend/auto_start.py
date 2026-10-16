@@ -1536,7 +1536,7 @@ async def maybe_autostart_implementation_task(
         and triggering_user_id is None
         and not (team_config and team_config.autostart_enabled is True)
     ):
-        from products.signals.backend.trial_reports import (
+        from products.signals.backend.trial.reports import (
             implementation_requires_trial_opt_in,  # noqa: PLC0415 -- avoids eager policy imports
         )
 

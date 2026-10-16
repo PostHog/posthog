@@ -149,7 +149,7 @@ from products.signals.backend.scout_report.judge import (
 from products.signals.backend.scout_report.trial import trial_report_reservation, trial_report_reservation_sync
 from products.signals.backend.slack_formatting import strip_chart_references
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT
-from products.signals.backend.trial_reports import task_trial_context
+from products.signals.backend.trial.reports import task_trial_context
 from products.tasks.backend.facade import api as tasks_facade
 
 if TYPE_CHECKING:

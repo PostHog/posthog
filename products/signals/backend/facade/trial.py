@@ -8,10 +8,10 @@ from django.conf import settings
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.trial_billing import paid_trial_continuation_authorized
-from products.signals.backend.trial_models import SignalTrialOperation
-from products.signals.backend.trial_policy import OperationAdmission, TrialFlagDecision, TrialPolicy, TrialRefused
-from products.signals.backend.trial_reports import active_report_pass, report_trial_context, task_trial_context
+from products.signals.backend.trial.billing import paid_trial_continuation_authorized
+from products.signals.backend.trial.models import SignalTrialOperation
+from products.signals.backend.trial.policy import OperationAdmission, TrialFlagDecision, TrialPolicy, TrialRefused
+from products.signals.backend.trial.reports import active_report_pass, report_trial_context, task_trial_context
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -51,13 +51,7 @@ class TaskTrialAdmission:
             decision=self.decision,
         )
         operation.task_run_id = run_id
-        if (
-            operation.funding == SignalTrialOperation.Funding.TRIAL
-            and resolved_stage != SignalTrialOperation.Stage.IMPLEMENTATION
-        ):
-            operation.model = settings.SELF_DRIVING_TRIAL_AGENT_MODEL
-            operation.runtime = settings.SELF_DRIVING_TRIAL_AGENT_RUNTIME
-        operation.save(update_fields=["task_run_id", "model", "runtime"])
+        operation.save(update_fields=["task_run_id"])
         return {
             "operation_id": str(operation.id),
             "funding": operation.funding,
@@ -165,7 +159,7 @@ def start_task_trial(*, team: "Team", run_id: UUID) -> bool:
 
 
 def check_trial_run_quota(*, team: "Team", run_id: UUID) -> str | None:
-    from products.signals.backend.trial_tasks import (
+    from products.signals.backend.trial.tasks import (
         reconcile_trial_operation,  # noqa: PLC0415 -- cancellation imports Tasks workflows
     )
 

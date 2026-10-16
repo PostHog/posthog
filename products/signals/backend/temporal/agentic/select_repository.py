@@ -25,7 +25,7 @@ from products.signals.backend.temporal.agentic import (
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.types import SignalData
-from products.signals.backend.trial_reports import trial_report_activity
+from products.signals.backend.trial.reports import trial_report_activity
 from products.tasks.backend.facade import api as tasks_facade
 
 # Repo discovery only runs `gh` CLI commands — limit egress to GitHub hosts.

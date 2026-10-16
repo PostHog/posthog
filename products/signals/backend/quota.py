@@ -93,10 +93,10 @@ def self_driving_quota_enforcement_enabled(team: "Team") -> bool:
 
 
 def trial_quota_gate(team: "Team") -> SelfDrivingQuotaGate | None:
-    from products.signals.backend.trial_billing import (
+    from products.signals.backend.trial.billing import (
         paid_trial_continuation_authorized,  # noqa: PLC0415 -- trial policy imports Signals models
     )
-    from products.signals.backend.trial_policy import TrialPolicy  # noqa: PLC0415 -- avoid model registration cycle
+    from products.signals.backend.trial.policy import TrialPolicy  # noqa: PLC0415 -- avoid model registration cycle
 
     policy = TrialPolicy(team)
     if policy.flag_decision().enabled is True and (settings.SELF_DRIVING_TRIAL_V2_BILLING_READY or policy.grant()):

@@ -17,12 +17,12 @@ from products.signals.backend.models import SignalReport, SignalSpend
 from products.signals.backend.report_generation.research import ReportLayer
 from products.signals.backend.spend import record_llm_spend
 from products.signals.backend.stack_plan import create_layer_reports
-from products.signals.backend.trial_models import (
+from products.signals.backend.trial.models import (
     SignalTrialOperation,
     SignalTrialOrganization,
     SignalTrialReportReservation,
 )
-from products.signals.backend.trial_policy import OperationAdmission, TrialPolicy, TrialRefused
+from products.signals.backend.trial.policy import OperationAdmission, TrialPolicy, TrialRefused
 from products.tasks.backend.models import Task
 
 
@@ -31,7 +31,7 @@ class TestTrialConcurrency(NonAtomicBaseTest):
 
     @override_settings(SELF_DRIVING_TRIAL_V2_BILLING_READY=True)
     def test_admission_and_cost_settlement_do_not_invert_locks(self) -> None:
-        with patch("products.signals.backend.trial_policy.posthoganalytics.feature_enabled", return_value=True):
+        with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
             grant = TrialPolicy(self.team).claim(user_id=self.user.pk)
             SignalTrialOrganization.objects.filter(organization_id=self.organization.pk).update(
                 billing_migrated_at=timezone.now()
@@ -114,7 +114,7 @@ class TestTrialConcurrency(NonAtomicBaseTest):
 
     @override_settings(SELF_DRIVING_TRIAL_V2_BILLING_READY=True)
     def test_concurrent_plans_reserve_all_layers_or_publish_only_parent(self) -> None:
-        with patch("products.signals.backend.trial_policy.posthoganalytics.feature_enabled", return_value=True):
+        with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
             policy = TrialPolicy(self.team)
             policy.claim(user_id=self.user.pk)
             SignalTrialOrganization.objects.filter(organization_id=self.organization.pk).update(
@@ -160,7 +160,7 @@ class TestTrialConcurrency(NonAtomicBaseTest):
 
     @override_settings(SELF_DRIVING_TRIAL_V2_BILLING_READY=True)
     def test_final_organization_slot_and_report_slot_are_atomic(self) -> None:
-        with patch("products.signals.backend.trial_policy.posthoganalytics.feature_enabled", return_value=True):
+        with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
             TrialPolicy(self.team).claim(user_id=self.user.pk)
             second = Team.objects.create(organization=self.organization, name="Second")
             TrialPolicy(second).claim(user_id=self.user.pk)

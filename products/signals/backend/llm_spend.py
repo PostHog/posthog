@@ -8,8 +8,6 @@ from decimal import Decimal
 from typing import Unpack
 from uuid import uuid4
 
-from django.conf import settings
-
 import httpx
 import structlog
 from anthropic import APIConnectionError, APIResponseValidationError, APIStatusError, AsyncAnthropic
@@ -24,8 +22,8 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.pricing import cost_to_spend
 from products.signals.backend.spend import record_llm_spend
-from products.signals.backend.trial_llm_execution import TrialLLMExecution
-from products.signals.backend.trial_policy import TrialRefused
+from products.signals.backend.trial.llm_execution import TrialLLMExecution
+from products.signals.backend.trial.policy import TrialRefused
 
 logger = structlog.get_logger(__name__)
 USAGE_WAIT_SECONDS = 10.0
@@ -40,8 +38,6 @@ class AccountedMessageParams(MessageCreateParamsNonStreaming, total=False):
 async def accounted_message(client: AsyncAnthropic, **kwargs: Unpack[AccountedMessageParams]) -> Message:
     source_id = _generation_source.get()
     if source_id:
-        if kwargs["model"] != settings.SELF_DRIVING_TRIAL_SHORT_MODEL:
-            raise TrialRefused("trial_model_mismatch")
         headers = dict(kwargs.pop("extra_headers", {}) or {})
         properties = json.loads(
             headers.get("X-PostHog-Properties") or client.default_headers.get("X-PostHog-Properties") or "{}"

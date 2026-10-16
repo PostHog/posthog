@@ -14,9 +14,9 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.models import OrganizationMembership, User
 from posthog.permissions import APIScopePermission, TeamMemberLightManagementPermission
 
-from products.signals.backend.trial_billing import TrialContinuation
-from products.signals.backend.trial_policy import TrialRefused
-from products.signals.backend.trial_service import TrialService
+from products.signals.backend.trial.billing import TrialContinuation
+from products.signals.backend.trial.policy import TrialRefused
+from products.signals.backend.trial.service import TrialService
 
 
 class TrialGrantStatus(models.TextChoices):

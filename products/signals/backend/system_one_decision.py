@@ -36,7 +36,7 @@ from products.signals.backend.system_one_prompts import (
     SystemOnePrompt,
     model_experiment_prompt,
 )
-from products.signals.backend.trial_reports import requires_trial_accounting
+from products.signals.backend.trial.reports import requires_trial_accounting
 
 if TYPE_CHECKING:
     from posthoganalytics.feature_flag_evaluations import FeatureFlagEvaluations

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from django.db import transaction
 from django.utils import timezone
 
-from products.signals.backend.trial_models import SignalTrialGrant, SignalTrialOperation
+from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialOperation
 
 if TYPE_CHECKING:
     from products.signals.backend.models import SignalSpend
@@ -35,7 +35,7 @@ def apply_trial_spend(spend: "SignalSpend", previous: dict[str, "SpendSource"]) 
         grant.incomplete_sources += missing_delta
         grant.incomplete_since = (grant.incomplete_since or timezone.now()) if grant.incomplete_sources else None
         if grant.settled_microusd >= grant.allowance_microusd:
-            from products.signals.backend.trial_tasks import cancel_trial_grant
+            from products.signals.backend.trial.tasks import cancel_trial_grant
 
             grant.exhausted_at = grant.exhausted_at or timezone.now()
             grant.exhaustion_reason = "cost_limit"

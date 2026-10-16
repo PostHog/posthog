@@ -36,7 +36,7 @@ from products.signals.backend.implementation_pr import fetch_implementation_prs_
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_generation.research import ReportLayer
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
-from products.signals.backend.trial_policy import TrialPolicy
+from products.signals.backend.trial.policy import TrialPolicy
 from products.signals.backend.typed_report_links import has_open_or_merged_pull_request, incoming_links, outgoing_links
 
 logger = structlog.get_logger(__name__)

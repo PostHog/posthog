@@ -8,9 +8,9 @@ from celery import shared_task
 from posthog.models import Organization, Team
 
 from products.signals.backend.spend import complete_task_spend, refresh_task_spend
-from products.signals.backend.trial_billing import TrialBilling
-from products.signals.backend.trial_models import SignalTrialGrant, SignalTrialOperation, SignalTrialOrganization
-from products.signals.backend.trial_policy import TrialPolicy
+from products.signals.backend.trial.billing import TrialBilling
+from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialOperation, SignalTrialOrganization
+from products.signals.backend.trial.policy import TrialPolicy
 from products.tasks.backend.facade.api import get_task_run
 from products.tasks.backend.facade.billing import process_pending_gateway_usage
 from products.tasks.backend.facade.cancellation import cancel_task_run

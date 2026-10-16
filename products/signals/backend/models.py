@@ -51,7 +51,7 @@ from products.signals.backend.enums import (
     signal_source_product_choices,
 )
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
-from products.signals.backend.trial_models import (  # noqa: F401 -- register Signals' durable trial ledger
+from products.signals.backend.trial.models import (  # noqa: F401 -- register Signals' durable trial ledger
     SignalTrialGrant,
     SignalTrialOperation,
     SignalTrialOrganization,
@@ -514,7 +514,7 @@ class SignalReport(UUIDModel):
         return self.Status(self.status)
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        from products.signals.backend.trial_policy import (
+        from products.signals.backend.trial.policy import (
             TrialPolicy,  # noqa: PLC0415 -- trial policy imports registered models lazily
         )
 
@@ -2985,7 +2985,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                     touched.add("status_changed_at")
             if fields is not None:
                 kwargs["update_fields"] = fields | touched
-        from products.signals.backend.trial_scouts import (
+        from products.signals.backend.trial.scouts import (
             scout_capacity,  # noqa: PLC0415 -- capacity policy depends on this model
         )
 

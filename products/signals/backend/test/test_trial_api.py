@@ -7,8 +7,8 @@ from parameterized import parameterized
 
 from posthog.models import OrganizationMembership
 
-from products.signals.backend.trial_billing import TrialBillingStatus, TrialContinuation
-from products.signals.backend.trial_models import SignalTrialGrant, SignalTrialOrganization
+from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
+from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialOrganization
 
 
 @override_settings(SELF_DRIVING_TRIAL_V2_BILLING_READY=True)
@@ -19,7 +19,7 @@ class TestTrialAPI(APIBaseTest):
             level=OrganizationMembership.Level.ADMIN
         )
         self.url = f"/api/projects/{self.team.pk}/signals/trial/"
-        self.flag = patch("products.signals.backend.trial_policy.posthoganalytics.feature_enabled", return_value=True)
+        self.flag = patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True)
         self.flag.start()
         self.addCleanup(self.flag.stop)
 
@@ -28,7 +28,7 @@ class TestTrialAPI(APIBaseTest):
         def billing_status(*, grant_id=None) -> TrialBillingStatus:
             return TrialBillingStatus(ready=True, migrated=grant_id is not None, continuation=continuation)
 
-        with patch("products.signals.backend.trial_billing.TrialBilling.status", side_effect=billing_status):
+        with patch("products.signals.backend.trial.billing.TrialBilling.status", side_effect=billing_status):
             status = self.client.get(self.url)
             assert status.status_code == 200
             assert status.json()["eligible"]
@@ -50,7 +50,7 @@ class TestTrialAPI(APIBaseTest):
         membership.level = OrganizationMembership.Level.ADMIN
         membership.save(update_fields=["level"])
         with patch(
-            "products.signals.backend.trial_billing.TrialBilling.status",
+            "products.signals.backend.trial.billing.TrialBilling.status",
             return_value=TrialBillingStatus(
                 ready=False,
                 migrated=False,
@@ -63,10 +63,10 @@ class TestTrialAPI(APIBaseTest):
     def test_failed_billing_acknowledgement_retries_same_grant(self) -> None:
         ready = TrialBillingStatus(ready=True, migrated=False, continuation=TrialContinuation.PAYMENT)
         migrated = TrialBillingStatus(ready=True, migrated=True, continuation=TrialContinuation.PAYMENT)
-        with patch("products.signals.backend.trial_billing.TrialBilling.status", side_effect=[ready, TimeoutError()]):
+        with patch("products.signals.backend.trial.billing.TrialBilling.status", side_effect=[ready, TimeoutError()]):
             assert self.client.post(self.url, {}, format="json").status_code == 400
         grant = SignalTrialGrant.objects.for_team(self.team.pk).get()
-        with patch("products.signals.backend.trial_billing.TrialBilling.status", return_value=migrated):
+        with patch("products.signals.backend.trial.billing.TrialBilling.status", return_value=migrated):
             response = self.client.post(self.url, {}, format="json")
         assert response.status_code == 200, response.content
         assert response.json()["grant_id"] == str(grant.id)

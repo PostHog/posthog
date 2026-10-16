@@ -12,7 +12,7 @@ from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.free_trial import SELF_DRIVING_FREE_TRIAL_FLAG
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import cost_to_spend
-from products.signals.backend.trial_policy import TrialPolicy
+from products.signals.backend.trial.policy import TrialPolicy
 
 logger = structlog.get_logger(__name__)
 USAGE_BILLING_FLAG = "self-driving-usage-based-billing"

@@ -5,10 +5,10 @@ from django.conf import settings
 from posthog.llm.gateway_client import AIGatewayConfig, GatewayNotConfiguredError
 from posthog.models import Team
 
-from products.signals.backend.trial_billing import paid_trial_continuation_authorized
-from products.signals.backend.trial_models import SignalTrialOperation
-from products.signals.backend.trial_policy import OperationAdmission, TrialPolicy
-from products.signals.backend.trial_reports import active_report_pass, report_trial_context, task_trial_context
+from products.signals.backend.trial.billing import paid_trial_continuation_authorized
+from products.signals.backend.trial.models import SignalTrialOperation
+from products.signals.backend.trial.policy import OperationAdmission, TrialPolicy
+from products.signals.backend.trial.reports import active_report_pass, report_trial_context, task_trial_context
 
 
 class TrialLLMExecution:

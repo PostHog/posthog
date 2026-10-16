@@ -25,14 +25,14 @@ from products.signals.backend.models import SignalReport, SignalScoutConfig, Sig
 from products.signals.backend.spend import complete_signal_pipeline, record_llm_spend, record_task_spend
 from products.signals.backend.spend_billing import spend_billing_credits_by_team, usage_billing_enabled
 from products.signals.backend.spend_recovery import recover_spend
-from products.signals.backend.trial_models import (
+from products.signals.backend.trial.models import (
     SignalTrialGrant,
     SignalTrialOperation,
     SignalTrialOrganization,
     SignalTrialReportReservation,
 )
-from products.signals.backend.trial_policy import OperationAdmission, TrialPolicy, TrialRefused
-from products.signals.backend.trial_tasks import cancel_trial_grant, reconcile_trial_operation
+from products.signals.backend.trial.policy import OperationAdmission, TrialPolicy, TrialRefused
+from products.signals.backend.trial.tasks import cancel_trial_grant, reconcile_trial_operation
 from products.tasks.backend.facade.billing import get_task_run_actual_cost
 from products.tasks.backend.facade.contracts import TaskRunActualCost
 from products.tasks.backend.models import Task, TaskRun
@@ -42,7 +42,7 @@ from products.tasks.backend.models import Task, TaskRun
 class TestTrialPolicy(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.flag = patch("products.signals.backend.trial_policy.posthoganalytics.feature_enabled", return_value=True)
+        self.flag = patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True)
         self.flag_mock = self.flag.start()
         self.addCleanup(self.flag.stop)
         self.policy = TrialPolicy(self.team)
@@ -421,9 +421,9 @@ class TestTrialPolicy(BaseTest):
         run.save(update_fields=["status"])
         operation = SignalTrialOperation.objects.for_team(self.team.id).get(task_run_id=run.id)
         with (
-            patch("products.signals.backend.trial_tasks.process_pending_gateway_usage"),
-            patch("products.signals.backend.trial_tasks.refresh_task_spend"),
-            patch("products.signals.backend.trial_tasks.complete_task_spend", side_effect=[False, True, True]),
+            patch("products.signals.backend.trial.tasks.process_pending_gateway_usage"),
+            patch("products.signals.backend.trial.tasks.refresh_task_spend"),
+            patch("products.signals.backend.trial.tasks.complete_task_spend", side_effect=[False, True, True]),
         ):
             reconcile_trial_operation(self.team.id, str(operation.id))
             operation.refresh_from_db()
@@ -464,17 +464,25 @@ class TestTrialPolicy(BaseTest):
 
     @parameterized.expand(
         [
-            ("research", "gpt-6-luna", "codex"),
-            ("repo_selection", "gpt-6-luna", "codex"),
-            ("implementation", "claude-opus-5", "claude"),
+            ("signals_scout", "scout", "claude-opus-5", "claude"),
+            ("signal_report", "research", "claude-opus-5", "claude"),
+            ("signal_report", "repo_selection", "gpt-6.1-sol", "codex"),
+            ("signals_chat", "generation", "gpt-6.1-sol", "codex"),
+            ("signal_report", "implementation", "claude-opus-5", "claude"),
         ]
     )
-    def test_trial_model_overrides_preserve_implementation(self, stage: str, model: str, runtime: str) -> None:
+    def test_trial_preserves_selected_model_profile(self, origin: str, stage: str, model: str, runtime: str) -> None:
         self.claim()
-        task = Task.objects.create(team=self.team, title="Routing", origin_product="signal_report")
-        run = task.create_run(extra_state={"ai_stage": stage, "model": "claude-opus-5", "runtime_adapter": "claude"})
-        assert run.state["model"] == model
-        assert run.state["runtime_adapter"] == runtime
+        task = Task.objects.create(team=self.team, title="Routing", origin_product=origin)
+        profile = {
+            "model": model,
+            "runtime_adapter": runtime,
+            "reasoning_effort": "high",
+            "service_tier": "priority",
+            f"{runtime}_model_access": "posthog-gateway",
+        }
+        run = task.create_run(extra_state={"ai_stage": stage, **profile})
+        assert {key: run.state[key] for key in profile} == profile
         operation = SignalTrialOperation.objects.for_team(self.team.id).get(task_run_id=run.id)
         assert (operation.model, operation.runtime) == (model, runtime)
 
@@ -492,7 +500,7 @@ class TestTrialPolicy(BaseTest):
             token_cost_microusd=10_000_000,
             trial_grant_id=str(grant.id),
         )
-        with patch("products.signals.backend.trial_tasks.cancel_task_run", return_value=("accepted", None)) as cancel:
+        with patch("products.signals.backend.trial.tasks.cancel_task_run", return_value=("accepted", None)) as cancel:
             cancel_trial_grant(self.team.id, str(grant.id))
         assert cancel.call_args.args[:3] == (run.id, task.id, self.team.id)
         run.refresh_from_db()

@@ -14,7 +14,7 @@ from rest_framework.exceptions import APIException
 
 from posthog.event_usage import groups
 
-from products.signals.backend.trial_policy import TrialPolicy
+from products.signals.backend.trial.policy import TrialPolicy
 
 if TYPE_CHECKING:
     from posthog.models import Team

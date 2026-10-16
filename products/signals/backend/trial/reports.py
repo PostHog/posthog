@@ -8,9 +8,9 @@ from django.conf import settings
 
 from posthog.models import Team
 
-from products.signals.backend.trial_billing import paid_trial_continuation_authorized
-from products.signals.backend.trial_models import SignalTrialOperation, SignalTrialReportReservation
-from products.signals.backend.trial_policy import OperationAdmission, TrialPolicy
+from products.signals.backend.trial.billing import paid_trial_continuation_authorized
+from products.signals.backend.trial.models import SignalTrialOperation, SignalTrialReportReservation
+from products.signals.backend.trial.policy import OperationAdmission, TrialPolicy
 
 report_trial_context: ContextVar[tuple[int, str] | None] = ContextVar("report_trial_context", default=None)
 task_trial_context: ContextVar[tuple[int, UUID] | None] = ContextVar("task_trial_context", default=None)

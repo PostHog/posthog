@@ -6,8 +6,8 @@ from django.db import transaction
 
 from posthog.models import Team
 
-from products.signals.backend.trial_models import SignalTrialGrant, SignalTrialOrganization
-from products.signals.backend.trial_policy import TrialPolicy
+from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialOrganization
+from products.signals.backend.trial.policy import TrialPolicy
 
 if TYPE_CHECKING:
     from products.signals.backend.models import SignalScoutConfig

@@ -75,7 +75,7 @@ from products.signals.backend.slack_inbox_notifications import dispatch_reviewer
 from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
 from products.signals.backend.spend_recovery import recover_incomplete_spend as recover_incomplete_spend
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
-from products.signals.backend.trial_tasks import reconcile_trials as reconcile_trials
+from products.signals.backend.trial.tasks import reconcile_trials as reconcile_trials
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)

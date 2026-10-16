@@ -163,7 +163,7 @@ def _sources(spend: SignalSpend) -> dict[str, SpendSource]:
 
 
 def _save_spend(spend: SignalSpend, *, finalize: bool = False) -> SignalSpendSummary:
-    from products.signals.backend.trial_spend import apply_trial_spend
+    from products.signals.backend.trial.spend import apply_trial_spend
     from products.tasks.backend.facade.billing import (
         get_task_run_actual_cost,
         get_task_runs_spend,  # noqa: PLC0415 — keeps task services off startup
@@ -434,7 +434,7 @@ def _task_spend(*, team_id: int, run_id: str) -> SignalSpend | None:
     if legacy and legacy.signal_id:
         return _locked_spend(team_id=team_id, signal_id=str(legacy.signal_id))
     if (run.state or {}).get("self_driving_funding", {}).get("funding") == "trial":
-        from products.signals.backend.trial_models import SignalTrialOperation
+        from products.signals.backend.trial.models import SignalTrialOperation
 
         operation = SignalTrialOperation.objects.for_team(team_id).get(task_run_id=run_id)
         if (

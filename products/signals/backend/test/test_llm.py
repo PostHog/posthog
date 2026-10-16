@@ -1,4 +1,5 @@
 import os
+import json
 import importlib
 from collections.abc import Iterator
 
@@ -9,6 +10,7 @@ from django.test import override_settings
 
 from anthropic.types import Message, TextBlock, Usage
 
+from products.signals.backend.llm_spend import _generation_source
 from products.signals.backend.temporal import llm
 from products.signals.backend.temporal.llm import call_llm
 from products.signals.eval.llm_gen.client import CanonicalSignal, CanonicalSignalBatch, generate_canonical_signals
@@ -19,7 +21,7 @@ MODULE_PATH = "products.signals.backend.temporal.llm"
 @pytest.fixture(autouse=True)
 def no_trial() -> Iterator[None]:
     with (
-        patch("products.signals.backend.trial_reports.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.trial.reports.requires_trial_accounting", return_value=False),
         patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
     ):
         yield
@@ -43,30 +45,37 @@ def _mock_anthropic_client() -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_trial_short_stage_uses_provider_compatible_cheap_profile() -> None:
+@pytest.mark.parametrize("model", [None, "claude-opus-5"])
+async def test_trial_short_stage_preserves_regular_model_profile(model: str | None) -> None:
     client = _mock_anthropic_client()
     client.with_options.return_value = client
-    with (
-        patch("products.signals.backend.trial_reports.requires_trial_accounting", return_value=True),
-        patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client),
-    ):
-        assert (
-            await call_llm(
-                team_id=1,
-                system_prompt="s",
-                user_prompt="u",
-                validate=lambda text: text,
-                thinking=True,
-                model="claude-opus-5",
+    client.default_headers = {}
+    source_token = _generation_source.set("generation:trial")
+    try:
+        with (
+            patch("products.signals.backend.trial.reports.requires_trial_accounting", return_value=True),
+            patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client),
+        ):
+            assert (
+                await call_llm(
+                    team_id=1,
+                    system_prompt="s",
+                    user_prompt="u",
+                    validate=lambda text: text,
+                    thinking=True,
+                    model=model,
+                )
+                == "ok"
             )
-            == "ok"
-        )
+    finally:
+        _generation_source.reset(source_token)
     request = client.messages.create.call_args.kwargs
-    assert request["model"] == "deepseek-ai/deepseek-v4-flash-0731"
-    assert "thinking" not in request
-    assert "output_config" not in request
+    assert request["model"] == (model or llm.MATCHING_MODEL)
+    assert request["thinking"] == {"type": "adaptive"}
+    assert request["output_config"] == llm.effort_kwargs(model or llm.MATCHING_MODEL)["output_config"]
     assert request["messages"] == [{"role": "user", "content": "u"}]
-    client.with_options.assert_called_once_with(max_retries=0)
+    assert json.loads(request["extra_headers"]["X-PostHog-Properties"])["signals_cost_source_id"] == "generation:trial"
+    client.with_options.assert_called_with(max_retries=0)
 
 
 @pytest.mark.asyncio

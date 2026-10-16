@@ -724,10 +724,10 @@ async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> 
     its own gate. Never raises: any failure resolves to False (run proceeds), matching both
     modules' fail-open policy.
     """
-    from products.signals.backend.trial_models import (
+    from products.signals.backend.trial.models import (
         SignalTrialOperation,  # noqa: PLC0415 -- keep models out of workflow replay imports
     )
-    from products.signals.backend.trial_reports import active_report_pass  # noqa: PLC0415 -- lazy policy boundary
+    from products.signals.backend.trial.reports import active_report_pass  # noqa: PLC0415 -- lazy policy boundary
 
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
@@ -794,7 +794,7 @@ async def revert_report_to_candidate_activity(input: RevertReportToCandidateInpu
         report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
         if report.status != SignalReport.Status.IN_PROGRESS:
             return
-        from products.signals.backend.trial_policy import (
+        from products.signals.backend.trial.policy import (
             TrialPolicy,  # noqa: PLC0415 -- keep models out of replay imports
         )
 
@@ -830,7 +830,7 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
     before the promotion gate passes again.
     """
     if input.trial_policy_version:
-        from products.signals.backend.trial_reports import (
+        from products.signals.backend.trial.reports import (
             prepare_report_pass,  # noqa: PLC0415 -- avoids eager workflow imports
         )
 

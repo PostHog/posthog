@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from django.conf import settings
 from django.utils import timezone
 
 import structlog
@@ -40,8 +39,8 @@ from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import summarize_drop_error
 from products.signals.backend.temporal.llm import effort_kwargs
-from products.signals.backend.trial_policy import TrialRefused
-from products.signals.backend.trial_reports import requires_trial_accounting
+from products.signals.backend.trial.policy import TrialRefused
+from products.signals.backend.trial.reports import requires_trial_accounting
 
 logger = structlog.get_logger(__name__)
 
@@ -201,17 +200,16 @@ async def _create_message(
     client: AsyncAnthropic, *, team_id: int, messages: list[MessageParam], extra_headers: dict[str, str]
 ) -> Message:
     trial = await database_sync_to_async(requires_trial_accounting)(team_id)
-    model = settings.SELF_DRIVING_TRIAL_SHORT_MODEL if trial else LLM_MODEL
     if trial:
         client = client.with_options(max_retries=0)
     return await accounted_message(
         client,
-        model=model,
+        model=LLM_MODEL,
         messages=messages,
         max_tokens=LLM_MAX_OUTPUT_TOKENS,
         metadata={"user_id": f"team-{team_id}"},
         extra_headers=extra_headers,
-        **effort_kwargs(model),
+        **effort_kwargs(LLM_MODEL),
     )
 
 

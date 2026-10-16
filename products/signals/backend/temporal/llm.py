@@ -49,7 +49,6 @@ _MODERN = ModelCapabilities(prefill=False, temperature=False, thinking="adaptive
 # between the two generations: it takes temperature but refuses prefill. An unlisted model gets the
 # modern contract, on the assumption that a new id is newer than this table.
 MODEL_CAPABILITIES: dict[str, ModelCapabilities] = {
-    "deepseek-ai/deepseek-v4-flash-0731": ModelCapabilities(prefill=False, temperature=True, thinking="none"),
     "claude-3-7-sonnet-latest": _LEGACY,
     "claude-haiku-4-5": _LEGACY,
     "claude-sonnet-4-0": _LEGACY,
@@ -164,12 +163,11 @@ async def call_llm(
 ) -> T:
     from posthog.sync import database_sync_to_async
 
-    from products.signals.backend.trial_reports import requires_trial_accounting
+    from products.signals.backend.trial.reports import requires_trial_accounting
 
     trial = team_id is not None and await database_sync_to_async(requires_trial_accounting)(team_id)
     if trial:
         ai_product = "signals"
-        model = settings.SELF_DRIVING_TRIAL_SHORT_MODEL
     model = model or MATCHING_MODEL
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
     capabilities = get_model_capabilities(model)

@@ -7,9 +7,9 @@ from posthog.models import Team
 
 from products.signals.backend.free_trial import self_driving_free_trial_enabled
 from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.trial_billing import TrialBilling, TrialBillingStatus, TrialContinuation
-from products.signals.backend.trial_models import SignalTrialOrganization, SignalTrialReportReservation
-from products.signals.backend.trial_policy import POLICY_VERSION, TrialPolicy, TrialRefused
+from products.signals.backend.trial.billing import TrialBilling, TrialBillingStatus, TrialContinuation
+from products.signals.backend.trial.models import SignalTrialOrganization, SignalTrialReportReservation
+from products.signals.backend.trial.policy import POLICY_VERSION, TrialPolicy, TrialRefused
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
