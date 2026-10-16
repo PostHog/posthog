@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -35,8 +34,7 @@ from products.managed_warehouse.dags.groups_backfill import (
     ensure_groups_table,
     export_groups_to_duckling_s3,
     groups_snapshot_select_sql,
-    replace_groups_snapshot,
-    reserve_groups_snapshot,
+    run_groups_backfill,
 )
 
 
@@ -127,16 +125,8 @@ class _LakeConnection:
     def __exit__(self, *args: object) -> None:
         pass
 
-    @contextmanager
-    def transaction(self) -> Iterator[None]:
-        self.connection.execute("BEGIN")
-        try:
-            yield
-        except BaseException:
-            self.connection.execute("ROLLBACK")
-            raise
-        else:
-            self.connection.execute("COMMIT")
+    def close(self) -> None:
+        pass
 
 
 @pytest.fixture
@@ -153,65 +143,107 @@ def lake(tmp_path: Path) -> Iterator[psycopg.Connection[tuple[object, ...]]]:
     connection.close()
 
 
-@pytest.mark.parametrize(("invalid_file", "ignored_marker"), [(False, False), (True, False), (False, True)])
-def test_groups_snapshot_replacement_is_replayable_and_rolls_back_failed_registration(
-    lake: psycopg.Connection[tuple[object, ...]], tmp_path: Path, invalid_file: bool, ignored_marker: bool
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "success",
+        "partial_disconnect",
+        "committed_disconnect",
+        "invalid_file",
+        "export_failure",
+        "empty",
+        "append",
+        "dry_run",
+        "skip_registration",
+    ],
+)
+def test_groups_full_backfill_cleans_team_and_replays_registration(
+    lake: psycopg.Connection[tuple[object, ...]], tmp_path: Path, scenario: str
 ) -> None:
     table = f"{DUCKLAKE_ALIAS}.posthog.groups_production"
     target = DucklingTarget(team_id=7, organization_id="org", bucket="unused", bucket_region="us-east-1")
     lake.execute(f"INSERT INTO {table} (team_id, group_type_index, group_key) VALUES (7, 0, 'old'), (8, 0, 'other')")
-    lake.execute(
-        f"COPY (SELECT * REPLACE ('new' AS group_key) FROM {table} WHERE team_id = 7) TO %s (FORMAT PARQUET)",
-        (str(tmp_path / "a.parquet"),),
-    )
-    ticket = reserve_groups_snapshot(lake, "groups_production")
-    if invalid_file or ignored_marker:
-        if invalid_file:
-            (tmp_path / "b.parquet").write_bytes(b"invalid parquet")
-        adapter = cast(_LakeConnection, cast(object, lake))
-        execute = adapter.execute
-
-        def execute_registration(
-            query: str | sql.Composable, params: tuple[object, ...] | None = None
-        ) -> _LakeConnection:
-            if (
-                ignored_marker
-                and isinstance(query, sql.Composable)
-                and query.as_string().startswith("COMMENT ON TABLE")
-            ):
-                return adapter
-            return execute(query, params)
-
-        with patch.object(adapter, "execute", side_effect=execute_registration):
-            with pytest.raises(duckdb.Error if invalid_file else ValueError):
-                replace_groups_snapshot(lake, target, "groups_production", str(tmp_path / "*.parquet"), ticket)
-        assert lake.execute(f"SELECT team_id, group_key FROM {table} ORDER BY team_id").fetchall() == [
-            (7, "old"),
-            (8, "other"),
-        ]
-    else:
-        for _ in range(2):
-            assert (
-                replace_groups_snapshot(
-                    lake, target, "groups_production", str(tmp_path / "*.parquet"), ticket
-                ).files_registered
-                == 1
-            )
-            assert lake.execute(f"SELECT team_id, group_key FROM {table} ORDER BY team_id").fetchall() == [
-                (7, "new"),
-                (8, "other"),
-            ]
-        empty_ticket = reserve_groups_snapshot(lake, "groups_production")
-        assert (
-            replace_groups_snapshot(
-                lake, target, "groups_production", str(tmp_path / "empty-*.parquet"), empty_ticket
-            ).files_registered
-            == 0
+    for name in ("a", "b"):
+        lake.execute(
+            f"COPY (SELECT * REPLACE ('{name}' AS group_key) FROM {table} WHERE team_id = 7) TO %s (FORMAT PARQUET)",
+            (str(tmp_path / f"{name}.parquet"),),
         )
-        assert replace_groups_snapshot(
-            lake, target, "groups_production", str(tmp_path / "*.parquet"), ticket
-        ).superseded
-        assert lake.execute(f"SELECT team_id, group_key FROM {table}").fetchall() == [(8, "other")]
+    valid_second_file = (tmp_path / "b.parquet").read_bytes()
+    if scenario == "invalid_file":
+        (tmp_path / "b.parquet").write_bytes(b"invalid parquet")
+    config = DucklingBackfillConfig(
+        cleanup_existing_partition_data=scenario != "append",
+        dry_run=scenario == "dry_run",
+        skip_ducklake_registration=scenario == "skip_registration",
+    )
+    context = MagicMock()
+    context.partition_key = "7"
+    context.run.run_id = "synthetic-run"
+    cluster = MagicMock()
+    preview = config.dry_run or config.skip_ducklake_registration
+    adapter = cast(_LakeConnection, cast(object, lake))
+    execute = adapter.execute
+    registrations = 0
+    failing_export = scenario == "export_failure"
+
+    def export_result(**kwargs: object) -> MagicMock:
+        if not preview and config.cleanup_existing_partition_data:
+            assert lake.execute(f"SELECT group_key FROM {table} WHERE team_id = 7").fetchall() == []
+        if failing_export:
+            raise RuntimeError("export failed")
+        result = MagicMock()
+        result.result.return_value = (
+            None if config.dry_run else str(tmp_path / ("empty-*.parquet" if scenario == "empty" else "*.parquet"))
+        )
+        return result
+
+    def execute_with_disconnect(
+        query: str | sql.Composable, params: tuple[object, ...] | None = None
+    ) -> _LakeConnection:
+        nonlocal registrations
+        result = execute(query, params)
+        if isinstance(query, str) and query.startswith("CALL ducklake_add_data_files"):
+            registrations += 1
+            if (scenario == "partial_disconnect" and registrations == 1) or (
+                scenario == "committed_disconnect" and registrations == 2
+            ):
+                raise psycopg.OperationalError("server closed the connection unexpectedly")
+        return result
+
+    cluster.any_host_by_role.side_effect = export_result
+    with (
+        patch("products.managed_warehouse.dags.groups_backfill._resolve_duckling_target", return_value=target),
+        patch("products.managed_warehouse.dags.groups_backfill.resolve_groups_table", return_value="groups_production"),
+        patch("products.managed_warehouse.dags.groups_backfill._get_cluster", return_value=cluster),
+        patch("products.managed_warehouse.dags.groups_backfill.record_duckling_backfill_workload"),
+        patch("posthog.dags.events_backfill_to_duckling._mint_backfill_service_credential", return_value=None),
+        patch("posthog.dags.events_backfill_to_duckling._connect_duckgres", return_value=lake) as connect,
+        patch("posthog.dags.events_backfill_to_duckling.time.sleep"),
+        patch.object(adapter, "execute", side_effect=execute_with_disconnect),
+    ):
+        if scenario in ("invalid_file", "export_failure"):
+            with pytest.raises(duckdb.Error if scenario == "invalid_file" else RuntimeError):
+                run_groups_backfill(context, config)
+            expected = [(7, "a"), (8, "other")] if scenario == "invalid_file" else [(8, "other")]
+            assert (
+                lake.execute(f"SELECT team_id, group_key FROM {table} ORDER BY team_id, group_key").fetchall()
+                == expected
+            )
+            (tmp_path / "b.parquet").write_bytes(valid_second_file)
+            failing_export = False
+        run_groups_backfill(context, config)
+        assert bool(connect.call_count) is not preview
+
+    expected_rows = [(8, "other")]
+    if scenario not in ("empty", "dry_run", "skip_registration"):
+        expected_rows.extend([(7, "a"), (7, "b")])
+    if scenario in ("append", "dry_run", "skip_registration"):
+        expected_rows.append((7, "old"))
+    assert lake.execute(f"SELECT team_id, group_key FROM {table} ORDER BY team_id, group_key").fetchall() == sorted(
+        expected_rows
+    )
+    expected_files = 0 if scenario in ("empty", "dry_run", "skip_registration") else 2
+    assert context.add_output_metadata.call_args.args[0]["files_registered"] == expected_files
 
 
 _NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -374,65 +406,6 @@ def test_preview_clears_inherited_snapshot_tag(config: dict[str, bool]) -> None:
         run = instance.get_run_by_id(result.run_id)
         assert run is not None
         assert run.tags[GROUPS_SNAPSHOT_TAG] == "false"
-
-
-@pytest.mark.parametrize("initialized", [False, True])
-def test_reservation_rejects_metadata_writes_that_are_silently_ignored(
-    lake: psycopg.Connection[tuple[object, ...]], initialized: bool
-) -> None:
-    if initialized:
-        reserve_groups_snapshot(lake, "groups_production")
-    adapter = cast(_LakeConnection, cast(object, lake))
-    execute = adapter.execute
-
-    def ignore_comments(query: str | sql.Composable, params: tuple[object, ...] | None = None) -> _LakeConnection:
-        if isinstance(query, sql.Composable) and query.as_string().startswith("COMMENT ON TABLE"):
-            return adapter
-        return execute(query, params)
-
-    with patch.object(adapter, "execute", side_effect=ignore_comments):
-        with pytest.raises(ValueError, match="metadata write was not applied"):
-            reserve_groups_snapshot(lake, "groups_production")
-
-
-def test_older_snapshot_cannot_overwrite_a_newer_snapshot(
-    lake: psycopg.Connection[tuple[object, ...]], tmp_path: Path
-) -> None:
-    table = f"{DUCKLAKE_ALIAS}.posthog.groups_production"
-    target = DucklingTarget(team_id=7, organization_id="org", bucket="unused", bucket_region="us-east-1")
-    lake.execute(f"INSERT INTO {table} (team_id, group_type_index, group_key) VALUES (7, 0, 'initial')")
-    lake.execute(
-        f"COPY (SELECT * REPLACE ('old' AS group_key) FROM {table}) TO %s (FORMAT PARQUET)",
-        (str(tmp_path / "old.parquet"),),
-    )
-    lake.execute(
-        f"COPY (SELECT * REPLACE ('new' AS group_key) FROM {table}) TO %s (FORMAT PARQUET)",
-        (str(tmp_path / "new.parquet"),),
-    )
-    old = reserve_groups_snapshot(lake, "groups_production")
-    new = reserve_groups_snapshot(lake, "groups_production")
-    adapter = cast(_LakeConnection, cast(object, lake))
-    competing = cast(psycopg.Connection[tuple[object, ...]], _LakeConnection(adapter.connection.cursor()))
-    execute = adapter.execute
-    interleaved = False
-
-    def commit_newer_before_older_marker(
-        query: str | sql.Composable, params: tuple[object, ...] | None = None
-    ) -> _LakeConnection:
-        nonlocal interleaved
-        if isinstance(query, sql.Composable) and query.as_string().startswith("COMMENT ON TABLE") and not interleaved:
-            interleaved = True
-            replace_groups_snapshot(competing, target, "groups_production", str(tmp_path / "new.parquet"), new)
-        return execute(query, params)
-
-    with patch.object(adapter, "execute", side_effect=commit_newer_before_older_marker):
-        assert replace_groups_snapshot(lake, target, "groups_production", str(tmp_path / "old.parquet"), old).superseded
-    assert interleaved
-    assert lake.execute(f"SELECT group_key FROM {table}").fetchall() == [("new",)]
-    ensure_groups_table(lake, "groups_production", DucklingBackfillConfig(delete_tables=True))
-    reset = reserve_groups_snapshot(lake, "groups_production")
-    assert reset.epoch != old.epoch
-    assert replace_groups_snapshot(lake, target, "groups_production", str(tmp_path / "old.parquet"), old).superseded
 
 
 def test_delete_tables_refuses_legacy_shared_table(lake: psycopg.Connection[tuple[object, ...]]) -> None:
