@@ -405,7 +405,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     11: ErrorCodeMeta("POSITION_OUT_OF_BOUND"),
     12: ErrorCodeMeta("PARAMETER_OUT_OF_BOUND"),
     13: ErrorCodeMeta("SIZES_OF_COLUMNS_IN_TUPLE_DOESNT_MATCH"),
-    15: ErrorCodeMeta("DUPLICATE_COLUMN"),
+    15: ErrorCodeMeta(
+        "DUPLICATE_COLUMN",
+        user_safe="A column or tuple field name appears more than once. Make sure each name in a Tuple(...) type "
+        "or column list is unique.",
+    ),
     16: ErrorCodeMeta("NO_SUCH_COLUMN_IN_TABLE"),
     19: ErrorCodeMeta("SIZE_OF_FIXED_STRING_DOESNT_MATCH"),
     20: ErrorCodeMeta("NUMBER_OF_COLUMNS_DOESNT_MATCH"),
