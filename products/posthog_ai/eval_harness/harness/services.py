@@ -4,9 +4,11 @@ import os
 import sys
 import json
 import shutil
+import signal
 import hashlib
 import logging
 import zipfile
+import contextlib
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -198,19 +200,29 @@ def ensure_personhog_binaries() -> None:
     logger.info(
         "Building personhog binaries (first build can take several minutes; later builds are incremental no-ops)"
     )
-    result = subprocess.run(
+    # Cargo runs in its own process group so a cancel can stop the rustc processes it
+    # starts. A SIGINT to the harness alone stops Cargo and leaves the compilers running.
+    build = subprocess.Popen(
         ["cargo", "build", "-p", "personhog-replica", "-p", "personhog-router"],
         cwd=rust_dir,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
+        start_new_session=True,
+    )
+    try:
         # The first build compiles the whole dependency tree; only later builds are
         # incremental no-ops. Keep the ceiling well clear of a cold compile.
-        timeout=20 * 60,
-    )
-    if result.returncode != 0:
-        output = (result.stdout or "") + (result.stderr or "")
+        stdout, stderr = build.communicate(timeout=20 * 60)
+    except BaseException:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(build.pid, signal.SIGKILL)
+        build.wait()
+        raise
+    if build.returncode != 0:
+        output = (stdout or "") + (stderr or "")
         tail = "\n".join(output.splitlines()[-30:])
-        raise PreflightError(f"Failed to build personhog binaries (cargo exit {result.returncode}):\n{tail}")
+        raise PreflightError(f"Failed to build personhog binaries (cargo exit {build.returncode}):\n{tail}")
 
 
 def start_personhog() -> Callable[[], None]:
