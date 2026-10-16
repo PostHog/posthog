@@ -33,14 +33,16 @@ const COPY = {
             wizard: {
                 title: "Run the Wizard command in your server's repository",
                 detail: 'The setup agent installs the SDK and adds your project token.',
+                alternative: 'Or run the Wizard command instead:',
                 copied: 'Wizard command',
             },
             agent: {
                 title: 'Paste the prompt into your coding agent',
                 detail: "Open your server's repository in Claude Code, Cursor or Codex first.",
+                alternative: 'Or paste this prompt into your coding agent:',
                 copied: 'installation prompt',
             },
-        } satisfies Record<MCPSetupPath, { title: string; detail: string; copied: string }>,
+        } satisfies Record<MCPSetupPath, { title: string; detail: string; alternative: string; copied: string }>,
         restart: 'Restart your server when setup is done',
         connect: 'Your server connects',
         connectWaiting: 'This step ticks when your server sends its first event.',
@@ -82,18 +84,27 @@ function CopyableLine({ text, label, dataAttr }: { text: string; label: string; 
     )
 }
 
-/** What the user does next, for the button that opened setup mode. Only the last step is observable. */
+const OTHER_PATH: Record<MCPSetupPath, MCPSetupPath> = { wizard: 'agent', agent: 'wizard' }
+
+/**
+ * What the user does next. The first step leads with the button that opened setup mode and offers the other
+ * route below it, so switching doesn't mean leaving setup mode. Only the last step is observable.
+ */
 function NextSteps({
     setupPath,
-    installText,
+    installTexts,
     connected,
 }: {
     setupPath: MCPSetupPath
-    installText: string | null
+    /** `null` once connected, when there is nothing left to copy. */
+    installTexts: Record<MCPSetupPath, string | null> | null
     connected: boolean
 }): JSX.Element {
     const copy = COPY.nextSteps
     const install = copy.install[setupPath]
+    const otherPath = OTHER_PATH[setupPath]
+    const chosenText = installTexts?.[setupPath]
+    const otherText = installTexts?.[otherPath]
     const done = <StepIcon status="completed" />
     return (
         <div className="flex flex-col gap-3 rounded border border-primary bg-surface-primary p-4">
@@ -108,12 +119,24 @@ function NextSteps({
                         detail: (
                             <div className="flex flex-col gap-1">
                                 <span className="block text-sm text-secondary">{install.detail}</span>
-                                {installText && !connected ? (
+                                {chosenText ? (
                                     <CopyableLine
-                                        text={installText}
+                                        text={chosenText}
                                         label={install.copied}
                                         dataAttr={`mcp-analytics-setup-mode-copy-${setupPath}`}
                                     />
+                                ) : null}
+                                {otherText ? (
+                                    <>
+                                        <span className="mt-2 block text-xs text-secondary">
+                                            {copy.install[otherPath].alternative}
+                                        </span>
+                                        <CopyableLine
+                                            text={otherText}
+                                            label={copy.install[otherPath].copied}
+                                            dataAttr={`mcp-analytics-setup-mode-copy-${otherPath}`}
+                                        />
+                                    </>
                                 ) : null}
                             </div>
                         ),
@@ -170,7 +193,11 @@ function ConnectWaiting(props: SetupConnectStepProps): JSX.Element {
     return (
         <>
             <SetupStepHero Hedgehog={HedgehogSearching} title={COPY.waiting.title} lead={COPY.waiting.lead} />
-            <NextSteps setupPath={props.setupPath} installText={installTextFor(props)} connected={false} />
+            <NextSteps
+                setupPath={props.setupPath}
+                installTexts={{ wizard: props.wizardCommand, agent: props.agentPrompt }}
+                connected={false}
+            />
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <span className="text-secondary">{COPY.waiting.help}</span>
                 <LemonButton
@@ -194,10 +221,6 @@ interface SetupConnectStepProps {
     wizardCommand: string | null
 }
 
-function installTextFor({ setupPath, agentPrompt, wizardCommand }: SetupConnectStepProps): string | null {
-    return setupPath === 'wizard' ? wizardCommand : agentPrompt
-}
-
 function ConnectStepBody(props: SetupConnectStepProps): JSX.Element {
     if (props.connectState.kind === 'connected') {
         return (
@@ -215,7 +238,7 @@ function ConnectStepBody(props: SetupConnectStepProps): JSX.Element {
                         Copy
                     </LemonButton>
                 </div>
-                <NextSteps setupPath={props.setupPath} installText={null} connected />
+                <NextSteps setupPath={props.setupPath} installTexts={null} connected />
             </>
         )
     }
