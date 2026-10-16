@@ -281,7 +281,7 @@ export function SharedMetric(): JSX.Element {
                     {isLegacy ? (
                         <LemonBanner type="warning">
                             Legacy shared metrics can no longer be edited. When you migrate an experiment that uses this
-                            metric with PostHog AI, the metric is migrated too.
+                            metric, the metric is migrated too.
                         </LemonBanner>
                     ) : (
                         <ExperimentMetricForm
