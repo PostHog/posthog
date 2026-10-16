@@ -20,7 +20,6 @@ class Action(StrEnum):
     DELETE = "delete"
     SHARE = "share"
     MANAGE_ACCESS = "manage_access"
-    LIST = "list"
     CREATE = "create"
     QUERY = "query"
     JOIN = "join"

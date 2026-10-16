@@ -288,14 +288,17 @@ Create the flag with these variant keys before testing a rollout.
 
 - `check` supports a single action or an ordered batch of requests.
 - `permissions` uses the same routed checks to return the supported actions the user can take.
-- `list_objects` returns authorized dashboard or insight IDs scoped to the requested project.
-  Legacy mode evaluates the existing object and collaborator checks; OpenFGA mode streams authorized IDs.
-  A supplied limit returns an empty, incomplete result if exceeded.
-- HogQL uses `list_objects(action=Action.QUERY)` to request a project-scoped row filter.
-  `excluded=False` includes only the returned IDs; `excluded=True` excludes those IDs.
+- `list_objects` returns a project-scoped filter for objects satisfying the requested action.
+  Ordinary API lists request `Action.VIEW`; listing is not a separate permission.
+  HogQL system-table rows request `Action.QUERY`, which resolves to view permission for dashboards and insights.
+  Warehouse data queries use the model's `can_query` permission.
+  For reads, `excluded=False` includes only the returned IDs; `excluded=True` excludes those IDs.
   A permitted `creator_exempt` adds creator-owned rows within the existing tenant scope.
-  Incomplete filters deny every row. Query filters default to a 1,000-ID cap; `limit` overrides it.
-  Existing view, list, and write callers retain the PoC's inclusion-only results.
+  Incomplete filters deny every row. Read filters default to a 1,000-ID cap; `limit` overrides it.
+  IDs describe a filter, not an inventory of existing objects; callers retain tenant and soft-deletion filters.
+  Write actions retain inclusion-only results and their action-specific permission checks.
+  The existing viewset list hook applies the filter through `posthog/models/access_filter.py` before pagination.
+  Custom actions and individual-object checks keep their existing enforcement paths.
 - `dangerous_query_relation` always checks OpenFGA directly for debugging, independently of the rollout flag.
 
 The pilot supports dashboard and insight objects, their resource types, projects, organizations, and roles.

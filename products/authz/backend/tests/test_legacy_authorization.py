@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.authz import check_dashboard_category_access
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 
@@ -64,10 +65,7 @@ class TestLegacyAuthorization(BaseTest):
         ) == [Action.VIEW in expected, Action.EDIT in expected]
         listed = api.list_objects(resource=self.dashboards, action=Action.VIEW, subject=self.subject)
         assert listed.complete
-        assert listed.ids == (frozenset({str(self.dashboard_id)}) if Action.VIEW in expected else frozenset())
-        query_filter = api.list_objects(resource=self.dashboards, action=Action.QUERY, subject=self.subject)
-        assert query_filter.complete
-        assert query_filter.allows(str(self.dashboard_id)) == (Action.VIEW in expected)
+        assert listed.allows(str(self.dashboard_id)) == (Action.VIEW in expected)
         assert not api.check(resource=self.dashboards, action=Action.CREATE, subject=self.subject)
 
     @parameterized.expand(
@@ -83,7 +81,7 @@ class TestLegacyAuthorization(BaseTest):
     ) -> None:
         access_testing.create_access_control(team_id=self.team.id, resource=parent, access_level="viewer")
         resource = Resource(type=child, project_id=self.team.id)
-        assert api.permissions(resource=resource, subject=self.subject) == frozenset({Action.VIEW, Action.LIST})
+        assert api.permissions(resource=resource, subject=self.subject) == frozenset({Action.VIEW})
 
     def test_project_denial_tenant_scope_and_missing_objects_fail_closed(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
@@ -101,13 +99,20 @@ class TestLegacyAuthorization(BaseTest):
                 action=Action.VIEW,
                 subject=self.subject,
             )
+        access_testing.create_access_control(team_id=self.team.id, resource="dashboard", access_level="none")
+        assert not check_dashboard_category_access(self.reader, self.team, Action.VIEW, require_category=False)
+        dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.reader.id)
+        assert check_dashboard_category_access(self.reader, self.team, Action.VIEW, require_category=False)
         access_testing.create_access_control(
             team_id=self.team.id, resource="project", resource_id=str(self.team.id), access_level="none"
         )
         assert not api.check(resource=self.resource, action=Action.VIEW, subject=self.subject)
-        assert not api.list_objects(resource=self.dashboards, action=Action.VIEW, subject=self.subject).ids
+        assert not check_dashboard_category_access(self.reader, self.team, Action.VIEW, require_category=False)
+        assert not api.list_objects(resource=self.dashboards, action=Action.VIEW, subject=self.subject).allows(
+            str(self.dashboard_id)
+        )
         assert not api.list_objects(
-            resource=self.dashboards, action=Action.QUERY, subject=self.subject, creator_exempt=True
+            resource=self.dashboards, action=Action.VIEW, subject=self.subject, creator_exempt=True
         ).allows(str(self.dashboard_id), created_by_user_id=self.reader.id, subject_user_id=self.reader.id)
         dashboard_testing.delete_dashboard(team_id=self.team.id, dashboard_id=self.dashboard_id)
         assert not api.check(resource=self.resource, action=Action.VIEW, subject=Subject(user_id=self.user.id))
@@ -156,7 +161,11 @@ class TestLegacyAuthorization(BaseTest):
             team_id=self.team.id, dashboard_id=self.dashboard_id, user_id=self.reader.id, level=PrivilegeLevel.CAN_EDIT
         )
         assert api.check(resource=self.resource, action=Action.EDIT, subject=self.subject)
-        dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id)
+        second_id = dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id)
+        for id in (self.dashboard_id, second_id):
+            access_testing.create_access_control(
+                team_id=self.team.id, resource="dashboard", resource_id=str(id), access_level="viewer"
+            )
         capped = api.list_objects(resource=self.dashboards, action=Action.VIEW, subject=self.subject, limit=1)
         assert not capped.complete and not capped.ids
         assert api.check(resource=self.resource, action=Action.MANAGE_ACCESS, subject=Subject(user_id=self.user.id))
@@ -166,7 +175,7 @@ class TestLegacyAuthorization(BaseTest):
         self.organization.save()
         result = api.list_objects(
             resource=Resource(type=ResourceType.DATA_DELETION, project_id=self.team.id),
-            action=Action.QUERY,
+            action=Action.VIEW,
             subject=self.subject,
         )
         assert not result.allows("1")

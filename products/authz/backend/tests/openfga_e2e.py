@@ -16,6 +16,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.models import Organization, OrganizationMembership, SessionRecording, SharingConfiguration, Team, User
+from posthog.models.access_filter import object_ids_to_q
 
 from products.access_control.backend.facade import testing as access_control_testing
 from products.access_control.backend.facade.api import set_object_access_control
@@ -23,11 +24,12 @@ from products.access_control.backend.facade.contracts import SetObjectAccessCont
 from products.authz.backend.bootstrap import bootstrap_openfga
 from products.authz.backend.client import get_openfga_client
 from products.authz.backend.facade import api
-from products.authz.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authz.backend.facade.contracts import CheckRequest, ObjectIds, Resource, Subject
 from products.authz.backend.facade.enums import Action, ResourceType
 from products.authz.backend.logic import authorization
 from products.dashboards.backend.facade import testing as dashboard_testing
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -150,6 +152,10 @@ class TestOpenFgaDashboardMirror(BaseTest):
             role_id=role_id,
         )
 
+    def _visible_dashboard_ids(self, result: ObjectIds) -> frozenset[str]:
+        queryset = Dashboard.objects.filter(team_id=self.team.id)
+        return frozenset(str(id) for id in queryset.filter(object_ids_to_q(result)).values_list("id", flat=True))
+
     def _assert_dashboard_permissions(
         self, expected: frozenset[Action], *, dashboard_id: int | None = None, subject: Subject | None = None
     ) -> None:
@@ -164,7 +170,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
         assert api.permissions(resource=resource, subject=actor) == expected
         listed = api.list_objects(resource=self._resource(), action=Action.VIEW, subject=actor)
         assert listed.complete
-        assert (str(id) in listed.ids) == (Action.VIEW in expected)
+        assert listed.allows(str(id)) == (Action.VIEW in expected)
 
     def test_viewer_default_with_member_editor_grant_on_only_one_dashboard(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
@@ -181,7 +187,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
         for dashboard_id in (self.second_dashboard_id, third_dashboard_id):
             self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["viewer"], dashboard_id=dashboard_id)
         viewable = api.list_objects(resource=self._resource(), action=Action.VIEW, subject=self.subject)
-        assert viewable.complete and viewable.ids == frozenset(
+        assert viewable.complete and self._visible_dashboard_ids(viewable) == frozenset(
             str(id) for id in (self.dashboard_id, self.second_dashboard_id, third_dashboard_id)
         )
         editable = api.list_objects(resource=self._resource(), action=Action.EDIT, subject=self.subject)
@@ -208,14 +214,14 @@ class TestOpenFgaDashboardMirror(BaseTest):
         requests = [
             CheckRequest(resource=resource, action=action, subject=self.subject)
             for resource in resources
-            for action in (Action.VIEW, Action.LIST, Action.CREATE, Action.MANAGE_ACCESS)
+            for action in (Action.VIEW, Action.CREATE, Action.MANAGE_ACCESS)
         ]
         for level, expected in (
-            ("none", [False, False, False, False]),
-            ("viewer", [True, True, False, False]),
-            ("editor", [True, True, True, False]),
-            ("manager", [True, True, True, True]),
-            ("none", [False, False, False, False]),
+            ("none", [False, False, False]),
+            ("viewer", [True, False, False]),
+            ("editor", [True, True, False]),
+            ("manager", [True, True, True]),
+            ("none", [False, False, False]),
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 access_control_testing.set_access_control_level(
@@ -479,7 +485,11 @@ class TestOpenFgaDashboardMirror(BaseTest):
             other_team = Team.objects.create(organization=self.organization, name="Other project")
             dashboard_testing.create_dashboard(team_id=other_team.id, created_by_id=self.user.id)
         listed = api.list_objects(resource=self._resource(), action=Action.VIEW, subject=self.subject)
-        assert listed.complete and listed.ids == frozenset({str(self.dashboard_id), str(self.second_dashboard_id)})
+        assert listed.complete and self._visible_dashboard_ids(listed) == frozenset(
+            {str(self.dashboard_id), str(self.second_dashboard_id)}
+        )
+        self._grant("viewer", dashboard_id=self.dashboard_id)
+        self._grant("viewer", dashboard_id=self.second_dashboard_id)
         capped = api.list_objects(resource=self._resource(), action=Action.VIEW, subject=self.subject, limit=1)
         assert not capped.complete and not capped.ids
         assert not api.check(
@@ -489,13 +499,12 @@ class TestOpenFgaDashboardMirror(BaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             dashboard_testing.set_dashboard_deleted(team_id=self.team.id, dashboard_id=self.dashboard_id, deleted=True)
         assert self._check(Action.EDIT)
-        assert (
-            str(self.dashboard_id)
-            not in api.list_objects(
+        assert str(self.dashboard_id) not in self._visible_dashboard_ids(
+            api.list_objects(
                 resource=Resource(type=ResourceType.DASHBOARD, project_id=self.team.id),
                 action=Action.VIEW,
                 subject=self.subject,
-            ).ids
+            )
         )
         with self.captureOnCommitCallbacks(execute=True):
             dashboard_testing.set_dashboard_deleted(team_id=self.team.id, dashboard_id=self.dashboard_id, deleted=False)
@@ -964,4 +973,4 @@ class TestOpenFgaDashboardMirror(BaseTest):
         listed = api.list_objects(
             resource=self._resource(), action=Action.VIEW, subject=self.subject, limit=len(expected_ids)
         )
-        assert listed.complete and listed.ids == frozenset(str(id) for id in expected_ids)
+        assert listed.complete and self._visible_dashboard_ids(listed) == frozenset(str(id) for id in expected_ids)

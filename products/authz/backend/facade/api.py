@@ -99,7 +99,7 @@ def list_objects(
 ) -> contracts.ObjectIds:
     """Return project-scoped IDs for the requested action.
 
-    QUERY returns an inclusion or exclusion filter for HogQL rows. A complete result with
+    VIEW and QUERY return an inclusion or exclusion filter for rows. A complete result with
     `excluded=True` allows every ID except those returned. Other actions retain inclusion-only IDs.
     An incomplete result allows nothing. `creator_exempt` requests a creator predicate only when
     the selected engine permits it. `user_access_control` reuses the caller's legacy rule preload.

@@ -27,7 +27,7 @@ tests:
       check:
           - user: user:member
             objects: [resource:dashboards, resource:insights]
-            assertions: { can_list: true, can_create: true, can_manage_access: false }
+            assertions: { can_view: true, can_create: true, can_manage_access: false }
           - user: user:member
             object: organization:org
             assertions:
@@ -149,7 +149,7 @@ tests:
       check:
           - user: user:member
             objects: [resource:dashboards, resource:insights]
-            assertions: { can_list: true, can_create: true, can_manage_access: true }
+            assertions: { can_view: true, can_create: true, can_manage_access: true }
 
     - name: Object editor overrides resource member none without allowing creation
       tuples:
@@ -281,7 +281,7 @@ tests:
             assertions: { member: true, admin: false }
           - user: user:unlicensed
             object: resource:unlicensed
-            assertions: { can_list: true, can_create: true, can_manage_access: false }
+            assertions: { can_view: true, can_create: true, can_manage_access: false }
 
     - name: Access rules are inert without access control
       tuples:
@@ -329,7 +329,7 @@ tests:
             assertions: { can_view: true }
           - user: user:outsider
             objects: [resource:dashboards, resource:insights]
-            assertions: { can_view: false, can_list: false }
+            assertions: { can_view: false }
 
     - name: A project creator manages access without project admin
       tuples:
