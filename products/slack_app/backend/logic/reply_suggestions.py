@@ -58,9 +58,9 @@ If the answer waits for the person, write up to 3 replies that the person will m
 "Use the cards layout".
 - Make each reply clear on its own. Write "Yes, open the pull request", not "Yes".
 - The person sees only the label, under a long answer. Name the choice in the label with its own words, \
-for example "Show it on app pages". Do not name a choice only by its number or letter, such as "Option 2" \
+for example "Use the cards layout". Do not name a choice only by its number or letter, such as "Option 2" \
 or "Use option 1". The reply can add the number after the name, for example \
-"Show it on app pages only (option 1)".
+"Use the cards layout (option 2)".
 - If the answer asks two or more separate questions, do not write a reply for each combination of \
 answers. Write a reply only if it answers every question, and offer only the combinations that the answer \
 recommends. If the answer recommends none, return an empty list.
@@ -72,7 +72,7 @@ separate choice. Ask for a pull request or a change only in a reply that the per
 - If the answer asks for information that only the person knows, such as a name, a value or a repository, \
 do not guess it. Offer only the replies that are complete without it, or return an empty list.
 - Make each reply a different choice. Do not offer two replies that mean the same thing.
-- Put the most likely reply first.
+- Put the most likely reply first. If the answer recommends a choice, that reply is the most likely.
 - Write in the language of the answer.
 - Do not write replies that only say thanks or close the conversation.
 - If the answer offers to fix a bug or an error, use "Fix it, make no mistakes" as the label of the reply \
