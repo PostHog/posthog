@@ -48,6 +48,7 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
         : undefined
     const metadata = buildActiveEnvironmentContextPrompt(org, project, context.api.publicBaseUrl, {
         integrationKinds,
+        noEventsNotice: context.noDataInstallNotice === true,
     })
     const text = metadata
         ? `Switched to organization ${orgId}.\n\nCurrent context:\n${metadata}`

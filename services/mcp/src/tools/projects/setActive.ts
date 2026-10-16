@@ -95,6 +95,7 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     const integrationKinds = await context.stateManager.getOrFetchIntegrationKinds(projectIdStr).catch(() => undefined)
     const metadata = buildActiveEnvironmentContextPrompt(org, project, context.api.publicBaseUrl, {
         integrationKinds,
+        noEventsNotice: context.noDataInstallNotice === true,
     })
     const text = metadata
         ? `Switched to project ${projectId}${orgNote}.\n\nCurrent context:\n${metadata}`

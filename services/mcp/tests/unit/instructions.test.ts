@@ -343,7 +343,7 @@ describe('buildActiveEnvironmentContextPrompt', () => {
 
     const testAccountsLine = 'filters out internal and test users by default'
     const noEventsLine = 'This project has not received any events yet'
-    it.each<[string, Partial<CachedProject>, string, boolean]>([
+    it.each<[string, Partial<CachedProject>, string, boolean, boolean?]>([
         ['test account filter default checked', { test_account_filters_default_checked: true }, testAccountsLine, true],
         [
             'test account filter default unchecked',
@@ -357,13 +357,24 @@ describe('buildActiveEnvironmentContextPrompt', () => {
             testAccountsLine,
             false,
         ],
-        ['no event ingested', { ingested_event: false }, noEventsLine, true],
+        ['no event ingested in the notice test arm', { ingested_event: false }, noEventsLine, true],
+        ['no event ingested in control', { ingested_event: false }, noEventsLine, false, false],
         ['an event ingested', { ingested_event: true }, noEventsLine, false],
         ['ingestion state unknown', {}, noEventsLine, false],
-    ])('renders the project fact line only when it applies: %s', (_name, fields, line, expected) => {
-        const result = buildActiveEnvironmentContextPrompt(org, { ...project, ...fields } as CachedProject)
-        expect((result ?? '').includes(line)).toBe(expected)
-    })
+    ])(
+        'renders the project fact line only when it applies: %s',
+        (_name, fields, line, expected, noEventsNotice = true) => {
+            const result = buildActiveEnvironmentContextPrompt(
+                org,
+                { ...project, ...fields } as CachedProject,
+                undefined,
+                {
+                    noEventsNotice,
+                }
+            )
+            expect((result ?? '').includes(line)).toBe(expected)
+        }
+    )
 
     it('still renders an "Unknown" project when org is present but project is missing', () => {
         // The org branch is unchanged — only the no-org branch was added.
