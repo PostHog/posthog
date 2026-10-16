@@ -278,6 +278,13 @@ class TestBuildInitialResearchPrompt:
 
 
 class TestBuildFixVerificationPrompt:
+    @pytest.mark.parametrize("monitoring_enabled", [True, False])
+    def test_monitoring_metric_authoring_is_offered_only_when_enabled(self, monitoring_enabled: bool) -> None:
+        prompt = build_fix_verification_prompt(metric_checks_enabled=True, monitoring_enabled=monitoring_enabled)
+        assert ("reference_period_minutes" in prompt) is monitoring_enabled
+        assert ("threshold_scaling" in prompt) is monitoring_enabled
+        assert ("baseline_period_minutes" in prompt) is monitoring_enabled
+
     def test_reresearch_reviews_approved_checks_without_gating_them(self):
         prompt = build_fix_verification_prompt(
             metric_checks_enabled=True,
