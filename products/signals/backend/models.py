@@ -1356,6 +1356,7 @@ class SignalReportArtefact(UUIDModel):
         WORK_RELEASE = "work_release"
         PULL_REQUEST = "pull_request"
         CHECK_RESULT = "check_result"
+        CHECK_OBSERVATION = "check_observation"
         CHECK_SCHEDULED = "check_scheduled"
         CHECK_EXPIRED = "check_expired"
         CHECK_CANCELLED = "check_cancelled"
@@ -1423,6 +1424,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.WORK_RELEASE,
             ArtefactType.PULL_REQUEST,
             ArtefactType.CHECK_RESULT,
+            ArtefactType.CHECK_OBSERVATION,
             ArtefactType.CHECK_SCHEDULED,
             ArtefactType.CHECK_EXPIRED,
             ArtefactType.CHECK_CANCELLED,
@@ -1497,7 +1499,7 @@ class SignalReportArtefact(UUIDModel):
         ]
 
     @classmethod
-    def counts_by_report(cls, report_ids: list[str]) -> dict[str, int]:
+    def counts_by_report(cls, report_ids: list[str], *, monitoring_enabled: bool = True) -> dict[str, int]:
         """How many artefacts each report has, in one grouped query over the page.
 
         The inbox list renders this count for every row it returns. A correlated subquery makes
@@ -1509,7 +1511,10 @@ class SignalReportArtefact(UUIDModel):
             return {}
         rows = (
             cls.objects.filter(report_id__in=report_ids)
-            .exclude(type__in=cls.SYSTEM_SCORING_ARTEFACT_TYPES)
+            .exclude(
+                type__in=cls.SYSTEM_SCORING_ARTEFACT_TYPES
+                | ({cls.ArtefactType.CHECK_OBSERVATION} if not monitoring_enabled else set())
+            )
             .values("report_id")
             .annotate(artefact_count=models.Count("*"))
         )

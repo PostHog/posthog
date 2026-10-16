@@ -36,7 +36,8 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportCheck, SignalScoutRun
 from products.signals.backend.report_check_agent import AGENT_CHECK_RESULT_WINDOW, resolve_check_skill_name
 from products.signals.backend.report_check_authoring import CheckCreationError, cancel_check, create_check
-from products.signals.backend.report_check_execution import CheckVerdict, record_check_verdict
+from products.signals.backend.report_check_evaluation import CheckVerdict
+from products.signals.backend.report_check_execution import record_check_verdict
 from products.signals.backend.report_checks import (
     AgentCheckConfig,
     CheckInconclusiveReason,

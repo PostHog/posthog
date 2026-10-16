@@ -2543,7 +2543,10 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 manual_adders=trusted_manual_reviewer_adders(obj, parsed, self.context.get("signals_reviewer_history")),
             )
 
-        if obj.type == SignalReportArtefact.ArtefactType.CHECK_RESULT and isinstance(parsed, dict):
+        if obj.type in {
+            SignalReportArtefact.ArtefactType.CHECK_RESULT,
+            SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
+        } and isinstance(parsed, dict):
             return self._redact_check_result(obj, parsed)
 
         if (
@@ -2603,6 +2606,11 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             "observed_value": None,
             "baseline_value": None,
             "explanation": CHECK_RESULT_HIDDEN_EXPLANATION,
+            **(
+                {"comparison": None, "matches": None, "error": None}
+                if obj.type == SignalReportArtefact.ArtefactType.CHECK_OBSERVATION
+                else {}
+            ),
         }
 
 
