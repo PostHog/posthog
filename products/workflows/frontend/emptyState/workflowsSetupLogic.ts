@@ -5,7 +5,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { hogFlowsList } from '../generated/api'
+import { hogFlowsList, workflowDataSuggestionsCurrent } from '../generated/api'
 
 /**
  * Setup detection for the workflows empty state. Workflows are a creation-first
@@ -28,7 +28,8 @@ export const workflowsSetupLogic = createSetupDetectionLogic({
             return 'has-data'
         }
         // Drafts made from suggestions keep the empty state, where their cards say "In draft" and link to them.
-        const suggestionDrafts = await hogFlowsList(projectId, { limit: 1, origin_product: 'ideas', status: 'draft' })
-        return suggestionDrafts.count === response.count ? 'needs-setup' : 'has-data'
+        const current = await workflowDataSuggestionsCurrent(projectId).catch(() => null)
+        const suggestionDrafts = current?.suggestions.filter((suggestion) => suggestion.draft_workflow_id).length ?? 0
+        return suggestionDrafts >= response.count ? 'needs-setup' : 'has-data'
     },
 })
