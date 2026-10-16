@@ -11,8 +11,8 @@ is visible in one place.
 and ``temporalio`` on the ``django.setup()`` path. Core config-time consumers import this
 facade, so it reaches the service only through ``_service()``, which imports it at call
 time. For the same reason the Temporal client is built in ``_get_temporal_client()``, and
-the HogQL and file download modules load through ``_import_hogql_source()`` and
-``_import_file_downloads()``.
+the HogQL, file download, run and backfill modules load through ``_import_hogql_source()``,
+``_import_file_downloads()``, ``_import_runs()`` and ``_import_backfills()``.
 
 Temporal workflow and activity registration crosses as objects, not data, so it lives in
 ``facade/temporal.py``. The destination clients the warehouse writers reuse live in
@@ -56,17 +56,22 @@ __all__ = [
     "FAILED_BACKFILL_STATUSES",
     "MultipleBatchExportsError",
     "backfill_batch_export",
+    "cancel_batch_export_backfill",
+    "cancel_batch_export_run",
     "cancel_file_download",
     "count_batch_exports_for_teams",
     "count_hogql_rows",
     "create_batch_export",
+    "create_batch_export_backfill",
     "create_workflows_backfill_export",
     "delete_batch_export",
     "delete_batch_exports_for_teams",
     "describe_destination_test",
     "drop_unknown_hogql_modifiers",
     "find_hogql_interval_placeholders",
+    "get_batch_export_backfill",
     "get_batch_export_by_name",
+    "get_batch_export_run",
     "get_file_download_run",
     "get_file_download_url",
     "get_latest_completed_run",
@@ -75,10 +80,13 @@ __all__ = [
     "get_teams_with_active_batch_exports",
     "get_teams_with_billable_rows_exported",
     "list_backfills_for_export",
+    "list_batch_export_backfills",
+    "list_batch_export_runs",
     "list_batch_exports_using_integration",
     "list_file_download_runs",
     "list_latest_failed_runs",
     "list_supported_intervals",
+    "retry_batch_export_run",
     "run_destination_test_step",
     "start_file_download",
     "validate_hogql_query",
@@ -132,6 +140,20 @@ def _import_file_downloads() -> ModuleType:
     from products.batch_exports.backend.logic import file_downloads
 
     return file_downloads
+
+
+def _import_runs() -> ModuleType:
+    """Import the run module at call time. See the module docstring for why."""
+    from products.batch_exports.backend.logic import runs
+
+    return runs
+
+
+def _import_backfills() -> ModuleType:
+    """Import the backfill module at call time. See the module docstring for why."""
+    from products.batch_exports.backend.logic import backfills
+
+    return backfills
 
 
 def _get_temporal_client() -> "Client":
@@ -597,3 +619,91 @@ def get_file_download_url(team_id: int, run_id: UUID, part: str | None) -> str:
     ``contracts.FileDownloadNotFoundError`` when the run or the file does not exist.
     """
     return _import_file_downloads().get_file_download_url(team_id, run_id, part)
+
+
+def list_batch_export_runs(
+    team_id: int, export_id: UUID, *, filters: contracts.BatchExportRunFilters, page: contracts.ListPage
+) -> list[contracts.BatchExportRunDetail]:
+    """Return one page of the runs of a batch export that match ``filters``.
+
+    The page can order by ``created_at`` and ``data_interval_start``. A batch export the team
+    does not have has no runs.
+    """
+    return _import_runs().list_runs(team_id, export_id, filters, page)
+
+
+def get_batch_export_run(
+    team_id: int, export_id: UUID, run_id: UUID, *, filters: contracts.BatchExportRunFilters
+) -> contracts.BatchExportRunDetail:
+    """Return a run of a batch export, if it matches ``filters``.
+
+    Raises ``contracts.BatchExportRunNotFoundError`` when the team has no such run.
+    """
+    return _import_runs().get_run(team_id, export_id, run_id, filters)
+
+
+def retry_batch_export_run(
+    team_id: int, export_id: UUID, run_id: UUID, *, filters: contracts.BatchExportRunFilters
+) -> str:
+    """Backfill the data interval of a run again, and return the backfill id.
+
+    Raises ``contracts.BatchExportRunNotFoundError`` when the team has no such run that matches ``filters``.
+    """
+    return _import_runs().retry_run(team_id, export_id, run_id, filters)
+
+
+def cancel_batch_export_run(
+    team_id: int, export_id: UUID, run_id: UUID, *, filters: contracts.BatchExportRunFilters
+) -> None:
+    """Cancel a run that is starting or running.
+
+    Raises ``contracts.InvalidBatchExportRunRequestError`` when the run is in another status, and
+    ``contracts.BatchExportRunNotFoundError`` when the team has no such run that matches ``filters``.
+    """
+    _import_runs().cancel_run(team_id, export_id, run_id, filters)
+
+
+def list_batch_export_backfills(
+    team_id: int, export_id: UUID, *, page: contracts.ListPage
+) -> list[contracts.BatchExportBackfillDetail]:
+    """Return one page of the backfills of a batch export.
+
+    The page can order by ``created_at`` and ``start_at``. A batch export the team does not have
+    has no backfills.
+    """
+    return _import_backfills().list_backfills(team_id, export_id, page)
+
+
+def get_batch_export_backfill(team_id: int, export_id: UUID, backfill_id: UUID) -> contracts.BatchExportBackfillDetail:
+    """Return a backfill of a batch export.
+
+    Raises ``contracts.BatchExportBackfillNotFoundError`` when the team has no such backfill.
+    """
+    return _import_backfills().get_backfill(team_id, export_id, backfill_id)
+
+
+def create_batch_export_backfill(
+    team_id: int, export_id: UUID, *, start_at: object, end_at: object
+) -> contracts.BatchExportBackfillStart:
+    """Start a backfill of a batch export over a range of time.
+
+    ``start_at`` and ``end_at`` are the bounds as a request carries them. A daily or weekly
+    batch export takes ISO 8601 dates, and every other interval takes ISO 8601 datetimes with a
+    time zone. Without ``start_at`` the backfill starts at the earliest data, which a feature
+    flag gates. Without ``end_at`` it runs until it catches up with realtime.
+
+    Raises ``contracts.BatchExportNotFoundError`` when the team has no such batch export,
+    ``contracts.InvalidBackfillRequestError`` when the range is not valid, and
+    ``contracts.TooManyConcurrentBackfillsError`` when the team has
+    ``BATCH_EXPORT_MAX_CONCURRENT_BACKFILLS_PER_TEAM`` backfills starting or running.
+    """
+    return _import_backfills().create_backfill(team_id, export_id, start_at, end_at)
+
+
+def cancel_batch_export_backfill(team_id: int, export_id: UUID, backfill_id: UUID) -> None:
+    """Cancel a backfill that is starting or running, and the runs it has in progress.
+
+    Raises ``contracts.InvalidBackfillRequestError`` when the backfill is in another status, and
+    ``contracts.BatchExportBackfillNotFoundError`` when the team has no such backfill.
+    """
+    _import_backfills().cancel_backfill(team_id, export_id, backfill_id)
