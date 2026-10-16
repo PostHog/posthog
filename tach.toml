@@ -986,6 +986,7 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.cdp",
     "products.conversations",
     "products.data_modeling",
@@ -995,6 +996,8 @@ depends_on = [
     "products.product_analytics",
     "products.warehouse_sources",
     "products.workflows", "products.access_control",
+    # Facade-only: customer analytics declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -1105,6 +1108,10 @@ depends_on = [
     # The web trends, web vitals and calendar heatmap runners subclass product analytics' trends runners.
     "products.product_analytics",
     "products.replay_vision",
+    # Facade-only: the rage-click highlight names the error people saw before rage-clicking.
+    "products.error_tracking",
+    # Facade-only: web analytics declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
