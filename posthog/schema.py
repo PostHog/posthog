@@ -521,7 +521,7 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
     displayType: DisplayType | None = Field(default=None, description="Chart type. `auto` uses `display`.")
     label: str | None = Field(
         default=None,
-        description=("Custom label for this series, shown in the legend and tooltips instead of the column name."),
+        description="Series label in legends and tooltips; replaces the column name.",
     )
     trendLine: bool | None = Field(
         default=None,
@@ -542,19 +542,14 @@ class AssistantDataVisualizationAxisFormatting(BaseModel):
     style: Style | None = Field(
         default=None,
         description=(
-            "Number formatting style.\n- `none` — no formatting.\n- `number` —"
-            " thousands separators (e.g. `1,234`).\n- `short` — abbreviated large"
-            " numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100"
-            " and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a /"
-            " b`). Never pair it with a `%` suffix, which renders `47.3%%`."
+            "`none`: unformatted; `number`: thousands separators; `short`:"
+            " abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`."
+            " Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it."
         ),
     )
     suffix: str | None = Field(
         default=None,
-        description=(
-            "Text appended to each value (e.g. ` ms`). Leave unset when `style` is"
-            " `percent`, which already appends the `%` sign."
-        ),
+        description="Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.",
     )
 
 
@@ -3845,6 +3840,15 @@ class AssistantArrayPropertyFilter(BaseModel):
             ' convert it to a string "true" or "false".'
         ),
     )
+
+
+class AssistantBIVisualizationNode(BaseModel):
+    config: dict[str, Any] = Field(
+        ...,
+        description=("Complete worksheet configuration, including shelves and filters. Validated by the insight API."),
+    )
+    kind: Literal["BIVisualizationNode"] = "BIVisualizationNode"
+    source: AssistantBareHogQLQuery
 
 
 class AssistantBareInsightQuery(BaseModel):
@@ -11425,56 +11429,6 @@ class MemberAliase(BaseModel):
     field: BIField
 
 
-class BIConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    chartType: ChartDisplayType
-    colorBy: str | None = None
-    columns: list[BIField]
-    compareFilter: CompareFilter | None = None
-    comparisonPeriod: ComparisonPeriod | None = Field(
-        default=None,
-        description=("Explore only the comparison window, using dateRange as its reference window."),
-    )
-    dateField: BIField | None = Field(
-        default=None,
-        description="Column that receives the worksheet and dashboard date range.",
-    )
-    dateRange: DateRange | None = None
-    filters: list[BIFilter]
-    hierarchies: list[BIHierarchy] | None = Field(
-        default=None,
-        description=("Named dimension sequences saved with the worksheet; imports are independent copies."),
-    )
-    hierarchyDrillPath: list[HierarchyDrillPathItem] | None = None
-    limit: BIQueryLimit
-    localFields: list[BIField] | None = Field(
-        default=None, description="Reusable expressions owned by this worksheet only."
-    )
-    memberAliases: list[MemberAliase] | None = None
-    missingDates: MissingDates | None = Field(
-        default=None,
-        description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
-    )
-    panes: BIPaneSettings | None = Field(
-        default=None,
-        description=("Split the returned groups into charts using these ordered dimension IDs."),
-    )
-    resultFilterGroup: BIConditionGroup | None = None
-    resultFilters: list[BIResultFilter] | None = None
-    rowFilterGroup: BIConditionGroup | None = None
-    rows: list[BIField]
-    sort: BISort | None = Field(
-        default=None,
-        description=("null sorts automatically: newest date or highest value first, so top rows survive the LIMIT."),
-    )
-    source: BIDataSource | None = None
-    topN: BITopN | None = None
-    totals: BITotals | None = None
-    values: list[BIValue]
-
-
 class BehavioralPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -19011,6 +18965,7 @@ class InsightActorsQueryBase(BaseModel):
 class InsightQuery(
     RootModel[
         AssistantDataTableNode
+        | AssistantBIVisualizationNode
         | AssistantInsightVizNode
         | AssistantDataVisualizationNode
         | AssistantBareInsightQuery
@@ -19020,6 +18975,7 @@ class InsightQuery(
 ):
     root: (
         AssistantDataTableNode
+        | AssistantBIVisualizationNode
         | AssistantInsightVizNode
         | AssistantDataVisualizationNode
         | AssistantBareInsightQuery
@@ -31031,6 +30987,66 @@ class TraceSpansTreeQuery(BaseModel):
     )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class BIConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    catalogMetric: str | None = Field(
+        default=None,
+        description=("Catalog provenance only: the snapshot does not track subsequent definition edits."),
+    )
+    chartType: ChartDisplayType
+    colorBy: str | None = None
+    columns: list[BIField]
+    compareFilter: CompareFilter | None = None
+    comparisonPeriod: ComparisonPeriod | None = Field(
+        default=None,
+        description=("Explore only the comparison window, using dateRange as its reference window."),
+    )
+    dateField: BIField | None = Field(
+        default=None,
+        description="Column that receives the worksheet and dashboard date range.",
+    )
+    dateRange: DateRange | None = None
+    filters: list[BIFilter]
+    hierarchies: list[BIHierarchy] | None = Field(
+        default=None,
+        description=("Named dimension sequences saved with the worksheet; imports are independent copies."),
+    )
+    hierarchyDrillPath: list[HierarchyDrillPathItem] | None = None
+    limit: BIQueryLimit
+    localFields: list[BIField] | None = Field(
+        default=None, description="Reusable expressions owned by this worksheet only."
+    )
+    memberAliases: list[MemberAliase] | None = None
+    missingDates: MissingDates | None = Field(
+        default=None,
+        description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
+    )
+    panes: BIPaneSettings | None = Field(
+        default=None,
+        description=("Split the returned groups into charts using these ordered dimension IDs."),
+    )
+    querySnapshot: HogQLQuery | None = Field(
+        default=None,
+        description=(
+            "Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves."
+        ),
+    )
+    resultFilterGroup: BIConditionGroup | None = None
+    resultFilters: list[BIResultFilter] | None = None
+    rowFilterGroup: BIConditionGroup | None = None
+    rows: list[BIField]
+    sort: BISort | None = Field(
+        default=None,
+        description=("null sorts automatically: newest date or highest value first, so top rows survive the LIMIT."),
+    )
+    source: BIDataSource | None = None
+    topN: BITopN | None = None
+    totals: BITotals | None = None
+    values: list[BIValue]
 
 
 class BIVisualizationNode(BaseModel):

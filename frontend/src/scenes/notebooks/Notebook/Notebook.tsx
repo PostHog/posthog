@@ -2,7 +2,7 @@ import './Notebook.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useLayoutEffect } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
@@ -58,8 +58,16 @@ export function Notebook({
         cachedInlineQueryResultsByNodeId,
     }
     const logic = notebookLogic(logicProps)
-    const { notebook, notebookLoading, isEditable, isTemplate, notebookMissing, isShared, isLocalOnly } =
-        useValues(logic)
+    const {
+        notebook,
+        notebookLoading,
+        isEditable,
+        isTemplate,
+        notebookMissing,
+        isShared,
+        isLocalOnly,
+        shouldBeEditable,
+    } = useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
     const { isMarkdownExpanded } = useValues(notebookSettingsLogic)
     useAttachedContext(
@@ -88,8 +96,12 @@ export function Notebook({
         }
     })
 
-    useEffect(() => {
+    // A retained notebook is present on the first render. Rendering it read-only and then switching every block
+    // to editable rewrites `contenteditable` across the whole document, so the content waits for this value.
+    const [editableApplied, setEditableApplied] = useState(shouldBeEditable === editable)
+    useLayoutEffect(() => {
         setEditable(editable)
+        setEditableApplied(true)
     }, [editable]) // oxlint-disable-line exhaustive-deps
 
     const { ref, size } = useResizeBreakpoints({
@@ -116,7 +128,7 @@ export function Notebook({
 
     return (
         <BindLogic logic={notebookLogic} props={logicProps}>
-            {!notebook && notebookLoading ? (
+            {(!notebook && notebookLoading) || !editableApplied ? (
                 <NotebookLoadingState />
             ) : notebookMissing ? (
                 <NotFound object="notebook" />

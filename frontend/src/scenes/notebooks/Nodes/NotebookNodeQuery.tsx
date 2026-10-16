@@ -476,6 +476,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
     resizeable: true,
     startExpanded: true,
+    deferUntilInView: true,
     attributes: {
         query: {
             default: DEFAULT_QUERY,
