@@ -903,7 +903,7 @@ function extractPathParams(urlPattern: string): string[] {
 }
 
 /** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params.
- *  All interpolated values are wrapped with encodeURIComponent() to prevent path traversal.
+ *  Interpolated values are URL-encoded; ApiClient rejects paths that URL parsing would normalize.
  *  Params in `localVarParams` use a bare variable name (no prefix) because they are resolved to local variables. */
 function buildPathExpr(
     urlPath: string,

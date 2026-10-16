@@ -326,6 +326,8 @@ Other clients keep the full inline command reference.
 
 ### Tool filtering
 
+In CLI mode, `tools` and `exclude_tools` also apply to namespaced connected tools. A `features` filter excludes connected tools unless `tools` explicitly names them. Exclusions take precedence over explicit selections.
+
 For finer-grained control you can allowlist specific tools by name using the `tools` query parameter. Only the exact tool names listed will be exposed, regardless of their feature category.
 
 ```text

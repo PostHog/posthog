@@ -46,6 +46,14 @@ describe('ToolExecutor', () => {
     })
 
     describe('handleToolCall', () => {
+        it('refuses cached exec calls through Store connections', async () => {
+            const result = await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'tools' } },
+                makeToolExecutorState([], { useSingleExec: false, viaMcpStore: true })
+            )
+            expect(result).toMatchObject({ isError: true, content: [{ type: 'text', text: 'Tool exec not found' }] })
+        })
+
         it('returns error when tool name is missing', async () => {
             const result = (await executor.handleToolCall({}, makeToolExecutorState([]))) as any
             expect(result.isError).toBe(true)

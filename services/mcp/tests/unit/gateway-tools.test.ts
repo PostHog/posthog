@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import { ExecCommandError } from '@/lib/errors'
 import { buildGatewayTools } from '@/lib/gateway-tools'
-import { createExecTool, type ExecCommandMeta } from '@/tools/exec'
+import { createExecTool, type ExecCommandMeta, type ExecToolOptions } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 const INPUT_SCHEMA = {
@@ -57,7 +57,8 @@ function posthogTool(): Tool<ZodObjectAny> {
 
 function createExec(
     gatewayTools: Tool<ZodObjectAny>[],
-    provider = vi.fn(async () => gatewayTools)
+    provider = vi.fn(async () => gatewayTools),
+    options: ExecToolOptions = {}
 ): {
     exec: Tool<any>
     provider: ReturnType<typeof vi.fn>
@@ -70,12 +71,38 @@ function createExec(
         undefined,
         undefined,
         [],
-        { gatewayToolsProvider: provider }
+        { gatewayToolsProvider: provider, ...options }
     )
     return { exec, provider }
 }
 
 describe('gateway tools', () => {
+    it.each([
+        { tools: ['feature-flag-create'] },
+        { excludeTools: ['linear__create_issue'] },
+        { features: ['dashboards'] },
+        { tools: ['linear__create_issue'], excludeTools: ['linear__create_issue'] },
+    ])('applies connection filters %j to connected tools', async (gatewayToolFilter) => {
+        const request = vi.fn()
+        const tools = buildGatewayTools(payload(), mockContext(request), '1')
+        const { exec } = createExec(tools, undefined, { gatewayToolFilter })
+        expect(await exec.handler(mockContext(), { command: 'search create' })).not.toContain('linear__create_issue')
+        await expect(exec.handler(mockContext(), { command: 'info linear__create_issue' })).rejects.toThrow()
+        await expect(
+            exec.handler(mockContext(), { command: 'call --confirm linear__create_issue {"title":"Example"}' })
+        ).rejects.toThrow()
+        expect(request).not.toHaveBeenCalled()
+    })
+
+    it('allows explicitly selected connected tools', async () => {
+        const request = vi.fn().mockResolvedValue({ ok: true })
+        const { exec } = createExec(buildGatewayTools(payload(), mockContext(request), '1'), undefined, {
+            gatewayToolFilter: { tools: ['linear__create_issue'], features: ['dashboards'] },
+        })
+        await exec.handler(mockContext(), { command: 'call --confirm linear__create_issue {"title":"Example"}' })
+        expect(request).toHaveBeenCalledOnce()
+    })
+
     it('namespaces tool names by server slug and keeps the upstream JSON Schema', () => {
         const tools = buildGatewayTools(payload(), mockContext(), '1')
 
