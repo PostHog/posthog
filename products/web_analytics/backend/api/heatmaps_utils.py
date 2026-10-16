@@ -10,6 +10,19 @@ MAX_TARGET_WIDTHS = 16
 PREWARM_PREVIEW_WIDTH = 1024
 PREWARM_TTL = timedelta(minutes=15)
 
+MAX_CAPTURE_IMAGE_WIDTH = 4000
+MAX_CAPTURE_IMAGE_HEIGHT = 30000
+MAX_CAPTURE_IMAGE_PIXELS = 50_000_000
+
+
+def capture_image_within_limits(width: int, height: int) -> bool:
+    return (
+        width <= MAX_CAPTURE_IMAGE_WIDTH
+        and height <= MAX_CAPTURE_IMAGE_HEIGHT
+        and width * height <= MAX_CAPTURE_IMAGE_PIXELS
+    )
+
+
 # The Pillow formats a stored snapshot can hold: Browserless renders JPEG, and the toolbar capture
 # endpoint accepts JPEG or PNG. Image.open without formats= tries every format Pillow can parse.
 HEATMAP_SNAPSHOT_IMAGE_FORMATS = ("JPEG", "PNG")

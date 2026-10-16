@@ -28,7 +28,10 @@ from requests.exceptions import (
     Timeout,
 )
 
+from posthog.utils import get_instance_region
+
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
+from products.tasks.backend.dev_stack_image_models import DevStackImageTarget
 from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
     SandboxControlPlaneError,
@@ -614,6 +617,7 @@ class TestModalSandboxAgentServer:
         assert f"--taskId {shlex.quote('task-123')}" in command
         assert f"--runId {shlex.quote('run-456')}" in command
         assert f"POSTHOG_SANDBOX_ID={shlex.quote(mock_sandbox.id)}" in command
+        assert "POSTHOG_AGENT_STATE_DIR=/tmp/workspace/.posthog/agent-state" in command
         assert "--sandboxId" not in command
         assert f"--mode {shlex.quote('background')}" in command
         assert "--createPr true" in command
@@ -879,6 +883,8 @@ class TestModalSandboxAgentServer:
             ({"benjamin_enabled": True}, "POSTHOG_BENJAMIN=1"),
             ({"benjamin_enabled": False}, "POSTHOG_BENJAMIN=0"),
             ({}, "POSTHOG_BENJAMIN=0"),
+            ({"pi_acp_conversation": True}, "POSTHOG_PI_CONVERSATION_FORMAT=acp"),
+            ({}, "POSTHOG_PI_CONVERSATION_FORMAT=pi"),
         ],
     )
     def test_start_agent_server_toggle_env(self, mock_sandbox: Any, toggles, expected_env):
@@ -1763,6 +1769,7 @@ class TestModalSandboxCreateAllowlist:
         mock_create.return_value.wait_until_ready.assert_called_once_with(timeout=READINESS_PROBE_TIMEOUT_SECONDS)
 
 
+@pytest.mark.django_db
 class TestModalSandboxCreateImageFallback:
     """A failed create with an overlaid image must downgrade one step at a time (bare
     snapshot / bare custom image) instead of jumping to the clean base image — jumping
@@ -1818,6 +1825,42 @@ class TestModalSandboxCreateImageFallback:
         assert images_tried == [overlaid_custom, bare_custom]
         assert sandbox.config.image_fallback is not None
         assert "custom image posthog-dev-stack" in sandbox.config.image_fallback
+
+    @pytest.mark.parametrize("image_id", ["im-verified", ""])
+    def test_protected_dev_stack_never_reads_the_mutable_name(self, image_id: str) -> None:
+
+        DevStackImageTarget.objects.create(
+            region=get_instance_region() or "DEV",
+            name="posthog-dev-stack",
+            active_image_id=image_id,
+        )
+        config = SandboxConfig(name="t", template=SandboxTemplate.VM_BASE, custom_image_name="posthog-dev-stack")
+        custom = MagicMock(name="active")
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch("products.tasks.backend.logic.services.modal_sandbox._get_template_image") as base,
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                side_effect=lambda image, *args, **kwargs: image,
+            ),
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name") as from_name,
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_id", return_value=custom
+            ) as from_id,
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create") as create,
+            patch("products.tasks.backend.logic.services.modal_sandbox.capture_exception"),
+        ):
+            sandbox = ModalSandbox.create(config)
+        from_name.assert_not_called()
+        if image_id:
+            from_id.assert_called_once_with(image_id)
+            assert create.call_args.kwargs["image"] is custom
+            assert sandbox.config.is_dev_stack_image
+        else:
+            assert create.call_args.kwargs["image"] is base.return_value
+            assert not sandbox.config.is_dev_stack_image
+            assert sandbox.config.image_fallback
 
     def test_falling_back_to_the_base_image_drops_the_dev_stack_cpu_floor(self) -> None:
         config = SandboxConfig(
@@ -1878,6 +1921,40 @@ class TestModalSandboxCreateImageFallback:
         # The run still restored from the snapshot — the downgrade only cost the overlay.
         assert sandbox.config.snapshot_restored is True
         assert sandbox.config.image_fallback is not None
+
+    @pytest.mark.parametrize("failure", ["lookup", "create", "readiness"])
+    def test_required_snapshot_failure_never_falls_back_to_base(self, failure: str) -> None:
+        config = SandboxConfig(name="verification", snapshot_external_id="im-candidate", require_snapshot=True)
+        snapshot = MagicMock(name="candidate")
+        sandbox = MagicMock(object_id="sb-candidate")
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch("products.tasks.backend.logic.services.modal_sandbox._get_template_image"),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                side_effect=lambda image, *args, **kwargs: image,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_id",
+                return_value=snapshot,
+                side_effect=RuntimeError("lookup unavailable") if failure == "lookup" else None,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create",
+                return_value=sandbox,
+                side_effect=RuntimeError("create unavailable") if failure == "create" else None,
+            ) as create,
+            patch.object(ModalSandbox, "_wait_until_ready", return_value=False),
+            patch("products.tasks.backend.logic.services.modal_sandbox.capture_exception"),
+        ):
+            with pytest.raises(SandboxProvisionError):
+                ModalSandbox.create(config)
+        assert create.call_count == (0 if failure == "lookup" else 1)
+        if create.called:
+            assert create.call_args.kwargs["image"] is snapshot
+        if failure == "readiness":
+            sandbox.terminate.assert_called_once()
 
     def test_unrelated_invalid_error_preserves_vm_network_policy_on_fallback(self):
         config = SandboxConfig(

@@ -20,6 +20,7 @@ use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolu
 use cymbal_proto::cymbal::resolution::v1::{
     resolve_outcome, ErrorKind, ResolveItem, ResolveOutcome, SubscribeRequest,
 };
+use cymbal_proto::CYMBAL_RESOLUTION_MAX_MESSAGE_SIZE_BYTES;
 use futures::StreamExt;
 use tokio::sync::Semaphore;
 use tonic::transport::{Channel, Server};
@@ -179,7 +180,11 @@ async fn spawn_test_channel(service: CymbalResolutionService) -> Channel {
 
     tokio::spawn(async move {
         Server::builder()
-            .add_service(CymbalResolutionServer::new(service))
+            .add_service(
+                CymbalResolutionServer::new(service)
+                    .max_decoding_message_size(CYMBAL_RESOLUTION_MAX_MESSAGE_SIZE_BYTES)
+                    .max_encoding_message_size(CYMBAL_RESOLUTION_MAX_MESSAGE_SIZE_BYTES),
+            )
             .serve_with_incoming(incoming)
             .await
             .expect("test gRPC server exits cleanly");
@@ -213,7 +218,9 @@ async fn resolve_items_with_accepted(
     items: Vec<ResolveItem>,
 ) -> Vec<ResolveOutcome> {
     let channel = spawn_test_channel(service).await;
-    let mut client = CymbalResolutionClient::new(channel);
+    let mut client = CymbalResolutionClient::new(channel)
+        .max_decoding_message_size(CYMBAL_RESOLUTION_MAX_MESSAGE_SIZE_BYTES)
+        .max_encoding_message_size(CYMBAL_RESOLUTION_MAX_MESSAGE_SIZE_BYTES);
     let response = client
         .resolve(Request::new(futures::stream::iter(items)))
         .await
@@ -300,6 +307,27 @@ async fn bidi_resolve_stream_resolves_multiple_items_and_echoes_ids() {
         assert_eq!(resolved.exception_type, "RuntimeError");
         assert!(matches!(resolved.stack, Some(Stacktrace::Resolved { .. })));
     }
+}
+
+#[tokio::test]
+async fn bidi_resolve_stream_accepts_messages_larger_than_tonic_default() {
+    let service = make_service(FakeResolver::default());
+    let mut exc = raw_exception("RuntimeError");
+    exc.exception_message = "x".repeat(5 * 1024 * 1024);
+    let item = make_item(41, &exc);
+
+    assert!(item.exception_json.len() > 4 * 1024 * 1024);
+    assert!(item.exception_json.len() < CYMBAL_RESOLUTION_MAX_MESSAGE_SIZE_BYTES);
+
+    let outcomes = resolve_items(service, vec![item]).await;
+
+    assert_eq!(outcomes.len(), 1);
+    let resolve_outcome::Result::Done(done) = outcome_result(&outcomes[0]) else {
+        panic!("expected Done outcome, got {:?}", outcomes[0]);
+    };
+    let resolved: Exception =
+        serde_json::from_slice(&done.resolved_exception_json).expect("valid resolved exception");
+    assert_eq!(resolved.exception_message.len(), 5 * 1024 * 1024);
 }
 
 #[tokio::test]

@@ -1,90 +1,41 @@
-import json
-from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
+from typing import Any
 
-import pytest
-from unittest import mock
 from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.revenuecat import (
+    RevenueCatSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat import revenuecat as api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.constants import (
     REVENUECAT_API_BASE_URL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat import (
     RevenueCatResumeConfig,
-    revenuecat_api_source,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source"
-    ".rest_client.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source import RevenueCatSource
 
 
-def _api_response(items: list | None = None, *, status: int = 200, next_page: str | None = None) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.url = f"{REVENUECAT_API_BASE_URL}/projects/proj_test/customers"
+def _api_response(items: list | None = None, *, status: int = 200, next_page: str | None = None) -> ScriptedResponse:
     body: dict[str, Any] = {}
     if items is not None:
         body["items"] = items
     body["next_page"] = next_page
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _manager(resume: RevenueCatResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[requests.PreparedRequest]:
-    """Wire a mock session; capture each request AT PREPARE TIME as a real PreparedRequest.
-
-    Preparing with a real session applies the framework auth and encodes params exactly as they'd
-    go on the wire, so tests can assert the outgoing URL and Authorization header.
-    """
-    session.headers = {}
-    real = requests.Session()
-    prepared: list[requests.PreparedRequest] = []
-
-    def _prepare(request: Any) -> requests.PreparedRequest:
-        p = real.prepare_request(request)
-        prepared.append(p)
-        return p
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return prepared
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+    return ScriptedResponse(status=status, json=body)
 
 
 def _run(
-    schema_name: str, responses: list[Response], manager: mock.MagicMock, *, project_id: str = "proj_test"
-) -> tuple[list[dict[str, Any]], list[requests.PreparedRequest]]:
-    with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-        session = MockSession.return_value
-        prepared = _wire(session, responses)
-        rows = _rows(
-            revenuecat_api_source(
-                "sk_test", project_id, schema_name, team_id=1, job_id="j", resumable_source_manager=manager
-            )
-        )
-    return rows, prepared
-
-
-def _query(prepared: requests.PreparedRequest) -> dict[str, list[str]]:
-    return parse_qs(urlsplit(cast("str", prepared.url)).query)
+    schema_name: str, script: list[ScriptedResponse], *, resume_state: RevenueCatResumeConfig | None = None
+) -> DriveResult:
+    config = RevenueCatSourceConfig(secret_api_key="sk_test", project_id="proj_test")
+    return SourceDriver(RevenueCatSource(), config).run(schema_name, script, resume_state=resume_state)
 
 
 def _ok_json_response(payload: dict | list | None = None, status_code: int = 200) -> MagicMock:
@@ -148,6 +99,33 @@ class TestValidateCredentials:
         # The status code is for error tracking, not for the person reading the source setup form.
         assert str(status_code) not in error
 
+    @parameterized.expand(
+        [
+            ("one_resource_readable", [403, 200], True, None),
+            ("no_resource_readable", [403] * 5, False, "denied"),
+            ("project_missing", [404], False, "could not find"),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    def test_checks_project_endpoints_when_listing_projects_is_denied(
+        self, _name, endpoint_statuses, expected_success, expected_substring, mock_session
+    ):
+        mock_session.return_value.get.side_effect = [_http_error_response(403)] + [
+            _ok_json_response({"items": []}) if status == 200 else _http_error_response(status)
+            for status in endpoint_statuses
+        ]
+
+        success, error = api_client.validate_credentials("sk_test", project_id="proj_test")
+
+        assert success is expected_success
+        if expected_substring is None:
+            assert error is None
+        else:
+            assert error is not None
+            assert expected_substring in error.lower()
+        probed_url = mock_session.return_value.get.call_args_list[1].args[0]
+        assert probed_url.startswith(f"{REVENUECAT_API_BASE_URL}/projects/proj_test/")
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
     def test_returns_false_on_network_error(self, mock_session):
         mock_session.return_value.get.side_effect = requests.ConnectionError("dns fail")
@@ -180,74 +158,69 @@ class TestApiSource:
         # next_page. Yields both rows in order, follows the resolved absolute link, and stops
         # without a third request.
         next_page = "/v2/projects/proj_test/customers?starting_after=cus_1&limit=100"
-        rows, prepared = _run(
+        result = _run(
             "customers",
             [
                 _api_response([{"id": "cus_1", "name": "first"}], next_page=next_page),
                 _api_response([{"id": "cus_2", "name": "second"}], next_page=None),
             ],
-            _manager(),
         )
 
-        assert rows == [{"id": "cus_1", "name": "first"}, {"id": "cus_2", "name": "second"}]
-        assert len(prepared) == 2
+        assert result.rows == [{"id": "cus_1", "name": "first"}, {"id": "cus_2", "name": "second"}]
+        assert len(result.requests) == 2
         # RevenueCat returns next_page as a root-relative path; it must be resolved against the API
         # host before it becomes the next request URL.
         assert (
-            prepared[1].url == f"{REVENUECAT_API_BASE_URL}/projects/proj_test/customers?starting_after=cus_1&limit=100"
+            result.urls[1] == f"{REVENUECAT_API_BASE_URL}/projects/proj_test/customers?starting_after=cus_1&limit=100"
         )
 
     def test_normalizes_created_at_from_ms_to_seconds(self):
         # `created_at` arrives as a millisecond epoch — divided by 1000 so the partition layer
         # (which treats bare ints as Unix seconds) buckets rows into the correct week.
-        rows, _prepared = _run(
-            "products", [_api_response([{"id": "p_1", "created_at": 1658399423658}], next_page=None)], _manager()
-        )
+        result = _run("products", [_api_response([{"id": "p_1", "created_at": 1658399423658}], next_page=None)])
 
-        assert rows == [{"id": "p_1", "created_at": 1658399423}]
+        assert result.rows == [{"id": "p_1", "created_at": 1658399423}]
 
     def test_resumes_from_saved_next_url(self):
         saved_url = f"{REVENUECAT_API_BASE_URL}/projects/proj_test/customers?starting_after=cus_99&limit=100"
-        manager = _manager(RevenueCatResumeConfig(endpoint="customers", next_url=saved_url))
 
-        _rows_, prepared = _run("customers", [_api_response([], next_page=None)], manager)
+        result = _run(
+            "customers",
+            [_api_response([], next_page=None)],
+            resume_state=RevenueCatResumeConfig(endpoint="customers", next_url=saved_url),
+        )
 
-        assert prepared[0].url == saved_url
+        assert result.urls[0] == saved_url
 
     def test_resumes_legacy_starting_after_cursor(self):
         # Pre-framework state stored only the cursor id; reproduce the old resumed first request
         # (`?starting_after=<id>&limit=100`) so an in-flight sync still advances.
-        manager = _manager(RevenueCatResumeConfig(endpoint="customers", starting_after="cus_42"))
+        result = _run(
+            "customers",
+            [_api_response([], next_page=None)],
+            resume_state=RevenueCatResumeConfig(endpoint="customers", starting_after="cus_42"),
+        )
 
-        _rows_, prepared = _run("customers", [_api_response([], next_page=None)], manager)
-
-        query = _query(prepared[0])
-        assert query["starting_after"] == ["cus_42"]
-        assert query["limit"] == ["100"]
+        assert result.requests[0].param("starting_after") == "cus_42"
+        assert result.requests[0].param("limit") == "100"
 
     def test_ignores_resume_state_saved_by_a_different_endpoint(self):
         # Replaying a products cursor against customers would skip rows, so cross-endpoint state is
         # dropped and the run starts fresh.
-        manager = _manager(RevenueCatResumeConfig(endpoint="products", starting_after="prod_10"))
+        result = _run(
+            "customers",
+            [_api_response([], next_page=None)],
+            resume_state=RevenueCatResumeConfig(endpoint="products", starting_after="prod_10"),
+        )
 
-        _rows_, prepared = _run("customers", [_api_response([], next_page=None)], manager)
-
-        query = _query(prepared[0])
-        assert "starting_after" not in query
-        assert query["limit"] == ["100"]
+        assert "starting_after" not in result.requests[0].query
+        assert result.requests[0].param("limit") == "100"
 
     def test_auth_error_raises_without_retry(self):
-        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-            session = MockSession.return_value
-            prepared = _wire(session, [_api_response([], status=401)])
-            with pytest.raises(requests.HTTPError):
-                _rows(
-                    revenuecat_api_source(
-                        "sk_test", "proj_test", "customers", team_id=1, job_id="j", resumable_source_manager=_manager()
-                    )
-                )
+        result = _run("customers", [_api_response([], status=401)])
 
-        assert len(prepared) == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
 
 
 class TestMsToSeconds:

@@ -1,19 +1,25 @@
 import json
 from datetime import UTC, date, datetime
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 import time_machine
 from unittest import mock
 
 import requests
-import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openmeteo import (
+    OpenMeteoSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.open_meteo import (
     ARCHIVE_WINDOW_DAYS,
     MAX_LABEL_LENGTH,
@@ -23,39 +29,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo
     _fetch,
     _redact_apikey,
     build_params,
-    get_rows,
     normalize_rows,
-    open_meteo_source,
     parse_locations,
     parse_start_date,
     resolve_archive_range,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.settings import OPEN_METEO_ENDPOINTS
-
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.open_meteo"
+from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.source import OpenMeteoSource
 
 LONDON = Location(51.5074, -0.1278, "London")
-NEW_YORK = Location(40.7128, -74.006)
-
-
-class FakeResumeManager(ResumableSourceManager[OpenMeteoResumeConfig]):
-    def __init__(self, state: OpenMeteoResumeConfig | None = None) -> None:
-        self.state = state
-        self.saved: list[OpenMeteoResumeConfig] = []
-        self.cleared = False
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> OpenMeteoResumeConfig | None:
-        return self.state
-
-    def save_state(self, data: OpenMeteoResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self.cleared = True
 
 
 def _response(status: int = 200, body: dict[str, Any] | None = None) -> mock.MagicMock:
@@ -91,14 +74,6 @@ def _fake_session(responses: list[mock.MagicMock]) -> mock.MagicMock:
     session = mock.MagicMock()
     session.get.side_effect = responses
     return session
-
-
-def _requested_urls(session: mock.MagicMock) -> list[str]:
-    return [call.args[0] for call in session.get.call_args_list]
-
-
-def _query(url: str) -> dict[str, list[str]]:
-    return parse_qs(urlparse(url).query)
 
 
 class TestParseLocations:
@@ -303,113 +278,83 @@ class TestResolveArchiveRange:
 
 
 class TestArchiveWindowing:
-    def _run(
-        self, manager: FakeResumeManager, responses: list[mock.MagicMock], start: str
-    ) -> tuple[list[list[dict[str, Any]]], mock.MagicMock]:
-        session = _fake_session(responses)
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            batches = list(
-                get_rows(
-                    endpoint_name="weather_archive_hourly",
-                    locations=[LONDON, NEW_YORK],
-                    api_key=None,
-                    configured_start=date.fromisoformat(start),
-                    db_incremental_field_last_value=None,
-                    resumable_source_manager=manager,
-                    logger=structlog.get_logger(),
-                )
-            )
-        return batches, session
-
     @time_machine.travel("2026-03-01", tick=False)
     def test_windows_are_contiguous_and_never_overlap(self) -> None:
-        manager = FakeResumeManager()
-        responses = [_response(200, _hourly_body(["2026-01-01T00:00"], temperature_2m=[1.0])) for _ in range(4)]
+        result = SourceDriver(
+            OpenMeteoSource(),
+            OpenMeteoSourceConfig(locations="51.5074,-0.1278,London\n40.7128,-74.006", start_date="2026-01-01"),
+        ).run(
+            "weather_archive_hourly",
+            [ScriptedResponse(json=_hourly_body(["2026-01-01T00:00"], temperature_2m=[1.0])) for _ in range(4)],
+        )
 
-        _, session = self._run(manager, responses, "2026-01-01")
-
+        assert result.raised is None
         boundaries = [
-            (date.fromisoformat(_query(url)["start_date"][0]), date.fromisoformat(_query(url)["end_date"][0]))
-            for url in _requested_urls(session)
+            (date.fromisoformat(request.param("start_date") or ""), date.fromisoformat(request.param("end_date") or ""))
+            for request in result.requests
         ]
+        assert len(boundaries) == 4
         first, second = boundaries[0], boundaries[2]
         assert (first[1] - first[0]).days == ARCHIVE_WINDOW_DAYS - 1
         assert (second[0] - first[1]).days == 1
+        assert result.saved_states == [
+            OpenMeteoResumeConfig(next_start_date="2026-02-01"),
+            OpenMeteoResumeConfig(next_start_date="2026-03-02"),
+        ]
+        assert result.final_state is None
 
     @time_machine.travel("2026-03-01", tick=False)
     def test_resumes_from_the_saved_window(self) -> None:
-        manager = FakeResumeManager(OpenMeteoResumeConfig(next_start_date="2026-02-01"))
-        responses = [_response(200, _hourly_body(["2026-02-01T00:00"], temperature_2m=[1.0])) for _ in range(2)]
+        result = SourceDriver(
+            OpenMeteoSource(),
+            OpenMeteoSourceConfig(locations="51.5074,-0.1278,London\n40.7128,-74.006", start_date="2026-01-01"),
+        ).run(
+            "weather_archive_hourly",
+            [ScriptedResponse(json=_hourly_body(["2026-02-01T00:00"], temperature_2m=[1.0])) for _ in range(2)],
+            resume_state=OpenMeteoResumeConfig(next_start_date="2026-02-01"),
+        )
 
-        _, session = self._run(manager, responses, "2026-01-01")
-
-        assert [_query(url)["start_date"][0] for url in _requested_urls(session)] == ["2026-02-01", "2026-02-01"]
+        assert result.raised is None
+        assert result.params("start_date") == ["2026-02-01", "2026-02-01"]
 
     @time_machine.travel("2026-03-01", tick=False)
     def test_makes_no_requests_when_the_watermark_is_already_current(self) -> None:
-        manager = FakeResumeManager()
-        session = _fake_session([])
+        result = SourceDriver(OpenMeteoSource(), OpenMeteoSourceConfig(locations="51.5074,-0.1278,London")).run(
+            "weather_archive_hourly",
+            [],
+            incremental_field="time_utc",
+            db_incremental_field_last_value=datetime(2026, 3, 5, tzinfo=UTC),
+        )
 
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            batches = list(
-                get_rows(
-                    endpoint_name="weather_archive_hourly",
-                    locations=[LONDON],
-                    api_key=None,
-                    configured_start=None,
-                    db_incremental_field_last_value=datetime(2026, 3, 5, tzinfo=UTC),
-                    resumable_source_manager=manager,
-                    logger=structlog.get_logger(),
-                )
-            )
-
-        assert batches == []
-        assert session.get.call_count == 0
+        assert result.raised is None
+        assert result.items == []
+        assert result.requests == []
 
 
 class TestRollingEndpoints:
-    def _run(
-        self, manager: FakeResumeManager, responses: list[mock.MagicMock], locations: list[Location]
-    ) -> tuple[list[list[dict[str, Any]]], mock.MagicMock]:
-        session = _fake_session(responses)
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            batches = list(
-                get_rows(
-                    endpoint_name="weather_forecast_hourly",
-                    locations=locations,
-                    api_key=None,
-                    configured_start=None,
-                    db_incremental_field_last_value=None,
-                    resumable_source_manager=manager,
-                    logger=structlog.get_logger(),
-                )
-            )
-        return batches, session
-
     def test_one_request_and_batch_per_location_with_no_date_window(self) -> None:
-        manager = FakeResumeManager()
-        responses = [_response(200, _hourly_body(["2026-01-01T00:00"], temperature_2m=[1.0])) for _ in range(2)]
+        result = SourceDriver(
+            OpenMeteoSource(), OpenMeteoSourceConfig(locations="51.5074,-0.1278,London\n40.7128,-74.006")
+        ).run(
+            "weather_forecast_hourly",
+            [ScriptedResponse(json=_hourly_body(["2026-01-01T00:00"], temperature_2m=[1.0])) for _ in range(2)],
+        )
 
-        batches, session = self._run(manager, responses, [LONDON, NEW_YORK])
-
-        assert len(batches) == 2
-        assert all("start_date" not in _query(url) for url in _requested_urls(session))
-        assert [state.location_index for state in manager.saved] == [1, 2]
-        assert manager.cleared is True
+        assert result.raised is None
+        assert len(result.items) == 2
+        assert len(result.requests) == 2
+        assert result.params("start_date") == [None, None]
+        assert result.saved_states == [OpenMeteoResumeConfig(location_index=1), OpenMeteoResumeConfig(location_index=2)]
+        assert result.final_state is None
 
 
 class TestOpenMeteoSourceResponse:
     def test_bad_locations_fail_before_any_request_is_made(self) -> None:
-        with pytest.raises(ValueError, match="out of range"):
-            open_meteo_source(
-                endpoint_name="weather_current",
-                locations_raw="91,0",
-                api_key=None,
-                start_date_raw=None,
-                db_incremental_field_last_value=None,
-                resumable_source_manager=FakeResumeManager(),
-                logger=structlog.get_logger(),
-            )
+        result = SourceDriver(OpenMeteoSource(), OpenMeteoSourceConfig(locations="91,0")).run("weather_current", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "out of range" in str(result.raised)
+        assert result.requests == []
 
 
 class TestValidateCredentials:
@@ -424,12 +369,13 @@ class TestValidateCredentials:
     def test_rejects_bad_config_without_calling_the_api(
         self, locations: str, start_date: str | None, message: str
     ) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
+        with scripted_network([]) as network:
             ok, error = validate_credentials(locations, None, start_date)
 
         assert ok is False
         assert error is not None and message in error
-        assert make_session.call_count == 0
+        assert network.requests_log == []
+        assert network.session_options == []
 
     @pytest.mark.parametrize(
         "status,body,expected_ok,expected_message",
@@ -443,11 +389,10 @@ class TestValidateCredentials:
     def test_maps_status_codes(
         self, status: int, body: dict[str, Any], expected_ok: bool, expected_message: str | None
     ) -> None:
-        session = _fake_session([_response(status, body)])
-
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status, json=body))) as network:
             ok, error = validate_credentials("51.5,-0.12", None, None)
 
+        assert network.requests_log[0].path == "/v1/forecast"
         assert ok is expected_ok
         if expected_message is None:
             assert error is None
@@ -455,21 +400,14 @@ class TestValidateCredentials:
             assert error is not None and expected_message in error
 
     def test_non_json_error_body_still_reports_the_status(self) -> None:
-        response = _response(500, {})
-        response.json.side_effect = ValueError("not json")
-        session = _fake_session([response])
-
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=500, body=b"not json"))):
             ok, error = validate_credentials("51.5,-0.12", None, None)
 
         assert ok is False
         assert error == "Open-Meteo returned status 500"
 
     def test_unreachable_api_is_reported_as_a_retryable_message(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionError("boom"))):
             ok, error = validate_credentials("51.5,-0.12", None, None)
 
         assert ok is False

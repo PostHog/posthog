@@ -1,14 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
-import { PREDICTION_SEGMENTS, PredictionSegmentDefinition, predictionSegmentPeopleUrl } from '../predictionSegments'
+import { eventName } from '../pipelineQuestion'
+import { PredictionSegmentDefinition, formatProbability, predictionSegmentPeopleUrl } from '../predictionSegments'
 
 function SegmentCard({ segment }: { segment: PredictionSegmentDefinition }): JSX.Element {
-    const { pipeline, predictionSegments, savingCohortSegment } = useValues(autoresearchPipelineLogic)
+    const { pipeline, predictionSegments, savingCohortSegment, segmentThresholds, personPropertyDisabledReason } =
+        useValues(autoresearchPipelineLogic)
     const { saveSegmentCohort } = useActions(autoresearchPipelineLogic)
 
     const stats = predictionSegments?.[segment.key]
@@ -19,7 +21,7 @@ function SegmentCard({ segment }: { segment: PredictionSegmentDefinition }): JSX
     const outputProperty = pipeline?.output_person_property ?? ''
 
     return (
-        <div className="flex-1 min-w-60 border rounded p-4 flex flex-col gap-2 bg-surface-primary">
+        <div className="flex-1 min-w-60 rounded p-4 flex flex-col gap-2 bg-surface-secondary">
             <div className="flex items-center gap-2">
                 <span className={`size-2.5 rounded-full shrink-0 ${segment.colorClassName}`} />
                 <span className="font-semibold">{segment.label}</span>
@@ -48,11 +50,13 @@ function SegmentCard({ segment }: { segment: PredictionSegmentDefinition }): JSX
                     data-attr={`autoresearch-segment-save-cohort-${segment.key}`}
                     loading={savingCohortSegment === segment.key}
                     disabledReason={
-                        !stats
-                            ? 'Segments are still loading'
-                            : savingCohortSegment
-                              ? 'A cohort is being saved'
-                              : undefined
+                        personPropertyDisabledReason
+                            ? personPropertyDisabledReason
+                            : !stats
+                              ? 'Segments are still loading'
+                              : savingCohortSegment
+                                ? 'A cohort is being saved'
+                                : undefined
                     }
                     onClick={() => saveSegmentCohort(segment.key)}
                 >
@@ -62,8 +66,20 @@ function SegmentCard({ segment }: { segment: PredictionSegmentDefinition }): JSX
                     type="tertiary"
                     size="small"
                     data-attr={`autoresearch-segment-view-people-${segment.key}`}
-                    to={predictionSegmentPeopleUrl(segment.key, outputProperty)}
-                    disabledReason={!outputProperty ? 'The model has no output property' : undefined}
+                    to={
+                        segmentThresholds
+                            ? predictionSegmentPeopleUrl(segment.key, outputProperty, segmentThresholds)
+                            : undefined
+                    }
+                    disabledReason={
+                        !outputProperty
+                            ? 'The model has no output property'
+                            : personPropertyDisabledReason
+                              ? personPropertyDisabledReason
+                              : !segmentThresholds
+                                ? 'Segments are still loading'
+                                : undefined
+                    }
                 >
                     View people
                 </LemonButton>
@@ -72,17 +88,53 @@ function SegmentCard({ segment }: { segment: PredictionSegmentDefinition }): JSX
     )
 }
 
+function SegmentCutPoints(): JSX.Element | null {
+    const { pipeline, segmentThresholds: thresholds } = useValues(autoresearchPipelineLogic)
+    if (!thresholds) {
+        return null
+    }
+    const target = pipeline ? eventName(pipeline.target_event) : 'the target event'
+    return (
+        <>
+            <p className="text-sm text-secondary mb-0">
+                {thresholds.base_rate_source === 'realized' && thresholds.base_rate != null
+                    ? `Segments compare each score with the average: ${formatProbability(thresholds.base_rate)} of scored people did ${target} over the last ${thresholds.base_rate_dates} checked dates.`
+                    : thresholds.base_rate_source === 'training' && thresholds.base_rate != null
+                      ? `Segments compare each score with the average in the training data: ${formatProbability(thresholds.base_rate)} of people did ${target}. They switch to measured outcomes once enough predictions are checked against what people did.`
+                      : 'Segments use fixed cut points until enough predictions are checked against what people did.'}
+            </p>
+            {thresholds.scores_miscalibrated &&
+                thresholds.champion_mean_p_y != null &&
+                thresholds.champion_base_rate != null && (
+                    <LemonBanner type="warning">
+                        This model's scores are not true probabilities. It predicted{' '}
+                        {formatProbability(thresholds.champion_mean_p_y)} on average, and{' '}
+                        {formatProbability(thresholds.champion_base_rate)} of people did {target}. The segments still
+                        rank people, but a score of {thresholds.likely_lift}× average may not mean{' '}
+                        {thresholds.likely_lift}× as likely. Check the Accuracy tab before you act on the percentages.
+                    </LemonBanner>
+                )}
+        </>
+    )
+}
+
 export function PredictionSegmentCards(): JSX.Element {
-    const { predictionSegmentsError } = useValues(autoresearchPipelineLogic)
+    const { predictionSegmentsError, segmentDefinitions } = useValues(autoresearchPipelineLogic)
 
     if (predictionSegmentsError) {
         return <p className="text-sm text-muted mb-0">Couldn't load the segments. Refresh the page to try again.</p>
     }
+    if (!segmentDefinitions) {
+        return <LemonSkeleton className="h-40" />
+    }
     return (
-        <div className="flex flex-wrap gap-4">
-            {PREDICTION_SEGMENTS.map((segment) => (
-                <SegmentCard key={segment.key} segment={segment} />
-            ))}
+        <div className="space-y-3">
+            <SegmentCutPoints />
+            <div className="flex flex-wrap gap-4">
+                {segmentDefinitions.map((segment) => (
+                    <SegmentCard key={segment.key} segment={segment} />
+                ))}
+            </div>
         </div>
     )
 }

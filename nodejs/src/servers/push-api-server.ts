@@ -4,15 +4,20 @@ import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
 import { isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
+import { capIdleConnections } from '~/messaging/push-subscriptions/idle-connections'
 import { ProjectTokenLookup } from '~/messaging/push-subscriptions/project-token-lookup'
 import { DryRunPushCaptureService, PushCaptureService } from '~/messaging/push-subscriptions/push-capture'
 import { createPushSubscriptionsHandler } from '~/messaging/push-subscriptions/push-subscriptions-http'
 import { PushSubscriptionsService } from '~/messaging/push-subscriptions/push-subscriptions.service'
+import { RegionBlockCheck, createRegionBlockCheck } from '~/messaging/push-subscriptions/region-block'
 
 import { CommonConfig } from '../common/config'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService } from '../types'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
+
+const MAX_IDLE_CONNECTIONS = 1_000
 
 export type PushApiConfig = {
     PUSH_API_PORT: number
@@ -24,6 +29,10 @@ export type PushApiConfig = {
     /** Skips the person update for a mirrored copy and still answers as if it was stored. A request
      * that reaches the service directly is still stored. */
     PUSH_API_DRY_RUN: boolean
+    /** Comma-separated ISO country codes answered 403, the same list Django reads. */
+    BLOCKED_GEOIP_REGIONS: string
+    /** Comma-separated keys the managed reverse proxy signs the client IP with, the same as Django's. */
+    MANAGED_PROXY_SIGNING_KEYS: string
 }
 
 export function getDefaultPushApiConfig(): PushApiConfig {
@@ -32,13 +41,18 @@ export function getDefaultPushApiConfig(): PushApiConfig {
         PUSH_API_HOST: '0.0.0.0',
         SECRET_KEY: '',
         PUSH_API_DRY_RUN: false,
+        BLOCKED_GEOIP_REGIONS: '',
+        MANAGED_PROXY_SIGNING_KEYS: '',
     }
 }
 
 export type PushApiServerConfig = BaseServerConfig &
     PostgresRouterConfig &
     PushApiConfig &
-    Pick<CommonConfig, 'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'ENCRYPTION_SALT_KEYS' | 'CAPTURE_INTERNAL_URL'>
+    Pick<
+        CommonConfig,
+        'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'ENCRYPTION_SALT_KEYS' | 'CAPTURE_INTERNAL_URL' | 'MMDB_FILE_LOCATION'
+    >
 
 /** Serves `/api/push_subscriptions/`, the endpoint every mobile SDK calls on app open.
  *
@@ -104,8 +118,10 @@ export class PushApiServer implements NodeServer {
             this.config.PUSH_API_DRY_RUN ? new DryRunPushCaptureService() : capture
         )
 
+        const isRegionBlocked = await this.loadRegionBlockCheck()
+
         if (!isTestEnv()) {
-            this.pushServer = await this.listen(createPushSubscriptionsHandler(service))
+            this.pushServer = await this.listen(createPushSubscriptionsHandler(service, isRegionBlocked))
         }
 
         const pluginService: PluginServerService = {
@@ -116,12 +132,39 @@ export class PushApiServer implements NodeServer {
                         resolve()
                         return
                     }
-                    this.pushServer.close(() => resolve())
+                    const server = this.pushServer
+                    // close() ends only the connections idle at that moment. A connection that finishes its
+                    // request afterwards stays open until the keep-alive timeout, which is longer than a pod's
+                    // grace period, so the idle ones are closed until the server stops.
+                    const closeIdle = setInterval(() => server.closeIdleConnections(), 100)
+                    server.close(() => {
+                        clearInterval(closeIdle)
+                        resolve()
+                    })
                 })
             },
             healthcheck: () => this.isHealthy(),
         }
         this.lifecycle.services.push(pluginService)
+    }
+
+    private async loadRegionBlockCheck(): Promise<RegionBlockCheck> {
+        const countries = this.config.BLOCKED_GEOIP_REGIONS.split(',').filter((code) => code.trim())
+        if (countries.length === 0) {
+            return createRegionBlockCheck([], undefined)
+        }
+        const geoip = await new GeoIPService(this.config.MMDB_FILE_LOCATION).get()
+        // An unreadable database places no address, which would let every blocked region through.
+        if (!geoip.city('8.8.8.8')) {
+            const message = 'push-api could not load the GeoIP database, so blocked regions are not enforced'
+            if (isProdEnv()) {
+                throw new Error(message)
+            }
+            logger.error(message, { location: this.config.MMDB_FILE_LOCATION })
+        }
+        logger.info('push-api blocks registrations from regions', { countries })
+        const signingKeys = this.config.MANAGED_PROXY_SIGNING_KEYS.split(',').map((key) => key.trim())
+        return createRegionBlockCheck(countries, geoip, signingKeys)
     }
 
     private listen(handler: (req: any, res: any) => Promise<void>): Promise<Server> {
@@ -144,7 +187,11 @@ export class PushApiServer implements NodeServer {
         // endpoint is starved of connections rather than of CPU.
         server.headersTimeout = 10_000
         server.requestTimeout = 15_000
-        server.keepAliveTimeout = 30_000
+        // Envoy keeps an idle upstream connection for up to an hour. If node closes it first, a request
+        // Envoy sends at that moment fails with a 503, so the idle timeout outlasts Envoy's.
+        server.keepAliveTimeout = 65 * 60_000
+        // Envoy pools far fewer connections than this, so only a client piling up idle sockets hits it.
+        capIdleConnections(server, MAX_IDLE_CONNECTIONS)
 
         return new Promise((resolve, reject) => {
             server.once('error', (error) => {

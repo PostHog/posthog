@@ -86,6 +86,10 @@ LOOPS_ENDPOINTS: dict[str, LoopsEndpointConfig] = {
         name="components",
         path="/v1/components",
     ),
+    "event_patterns": LoopsEndpointConfig(
+        name="event_patterns",
+        path="/v1/event-patterns",
+    ),
     # The metrics bodies carry no id, so the parent's id is injected as the primary key.
     "campaign_metrics": LoopsEndpointConfig(
         name="campaign_metrics",

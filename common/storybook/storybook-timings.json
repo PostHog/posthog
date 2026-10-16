@@ -31,10 +31,6 @@
         "chromium": 28.015,
         "webkit": 3.879
     },
-    "frontend/src/layout/panel-layout/ProjectTree/ProjectTree.stories.tsx": {
-        "chromium": 12.629,
-        "webkit": 3.461
-    },
     "frontend/src/lib/brand/Logo.stories.tsx": {
         "chromium": 1.693,
         "webkit": 1.142
@@ -983,15 +979,15 @@
         "chromium": 12.188,
         "webkit": 3.001
     },
-    "frontend/src/scenes/insights/InsightQuickStart/InsightQuickStart.stories.tsx": {
+    "products/product_analytics/frontend/insights/insightQuickStart/InsightQuickStart.stories.tsx": {
         "chromium": 7.249,
         "webkit": 1.51
     },
-    "frontend/src/scenes/insights/InsightTooltip/InsightTooltip.stories.tsx": {
+    "products/product_analytics/frontend/insights/shared/InsightTooltip/InsightTooltip.stories.tsx": {
         "chromium": 21.64,
         "webkit": 3.609
     },
-    "frontend/src/scenes/insights/SidePanel/InsightPanelActions.stories.tsx": {
+    "products/product_analytics/frontend/insights/insightScene/sidePanel/InsightPanelActions.stories.tsx": {
         "chromium": 23.981,
         "webkit": 4.669
     },
@@ -1147,7 +1143,7 @@
         "chromium": 12.572,
         "webkit": 2.779
     },
-    "frontend/src/scenes/saved-insights/SavedInsights.stories.tsx": {
+    "products/product_analytics/frontend/insights/savedInsights/SavedInsights.stories.tsx": {
         "chromium": 14.968,
         "webkit": 3.172
     },

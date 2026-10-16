@@ -2,8 +2,6 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-from unittest import mock
-
 from parameterized import parameterized
 from requests import PreparedRequest, Response
 from requests.structures import CaseInsensitiveDict
@@ -14,15 +12,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.back_marke
     BackMarketTokenAuth,
     _build_params,
     _format_timestamp,
-    back_market_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.back_market.settings import BACK_MARKET_ENDPOINTS
-
-# Both _client_config (main sync) and validate_credentials build their own tracked session
-# (capture=False, since orders carry buyer PII) via make_tracked_session in the back_market module.
-BACK_MARKET_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.back_market.back_market.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.back_market.source import BackMarketSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.backmarket import (
+    BackMarketSourceConfig,
 )
 
 
@@ -99,109 +99,69 @@ class TestBuildParams:
         assert params == {}
 
 
-def _make_manager(resume_state: BackMarketResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(BackMarketSource(), BackMarketSourceConfig(api_token="token"))
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {}), "auth": request.auth})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _page(next_value: Any, results: list[dict[str, Any]]) -> ScriptedResponse:
+    return ScriptedResponse(json={"next": next_value, "results": results})
 
 
 class TestBackMarketSourceOrders:
-    @mock.patch(BACK_MARKET_SESSION_PATCH)
-    def test_paginates_until_next_is_falsy(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_paginates_until_next_is_falsy(self) -> None:
+        result = _driver().run(
+            "orders",
             [
-                _response("more", [{"order_id": "1"}, {"order_id": "2"}]),
-                _response(None, [{"order_id": "3"}]),
+                _page("more", [{"order_id": "1"}, {"order_id": "2"}]),
+                _page(None, [{"order_id": "3"}]),
             ],
         )
 
-        rows = _rows(back_market_source("token", "orders", 1, "job", _make_manager()))
+        assert result.raised is None
+        assert [row["order_id"] for row in result.rows] == ["1", "2", "3"]
+        assert result.params("page") == ["1", "2"]
+        assert result.paths == ["/ws/orders", "/ws/orders"]
 
-        assert [r["order_id"] for r in rows] == ["1", "2", "3"]
-        assert session.send.call_count == 2
-
-    @mock.patch(BACK_MARKET_SESSION_PATCH)
-    def test_incremental_field_selection_sets_matching_query_param(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(None, [{"order_id": "1"}])])
-
-        _rows(
-            back_market_source(
-                "token",
-                "orders",
-                1,
-                "job",
-                _make_manager(),
-                should_use_incremental_field=True,
-                incremental_field="date_creation",
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
+    def test_incremental_field_selection_sets_matching_query_param(self) -> None:
+        result = _driver().run(
+            "orders",
+            [_page(None, [{"order_id": "1"}])],
+            incremental_field="date_creation",
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert snapshots[0]["params"]["date_creation"] == "2026-01-01 00:00:00"
-        assert "date_modification" not in snapshots[0]["params"]
+        assert result.raised is None
+        assert result.requests[0].param("date_creation") == "2026-01-01 00:00:00"
+        assert result.requests[0].param("date_modification") is None
 
-    @mock.patch(BACK_MARKET_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(None, [{"order_id": "3"}])])
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run(
+            "orders", [_page(None, [{"order_id": "3"}])], resume_state=BackMarketResumeConfig(next_page=3)
+        )
 
-        _rows(back_market_source("token", "orders", 1, "job", _make_manager(BackMarketResumeConfig(next_page=3))))
+        assert result.raised is None
+        assert result.params("page") == ["3"]
 
-        assert snapshots[0]["params"]["page"] == 3
+    def test_saves_state_after_yielding_a_page_with_more_remaining(self) -> None:
+        result = _driver().run("orders", [_page("more", [{"order_id": "1"}]), _page(None, [{"order_id": "2"}])])
 
-    @mock.patch(BACK_MARKET_SESSION_PATCH)
-    def test_saves_state_after_yielding_a_page_with_more_remaining(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response("more", [{"order_id": "1"}]), _response(None, [{"order_id": "2"}])])
-        manager = _make_manager()
-
-        _rows(back_market_source("token", "orders", 1, "job", manager))
-
-        manager.save_state.assert_called_once_with(BackMarketResumeConfig(next_page=2))
+        assert result.raised is None
+        assert result.saved_states == [BackMarketResumeConfig(next_page=2)]
+        assert result.committed_states == [BackMarketResumeConfig(next_page=2)]
 
 
 class TestBackMarketSourceListings:
-    @mock.patch(BACK_MARKET_SESSION_PATCH)
-    def test_full_refresh_ignores_incremental_flag(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(None, [{"listing_id": "1"}])])
-
-        rows = _rows(
-            back_market_source(
-                "token",
-                "listings",
-                1,
-                "job",
-                _make_manager(),
-                should_use_incremental_field=True,
-                incremental_field="date_modification",
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
+    def test_full_refresh_ignores_incremental_flag(self) -> None:
+        result = _driver().run(
+            "listings",
+            [_page(None, [{"listing_id": "1"}])],
+            incremental_field="date_modification",
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert [r["listing_id"] for r in rows] == ["1"]
-        assert "date_modification" not in snapshots[0]["params"]
+        assert result.raised is None
+        assert [row["listing_id"] for row in result.rows] == ["1"]
+        assert result.requests[0].param("date_modification") is None
 
 
 class TestValidateCredentials:
@@ -212,16 +172,11 @@ class TestValidateCredentials:
             ("forbidden", 403, False, 403),
         ]
     )
-    @mock.patch(BACK_MARKET_SESSION_PATCH)
-    def test_status_mapping(
-        self, _name: str, status_code: int, expected_ok: bool, expected_status: int, MockSession
-    ) -> None:
-        session = MockSession.return_value
-        response = mock.MagicMock()
-        response.status_code = status_code
-        session.get.return_value = response
-
-        ok, status = validate_credentials("token")
+    def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool, expected_status: int) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            ok, status = validate_credentials("token")
 
         assert ok is expected_ok
         assert status == expected_status
+        assert network.requests_log[0].path == "/ws/orders"
+        assert network.requests_log[0].headers["authorization"] == "Basic token"

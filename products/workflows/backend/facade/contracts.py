@@ -7,6 +7,8 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import (
+    EmailDraftFallbackReason,
+    EmailDraftOrigin,
     HogFlowBatchJobState,
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
@@ -21,6 +23,13 @@ if TYPE_CHECKING:
 
 @frozen
 class WorkflowSummary:
+    id: str
+    name: str
+    status: str
+
+
+@frozen
+class CohortDependentWorkflow:
     id: str
     name: str
     status: str
@@ -44,6 +53,14 @@ class WorkflowActivitySummary:
 @frozen
 class WorkflowTaskDailyLimits:
     """A team's daily caps on tasks created by workflows. None means the default cap applies."""
+
+    per_workflow: int | None
+    per_team: int | None
+
+
+@frozen
+class WorkflowVisionScanDailyLimits:
+    """A team's daily caps on Replay Vision scans requested by workflows. None means the default cap applies."""
 
     per_workflow: int | None
     per_team: int | None
@@ -157,6 +174,23 @@ class AudiencePage:
 
     ids: list[str]
     has_more: bool
+
+
+class PeopleImportInvalid(Exception):
+    """The upload cannot be used. The message is shown to the person who sent it."""
+
+
+@frozen
+class PeopleImportSummary:
+    """What an uploaded people list kept, and how many rows it dropped and why."""
+
+    cohort_id: int
+    row_count: int
+    new_people: int
+    columns: list[str]
+    dropped_invalid_email: int
+    dropped_duplicate_email: int
+    dropped_too_large: int
 
 
 @frozen
@@ -450,6 +484,8 @@ class WorkflowRef:
     trigger_type: str | None
     trigger_filters: dict[str, Any]
     variables: list[dict[str, Any]] | None
+    # Read from the published steps, not the draft.
+    has_email_step: bool
 
 
 class WorkflowNotFound(Exception):
@@ -611,6 +647,7 @@ class WorkflowProposalRecord:
     resolved_at: datetime | None
     resolved_by: "User | None"
     applied_version: int | None
+    rejection_reason: str
 
 
 @frozen
@@ -632,3 +669,77 @@ class EmailDesignRenderingNotConfigured(Exception):
 
 class EmailDesignRenderFailed(Exception):
     pass
+
+
+# pinned: analytics property values for the `workflows data suggestion*` events - renaming breaks dashboards
+LifecycleStage = Literal["signup", "onboarding", "trial", "purchase", "churn_risk", "failure", "support", "other"]
+# The step chips a suggestion card shows.
+OutlineKind = Literal["email", "sms", "push", "slack", "webhook", "delay", "wait_until", "branch", "split", "action"]
+DataSuggestionsStatus = Literal["ready", "generating", "ai_not_approved", "unavailable"]
+
+
+@frozen
+class DataSuggestion:
+    id: str
+    name: str
+    description: str
+    reason: str
+    trigger_event: str
+    weekly_count: int
+    stage: LifecycleStage
+    step_outline: tuple[OutlineKind, ...]
+
+
+@frozen
+class DataSuggestionsResult:
+    status: DataSuggestionsStatus
+    suggestions: tuple[DataSuggestion, ...]
+    # The project's events that a build can wait on. Kept with the cards, so a build does not count events again.
+    events: tuple[str, ...] = ()
+
+
+DataSuggestionBuildStatus = Literal["ready", "building", "failed"]
+
+
+@frozen
+class MissingInput:
+    """A setting the draft leaves blank and the team must fill before enabling, like a webhook URL."""
+
+    step_id: str
+    step_name: str
+    field: str
+
+
+@frozen
+class BuiltSuggestion:
+    status: DataSuggestionBuildStatus
+    # Set only when the status is ready.
+    workflow: dict[str, Any] | None = None
+    uses_saved_template: bool = False
+    # Set only when the build saved the draft itself.
+    workflow_id: str | None = None
+    missing_inputs: tuple[MissingInput, ...] = ()
+
+
+class DataSuggestionNotFound(Exception):
+    """The suggestion id is unknown, usually because the cached suggestions expired."""
+
+
+class EmailDraftSourceNotFound(Exception):
+    """The project has no entity with that ID for the requested source."""
+
+
+class EmailDraftSourceForbidden(Exception):
+    """The user may not view the source entity, so its text must not be drafted from."""
+
+
+@frozen
+class EmailDraft:
+    """A first draft of an email about an error, feature, survey, flag or cohort. Nothing is saved."""
+
+    subject: str
+    preheader: str
+    html: str
+    text: str
+    generated_by: EmailDraftOrigin
+    fallback_reason: EmailDraftFallbackReason | None = None

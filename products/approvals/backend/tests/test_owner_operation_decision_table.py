@@ -7,8 +7,9 @@ checked rather than described.
 Phase 3 proved every entry point behaves alike, so this varies owner and operation over one
 entry point (the flag API) instead of multiplying by entry point.
 
-Read DECISION_TABLE as the current, pre-narrowing state: `feature_flag.*` covers every owner.
-Narrowing a family to an owner changes cells here, and that diff is the coverage change.
+Read DECISION_TABLE as the current, pre-narrowing state: `feature_flag.*` covers every owner,
+except that a release condition change is gated on an unowned flag only. Narrowing a family to an
+owner changes cells here, and that diff is the coverage change.
 """
 
 from typing import Any, Optional
@@ -48,7 +49,9 @@ OWNERS = (
     "session_recording_reference",
 )
 
-OPERATIONS = ("create_active", "update_gated_field", "enable", "disable", "delete")
+OPERATIONS = ("create_active", "update_gated_field", "update_release_condition", "enable", "disable", "delete")
+
+RELEASE_CONDITION = {"key": "email", "type": "person", "operator": "icontains", "value": "@example.com"}
 
 
 def _row(*cells: Optional[str]) -> dict[str, Optional[str]]:
@@ -84,15 +87,15 @@ NA = NOT_APPLICABLE
 # Narrowing a family to an owner changes cells here, and that diff is the coverage change.
 # fmt: off
 DECISION_TABLE: dict[str, dict[str, Optional[str]]] = {
-    #                                   create  update   enable   disable   delete
-    "standalone":                  _row(ENABLE,  UPDATE,  ENABLE,  DISABLE,  UNGATED),
-    "experiment":                  _row(NA,      UPDATE,  ENABLE,  DISABLE,  UNGATED),
-    "survey_owned":                _row(NA,      UPDATE,  ENABLE,  DISABLE,  UNGATED),
-    "survey_linked":               _row(NA,      UPDATE,  ENABLE,  DISABLE,  UNGATED),
-    "tour_owned":                  _row(NA,      UPDATE,  ENABLE,  DISABLE,  UNGATED),
-    "tour_linked":                 _row(NA,      UPDATE,  ENABLE,  DISABLE,  UNGATED),
-    "early_access":                _row(NA,      UPDATE,  ENABLE,  DISABLE,  REJECTED),
-    "session_recording_reference": _row(NA,      UPDATE,  ENABLE,  DISABLE,  REJECTED),
+    #                                   create  update   release   enable   disable   delete
+    "standalone":                  _row(ENABLE,  UPDATE,  UPDATE,   ENABLE,  DISABLE,  UNGATED),
+    "experiment":                  _row(NA,      UPDATE,  UNGATED,  ENABLE,  DISABLE,  UNGATED),
+    "survey_owned":                _row(NA,      UPDATE,  UNGATED,  ENABLE,  DISABLE,  UNGATED),
+    "survey_linked":               _row(NA,      UPDATE,  UPDATE,   ENABLE,  DISABLE,  UNGATED),
+    "tour_owned":                  _row(NA,      UPDATE,  UNGATED,  ENABLE,  DISABLE,  UNGATED),
+    "tour_linked":                 _row(NA,      UPDATE,  UPDATE,   ENABLE,  DISABLE,  UNGATED),
+    "early_access":                _row(NA,      UPDATE,  UNGATED,  ENABLE,  DISABLE,  REJECTED),
+    "session_recording_reference": _row(NA,      UPDATE,  UPDATE,   ENABLE,  DISABLE,  REJECTED),
 }
 # fmt: on
 
@@ -154,6 +157,9 @@ class TestOwnerOperationDecisionTable(APIBaseTest):
         if operation == "update_gated_field":
             payload: dict[str, Any] = {"filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}}
             self.client.patch(f"{base}{flag.id}/", payload, format="json")
+        elif operation == "update_release_condition":
+            payload = {"filters": {"groups": [{"properties": [RELEASE_CONDITION], "rollout_percentage": 50}]}}
+            self.client.patch(f"{base}{flag.id}/", payload, format="json")
         elif operation == "enable":
             self.client.patch(f"{base}{flag.id}/", {"active": True}, format="json")
         elif operation == "disable":
@@ -165,6 +171,12 @@ class TestOwnerOperationDecisionTable(APIBaseTest):
         self, operation: str, flag: Optional[FeatureFlag], expected: Optional[str]
     ) -> None:
         """An ungated cell must prove the write landed, or "no change request" means nothing."""
+        if operation == "update_release_condition":
+            assert flag is not None
+            properties = FeatureFlag.objects.get(id=flag.id).filters["groups"][0]["properties"]
+            landed = [prop["key"] for prop in properties] == [RELEASE_CONDITION["key"]]
+            assert landed is (expected is UNGATED), f"release edit landed={landed} but the table says {expected}"
+            return
         if operation != "delete":
             return
         assert flag is not None

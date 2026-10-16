@@ -20,6 +20,8 @@ and columns that are `null=True` at the DB layer (`HogFunction.type`/`kind`,
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -325,6 +327,25 @@ class TopEvent(_Section):
     last_seen_in_window: str | None
 
 
+class SurfaceEntry(_Section):
+    """Whether one canonical scout's surface is in use, from the scout's default pre-check query.
+
+    Read this, not `top_events`, to decide whether a surface is in use: `top_events` keeps only the
+    top events by volume, so a quiet surface that is in use falls off it.
+    """
+
+    # True when the query found rows. False when it found none, or one false value such as a zero
+    # count. Null when the profile could not answer, so a reader must check the surface itself.
+    in_use: bool | None
+    evaluated_at: str | None
+    # `skill_default` when the shipped default query answered. Otherwise the reason `in_use` is
+    # null: `query_error`, `no_acting_user`, `time_budget`, or `deferred` when a background build
+    # has not run the query yet.
+    source: Literal["skill_default", "query_error", "no_acting_user", "time_budget", "deferred"]
+    # The rows the query returned, capped at the pre-check row cap. Null when `in_use` is null.
+    row_count: int | None
+
+
 class Inventory(_Section):
     """The deterministic inventory layer of a `SignalProjectProfile.payload`.
 
@@ -334,6 +355,8 @@ class Inventory(_Section):
     """
 
     project_context: ProjectContext
+    # The products the team finished onboarding for. Onboarding is not usage: read `surfaces` to
+    # decide whether a surface is in use.
     products_in_use: list[str]
     product_intents: list[ProductIntentEntry]
     integrations: list[IntegrationEntry]
@@ -356,3 +379,5 @@ class Inventory(_Section):
     recent_actions: RecentActions
     business_knowledge: BusinessKnowledge
     top_events: list[TopEvent] | None
+    # Keyed by scout name. One entry for each canonical scout that ships a default pre-check.
+    surfaces: dict[str, SurfaceEntry]

@@ -53,6 +53,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
     CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
 
+    CDP_EVENTS_CONSUMER_TOPIC: string
+    CDP_EVENTS_CONSUMER_GROUP_ID: string
+    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
+
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
@@ -92,6 +96,13 @@ export type CdpConfig = ClickhouseConfig & {
     SES_RATE_LIMITER_VALKEY_PORT: number
     SES_RATE_LIMITER_VALKEY_PASSWORD: string
     SES_RATE_LIMITER_VALKEY_TLS: boolean
+
+    // Dedicated Valkey for the marketing frequency cap. It holds one sorted set per capped person,
+    // so it stays off the shared CDP Valkey and the SES Valkey. Unset turns the cap off.
+    CDP_FREQUENCY_CAP_VALKEY_HOST: string
+    CDP_FREQUENCY_CAP_VALKEY_PORT: number
+    CDP_FREQUENCY_CAP_VALKEY_PASSWORD: string
+    CDP_FREQUENCY_CAP_VALKEY_TLS: boolean
 
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
@@ -209,6 +220,9 @@ export type CdpConfig = ClickhouseConfig & {
     // workflow step). Its own key: the Celery and Temporal workers mint it, no other tier does.
     // Same comma-separated rotation and fail-closed-when-empty semantics.
     WORKFLOWS_STEP_RESUME_JWT_SECRET: string
+    // Scoped JWT keys verifying Django's transactional email sends. Its own key: only Django
+    // mints it. Same comma-separated rotation and fail-closed-when-empty semantics.
+    WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: string
     // Scoped JWT keys signing the workflow engine's task-create calls to Django, with the same
     // comma-separated rotation and fail-closed-when-empty semantics as the secret above.
     TASKS_CREATE_JWT_SECRET: string
@@ -216,6 +230,11 @@ export type CdpConfig = ClickhouseConfig & {
     // TASKS_CREATE_JWT_SECRET — see products/workflows/backend/service_jwt.py. Same
     // comma-separated rotation and fail-closed-when-empty semantics.
     WORKFLOW_SCOUT_RUN_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's classify calls to Django. Its own key, for the same reason.
+    WORKFLOW_CLASSIFY_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's Replay Vision scan calls to Django. Its own key for the
+    // same reason as the run-scout one, with the same rotation and fail-closed-when-empty semantics.
+    WORKFLOW_VISION_REQUEST_JWT_SECRET: string
     CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
     CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
     CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
@@ -272,6 +291,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: false,
 
+        CDP_EVENTS_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
+        CDP_EVENTS_CONSUMER_GROUP_ID: 'cdp-processed-events-consumer',
+        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
+
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
@@ -303,6 +326,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_RATE_LIMITER_VALKEY_PORT: isDevEnv() ? 6390 : 6379,
         SES_RATE_LIMITER_VALKEY_PASSWORD: '',
         SES_RATE_LIMITER_VALKEY_TLS: false,
+
+        CDP_FREQUENCY_CAP_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
+        CDP_FREQUENCY_CAP_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
+        CDP_FREQUENCY_CAP_VALKEY_PASSWORD: '',
+        CDP_FREQUENCY_CAP_VALKEY_TLS: false,
 
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
@@ -410,9 +438,15 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_STEP_RESUME_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-step-resume-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET:
+            isTestEnv() || isDevEnv() ? 'local-dev-workflows-transactional-email-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
         TASKS_CREATE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-tasks-create-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOW_SCOUT_RUN_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-scout-run-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOW_CLASSIFY_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-classify-jwt' : '',
+        WORKFLOW_VISION_REQUEST_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-vision-request-jwt' : '',
         CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
         CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
         CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,

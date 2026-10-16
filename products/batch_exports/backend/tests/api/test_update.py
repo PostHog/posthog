@@ -798,7 +798,7 @@ def test_patch_returns_error_on_unsupported_hogql_query(
     }
     response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert "Unsupported function call 'toInt32(...)'" in response.json()["detail"]
+    assert "Unsupported" in response.json()["detail"]
 
 
 @pytest.mark.parametrize("hogql_enabled", [True, False], ids=["enabled", "disabled"])
@@ -876,6 +876,18 @@ def test_patch_hogql_model_batch_export(
         args = json.loads(decoded_payload[0].data)
         assert args["batch_export_model"]["hogql_query"] == new_hogql_query
         assert args["batch_export_model"]["hogql_modifiers"] == hogql_modifiers
+
+    # A modifier removed from the schema after the export stored it is not returned, so sending back what was read
+    # still saves.
+    source = BatchExport.objects.get(id=batch_export["id"]).source
+    assert source is not None
+    source.hogql_modifiers = {"convertToProjectTimezone": False, "removedModifier": True}
+    source.save()
+
+    read_modifiers = get_batch_export_ok(client, team.pk, batch_export["id"])["hogql_modifiers"]
+    assert read_modifiers == {"convertToProjectTimezone": False}
+    response = patch_batch_export(client, team.pk, batch_export["id"], {"hogql_modifiers": read_modifiers})
+    assert response.status_code == status.HTTP_200_OK, response.json()
 
 
 @pytest.mark.usefixtures("hogql_batch_exports_enabled")

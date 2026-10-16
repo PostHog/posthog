@@ -85,6 +85,7 @@ def _commit_payload(
     }
 
 
+@pytest.mark.django_db
 class TestGitHubThreads:
     @parameterized.expand(
         [

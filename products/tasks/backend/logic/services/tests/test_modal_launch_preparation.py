@@ -260,6 +260,7 @@ def test_preparation_metric_measures_only_upload_and_execution(export_fails: boo
         patch("products.tasks.backend.logic.services.modal_sandbox.time") as clock,
         patch("products.tasks.backend.logic.services.launch_preparation_metrics.metric_meter") as metric_meter,
         patch.object(sandbox, "is_running", return_value=True),
+        patch("products.tasks.backend.temporal.metrics.record_startup_step_event") as startup_event,
         patch.object(
             sandbox, "_agent_server_preflight", return_value=AgentServerPreflight(reused=True, capabilities=frozenset())
         ),
@@ -272,6 +273,17 @@ def test_preparation_metric_measures_only_upload_and_execution(export_fails: boo
         assert sandbox.start_agent_server(repository=None, task_id="task-test", run_id="run-test") == 0
 
     metric_meter.assert_called_once_with()
+    startup_event.assert_called_once_with(
+        "launch_preparation",
+        1250,
+        {
+            "boot_path": "classic",
+            "runtime": "vm",
+            "origin_product": "user_created",
+            "used_snapshot": "false",
+            "status": "COMPLETED",
+        },
+    )
     if not export_fails:
         metric_meter.return_value.with_additional_attributes.assert_called_once_with(
             {

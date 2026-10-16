@@ -35,6 +35,7 @@ from pymysql.charset import charset_by_id
 from pymysql.connections import MySQLResult
 from pymysql.constants import CLIENT, CR, FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
+from pymysql.protocol import MysqlPacket
 from structlog.types import FilteringBoundLogger
 
 # Module-level error-capture seam. This module's best-effort probes (get_rows_to_sync,
@@ -787,6 +788,9 @@ class _FieldCharsetResult(MySQLResult):
     pymysql decodes every column outside its own text types as ASCII. Some MySQL-compatible
     servers send ENUM and SET values under their own type codes, and newer servers add types
     pymysql predates, so one non-ASCII value in such a column fails the whole read.
+
+    The server does not check that stored bytes are valid in the charset it reports, so rows are
+    decoded with invalid bytes replaced by U+FFFD rather than failing every sync on one bad value.
     """
 
     def _get_descriptions(self) -> None:
@@ -796,6 +800,21 @@ class _FieldCharsetResult(MySQLResult):
             encoding, converter = self.converters[index]  # type: ignore[attr-defined]
             if encoding == "ascii" and field.type_code not in _ASCII_FIELD_TYPES:
                 self.converters[index] = (_field_encoding(field.charsetnr, connection_encoding), converter)  # type: ignore[attr-defined]
+
+    def _read_row_from_packet(self, packet: MysqlPacket) -> tuple[Any, ...]:
+        row: list[Any] = []
+        for encoding, converter in self.converters:  # type: ignore[attr-defined]
+            try:
+                data = packet.read_length_coded_string()
+            except IndexError:
+                break
+            if data is not None:
+                if encoding is not None:
+                    data = data.decode(encoding, errors="replace")
+                if converter is not None:
+                    data = converter(data)
+            row.append(data)
+        return tuple(row)
 
 
 def _set_tcp_liveness(sock: socket.socket) -> None:
@@ -2036,6 +2055,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         enabled_columns=projection.enabled_columns,
                         primary_keys=primary_keys,
                         row_filters=row_filters,
+                        worker_deaths=inputs.worker_deaths,
                     )
 
                 # Only reached when the walk exhausted the table. An abandoned generator (draining

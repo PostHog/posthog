@@ -7,6 +7,8 @@ from psycopg import OperationalError
 from psycopg.errors import SqlclientUnableToEstablishSqlconnection
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.facade.codebase_detection import Detection, NotDetectable, detect
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -130,6 +132,13 @@ _INVALID_CREDENTIALS_ERROR = (
     "this source, then re-enable the sync."
 )
 
+# The role exists but has NOLOGIN, the default for a role made with CREATE ROLE. libpq prefixes
+# the refusal with the customer's host and port, so the raw text names nothing they can act on.
+_ROLE_CANNOT_LOG_IN_ERROR = (
+    "Your database user isn't allowed to sign in. Grant it the LOGIN privilege or use a different "
+    "user, then re-enable the sync."
+)
+
 # A DNS-resolution failure for the database host, surfaced by libpq ("could not translate host
 # name") or the raw socket wording ("Name or service not known" / "No address associated with
 # hostname"). Already non-retryable, but the bare driver text gives the customer nothing to act on,
@@ -164,6 +173,11 @@ _HOST_UNREACHABLE_VALIDATION_ERROR = (
 )
 
 _CONNECT_TIMEOUT_VALIDATION_ERROR = "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option."
+
+_DATABASE_NOT_FOUND_VALIDATION_ERROR = (
+    "The database named in your connection details doesn't exist on this server. Check the database name is "
+    "correct and try again."
+)
 
 PostgresErrors = {
     "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
@@ -286,7 +300,7 @@ PostgresErrors = {
     "Network is unreachable": _HOST_UNREACHABLE_ERROR,
     "No route to host": _HOST_UNREACHABLE_ERROR,
     "Is the server running on that host and accepting TCP/IP connections": _HOST_UNREACHABLE_VALIDATION_ERROR,
-    'database "': "The database named in your connection details doesn't exist on this server. Check the database name is correct and try again.",
+    'database "': _DATABASE_NOT_FOUND_VALIDATION_ERROR,
     "timeout expired": _CONNECT_TIMEOUT_VALIDATION_ERROR,
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
@@ -448,6 +462,131 @@ class PostgresSource(
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 ):
+    # NOTE: DATABASE_URL is ambiguous - MySQL/SQLite projects (Prisma,
+    # Rails) use it too. We only read key NAMES, not the scheme, so this
+    # is a deliberate precision/recall tradeoff biased toward the most
+    # common convention (DATABASE_URL -> Postgres).
+    # Neon and Supabase are hosted Postgres, and a project on either still
+    # names its connection with the generic signals below. Two sources over
+    # one database import the same tables twice.
+    # Declared with the base type so the Postgres-compatible sources that subclass this one can set NOT_DETECTABLE.
+    codebase_detection: Detection | NotDetectable | None = detect(
+        env=(
+            "^POSTGRES_",
+            "^PG(HOST|DATABASE|USER|PORT)$",
+            "^PGPASSWORD$",
+            "^PGHOSTADDR$",
+            "^PGPASSFILE$",
+            "^PGSERVICE$",
+            "^PGSERVICEFILE$",
+            "^PGSSLMODE$",
+            "^PGSSLROOTCERT$",
+            "^PGSSLCERT$",
+            "^PGSSLKEY$",
+            "^PGAPPNAME$",
+            "^PGOPTIONS$",
+            "^PGCONNECT_TIMEOUT$",
+            "^PGTARGETSESSIONATTRS$",
+            "^PGCHANNELBINDING$",
+            "^PGGSSENCMODE$",
+            "^PGREQUIREAUTH$",
+            "^PGDATA$",
+        ),
+        npm=(
+            "pg",
+            "postgres",
+            "pg-promise",
+            "pg-pool",
+            "pg-native",
+            "pg-cursor",
+            "pg-query-stream",
+            "pg-copy-streams",
+            "pg-format",
+            "pg-hstore",
+            "@sequelize/postgres",
+            "@prisma/adapter-pg",
+            "@mikro-orm/postgresql",
+            "@databases/pg",
+            "@effect/sql-pg",
+            "slonik",
+            "node-pg-migrate",
+            "pg-boss",
+            "pgvector",
+            "@electric-sql/pglite",
+        ),
+        pypi=(
+            "psycopg",
+            "psycopg2",
+            "psycopg2-binary",
+            "asyncpg",
+            "pg8000",
+            "psycopg-binary",
+            "psycopg-c",
+            "psycopg-pool",
+            "psycopg2cffi",
+            "aiopg",
+            "pygresql",
+            "py-postgresql",
+            "pgvector",
+        ),
+        cargo=(
+            "tokio-postgres",
+            "postgres",
+            "sqlx-postgres",
+            "pq-sys",
+            "postgres-types",
+            "postgres-protocol",
+            "postgres-native-tls",
+            "tokio-postgres-rustls",
+            "deadpool-postgres",
+            "bb8-postgres",
+            "r2d2_postgres",
+            "sea-query-postgres",
+            "pgvector",
+            "pgrx",
+        ),
+        cocoapods=("PostgresClientKit",),
+        composer=(
+            "amphp/postgres",
+            "tpetry/laravel-postgresql-enhanced",
+            "martin-georgiev/postgresql-for-doctrine",
+            "umbrellio/laravel-pg-extensions",
+        ),
+        go=(
+            "github.com/jackc/pgx",
+            "github.com/lib/pq",
+            "gorm.io/driver/postgres",
+            "github.com/go-pg/pg",
+            "github.com/uptrace/bun/dialect/pgdialect",
+            "github.com/uptrace/bun/driver/pgdriver",
+            "github.com/jackc/pgconn",
+            "github.com/jackc/pgtype",
+            "github.com/jackc/pgerrcode",
+            "github.com/jackc/pglogrepl",
+            "github.com/pgvector/pgvector-go",
+        ),
+        hex=("postgrex", "epgsql", "pgo", "geo_postgis"),
+        maven=(
+            "org.postgresql:postgresql",
+            "org.postgresql:r2dbc-postgresql",
+            "io.r2dbc:r2dbc-postgresql",
+            "io.vertx:vertx-pg-client",
+            "com.impossibl.pgjdbc-ng:pgjdbc-ng",
+            "com.github.jasync-sql:jasync-postgresql",
+            "org.flywaydb:flyway-database-postgresql",
+            "net.postgis:postgis-jdbc",
+        ),
+        pub=("postgres", "postgres_pool", "postgresql2", "postgres_dart", "drift_postgres"),
+        rubygems=("pg", "sequel_pg", "pg_search", "activerecord-postgis-adapter", "good_job", "que", "scenic"),
+        swiftpm=(
+            "github.com/vapor/postgres-nio",
+            "github.com/vapor/postgres-kit",
+            "github.com/vapor/fluent-postgres-driver",
+            "github.com/codewinsdotcom/postgresclientkit",
+        ),
+        superseded_by=("Neon", "Supabase"),
+    )
+
     # xmin replication is Postgres-only; per-table availability is still decided by
     # `SourceSchema.supports_xmin` at discovery.
     supports_xmin = True
@@ -591,7 +730,7 @@ class PostgresSource(
             "XminUnsupportedError": None,
             "xmin replication": None,
             "NoSuchTableError": None,
-            "is not permitted to log in": None,
+            "is not permitted to log in": _ROLE_CANNOT_LOG_IN_ERROR,
             "Tenant or user not found connection to server": None,
             "FATAL: Tenant or user not found": None,
             # Newer Supabase/Supavisor poolers report a missing tenant/user with a different
@@ -1356,6 +1495,19 @@ class PostgresSource(
                 "wasn't translated to a real NULL. Fix the remote data or the foreign table's column "
                 "type, or remove the foreign table from the sync, then re-enable the sync."
             ),
+            # A value that isn't a uuid reached a uuid column (InvalidTextRepresentation, SQLSTATE
+            # 22P02). Ordinary tables validate uuid values at write time, so the value comes from the
+            # customer's side: a foreign table or a view that casts text to uuid, or a row filter on a
+            # uuid column. Row filter validation treats uuid as a plain string, so it accepts any
+            # value. No query PostHog builds casts to uuid, and uuid is never an incremental field
+            # type. Every retry runs the same statement again. The volatile value is excluded.
+            "invalid input syntax for type uuid": (
+                "PostgreSQL rejected a value that isn't a valid UUID for a uuid column "
+                '("invalid input syntax for type uuid"). If this table has a row filter on a uuid '
+                "column, change the filter value to a valid UUID. Otherwise the table is likely a view "
+                "or foreign table that converts text to uuid, so fix the data or the column type, or "
+                "remove the table from the sync. Then re-enable the sync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -2107,6 +2259,7 @@ class PostgresSource(
                 is_xmin=schema.is_xmin,
                 xmin_cursor=self.get_cursor_manager(inputs) if schema.is_xmin else None,
                 activity_attempt=inputs.activity_attempt,
+                worker_deaths=inputs.worker_deaths,
                 resumable_source_manager=resumable_source_manager,
             )
         except SqlclientUnableToEstablishSqlconnection as e:

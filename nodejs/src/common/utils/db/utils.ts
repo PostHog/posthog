@@ -131,9 +131,9 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     return properties
 }
 
-// Deletion call sites own the version they emit (the +100 fudge for hard deletes,
-// the exact stamped death version for tombstones), so a deletion must state it
-// explicitly — a stale person.version can never become a no-headroom death row.
+// Deletion call sites own the version they emit (the exact stamped death version
+// for tombstones), so a deletion must state it explicitly — a stale person.version
+// can never become a no-headroom death row.
 export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted?: false): PersonMessage
 export function generateKafkaPersonUpdateMessage(
     person: InternalPerson,
@@ -169,7 +169,7 @@ export function getFinalPostgresQuery(queryString: string, values: any[]): strin
     return queryString.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
 }
 
-// keep in sync with posthog/posthog/api/utils.py::safe_clickhouse_string
+// keep in sync with posthog/api/utils.py::safe_clickhouse_string
 export function safeClickhouseString(str: string): string {
     // character is a surrogate
     return str.replace(/[\ud800-\udfff]/gu, (match) => {

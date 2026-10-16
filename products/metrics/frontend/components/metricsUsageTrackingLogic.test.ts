@@ -12,8 +12,10 @@ import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/typ
 import { metricsQueryCreate, metricsSamplesCreate, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
 
+import { metricsDashboardImportLogic } from '../dashboardImport/metricsDashboardImportLogic'
 import { metricsSceneLogic } from '../metricsSceneLogic'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
+import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { metricsViewerLogic } from './metricsViewerLogic'
 
@@ -96,6 +98,16 @@ describe('metricsUsageTrackingLogic', () => {
         ],
         ['metrics viewer live toggled', () => metricsViewerLogic.actions.setLiveRefresh(true), { enabled: true }],
         [
+            'metrics viewer display type changed',
+            () => metricsViewerLogic.actions.setDisplayType('stat'),
+            { display_type: 'stat' },
+        ],
+        [
+            'metrics viewer value reducer changed',
+            () => metricsViewerLogic.actions.setReduce('mean'),
+            { reduce: 'mean', display_type: 'line' },
+        ],
+        [
             'metrics viewer date range changed',
             () => metricsViewerLogic.actions.setDateFrom('-24h'),
             { date_from: '-24h' },
@@ -129,6 +141,25 @@ describe('metricsUsageTrackingLogic', () => {
                     {} as any
                 ),
             { aggregation: 'p95', range_function: null, clause_count: 1, has_formula: false },
+        ],
+        [
+            'metrics dashboard import opened',
+            () => metricsDashboardImportLogic.actions.openImportModal('screenshot'),
+            { source: 'screenshot', step: 'input' },
+        ],
+        [
+            'metrics dashboard import start failed',
+            () => metricsDashboardImportLogic.actions.startImportFailure('Paste the Grafana dashboard JSON.', 400),
+            { source: 'grafana', status_code: 400 },
+        ],
+        [
+            'metrics starter dashboard created',
+            () =>
+                metricsStarterDashboardLogic.actions.createDashboardSuccess(
+                    { id: 42, name: 'Billing' } as any,
+                    'Dashboard "Billing" created, but only 1 of 2 insights could be added'
+                ),
+            { partial: true },
         ],
     ])('%s fires with enum/count properties only', (event, dispatch, expectedProperties) => {
         dispatch()
@@ -165,6 +196,8 @@ describe('metricsUsageTrackingLogic', () => {
     // Restoring a shared /metrics link replays the viewer setters; counting those dispatches
     // as interactions would inflate the usage tiles on every link open or refresh.
     it('a URL restore captures no viewer interactions', async () => {
+        metricsViewerLogic.actions.setDisplayType('heatmap')
+        jest.mocked(posthog.capture).mockClear()
         await expectLogic(logic, () => {
             router.actions.push('/metrics', {
                 metricName: SECRET_METRIC,
@@ -180,6 +213,7 @@ describe('metricsUsageTrackingLogic', () => {
         expect(captures('metrics viewer range function changed')).toHaveLength(0)
         expect(captures('metrics viewer date range changed')).toHaveLength(0)
         expect(captures('metrics viewer group by changed')).toHaveLength(0)
+        expect(captures('metrics viewer display type changed')).toHaveLength(0)
     })
 
     it('query completed reports shape counts and timing, never series labels', async () => {

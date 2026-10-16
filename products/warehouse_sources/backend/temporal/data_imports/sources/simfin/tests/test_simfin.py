@@ -1,11 +1,18 @@
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.simfin import SimFinSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.simfin.simfin import (
     SimFinAPIError,
     _normalize_column_name,
@@ -15,41 +22,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.simfin.sim
     _parse_prices,
     _parse_statements,
     _parse_weighted_shares,
-    get_rows,
     parse_tickers,
-    simfin_source,
     validate_credentials,
     validate_tickers,
 )
-
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.simfin.simfin"
-
-
-def _response(*, body: Any = None, status: int = 200) -> MagicMock:
-    response = MagicMock()
-    response.status_code = status
-    response.json.return_value = body if body is not None else []
-    if status >= 400:
-        response.raise_for_status.side_effect = requests.HTTPError(
-            f"{status} Client Error: Unauthorized for url: https://backend.simfin.com/api/v3/companies/list",
-            response=response,
-        )
-    else:
-        response.raise_for_status.return_value = None
-    return response
+from products.warehouse_sources.backend.temporal.data_imports.sources.simfin.source import SimFinSource
 
 
-def _session_returning(responses: list[MagicMock]) -> MagicMock:
-    session = MagicMock()
-    session.get.side_effect = responses
-    return session
-
-
-def _collect_rows(batches: Any) -> list[dict]:
-    rows: list[dict] = []
-    for batch in batches:
-        rows.extend(batch)
-    return rows
+def _driver(tickers: str = "AAPL, MSFT") -> SourceDriver:
+    return SourceDriver(SimFinSource(), SimFinSourceConfig(api_key="KEY", tickers=tickers))
 
 
 class TestSimFin:
@@ -201,8 +182,8 @@ class TestSimFin:
 
     def test_get_rows_fans_out_one_request_per_ticker_with_endpoint_params(self) -> None:
         responses = [
-            _response(
-                body=[
+            ScriptedResponse(
+                json=[
                     {
                         "id": 1,
                         "ticker": "AAPL",
@@ -210,8 +191,8 @@ class TestSimFin:
                     }
                 ]
             ),
-            _response(
-                body=[
+            ScriptedResponse(
+                json=[
                     {
                         "id": 2,
                         "ticker": "MSFT",
@@ -220,53 +201,52 @@ class TestSimFin:
                 ]
             ),
         ]
-        session = _session_returning(responses)
-        with patch(f"{MODULE}.make_tracked_session", return_value=session):
-            rows = _collect_rows(get_rows("KEY", ["AAPL", "MSFT"], "income_statements", "v3", MagicMock()))
 
-        assert [(r["ticker"], r["fiscal_year"]) for r in rows] == [("AAPL", 2024), ("MSFT", 2023)]
-        urls = [call.args[0] for call in session.get.call_args_list]
-        assert urls == ["https://backend.simfin.com/api/v3/companies/statements/compact"] * 2
-        params = [call.kwargs["params"] for call in session.get.call_args_list]
-        assert params[0]["ticker"] == "AAPL"
-        assert params[1]["ticker"] == "MSFT"
+        result = _driver().run("income_statements", responses)
+
+        assert result.raised is None
+        assert [(r["ticker"], r["fiscal_year"]) for r in result.rows] == [("AAPL", 2024), ("MSFT", 2023)]
+        assert [request.origin for request in result.requests] == ["https://backend.simfin.com"] * 2
+        assert result.paths == ["/api/v3/companies/statements/compact"] * 2
+        assert result.params("ticker") == ["AAPL", "MSFT"]
         # The statement type must ride on every request or the table silently fills with the API default.
-        assert all(p["statements"] == "pl" for p in params)
+        assert result.params("statements") == ["pl"] * 2
 
     def test_get_rows_companies_is_a_single_request_without_ticker(self) -> None:
-        session = _session_returning([_response(body=[{"id": 1, "ticker": "AAPL"}])])
-        with patch(f"{MODULE}.make_tracked_session", return_value=session):
-            rows = _collect_rows(get_rows("KEY", ["AAPL", "MSFT"], "companies", "v3", MagicMock()))
-        assert rows == [{"id": 1, "ticker": "AAPL"}]
-        assert session.get.call_count == 1
-        assert "ticker" not in session.get.call_args.kwargs["params"]
+        result = _driver().run("companies", [ScriptedResponse(json=[{"id": 1, "ticker": "AAPL"}])])
+
+        assert result.rows == [{"id": 1, "ticker": "AAPL"}]
+        assert len(result.requests) == 1
+        assert result.params("ticker") == [None]
 
     def test_get_rows_skips_empty_ticker_but_syncs_the_rest(self) -> None:
         responses = [
-            _response(body=[]),
-            _response(body=[{"id": 2, "ticker": "MSFT", "columns": ["Date"], "data": [["2024-05-07"]]}]),
+            ScriptedResponse(json=[]),
+            ScriptedResponse(json=[{"id": 2, "ticker": "MSFT", "columns": ["Date"], "data": [["2024-05-07"]]}]),
         ]
         logger = MagicMock()
-        with patch(f"{MODULE}.make_tracked_session", return_value=_session_returning(responses)):
-            rows = _collect_rows(get_rows("KEY", ["BADTICKER", "MSFT"], "share_prices", "v3", logger))
-        assert [r["ticker"] for r in rows] == ["MSFT"]
+
+        result = _driver("BADTICKER, MSFT").run("share_prices", responses, logger=logger)
+
+        assert [r["ticker"] for r in result.rows] == ["MSFT"]
         logger.warning.assert_called_once()
 
     def test_get_rows_propagates_http_errors(self) -> None:
         # The raised message must keep the "401 Client Error ... backend.simfin.com" shape that
         # get_non_retryable_errors keys on, so bad credentials fail permanently instead of retrying.
-        session = _session_returning([_response(status=401)])
-        with patch(f"{MODULE}.make_tracked_session", return_value=session):
-            with pytest.raises(requests.HTTPError, match="401 Client Error: Unauthorized for url"):
-                _collect_rows(get_rows("KEY", ["AAPL"], "share_prices", "v3", MagicMock()))
+        result = _driver("AAPL").run("share_prices", [ScriptedResponse(status=401, json=[])])
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "401 Client Error: Unauthorized for url" in str(result.raised)
 
     def test_session_carries_auth_header_and_redacts_key(self) -> None:
-        with patch(f"{MODULE}.make_tracked_session") as make_session:
-            make_session.return_value = _session_returning([_response(body=[])])
-            _collect_rows(get_rows("SECRETKEY", [], "companies", "v3", MagicMock()))
-        kwargs = make_session.call_args.kwargs
-        assert kwargs["headers"]["Authorization"] == "api-key SECRETKEY"
-        assert kwargs["redact_values"] == ("SECRETKEY",)
+        config = SimFinSourceConfig(api_key="SECRETKEY", tickers="AAPL")
+
+        result = SourceDriver(SimFinSource(), config).run("companies", [ScriptedResponse(json=[])])
+
+        assert result.session_options[0]["headers"]["Authorization"] == "api-key SECRETKEY"
+        assert result.session_options[0]["redact_values"] == ("SECRETKEY",)
+        assert result.requests[0].headers["authorization"] == "api-key SECRETKEY"
 
     @parameterized.expand(
         [
@@ -279,7 +259,8 @@ class TestSimFin:
     def test_simfin_source_maps_primary_keys_and_partitioning(
         self, endpoint: str, expected_keys: list[str], partition_key: str | None
     ) -> None:
-        response = simfin_source("KEY", ["AAPL"], endpoint, "v3", MagicMock())
+        response = _driver("AAPL").run(endpoint, always(ScriptedResponse(json=[]))).response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         if partition_key is None:
@@ -297,18 +278,16 @@ class TestSimFin:
         ]
     )
     def test_validate_credentials(self, _name: str, api_key: str, status: int, expected: bool) -> None:
-        session = MagicMock()
-        session.get.return_value = _response(status=status)
-        with patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status, json=[]))):
             assert validate_credentials(api_key, "v3") is expected
 
     def test_validate_credentials_empty_key_skips_request(self) -> None:
-        with patch(f"{MODULE}.make_tracked_session") as make_session:
+        with scripted_network([]) as network:
             assert validate_credentials("   ", "v3") is False
-        make_session.assert_not_called()
+
+        assert network.requests_log == []
+        assert network.session_options == []
 
     def test_validate_credentials_network_error_returns_false(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionError("boom"))):
             assert validate_credentials("KEY", "v3") is False

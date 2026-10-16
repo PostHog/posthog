@@ -3,9 +3,11 @@ from posthog.test.base import APIBaseTest
 from django.contrib.admin import AdminSite
 from django.test import RequestFactory, SimpleTestCase
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationMembership, Team
+from posthog.models.integration import Integration
 
 from products.workflows.backend.admin.team_workflows_config_admin import TeamWorkflowsConfigAdmin
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -47,6 +49,11 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "email_tracking_consent_mode": "off",
             "workflow_task_rate_limit_per_day": None,
             "workflow_task_team_rate_limit_per_day": None,
+            "replay_vision_scan_rate_limit_per_day": None,
+            "replay_vision_scan_team_rate_limit_per_day": None,
+            "default_email_integration_id": None,
+            "marketing_frequency_cap_max_messages": None,
+            "marketing_frequency_cap_window_days": None,
         }
 
     def test_patch_enables_capture(self) -> None:
@@ -108,4 +115,95 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "email_tracking_consent_mode": "off",
             "workflow_task_rate_limit_per_day": None,
             "workflow_task_team_rate_limit_per_day": None,
+            "replay_vision_scan_rate_limit_per_day": None,
+            "replay_vision_scan_team_rate_limit_per_day": None,
+            "default_email_integration_id": None,
+            "marketing_frequency_cap_max_messages": None,
+            "marketing_frequency_cap_window_days": None,
         }
+
+    @parameterized.expand(
+        [
+            ("unverified_sender", "email", False, False),
+            ("other_projects_sender", "email", True, True),
+            ("not_an_email_sender", "slack", True, False),
+        ]
+    )
+    def test_patch_rejects_default_email_sender(self, _name: str, kind: str, verified: bool, other_team: bool) -> None:
+        team = Team.objects.create(organization=self.organization, name="other") if other_team else self.team
+        sender = Integration.objects.create(
+            team=team, kind=kind, integration_id="hello@example.com", config={"verified": verified}
+        )
+
+        response = self.client.patch(self.url, {"workflows_config": {"default_email_integration_id": sender.id}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "workflows_config"
+        stored = TeamWorkflowsConfig.objects.filter(team=self.team).values_list(
+            "default_email_integration_id", flat=True
+        )
+        assert list(stored) in ([], [None])
+
+    def test_patch_sets_and_clears_default_email_sender(self) -> None:
+        sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
+        )
+
+        response = self.client.patch(self.url, {"workflows_config": {"default_email_integration_id": sender.id}})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert TeamWorkflowsConfig.objects.get(team=self.team).default_email_integration_id == sender.id
+
+        response = self.client.patch(self.url, {"workflows_config": {"default_email_integration_id": None}})
+        assert response.status_code == status.HTTP_200_OK
+        assert TeamWorkflowsConfig.objects.get(team=self.team).default_email_integration_id is None
+
+    @parameterized.expand(
+        [
+            ["count with no saved window", None, {"marketing_frequency_cap_max_messages": 3}, 400, (None, None)],
+            [
+                "window longer than 30 days",
+                None,
+                {"marketing_frequency_cap_max_messages": 3, "marketing_frequency_cap_window_days": 31},
+                400,
+                (None, None),
+            ],
+            ["count change on a saved cap", (2, 7), {"marketing_frequency_cap_max_messages": 3}, 200, (3, 7)],
+            ["one field cleared on a saved cap", (2, 7), {"marketing_frequency_cap_window_days": None}, 400, (2, 7)],
+            [
+                "both fields cleared",
+                (2, 7),
+                {"marketing_frequency_cap_max_messages": None, "marketing_frequency_cap_window_days": None},
+                200,
+                (None, None),
+            ],
+        ]
+    )
+    def test_patch_frequency_cap_needs_both_fields_or_neither(
+        self,
+        _name: str,
+        saved: tuple[int, int] | None,
+        patch: dict,
+        expected_status: int,
+        expected_cap: tuple[int | None, int | None],
+    ) -> None:
+        if saved:
+            response = self.client.patch(
+                self.url,
+                {
+                    "workflows_config": {
+                        "marketing_frequency_cap_max_messages": saved[0],
+                        "marketing_frequency_cap_window_days": saved[1],
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+        response = self.client.patch(self.url, {"workflows_config": patch})
+
+        assert response.status_code == expected_status, response.json()
+        stored = (
+            TeamWorkflowsConfig.objects.filter(team=self.team)
+            .values_list("marketing_frequency_cap_max_messages", "marketing_frequency_cap_window_days")
+            .first()
+        )
+        assert (stored or (None, None)) == expected_cap

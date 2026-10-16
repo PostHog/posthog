@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,34 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ScalewaySource(ResumableSource[ScalewaySourceConfig, ScalewayResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^SCALEWAY_",
+            "^SCW_ACCESS_KEY$",
+            "^SCW_SECRET_KEY$",
+            "^SCW_PROJECT_ID$",
+            "^SCW_DEFAULT_PROJECT_ID$",
+            "^SCW_DEFAULT_ORGANIZATION_ID$",
+        ),
+        npm=("@scaleway/sdk",),
+        pypi=("scaleway",),
+        go=(
+            "github.com/scaleway/scaleway-sdk-go",
+            "github.com/scaleway/cert-manager-webhook-scaleway",
+            "github.com/scaleway/cq-source-scaleway",
+            "github.com/scaleway/crossplane-provider-scaleway",
+            "github.com/scaleway/docker-machine-driver-scaleway",
+            "github.com/scaleway/opentelemetry-collector-scaleway",
+            "github.com/scaleway/packer-plugin-scaleway",
+            "github.com/scaleway/scaleway-cli",
+            "github.com/scaleway/scaleway-cloud-controller-manager",
+            "github.com/scaleway/scaleway-csi",
+            "github.com/scaleway/scaleway-filestorage-csi",
+            "github.com/scaleway/scaleway-secrets-store-csi",
+            "github.com/scaleway/waypoint-plugin-scaleway",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.scaleway.com/en/developers/api"
 

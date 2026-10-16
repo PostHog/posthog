@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,6 +30,8 @@ YOCO_DEVELOPER_CONSOLE_URL = "https://developer.yoco.com/ui"
 
 @SourceRegistry.register
 class YocoSource(ResumableSource[YocoSourceConfig, YocoResumeConfig]):
+    codebase_detection = detect(env=("^YOCO_",), composer=("yoco/yoco-php", "yoco/yoco-php-laravel"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Yoco serves a single unversioned `/v1/` path and documents no version choice, so the
     # framework's unversioned default stands.

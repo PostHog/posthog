@@ -105,6 +105,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'task_repository',
         'task_mcp_installations',
         'signals_scout',
+        'replay_vision_scan',
         'task_skills',
     ]),
     key: z.string(),
@@ -171,6 +172,12 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         type: z.literal('schedule'),
+    }),
+    z.object({
+        type: z.literal('cohort'),
+        // Null until a cohort is picked. The backend requires one before the workflow runs.
+        cohort_id: z.number().nullable(),
+        transition: z.enum(['entered', 'left']),
     }),
     z.object({
         type: z.literal('batch'),

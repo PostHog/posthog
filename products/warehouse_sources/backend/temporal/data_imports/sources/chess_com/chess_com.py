@@ -26,6 +26,33 @@ _USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]{3,25}$")
 _ARCHIVE_MONTH_RE = re.compile(r"/games/(\d{4})/(\d{2})$")
 _DRAW_RESULTS = frozenset({"agreed", "repetition", "stalemate", "insufficient", "50move", "timevsinsufficient"})
 _RATING_CLASSES = {"chess_daily": "daily", "chess_rapid": "rapid", "chess_blitz": "blitz", "chess_bullet": "bullet"}
+_PGN_TAG_RE = re.compile(r'^\[(\w+)\s+"((?:[^"\\]|\\.)*)"\]$')
+# An allowlist, because tags such as White, Black, Termination, Link, Tournament and Match name a player or open the game.
+_PGN_KEPT_TAGS = frozenset(
+    {
+        "Site",
+        "Date",
+        "Round",
+        "Result",
+        "CurrentPosition",
+        "Timezone",
+        "ECO",
+        "ECOUrl",
+        "UTCDate",
+        "UTCTime",
+        "WhiteElo",
+        "BlackElo",
+        "TimeControl",
+        "StartTime",
+        "EndDate",
+        "EndTime",
+        "SetUp",
+        "FEN",
+        "Variant",
+    }
+)
+# The PGN standard requires these tags, so they stay with the value for unknown.
+_PGN_MASKED_TAGS = frozenset({"Event", "White", "Black"})
 
 
 def split_usernames(raw: str) -> list[str]:
@@ -83,6 +110,23 @@ def _outcome(result: str | None) -> str | None:
     return "draw" if result in _DRAW_RESULTS else "loss"
 
 
+def masked_pgn(pgn: str | None) -> str | None:
+    """The game's PGN with the moves and only the tags that do not identify a player or the game."""
+    if not pgn:
+        return None
+    lines = []
+    for line in pgn.splitlines():
+        if not line.lstrip().startswith("["):
+            lines.append(line)
+            continue
+        tag = _PGN_TAG_RE.match(line.strip())
+        if tag and tag[1] in _PGN_KEPT_TAGS:
+            lines.append(line.strip())
+        elif tag and tag[1] in _PGN_MASKED_TAGS:
+            lines.append(f'[{tag[1]} "?"]')
+    return "\n".join(lines)
+
+
 def _game_row(team_id: int, username: str, game: dict[str, Any]) -> dict[str, Any] | None:
     sides = {color: game.get(color) or {} for color in ("white", "black")}
     color = next((c for c, side in sides.items() if str(side.get("username", "")).lower() == username), None)
@@ -104,6 +148,7 @@ def _game_row(team_id: int, username: str, game: dict[str, Any]) -> dict[str, An
         "rating": player.get("rating"),
         "opponent_rating": opponent.get("rating"),
         "accuracy": (game.get("accuracies") or {}).get(color),
+        "pgn": masked_pgn(game.get("pgn")),
     }
 
 

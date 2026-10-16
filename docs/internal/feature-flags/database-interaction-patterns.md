@@ -103,9 +103,11 @@ That includes a flag that skips DB preparation because its only group filter has
 See [Unfetched properties fail closed](flag-evaluation-engine.md#unfetched-properties-fail-closed).
 Each stopped call increments `flags_database_error_total` with `timeout_type="persons_db_deadline"` and the call's `operation`.
 The canonical log line records the first stopped call in `persons_db_deadline_exceeded`.
-The internal batch evaluation endpoint does not apply the deadline.
-When a person's evaluation returns an error, Django leaves that person out of the static cohort, keeps the persons that matched, and records the run as failed.
-The batch endpoint shares the group type mapping cache with `/flags`, so its group type lookup still stops at the 5s shared fetch cap.
+The internal batch evaluation endpoint applies the deadline to each person's evaluation.
+A person that fails at the deadline is evaluated once more with a fresh deadline, up to `MAX_PERSON_RETRIES_PER_PAGE` retries per page.
+The deadline bounds each person, not the page.
+A persons database that stays unresponsive still ends the page at `BATCH_FLAG_EVAL_TIMEOUT_MS`.
+When a person's evaluation still returns an error, Django leaves that person out of the static cohort, keeps the persons that matched, and records the run as failed.
 Set `PERSONS_DB_DEADLINE_MS=0` to disable the deadline.
 
 A query that the deadline drops mid-flight keeps its connection until sqlx's on-release ping finishes.

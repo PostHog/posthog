@@ -440,6 +440,10 @@ export interface CohortApi {
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
+    /**
+     * Person UUIDs to add to a new static cohort.
+     * @maxItems 1000
+     */
     _create_static_person_ids?: string[]
 }
 
@@ -509,12 +513,36 @@ export interface PatchedCohortApi {
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
+    /**
+     * Person UUIDs to add to a new static cohort.
+     * @maxItems 1000
+     */
     _create_static_person_ids?: string[]
 }
 
 export interface PatchedAddPersonsToStaticCohortRequestApi {
     /** List of person UUIDs to add to the cohort */
     person_ids?: string[]
+}
+
+export interface CohortUsedInWorkflowApi {
+    /** Workflow ID (UUID) */
+    id: string
+    /** Workflow display name */
+    name: string
+    /** Workflow status. Always 'active', because only active workflows rely on the cohort */
+    status: string
+}
+
+export interface CohortUsedInWorkflowsBlockApi {
+    /** Active workflows relying on this cohort that the caller can view, capped at 100 results */
+    results: CohortUsedInWorkflowApi[]
+    /** Total number of active workflows relying on this cohort, including ones the caller cannot view */
+    total: number
+    /** Number of relying workflows the caller cannot view. They count toward total but are never listed */
+    hidden: number
+    /** True when some relying workflows are not listed in results */
+    has_more: boolean
 }
 
 /**
@@ -636,6 +664,8 @@ export interface CohortUsedInResponseApi {
     insights: CohortUsedInInsightsBlockApi
     /** Other cohorts that include this cohort as a criterion, with truncation metadata */
     cohorts: CohortUsedInCohortsBlockApi
+    /** Active workflows that trigger on this cohort or branch on its membership. While any exist, the cohort cannot be deleted or edited in a way that stops it updating in real time. */
+    workflows: CohortUsedInWorkflowsBlockApi
 }
 
 export type CohortsStaffListParams = {

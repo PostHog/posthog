@@ -94,8 +94,7 @@ export interface marketingAnalyticsCrossSellLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
-            | null
-            | undefined,
+            | null,
         payload?:
             | {
                   overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
@@ -127,7 +126,6 @@ export interface marketingAnalyticsCrossSellLogicActions {
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
             | null
-            | undefined
     } // dataNodeLogic
     loadConnectionState: (_: void) => void
     loadConnectionStateFailure: (

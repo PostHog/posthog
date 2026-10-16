@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CronitorSource(ResumableSource[CronitorSourceConfig, CronitorResumeConfig]):
+    codebase_detection = detect(
+        env=("^CRONITOR_",),
+        script_hosts=("rum.cronitor.io",),
+        npm=("cronitor", "@cronitorio/cronitor-rum", "@cronitorio/cronitor-rum-nextjs"),
+        pypi=("cronitor",),
+        composer=("cronitor/cronitor-php",),
+        rubygems=("cronitor", "cronitor_activejob", "sidekiq-cronitor"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

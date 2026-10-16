@@ -1,4 +1,5 @@
 import type { SettingEnumApi } from '~/generated/core/api.schemas'
+import { AvailableFeature } from '~/types'
 
 export type NotificationRuleValue = 'none' | 'on' | 'off'
 
@@ -13,6 +14,8 @@ export type NotificationConcept = {
     inverse?: boolean
     /** Shown where a setting has no project dimension to offer. */
     note?: string
+    /** Hidden from organizations without this feature, because they never send these emails. */
+    requiredFeature?: AvailableFeature
 }
 
 const NO_PROJECT_NOTE = 'PostHog stores this one as a single value per person, so it cannot be set per project.'
@@ -68,6 +71,22 @@ export const NOTIFICATION_CONCEPTS: NotificationConcept[] = [
         description: 'An email when someone mentions them in a discussion.',
         perProject: false,
         note: NO_PROJECT_NOTE,
+    },
+    {
+        setting: 'approval_requested',
+        label: 'Approval requests',
+        description: 'An email when a change needs their approval.',
+        perProject: false,
+        note: NO_PROJECT_NOTE,
+        requiredFeature: AvailableFeature.APPROVALS,
+    },
+    {
+        setting: 'approval_resolved',
+        label: 'Change request updates',
+        description: 'Emails when their change request is approved, declined, expires, or goes live.',
+        perProject: false,
+        note: NO_PROJECT_NOTE,
+        requiredFeature: AvailableFeature.APPROVALS,
     },
     {
         setting: 'organization_member_join_email_disabled',

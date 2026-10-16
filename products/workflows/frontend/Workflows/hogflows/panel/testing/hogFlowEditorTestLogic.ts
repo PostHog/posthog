@@ -100,6 +100,8 @@ export const parseGroupsFromResult = (
     return groups
 }
 
+const NON_EVENT_TRIGGER_TYPES: TriggerAction['config']['type'][] = ['schedule', 'manual', 'batch']
+
 export const createGlobalsFromResponse = (
     event: any,
     person: any,
@@ -168,6 +170,7 @@ export interface hogFlowEditorTestLogicValues {
     sampleGlobalsStale: boolean
     shouldFilterTestAccounts: boolean
     shouldLoadSampleGlobals: boolean
+    showTestEvent: boolean
     showTestInvocationErrors: boolean
     testInvocation: HogflowTestInvocation
     testInvocationAllErrors: Record<string, any>
@@ -365,6 +368,145 @@ export interface hogFlowEditorTestLogicMeta {
                                 type: 'internal-event'
                             }
                           | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-table'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-view'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'manual'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'tracking_pixel'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'webhook'
+                            }
+                      created_at?: number | undefined
+                      description: string
+                      filters?:
+                          | {
+                                actions?: any[] | undefined
+                                events?: any[] | undefined
+                                properties?: any[] | undefined
+                            }
+                          | null
+                          | undefined
+                      id: string
+                      name: string
+                      on_error?: 'abort' | 'continue' | null | undefined
+                      output_variable?:
+                          | {
+                                key: string
+                                label?: string | null | undefined
+                                result_path?: string | null | undefined
+                                spread?: boolean | null | undefined
+                            }
+                          | {
+                                key: string
+                                label?: string | null | undefined
+                                result_path?: string | null | undefined
+                                spread?: boolean | null | undefined
+                            }[]
+                          | null
+                          | undefined
+                      type: 'trigger'
+                      updated_at?: number | undefined
+                  } & Record<string, unknown>)
+                | null
+        ) => boolean
+        showTestEvent: (
+            triggerAction:
+                | ({
+                      config:
+                          | {
+                                type: 'schedule'
+                            }
+                          | {
+                                filters: {
+                                    all_roles_unassigned?: boolean | undefined
+                                    assigned_to_user_ids?: number[] | undefined
+                                    assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
+                                    audience_type?: 'accounts' | 'persons' | undefined
+                                    properties: any[]
+                                    tag_names?: string[] | undefined
+                                }
+                                type: 'batch'
+                            }
+                          | {
+                                filters: {
+                                    actions?: any[] | undefined
+                                    events?: any[] | undefined
+                                    filter_test_accounts?: boolean | undefined
+                                    properties?: any[] | undefined
+                                }
+                                type: 'event'
+                            }
+                          | {
+                                filters: {
+                                    events: any[]
+                                    properties?: any[] | undefined
+                                    source: 'internal-events'
+                                }
+                                type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
+                            }
+                          | {
                                 filters: {
                                     properties?: any[] | undefined
                                 }
@@ -498,6 +640,11 @@ export interface hogFlowEditorTestLogicMeta {
                                 type: 'internal-event'
                             }
                           | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
+                            }
+                          | {
                                 filters: {
                                     properties?: any[] | undefined
                                 }
@@ -625,6 +772,11 @@ export interface hogFlowEditorTestLogicMeta {
                                     source: 'internal-events'
                                 }
                                 type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
                             }
                           | {
                                 filters: {
@@ -1054,10 +1206,16 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     selectors(() => ({
         shouldLoadSampleGlobals: [
             (s) => [s.triggerAction],
-            (triggerAction: null | import('../../../workflowLogic').TriggerAction): boolean => {
+            (triggerAction: TriggerAction | null): boolean => {
                 // Only load samples if the trigger is event
                 return !!(triggerAction && triggerAction.config.type === 'event')
             },
+        ],
+        // These triggers start a run without an event, so a test event has no effect on the run.
+        showTestEvent: [
+            (s) => [s.triggerAction],
+            (triggerAction: TriggerAction | null): boolean =>
+                !triggerAction || !NON_EVENT_TRIGGER_TYPES.includes(triggerAction.config.type),
         ],
         // Mirror real execution: the worker's getGroupsForEvent gates on group_analytics, so without
         // the addon the test run must also resolve no groups (otherwise a group condition could match
@@ -1071,7 +1229,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         // event from a test account that the live trigger would reject.
         shouldFilterTestAccounts: [
             (s) => [s.triggerAction],
-            (triggerAction: null | import('../../../workflowLogic').TriggerAction): boolean => {
+            (triggerAction: TriggerAction | null): boolean => {
                 if (!triggerAction || triggerAction.config.type !== 'event') {
                     return false
                 }
@@ -1081,7 +1239,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         // TODO(workflows): DRY up matchingFilters with implementation in hogFunctionConfigurationLogic
         matchingFilters: [
             (s) => [s.triggerAction],
-            (triggerAction: null | import('../../../workflowLogic').TriggerAction): PropertyGroupFilter => {
+            (triggerAction: TriggerAction | null): PropertyGroupFilter => {
                 if (!triggerAction || triggerAction.config.type !== 'event') {
                     return {
                         type: FilterLogicalOperator.And,
@@ -1150,7 +1308,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         ],
         workflowVariableDefaults: [
             (s) => [s.workflow],
-            (workflow: import('../../types').HogFlow): Record<string, any> =>
+            (workflow: HogFlow): Record<string, any> =>
                 workflow.variables?.reduce(
                     (acc, variable) => {
                         acc[variable.key] = variable.default

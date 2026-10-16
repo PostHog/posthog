@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,6 +30,33 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TursoSource(ResumableSource[TursoSourceConfig, TursoResumeConfig]):
+    codebase_detection = detect(
+        env=("^TURSO_",),
+        npm=("@libsql/client", "@tursodatabase/serverless", "@tursodatabase/api"),
+        pypi=("libsql",),
+        cargo=(
+            "libsql",
+            "turso",
+            "turso_core",
+            "turso_ext",
+            "turso_macros",
+            "turso_parser",
+            "turso_pg_parser",
+            "turso_sdk_kit",
+            "turso_sdk_kit_macros",
+            "turso_serverless",
+            "turso_sqlite3_parser",
+            "turso_sync_engine",
+            "turso_sync_sdk_kit",
+        ),
+        go=(
+            "github.com/tursodatabase/libsql-client-go",
+            "github.com/tursodatabase/go-libsql",
+            "github.com/tursodatabase/turso-cli",
+            "github.com/tursodatabase/turso-go-platform-libs",
+        ),
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.turso.tech/api-reference/introduction"
 

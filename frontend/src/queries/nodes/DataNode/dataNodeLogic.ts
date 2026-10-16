@@ -110,12 +110,20 @@ import type {
     TraceSpansTreeQueryResponse,
 } from '../../schema/schema-general'
 import type { DataNodeRegisteredProps } from './dataNodeCollectionLogic'
+import {
+    forgetRetainedResponse,
+    getRetainedResponse,
+    isCompleteResponse,
+    responseCacheKey,
+    retainResponse,
+} from './responseCache'
 
 export interface DataNodeLogicProps {
     key: string
     query: DataNode
     /** Cached results when fetching nodes in bulk (list endpoint), sharing or exporting. */
     cachedResults?: AnyResponseType
+    retainResponseOnUnmount?: boolean
     /** Disabled data fetching and only allow cached results. */
     doNotLoad?: boolean
     /** Refresh behaviour for queries. */
@@ -183,6 +191,7 @@ const accountsTableConcurrencyController = new ConcurrencyController(2)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
+const productAnalyticsHomeConcurrencyController = new ConcurrencyController(6, { batchStart: true })
 
 function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
     if (isAccountsTableQuery(query)) {
@@ -194,6 +203,10 @@ function getConcurrencyController(query: DataNode, currentTeam: TeamType): Concu
 
     if (activeScene === Scene.MarketingAnalytics) {
         return marketingAnalyticsConcurrencyController
+    }
+
+    if (activeScene === Scene.SavedInsights) {
+        return productAnalyticsHomeConcurrencyController
     }
 
     if (
@@ -435,8 +448,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
-            | null
-            | undefined,
+            | null,
         payload?: {
             overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
@@ -460,7 +472,6 @@ export interface dataNodeLogicActions {
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
             | null
-            | undefined
         payload?: {
             overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
@@ -959,7 +970,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     props({ query: {}, variablesOverride: undefined, autoLoad: true } as DataNodeLogicProps),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
         }
@@ -970,6 +981,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             ignoreVisualizationOnlyChanges: true,
         })
         const queryVarsHaveChanged = haveVariablesOrFiltersChanged(props.query, oldProps.query)
+
+        // Insight logics can mount this node before the component supplies its query.
+        const retainedResponse =
+            (hasQueryChanged || props.retainResponseOnUnmount !== oldProps.retainResponseOnUnmount) &&
+            getRetainedResponse(responseCacheKey(props, values.user?.id, values.currentTeamId))
+        if (retainedResponse) {
+            actions.loadData()
+            return
+        }
 
         const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
         if (hasQueryChanged && queryStatus?.complete === false) {
@@ -998,8 +1018,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
 
             actions.loadData(refreshType)
-        } else if (props.cachedResults) {
+        } else if (
+            props.cachedResults &&
+            !(
+                props.retainResponseOnUnmount &&
+                !hasQueryChanged &&
+                isCompleteResponse(values.response) &&
+                !isCompleteResponse(props.cachedResults)
+            )
+        ) {
             // Use cached results if available, otherwise this logic will load the data again
+            if (props.cachedResults !== oldProps.cachedResults) {
+                retainResponse(responseCacheKey(props, values.user?.id, values.currentTeamId), props.cachedResults)
+            }
             actions.setResponse(props.cachedResults)
         }
     }),
@@ -1039,6 +1070,22 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
+                    actions.abortAnyRunningQuery()
+                    actions.setPollResponse(null)
+                    const key = responseCacheKey(
+                        overrideQuery ? { ...props, query: overrideQuery } : props,
+                        values.user?.id,
+                        values.currentTeamId
+                    )
+                    const retainedResponse = !pollOnly && !refreshArg?.startsWith('force_') && getRetainedResponse(key)
+                    // Do not extend the retained response's lifetime when displaying it again.
+                    cache.responseCacheKey = retainedResponse ? null : key
+                    if (retainedResponse) {
+                        await Promise.resolve()
+                        breakpoint()
+                        return retainedResponse
+                    }
+                    forgetRetainedResponse(key)
                     const rawQuery = overrideQuery ?? props.query
                     if (!rawQuery || typeof rawQuery !== 'object' || !('kind' in rawQuery)) {
                         return null
@@ -1054,7 +1101,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     if (props.doNotLoad) {
-                        return props.cachedResults
+                        return props.cachedResults ?? null
                     }
 
                     const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
@@ -1088,8 +1135,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return null
                     }
 
-                    actions.abortAnyRunningQuery()
-                    actions.setPollResponse(null)
                     const abortController = new AbortController()
                     cache.disposables.add(() => () => abortController.abort(), 'query', { pauseOnPageHidden: false })
                     const methodOptions: ApiMethodOptions = {
@@ -2117,6 +2162,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.resetLoadingTimer()
         },
         loadDataSuccess: ({ response }) => {
+            retainResponse(cache.responseCacheKey, response)
             props.onData?.(response as Record<string, unknown> | null | undefined)
             actions.collectionNodeLoadDataSuccess(props.key, {
                 isCached: !!response && typeof response === 'object' && 'is_cached' in response && !!response.is_cached,
@@ -2212,7 +2258,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
     })),
-    afterMount(({ actions, props, cache }) => {
+    afterMount(({ actions, props, cache, values }) => {
         cache.localResults = {}
 
         actions.mountDataNode(props.key, {
@@ -2221,10 +2267,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             cancelQuery: actions.cancelQuery,
         })
 
-        if (props.cachedResults) {
+        const retainedResponse = getRetainedResponse(responseCacheKey(props, values.user?.id, values.currentTeamId))
+        if (retainedResponse) {
+            actions.loadData()
+        } else if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again.
             // We need to set them here, as the propsChanged listener will not trigger on mount
             // and if we never change the props, the cached results will never be used.
+            retainResponse(responseCacheKey(props, values.user?.id, values.currentTeamId), props.cachedResults)
             actions.setResponse(props.cachedResults)
         } else if (props.autoLoad && Object.keys(props.query || {}).length > 0) {
             // Initial load should use non-force variant

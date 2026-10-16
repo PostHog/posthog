@@ -19,6 +19,7 @@ import {
     ErrorTrackingOrderBy,
     ErrorTrackingQueryStatus,
     EventsNode,
+    EventsQuery,
     FunnelExclusionSteps,
     FunnelsFilterLegacy,
     InsightNodeKind,
@@ -477,6 +478,7 @@ export type AssistantTrendsDisplayType =
     | ChartDisplayType.ActionsBarValue
     | ChartDisplayType.ActionsPie
     | ChartDisplayType.ActionsDonut
+    | ChartDisplayType.ActionsProportionBar
     | ChartDisplayType.ActionsTable
     | ChartDisplayType.WorldMap
     // Not in the `display` description: the MCP chart app cannot show calendar_heatmap_data yet.
@@ -516,6 +518,7 @@ export interface AssistantTrendsFilter {
      * `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as "top pages" or "failures by reason".
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsDonut` - total value donut chart; same use as `ActionsPie`.
+     * `ActionsProportionBar` - total value chart that shows the parts of one whole as a single flat bar, with one segment per breakdown value or series. Use it to show the share of each part in a total. It cannot compare to a previous period, so do not set `compareFilter.compare` with it.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
      * `WorldMap` - total value world map; use when breaking down by country using property `$geoip_country_code`, and only then.
      * @default ActionsLineGraph
@@ -1822,6 +1825,17 @@ export interface AssistantInsightVizNode {
     kind: NodeKind.InsightVizNode
     /** Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery */
     source: Record<string, any>
+    /** Chart rendering options. */
+    vizSpecificOptions?: AssistantVizSpecificOptions
+}
+
+export interface AssistantPieChartOptions {
+    /** Hide the total on a pie chart. */
+    hideAggregation?: boolean
+}
+
+export interface AssistantVizSpecificOptions {
+    ActionsPie?: AssistantPieChartOptions
 }
 
 /**
@@ -1835,6 +1849,7 @@ export interface AssistantInsightVizNode {
  * - `ActionsBarValue` — horizontal bar chart (bar ranking) with one bar per category. Requires a category column and a numeric column.
  * - `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.
  * - `ActionsDonut` — donut (ring) chart with the total in the center. Same columns as `ActionsPie`.
+ * - `ActionsProportionBar` — one flat bar that shows the parts of one whole, one segment per label. Same columns as `ActionsPie`.
  * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
  * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
@@ -1850,6 +1865,7 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsBarValue
     | ChartDisplayType.ActionsPie
     | ChartDisplayType.ActionsDonut
+    | ChartDisplayType.ActionsProportionBar
     | ChartDisplayType.ActionsStackedBar
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
@@ -1860,9 +1876,7 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
     yAxisPosition?: 'left' | 'right'
     /**
-     * Override how this individual series is rendered, independent of the chart-level `display` type.
-     * Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`.
-     * `auto` follows the chart-level display type.
+     * Chart type. `auto` uses `display`.
      */
     displayType?: 'auto' | 'line' | 'bar' | 'area'
     /** Draw a linear trend line for this series. Only meaningful for line, bar, and area charts. */
@@ -2014,19 +2028,12 @@ export interface AssistantDataVisualizationNode {
     /** HogQL query object that produces the rows to visualize. */
     source: Record<string, any>
     /**
-     * Visualization type. Defaults to `ActionsTable` when omitted.
-     *
-     * Guidance:
-     * - Single-value result (one numeric column, one row) → `BoldNumber`.
-     * - Headline number with its change over time (KPI, scorecard) → `Metric`.
-     * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
-     * - Categorical proportions → `ActionsPie` or `ActionsDonut`.
-     * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
-     * - Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.
-     * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
-     * - Relationship between two numeric measures, one point per row → `ScatterPlot`.
-     * - Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.
-     * - Otherwise → `ActionsTable`.
+     * Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI;
+     * `ActionsLineGraph` / `ActionsAreaGraph` = time series;
+     * `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares;
+     * `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings;
+     * `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures;
+     * `BoxPlot` = distribution summaries with `chartSettings.boxPlot`.
      */
     display?: AssistantDataVisualizationDisplayType
     /** Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`. */
@@ -2051,8 +2058,26 @@ export interface AssistantBareHogQLQuery {
     [key: string]: unknown
 }
 
+export interface AssistantEventsQuery {
+    kind: NodeKind.EventsQuery
+    /** Event columns as HogQL expressions. */
+    select: EventsQuery['select']
+    // The backend validates EventsQuery fields. Preserve filters and options without expanding the tool schema.
+    [key: string]: unknown
+}
+
+export interface AssistantDataTableNode {
+    kind: NodeKind.DataTableNode
+    source: AssistantEventsQuery
+    [key: string]: unknown
+}
+
+// Zod fills in omitted kinds and takes the first matching union branch. Match events sources
+// before the generic insight wrapper so inferred tables keep their kind and table settings.
 export type InsightQuery =
+    | AssistantDataTableNode
     | AssistantInsightVizNode
     | AssistantDataVisualizationNode
     | AssistantBareInsightQuery
     | AssistantBareHogQLQuery
+    | AssistantEventsQuery

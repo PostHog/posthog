@@ -32,6 +32,7 @@ import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -88,6 +89,7 @@ import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { QueryStatus, ResolvedDateRangeResponse } from '../../queries/schema/schema-general'
 import type { QueryScanSummary } from '../../queries/schema/schema-general'
+import type { AccessControlFilterWarning, DataWarehouseSyncWarning } from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
 import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
@@ -214,7 +216,7 @@ export interface insightLogicActions {
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
-            dashboards: number[] | null
+            dashboards?: number[] | undefined
             deleted: boolean
             derived_name?: string | null | undefined
             description?: string | undefined
@@ -246,6 +248,7 @@ export interface insightLogicActions {
             user_access_level: AccessControlLevel
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
+            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
         },
         payload?: {
             filtersOverride: DashboardFilter | null | undefined
@@ -262,7 +265,7 @@ export interface insightLogicActions {
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
-            dashboards: number[] | null
+            dashboards?: number[] | undefined
             deleted: boolean
             derived_name?: string | null | undefined
             description?: string | undefined
@@ -294,6 +297,7 @@ export interface insightLogicActions {
             user_access_level: AccessControlLevel
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
+            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
         }
         payload?: {
             filtersOverride: DashboardFilter | null | undefined
@@ -390,7 +394,7 @@ export interface insightLogicActions {
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
             dashboard_tiles?: DashboardTileBasicType[] | null | undefined
-            dashboards?: number[] | null | undefined
+            dashboards?: number[] | undefined
             deleted?: boolean | undefined
             derived_name?: string | null | undefined
             description?: string | undefined
@@ -422,6 +426,7 @@ export interface insightLogicActions {
             user_access_level?: AccessControlLevel | undefined
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
+            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
         },
         payload?: {
             metadataUpdate: Partial<
@@ -437,7 +442,7 @@ export interface insightLogicActions {
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
             dashboard_tiles?: DashboardTileBasicType[] | null | undefined
-            dashboards?: number[] | null | undefined
+            dashboards?: number[] | undefined
             deleted?: boolean | undefined
             derived_name?: string | null | undefined
             description?: string | undefined
@@ -469,6 +474,7 @@ export interface insightLogicActions {
             user_access_level?: AccessControlLevel | undefined
             view_count?: number | undefined
             viewers?: UserBasicType[] | undefined
+            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
         }
         payload?: {
             metadataUpdate: Partial<
@@ -684,7 +690,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         )
                         const insight = await insightsApi.getByShortId(
                             shortId,
-                            undefined,
+                            // Notebook data nodes own execution and can restore a recent response.
+                            // Fetching results here would start a query before that cache is checked.
+                            props.retainResponseOnUnmount ? true : undefined,
                             hasOverrides ? 'async_except_on_cache_miss' : 'async',
                             filtersOverride,
                             variablesOverride,
@@ -734,8 +742,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         result: response.result || values.insight.result,
                     }
 
-                    const removedDashboards = (values.insight.dashboards || []).filter(
-                        (d) => !updatedInsight.dashboards?.includes(d)
+                    const remainingDashboards = liveDashboardIds(updatedInsight.dashboard_tiles)
+                    const removedDashboards = liveDashboardIds(values.insight.dashboard_tiles).filter(
+                        (d) => !remainingDashboards.includes(d)
                     )
                     dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
                     values.insight.short_id && refreshTreeItem('insight', String(values.insight.short_id))
@@ -836,7 +845,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         return state
                     }
                 }
-                const targetDashboards = (insight?.dashboards || []).concat(extraDashboardIds || [])
+                const targetDashboards = liveDashboardIds(insight?.dashboard_tiles).concat(extraDashboardIds || [])
                 const updateIsForThisDashboard =
                     insight?.short_id === state.short_id &&
                     props.dashboardId &&
@@ -869,10 +878,17 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
             [insightsModel.actionTypes.insightsAddedToDashboard]: (
                 state: Partial<InsightModel>,
-                { dashboardId, insightIds }: { dashboardId: number; insightIds: number[] }
+                { dashboardId, tiles }: { dashboardId: number; tiles: { id: number; insightId: number }[] }
             ) => {
-                if (state.id != null && insightIds.includes(state.id)) {
-                    return { ...state, dashboards: [...(state.dashboards || []), dashboardId] }
+                const addedTile = state.id != null ? tiles.find((tile) => tile.insightId === state.id) : undefined
+                if (addedTile) {
+                    return {
+                        ...state,
+                        dashboard_tiles: [
+                            ...(state.dashboard_tiles || []),
+                            { id: addedTile.id, dashboard_id: dashboardId },
+                        ],
+                    }
                 }
                 return state
             },
@@ -881,7 +897,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 { tile, dashboardId }: { tile?: DashboardTile; dashboardId?: number }
             ) => {
                 if (tile?.insight?.id === state.id) {
-                    return { ...state, dashboards: state.dashboards?.filter((d: number) => d !== dashboardId) }
+                    return {
+                        ...state,
+                        dashboard_tiles: state.dashboard_tiles?.filter((t) => t.dashboard_id !== dashboardId),
+                    }
                 }
                 return state
             },
@@ -890,7 +909,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 { dashboard }: { dashboard: DashboardType }
             ) => {
                 const { id } = dashboard
-                return { ...state, dashboards: state.dashboards?.filter((d: number) => d !== id) }
+                return {
+                    ...state,
+                    dashboard_tiles: state.dashboard_tiles?.filter((tile) => tile.dashboard_id !== id),
+                    // An unsaved insight must not ask to be placed on the deleted dashboard. A saved insight has
+                    // no `dashboards`, and an `undefined` one would replace the list a write builds from the tiles.
+                    ...(state.dashboards ? { dashboards: state.dashboards.filter((d: number) => d !== id) } : {}),
+                }
             },
         },
         accessDeniedToInsight: [false, { setAccessDeniedToInsight: () => true }],
@@ -1120,7 +1145,14 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         saveInsight: async ({ redirectToViewMode, folder }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-            const { name, description, favorited, deleted, dashboards, tags } = values.insight
+            const { name, description, favorited, deleted, tags } = values.insight
+            // A new insight carries the dashboards to place it on. A saved one sends back the dashboards
+            // it sits on. While its tiles are not loaded it sends nothing, because an empty list would
+            // take it off every dashboard.
+            const currentDashboards = values.insight.dashboard_tiles
+                ? liveDashboardIds(values.insight.dashboard_tiles)
+                : undefined
+            const dashboards = insightNumericId ? currentDashboards : values.insight.dashboards
 
             let savedInsight: InsightModel
 
@@ -1406,7 +1438,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             if (dashboardId) {
                 router.actions.push(urls.dashboard(dashboardId))
                 dashboardsModel.actions.updateDashboardInsight(
-                    { ...(insight as InsightModel), deleted: true, dashboards: [] },
+                    { ...(insight as InsightModel), deleted: true, dashboard_tiles: [] },
                     [dashboardId]
                 )
             } else {

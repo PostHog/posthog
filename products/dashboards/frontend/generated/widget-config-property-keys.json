@@ -50,7 +50,8 @@
             "savedViewId",
             "search",
             "status"
-        ]
+        ],
+        "canvas_app": ["canvasId"]
     },
     "configPropertyTrees": {
         "notebook_widget": {
@@ -467,6 +468,11 @@
                 "$type": "string"
             },
             "savedViewId": {
+                "$type": "string"
+            }
+        },
+        "canvas_app": {
+            "canvasId": {
                 "$type": "string"
             }
         }

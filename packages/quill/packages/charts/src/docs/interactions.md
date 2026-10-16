@@ -8,6 +8,9 @@ Read the domain object back from `series.meta`, not from array position.
 On a `pinnable` multi-series chart, a click pins the tooltip first and the user then clicks a row (`DefaultTooltip.onRowClick`).
 `config.tooltip.resolveClickToNearestSeries` skips the pin and fires `onPointClick` for the nearest series directly; see [tooltips.md](./tooltips.md) for when that is safe.
 
+`isPointClickable(dataIndex)` (on `BarChart`, `TimeSeriesBarChart`, and the base `Chart`) limits `onPointClick` and the pointer cursor to some points.
+Other points keep hover and tooltip, and show the drag crosshair if the chart has one.
+
 Chart-specific variants: `FunnelChart.onStepClick` reports `{ stepIndex, converted }`, where `converted: false` means the hatched drop-off track was clicked; `PieChart.onSliceClick`; `BoxPlot.onBoxClick`; `Heatmap.onCellClick` reports `{ xIndex, yIndex, value }`; `ScatterChart.onPointClick` receives the resolved `ScatterPointDatum`.
 
 ## Drag-to-zoom: `onDateRangeZoom`
@@ -18,7 +21,7 @@ The chart does not manage zoom state; the parent decides what to do with the ran
 
 - Despite the name it is label-generic: it resolves the drag against label positions, so it works on categorical labels (weekdays, duration buckets) as on dates.
 - A drag whose edges both snap to the same label (common on sparse charts, a three-bar monthly chart) selects that single bucket, provided the drag spans enough distance to read as intentional.
-- The cursor switches to a crosshair when set, except over an actionable point (`onPointClick` set), where it stays a pointer. A plain click without movement still pins the tooltip or fires `onPointClick`.
+- The cursor switches to a crosshair when set, except over a clickable point, where it stays a pointer. A plain click without movement still pins the tooltip or fires `onPointClick`.
 - X-axis only. No effect on charts with a vertical interaction axis (`axisOrientation: 'horizontal'` bars), where the core disables the gesture.
 - Both emitted values are bucket starts. Widening the end to the last bucket's end is the host's job.
 

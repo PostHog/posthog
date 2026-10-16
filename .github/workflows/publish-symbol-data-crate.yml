@@ -44,9 +44,27 @@ jobs:
                       echo "No posthog-symbol-data changesets remain"
                   fi
 
+    notify-approval-needed:
+        name: Notify Slack - Approval Needed
+        needs: check-changesets
+        if: >-
+            github.repository == 'PostHog/posthog'
+            && needs.check-changesets.result == 'success'
+            && needs.check-changesets.outputs.has-changesets == 'true'
+        uses: posthog/.github/.github/workflows/notify-approval-needed.yml@03565438486849ac0d19543de36c248a27d32a2f
+        with:
+            checkout_repository: false
+            slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+            slack_user_group_id: ${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}
+            tag_pattern: posthog-symbol-data/v*
+            tag_sort: version
+        secrets:
+            slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+            posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
+
     prepare-release:
         name: Prepare posthog-symbol-data release pull request
-        needs: [check-changesets, identify-release, publish]
+        needs: [check-changesets, identify-release, notify-approval-needed, publish]
         if: >-
             !cancelled()
             && github.repository == 'PostHog/posthog'
@@ -107,6 +125,16 @@ jobs:
                       echo "has-changesets=false" >> "$GITHUB_OUTPUT"
                       echo "No posthog-symbol-data changesets remain; skipping release preparation"
                   fi
+
+            - name: Notify Slack - Approved
+              if: steps.recheck-changesets.outputs.has-changesets == 'true' && needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: Release approved. Preparing the posthog-symbol-data version bump.
+                  emoji_reaction: white_check_mark
 
             - name: Install Rust
               if: steps.recheck-changesets.outputs.has-changesets == 'true'
@@ -282,20 +310,16 @@ jobs:
 
                   existing_pr=$(printf '%s\n' "$existing_prs" | sed -n '1p')
                   if [ -n "$existing_pr" ]; then
-                      existing_pr_data=$(gh pr view "$existing_pr" --json headRefOid,isDraft)
-                      existing_head_sha=$(printf '%s' "$existing_pr_data" | jq -r '.headRefOid')
+                      existing_head_sha=$(gh pr view "$existing_pr" --json headRefOid --jq '.headRefOid')
                       if [ "$existing_head_sha" != "$RELEASE_COMMIT" ]; then
                           echo "::error::The existing release pull request does not contain the generated release commit"
                           exit 1
                       fi
                       gh pr edit "$existing_pr" --title "chore(symbol-data): release v$NEW_VERSION" --body-file "$body_file"
-                      if [ "$(printf '%s' "$existing_pr_data" | jq -r '.isDraft')" != 'true' ]; then
-                          gh pr ready "$existing_pr" --undo
-                      fi
+                      gh pr ready "$existing_pr"
                       pr_url=$(gh pr view "$existing_pr" --json url --jq '.url')
                   else
                       pr_url=$(gh pr create \
-                          --draft \
                           --title "chore(symbol-data): release v$NEW_VERSION" \
                           --body-file "$body_file" \
                           --base master \
@@ -303,6 +327,59 @@ jobs:
                   fi
 
                   echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+
+            - name: Notify Slack - Release pull request created
+              if: steps.release-pr.outputs.url != '' && needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Release pull request created: ${{ steps.release-pr.outputs.url }}'
+                  emoji_reaction: eyes
+
+            - name: Get release approval token
+              id: release-approval-token
+              if: steps.release-pr.outputs.url != ''
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
+                  permission-pull-requests: write
+
+            - name: Approve and request Trunk merge
+              if: steps.release-approval-token.outputs.token != ''
+              env:
+                  GH_TOKEN: ${{ steps.release-approval-token.outputs.token }}
+                  RELEASE_COMMIT: ${{ steps.commit-release.outputs.commit-hash }}
+                  RELEASE_PR: ${{ steps.release-pr.outputs.url }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  pr_data=$(gh pr view "$RELEASE_PR" --json number,headRefOid)
+                  pr_number=$(printf '%s' "$pr_data" | jq -r '.number')
+                  pr_head=$(printf '%s' "$pr_data" | jq -r '.headRefOid')
+                  if [ "$pr_head" != "$RELEASE_COMMIT" ]; then
+                      echo "::error::The release pull request head $pr_head is not the generated release commit $RELEASE_COMMIT"
+                      exit 1
+                  fi
+
+                  gh api "repos/$REPOSITORY/pulls/$pr_number/reviews" \
+                      -f event=APPROVE \
+                      -f commit_id="$RELEASE_COMMIT" \
+                      -f body='Automated approval for the generated posthog-symbol-data release version bump.' >/dev/null
+
+                  gh pr comment "$RELEASE_PR" --body '/trunk merge'
+
+            - name: Notify Slack - Failed
+              if: failure() && needs.notify-approval-needed.outputs.slack_ts != ''
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Failed to prepare the `posthog-symbol-data` release pull request. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>'
+                  emoji_reaction: x
 
     identify-release:
         name: Identify merged posthog-symbol-data release
@@ -427,7 +504,8 @@ jobs:
             - name: Install Rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
-                  toolchain: 1.91.1
+                  # Sampo uses a workspace-wide dry run with Cargo 1.91 and newer, which includes internal crates.
+                  toolchain: 1.90.0
                   components: cargo
 
             - name: Cache Sampo CLI

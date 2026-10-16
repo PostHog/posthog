@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SmartsheetSource(ResumableSource[SmartsheetSourceConfig, SmartsheetResumeConfig]):
+    codebase_detection = detect(
+        env=("^SMARTSHEET_",),
+        npm=("smartsheet",),
+        pypi=("smartsheet-python-sdk",),
+        maven=("com.smartsheet:smartsheet-sdk-java",),
+        rubygems=("smartsheet",),
+    )
+
     supported_versions = ("2.0",)
     default_version = "2.0"
     api_docs_url = "https://smartsheet.redoc.ly"

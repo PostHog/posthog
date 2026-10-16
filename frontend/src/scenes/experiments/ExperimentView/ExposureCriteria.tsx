@@ -6,19 +6,19 @@ import { LemonModal } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
-import { FilterType } from '~/types'
+import { ChartDisplayCategory } from '~/types'
 
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
 
 import { experimentLogic } from '../experimentLogic'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig } from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
-import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
+import { exposureConfigToSeries, seriesToExposureConfig } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 
 type ExposureCriteriaModalProps = {
@@ -151,15 +151,16 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
             </div>
             {isCustom && exposureCriteria?.exposure_config && (
                 <div className="mb-4">
-                    <ActionFilter
+                    <SeriesActionFilter
                         bordered
-                        filters={exposureConfigToFilter(exposureCriteria.exposure_config)}
-                        setFilters={({ events, actions }: Partial<FilterType>): void => {
-                            const entity = events?.[0] || actions?.[0]
-                            if (entity) {
+                        series={exposureConfigToSeries(exposureCriteria.exposure_config)}
+                        trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                        onChange={(series) => {
+                            const exposureConfig = seriesToExposureConfig(series)
+                            if (exposureConfig) {
                                 setExposureCriteria({
                                     ...exposureCriteria,
-                                    exposure_config: filterToExposureConfig(entity),
+                                    exposure_config: exposureConfig,
                                 })
                             }
                         }}
@@ -177,15 +178,16 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
             )}
             {isActivation && exposureCriteria?.activation_config && (
                 <div className="mb-4">
-                    <ActionFilter
+                    <SeriesActionFilter
                         bordered
-                        filters={exposureConfigToFilter(exposureCriteria.activation_config)}
-                        setFilters={({ events, actions }: Partial<FilterType>): void => {
-                            const entity = events?.[0] || actions?.[0]
-                            if (entity) {
+                        series={exposureConfigToSeries(exposureCriteria.activation_config)}
+                        trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                        onChange={(series) => {
+                            const activationConfig = seriesToExposureConfig(series)
+                            if (activationConfig) {
                                 setExposureCriteria({
                                     ...exposureCriteria,
-                                    activation_config: filterToExposureConfig(entity),
+                                    activation_config: activationConfig,
                                 })
                             }
                         }}

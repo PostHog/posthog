@@ -684,7 +684,7 @@ def _dispatch_turn_failed_sync(run_id: str) -> None:
     if not settings.TEST:
         close_old_connections()
 
-    signal_workflow_completion(run_id, "failed", PI_RUNTIME_ERROR_MESSAGE)
+    signal_workflow_completion(run_id, "failed", PI_RUNTIME_ERROR_MESSAGE, "pi_runtime_error")
 
 
 def _is_session_update(event: dict) -> bool:

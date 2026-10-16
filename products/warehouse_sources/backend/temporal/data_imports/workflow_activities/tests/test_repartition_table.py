@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionBudgetExceededError,
     RepartitionSchemePersistError,
+    RepartitionSliceEndedError,
     RepartitionStoppedError,
     RepartitionTooLargeForBudgetError,
 )
@@ -39,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     _maybe_flag_pre_extraction,
     _maybe_repartition_table,
     _rewrite_deadline,
+    _rewrite_slice_seconds,
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
@@ -91,6 +93,7 @@ def _schema(
     schema.resolved_s3_folder_name = s3_folder_name
     schema.team_id = TEAM_ID
     schema.delta_revive_required = None
+    schema.sync_frequency_interval = None
     schema.repartition_swap = swap
     schema.repartition_pending = pending
     schema.repartition_rewrite = rewrite
@@ -243,6 +246,78 @@ class TestRewriteDeadline:
             assert _rewrite_deadline(1000.0) == 22300.0
 
 
+class TestRewriteSlice:
+    @parameterized.expand(
+        [
+            ("one_sync_interval", dt.timedelta(hours=1), "proactive_threshold", {}, False, 3600.0),
+            ("floor_for_frequent_syncs", dt.timedelta(minutes=5), "proactive_threshold", {}, False, 1800.0),
+            ("no_schedule", None, "proactive_threshold", {}, False, None),
+            ("slice_past_the_activity_budget", dt.timedelta(hours=24), "coarsening", {}, False, None),
+            ("operator_target", dt.timedelta(hours=1), "admin", {}, False, None),
+            ("slicing_disabled", dt.timedelta(hours=1), "proactive_threshold", {"slice_disabled": True}, False, None),
+            ("imports_held_for_the_rewrite", dt.timedelta(hours=1), "proactive_threshold", {}, True, None),
+        ]
+    )
+    def test_a_rewrite_runs_for_one_sync_interval_at_a_time(
+        self,
+        _name: str,
+        interval: dt.timedelta | None,
+        trigger_reason: str,
+        pending_extra: dict,
+        hold_enabled: bool,
+        expected: float | None,
+    ) -> None:
+        schema = _schema(name="contacts", s3_folder_name="contacts")
+        schema.sync_frequency_interval = interval
+        with patch(f"{MODULE}.is_repartition_hold_enabled", return_value=hold_enabled):
+            slice_seconds = _rewrite_slice_seconds(
+                schema,
+                {**PENDING_TARGET, **pending_extra},
+                trigger_reason,
+                activity_started=1000.0,
+                deadline=22300.0,
+                logger=MagicMock(),
+            )
+        assert slice_seconds == expected
+
+    @patch(f"{MODULE}.is_repartition_hold_enabled", return_value=False)
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_rewrite_stopped_at_the_end_of_its_slice_lets_the_import_run(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        _mock_hold: MagicMock,
+    ) -> None:
+        schema = _schema(
+            name="public.usages",
+            s3_folder_name="usages",
+            pending={**PENDING_TARGET, "attempts": 1},
+            rewrite={"rows_written": 50_000, "temp_uri": TEMP_URI},
+        )
+        schema.sync_frequency_interval = dt.timedelta(hours=1)
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.side_effect = RepartitionSliceEndedError("paused", rows_written=180_000)
+
+        ActivityEnvironment().run(
+            _maybe_repartition_table,
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        assert schema.repartition_pending["attempts"] == 1
+        skipped = [c.args[1] for c in mock_capture_event.call_args_list if c.args[0] == "warehouse_repartition_skipped"]
+        assert [props["reason"] for props in skipped] == ["sync_slice_ended"]
+
+
 class TestBudgetExhaustion:
     @parameterized.expand([("below_max", 0, False), ("reaching_max", 2, True)])
     @patch(f"{MODULE}.capture_exception")
@@ -345,7 +420,13 @@ class TestBudgetExhaustion:
         assert "warehouse_repartition_failed" not in emitted
         assert "warehouse_repartition_skipped" in emitted
 
-    @parameterized.expand([("first_attempt", 0), ("last_attempt_before_give_up", 2)])
+    @parameterized.expand(
+        [
+            ("first_attempt", 0, False, WorkerShuttingDownError),
+            ("last_attempt_before_give_up", 2, False, WorkerShuttingDownError),
+            ("attempt_that_temporal_cancelled", 1, True, asyncio.CancelledError),
+        ]
+    )
     @patch(f"{MODULE}.capture_exception")
     @patch(f"{MODULE}.capture_repartition_event")
     @patch(f"{MODULE}.HeartbeaterSync")
@@ -353,10 +434,12 @@ class TestBudgetExhaustion:
     @patch(f"{MODULE}.DeltaTableRef")
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
-    def test_a_worker_shutdown_hands_the_rewrite_off_without_burning_an_attempt(
+    def test_a_stop_request_hands_the_repartition_off_without_burning_an_attempt(
         self,
         _name: str,
         prior_attempts: int,
+        cancelled: bool,
+        expected_error: type[BaseException],
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
         _mock_helper_cls: MagicMock,
@@ -381,9 +464,12 @@ class TestBudgetExhaustion:
 
         mock_repartition.side_effect = rewrite_until_asked_to_stop
         environment = ActivityEnvironment()
-        environment.worker_shutdown()
+        if cancelled:
+            environment.cancel()
+        else:
+            environment.worker_shutdown()
 
-        with pytest.raises(WorkerShuttingDownError):
+        with pytest.raises(expected_error):
             environment.run(
                 _maybe_repartition_table,
                 RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),

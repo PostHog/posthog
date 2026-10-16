@@ -46,8 +46,8 @@ reviews:
     review_details: false
 
     auto_review:
-        # CodeRabbit is retired on this repository in favor of PostHog Review
-        # (.github/review-hog.yml). The rest of this file is kept so a deliberate
+        # CodeRabbit is retired on this repository in favor of PostHog Review.
+        # The rest of this file is kept so a deliberate
         # re-enable restores the tuned setup rather than the vendor defaults.
         enabled: false
 

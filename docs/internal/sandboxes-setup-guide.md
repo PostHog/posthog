@@ -133,6 +133,11 @@ keeps the live sandbox. The event relay stays active until startup finishes, and
 an abandoned handoff with new activity requests a fresh snapshot.
 Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
 and agent state. Paths outside that directory are not included.
+Cloud launches set `POSTHOG_AGENT_STATE_DIR=/tmp/workspace/.posthog/agent-state`.
+The agent server links Claude's projects, session environment, plans and todos, and
+Codex's sessions and shell snapshots into that directory before starting a session.
+Authentication and platform configuration stay outside these mappings. Pi restores
+its session history through the task-session API.
 
 ## Running via the UI
 
@@ -222,6 +227,15 @@ worker mints, it also injects `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE`, na
 the product the token is pinned to, and the agent routes on those in preference to
 what it derives itself. Both are reserved keys: a sandbox environment cannot set them.
 
+Account audit runs use the reserved `account_audit` origin and AI product, and must
+carry the server-set `internal` flag before they can mint a token. Add
+`account_audit` to `SANDBOX_AI_GATEWAY_PRODUCTS` to route them to the Go gateway.
+Their Python gateway fallback uses `background_agents`. Signup onboarding stays
+on `onboarding` and cannot mint these cost-tracking tokens. A periodic completion task
+waits three minutes for cost accounting before reporting the audit result. Audits use an
+internal `CUSTOM` sandbox environment with no extra allowed domains. Each new
+audit reasserts this policy; only the platform service allowlist stays reachable.
+
 When a run lands on the Python gateway unexpectedly, check those two variables first.
 Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
@@ -237,11 +251,12 @@ The property identifies the active environment: explicitly include every environ
 access. A parent project's flag does not enable its child environments, even though ReviewHog stores
 their settings and reviews under the shared parent project.
 
-Newly enabled projects get manual review and resolution. The first `REVIEWHOG_TEAM_IDS` entry retains
-Flash and all automation UI (`show_internal_features`); other projects do not query Stamphog.
-Existing Inbox or Stamphog opt-ins remain visible in other projects until the user switches them off.
+Newly enabled projects get every ReviewHog part: manual Full and Flash reviews, automatic Flash reviews,
+the `posthog-review` label trigger, resolution, Inbox reviews, the tiered review models, and the Stamphog
+Inbox switch.
 Each project needs a GitHub App integration covering the repository; review skills seed automatically.
-Existing automation routing and label secrets stay unchanged.
+Automatic reviews and the label trigger also need the project to claim the repository in the Code review
+settings. No environment variable or shared secret picks the project.
 
 Use resolution only for explicitly enabled trusted projects reviewing repositories their teams own.
 Ownership does not authenticate commenters: operators must assess repository and comment trust before
@@ -250,10 +265,8 @@ missing commenter authorization and the post-push path check. Public or untruste
 [ReviewHog's architecture](../../products/review_hog/ARCHITECTURE.md#status--next).
 
 ReviewHog Flash uses `gpt-6-luna` for review, blind-spot checks, and validation.
-The configured internal project's **ReviewHog Flash - Experimental** subsection under **What gets reviewed** groups the automatic Flash review toggle and **Flash strength** setting.
-These settings apply only to Flash reviews.
-**Flash strength** selects **Medium** (`medium`, the default) or **Extra high** (`xhigh`) for all of your Flash reviews, including automatic, UI, and CLI requests.
-Each turn saves the effort it starts with, so a settings change applies to later turns.
+The configured internal project's **ReviewHog Flash - Experimental** subsection under **What gets reviewed** holds the automatic Flash review toggle.
+Flash reviews use the medium reasoning effort.
 The shared `FLASH_ARM` and `flash_arm_for_effort` in `products/review_hog/backend/reviewer/constants.py` pin the Codex runtime and `full-access` permission mode.
 Flash uses the existing `review_hog` model allowance.
 Both review modes instruct the agent to fetch pinned review and validation skills through the PostHog MCP with `skill-get`.
@@ -263,27 +276,21 @@ Flash requests preserve an existing report's review tier, including when they jo
 Flash marks its status comment header as `PostHog Review (flash)`, skips the clean-review media, and never starts comment resolution.
 
 **Review all your PRs in Flash mode** is off by default and shown only on the configured internal project.
-Turn it on in Code review to review PRs you author in `PostHog/posthog` when they open or receive new commits, including drafts.
-The head branch must belong to `PostHog/posthog`; fork PRs are excluded.
+Turn it on in Code review to review PRs you author in the repositories your project reviews when they open or receive new commits, including drafts.
+The head branch must belong to the PR's own repository; fork PRs are excluded.
 Enabling it does not review existing PRs immediately; an existing PR becomes eligible on its next push.
 Only one review runs per PR, and pushes during a review coalesce into a follow-up for the latest head.
 An explicit Full request also runs after an active Flash review when that head still needs a Full review.
 Turning the setting off stops future and pending automatic starts; a running review finishes.
 Automatic Flash uses your existing severity threshold and never resolves comments or changes the PR branch.
 
-To change this setting from the CLI for a selected user:
+The switch sets your `default_review_mode` preference to `flash` or `follow` through `PATCH /api/projects/<project_id>/review_hog/settings/`.
+Project admins choose which repositories the project reviews, and who gets automatic Flash there, through the `review_hog/project_settings`, `review_hog/installation_claims`, and `review_hog/repositories` endpoints.
 
-```bash
-.codex/with-flox python manage.py enable_authored_pr_reviews \
-  --team-id 1 --user-ids 1 --effort medium
-.codex/with-flox python manage.py disable_authored_pr_reviews \
-  --team-id 1 --user-ids 1
-```
-
-Use `--effort xhigh` to select Extra high; omitting `--effort` preserves the saved choice.
-Disabling automatic reviews also preserves that choice for manual Flash reviews.
-Both commands accept `--dry-run`.
-Omitting `--user-ids` changes every active member of the team's organization.
+The Code review settings page calls automatic reviews **Standard** and requested reviews **Deep**.
+Project defaults appear beside personal preferences. Personal repository choices take priority over personal defaults and project rules.
+**Commit fixes to my pull requests** allows Deep reviews to push fixes only with the author's own opt-in.
+The control's help explains when fixes are paused. Review skill descriptions summarize each check; editing skill text changes it for the whole project.
 
 To run Flash locally, use `run_review --review-mode flash` from the repository root:
 
@@ -325,6 +332,13 @@ The agent-server exports run/turn/tool lifecycle metadata (never message content
 Telemetry stays off when either of the first two vars is unset.
 For local Docker sandboxes the localhost URLs are rewritten to `host.docker.internal` automatically; local ingestion requires the `capture-logs` service to be running.
 
+The trace id of a run is its run UUID without dashes, so `/tracing?trace=<run UUID without dashes>` in the telemetry project opens the run.
+The agent-server spans, the mirrored run logs and the `process-task` Temporal workflow spans all carry that trace id.
+The workflow spans carry it only when the run has the telemetry flag on.
+Those runs are also marked as sampled, so a parent-based sampler on the worker keeps every one of them.
+They show up in the same trace only if the Temporal worker's collector forwards to the telemetry project.
+The workflow and the agent-server share a trace id but no parent span, so the workflow spans sit under a `<parent span missing>` row beside `task_run`.
+
 ### MCP server `.env`
 
 `MODAL_DOCKER` (and the local Docker provider) both depend on the MCP server running at `localhost:8787`. The server reads its config from `services/mcp/.env` — without it, things like `POSTHOG_API_BASE_URL`, the UI-apps token, and analytics keys are missing and the server will either refuse to start or return broken responses to the sandbox.
@@ -335,13 +349,17 @@ cd services/mcp && cp .env.example .env
 
 Then fill in the secrets. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY` are public PostHog `phc_*` project keys — for local dev you can paste the same key you use for analytics, or leave them as the placeholder (analytics calls will no-op). Restart the `mcp` phrocs process after changing `.env`.
 
-### Memory pressure during Claude validation
+### Memory pressure during agent validation
 
 The memory watchdog stops tool process trees before the sandbox reaches its memory limit. A process stop, including SIGKILL escalation, does not mean the task run died.
 
-Cloud Claude sessions deliver each watchdog warning separately to subagents and their parent. Shell results with exit codes 137, 143, or 144 wait briefly for the watchdog's delayed record; an exit code alone is not treated as proof of an OOM.
+A run whose whole sandbox stops usually still ends as completed, with `termination_reason` set to `sandbox_gone`. The `error_message` property on `task_run_completed` carries the sandbox exit reason. Exit code 137 there usually means the sandbox ran out of memory.
 
-Common build, test, and typecheck commands share a sandbox-wide lock, including commands started in the background. When another validation command holds the lock, the shell returns exit code 75 and asks the agent to wait. After the same validation command fails twice during observed watchdog interventions, the session rejects another unchanged attempt. Reduce the command's scope or concurrency, or report the validation limit. This guard is best-effort command recognition, not a resource limit for arbitrary shell programs.
+Cloud Claude and Codex sessions deliver each watchdog warning separately to subagents and their parent. Codex uses native MCP tool hooks for shell calls, including the final result of an `exec_command` completed through `write_stdin`. Claude shell results with exit codes 137, 143, or 144 wait briefly for the watchdog's delayed record; an exit code alone is not treated as proof of an OOM. Codex hook payloads carry the command output without its exit status, so a Codex command counts as stopped when a kill record lands between its start and shortly after its end. A quick rerun of a long Codex command waits for that record before it starts.
+
+Codex trusts only the PostHog memory hooks through session configuration. It does not store hook trust in the user's config file. The local tools MCP server opts out of Codex's tool catalog cache, so a subagent thread starts it before its first shell command instead of lazily on its first MCP tool call. Codex hook payloads do not include an `exec_command` `workdir`, so a Codex retry count is keyed by the thread directory and the command text. Put `cd <directory> &&` in the command to scope a retry count to a directory.
+
+Common build, test, and typecheck commands share a sandbox-wide lock, including commands started in the background. When another validation command holds the lock, the shell returns exit code 75 and asks the agent to wait. After the same shell command fails twice during observed watchdog interventions, the session rejects another unchanged attempt. This retry limit applies to every command, not only validation. Codex includes final background results in this limit. Claude background-result tools deliver warnings but lack the command text needed to count retries. Reduce the command's scope or concurrency, or report the memory limit. Validation recognition is best-effort and controls only the lock. It is not a resource limit for arbitrary shell programs.
 
 The guard recognizes validation through `timeout`, `npx`, `hogli`, `.codex/with-flox`, and `flox activate -- bash -c '…'`.
 It preserves the command's directory, arguments, and inline shell body when identifying retries.
@@ -405,6 +423,7 @@ Release reads use the configured GitHub App installation for `PostHog/posthog`, 
 The read-only page compares the published package, master version pin, registry platforms, custom-image bases, and the last recorded dev-stack bake.
 Release evidence separates workflow status from image build and base promotion results, including skipped builds.
 Select a custom image to inspect its latest Temporal execution. A failed refresh can leave a ready image on an older base.
+The refresh sweep retries that image only when the VM base digest changes again.
 Missing or stale sources remain unverified. This view does not measure versions inside running sandboxes or reconstruct historical rollout completion.
 The Data sources tab lists each source's status and last successful read in UTC. Registry coverage remains unverified when the release source is unavailable or stale.
 Graph release badges compare observed versions with npm latest; cached observations say "Last seen". Select an image for its separate version-pin and base-lineage assessment.
@@ -421,6 +440,34 @@ Each sandbox is created from a template that determines its base image and capab
 | `VM_BASE`       | `ghcr.io/posthog/posthog-sandbox-vm`       | Docker-in-Docker capable. Layers Docker engine, compose v2, and buildx on the base image. Includes an idempotent `start-dockerd` helper for on-demand dockerd. |
 
 `VM_BASE` uses the Modal VM runtime (real Linux kernel) instead of gVisor because `dockerd` cannot run under gVisor. When a sandbox is created with `template=SandboxTemplate.VM_BASE`, `ModalSandbox.create` automatically sets `experimental_options={"vm_runtime": True}`.
+
+### Protected dev-stack activation
+
+Dev-stack bakes can use a durable, regional activation pointer instead of publishing over a shared Modal image name. The two infrastructure models are instance-global: they describe the shared image, not a tenant's sandbox or custom image. Explicit rebuild requests are recorded before observing inputs, so a newer routine observation can carry a pending request forward.
+
+```text
+VM digest + repository SHA + bake recipe
+  -> generation -> immutable snapshot -> boot verification
+  -> atomic activation -> new task sandboxes
+```
+
+Activation locks the target and checks its generation, attempt owner, lease and deadline. A superseded bake can finish its snapshot but cannot change the active pointer. Candidate verification boots the exact snapshot, restores the manifest's repository revision for retained container bind mounts, and checks its manifest, agent version, Postgres, Redis and ClickHouse. The previous active image remains available if verification fails. Failed verification commands log bounded output tails with the stage and attempt, image and sandbox IDs. Cleanup retries cannot replace the original verification failure.
+
+The two-minute sweep reconciles durable state using a fresh registry digest rather than the task-provisioning cache. A changed bake recipe requests a new generation even when the VM digest is unchanged. Dispatch retries reuse an attempt's Temporal workflow ID, and a lost activation acknowledgment reads the committed result. Workers renew two-minute leases every 30 seconds, with a separate three-hour deadline. Failed bakes retry after 2, 5 and then 15 minutes with up to 29 seconds of jitter. Each region allows three full bakes per rolling six hours across generations; snapshot verification does not consume that budget. The dashboard shows the next retry or blocking reason. Provider boot failures retry the checkpointed snapshot; confirmed candidate defects require a corrected target or a new manual request.
+
+Roll out one region at a time:
+
+1. Apply the additive migration and deploy the new workers and task readers. With no target row, the existing named-image behavior remains in place.
+2. Disable the legacy `tasks-dev-stack-image-bake` flag and drain legacy bake executions and old task workers. All task readers must understand protected activation before initialization.
+3. Run `python manage.py bake_dev_stack_image --initialize --seed-image-id <immutable-image-id>` using a known existing snapshot. This boots and checks the baseline before recording its ID and a verified attempt for rollback. Save the printed attempt UUID; its base provenance remains unknown. Omitting the seed deliberately leaves tasks on the plain VM base until the first verified activation.
+4. Run `python manage.py bake_dev_stack_image --enable`. The durable enablement setting now controls scheduling in this region; the legacy flag no longer controls protected bakes. GitHub App Contents read access is needed to pin the repository revision. The next sweep requests a generation from the current VM digest.
+5. Verify a successful candidate and a new task's image selection before enabling another region. Existing sandboxes are unchanged.
+
+Use `python manage.py bake_dev_stack_image --request-key <request-id>` for a manual refresh. Protected bakes reject `--inline`. `--disable` stops scheduling and activation while preserving the active image. A database read failure or missing active pointer falls back to the plain VM base with a recorded image-fallback reason, never to the mutable named image.
+
+To roll back, use `python manage.py bake_dev_stack_image --rollback-attempt <verified-attempt-uuid>`, including the seed's UUID. This creates a new generation and reverifies that attempt's immutable candidate. Automatic target updates remain paused until `--enable` resumes them. Initialization, enablement, disablement, and rollback must be separate commands. Do not delete the target row or redeploy alias-only readers as a rollback strategy. Candidate snapshots are retained; this change does not add automatic image deletion.
+
+The admin separates **Base current / Base behind / Base unknown** from **Queued / Building / Rebuilding / Verifying / Retry scheduled / Blocked / Baking disabled**. A same-base nightly rebuild can show Base current and Rebuilding together. Budget cooldowns show Retry scheduled with their reason and retry time; Blocked means intervention is required. Failed Temporal reads show retry guidance even when no execution data is available. Source timestamps describe observation time; activation time and the exact attempt's Temporal run link describe the bake.
 
 ### Optional: local repository mounts (Docker only)
 

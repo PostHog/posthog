@@ -142,7 +142,11 @@ class DatabaseThreadStore:
         if not taken:
             raise ThreadBusy(f"thread {thread.id} is being posted to by another send")
 
-        handle = MessageHandle(external_ref=thread.external_ref) if thread.external_ref else None
+        handle = (
+            MessageHandle(external_ref=thread.external_ref, root_content=thread.root_message)
+            if thread.external_ref
+            else None
+        )
         return ThreadClaim(thread_id=str(thread.id), evaluation_key=evaluation_key, handle=handle, claimed_at=now)
 
     def delivered(self, claim: ThreadClaim, handle: MessageHandle | None) -> None:
@@ -160,6 +164,7 @@ class DatabaseThreadStore:
         # move the thread onto itself, so a later message would reply to a reply.
         if handle is not None and not thread.external_ref:
             fields["external_ref"] = handle.external_ref
+            fields["root_message"] = handle.root_content
         self._fenced(claim).update(**fields)
 
     def release(self, claim: ThreadClaim) -> None:

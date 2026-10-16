@@ -149,6 +149,7 @@ from .activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
     UpdateTaskRunStatusInput,
+    complete_signal_spend,
     update_task_run_status,
 )
 from .credential_refresh import CredentialRefreshExitReason, run_credential_refresh_loop, sandbox_gone_error_message
@@ -160,6 +161,7 @@ _PATCH_ID_CANCEL_SANDBOX_CREATION_ON_COMPLETION = "tasks-cancel-sandbox-creation
 _PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE = "tasks-continue-after-repository-clone-failure"
 _PATCH_ID_ASYNC_AGENT_SHADOW_RESULT = "tasks-async-agent-shadow-result"
 _PATCH_ID_AGENT_BOOT_INTERACTION_TELEMETRY = "tasks-agent-boot-interaction-telemetry"
+_PATCH_ID_SHARED_STARTUP_TIMING = "tasks-shared-startup-timing"
 
 
 class _TaskCompletedDuringSandboxCreation(Exception):
@@ -227,6 +229,8 @@ class ResumedSandboxState:
     image_source: str | None = None
     agent_ready_at: str | None = None
     agent_boot_interaction_telemetry_enabled: bool | None = None
+    startup_worker_started_at: str | None = None
+    startup_context_loaded_at: str | None = None
     sandbox_backend: str | None = None
 
 
@@ -541,6 +545,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._context: Optional[TaskProcessingContext] = None
         self._slack_thread_context: Optional[dict[str, Any]] = None
+        self._opening_person_message: Optional[str] = None
         self._posthog_mcp_scopes: PosthogMcpScopes = "read_only"
         self._sandbox_id_for_cleanup: Optional[str] = None
         # Captured once the agent server is up, for handing to a continue_as_new continuation.
@@ -619,6 +624,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._boot_path: str | None = None
         self._image_source: str | None = None
         self._agent_ready_at: datetime | None = None
+        self._startup_worker_started_at: datetime | None = None
+        self._startup_context_loaded_at: datetime | None = None
         # Milestones the agent hits before readiness is stamped, sampled once it is.
         self._boot_milestones_before_ready: list[tuple[str, datetime]] = []
         self._boot_telemetry_tasks: list[asyncio.Task[None]] = []
@@ -1299,6 +1306,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
+        if (
+            input.resumed_sandbox is None
+            and workflow.in_workflow()
+            and workflow.patched(_PATCH_ID_SHARED_STARTUP_TIMING)
+        ):
+            self._startup_worker_started_at = workflow.now()
         sandbox_id = None
         sandbox_cleaned = False
         run_stream_completed = False
@@ -1308,6 +1321,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         run_id = input.run_id
         self._sandbox_id_for_cleanup = None
         self._slack_thread_context = input.slack_thread_context
+        # Taken off the context, so the mention rides in the first turn's relay only, not in every
+        # later payload that carries the context.
+        if self._slack_thread_context and "person_message" in self._slack_thread_context:
+            self._slack_thread_context = dict(self._slack_thread_context)
+            self._opening_person_message = self._slack_thread_context.pop("person_message")
         self._prewarmed = input.prewarmed
         credential_refresh_task: asyncio.Task[None] | None = None
         permission_response_task: asyncio.Task[None] | None = None
@@ -1318,6 +1336,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         try:
             self._context = await self._get_task_processing_context(input)
+            if self._startup_worker_started_at is not None:
+                self._startup_context_loaded_at = workflow.now()
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
             # A local-environment run is driven by the user's desktop agent — QUEUED does not
             # mean "awaiting a cloud workflow". Executing it here would boot a sandbox the repo
@@ -1855,6 +1875,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 if sandbox_cleaned and self._slack_thread_context and self._context:
                     await self._post_slack_update(sandbox_cleaned=True)
 
+                if (
+                    self._context
+                    and self.context.origin_product in {_ORIGIN_PRODUCT_SIGNAL_REPORT, "signals_scout"}
+                    and workflow.patched("signals-publish-spend-on-completion")
+                ):
+                    try:
+                        await workflow.execute_activity(
+                            complete_signal_spend,
+                            run_id,
+                            start_to_close_timeout=timedelta(minutes=20),
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                        )
+                    except Exception:
+                        workflow.logger.exception("Failed to finalize signal spend", extra={"run_id": run_id})
+
     async def _provision_and_start_agent(self, input: ProcessTaskInput, run_id: str) -> tuple[str, str, str | None]:
         """Initial-run setup: resolve agent-design, provision the sandbox, start the agent
         server. Returns (sandbox_id, sandbox_url, connect_token). Skipped on continue_as_new."""
@@ -1882,8 +1917,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "task_id": self.context.task_id,
                 "repository": self.context.repository,
                 "team_id": self.context.team_id,
-                "loop_id": self.context.loop_id,
-                "loop_trigger_id": self.context.loop_trigger_id,
             },
         )
 
@@ -1892,7 +1925,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._post_slack_update()
         elif self._slack_thread_context:
             # The first turn's relay starts now, so the plan shows while the sandbox provisions.
-            await self._start_slack_agent_design_relay(self._slack_thread_context, setup_title=sandbox_label)
+            await self._start_slack_agent_design_relay(
+                self._slack_thread_context, setup_title=sandbox_label, person_message=self._opening_person_message
+            )
             self._early_slack_relay_open = True
 
         sandbox_output = await self._get_sandbox_for_repository()
@@ -1969,8 +2004,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "agent_session_dependencies_ms": agent_server_output.boot_phases_ms.get("session_dependencies"),
                 "agent_session_create_ms": agent_server_output.boot_phases_ms.get("session_create"),
                 "agent_shadow_launched": self._agent_shadow_launched,
-                "loop_id": self.context.loop_id,
-                "loop_trigger_id": self.context.loop_trigger_id,
             },
         )
         return sandbox_id, agent_server_output.sandbox_url, agent_server_output.connect_token
@@ -2067,6 +2100,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 image_source=self._image_source,
                 agent_ready_at=self._agent_ready_at.isoformat() if self._agent_ready_at else None,
                 agent_boot_interaction_telemetry_enabled=self._agent_boot_interaction_telemetry_enabled,
+                startup_worker_started_at=(
+                    self._startup_worker_started_at.isoformat() if self._startup_worker_started_at else None
+                ),
+                startup_context_loaded_at=(
+                    self._startup_context_loaded_at.isoformat() if self._startup_context_loaded_at else None
+                ),
                 sandbox_backend=self.context.sandbox_backend,
             ),
         )
@@ -2112,6 +2151,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._image_source = resumed.image_source
         self._agent_ready_at = datetime.fromisoformat(resumed.agent_ready_at) if resumed.agent_ready_at else None
         self._agent_boot_interaction_telemetry_enabled = resumed.agent_boot_interaction_telemetry_enabled is True
+        self._startup_worker_started_at = (
+            datetime.fromisoformat(resumed.startup_worker_started_at) if resumed.startup_worker_started_at else None
+        )
+        self._startup_context_loaded_at = (
+            datetime.fromisoformat(resumed.startup_context_loaded_at) if resumed.startup_context_loaded_at else None
+        )
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         context = await workflow.execute_activity(
@@ -2751,10 +2796,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "organization": self.context.organization_id,
                 "project": self.context.team_uuid,
             },
-            capture_analytics=capture_analytics
-            and not bool(
-                (self.context.state or {}).get("scout_trial") or (self.context.state or {}).get("scout_trial_judge")
-            ),
+            capture_analytics=capture_analytics,
         )
         await workflow.execute_activity(
             track_workflow_event,
@@ -2787,6 +2829,39 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             "transport": "sequenced_ingest" if self.context.sandbox_event_ingest_enabled else "sse",
             "prewarmed": self._prewarmed,
         }
+        if self._startup_worker_started_at is not None:
+            accepted_at = self._chain_start_time()
+            requested_at = self.context.startup_requested_at
+            if requested_at is None and not is_same_run_resume_state(self.context.state or {}):
+                requested_at = (self.context.state or {}).get("startup_requested_at")
+            properties.update(
+                {
+                    "observed_at": now.isoformat(),
+                    "workflow_accepted_at": accepted_at.isoformat(),
+                    "worker_started_at": self._startup_worker_started_at.isoformat(),
+                    "context_loaded_at": self._startup_context_loaded_at.isoformat()
+                    if self._startup_context_loaded_at
+                    else None,
+                    "startup_requested_at": requested_at,
+                    "run_environment": self.context.environment,
+                    "agent_ready_at": self._agent_ready_at.isoformat() if self._agent_ready_at else None,
+                }
+            )
+            if isinstance(requested_at, str):
+                try:
+                    requested = datetime.fromisoformat(requested_at)
+                    if requested.tzinfo is not None and requested <= now:
+                        properties["since_startup_requested_ms"] = int((now - requested).total_seconds() * 1000)
+                        properties["handoff_ms"] = max(0, int((accepted_at - requested).total_seconds() * 1000))
+                except ValueError:
+                    pass
+            properties["worker_wait_ms"] = max(
+                0, int((self._startup_worker_started_at - accepted_at).total_seconds() * 1000)
+            )
+            if self._startup_context_loaded_at is not None:
+                properties["task_setup_ms"] = max(
+                    0, int((self._startup_context_loaded_at - self._startup_worker_started_at).total_seconds() * 1000)
+                )
         if since_agent_ready_ms is not None:
             self._record_boot_milestone_sample(event_name, since_agent_ready_ms)
         else:
@@ -3598,7 +3673,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await self._start_slack_agent_design_relay(slack_ctx, message_id=payload.get("message_id"))
 
     async def _start_slack_agent_design_relay(
-        self, slack_ctx: dict[str, Any], setup_title: Optional[str] = None, message_id: Optional[str] = None
+        self,
+        slack_ctx: dict[str, Any],
+        setup_title: Optional[str] = None,
+        message_id: Optional[str] = None,
+        person_message: Optional[str] = None,
     ) -> None:
         relay_workflow_id = f"slack-agent-design-relay-{self.context.run_id}-{workflow.uuid4()}"
         self._current_slack_relay_workflow_id = relay_workflow_id
@@ -3609,6 +3688,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 run_id=self.context.run_id,
                 setup_title=setup_title,
                 message_id=message_id,
+                person_message=person_message,
             ),
             id=relay_workflow_id,
             task_queue=workflow.info().task_queue,

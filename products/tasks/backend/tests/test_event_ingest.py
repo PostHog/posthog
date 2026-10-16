@@ -669,7 +669,9 @@ class TestTaskRunEventIngest(TestCase):
 
         self.assertEqual(status, 200)
         signal_turn_completed.assert_not_called()
-        signal_workflow_completion.assert_called_once_with(str(self.task_run.id), "failed", PI_RUNTIME_ERROR_MESSAGE)
+        signal_workflow_completion.assert_called_once_with(
+            str(self.task_run.id), "failed", PI_RUNTIME_ERROR_MESSAGE, "pi_runtime_error"
+        )
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_workflow_heartbeat_does_not_block_event_loop(self) -> None:

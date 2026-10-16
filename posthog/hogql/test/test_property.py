@@ -503,7 +503,7 @@ class TestProperty(BaseTest):
         sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
         self.assertIn("getSubcolumn(events.properties, %(hogql_val_", sql)
         self.assertNotIn("events.properties.a", sql)
-        self.assertEqual(set(context.values.values()) - {"x"}, {"a%2Eb", "^`a%2Eb`"})
+        self.assertEqual(set(context.values.values()) - {"x"}, {"a%2Eb"})
 
     def test_property_string_expr_reads_dotted_key_as_one_flat_path_on_native_table(self):
         # Raw-SQL readers must bind the escaped path name like the printer does, and stay safe for callers that
@@ -1125,9 +1125,13 @@ class TestProperty(BaseTest):
             ),
         )
 
-    def test_cohort_filter_missing_cohort(self):
-        with self.assertRaisesMessage(QueryError, "Cohort 2137 does not exist"):
-            self._property_to_expr({"type": "cohort", "key": "id", "value": 2137}, self.team)
+    @parameterized.expand([("missing", False), ("deleted", True)])
+    def test_cohort_filter_missing_cohort(self, _name: str, deleted: bool):
+        cohort_id = 2137
+        if deleted:
+            cohort_id = Cohort.objects.create(team=self.team, name="gone", groups=[], deleted=True).pk
+        with self.assertRaisesMessage(QueryError, f"Cohort {cohort_id} does not exist"):
+            self._property_to_expr({"type": "cohort", "key": "id", "value": cohort_id}, self.team)
 
     def test_person_scope(self):
         self.assertEqual(

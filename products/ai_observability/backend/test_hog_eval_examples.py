@@ -13,11 +13,12 @@ from parameterized import parameterized
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
-from posthog.cdp.validation import compile_hog
 from posthog.temporal.ai_observability.evaluation_hog import execute_hog_eval_bytecode
 from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
 from posthog.temporal.ai_observability.run_session_evaluation import build_session_hog_globals
 from posthog.temporal.ai_observability.run_trace_evaluation import build_trace_hog_globals
+
+from products.cdp.backend.validation import compile_hog
 
 EXAMPLES_PATH = Path(__file__).resolve().parents[1] / "frontend" / "evaluations" / "hogEvalExamples.json"
 EXAMPLES: list[dict] = json.loads(EXAMPLES_PATH.read_text())

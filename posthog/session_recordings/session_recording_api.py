@@ -70,7 +70,7 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled, ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
@@ -168,6 +168,17 @@ SESSION_RECORDING_THROTTLED = Counter(
 )
 
 _OTEL_PLAYBACK = OtelInstrumentFactory("session-replay-playback")
+
+# The matching events query only reads, so a retry is safe even when ClickHouse stopped it part way.
+_MATCHING_EVENTS_RETRYABLE_ERRORS = (*CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled)
+# ABORTED has no dedicated error class. A node that shuts down mid-query raises it.
+_CLICKHOUSE_ABORTED_ERROR_CODE = 236
+
+
+def _is_retryable_matching_events_error(error: Exception) -> bool:
+    if isinstance(error, _MATCHING_EVENTS_RETRYABLE_ERRORS):
+        return True
+    return isinstance(error, ServerException) and error.code == _CLICKHOUSE_ABORTED_ERROR_CODE
 
 
 def _count_session_recording_throttled(location: str, auth_type: str) -> None:
@@ -1014,7 +1025,16 @@ class SessionRecordingViewSet(
                 "Must specify at least one event or action filter, or event properties filter",
             )
 
-        results, _, timings, _ = ReplayFiltersEventsSubQuery(query=query, team=self.team).get_event_ids_for_session()
+        try:
+            results, _, timings, _ = ReplayFiltersEventsSubQuery(
+                query=query, team=self.team
+            ).get_event_ids_for_session()
+        except Exception as e:
+            # A transient error that already carries a status (capacity 503, cluster memory 513) keeps it.
+            if isinstance(e, exceptions.APIException) or not _is_retryable_matching_events_error(e):
+                raise
+            logger.warning("matching_events_clickhouse_retryable_error", error_type=type(e).__name__)
+            raise ClickHouseAtCapacity() from e
 
         response = JsonResponse(
             data=MatchingEventsResponse(

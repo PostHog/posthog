@@ -4,10 +4,9 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from posthog.cdp.validation import compile_hog
-
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.validation import compile_hog
 
 logger = structlog.get_logger(__name__)
 

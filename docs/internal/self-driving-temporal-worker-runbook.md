@@ -118,6 +118,38 @@ Do these steps in this order, so that no run is left without a worker.
 
 ## Troubleshooting
 
+### Signals blocked by query-generation refusals
+
+Grouping runs on the video-export fleet. A model refusal during query generation can block the other signals in its stored batch.
+
+The grouping activity allows three refusals per unchanged signal payload. It saves the refusal count in object storage between activity and batch retries. After the third refusal, it preserves the full signal under `signals/refusal_review/<team_id>/<payload_hash>.json`, with status `needs_review`. It removes that signal from grouping and processes the other signals. A later read of the same batch skips the saved signal without another model call. A successful retry clears the temporary refusal record. Other empty responses and transport errors still fail the activity.
+
+Search worker logs for `signals_grouping.signal_preserved_for_review`. The log contains the team and object key, without the signal description. In an authorized production Django shell, use `posthog.storage.object_storage.read(object_key)` to read the record. The record contains private customer content. Do not copy it into a public issue or pull request. Storage lifecycle rules still apply to these records.
+
+Check the saved signal's source, description, extra fields, and remediation before deciding whether to change it or leave it out.
+
+Do not use the source's normal emission path to replay a saved signal. Some sources, for example pganalyze, record each emitted source ID and do not fetch it again. pganalyze also uses the source ID as the emitter idempotency key. `emit_signal()` returns without a new emitter when a completed emitter has the same key, even when the payload changed. To replay a saved signal, call `emit_signal()` directly in an authorized Django shell:
+
+1. Read the record and take its `signal` object. Keep `source_product`, `source_type`, and `source_id` unchanged, so that the signal stays linked to its source.
+2. Correct `description`, `extra`, or `remediation` if the review found a problem. A changed payload has a different hash, so it starts with a new refusal record.
+3. If the payload is unchanged, delete the review record with `object_storage.delete(object_key)` before you emit. Otherwise grouping finds three saved refusals and skips the signal again without a model call.
+4. Choose a new replay key, for example `<source_id>:refusal-replay:1`. Do not use the source ID or an earlier replay key.
+5. Call `async_to_sync(emit_signal)(...)` from `products.signals.backend.facade.api`. Pass the team, the signal fields, `remediation=SignalRemediation.model_validate(...)` or `None`, and `idempotency_key=<replay key>`.
+6. Make sure that a new emitter workflow exists. Get its ID with `SignalEmitterWorkflow.workflow_id_for(team_id, f"{source_product}:{source_type}:{replay_key}")`, then run `temporal workflow describe --workflow-id <id>`. `emit_signal()` returns nothing in every case. It also returns without an emitter when the organization has not approved AI data processing, the source is off, or team steering filters the signal.
+
+Deleting the record alone does not put the signal back in the queue.
+
+After deployment, an existing blocked grouping workflow adopts the new path on its next run after `continue_as_new`. Do not restart or terminate it to apply this change. Verify that review records appear, healthy signals reach assignment, and the waiting-batch count falls. A saved refusal does not prove that the rest of the pipeline recovered.
+
+#### Before deployment
+
+Do not pause grouping to remove signals from stored batches by hand.
+The pause loop in `TeamSignalGroupingV2Workflow` does not catch the timeout of its 30-second wait.
+A pause longer than 30 seconds fails the workflow.
+The failed run loses its pending batch keys.
+`unpause()` then starts a new run without those keys.
+Deploy the automatic refusal path instead.
+
 **Runs stay in `Running` with no activity progress.**
 No worker polls `self-driving-task-queue` in that region.
 Check the pod status of the charts release, then run check 1.

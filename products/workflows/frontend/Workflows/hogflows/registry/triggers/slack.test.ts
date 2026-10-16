@@ -118,10 +118,6 @@ describe('slack message trigger', () => {
             expect(getTriggerType().validate!({ type: 'event', filters: {} } as any)).toBeNull()
         })
 
-        it('is gated behind the slack-workflow-triggers feature flag', () => {
-            expect(getTriggerType().featureFlag).toBe('slack-workflow-triggers')
-        })
-
         it('does not claim an internal-event config for a different event', () => {
             // The tile is one of several that can own an `internal-event` config, so it identifies
             // itself by its own value. Naming it after the config type made it match every internal

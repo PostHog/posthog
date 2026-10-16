@@ -220,7 +220,7 @@ export const getThinkingMessageFromResponse = (
     if (!thinkingMeta) {
         return []
     }
-    const resultsByToolUseId = { ...threadWebSearchResults, ...getWebSearchResultsByToolUseId([message]) }
+    const messageResultsByToolUseId = getWebSearchResultsByToolUseId([message])
     const blocks: (ServerToolUseBlock | ThinkingBlock)[] = []
     for (const block of thinkingMeta) {
         if (block.type === 'thinking') {
@@ -231,7 +231,7 @@ export const getThinkingMessageFromResponse = (
                 type: 'server_tool_use',
                 name: block.name as string,
                 input: block.input as Record<string, unknown>,
-                results: resultsByToolUseId[block.id as string],
+                results: messageResultsByToolUseId[block.id as string] ?? threadWebSearchResults?.[block.id as string],
             })
         } else if (block.type === 'reasoning') {
             // OpenAI
