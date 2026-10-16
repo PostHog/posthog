@@ -3552,6 +3552,22 @@ class HogFlowPublishImpactMoveTargetSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Name of the surviving step.")
 
 
+class HogFlowInFlightSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        allow_null=True,
+        help_text="About how many runs are in flight (parked on a delay or wait, or executing). Null when the count is unavailable.",
+    )
+    by_action = serializers.DictField(
+        child=serializers.IntegerField(),
+        allow_null=True,
+        help_text="In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.",
+    )
+    position_unknown = serializers.IntegerField(
+        allow_null=True,
+        help_text="In-flight runs whose current step could not be read. Null when the count is unavailable.",
+    )
+
+
 class HogFlowPublishImpactDeletedStepSerializer(serializers.Serializer):
     action_id = serializers.CharField(help_text="Id of the step this publish deletes.")
     name = serializers.CharField(help_text="Name of the deleted step.")
@@ -4173,6 +4189,7 @@ class DraftExistsError(exceptions.APIException):
 # and it signs the exact draft it previewed — so a valid token proves the caller saw the impact
 # summary for the draft being published. Short max-age keeps the previewed counts fresh.
 PUBLISH_CONFIRM_TOKEN_MAX_AGE = timedelta(minutes=15)
+IN_FLIGHT_CACHE_SECONDS = 30
 _PUBLISH_CONFIRM_SALT = "hogflow-publish"
 
 
@@ -4309,6 +4326,7 @@ class HogFlowViewSet(
         "revision_detail",
         "proposal_detail",
         "proposal_outcome",
+        "in_flight",
     ]
     scope_object_write_actions = [
         "create",
@@ -5259,6 +5277,19 @@ class HogFlowViewSet(
         self._report_workflow_action("hog_flow_draft_discarded", instance)
 
         return Response(self.get_serializer(instance).data)
+
+    @extend_schema(responses={200: HogFlowInFlightSerializer})
+    @action(detail=True, methods=["GET"], url_path="in_flight", filter_backends=[], pagination_class=None)
+    def in_flight(self, request: Request, *args, **kwargs):
+        instance = self.get_object()
+        cache_key = f"hog_flow_in_flight:{self.team_id}:{instance.id}"
+        counts = cache.get(cache_key)
+        if counts is None:
+            counts = self._get_in_flight_counts(instance)
+            if counts is not None:
+                cache.set(cache_key, counts, IN_FLIGHT_CACHE_SECONDS)
+        # An unreachable counting service yields nulls, not an error. A failed count is not cached.
+        return Response(HogFlowInFlightSerializer(counts or dict.fromkeys(HogFlowInFlightSerializer().fields)).data)
 
     @extend_schema(responses={200: HogFlowRevisionBasicSerializer(many=True)})
     # filter_backends=[]: don't inherit the viewset's HogFlow filterset — its fields would be

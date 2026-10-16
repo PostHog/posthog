@@ -55410,6 +55410,30 @@ export namespace Schemas {
     }
 
     /**
+     * In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.
+     * @nullable
+     */
+    export type HogFlowInFlightByAction = {[key: string]: number} | null;
+
+    export interface HogFlowInFlight {
+      /**
+         * About how many runs are in flight (parked on a delay or wait, or executing). Null when the count is unavailable.
+         * @nullable
+         */
+      count: number | null;
+      /**
+         * In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.
+         * @nullable
+         */
+      by_action: HogFlowInFlightByAction;
+      /**
+         * In-flight runs whose current step could not be read. Null when the count is unavailable.
+         * @nullable
+         */
+      position_unknown: number | null;
+    }
+
+    /**
      * Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person.
      */
     export type HogFlowInvocationGlobals = { [key: string]: unknown };
