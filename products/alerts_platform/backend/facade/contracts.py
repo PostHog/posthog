@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, NotRequired, Protocol, TypedDict
 from uuid import UUID
@@ -160,10 +160,12 @@ class Grouping:
 
 @frozen
 class GroupAdmission:
-    """Which of a check's groups the configuration has room for, and how many it turned away."""
+    """Which of a check's groups the configuration has room for, which resting instances gave up
+    their slot to make that room, and how many groups it turned away."""
 
     admitted: frozenset[str]
     overflowed: int
+    evicted: frozenset[str] = frozenset()
 
 
 @frozen
@@ -175,6 +177,13 @@ class InstanceCheckState:
     last_notified_at: datetime | None = None
     snooze_until: datetime | None = None
     firing_started_at: datetime | None = None
+    last_seen_at: datetime | None = None
+
+    def at_rest(self, now: datetime) -> bool:
+        """Holds a slot and nothing else: not firing, failing or muted."""
+        return self.state == PlatformAlertState.NOT_FIRING.value and (
+            self.snooze_until is None or self.snooze_until <= now
+        )
 
     @classmethod
     def composed(
@@ -187,6 +196,7 @@ class InstanceCheckState:
         snooze_until: datetime | None = None,
         last_notified_at: datetime | None = None,
         firing_started_at: datetime | None = None,
+        last_seen_at: datetime | None = None,
     ) -> InstanceCheckState:
         """An instance as a check, history and the read API all see it.
 
@@ -202,7 +212,11 @@ class InstanceCheckState:
             last_notified_at=last_notified_at,
             snooze_until=max(snoozes, default=None),
             firing_started_at=firing_started_at,
+            last_seen_at=last_seen_at,
         )
+
+
+_NEVER_SEEN: Final = datetime.min.replace(tzinfo=UTC)
 
 
 @frozen
@@ -233,25 +247,51 @@ class PlatformAlertCheckInput:
     instances: tuple[InstanceCheckState, ...] = ()
     grouping: Grouping = field(default_factory=Grouping)
 
-    def admit(self, grouping_keys: Sequence[str]) -> GroupAdmission:
+    def admit(self, grouping_keys: Sequence[str], *, now: datetime) -> GroupAdmission:
         """The groups a check may report, from keys in the source's priority order.
 
         A group that already has an instance is always admitted, so an open group can still
-        resolve. New groups fill what `max_instances` leaves, front first.
+        resolve. New groups fill what `max_instances` leaves, front first. When that is not enough,
+        a new group takes the slot of the least recently seen instance at rest, so resolved groups
+        cannot lock a new breach out until they are reaped. An instance this check reports is
+        never evicted, and only a group past every resting instance overflows.
         """
+        keys = dict.fromkeys(grouping_keys)
         existing = {instance.grouping_key for instance in self.instances}
-        room = max(self.grouping.max_instances - len(existing), 0)
+        held = len(existing)
+        # An ungrouped configuration's one instance is its whole alert, so it never gives up its slot.
+        victims = (
+            []
+            if self.grouping.mode == GroupingMode.SINGLE
+            else sorted(
+                (
+                    instance
+                    for instance in self.instances
+                    if instance.grouping_key not in keys and instance.at_rest(now)
+                ),
+                key=lambda instance: (instance.last_seen_at or _NEVER_SEEN, instance.grouping_key),
+            )
+        )
         admitted: set[str] = set()
+        evicted: set[str] = set()
         overflowed = 0
-        for key in dict.fromkeys(grouping_keys):
+        for key in keys:
             if key in existing:
                 admitted.add(key)
-            elif room > 0:
-                admitted.add(key)
-                room -= 1
-            else:
+                continue
+            # The write creates a row only below the cap. After the cap is lowered, one new group can
+            # need several resting slots, and it takes none when there are not enough of them.
+            needed = held + 1 - self.grouping.max_instances
+            if needed > len(victims):
                 overflowed += 1
-        return GroupAdmission(admitted=frozenset(admitted), overflowed=overflowed)
+                continue
+            if needed > 0:
+                evicted.update(victim.grouping_key for victim in victims[:needed])
+                victims = victims[needed:]
+                held -= needed
+            admitted.add(key)
+            held += 1
+        return GroupAdmission(admitted=frozenset(admitted), overflowed=overflowed, evicted=frozenset(evicted))
 
     def instance(self, grouping_key: str = "") -> InstanceCheckState:
         """The instance for a group, or the state a group with no instance starts from."""
@@ -266,7 +306,7 @@ class PlatformAlertCheckInput:
         )
 
     def open_keys(self) -> list[str]:
-        """The groups whose instance is not at rest. A check judges each one, returned or not."""
+        """The groups whose instance state is not NOT_FIRING. A check judges each one, returned or not."""
         return [
             instance.grouping_key
             for instance in self.instances
@@ -489,6 +529,8 @@ class PlatformAlertOutcome:
     skipped: bool = False
     # New groups `max_instances` had no room for, which the delivery names so a cap is never silent.
     overflowed: int = 0
+    # Resting instances whose slot a new group took. The write deletes them before it creates rows.
+    evicted: tuple[str, ...] = ()
     error_message: str | None = None
     query_duration_ms: int | None = None
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
@@ -564,6 +606,8 @@ class PlatformAlertOutcome:
         keys = [group.grouping_key for group in self.groups]
         if len(set(keys)) != len(keys):
             raise ValueError("an outcome names each group once")
+        if set(self.evicted) & set(keys):
+            raise ValueError("an outcome cannot evict a group it reports")
 
 
 @frozen

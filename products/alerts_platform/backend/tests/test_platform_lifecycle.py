@@ -374,7 +374,10 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             "web": ("not_firing", due + timedelta(hours=2)),
             "new": ("not_firing", muted_until),
         }
-        assert check.instance("api").firing_started_at == self.cutoff
+        assert (check.instance("api").firing_started_at, check.instance("web").last_seen_at) == (
+            self.cutoff,
+            self.cutoff,
+        )
 
     def _group(self, key: str, *, state: str = "not_firing") -> GroupOutcome:
         return GroupOutcome(grouping_key=key, kind=AlertEventKind.CHECK, new_state=state, notified=False)
@@ -434,6 +437,39 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             assert (
                 PlatformAlert.objects.filter(configuration=self.configuration, grouping_key="api").exists() is not kept
             )
+
+    @parameterized.expand(
+        [
+            ("at_rest", {}, False),
+            ("fired_since_the_check_read_it", {"state": "firing"}, True),
+            ("snoozed_since_the_check_read_it", {"snoozed": True}, True),
+            ("ungrouped", {"grouping": Grouping(max_instances=1)}, True),
+        ]
+    )
+    def test_an_evicted_group_gives_up_its_slot_only_while_it_is_at_rest(
+        self, _name: str, case: dict[str, Any], kept: bool
+    ) -> None:
+        grouping = case.get(
+            "grouping", Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=1)
+        )
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(grouping=grouping.to_stored())
+            PlatformAlert.objects.create(
+                team=self.team,
+                configuration=self.configuration,
+                grouping_key="old",
+                state=case.get("state", "not_firing"),
+                last_seen_at=self.cutoff - timedelta(hours=1),
+                snooze_until=self.cutoff + timedelta(hours=1) if case.get("snoozed") else None,
+            )
+
+        self._record(groups=(self._group("new", state="firing"),), evicted=("old",))
+
+        with team_scope(self.team.id):
+            keys = set(
+                PlatformAlert.objects.filter(configuration=self.configuration).values_list("grouping_key", flat=True)
+            )
+        assert keys == ({"old"} if kept else {"new"})
 
     def test_a_resolve_row_keeps_the_firing_it_ended(self) -> None:
         # The alert row clears the firing on a resolve, so history is the only place left holding
@@ -641,16 +677,81 @@ def _group(grouping_key: str) -> GroupOutcome:
     return GroupOutcome(grouping_key=grouping_key, kind=AlertEventKind.CHECK, new_state="not_firing", notified=False)
 
 
+_ADMITTED_AT = datetime(2026, 9, 16, 10, tzinfo=UTC)
+_GROUPED = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=3)
+
+
+def _resting(key: str, *, seen_hours_ago: int = 1) -> InstanceCheckState:
+    return InstanceCheckState(
+        grouping_key=key, state="not_firing", last_seen_at=_ADMITTED_AT - timedelta(hours=seen_hours_ago)
+    )
+
+
 @pytest.mark.parametrize(
-    "existing, returned, expected",
+    "existing, returned, expected, grouping",
     [
-        ((), ("a", "b", "c", "d"), GroupAdmission(admitted=frozenset({"a", "b", "c"}), overflowed=1)),
-        (("x", "y", "z"), ("q", "x"), GroupAdmission(admitted=frozenset({"x"}), overflowed=1)),
-        (("x",), ("x", "a", "a", "b"), GroupAdmission(admitted=frozenset({"x", "a", "b"}), overflowed=0)),
+        ((), ("a", "b", "c", "d"), GroupAdmission(admitted=frozenset({"a", "b", "c"}), overflowed=1), _GROUPED),
+        (
+            (_resting("x"),),
+            ("x", "a", "a", "b"),
+            GroupAdmission(admitted=frozenset({"x", "a", "b"}), overflowed=0),
+            _GROUPED,
+        ),
+        # The least recently seen resting instance gives up its slot. "x" is older still, but this
+        # check reports it, so it keeps its row.
+        (
+            (_resting("x", seen_hours_ago=3), _resting("y", seen_hours_ago=1), _resting("z", seen_hours_ago=2)),
+            ("q", "x"),
+            GroupAdmission(admitted=frozenset({"x", "q"}), overflowed=0, evicted=frozenset({"z"})),
+            _GROUPED,
+        ),
+        (
+            tuple(InstanceCheckState(grouping_key=key, state="firing") for key in ("x", "y", "z")),
+            ("q", "x"),
+            GroupAdmission(admitted=frozenset({"x"}), overflowed=1),
+            _GROUPED,
+        ),
+        (
+            (
+                InstanceCheckState(grouping_key="x", state="firing"),
+                InstanceCheckState(
+                    grouping_key="y", state="not_firing", snooze_until=_ADMITTED_AT + timedelta(minutes=1)
+                ),
+                _resting("z"),
+            ),
+            ("q", "r"),
+            GroupAdmission(admitted=frozenset({"q"}), overflowed=1, evicted=frozenset({"z"})),
+            _GROUPED,
+        ),
+        (
+            (InstanceCheckState(grouping_key="x", state="firing"), _resting("y"), _resting("z")),
+            ("q",),
+            GroupAdmission(admitted=frozenset({"q"}), overflowed=0, evicted=frozenset({"y", "z"})),
+            Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=2),
+        ),
+        (
+            (
+                InstanceCheckState(grouping_key="x", state="firing"),
+                InstanceCheckState(grouping_key="y", state="firing"),
+                _resting("z"),
+            ),
+            ("q",),
+            GroupAdmission(admitted=frozenset(), overflowed=1),
+            Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=2),
+        ),
+        (
+            (_resting(""),),
+            ("other",),
+            GroupAdmission(admitted=frozenset(), overflowed=1),
+            Grouping(max_instances=1),
+        ),
     ],
 )
 def test_a_check_admits_existing_groups_and_new_ones_up_to_the_cap(
-    existing: tuple[str, ...], returned: tuple[str, ...], expected: GroupAdmission
+    existing: tuple[InstanceCheckState, ...],
+    returned: tuple[str, ...],
+    expected: GroupAdmission,
+    grouping: Grouping,
 ) -> None:
     check = PlatformAlertCheckInput(
         id=uuid4(),
@@ -667,11 +768,11 @@ def test_a_check_admits_existing_groups_and_new_ones_up_to_the_cap(
         legacy_configuration_id=None,
         check_status="ok",
         snooze_until=None,
-        instances=tuple(InstanceCheckState(grouping_key=key, state="not_firing") for key in existing),
-        grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=3),
+        instances=existing,
+        grouping=grouping,
     )
 
-    assert check.admit(returned) == expected
+    assert check.admit(returned, now=_ADMITTED_AT) == expected
 
 
 @pytest.mark.parametrize(
@@ -693,6 +794,7 @@ def test_a_grouping_rejects_keys_its_mode_cannot_use(fields: dict[str, Any]) -> 
     [
         {"failure": CheckFailure(kind=AlertEventKind.ERRORED, new_state="errored", notified=True)},
         {"groups": (_group("api"), _group("api"))},
+        {"groups": (_group("api"),), "evicted": ("api",)},
     ],
 )
 def test_an_outcome_rejects_an_invalid_shape(overrides: dict[str, Any]) -> None:
