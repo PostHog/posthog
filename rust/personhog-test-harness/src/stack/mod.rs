@@ -79,6 +79,7 @@ struct IdentityCompanionTables {
     ff_hash_key_override: &'static str,
     lifecycle_op: &'static str,
     lifecycle_op_person: &'static str,
+    person_publish_outbox: &'static str,
 }
 
 pub struct Stack {
@@ -111,18 +112,21 @@ impl Stack {
     /// id namespace as its person table, so the three always travel together.
     fn identity_companion_tables(person_table: &str) -> Result<IdentityCompanionTables> {
         let (lifecycle_op, lifecycle_op_person) = crate::seed::lifecycle_tables_for(person_table);
+        let person_publish_outbox = crate::seed::publish_outbox_table_for(person_table);
         match person_table {
             "posthog_person" => Ok(IdentityCompanionTables {
                 person_distinct_id: "posthog_persondistinctid",
                 ff_hash_key_override: "posthog_featureflaghashkeyoverride",
                 lifecycle_op,
                 lifecycle_op_person,
+                person_publish_outbox,
             }),
             "personhog_person_tmp" => Ok(IdentityCompanionTables {
                 person_distinct_id: "personhog_persondistinctid_tmp",
                 ff_hash_key_override: "personhog_featureflaghashkeyoverride_tmp",
                 lifecycle_op,
                 lifecycle_op_person,
+                person_publish_outbox,
             }),
             other => bail!(
                 "--create-via-identity has no known identity table set for \
@@ -290,6 +294,10 @@ impl Stack {
                     (
                         "LIFECYCLE_OP_PERSON_TABLE",
                         companions.lifecycle_op_person.to_string(),
+                    ),
+                    (
+                        "PERSON_PUBLISH_OUTBOX_TABLE",
+                        companions.person_publish_outbox.to_string(),
                     ),
                     // The service default is off. The gate needs the
                     // sweeper: a leader kill abandons a merge mid-saga,
