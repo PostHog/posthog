@@ -825,8 +825,10 @@ export interface surveyLogicActions {
             | 'quick_create'
             | 'template'
             | 'wizard'
-            | undefined
+            | undefined,
+        createdFrom?: SURVEY_CREATED_SOURCE | undefined
     ) => {
+        createdFrom: SURVEY_CREATED_SOURCE | undefined
         creationSource:
             | 'form_builder'
             | 'full_editor'

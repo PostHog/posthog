@@ -9,6 +9,56 @@
  */
 import * as zod from 'zod'
 
+/**
+ * @summary Turn an AEO prompt on or off
+ */
+export const AeoPromptsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    active: zod.boolean().optional().describe('Turn the prompt on or off for future runs.'),
+})
+
+/**
+ * Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state.
+ * @summary Import AEO prompts
+ */
+export const aeoPromptsBulkImportBodyPromptsItemPromptMax = 10000
+
+export const aeoPromptsBulkImportBodyPromptsItemTopicMax = 200
+
+export const aeoPromptsBulkImportBodyPromptsItemExternalVisibilityMin = 0
+export const aeoPromptsBulkImportBodyPromptsItemExternalVisibilityMax = 100
+
+export const aeoPromptsBulkImportBodyPromptsMax = 2000
+
+export const AeoPromptsBulkImportBody = /* @__PURE__ */ zod.object({
+    prompts: zod
+        .array(
+            zod.object({
+                prompt: zod
+                    .string()
+                    .max(aeoPromptsBulkImportBodyPromptsItemPromptMax)
+                    .describe(
+                        'The question to ask the answer engines, as a user would phrase it. Matching ignores case and whitespace, so a re-import updates the existing prompt.'
+                    ),
+                topic: zod
+                    .string()
+                    .max(aeoPromptsBulkImportBodyPromptsItemTopicMax)
+                    .optional()
+                    .describe('Theme the prompt belongs to. The runner alternates between topics on each run.'),
+                external_visibility: zod
+                    .number()
+                    .min(aeoPromptsBulkImportBodyPromptsItemExternalVisibilityMin)
+                    .max(aeoPromptsBulkImportBodyPromptsItemExternalVisibilityMax)
+                    .nullish()
+                    .describe(
+                        'Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set came from. Kept to benchmark against our own citation rate.'
+                    ),
+            })
+        )
+        .min(1)
+        .max(aeoPromptsBulkImportBodyPromptsMax)
+        .describe('Prompts to add or update, at most 2000 per request.'),
+})
+
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax = 2000
 
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistMax = 100

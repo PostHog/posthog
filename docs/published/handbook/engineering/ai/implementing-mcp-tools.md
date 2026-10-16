@@ -90,6 +90,31 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
 
+## Intent prompt trials
+
+The MCP Analytics SDK adds a `context` argument asking the agent to explain why it calls a tool.
+The `mcp-intent-prompt` flag can select a different description for ordinary external MCP requests.
+Disabled flags, missing or invalid payloads, impersonation, and analytics-suppressed requests retain the SDK default.
+
+Set the description directly in the flag payload:
+
+```json
+{
+  "prompt": "The intent instruction, including its privacy constraints."
+}
+```
+
+The server reads the text from the existing flag evaluation and accepts only nonblank text of at most 2,000 characters.
+Keep the instruction abstract and preserve the default prompt's constraints against identifying or sensitive information.
+Start with a release condition matching one authenticated user's distinct ID; do not add an unconditional release condition.
+
+Clients cache tool schemas. Refresh the client's tool list or reconnect after deployment before collecting trial data.
+Use the targeted user's calls after that refresh for offline evaluation, and record when the payload changes.
+Existing intent analytics stay unchanged; the server does not capture the prompt text separately.
+
+This collection trial changes no tool results and adds no recommendations or elicitation.
+Evaluate intent against independently recorded abstract task goals, checking invented goals, identifying details, and appropriate uncertainty.
+
 ## Interview recruitment with URL elicitation
 
 > [!CAUTION]
