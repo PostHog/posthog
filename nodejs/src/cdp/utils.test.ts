@@ -237,6 +237,12 @@ describe('Utils', () => {
                 'Authorization: Basic ***REDACTED***',
             ],
             [
+                'a value that contains the marker',
+                ['password=fake***REDACTED***password'],
+                ['fake***REDACTED***password'],
+                'password=***REDACTED***',
+            ],
+            [
                 'a longer encoded value, keeping the characters it shares with the bytes around the secret',
                 ['payload=eyJrZXkiOiJmYWtlLXNlY3JldC0wMDAwIn0='],
                 ['fake-secret-0000'],
