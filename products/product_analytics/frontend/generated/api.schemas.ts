@@ -9128,6 +9128,7 @@ export interface ActivityLogPaginatedResponseApi {
  * * `problem` - A check found a large issue
  * * `no_events` - No events to check
  * * `unsupported` - This kind of insight cannot be checked
+ * * `inconclusive` - No check could run
  */
 export type InsightDataChecksStatusEnumApi =
     (typeof InsightDataChecksStatusEnumApi)[keyof typeof InsightDataChecksStatusEnumApi]
@@ -9138,6 +9139,7 @@ export const InsightDataChecksStatusEnumApi = {
     Problem: 'problem',
     NoEvents: 'no_events',
     Unsupported: 'unsupported',
+    Inconclusive: 'inconclusive',
 } as const
 
 /**
@@ -9170,6 +9172,38 @@ export const InsightDataCheckLevelEnumApi = {
 } as const
 
 /**
+ * * `too_many_events` - The days checked hold too many events to count
+ * * `read_limit` - The check would read more data than it is allowed
+ * * `time_limit` - The check took longer than it is allowed
+ * * `memory_limit` - The check needed more memory than it is allowed
+ * * `too_few_sampled_events` - The sample has too few events to give a share
+ * * `filtered_by_traffic_type` - The insight already filters on traffic type
+ */
+export type InsightDataCheckSkipReasonEnumApi =
+    (typeof InsightDataCheckSkipReasonEnumApi)[keyof typeof InsightDataCheckSkipReasonEnumApi]
+
+export const InsightDataCheckSkipReasonEnumApi = {
+    TooManyEvents: 'too_many_events',
+    ReadLimit: 'read_limit',
+    TimeLimit: 'time_limit',
+    MemoryLimit: 'memory_limit',
+    TooFewSampledEvents: 'too_few_sampled_events',
+    FilteredByTrafficType: 'filtered_by_traffic_type',
+} as const
+
+/**
+ * * `counted` - Counted every event on the days checked
+ * * `sampled` - Checked a sample of the events on the days checked
+ */
+export type InsightDataCheckMethodEnumApi =
+    (typeof InsightDataCheckMethodEnumApi)[keyof typeof InsightDataCheckMethodEnumApi]
+
+export const InsightDataCheckMethodEnumApi = {
+    Counted: 'counted',
+    Sampled: 'sampled',
+} as const
+
+/**
  * * `open_filter_settings` - Change the project's internal and test users filter
  */
 export type InsightDataCheckActionEnumApi =
@@ -9193,46 +9227,91 @@ export interface InsightDataCheckApi {
      * * `problem` - Problem
      * * `skipped` - Not checked */
     level: InsightDataCheckLevelEnumApi
-    /** What the check looks for. */
-    name: string
-    /** What the check found, as a sentence to show a person. */
-    result: string
-    /**
-     * How to fix what the check found. Null when nothing needs fixing.
-     * @nullable
-     */
-    fix: string | null
-    /** The change that fixes it. `open_filter_settings`: change the project's internal and test users filter. Null when there is no single change.
+    /** Why the check did not run. Null unless `level` is `skipped`.
      *
-     * * `open_filter_settings` - Change the project's internal and test users filter */
-    action: InsightDataCheckActionEnumApi | null
+     * * `too_many_events` - The days checked hold too many events to count
+     * * `read_limit` - The check would read more data than it is allowed
+     * * `time_limit` - The check took longer than it is allowed
+     * * `memory_limit` - The check needed more memory than it is allowed
+     * * `too_few_sampled_events` - The sample has too few events to give a share
+     * * `filtered_by_traffic_type` - The insight already filters on traffic type */
+    skip_reason: InsightDataCheckSkipReasonEnumApi | null
+    /** `counted` when the check counted every event on the days checked, `sampled` when it read a sample. Null when the check did not run.
+     *
+     * * `counted` - Counted every event on the days checked
+     * * `sampled` - Checked a sample of the events on the days checked */
+    method: InsightDataCheckMethodEnumApi | null
     /**
-     * How many of the checked events the check counted. Null where it has no count.
+     * How many events on the days checked the check found. Null when the check did not run.
      * @nullable
      */
     events: number | null
     /**
-     * `events` as a share of the checked events, from 0 to 1. Null where it has no count.
+     * `events` as a share of the events checked, from 0 to 1. Null when the check did not run, or when the sample is too small to give a share.
      * @nullable
      */
     share: number | null
+    /** True when `events` is an estimate scaled up from a sample, rather than a count of every event. */
+    scaled: boolean
+    /** The change that fixes it. `open_filter_settings`: change the project's internal and test users filter. Null when there is no single change.
+     *
+     * * `open_filter_settings` - Change the project's internal and test users filter */
+    action: InsightDataCheckActionEnumApi | null
+    /** The event names the check found most often, most affected first. */
+    top_events: string[]
+    /** For the local development check, the local hosts found most often, most affected first. */
+    top_hosts: string[]
+    /** For the bot traffic check, the bots and crawlers found most often, most affected first. */
+    top_bots: string[]
+}
+
+export interface InsightDataChecksSampleApi {
+    /** The share of the events on the days checked that the sample read, from 0 to 1. */
+    rate: number
+    /** How many events the sample read. */
+    events: number
+    /** How many distinct IDs sent the events the sample read. */
+    distinct_ids: number
+}
+
+export interface InsightDataChecksCoverageApi {
+    /** The first day of the insight's date range. */
+    date_from: string
+    /** The last day of the insight's date range. */
+    date_to: string
+    /** How many days the insight's date range holds. */
+    days_in_range: number
+    /** The first day the checks read. */
+    checked_date_from: string
+    /** The last day the checks read. */
+    checked_date_to: string
+    /** How many days the checks read. The checks read the newest days of the range, up to 7. */
+    days_checked: number
+    /** True when the insight filters out the project's internal and test users. */
+    filters_test_accounts: boolean
+    /**
+     * How many events the insight reads on the days checked, scaled up from the sample when the sample did not read every event. Null when the sample did not run.
+     * @nullable
+     */
+    events_checked: number | null
+    /** The sample the bot and duplicate checks read. Null when the sample did not run. */
+    sample: InsightDataChecksSampleApi | null
 }
 
 export interface InsightDataChecksApi {
-    /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property of the project is hidden from the caller.
+    /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property the checks read is hidden from the caller. `inconclusive` when no check could run.
      *
      * * `passed` - No data issues found
      * * `warning` - A check found a small issue
      * * `problem` - A check found a large issue
      * * `no_events` - No events to check
-     * * `unsupported` - This kind of insight cannot be checked */
+     * * `unsupported` - This kind of insight cannot be checked
+     * * `inconclusive` - No check could run */
     status: InsightDataChecksStatusEnumApi
     /** Every check, in a fixed order, whatever its result. */
     checks: InsightDataCheckApi[]
-    /** How many events the checks read. */
-    events_checked: number
-    /** The share of the insight's events the checks read, from 0 to 1. The checks read every event of a small insight and a sample of a large one. Below 1, `events_checked` and the `events` of each check count the sample, so divide them by this value to estimate the count across every event. */
-    sample_rate: number
+    /** Which days and how many events the checks read. Null when the checks could not choose the days to read, such as for an `unsupported` insight. */
+    coverage: InsightDataChecksCoverageApi | null
 }
 
 export interface InsightBulkDeleteRequestApi {

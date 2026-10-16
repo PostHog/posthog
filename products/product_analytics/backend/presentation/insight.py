@@ -180,8 +180,8 @@ from products.product_analytics.backend.facade.enums import (
     InsightDataCheckKey,
     InsightDataCheckLevel,
     InsightDataCheckMethod,
-    InsightDataChecksStatus,
     InsightDataCheckSkipReason,
+    InsightDataChecksStatus,
 )
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 from products.product_analytics.backend.presentation.insight_metadata import (
