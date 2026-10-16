@@ -36,7 +36,8 @@ The engines agree everywhere except the empty matrix and the matrix check granul
 
 - A check run that concludes `skipped` **satisfies** a required status check, and the Trunk merge queue scores it the same way. The repo already depends on this: `Build Docker image` is a required context that concludes `skipped` on most PRs, and they merge.
 - A required context that **no check run ever reports** stays pending and blocks. This is the empty-matrix failure mode above, and it is also what a `paths:` filter does when it silences a whole workflow.
-- Required contexts are pinned to one app. Every entry in this repo's `master` ruleset carries `integration_id: 15368`, the `github-actions` app. Read them with:
+- A check run that stays `in_progress` blocks, and GitHub keeps every completed check run on its commit. Depot creates a job's own check only when the job resolves, so a new run on an already green commit (a draft marked ready, a reopen) cannot hold the commit pending: the old success stands until the new gate job ends. That is why the required backend context is the gate job's own `Backend CI on Depot / Test results` check, which a draft run leaves `in_progress` and the ready run completes. GitHub marks a check run left incomplete for 14 days `stale`, which does not satisfy the context either.
+- Required contexts are pinned to one app. Most entries in this repo's `master` ruleset carry `integration_id: 15368`, the `github-actions` app; the backend gate carries the PostHog tests app. Read them with:
 
   ```bash
   gh api repos/PostHog/posthog/rulesets --jq '.[] | select(.name=="master") | .id'

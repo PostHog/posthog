@@ -122,8 +122,9 @@
 # Shards derive from .test_durations (Amdahl), restored from Depot Cache (else committed);
 # .github/workflows/ci-backend-update-test-timing.yml keeps that cache fresh.
 name: Backend CI on Depot
-# Depot CI copy of canonical Backend CI. Branch protection requires this workflow's gate,
-# `Backend CI on Depot / Django Tests Pass on Depot`, posted by the Depot Code Access app.
+# Depot CI copy of canonical Backend CI. Branch protection requires the gate job's
+# `Backend CI on Depot / Test results` check, posted by the PostHog tests app; the gate's own
+# Depot check only resolves when the job does, so it cannot hold a commit pending.
 # Pull requests, master pushes, manual runs and the hourly master run all start here.
 # The drift check (.github/workflows/ci-backend-shadow-drift.yml) keeps this file in sync
 # with canonical; it runs whenever either file changes.
@@ -4338,6 +4339,12 @@ jobs:
                   GATE_CHECK: Backend CI on Depot / Test results
                   # A `no-ci` draft skips change detection and every check, so its row says so.
                   CONCLUSION: ${{ job.status == 'cancelled' && 'cancelled' || needs.changes.result == 'skipped' && 'skipped' || (steps.verdict.outcome == 'success' && 'success' || 'failure') }}
+                  # A draft run skips the product tests, and a completed check stays on the commit:
+                  # a completed draft verdict would satisfy the required context the moment the PR
+                  # turns ready, before the ready run finishes. So a draft's check stays in progress
+                  # and the ready run completes it. Merge-queue PRs are drafts whose run is the
+                  # merge verdict, so theirs completes.
+                  DRAFT: ${{ github.event.pull_request.draft == true && !startsWith(github.head_ref, 'trunk-merge/') }}
               run: |
                   case "$CONCLUSION" in
                       success) title="Backend tests passed on Depot" ;;
@@ -4345,20 +4352,28 @@ jobs:
                       cancelled) title="Backend tests cancelled on Depot" ;;
                       *) title=$(head -1 "$GATE_TITLE" 2>/dev/null || true); title="${title:-Backend tests failed on Depot}" ;;
                   esac
+                  status=completed
+                  if [[ "$DRAFT" == "true" ]]; then
+                      status=in_progress
+                      title="Draft: ${title,}. Mark the PR ready for review for the merge verdict."
+                  fi
                   # One request carries the verdict and the output. A PATCH sent right after the POST
                   # can answer 404, because GitHub does not always find a check it just created.
                   # GitHub rejects a summary over 65535 characters, and the byte budget below stays
                   # under that however the characters are encoded.
                   touch "$GATE_SUMMARY"
-                  jq -n --arg name "$GATE_CHECK" --arg sha "$SHA" --arg conclusion "$CONCLUSION" --arg url "$DEPOT_JOB_URL" \
+                  jq -n --arg name "$GATE_CHECK" --arg sha "$SHA" --arg status "$status" --arg conclusion "$CONCLUSION" --arg url "$DEPOT_JOB_URL" \
                       --arg title "$title" --rawfile summary "$GATE_SUMMARY" \
-                      '{name: $name, head_sha: $sha, status: "completed", conclusion: $conclusion, details_url: $url,
-                        output: {title: $title, summary: ($summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end)}}' \
+                      '{name: $name, head_sha: $sha, status: $status, details_url: $url,
+                        output: {title: $title, summary: ($summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end)}}
+                       + (if $status == "completed" then {conclusion: $conclusion} else {} end)' \
                       | gh api "repos/$REPO/check-runs" --method POST --input - --silent && exit 0
                   # A rejected output must not lose the check.
                   echo "::warning::Could not post the gate check with its summary. Posting it without."
+                  conclusion_arg=()
+                  [[ "$status" == "completed" ]] && conclusion_arg=(-f conclusion="$CONCLUSION")
                   gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
-                      -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --silent
+                      -f head_sha="$SHA" -f status="$status" "${conclusion_arg[@]}" -f details_url="$DEPOT_JOB_URL" --silent
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict
