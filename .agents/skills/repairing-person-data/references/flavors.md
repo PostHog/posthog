@@ -51,12 +51,12 @@ A pair is a group only when neither person takes part in another pair, so a grou
 ## Outcomes
 
 - `would_repair`: a dry run found the key still broken.
-- `repaired`, `restored`, `moved`, `folded`, `buried`, `tombstoned`, `republished`: the key was written.
+- `repaired`, `restored`, `moved`, `folded`, `merged`, `buried`, `tombstoned`, `republished`: the key was written.
 - `already_*`: an earlier run wrote it, and this run published it again.
 - `undelivered`: the Postgres write happened, but its ClickHouse publish did not land. `--resume` retries the key. A restored person that stays undelivered shows up as `behind` in the next scan, and `republish` publishes it.
 - `merge_queued`: `merge_stale` sent properties to ingestion. Run the verb again later.
 - `properties_sent`: a light `fold` sent the old person's properties to the survivor. Run `fold` again later.
-- `merge_sent` (person) and `awaiting_merge` (ids): `merge` or a full `fold` sent `$merge_dangerously`. Rescan after ingestion processed it.
+- `merge_sent` (person) and `awaiting_merge` (ids): `merge` or a full `fold` sent `$merge_dangerously`, and ingestion had not applied it within the wait. Rescan later.
 - `skipped_no_alias`: no distinct id of the old person, or of the survivor, could carry the merge event.
 - `skipped_no_distinct_id`: `restore` or a full `fold` left a person out, because none of its lost distinct ids is in the run or all of them were claimed since the scan. Rescan.
 - `identified_not_carried` (in an action's detail): a light `fold` could not mark the survivor identified, because it has only one distinct id.

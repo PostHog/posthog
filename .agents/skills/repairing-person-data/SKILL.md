@@ -50,17 +50,18 @@ Run them in this order, because later verbs read state that earlier ones fix:
 
 Rescan between steps when a team has many rows. A verb skips any key whose state changed since the scan (`skipped_changed`), so a fresh scan picks it up again.
 
-## Verbs that go through ingestion take two runs
+## Verbs that go through ingestion
 
 `fold`, `merge` and `merge_stale` send events, and ingestion applies them asynchronously.
 They never rewrite a diverged distinct id before ingestion has applied the event, so an unfinished group always shows up in the next scan.
 
-- `merge` sends `$merge_dangerously` (outcome `merge_sent`, ids `awaiting_merge`). After ingestion merged A into B, the next scan reports the shared ids for `republish`. If it reports `merge` again, the merge has not landed yet.
-- A **full** `fold` (the old person still has an id to merge from, and one of the two is identified) restores A with those ids, then sends `$merge_dangerously`. The next scan reports the group as `merge` until ingestion merged it, then `republish`.
-- A **light** `fold` (no id to merge from, or neither person identified) first sends A's ClickHouse-only properties to B (`properties_sent`). A later run that finds them on B tombstones A and moves the ids (`folded`, `moved`).
+- `merge` sends `$merge_dangerously`, waits up to a minute for ingestion to merge A into B, then points the shared ids at B (`merged`, ids `moved`). A merge that has not landed by then stays `merge_sent` (ids `awaiting_merge`): the next scan reports `merge` again, or `republish` once it landed.
+- A **full** `fold` (the old person still has an id to merge from, and one of the two is identified) restores A with those ids, sends `$merge_dangerously` and waits the same way (`folded`, ids `moved`). A merge that has not landed shows up as `merge` in the next scan.
+- A **light** `fold` (no id to merge from, or neither person identified) first sends A's ClickHouse-only properties to B (`properties_sent`). A later run that finds them on B moves the ids and tombstones A (`folded`, `moved`). If that run stops partway, the next scan reports the remaining ids for `republish`.
 - `merge_stale` first sends properties (`merge_queued`); a later run raises and republishes the person.
 
 Wait a few minutes between runs, then rescan and run the verb the new report names.
+A verb that finds a person in the middle of a merge or delete retries for a few seconds, then stops. Rerun it with `--resume`.
 The scan summary counts fold groups as `full` or `light`; the verb re-checks this at run time.
 
 ## Ambiguous groups

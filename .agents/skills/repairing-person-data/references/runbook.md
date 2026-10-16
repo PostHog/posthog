@@ -22,5 +22,6 @@ Copy only `summary.json` and actions-file outcome counts off the pod; the report
 ## When something looks wrong
 
 - Many `skipped_changed` outcomes: ingestion is writing to these persons now. Rescan later.
+- A run stops with a personhog `FAILED_PRECONDITION` or `DEADLINE_EXCEEDED` error after its retries: a merge or delete holds the person. Rerun with `--resume` a few seconds later. The persons reset endpoint answers 409 in the same case.
 - `undelivered` in the summary line: some ClickHouse rows were not published. Those keys carry an `undelivered` action, so rerunning the same verb with `--resume` retries exactly them; every write is idempotent.
 - A count far above what the scan predicted: stop, and inspect a few keys with `person_inspect` before continuing.
