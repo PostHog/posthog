@@ -32,6 +32,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.experiments.backend.metric_calculation.config import build_calculation_configs
 from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_resolution import get_metrics_for_calculation
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -42,7 +43,6 @@ from products.experiments.backend.temporal.models import (
     METRICS_RECALCULATION_WORKFLOW_NAME,
     ExperimentMetricsRecalculationWorkflowInputs,
 )
-from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
 # stale and a fresh recalc is allowed. An IN_PROGRESS row counts from started_at, so it must outlast the phase
@@ -403,7 +403,7 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
 
         # Set total_metrics up front from the experiment definition so the client can show progress
         # ("N of M") immediately, before the workflow's discovery activity confirms the same count.
-        metrics = discover_experiment_metrics(experiment)
+        metrics = get_metrics_for_calculation(experiment)
         recalc = ExperimentMetricsRecalculation.objects.create(
             team=experiment.team,
             experiment=experiment,
@@ -411,7 +411,7 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
             status=ExperimentMetricsRecalculation.Status.PENDING,
             created_by=user,
             total_metrics=len(metrics),
-            metric_uuids=[m.metric_uuid for m in metrics],
+            metric_uuids=[m.uuid for m in metrics],
         )
         return build_job_payload(recalc, is_existing=False)
 

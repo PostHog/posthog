@@ -4,7 +4,7 @@ use std::borrow::Cow;
 
 use simd_json::borrowed::{Object, Value};
 
-use crate::collect::{collectable_data_uri_bytes, is_image_ref_strict};
+use crate::collect::is_image_ref_strict;
 use crate::context::{Ctx, ImageSource};
 use crate::data_uri::is_image_data_uri;
 use crate::data_uri::ImageFallback;
@@ -140,10 +140,8 @@ pub fn has_media_src_attr(attrs: &Object<'_>) -> bool {
 
 pub(crate) fn has_usable_srcset(value: &str, ctx: &Ctx<'_>) -> bool {
     (ctx.keeps_image_refs() && is_image_ref_strict(value))
-        || candidate_for_scrubbing(value).is_some_and(|url| {
-            collectable_data_uri_bytes(url, ctx.max_collected_image_bytes()).is_ok()
-                || canonicalize(url).is_some()
-        })
+        || candidate_for_scrubbing(value)
+            .is_some_and(|url| ctx.can_collect_image(url) || canonicalize(url).is_some())
 }
 
 /// Scrub an inlined-image data URI held in an attribute (a `<canvas>`/`<img>` `rr_dataURL`).
