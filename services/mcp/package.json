@@ -51,7 +51,6 @@
         "@hono/node-server": "^2.0.2",
         "@modelcontextprotocol/ext-apps": "^1.5.0",
         "@modelcontextprotocol/sdk": "^1.29.0",
-        "@posthog/ai": "^8.14.1",
         "@posthog/llm-normalizer": "workspace:*",
         "@posthog/mcp-analytics": "npm:@posthog/mcp@0.22.2",
         "@posthog/quill": "workspace:*",

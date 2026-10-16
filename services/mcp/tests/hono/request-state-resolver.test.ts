@@ -143,7 +143,7 @@ vi.mock('@/hono/request-context', () => {
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
-import { MCP_INTENT_PROMPT_FLAG, MCP_INTENT_PROMPT_NAME } from '@/hono/intent-prompt'
+import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
@@ -610,16 +610,14 @@ describe('RequestStateResolver MCP client contexts', () => {
         { value: undefined, enabled: false },
         { value: '', enabled: false },
         { value: true, missingPayload: true, enabled: false },
-        { value: true, payload: { prompt_name: 'another-prompt' }, enabled: false },
-        { value: true, payload: { prompt_version: 0 }, enabled: false },
-        { value: true, payload: { prompt_version: '2' }, enabled: false },
+        { value: true, payload: { prompt: ' ' }, enabled: false },
+        { value: true, payload: { prompt: 'x'.repeat(2001) }, enabled: false },
         { value: true, impersonated: true, enabled: false },
         { value: true, suppressed: true, enabled: false },
         { value: true, consumer: 'posthog-cli', enabled: false },
     ])('resolves the intent prompt only for an eligible configured request: %j', async (input) => {
         const prompt = {
-            prompt_name: MCP_INTENT_PROMPT_NAME,
-            prompt_version: 2,
+            prompt: 'State the task objective before the tool action. Omit identifying details.',
         }
         mockApiKey.is_impersonated = input.impersonated
         mockApiKey.suppress_analytics = input.suppressed
@@ -631,7 +629,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         })
         const state = await makeResolver().resolve(makeProps({ mcpConsumer: input.consumer }))
 
-        expect(state.intentPrompt).toEqual(input.enabled ? prompt : undefined)
+        expect(state.intentPrompt).toEqual(input.enabled ? prompt.prompt : undefined)
     })
 
     it('honors a dev/test flag override even when evaluation returns nothing', async () => {

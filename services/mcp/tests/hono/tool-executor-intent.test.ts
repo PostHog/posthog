@@ -30,7 +30,6 @@ vi.mock('@/lib/posthog', async () => {
 })
 
 import { InstructionsBuilder } from '@/hono/instructions'
-import { type IntentPrompt, MCP_INTENT_PROMPT_NAME } from '@/hono/intent-prompt'
 import { toolCallsTotal } from '@/hono/metrics'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
@@ -46,8 +45,6 @@ describe('ToolExecutor analytics capture', () => {
 
     afterEach(() => {
         vi.restoreAllMocks()
-        vi.unstubAllGlobals()
-        vi.unstubAllEnvs()
     })
 
     beforeAll(async () => {
@@ -203,40 +200,15 @@ describe('ToolExecutor analytics capture', () => {
     it.each([true, false])('isolates intent descriptions with single exec=%s', async (useSingleExec) => {
         const tool = catalog.getFilteredTools({ scopes: ['*'] }).find((entry) => entry.name === 'projects-get')!
         const state = makeToolExecutorState([tool], { useSingleExec })
-        const prompt: IntentPrompt = {
-            prompt_name: MCP_INTENT_PROMPT_NAME,
-            prompt_version: useSingleExec ? 2 : 3,
-        }
-        const description = 'State the task objective before the tool action. Omit identifying details.'
-        vi.stubEnv('POSTHOG_PROMPTS_PERSONAL_API_KEY', 'phx_fake_prompt_reader')
-        vi.stubEnv('POSTHOG_ANALYTICS_API_KEY', 'phc_fake_analytics_project')
-        vi.stubEnv('POSTHOG_PROMPTS_HOST', 'https://prompts.example.com')
-        const fetchPrompt = vi
-            .fn()
-            .mockResolvedValue(
-                new Response(
-                    JSON.stringify({ name: prompt.prompt_name, version: prompt.prompt_version, prompt: description })
-                )
-            )
-        vi.stubGlobal('fetch', fetchPrompt)
+        const prompt = 'State the task objective before the tool action. Omit identifying details.'
 
         const result = await executor.handleToolsList(state)
-        expect(fetchPrompt).not.toHaveBeenCalled()
         const treatment = await executor.handleToolsList({
             ...state,
             distinctId: 'trial-user',
             intentPrompt: prompt,
         })
-        expect(fetchPrompt).toHaveBeenCalledWith(
-            `https://prompts.example.com/api/environments/@current/llm_prompts/name/${prompt.prompt_name}/?token=phc_fake_analytics_project&version=${prompt.prompt_version}`,
-            expect.objectContaining({ headers: { Authorization: 'Bearer phx_fake_prompt_reader' } })
-        )
         const other = await executor.handleToolsList({ ...state, distinctId: 'another-user' })
-        fetchPrompt.mockRejectedValueOnce(new Error('Synthetic prompt fetch failure'))
-        const unavailable = await executor.handleToolsList({
-            ...state,
-            intentPrompt: { ...prompt, prompt_version: prompt.prompt_version + 10 },
-        })
         vi.spyOn(getPostHogClient(), 'prepareToolList').mockImplementationOnce(() => {
             throw new Error('Synthetic SDK preparation failure')
         })
@@ -248,9 +220,8 @@ describe('ToolExecutor analytics capture', () => {
         expect(properties).toHaveProperty('llm_model')
         expect(entry.inputSchema.required).toContain('context')
         expect(entry.inputSchema.required).toContain('llm_model')
-        expect(treatment.tools[0]!.inputSchema.properties?.context).toMatchObject({ description })
+        expect(treatment.tools[0]!.inputSchema.properties?.context).toMatchObject({ description: prompt })
         expect(other.tools[0]!.inputSchema.properties?.context).toEqual(properties.context)
-        expect(unavailable.tools[0]!.inputSchema.properties?.context).toEqual(properties.context)
         expect(properties.context).not.toEqual(treatment.tools[0]!.inputSchema.properties?.context)
         expect(fallback.tools[0]!.inputSchema.properties).not.toHaveProperty('context')
         if (useSingleExec) {

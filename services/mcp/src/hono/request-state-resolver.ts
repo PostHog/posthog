@@ -27,7 +27,7 @@ import type { Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/to
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
-import { type IntentPrompt, MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
+import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
     type InterviewRecruitmentConfig,
     resolveInterviewRecruitmentConfig,
@@ -51,7 +51,7 @@ export interface ResolvedState {
     useSingleExec: boolean
     toolFeatureFlags: EvaluatedFlags | undefined
     interviewRecruitmentConfig?: InterviewRecruitmentConfig
-    intentPrompt?: IntentPrompt
+    intentPrompt?: string
     apiKeyScopes: string[]
     isImpersonated?: boolean
     suppressAnalytics?: boolean
