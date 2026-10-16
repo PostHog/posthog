@@ -22,7 +22,7 @@ export function useSetPriorityAction(reportId: string): AsyncAction<[ReportPrior
             throw new NotSignedInError()
         }
         await postPriorityJudgment(reportId, priority)
-        track('mobile_report_priority_changed', { priority })
+        track('mobile_report_priority_changed', { report_id: reportId, priority })
         // The fallback inbox list sorts by priority.
         void queryClient.invalidateQueries({ queryKey: reportKeys.inbox(scope) })
         void queryClient.invalidateQueries({ queryKey: reportKeys.artefacts(scope, reportId) })

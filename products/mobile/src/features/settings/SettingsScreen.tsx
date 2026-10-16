@@ -6,6 +6,7 @@ import Animated, { useAnimatedScrollHandler, useReducedMotion, useSharedValue } 
 import { useAuthStore } from '@/auth/authStore'
 import { useViewer } from '@/auth/useViewer'
 import { useDemoMode } from '@/demo/demoMode'
+import { track } from '@/lib/analytics'
 import { isInternalBuild } from '@/lib/environment'
 import { EnvironmentRibbon } from '@/ui/EnvironmentRibbon'
 import { colors, layout, type } from '@/ui/tokens'
@@ -49,6 +50,7 @@ export function SettingsScreen(): ReactElement {
         }
     }
     const toggleDemo = (enabled: boolean): void => {
+        track(enabled ? 'mobile_demo_started' : 'mobile_demo_ended', { from: 'settings' })
         setDemo(enabled)
         if (!enabled && !signedIn) {
             router.replace('/sign-in')

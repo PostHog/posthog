@@ -69,7 +69,7 @@ It replaced the Products slot, which opened the web app's product library. `mobi
 
 The screen is one `SectionList`: a search field, Pinned, Recent and Browse.
 The screen publishes its header state to the shared tabs header (`useTabHeader('views', …)`, see DESIGN.md, "Tabs header"): the refresh hint from `useViewsList().refresh`, the refresh button's state, and the "Edit pins" row of the More menu.
-Loading, the pin list error and the sign-in state are separate screens. The sign-in state (`views-reauth`) shows when `useViewsAccess()` is not `ok`. When the last sign-in asked for a Views scope and the server still left it out, it shows "Views isn't available yet" (`views-unavailable`) without a sign-in button, because a new sign-in gets the same grant ([AUTH.md](AUTH.md), "Server-side ceiling").
+Loading, the pin list error and the sign-in state are separate screens. The pin list error sends `mobile_views_error_shown` (`screen: list`, `kind: failed`). The sign-in state (`views-reauth`) shows when `useViewsAccess()` is not `ok`. When the last sign-in asked for a Views scope and the server still left it out, it shows "Views isn't available yet" (`views-unavailable`) without a sign-in button, because a new sign-in gets the same grant ([AUTH.md](AUTH.md), "Server-side ceiling").
 
 ### Pins
 
@@ -93,6 +93,7 @@ The subtitle shows the tile's title.
 Picking Number or Chart on a dashboard pin without a tile opens "Choose tile" at once, with the first tile that can show that mode chosen.
 The sheet lists the dashboard's tiles from the cached dashboard, or one `force_cache` dashboard read when it has none or it is 5 minutes old.
 A pin shows one number or one line over time, so a funnel, a pie, a table, a text card, or a trends insight with several series or a breakdown cannot be its tile (`capabilitiesOf`).
+The sheet sends `mobile_pin_tile_sheet_opened` (`entry`: `show_as`, `menu` or `removed_tile`; `mode`) and, once per opening, `mobile_pin_tile_sheet_closed` (`entry`, `picked`, `tiles_usable`, `tiles_unusable`; the counts are null when it closed before the tiles loaded). `picked` is false for the automatic first choice. `mobile_pin_tile_chosen` still marks each choice.
 The tiles the mode can show come first, in dashboard order. The rest sit under "Can't show as a number" or "Can't show as a chart", disabled, each with its reason ("Has 3 series", "Has a breakdown", "Not a single number", "Not a chart over time", "Text card"; `tileEligibility.ts`). When no tile fits, the header says so.
 A pin whose tile is gone (its insight answers 404, or the cached dashboard no longer has the tile) shows as a row with "The chosen tile was removed. Choose another."
 
@@ -102,11 +103,11 @@ A pin whose tile is gone (its insight answers 404, or the cached dashboard no lo
 - Long press a Recent, Browse or search row for Pin to Views (or Unpin) and Open.
 - Swipe a row left for Pin or Unpin. Chart pins have no swipe, because their plot takes horizontal drags.
 - Every Recent, Browse and search row has a pin button.
-- "Edit pins" (the More menu's Views section, or Edit next to Pinned) lists the pins with a remove button, a Row, Number and Chart toggle, and a drag handle. Screen readers move a pin with the handle's actions.
+- "Edit pins" (the More menu's Views section, or Edit next to Pinned) lists the pins with a remove button, a Row, Number and Chart toggle, and a drag handle. Screen readers move a pin with the handle's actions. It sends `mobile_edit_pins_opened` (`from`: `section` or `menu`; `pin_count`) and `mobile_edit_pins_closed` (`reason`: `done` or `no_pins`; `changes`, the number of reorders, moves, mode changes and removals; `duration_s`).
 
 Order and modes go to the device-local prefs through `usePinActions` (`move`, `reorder`, `setDisplayMode`, `chooseTile`). The app never writes the server's `order`.
 Pin and unpin show a toast with Undo, from the list, Browse and a view's pin button alike (`ViewsToast` and `useToasts`). The toast draws through the nearest `OverlayHost`, so it sits above the tab bar and any open sheet.
-Undo pins the view again as a new row, so it comes back as a Row at the end of the list.
+Undo pins the view again as a new row, so it comes back as a Row at the end of the list. An undo sends `mobile_view_pinned` or `mobile_view_unpinned` with `from: undo`.
 Pin and unpin of one view run one after another from every screen (`pinView`, `unpinView`): a second tap waits for the first instead of being dropped, the toast shows once the change is saved, and an unpin made while a pin saves deletes the row that pin created.
 
 ### Search and Browse
@@ -114,6 +115,8 @@ Pin and unpin of one view run one after another from every screen (`pinView`, `u
 Search shows local matches first (pins as their cards, Recent rows), then dashboards and insights from the server, without the views already shown.
 Browse has Dashboards, Insights, Web analytics and Recordings. Recordings opens the project's replay list on the web and shows an external-link icon on its row.
 The Dashboards and Insights lists (`app/views/browse/*.tsx`, `src/features/views/browse/BrowseListScreen.tsx`) load 30 rows at a time and search on the server with `useBrowseSearch`.
+Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `insights`; `from`: `browse` or `search`). Each next page that loads sends `mobile_browse_list_paged` (`section`, `pages_loaded`), and a failed first page sends `mobile_views_error_shown` (`screen: browse`).
+`mobile_views_searched` (`section`: `views`, `dashboards` or `insights`; `query_length`, `result_count`) goes once per settled query, from the Views list and from each Browse list.
 
 ### Routes
 
@@ -135,14 +138,14 @@ Deep links work: `posthog://views/dashboard/demo-dash-kpis`, `posthog://views/in
 The dashboard, insight and web analytics screens (`app/views/dashboard/[id].tsx`, `app/views/insight/[shortId].tsx`, `app/views/web-analytics.tsx`) share one frame:
 
 - `ViewScreenFrame` puts an `OverlayHost` above `ChartSheetsProvider` and `ChartSelectionProvider`. View screens are pushed above the tabs, so they bring their own host for sheets and toasts. The sheets draw outside the chart selection, so a pinned tooltip stays behind an open Point sheet.
-- `ViewChrome` is the floating top row: Back (`view-back`), the refresh button (`views-refresh`) and More (`view-more`, "Open on web").
+- `ViewChrome` is the floating top row: Back (`view-back`), the refresh button (`views-refresh`) and More (`view-more`, "Open on web"). The More sheet sends `mobile_view_more_opened` (`view_type`) when it opens.
 - `ViewTitle` holds the title with the pin button (`view-pin`), the status line (`views-updated`), the refresh hint, the date range control and the resolved dates.
 - `ViewsReauthState` replaces the content when `useViewsAccess()` is not `ok`, on the list and on every view screen.
-- `ViewErrorState`: "This view was deleted" (`view-deleted`), no access (`view-no-access`) or a failed read (`view-error`), with Unpin when the view is pinned. `RefreshFailedBanner` shows when a visible item's last read failed, and failed values dim to 50%.
+- `ViewErrorState`: "This view was deleted" (`view-deleted`), no access (`view-no-access`) or a failed read (`view-error`), with Unpin when the view is pinned. It sends `mobile_views_error_shown` (`screen`: the view type; `kind`: `deleted`, `no_access`, `scope` or `failed`). `RefreshFailedBanner` shows when a visible item's last read failed, and failed values dim to 50%.
 
 | Screen | Content |
 | --- | --- |
-| Dashboard | Tiles in one column (`FlatList`, `ChartCanvasBudget` keyed by tile id). A tile is a number, a line or bar chart, funnel steps, a retention grid, a bar list, a card that opens on the web, or a text card. Tiles that the phone draws have a full-screen button in their head (`view-tile-fullscreen-{tileId}`). Tiles with their own date range say "Uses its own range" and keep their numbers when the range changes. |
+| Dashboard | Tiles in one column (`FlatList`, `ChartCanvasBudget` keyed by tile id). The first time the dashboard shows, it sends `mobile_dashboard_tiles_shown` (`tiles_total`, `tiles_text`, `tiles_web_only`). A tile is a number, a line or bar chart, funnel steps, a retention grid, a bar list, a card that opens on the web, or a text card. Tiles that the phone draws have a full-screen button in their head (`view-tile-fullscreen-{tileId}`). Tiles with their own date range say "Uses its own range" and keep their numbers when the range changes. |
 | Insight | The big number with its change pill, then the visual (`InsightVisual`) under a caption row with the full-screen button (`view-fullscreen`), ⓘ for "About this chart" (`view-about`). |
 | Web analytics | The overview numbers in two columns, each with its change from the previous period. It always compares, as the web's overview tile does. |
 
@@ -165,7 +168,7 @@ A range change reads with `blocking`, never `force_*`: the new override is a new
 While the new range loads, the insight and web analytics screens keep the previous values on screen (`rangeLoading`), and dashboard tiles keep their layout.
 Dashboard rows count as visible by tile id, because a range change gives every tile a new item key while the list keeps the same rows.
 Number and Chart pins in the list keep the saved range. Ranges last for the session, per view, in memory.
-`useViewRange` sends `mobile_date_range_changed` (`chip`, `more`, `custom`, `step`, `reset`) and `mobile_date_range_compared`.
+`useViewRange` sends `mobile_date_range_changed` (`chip`, `more`, `custom`, `step`, `reset`) and `mobile_date_range_compared`. The sheet sends `mobile_date_range_sheet_opened` (`view_type`; `entry`: `button`, `not_saved` or `accessibility`) when it opens.
 
 ## Charts beyond line and bar
 

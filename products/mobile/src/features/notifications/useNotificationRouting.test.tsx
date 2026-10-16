@@ -66,7 +66,7 @@ test('keeps a cold-start tap pending until sign-in, then opens its report once',
     expect(router.push).not.toHaveBeenCalled()
 
     act(() => useAuthStore.setState({ status: 'signed_in' }))
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/report/report-1'))
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/report/report-1?from=push'))
     const listener = jest.mocked(Notifications.addNotificationResponseReceivedListener).mock.calls[0]?.[0]
     if (!listener) {
         throw new Error('Notification tap listener was not registered')

@@ -2,12 +2,15 @@ import type { BudgetFamily } from '@/api/budget'
 import { track } from '@/lib/analytics'
 import type { PinDisplayMode, ViewEntry, ViewKind } from '@/model/views'
 
+import type { ItemErrorKind } from './viewsCache'
+
 // Typed wrappers for the Views events, so every screen sends the same property names and values.
 
 export type ViewsScreen = 'list' | 'dashboard' | 'insight' | 'web_analytics'
 export type RefreshTrigger = 'focus' | 'foreground' | 'button' | 'pull' | 'range'
 export type BlockedReason = 'bulk_floor' | 'dashboard_floor' | 'item_window'
-export type PinSource = 'header' | 'row_menu' | 'swipe' | 'search'
+/** `undo` is the toast's Undo, which reverses the pin or unpin just before it. */
+export type PinSource = 'header' | 'row_menu' | 'swipe' | 'search' | 'undo'
 export type RangeMethod = 'chip' | 'more' | 'custom' | 'step' | 'reset'
 
 export function trackViewsOpened(props: { pinnedCount: number; fromCache: boolean }): void {
@@ -110,8 +113,14 @@ export function trackViewsRefreshed(report: RefreshPassReport, now: number = Dat
     })
 }
 
-export function trackViewsSearched(props: { queryLength: number; resultCount: number }): void {
-    track('mobile_views_searched', { query_length: props.queryLength, result_count: props.resultCount })
+export type SearchSection = 'views' | 'dashboards' | 'insights'
+
+export function trackViewsSearched(props: { section: SearchSection; queryLength: number; resultCount: number }): void {
+    track('mobile_views_searched', {
+        section: props.section,
+        query_length: props.queryLength,
+        result_count: props.resultCount,
+    })
 }
 
 export function trackDateRangeChanged(props: {
@@ -159,4 +168,75 @@ export function trackViewsReauthShown(props: {
     state: 'reauth' | 'unavailable' | 'personal-key-missing-scopes'
 }): void {
     track('mobile_views_reauth_shown', { missing_scope: props.missingScope, state: props.state })
+}
+
+export type BrowseSection = 'dashboards' | 'insights'
+
+export function trackBrowseListOpened(props: { section: BrowseSection; from: 'browse' | 'search' }): void {
+    track('mobile_browse_list_opened', { section: props.section, from: props.from })
+}
+
+export function trackBrowseListPaged(props: { section: BrowseSection; pagesLoaded: number }): void {
+    track('mobile_browse_list_paged', { section: props.section, pages_loaded: props.pagesLoaded })
+}
+
+export type EditPinsEntry = 'section' | 'menu'
+
+export function trackEditPinsOpened(props: { from: EditPinsEntry; pinCount: number }): void {
+    track('mobile_edit_pins_opened', { from: props.from, pin_count: props.pinCount })
+}
+
+export function trackEditPinsClosed(props: {
+    reason: 'done' | 'no_pins'
+    changes: number
+    durationSeconds: number
+}): void {
+    track('mobile_edit_pins_closed', {
+        reason: props.reason,
+        changes: props.changes,
+        duration_s: props.durationSeconds,
+    })
+}
+
+export type TileSheetEntry = 'show_as' | 'menu' | 'removed_tile'
+
+export function trackPinTileSheetOpened(props: { entry: TileSheetEntry; mode: 'number' | 'chart' }): void {
+    track('mobile_pin_tile_sheet_opened', { entry: props.entry, mode: props.mode })
+}
+
+/** The tile counts are null when the sheet closed before the dashboard's tiles loaded. */
+export function trackPinTileSheetClosed(props: {
+    entry: TileSheetEntry
+    picked: boolean
+    tilesUsable: number | null
+    tilesUnusable: number | null
+}): void {
+    track('mobile_pin_tile_sheet_closed', {
+        entry: props.entry,
+        picked: props.picked,
+        tiles_usable: props.tilesUsable,
+        tiles_unusable: props.tilesUnusable,
+    })
+}
+
+export function trackViewsErrorShown(props: { screen: ViewsScreen | 'browse'; kind: ItemErrorKind }): void {
+    track('mobile_views_error_shown', { screen: props.screen, kind: props.kind })
+}
+
+export type RangeSheetEntry = 'button' | 'not_saved' | 'accessibility'
+
+export function trackDateRangeSheetOpened(props: { viewType: ViewKind; entry: RangeSheetEntry }): void {
+    track('mobile_date_range_sheet_opened', { view_type: props.viewType, entry: props.entry })
+}
+
+export function trackViewMoreOpened(props: { viewType: ViewKind }): void {
+    track('mobile_view_more_opened', { view_type: props.viewType })
+}
+
+export function trackDashboardTilesShown(props: { tilesTotal: number; tilesText: number; tilesWebOnly: number }): void {
+    track('mobile_dashboard_tiles_shown', {
+        tiles_total: props.tilesTotal,
+        tiles_text: props.tilesText,
+        tiles_web_only: props.tilesWebOnly,
+    })
 }

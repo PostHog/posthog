@@ -11,7 +11,12 @@ function blockKey(block: EvidenceBlock, index: number): string {
     return `${block.kind}-${index}`
 }
 
-export function Evidence({ blocks }: { blocks: EvidenceBlock[] }): ReactElement | null {
+interface EvidenceProps {
+    blocks: EvidenceBlock[]
+    reportId: string
+}
+
+export function Evidence({ blocks, reportId }: EvidenceProps): ReactElement | null {
     if (blocks.length === 0) {
         return null
     }
@@ -21,7 +26,7 @@ export function Evidence({ blocks }: { blocks: EvidenceBlock[] }): ReactElement 
                 <View key={blockKey(block, index)} style={index === 0 ? styles.first : styles.next}>
                     {block.kind === 'trace' ? <EvidenceTrace block={block} /> : null}
                     {block.kind === 'quotes' ? <EvidenceQuotes block={block} /> : null}
-                    {block.kind === 'replay' ? <ReplayRow block={block} /> : null}
+                    {block.kind === 'replay' ? <ReplayRow block={block} reportId={reportId} /> : null}
                 </View>
             ))}
         </View>

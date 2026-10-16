@@ -41,12 +41,15 @@ A server from before `for_you/` paged sends no `next`, so the list then shows it
 Each page ranks the reports again, so a report that moved can come back on a later page; `reportsFromPages()` keeps its first place.
 A next page that fails shows "Couldn't load more reports." and "Try again" under the list.
 `mobile_inbox_page_requested` carries the page number of each next-page request.
+`mobile_inbox_error_shown` carries `during` (`load` for the full-screen error, `next_page` for the footer) and, for `load`, `kind` (`scope`, `auth`, `forbidden`, `not_found`, `server`, `network`, `unknown`).
+`mobile_inbox_empty_shown` is sent each time the list shows "Nothing needs you right now".
 
 Read states are fetched once per page, so a new page does not ask again for the pages above it.
 
 Pull to refresh, and the refresh button, keep only the first page and refetch it and the read states.
 Refetching every loaded page would rank the whole list once per page.
 The refresh button also scrolls the list back to the top.
+`mobile_inbox_refreshed` carries `trigger`: `pull`, `button` (the header refresh button) or `retry` (the error screen's "Try again").
 A change made on the report screen (resolve, dismiss, reviewers, priority, hand-off) refetches every loaded page in the background.
 
 ## Inbox rows
@@ -79,6 +82,10 @@ The screen and the prefetcher share the query factories in `src/features/report/
 The report screen renders the cached copy at once and refetches it on every open, and on Prev/Next.
 A failed background refetch keeps the cached copy.
 `mobile_report_opened` carries `from_cache`, true when the report detail was in the cache when the screen opened.
+It also carries `from`, read from the route's `from` param: `inbox` (a row tap), `push` (a notification), `adjacent` (Prev/Next) or `deep_link` (no param or an unknown one).
+`mobile_report_load_failed` is sent when the screen shows "Couldn't load this report", with `report_id` and `kind` as for the inbox error, or with `kind: invalid_id` and no id for "Couldn't find this report".
+`mobile_report_read` is sent once when the report body unmounts (Back or Prev/Next), with `report_id`, `dwell_s` (whole seconds the screen had focus with the app in the foreground) and `scrolled_to_end` (the deepest scroll came within 160 px of the content end, or the content fit on screen).
+`mobile_report_replay_opened` carries `report_id` and `replay_count` when "Watch a session" opens the recording on the web.
 
 `reportView(...)` rules:
 
@@ -163,8 +170,11 @@ The query endpoint needs the `query:read` scope. Without it the request answers 
 
 ## Actions
 
+- **Sheets.** `mobile_report_sheet_opened` carries `sheet` (`handoff`, `resolve`, `dismiss`, `assignee`, `priority`, `decision`, `pull_request_picker`), `from` (`action_bar`, `chip` for the owner and priority chips, `inbox_menu`) and `report_id`. `mobile_report_sheet_dismissed` carries the same properties and is sent only when the sheet closes without its completion: a successful resolve, dismiss, priority or reviewer save, a hand-off attempt, an external agent opened or a prompt copied, a picked pull request, or an answer sent. The completion events below carry `report_id`.
+- **Outcomes.** `mobile_report_resolved` and `mobile_report_dismissed` carry `reason` and `has_note`, never the note. `mobile_report_priority_changed` carries `priority`. `mobile_reviewers_changed` carries `count`. `mobile_inbox_report_menu_action` stays the record of which row menu choice was picked; sheets opened from it also send `mobile_report_sheet_opened` with `from: inbox_menu`.
 - **Read state.** Only a fresh, successful server response of `false` marks a row unread. Pending, missing and failed lookups stay quiet. The inbox refreshes read state every 30 seconds while focused in the foreground, and when it becomes active again. Rows show an unread dot; the menu counts unread reports in the loaded pages.
 - **Mark read.** `useMarkReadOnOpen` posts `read: true` after the report loads, including on Prev/Next. Separate reports can post concurrently. The cached state updates at once; a failed write restores that report's previous state without replacing other reports' updates. In-flight lookups cannot overwrite a pending read, and account or project changes invalidate the pending operation.
+  `mobile_report_marked_read` and `mobile_report_marked_unread` are sent after the server accepts the write, with `trigger`: `open` for this automatic mark, `manual` for a swipe or a row menu choice.
 - **Reviewers.** The sheet sends the full list of uuids. Reviewers that exist only as a GitHub login on the newest artefact are sent back as `{github_login}`, because the PUT replaces the whole list. The PUT takes at most 10 entries, so the sheet stops adding people when the selection plus the GitHub-only reviewers reaches 10. The hook waits for the work log to refetch so the sheet closes on the new list. A failed save keeps the sheet open with the error.
 - **Reviewer search.** Debounced by 250 ms, cached for 5 minutes, and the previous results stay on screen while the next search loads.
 

@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import { type ReactElement, useEffect } from 'react'
 import { Linking, StyleSheet, Text, View } from 'react-native'
 
 import { safeHttpsUrl } from '@/lib/urls'
@@ -8,7 +8,7 @@ import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, radii, type } from '@/ui/tokens'
 
-import { trackViewOpenedInWeb } from '../analytics'
+import { trackViewMoreOpened, trackViewOpenedInWeb } from '../analytics'
 
 interface ViewMoreSheetProps {
     visible: boolean
@@ -21,6 +21,11 @@ interface ViewMoreSheetProps {
 /** The view's More menu. The web has the full editor, so the menu hands off to it. */
 export function ViewMoreSheet({ visible, onClose, webUrl, viewType }: ViewMoreSheetProps): ReactElement {
     const safe = webUrl ? safeHttpsUrl(webUrl) : undefined
+    useEffect(() => {
+        if (visible) {
+            trackViewMoreOpened({ viewType })
+        }
+    }, [visible, viewType])
     return (
         <BottomSheet
             visible={visible}

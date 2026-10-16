@@ -15,6 +15,8 @@ import { HandoffSplitButton } from './HandoffSplitButton'
 import { PullRequestCard } from './PullRequestCard'
 import type { HandoffAnswer } from './types'
 
+export type TaskChatEntry = 'status_card' | 'decided_card' | 'pr_card'
+
 interface ActionBarProps {
     report: ReportView
     state: ActionBarState
@@ -26,7 +28,7 @@ interface ActionBarProps {
     onResolve: () => void
     onDismiss: () => void
     onChat: () => void
-    onTaskChat?: () => void
+    onTaskChat?: (entry: TaskChatEntry) => void
 }
 
 export function ActionBar({
@@ -45,6 +47,8 @@ export function ActionBar({
     const insets = useScreenInsets()
     const hasPullRequests = state.pullRequests.length > 0
     const activity = state.activity
+    const taskChatFrom = (entry: TaskChatEntry): (() => void) | undefined =>
+        onTaskChat && !hasPullRequests ? () => onTaskChat(entry) : undefined
     const footerState = state.request
         ? 'decision'
         : hasPullRequests
@@ -63,7 +67,7 @@ export function ActionBar({
                     title={activity.title}
                     meta={activity.meta}
                     tone={activity.tone}
-                    onOpenChat={hasPullRequests ? undefined : onTaskChat}
+                    onOpenChat={taskChatFrom('status_card')}
                     testID={activity.tone === 'stopped' ? 'agent-stopped-card' : 'agent-status-card'}
                 />
             ) : null}
@@ -72,7 +76,7 @@ export function ActionBar({
                     title={state.answer.text}
                     meta={state.answer.meta}
                     tone="idle"
-                    onOpenChat={hasPullRequests ? undefined : onTaskChat}
+                    onOpenChat={taskChatFrom('decided_card')}
                     {...(answer?.canUndo ? { onUndo: () => void actions.undoDecision() } : {})}
                     testID="decided-card"
                 />
@@ -81,6 +85,7 @@ export function ActionBar({
                 <DecisionRequest
                     key={state.request.id}
                     question={state.request}
+                    reportId={report.id}
                     pending={actions.pending.answer}
                     onAnswer={(input) => void actions.answerDecision(input)}
                     notice={notice}
@@ -101,7 +106,11 @@ export function ActionBar({
                     </Text>
                 ) : null}
                 {hasPullRequests ? (
-                    <PullRequestCard pullRequests={state.pullRequests} onTaskChat={onTaskChat} reportId={report.id}>
+                    <PullRequestCard
+                        pullRequests={state.pullRequests}
+                        onTaskChat={onTaskChat ? () => onTaskChat('pr_card') : undefined}
+                        reportId={report.id}
+                    >
                         {activity || state.request || state.answer ? activityContent : null}
                     </PullRequestCard>
                 ) : activity || state.request || state.answer ? (

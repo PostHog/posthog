@@ -3,6 +3,7 @@ import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 
+import { track } from '@/lib/analytics'
 import { POSTHOG_AGENT } from '@/model/agent'
 import type { ReportView } from '@/model/types'
 import { BottomSheet } from '@/ui/BottomSheet'
@@ -20,7 +21,7 @@ import {
     type ExternalHandoffTarget,
     externalHandoffPrompt,
     handoffRepository,
-    openExternalHandoff,
+    launchExternalHandoff,
 } from './externalHandoff'
 import { type HandoffOptionRow, HandoffOptionRows } from './HandoffOptionRows'
 import { useHandoffPreferenceStore } from './handoffPreferenceStore'
@@ -49,10 +50,19 @@ interface HandoffSheetProps {
     report: ReportView
     onClose: () => void
     onHandOff: () => void
+    /** Called after an external agent opens or the prompt is copied. */
+    onExternalHandoff?: () => void
     pending: boolean
 }
 
-export function HandoffSheet({ visible, report, onClose, onHandOff, pending }: HandoffSheetProps): ReactElement {
+export function HandoffSheet({
+    visible,
+    report,
+    onClose,
+    onHandOff,
+    onExternalHandoff,
+    pending,
+}: HandoffSheetProps): ReactElement {
     const [copied, setCopied] = useState(false)
     const [page, setPage] = useState<Page>('main')
     const [activeAction, setActiveAction] = useState<ExternalHandoffTarget | 'copy' | null>(null)
@@ -110,6 +120,7 @@ export function HandoffSheet({ visible, report, onClose, onHandOff, pending }: H
         try {
             if (target === 'copy') {
                 await Clipboard.setStringAsync(externalHandoffPrompt(report))
+                track('mobile_handoff_prompt_copied', { report_id: report.id })
                 setCopied(true)
                 if (timer.current) {
                     clearTimeout(timer.current)
@@ -117,8 +128,9 @@ export function HandoffSheet({ visible, report, onClose, onHandOff, pending }: H
                 timer.current = setTimeout(() => setCopied(false), COPIED_MS)
             } else {
                 useHandoffPreferenceStore.getState().setTarget(target)
-                await openExternalHandoff(target, report)
+                await launchExternalHandoff(target, report, 'sheet')
             }
+            onExternalHandoff?.()
         } catch (cause) {
             setError(target === 'copy' ? "Couldn't copy the prompt. Try again." : (cause as Error).message)
         } finally {

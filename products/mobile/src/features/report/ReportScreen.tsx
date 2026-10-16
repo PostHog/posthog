@@ -3,10 +3,10 @@ import { useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
-
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
 import { useDataMode } from '@/demo/demoMode'
+import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
 import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import type { ReportPriority, ReportView } from '@/model/types'
@@ -22,7 +22,7 @@ import { LoadingView, StateView } from '@/ui/StateView'
 import { colors, iconSizes, layout } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
-import { ActionBar } from '../handoff/ActionBar'
+import { ActionBar, type TaskChatEntry } from '../handoff/ActionBar'
 import { actionBarStateFor } from '../handoff/actionBarState'
 import { HandoffSheet } from '../handoff/HandoffSheet'
 import { useDecisionAnswer, useHandoffNotice } from '../handoff/hooks'
@@ -43,9 +43,12 @@ import { ObservationCard } from './metrics/ObservationCard'
 import { ReportCharts } from './metrics/ReportCharts'
 import { reportDetailQuery } from './queries'
 import { ReportMeta } from './ReportMeta'
+import { apiErrorKind, type ReportOpenSource, type SheetEntry, useSheetFunnel } from './reportAnalytics'
 import { TOP_CHROME_BOTTOM, TopChrome } from './TopChrome'
+import { useReportReadTracking } from './useReportReadTracking'
 
-type Overlay = 'none' | 'handoff' | 'resolve' | 'dismiss' | 'assignee' | 'priority'
+type Sheet = 'handoff' | 'resolve' | 'dismiss' | 'assignee' | 'priority'
+type Overlay = 'none' | Sheet
 
 const CONTENT_TOP = 116
 /** The gap between the chrome and the headline at rest, so the title reveal ends as the headline fully passes under. */
@@ -53,6 +56,7 @@ const HEADLINE_GAP = CONTENT_TOP - TOP_CHROME_BOTTOM
 
 interface ReportScreenProps {
     reportId: string
+    from: ReportOpenSource
 }
 
 function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
@@ -63,11 +67,11 @@ function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
     }
 }
 
-export function ReportScreen({ reportId }: ReportScreenProps): ReactElement {
+export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElement {
     const demo = useDataMode() === 'demo'
     return (
         <OverlayHost>
-            {isReportId(reportId, demo) ? <ReportContent reportId={reportId} /> : <ReportNotFound />}
+            {isReportId(reportId, demo) ? <ReportContent reportId={reportId} from={from} /> : <ReportNotFound />}
         </OverlayHost>
     )
 }
@@ -75,6 +79,10 @@ export function ReportScreen({ reportId }: ReportScreenProps): ReactElement {
 function ReportNotFound(): ReactElement {
     const router = useRouter()
     const goBack = (): void => goBackOrInbox(router)
+    // The id is not a report id and can be any text from a link, so it is not sent.
+    useEffect(() => {
+        track('mobile_report_load_failed', { kind: 'invalid_id' })
+    }, [])
     return (
         <View style={styles.screen}>
             <TopChrome onBack={goBack} />
@@ -90,7 +98,7 @@ function ReportNotFound(): ReactElement {
     )
 }
 
-function ReportContent({ reportId }: ReportScreenProps): ReactElement {
+function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     const router = useRouter()
     const viewer = useViewer()
     const query = useReportWithLiveRun(reportId)
@@ -101,6 +109,7 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
     const notice = useHandoffNotice(reportId)
     const githubOnlyReviewers = useGithubOnlyReviewerCount(reportId)
     const [overlay, setOverlay] = useState<Overlay>('none')
+    const sheets = useSheetFunnel(reportId)
     useMarkReadOnOpen(query.data?.id)
     const queryClient = useQueryClient()
     const scope = useProjectScope()
@@ -110,12 +119,33 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
     // biome-ignore lint/correctness/useExhaustiveDependencies: one event per opened report, not per scope or mode change.
     useEffect(() => {
         const fromCache = !demo && queryClient.getQueryData(reportDetailQuery(scope, reportId).queryKey) !== undefined
-        track('mobile_report_opened', { report_id: reportId, from_cache: fromCache })
+        track('mobile_report_opened', { report_id: reportId, from_cache: fromCache, from })
     }, [reportId])
 
+    // A background refetch that fails keeps the cached report, so only a report that never loaded counts.
+    const loadFailed = !query.data && query.isError
+    // biome-ignore lint/correctness/useExhaustiveDependencies: one event each time the error screen appears.
+    useEffect(() => {
+        if (loadFailed) {
+            track('mobile_report_load_failed', { report_id: reportId, kind: apiErrorKind(query.error) })
+        }
+    }, [loadFailed, reportId])
+
     const goBack = (): void => goBackOrInbox(router)
-    const goTo = (id: string | undefined): (() => void) | undefined => (id ? () => router.setParams({ id }) : undefined)
-    const closeOverlay = (): void => setOverlay('none')
+    const goTo = (id: string | undefined): (() => void) | undefined =>
+        id ? () => router.setParams({ id, from: 'adjacent' }) : undefined
+    const openSheet = (sheet: Sheet, entry: SheetEntry): void => {
+        sheets.opened(sheet, entry)
+        setOverlay(sheet)
+    }
+    const closeOverlay = (): void => {
+        sheets.closed()
+        setOverlay('none')
+    }
+    const completeOverlay = (): void => {
+        sheets.completed()
+        closeOverlay()
+    }
 
     const report = query.data
     if (!report) {
@@ -141,34 +171,56 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
     const state = actionBarStateFor(report, { answer, handOffPending: actions.pending.handOff })
     const task = report.task
     const taskId = task?.taskId ?? report.work.assignee?.taskId
-    const openTaskChat = (): void => {
+    const openTaskChat = (entry: TaskChatEntry): void => {
         if (taskId) {
+            track('mobile_report_action_pressed', {
+                action: 'task_chat',
+                from: entry,
+                report_id: report.id,
+                run_status: task?.status,
+            })
             router.push({
                 pathname: '/chat',
-                params: { taskId, ...(task?.runId ? { runId: task.runId } : {}) },
+                params: {
+                    taskId,
+                    entry: 'report_task' satisfies ChatSheetEntry,
+                    ...(task?.runId ? { runId: task.runId } : {}),
+                },
             })
         }
     }
     // A resolved or dismissed report leaves the inbox, so the screen goes back to it.
     const resolve = async (reason: ResolveReason, note: string): Promise<void> => {
         await actions.resolve(reason, note)
-        closeOverlay()
+        completeOverlay()
         goBack()
     }
     const dismiss = async (reason: DismissReason, note: string): Promise<void> => {
         await actions.dismiss(reason, note)
-        closeOverlay()
+        completeOverlay()
         goBack()
     }
     const title = headlineText(report.headline)
     const hasOpenPr = hasOpenPullRequest(state.pullRequests)
+    // The sheet closes after a hand-off whether or not it starts, and `mobile_handoff_failed` records a failure,
+    // so the attempt itself completes the sheet.
     const handOff = async (): Promise<void> => {
+        sheets.completed()
         await actions.handOff()
         closeOverlay()
     }
     const setPriority = async (priority: ReportPriority): Promise<void> => {
         await actions.setPriority(priority)
-        closeOverlay()
+        completeOverlay()
+    }
+    // The assignee sheet closes itself after a save, so the save only marks it complete.
+    const setReviewers = async (uuids: string[]): Promise<void> => {
+        await actions.setReviewers(uuids)
+        sheets.completed()
+    }
+    const openChat = (): void => {
+        track('mobile_report_action_pressed', { action: 'chat', from: 'action_bar', report_id: report.id })
+        router.push({ pathname: '/chat', params: { reportId: report.id, entry: 'report' satisfies ChatSheetEntry } })
     }
 
     return (
@@ -181,8 +233,8 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
                 onBack={goBack}
                 onPrevious={goTo(neighbors.previousId)}
                 onNext={goTo(neighbors.nextId)}
-                onReassign={() => setOverlay('assignee')}
-                onChangePriority={() => setOverlay('priority')}
+                onReassign={() => openSheet('assignee', 'chip')}
+                onChangePriority={() => openSheet('priority', 'chip')}
             />
             <ActionBar
                 report={report}
@@ -190,11 +242,11 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
                 answer={answer}
                 notice={notice}
                 actions={actions}
-                onOpenHandoff={() => setOverlay('handoff')}
-                onReassign={() => setOverlay('assignee')}
-                onResolve={() => setOverlay('resolve')}
-                onDismiss={() => setOverlay('dismiss')}
-                onChat={() => router.push({ pathname: '/chat', params: { reportId: report.id } })}
+                onOpenHandoff={() => openSheet('handoff', 'action_bar')}
+                onReassign={() => openSheet('assignee', 'action_bar')}
+                onResolve={() => openSheet('resolve', 'action_bar')}
+                onDismiss={() => openSheet('dismiss', 'action_bar')}
+                onChat={openChat}
                 onTaskChat={taskId ? openTaskChat : undefined}
             />
             <HandoffSheet
@@ -202,6 +254,7 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
                 report={report}
                 onClose={closeOverlay}
                 onHandOff={() => void handOff()}
+                onExternalHandoff={sheets.completed}
                 pending={actions.pending.handOff}
             />
             <VerdictSheet
@@ -227,7 +280,7 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
                 current={report.reviewers}
                 githubOnlyCount={githubOnlyReviewers}
                 onClose={closeOverlay}
-                onSave={actions.setReviewers}
+                onSave={setReviewers}
                 pending={actions.pending.reviewers}
             />
             <PrioritySheet
@@ -266,8 +319,11 @@ function ReportBody({
     const insets = useScreenInsets()
     const [headlineHeight, setHeadlineHeight] = useState(0)
     const scrollY = useSharedValue(0)
+    const reading = useReportReadTracking(report.id)
+    const { maxScrollY } = reading
     const onScroll = useAnimatedScrollHandler((event) => {
         scrollY.value = event.contentOffset.y
+        maxScrollY.value = Math.max(maxScrollY.value, event.contentOffset.y)
     })
     return (
         <View style={styles.body}>
@@ -276,6 +332,8 @@ function ReportBody({
                 contentContainerStyle={[styles.content, { paddingTop: topOffset(insets, CONTENT_TOP) }]}
                 keyboardShouldPersistTaps="handled"
                 onScroll={onScroll}
+                onLayout={reading.onLayout}
+                onContentSizeChange={reading.onContentSizeChange}
                 scrollEventThrottle={16}
                 testID="report-scroll"
             >
@@ -286,7 +344,7 @@ function ReportBody({
                     meta={<ReportMeta report={report} onReassign={onReassign} onChangePriority={onChangePriority} />}
                     onHeadlineHeight={setHeadlineHeight}
                 />
-                <Evidence blocks={report.evidence} />
+                <Evidence blocks={report.evidence} reportId={report.id} />
                 <Facts facts={report.facts} />
                 {report.observation ? (
                     <ObservationCard metric={report.observation} reportId={report.id} accent={report.accent} />

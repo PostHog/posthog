@@ -2,8 +2,10 @@ import Constants from 'expo-constants'
 import * as Notifications from 'expo-notifications'
 import { Platform } from 'react-native'
 
+import { ApiError } from '@/api/client'
 import { registerPushToken, unregisterPushToken } from '@/api/pushTokens'
 import { useAuthStore } from '@/auth/authStore'
+import { track } from '@/lib/analytics'
 import { toError } from '@/lib/errors'
 import { foregroundNotificationBehavior } from './foregroundNotifications'
 import { type PushPermission, usePushStore, waitForPushHydration } from './pushStore'
@@ -17,6 +19,25 @@ const UNREGISTER_TIMEOUT_MS = 4_000
 
 /** `never`: register only if already granted. `once`: ask the first time after sign in. `always`: ask while allowed. */
 export type PromptPolicy = 'never' | 'once' | 'always'
+
+/** `auto`: the first signed-in run. `settings`: the Enable button. `background`: a token change or a return to the app. */
+const TRIGGERS: Record<PromptPolicy, 'auto' | 'settings' | 'background'> = {
+    once: 'auto',
+    always: 'settings',
+    never: 'background',
+}
+
+type RegistrationFailure = 'token_unavailable' | 'network' | 'api_error' | 'unknown'
+
+function registrationFailure(error: unknown, gotToken: boolean): RegistrationFailure {
+    if (!gotToken) {
+        return 'token_unavailable'
+    }
+    if (error instanceof ApiError) {
+        return 'api_error'
+    }
+    return error instanceof TypeError ? 'network' : 'unknown'
+}
 
 export function configureNotifications(): void {
     if (!notificationsSupported()) {
@@ -76,6 +97,11 @@ async function syncOnce(policy: PromptPolicy): Promise<void> {
     if (toPermission(status) !== 'granted' && status.canAskAgain && mayPrompt) {
         usePushStore.setState({ prompted: true })
         status = await Notifications.requestPermissionsAsync()
+        track('mobile_push_permission_resolved', {
+            permission: toPermission(status),
+            can_ask_again: status.canAskAgain,
+            trigger: TRIGGERS[policy],
+        })
     }
     const permission = toPermission(status)
     usePushStore.setState({ permission, canAskAgain: status.canAskAgain, unavailableReason: null })
@@ -83,11 +109,13 @@ async function syncOnce(policy: PromptPolicy): Promise<void> {
         return
     }
     usePushStore.setState({ registering: true, error: null })
+    let gotToken = false
     try {
         const projectId: unknown = Constants.expoConfig?.extra?.eas?.projectId
         const { data: token } = await Notifications.getExpoPushTokenAsync(
             typeof projectId === 'string' ? { projectId } : {}
         )
+        gotToken = true
         const previous = usePushStore.getState()
         await registerPushToken(token, Platform.OS === 'ios' ? 'ios' : 'android')
         if (previous.token && previous.token !== token && previous.registeredFor === key) {
@@ -95,8 +123,17 @@ async function syncOnce(policy: PromptPolicy): Promise<void> {
             unregisterPushToken(previous.token).catch(() => undefined)
         }
         usePushStore.setState({ token, registeredFor: key, registering: false })
+        // Every launch re-registers the same token, so only a new registration counts as a success.
+        if (previous.token !== token || previous.registeredFor !== key) {
+            track('mobile_push_registration_finished', { ok: true, trigger: TRIGGERS[policy] })
+        }
     } catch (error) {
         usePushStore.setState({ registering: false, error: toError(error).message })
+        track('mobile_push_registration_finished', {
+            ok: false,
+            reason: registrationFailure(error, gotToken),
+            trigger: TRIGGERS[policy],
+        })
     }
 }
 

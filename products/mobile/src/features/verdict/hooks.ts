@@ -33,7 +33,7 @@ function useVerdictAction<Reason extends string>(
         void queryClient.invalidateQueries({ queryKey: reportKeys.report(scope, reportId) })
         void queryClient.invalidateQueries({ queryKey: reportKeys.inbox(scope) })
         // The note is free text the person typed, so only its presence is tracked.
-        track(event, { reason, has_note: note.trim().length > 0 })
+        track(event, { report_id: reportId, reason, has_note: note.trim().length > 0 })
     })
 }
 

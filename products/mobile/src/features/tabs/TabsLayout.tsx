@@ -1,9 +1,9 @@
 import { useRouter } from 'expo-router'
 import { type BottomTabBarProps, Tabs } from 'expo-router/js-tabs'
 import { type ReactElement, useEffect, useLayoutEffect, useState } from 'react'
-
 import { useAuthStore } from '@/auth/authStore'
 import { useViewer } from '@/auth/useViewer'
+import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
 import { track } from '@/lib/analytics'
 import { OverlayHost } from '@/ui/OverlayPortal'
@@ -53,7 +53,7 @@ function TabBar({ state, navigation }: BottomTabBarProps): ReactElement {
             onHome={() => goTo('inbox')}
             onChats={() => goTo('chats')}
             onViews={() => goTo('views')}
-            onNewChat={() => router.push('/chat')}
+            onNewChat={() => router.push({ pathname: '/chat', params: { entry: 'compose' satisfies ChatSheetEntry } })}
         />
     )
 }

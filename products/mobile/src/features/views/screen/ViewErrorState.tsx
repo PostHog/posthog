@@ -1,4 +1,4 @@
-import { type ReactElement, useState } from 'react'
+import { type ReactElement, useEffect, useState } from 'react'
 import { StyleSheet, Text } from 'react-native'
 
 import { toError } from '@/lib/errors'
@@ -7,6 +7,7 @@ import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { StateView } from '@/ui/StateView'
 import { colors, type } from '@/ui/tokens'
 
+import { trackViewsErrorShown } from '../analytics'
 import type { PinMatch } from '../PinButton'
 import { usePinActions, usePins } from '../pinHooks'
 import type { ItemErrorKind } from '../viewsCache'
@@ -60,6 +61,10 @@ export function ViewErrorState({ kind, noun, match, onRetry, onBack }: ViewError
     const pinView = pins.data?.find((pin) => shortcutMatchKey(pin.type, pin.ref) === key)
     const gone = kind === 'deleted' || kind === 'no_access'
     const copy = copyFor(kind, noun, Boolean(pinView))
+    const screen = match.kind
+    useEffect(() => {
+        trackViewsErrorShown({ screen, kind })
+    }, [screen, kind])
 
     const unpin = async (): Promise<void> => {
         if (!pinView) {

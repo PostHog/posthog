@@ -85,8 +85,12 @@ export function NavMenu({
         track('mobile_project_picker_opened')
         setPickingProject(true)
     }
+    const openSettings = (): void => {
+        track('mobile_settings_opened', { from: 'nav_menu' })
+        onSettings()
+    }
     const switchProject = (projectId: number): void => {
-        useAuthStore.getState().selectProject(projectId)
+        useAuthStore.getState().selectProject(projectId, 'nav_menu')
         onClose()
     }
 
@@ -117,6 +121,7 @@ export function NavMenu({
                 <View style={styles.divider} />
                 {confirmingSignOut ? (
                     <SignOutConfirm
+                        from="nav_menu"
                         pending={signOutPending}
                         onCancel={onCancelSignOut}
                         onConfirm={onConfirmSignOut}
@@ -137,7 +142,7 @@ export function NavMenu({
                                 <View style={[styles.divider, styles.sectionDivider]} />
                             </>
                         ) : null}
-                        <MenuRow label="Settings" Icon={SettingsIcon} onPress={onSettings} testID="nav-settings" />
+                        <MenuRow label="Settings" Icon={SettingsIcon} onPress={openSettings} testID="nav-settings" />
                         <MenuRow label="Sign out" Icon={SignOutIcon} onPress={onSignOut} testID="nav-sign-out" />
                     </>
                 )}

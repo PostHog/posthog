@@ -37,15 +37,16 @@ async function openFromNotification(response: Notifications.NotificationResponse
     }
     // A push is about live data, which demo mode would hide behind fixtures.
     if (useDemoMode.getState().enabled) {
+        track('mobile_demo_ended', { from: 'push' })
         useDemoMode.getState().setEnabled(false)
     }
     if (route.switchToProjectId !== null) {
-        useAuthStore.getState().selectProject(route.switchToProjectId)
+        useAuthStore.getState().selectProject(route.switchToProjectId, 'push')
     }
     if (route.pathname === '/inbox') {
         router.navigate('/inbox')
     } else {
-        router.push(route.pathname)
+        router.push(`${route.pathname}?from=push`)
     }
 }
 

@@ -1,11 +1,13 @@
-import type { ReactElement } from 'react'
+import { type ReactElement, useEffect } from 'react'
 import { ActivityIndicator, type StyleProp, StyleSheet, Text, View, type ViewStyle } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
+import { track } from '@/lib/analytics'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, radii, type } from '@/ui/tokens'
 
 interface SignOutConfirmProps {
+    from: 'settings' | 'nav_menu'
     pending: boolean
     onCancel: () => void
     onConfirm: () => void
@@ -16,6 +18,7 @@ interface SignOutConfirmProps {
 
 // Sign out asks for confirmation in place, which works the same on iOS, Android and web.
 export function SignOutConfirm({
+    from,
     pending,
     onCancel,
     onConfirm,
@@ -23,13 +26,25 @@ export function SignOutConfirm({
     testIDPrefix,
 }: SignOutConfirmProps): ReactElement {
     const host = useAuthStore((state) => state.host)
+
+    // Both callers mount this only while they ask, so a mount is one confirmation shown.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: one event per confirmation, not per prop change.
+    useEffect(() => {
+        track('mobile_sign_out_confirm_shown', { from })
+    }, [])
+
+    const cancel = (): void => {
+        track('mobile_sign_out_cancelled', { from })
+        onCancel()
+    }
+
     return (
         <View style={[styles.confirm, style]} testID={`${testIDPrefix}-sign-out-confirm`}>
             <Text style={styles.title}>Sign out of {host ? host.replace(/^https?:\/\//, '') : 'PostHog'}?</Text>
             <Text style={styles.body}>This device stops getting push notifications until you sign in again.</Text>
             <View style={styles.actions}>
                 <Pressable44
-                    onPress={onCancel}
+                    onPress={cancel}
                     disabled={pending}
                     pressedBackground={colors.sunken}
                     style={[styles.button, styles.cancel]}

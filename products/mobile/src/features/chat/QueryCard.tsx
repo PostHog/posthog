@@ -1,8 +1,9 @@
 import { type ReactElement, useState } from 'react'
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { colors, radii, type } from '@/ui/tokens'
 import { objectMeta, objectWebUrl } from './objectTags'
+import { openReplyUrl } from './webLinks'
 
 export function QueryCard({ query, title }: { query: string; title?: string }): ReactElement {
     const scope = useProjectScope()
@@ -14,7 +15,7 @@ export function QueryCard({ query, title }: { query: string; title?: string }): 
                 accessibilityRole="link"
                 disabled={!url}
                 onPress={() => {
-                    if (url) void Linking.openURL(url).catch(() => undefined)
+                    if (url) openReplyUrl(url, 'query_card', { objectKind: 'hogql' })
                 }}
             >
                 <Text style={styles.meta}>{objectMeta('hogql')}</Text>

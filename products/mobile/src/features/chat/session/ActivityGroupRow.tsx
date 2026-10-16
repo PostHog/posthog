@@ -2,6 +2,7 @@ import { memo, type ReactElement, useEffect, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated'
 
+import { track } from '@/lib/analytics'
 import { Dot } from '@/ui/Dot'
 import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { MonoText } from '@/ui/MonoText'
@@ -66,6 +67,15 @@ function ActivityGroupRowImpl({ group, invocations, isLast, waitingToolCallId }:
     // Once the person toggles the row, their choice wins over the automatic open and close.
     const [manual, setManual] = useState<boolean | null>(null)
     const expanded = manual ?? (isLast && running)
+    const toggle = (): void => {
+        if (!expanded) {
+            track('mobile_chat_activity_expanded', {
+                running,
+                tool_count: group.items.filter((item) => item.kind === 'tool').length,
+            })
+        }
+        setManual(!expanded)
+    }
 
     const reduceMotion = useReducedMotion()
     const rotation = useSharedValue(expanded ? 180 : 0)
@@ -77,7 +87,7 @@ function ActivityGroupRowImpl({ group, invocations, isLast, waitingToolCallId }:
     return (
         <View style={styles.group} testID={`session-activity-${group.id}`}>
             <Pressable44
-                onPress={() => setManual(!expanded)}
+                onPress={toggle}
                 accessibilityLabel={summary}
                 accessibilityState={{ expanded }}
                 style={styles.header}

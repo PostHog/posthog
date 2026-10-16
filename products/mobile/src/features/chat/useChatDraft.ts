@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
+import { track } from '@/lib/analytics'
 
 import { chatDrafts, draftIdentity, draftScope } from './draftPersistence'
 import { type ChatDraft, restoreUnsent } from './draftStore'
@@ -109,6 +110,12 @@ export function useChatDraft(
             if (!edited.current && saved) {
                 latest.current = saved
                 setDraft(saved)
+                if (saved.text.trim()) {
+                    track('mobile_chat_draft_restored', {
+                        text_length: saved.text.length,
+                        report_count: saved.reportIds.length,
+                    })
+                }
             } else if (edited.current) {
                 await chatDrafts.save(scope, key, latest.current)
             }

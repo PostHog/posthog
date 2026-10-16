@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { Linking, StyleSheet, Text } from 'react-native'
+import { StyleSheet, Text } from 'react-native'
 import Markdown, { MarkdownIt, type RenderRules } from 'react-native-markdown-display'
 import { isMermaidLang } from '@/lib/mermaid'
 import { colors, fonts, radii, type } from '@/ui/tokens'
@@ -8,7 +8,7 @@ import { MermaidDiagram } from './MermaidDiagram'
 import { ObjectChip } from './ObjectChip'
 import { type ObjectCardSpec, type ObjectRef, objectTagsPlugin } from './objectTags'
 import { QueryCard } from './QueryCard'
-import { resolveReplyLink } from './webLinks'
+import { openReplyUrl, resolveReplyLink } from './webLinks'
 
 /** `html: false` renders raw HTML in a reply as text, so a reply can never inject markup. */
 const markdownIt = MarkdownIt({ html: false, linkify: true, typographer: false }).use(objectTagsPlugin)
@@ -55,7 +55,7 @@ const rules: RenderRules = {
 function openLink(url: string): boolean {
     const resolved = resolveReplyLink(url)
     if (resolved) {
-        Linking.openURL(resolved).catch(() => undefined)
+        openReplyUrl(resolved, 'markdown', { appLink: resolved !== url })
     }
     // false stops the library from opening the unresolved URL itself.
     return false

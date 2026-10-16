@@ -39,6 +39,10 @@ The receiving agent needs its own PostHog connection. Copy prompt uses the same 
 The agent claims the report when work starts, retains its `claim_id`, and attaches its PR URLs.
 Opening or copying never claims the report, starts a PostHog run, or reports that an external agent
 is working. Failed launches show an inline fallback. The web preview supports copying only.
+Tracking: `mobile_external_handoff_opened` with `target` (`claude`, `codex`), `from` (`button`, `sheet`,
+`inbox_menu`) and `has_repository`, never the prompt. A failed launch sends `mobile_handoff_failed` with
+`agent` set to the target and `reason` (`launch_failed`, `unsupported_platform`). Copy prompt sends
+`mobile_handoff_prompt_copied`.
 
 Device acceptance checks (iOS and Android, with receiving apps installed and absent):
 
@@ -137,7 +141,9 @@ Within the current task, `GET tasks/{id}/` supplies its latest run; the bootstra
 the task query so a resumed run can replace the report's older run immediately.
 
 Tapping the action bar's agent status card opens that task's chat sheet, passing the task id and
-the displayed run id when available. A claim without a task id cannot open a task chat yet. The
+the displayed run id when available. It sends `mobile_report_action_pressed` with `action: task_chat`,
+`from` (`status_card`, `decided_card`, or `pr_card` for "View task activity") and `run_status`. The round
+Chat button sends it with `action: chat`. A claim without a task id cannot open a task chat yet. The
 round Chat button beside the Reassign / Resolve / Dismiss pill starts a new conversation with the report attached.
 The streamed command beneath the status title stays on one line and truncates at the end.
 
@@ -232,7 +238,10 @@ The decided card shows the answer while it is delivered, with Undo, and after th
 without Undo, until the run shows new activity. Undo aborts the request in flight and brings the
 card back. It is best effort: a request the server already received still reaches the agent, and
 answering again then gets "already moved on". Tracking: `mobile_decision_answered` with `kind`
-(`question`, `plan`, `permission`) and `picked_option`.
+(`question`, `plan`, `permission`) and `picked_option`. "Read question" sends `mobile_report_sheet_opened`
+with `sheet: decision` and the same `kind`, so shown and answered form a funnel. A close before an answer
+sends `mobile_report_sheet_dismissed`. Undo sends `mobile_decision_undone`. Task chat uses the same card
+and sends none of these sheet events.
 
 ## Error copy
 
@@ -251,6 +260,11 @@ instead of rejecting, because every caller fires them without waiting.
 | No run returned | "PostHog created the task but couldn't start it. Try again." |
 | Network | "Couldn't reach PostHog. Check your connection and try again." |
 | Anything else | "Couldn't hand off to PostHog. Try again." |
+
+Tracking: `mobile_handoff_failed` with `agent: posthog` and `reason`, one value per row above
+(`free_trial`, `pr_limit`, `task_limit`, `busy`, `start_timeout`, `forbidden`, `not_found`,
+`run_not_started`, `network`, `unknown`, plus `not_signed_in`), never the message. `handoffFailureReason`
+in `kickoff.ts` picks the reason and `handoffErrorMessage` maps it to the copy, so the two cannot drift.
 
 Execution, attention and pull requests are independent footer state. A failed or canceled run
 keeps its known PR available, alongside its run outcome and task-chat entry point. A completed
@@ -277,6 +291,10 @@ shows reconnecting or unavailable, rather than claiming work is running or stopp
 selects only that report-linked PR; a discovered URL without an id cannot fetch checks.
 The focused report checks every 30 seconds in live mode while the app is active, and fetches
 again on foreground return. Changing the selected PR uses a separate query entry.
+
+"View PR" sends `mobile_pull_request_opened` with `from` (`report`, `chat`, `inbox_menu`), `state` and
+`pr_count`. Choosing between several PRs opens the `pull_request_picker` sheet (see the sheet events in
+[DATA.md](DATA.md#actions)).
 
 Checking, passing, failing, pending, no checks and unavailable are distinct states. Empty checks
 mean no checks, while missing or malformed data and request errors mean unavailable. A successful

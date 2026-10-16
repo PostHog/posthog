@@ -9,6 +9,7 @@ import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, motion, radii, type } from '@/ui/tokens'
 
+import { type TileSheetEntry, trackPinTileSheetClosed } from '../analytics'
 import { insightQueryKey, tileTarget } from '../items'
 import { snapshotFormatter } from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
@@ -21,6 +22,7 @@ export interface ChooseTileTarget {
     mode: 'number' | 'chart'
     /** Opened by picking Number or Chart on a pin without a tile: the first tile that can show it is chosen at once. */
     chooseFirst: boolean
+    entry: TileSheetEntry
 }
 
 interface ChooseTileSheetProps {
@@ -65,7 +67,7 @@ interface TileSheetProps {
 }
 
 function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): ReactElement {
-    const { pin, mode, chooseFirst } = target
+    const { pin, mode, chooseFirst, entry } = target
     const { height: windowHeight } = useWindowDimensions()
     const listGesture = useMemo(() => Gesture.Native(), [])
     const { dashboard, retry } = useDashboardTiles(pin.ref)
@@ -75,6 +77,32 @@ function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): Reac
     const choose = (tile: DashboardTileView): void => {
         setChosen(tile.tileId)
         onChoose(pin, mode, tile)
+    }
+    // The automatic first choice does not count as a pick, so `picked` stays a choice the person made.
+    const picked = useRef(false)
+    const closed = useRef(false)
+    // The sheet stays mounted through its exit animation, so a reopen in that time starts a new session here.
+    useEffect(() => {
+        if (visible) {
+            closed.current = false
+            picked.current = false
+        }
+    }, [visible])
+    const pick = (tile: DashboardTileView): void => {
+        picked.current = true
+        choose(tile)
+    }
+    const close = (): void => {
+        if (!closed.current) {
+            closed.current = true
+            trackPinTileSheetClosed({
+                entry,
+                picked: picked.current,
+                tilesUsable: groups ? groups.usable.length : null,
+                tilesUnusable: groups ? groups.unusable.length : null,
+            })
+        }
+        onClose()
     }
     const chooseRef = useRef(choose)
     chooseRef.current = choose
@@ -93,7 +121,7 @@ function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): Reac
     return (
         <BottomSheet
             visible={visible}
-            onClose={onClose}
+            onClose={close}
             scrollGesture={listGesture}
             accessibilityLabel="Choose tile"
             testID="choose-tile-sheet"
@@ -108,7 +136,7 @@ function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): Reac
                     </Text>
                 </View>
                 <Pressable44
-                    onPress={onClose}
+                    onPress={close}
                     accessibilityLabel="Done"
                     pressedBackground={colors.background}
                     style={styles.done}
@@ -131,7 +159,7 @@ function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): Reac
                                 dashboardRef={pin.ref ?? ''}
                                 tile={tile}
                                 selected={tile.tileId === chosen}
-                                onPick={choose}
+                                onPick={pick}
                             />
                         ))}
                         {groups.unusable.length > 0 ? (
@@ -150,7 +178,7 @@ function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): Reac
                                 dashboardRef={pin.ref ?? ''}
                                 tile={tile}
                                 selected={tile.tileId === chosen}
-                                onPick={choose}
+                                onPick={pick}
                                 reason={reason}
                             />
                         ))}

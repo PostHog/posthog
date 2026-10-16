@@ -18,7 +18,16 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { TABS_HEADER_BOTTOM } from '../../tabs/TabsHeader'
 import { useTabHeader } from '../../tabs/tabHeaderStore'
-import { type PinSource, trackViewOpenedInWeb } from '../analytics'
+import {
+    type EditPinsEntry,
+    type PinSource,
+    trackBrowseListOpened,
+    trackEditPinsClosed,
+    trackEditPinsOpened,
+    trackPinTileSheetOpened,
+    trackViewOpenedInWeb,
+    trackViewsErrorShown,
+} from '../analytics'
 import { useViewsSearch } from '../browseHooks'
 import { refreshHintText } from '../freshness'
 import { type DashboardSnapshot, dashboardQueryKey, insightItemKey, insightQueryKey, pinTarget } from '../items'
@@ -130,12 +139,13 @@ function ViewsBody(): ReactElement {
     const sheets = useChartSheets()
     const flows = usePinFlows(actions)
     const [text, setText] = useState('')
-    const [editing, setEditing] = useState(false)
     const [menu, setMenu] = useState<MenuState | null>(null)
     const [chooseTile, setChooseTile] = useState<ChooseTileTarget | null>(null)
     const listRef = useRef<SectionList<ListItem, ListSection>>(null)
 
     const pins = list.pins.data ?? EMPTY_PINS
+    const edit = useEditPinsSession(pins.length)
+    const { editing, start: startEditing } = edit
     const recent = list.recent.data ?? EMPTY_RECENT
     const search = useViewsSearch(editing ? '' : text, pins, recent)
     const pinnedKeys = list.pinnedKeys
@@ -192,6 +202,7 @@ function ViewsBody(): ReactElement {
     const openBrowse = useCallback((entry: BrowseEntry) => {
         const { router: nav, scope } = latest.current
         if (entry === 'dashboards' || entry === 'insights') {
+            trackBrowseListOpened({ section: entry, from: latest.current.searching ? 'search' : 'browse' })
             nav.push(`/views/browse/${entry}`)
             return
         }
@@ -224,12 +235,19 @@ function ViewsBody(): ReactElement {
             'tooltip'
         )
     }, [])
-    const showAs = useCallback((pin: PinView, mode: PinDisplayMode) => {
-        if (latest.current.actions.setDisplayMode(pin, mode) === 'needs_tile' && mode !== 'row') {
-            setMenu(null)
-            setChooseTile({ pin, mode, chooseFirst: true })
-        }
+    const openTileSheet = useCallback((target: ChooseTileTarget) => {
+        setMenu(null)
+        setChooseTile(target)
+        trackPinTileSheetOpened({ entry: target.entry, mode: target.mode })
     }, [])
+    const showAs = useCallback(
+        (pin: PinView, mode: PinDisplayMode) => {
+            if (latest.current.actions.setDisplayMode(pin, mode) === 'needs_tile' && mode !== 'row') {
+                openTileSheet({ pin, mode, chooseFirst: true, entry: 'show_as' })
+            }
+        },
+        [openTileSheet]
+    )
     const openPinMenu = useCallback((pin: PinView, anchor: RowAnchor) => {
         setMenu({ kind: 'pin', shortcutId: pin.shortcutId, anchor })
     }, [])
@@ -241,10 +259,12 @@ function ViewsBody(): ReactElement {
         (pin: PinView) => unpinPin(pin, latest.current.searching ? 'search' : 'row_menu'),
         [unpinPin]
     )
-    const openChooseTile = useCallback((pin: PinView) => {
-        setMenu(null)
-        setChooseTile({ pin, mode: pin.display.mode === 'chart' ? 'chart' : 'number', chooseFirst: false })
-    }, [])
+    const openChooseTile = useCallback(
+        (pin: PinView, entry: 'menu' | 'removed_tile') =>
+            openTileSheet({ pin, mode: pin.display.mode === 'chart' ? 'chart' : 'number', chooseFirst: false, entry }),
+        [openTileSheet]
+    )
+    const chooseTileFromCard = useCallback((pin: PinView) => openChooseTile(pin, 'removed_tile'), [openChooseTile])
 
     const rowHandlers = useMemo(() => {
         const handlers = (entry: ViewEntry) => ({
@@ -261,11 +281,12 @@ function ViewsBody(): ReactElement {
 
     // Edit pins has nothing left to edit once the last pin goes, so the list comes back with its empty state.
     const noPins = list.pins.data !== undefined && pins.length === 0
+    const { finish: finishEditing } = edit
     useEffect(() => {
         if (noPins) {
-            setEditing(false)
+            finishEditing('no_pins')
         }
-    }, [noPins])
+    }, [noPins, finishEditing])
 
     const sections = useMemo<ListSection[]>(() => {
         let index = 0
@@ -388,7 +409,7 @@ function ViewsBody(): ReactElement {
                             demo={demo}
                             onOpen={openPin}
                             onMenu={openPinMenu}
-                            onChooseTile={openChooseTile}
+                            onChooseTile={chooseTileFromCard}
                             onUnpin={unpinFromCard}
                             onPressTooltip={openPinPoint}
                         />
@@ -445,7 +466,7 @@ function ViewsBody(): ReactElement {
             demo,
             openPin,
             openPinMenu,
-            openChooseTile,
+            chooseTileFromCard,
             unpinFromCard,
             openPinPoint,
             unpinPin,
@@ -462,7 +483,7 @@ function ViewsBody(): ReactElement {
                 <Eyebrow>{section.title}</Eyebrow>
                 {section.editable ? (
                     <Pressable44
-                        onPress={() => setEditing(true)}
+                        onPress={() => startEditing('section')}
                         accessibilityLabel="Edit pins"
                         pressedBackground={colors.sunken}
                         style={styles.edit}
@@ -473,7 +494,7 @@ function ViewsBody(): ReactElement {
                 ) : null}
             </View>
         ),
-        []
+        [startEditing]
     )
 
     const contentTop = topOffset(insets, TABS_HEADER_BOTTOM)
@@ -491,17 +512,24 @@ function ViewsBody(): ReactElement {
                   hint: refresh.hint,
               },
         status: editing ? 'Changes save as you go' : status,
-        editing: editing ? { title: 'Edit pins', onDone: () => setEditing(false) } : null,
+        editing: editing ? { title: 'Edit pins', onDone: () => edit.finish('done') } : null,
         editPins: {
             disabled: pins.length === 0,
             onPress: () => {
                 setText('')
-                setEditing(true)
+                startEditing('menu')
             },
         },
     })
     const menuPin = menu?.kind === 'pin' ? pins.find((pin) => pin.shortcutId === menu.shortcutId) : undefined
     const menuPinIndex = menuPin ? pins.indexOf(menuPin) : -1
+
+    const listFailed = !editing && !loading && list.pins.isError && !list.pins.data
+    useEffect(() => {
+        if (listFailed) {
+            trackViewsErrorShown({ screen: 'list', kind: 'failed' })
+        }
+    }, [listFailed])
 
     let body: ReactElement
     if (editing) {
@@ -510,10 +538,24 @@ function ViewsBody(): ReactElement {
                 pins={pins}
                 contentTop={contentTop}
                 contentBottom={contentBottom}
-                onReorder={actions.reorder}
-                onMove={actions.move}
-                onMode={showAs}
-                onRemove={(pin) => flows.unpin(pin, 'row_menu')}
+                onReorder={(shortcutIds) => {
+                    edit.noteChange()
+                    actions.reorder(shortcutIds)
+                }}
+                onMove={(pin, direction) => {
+                    edit.noteChange()
+                    actions.move(pin, direction)
+                }}
+                onMode={(pin, mode) => {
+                    if (mode !== pin.display.mode) {
+                        edit.noteChange()
+                    }
+                    showAs(pin, mode)
+                }}
+                onRemove={(pin) => {
+                    edit.noteChange()
+                    flows.unpin(pin, 'row_menu')
+                }}
             />
         )
     } else if (loading) {
@@ -522,7 +564,7 @@ function ViewsBody(): ReactElement {
                 <ViewsSkeleton />
             </View>
         )
-    } else if (list.pins.isError && !list.pins.data) {
+    } else if (listFailed) {
         body = (
             <View style={[styles.fill, { paddingTop: contentTop }]}>
                 <StateView
@@ -586,7 +628,7 @@ function ViewsBody(): ReactElement {
                     position={{ index: menuPinIndex, count: pins.length }}
                     onClose={() => setMenu(null)}
                     onShowAs={(mode) => showAs(menuPin, mode)}
-                    onChooseTile={() => openChooseTile(menuPin)}
+                    onChooseTile={() => openChooseTile(menuPin, 'menu')}
                     onMove={(direction) => {
                         setMenu(null)
                         actions.move(menuPin, direction)
@@ -619,6 +661,47 @@ function ViewsBody(): ReactElement {
             <ViewsToast toast={flows.toast} onHide={flows.hideToast} />
         </View>
     )
+}
+
+interface EditPinsSession {
+    editing: boolean
+    start: (from: EditPinsEntry) => void
+    finish: (reason: 'done' | 'no_pins') => void
+    noteChange: () => void
+}
+
+function useEditPinsSession(pinCount: number): EditPinsSession {
+    const [editing, setEditing] = useState(false)
+    const session = useRef<{ startedAt: number; changes: number } | null>(null)
+    const count = useRef(pinCount)
+    count.current = pinCount
+    const start = useCallback((from: EditPinsEntry) => {
+        if (session.current) {
+            return
+        }
+        session.current = { startedAt: Date.now(), changes: 0 }
+        setEditing(true)
+        trackEditPinsOpened({ from, pinCount: count.current })
+    }, [])
+    const finish = useCallback((reason: 'done' | 'no_pins') => {
+        const current = session.current
+        if (!current) {
+            return
+        }
+        session.current = null
+        setEditing(false)
+        trackEditPinsClosed({
+            reason,
+            changes: current.changes,
+            durationSeconds: Math.round((Date.now() - current.startedAt) / 1000),
+        })
+    }, [])
+    const noteChange = useCallback(() => {
+        if (session.current) {
+            session.current.changes++
+        }
+    }, [])
+    return { editing, start, finish, noteChange }
 }
 
 interface PinMenuForProps {

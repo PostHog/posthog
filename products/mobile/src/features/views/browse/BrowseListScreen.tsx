@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router'
-import { type ReactElement, useCallback, useRef, useState } from 'react'
+import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native'
 
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
@@ -16,6 +16,7 @@ import { LoadingView, StateView } from '@/ui/StateView'
 import { colors, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
+import { trackViewsErrorShown } from '../analytics'
 import { type BrowseListState, useBrowseDashboards, useBrowseInsights, useBrowseSearch } from '../browseHooks'
 import { usePinFlows } from '../list/usePinFlows'
 import { groupPosition, ViewRow } from '../list/ViewRow'
@@ -156,6 +157,12 @@ function BrowseList({ kind, list }: { kind: BrowseKind; list: BrowseListState })
     )
 
     const state = search.active ? search.rows : list
+    const listFailed = !search.active && list.isError
+    useEffect(() => {
+        if (listFailed) {
+            trackViewsErrorShown({ screen: 'browse', kind: 'failed' })
+        }
+    }, [listFailed])
     const contentTop = topOffset(insets, CHROME_BOTTOM + 10)
     let empty: ReactElement
     if (state.isLoading) {

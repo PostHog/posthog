@@ -8,6 +8,7 @@ import { PinIcon } from '@/ui/icons/PinIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors } from '@/ui/tokens'
 
+import type { PinSource } from './analytics'
 import { usePinActions, usePins } from './pinHooks'
 import type { PinTarget } from './shortcutInput'
 import { useToasts, ViewsToast } from './ViewsToast'
@@ -40,28 +41,28 @@ export function PinButton({ target, match }: PinButtonProps): ReactElement {
     const latest = useRef<{ pinView: PinView | undefined; target: PinTarget | null }>({ pinView, target })
     latest.current = { pinView, target }
 
-    const pin = async (): Promise<void> => {
+    const pin = async (from: PinSource): Promise<void> => {
         const current = latest.current.target
         if (!current) {
             return
         }
         try {
-            await actions.pin(current, 'header')
-            show('Pinned to Views', () => void unpin(false))
+            await actions.pin(current, from)
+            show('Pinned to Views', () => void unpin('undo'))
         } catch (error) {
             show(toError(error).message)
         }
     }
 
-    const unpin = async (withUndo: boolean): Promise<void> => {
+    const unpin = async (from: PinSource): Promise<void> => {
         const view = latest.current.pinView ?? latest.current.target
         if (!view) {
             return
         }
         try {
-            await actions.unpin(view, 'header')
-            if (withUndo) {
-                show('Unpinned from Views', () => void pin())
+            await actions.unpin(view, from)
+            if (from !== 'undo') {
+                show('Unpinned from Views', () => void pin('undo'))
             } else {
                 hide()
             }
@@ -73,7 +74,7 @@ export function PinButton({ target, match }: PinButtonProps): ReactElement {
     return (
         <>
             <Pressable44
-                onPress={() => void (pinned ? unpin(true) : pin())}
+                onPress={() => void (pinned ? unpin('header') : pin('header'))}
                 disabled={!target || actions.pending || pins.isLoading}
                 accessibilityLabel={pinned ? 'Unpin from Views' : 'Pin to Views'}
                 accessibilityState={{ selected: pinned, disabled: !target || actions.pending }}

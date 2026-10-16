@@ -124,36 +124,78 @@ function serverCopy(error: ApiError): string | undefined {
     return text?.trim() || undefined
 }
 
-export function handoffErrorMessage(error: unknown): string {
+export type HandoffFailureReason =
+    | 'not_signed_in'
+    | 'run_not_started'
+    | 'network'
+    | 'free_trial'
+    | 'pr_limit'
+    | 'task_limit'
+    | 'busy'
+    | 'start_timeout'
+    | 'forbidden'
+    | 'not_found'
+    | 'unknown'
+
+/** One reason per row of the error copy table, so the copy and the tracked reason cannot disagree. */
+export function handoffFailureReason(error: unknown): HandoffFailureReason {
     if (error instanceof NotSignedInError) {
-        return 'Sign in again to hand off this report.'
+        return 'not_signed_in'
     }
     if (error instanceof RunNotStartedError) {
-        return error.message
+        return 'run_not_started'
     }
     if (!(error instanceof ApiError)) {
-        return "Couldn't reach PostHog. Check your connection and try again."
+        return 'network'
     }
     if (error.code === 'self_driving_free_trial') {
-        return serverCopy(error) ?? FREE_TRIAL_COPY
+        return 'free_trial'
     }
     if (error.status === 402) {
-        return serverCopy(error) ?? PR_LIMIT_COPY
+        return 'pr_limit'
     }
     if (error.code === 'signal_report_task_cap' || error.code === 'throttled') {
-        return serverCopy(error) ?? TASK_LIMIT_COPY
+        return 'task_limit'
     }
     if (error.status === 429) {
-        return serverCopy(error) ?? 'PostHog is busy. Try again in a few minutes.'
+        return 'busy'
     }
     if (error.code === 'warm_run_activation_unavailable') {
-        return "PostHog couldn't start the agent in time. Try again."
+        return 'start_timeout'
     }
     if (error.status === 403) {
-        return serverCopy(error) ?? "You don't have access to hand off reports in this project."
+        return 'forbidden'
     }
     if (error.status === 404) {
-        return 'This report is no longer available.'
+        return 'not_found'
     }
-    return "Couldn't hand off to PostHog. Try again."
+    return 'unknown'
+}
+
+export function handoffErrorMessage(error: unknown): string {
+    const server = error instanceof ApiError ? serverCopy(error) : undefined
+    switch (handoffFailureReason(error)) {
+        case 'not_signed_in':
+            return 'Sign in again to hand off this report.'
+        case 'run_not_started':
+            return (error as RunNotStartedError).message
+        case 'network':
+            return "Couldn't reach PostHog. Check your connection and try again."
+        case 'free_trial':
+            return server ?? FREE_TRIAL_COPY
+        case 'pr_limit':
+            return server ?? PR_LIMIT_COPY
+        case 'task_limit':
+            return server ?? TASK_LIMIT_COPY
+        case 'busy':
+            return server ?? 'PostHog is busy. Try again in a few minutes.'
+        case 'start_timeout':
+            return "PostHog couldn't start the agent in time. Try again."
+        case 'forbidden':
+            return server ?? "You don't have access to hand off reports in this project."
+        case 'not_found':
+            return 'This report is no longer available.'
+        case 'unknown':
+            return "Couldn't hand off to PostHog. Try again."
+    }
 }

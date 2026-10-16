@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 
+import { track } from '@/lib/analytics'
 import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, prettyWrap, radii, type } from '@/ui/tokens'
@@ -31,23 +32,28 @@ function copyFor(reportCount: number): { title: string; sub: string } {
 }
 
 export function ChatEmptyState({ reportCount, suggestedPrompts, onPrompt }: ChatEmptyStateProps): ReactElement {
-    const prompts: readonly string[] =
-        suggestedPrompts && suggestedPrompts.length > 0
-            ? suggestedPrompts
-            : reportCount > 0
-              ? REPORT_PROMPTS
-              : GLOBAL_PROMPTS
+    const fromReport = suggestedPrompts !== undefined && suggestedPrompts.length > 0
+    const prompts: readonly string[] = fromReport ? suggestedPrompts : reportCount > 0 ? REPORT_PROMPTS : GLOBAL_PROMPTS
     const copy = copyFor(reportCount)
+    // A report's own prompts are generated text, so the event names the list and the position only.
+    const pick = (prompt: string, index: number): void => {
+        track('mobile_chat_suggestion_picked', {
+            source: fromReport ? 'report' : 'default',
+            index,
+            report_count: reportCount,
+        })
+        onPrompt(prompt)
+    }
     return (
         <View style={styles.container} testID="chat-empty">
             <PostHogLogomark height={28} />
             <Text style={styles.title}>{copy.title}</Text>
             <Text style={[styles.sub, prettyWrap]}>{copy.sub}</Text>
             <View style={styles.chips}>
-                {prompts.map((prompt) => (
+                {prompts.map((prompt, index) => (
                     <Pressable44
                         key={prompt}
-                        onPress={() => onPrompt(prompt)}
+                        onPress={() => pick(prompt, index)}
                         pressedBackground={colors.background}
                         style={styles.chip}
                     >

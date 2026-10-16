@@ -26,7 +26,12 @@ import type {
     WebOverviewSnapshot,
 } from '@/model/views'
 
-import { trackChartPeopleOpened, trackChartRecordingsOpened, trackViewOpened } from './analytics'
+import {
+    trackChartPeopleOpened,
+    trackChartRecordingsOpened,
+    trackDashboardTilesShown,
+    trackViewOpened,
+} from './analytics'
 import {
     compareItem,
     type DashboardSnapshot,
@@ -60,7 +65,7 @@ import {
     webAnalyticsRangeKey,
 } from './rangeStore'
 import { viewsQueue } from './refreshQueue'
-import { useViewRefresh, type ViewRefresh } from './useViewRefresh'
+import { type RefreshItem, useViewRefresh, type ViewRefresh } from './useViewRefresh'
 import { reportScopeError, type ViewsAccess } from './useViewsAccess'
 import { useViewsContext } from './useViewsContext'
 import {
@@ -159,6 +164,29 @@ function useViewOpenedEvent(
             dataAgeSeconds: oldestAgeSeconds(read.current()),
         })
     }, [viewType, from, displayMode])
+}
+
+/**
+ * Sends `mobile_dashboard_tiles_shown` once per screen, when the dashboard first shows. The dashboard read writes the
+ * tile snapshots before the dashboard, so each tile already knows whether only the web can draw it.
+ */
+function useDashboardTilesShownEvent(
+    view: DashboardView | undefined,
+    tiles: readonly DashboardTileState[],
+    items: readonly RefreshItem[]
+): void {
+    const sent = useRef(false)
+    useEffect(() => {
+        if (sent.current || !view) {
+            return
+        }
+        sent.current = true
+        trackDashboardTilesShown({
+            tilesTotal: tiles.length,
+            tilesText: tiles.filter((tile) => tile.view.kind === 'text').length,
+            tilesWebOnly: items.filter((item) => item.drawable?.() === false).length,
+        })
+    }, [view, tiles, items])
 }
 
 export interface DashboardTileState {
@@ -269,6 +297,7 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
     const error = useItemError(container.key)
     useRecordRecentView(view ? { kind: 'dashboard', ref: dashboardRef, name: view.name } : null)
     useViewOpenedEvent('dashboard', options, () => items.map((item) => item.snapshot()))
+    useDashboardTilesShownEvent(view, tiles, items)
     return {
         access: context.access,
         dashboard: viewState(view, error, context.ready, refresh.button === 'busy', refresh.retry),

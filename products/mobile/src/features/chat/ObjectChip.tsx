@@ -1,8 +1,9 @@
 import type { ReactElement } from 'react'
-import { Linking, Text } from 'react-native'
+import { Text } from 'react-native'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { colors } from '@/ui/tokens'
 import { type ObjectRef, objectWebUrl } from './objectTags'
+import { openReplyUrl } from './webLinks'
 
 export function ObjectChip({ target }: { target: ObjectRef }): ReactElement {
     const scope = useProjectScope()
@@ -14,7 +15,7 @@ export function ObjectChip({ target }: { target: ObjectRef }): ReactElement {
             onPress={
                 url
                     ? () => {
-                          void Linking.openURL(url).catch(() => undefined)
+                          openReplyUrl(url, 'object_chip', { objectKind: target.kind })
                       }
                     : undefined
             }

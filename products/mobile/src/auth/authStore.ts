@@ -18,12 +18,14 @@ import {
 } from './account'
 import { authorize, OAuthError, refreshTokens, revokeToken } from './oauth'
 import { type RegionId, regionForHost, validateHost } from './regions'
+import { AccountLoadError, accountLoadKind, SignInInputError } from './signInErrors'
 import { clearTokens, getSessionTokens, loadTokens, type SessionTokens, saveTokens, setSessionTokens } from './tokens'
 
 export type { AuthOrganization, AuthProject, AuthUser } from './account'
 
 export type AuthStatus = 'loading' | 'signed_out' | 'signed_in'
 export type AuthMethod = 'oauth' | 'personal_api_key'
+export type ProjectSwitchSource = 'nav_menu' | 'settings' | 'push'
 
 export interface AuthState {
     status: AuthStatus
@@ -45,7 +47,7 @@ export interface AuthState {
     signIn: (host: string, clientId: string) => Promise<void>
     /** Development builds only. The personal API key never refreshes. */
     signInWithPersonalApiKey: (host: string, key: string) => Promise<void>
-    selectProject: (projectId: number) => void
+    selectProject: (projectId: number, from: ProjectSwitchSource) => void
     reloadAccount: () => Promise<void>
     signOut: () => Promise<void>
 }
@@ -140,7 +142,7 @@ export const useAuthStore = create<AuthState>()(
                     account = await loadAccount()
                 } catch (error) {
                     setSessionTokens(null)
-                    throw new Error(accountLoadMessage(error, method))
+                    throw new AccountLoadError(accountLoadKind(error), accountLoadMessage(error, method))
                 }
                 await saveTokens(tokens)
                 const previous = get().user
@@ -199,6 +201,7 @@ export const useAuthStore = create<AuthState>()(
                         if (restored) {
                             identify(restored.distinctId)
                         }
+                        track('mobile_session_restored', { method: get().method })
                         if (user) {
                             void get().reloadAccount()
                         }
@@ -209,11 +212,11 @@ export const useAuthStore = create<AuthState>()(
                 signIn: async (host, clientId) => {
                     const validation = validateHost(host)
                     if (!validation.ok) {
-                        throw new Error(validation.error)
+                        throw new SignInInputError(validation.error)
                     }
                     const trimmedClientId = clientId.trim()
                     if (!trimmedClientId) {
-                        throw new Error('Enter the OAuth client ID of the PostHog app on this instance.')
+                        throw new SignInInputError('Enter the OAuth client ID of the PostHog app on this instance.')
                     }
                     set({
                         region: regionForHost(validation.host),
@@ -238,15 +241,15 @@ export const useAuthStore = create<AuthState>()(
 
                 signInWithPersonalApiKey: async (host, key) => {
                     if (!__DEV__) {
-                        throw new Error('Personal API keys only work in development builds.')
+                        throw new SignInInputError('Personal API keys only work in development builds.')
                     }
                     const validation = validateHost(host)
                     if (!validation.ok) {
-                        throw new Error(validation.error)
+                        throw new SignInInputError(validation.error)
                     }
                     const trimmedKey = key.trim()
                     if (!trimmedKey) {
-                        throw new Error('Paste a personal API key.')
+                        throw new SignInInputError('Paste a personal API key.')
                     }
                     set({ region: regionForHost(validation.host), host: validation.host, signedOutReason: null })
                     await completeSignIn(
@@ -262,14 +265,14 @@ export const useAuthStore = create<AuthState>()(
                     )
                 },
 
-                selectProject: (projectId) => {
+                selectProject: (projectId, from) => {
                     const { projects, projectId: current } = get()
                     const project = projects.find((candidate) => candidate.id === projectId)
                     if (!project || projectId === current) {
                         return
                     }
                     set({ projectId, projectName: project.name })
-                    track('mobile_project_switched')
+                    track('mobile_project_switched', { from })
                     // Every cached query belongs to the previous project. Reset drops the data, so no
                     // screen shows the old project's reports, and refetches what is on screen.
                     void queryClient.resetQueries()
@@ -298,6 +301,7 @@ export const useAuthStore = create<AuthState>()(
                                 accountLoading: false,
                                 accountError: accountLoadMessage(error, get().method ?? 'oauth'),
                             })
+                            track('mobile_account_reload_failed', { reason: accountLoadKind(error) })
                         }
                     })().finally(() => {
                         reloading = null
@@ -317,7 +321,7 @@ export const useAuthStore = create<AuthState>()(
                     if (tokens?.kind === 'oauth' && tokens.refreshToken && host && clientId) {
                         await revokeToken({ host, clientId, token: tokens.refreshToken })
                     }
-                    await endSession(null)
+                    await endSession('user')
                 },
             }
         },
@@ -352,12 +356,14 @@ function waitForHydration(): Promise<void> {
     })
 }
 
-async function endSession(reason: 'expired' | null): Promise<void> {
+async function endSession(reason: 'user' | 'expired'): Promise<void> {
+    // Before the reset, so the event belongs to the user who signed out.
+    track('mobile_signed_out', { reason, method: useAuthStore.getState().method })
     await clearTokens()
     queryClient.clear()
     resetAnalytics()
     await Promise.allSettled([...sessionEndTasks].map(async (task) => task()))
-    useAuthStore.setState({ ...SIGNED_OUT_ACCOUNT, signedOutReason: reason })
+    useAuthStore.setState({ ...SIGNED_OUT_ACCOUNT, signedOutReason: reason === 'expired' ? 'expired' : null })
 }
 
 async function refreshOnce(): Promise<string | null> {

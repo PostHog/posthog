@@ -42,6 +42,7 @@ export function SignOutSection(): ReactElement {
 
     return (
         <SignOutConfirm
+            from="settings"
             pending={signOut.pending}
             onCancel={() => setConfirming(false)}
             onConfirm={() => void signOut.run()}

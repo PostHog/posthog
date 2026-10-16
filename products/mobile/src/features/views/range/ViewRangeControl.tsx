@@ -10,6 +10,7 @@ import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, radii, type } from '@/ui/tokens'
+import type { RangeSheetEntry } from '../analytics'
 import { projectToday, type StepContext, type StepDirection } from '../rangeStep'
 import type { ViewRange } from '../rangeStore'
 import { type RangeCompareRow, RangeSheet } from './RangeSheet'
@@ -68,6 +69,10 @@ export function ViewRangeControl({
     const step = (direction: StepDirection): void => {
         range.step(direction, stepContext(steppable))
     }
+    const openSheet = (entry: RangeSheetEntry): void => {
+        setOpen(true)
+        range.noteSheetOpened(entry)
+    }
 
     const tap = Gesture.Tap()
         .runOnJS(true)
@@ -76,7 +81,7 @@ export function ViewRangeControl({
         .onFinalize(() => setPressed(false))
         .onEnd((_event, success) => {
             if (success) {
-                setOpen(true)
+                openSheet('button')
             }
         })
     const swipe = Gesture.Pan()
@@ -101,7 +106,7 @@ export function ViewRangeControl({
     const onAccessibilityAction = (event: AccessibilityActionEvent): void => {
         switch (event.nativeEvent.actionName) {
             case 'activate':
-                setOpen(true)
+                openSheet('accessibility')
                 break
             case 'increment':
                 if (canNext) {
@@ -140,7 +145,7 @@ export function ViewRangeControl({
             <StepButton direction={1} enabled={canNext} onPress={() => step(1)} />
             {range.isSaved ? null : (
                 <Pressable44
-                    onPress={() => setOpen(true)}
+                    onPress={() => openSheet('not_saved')}
                     accessibilityLabel="Not saved"
                     accessibilityHint="This range is not saved to the view. Opens the date range options."
                     pressedBackground={colors.pressed}

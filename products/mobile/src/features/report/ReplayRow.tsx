@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import { Linking, StyleSheet, Text, View } from 'react-native'
 
+import { track } from '@/lib/analytics'
 import type { EvidenceBlock } from '@/model/types'
 import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { MonoText } from '@/ui/MonoText'
@@ -9,11 +10,12 @@ import { colors, radii, type } from '@/ui/tokens'
 
 type ReplayBlock = Extract<EvidenceBlock, { kind: 'replay' }>
 
-export function ReplayRow({ block }: { block: ReplayBlock }): ReactElement {
+export function ReplayRow({ block, reportId }: { block: ReplayBlock; reportId: string }): ReactElement {
     const countLabel = block.count === 1 ? '1 replay' : `${block.count} replays`
     return (
         <Pressable44
             onPress={() => {
+                track('mobile_report_replay_opened', { report_id: reportId, replay_count: block.count })
                 Linking.openURL(block.url).catch(() => undefined)
             }}
             accessibilityRole="link"

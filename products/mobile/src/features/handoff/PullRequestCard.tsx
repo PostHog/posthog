@@ -2,6 +2,7 @@ import { type ReactElement, type ReactNode, useState } from 'react'
 import { Linking, StyleSheet, Text, View } from 'react-native'
 
 import { useDataMode } from '@/demo/demoMode'
+import { track } from '@/lib/analytics'
 import { safeHttpsUrl } from '@/lib/urls'
 import { useNow } from '@/lib/useNow'
 import type { PullRequestView } from '@/model/types'
@@ -9,6 +10,8 @@ import { Dot } from '@/ui/Dot'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, iconSizes, radii, type } from '@/ui/tokens'
+
+import { useSheetFunnel } from '../report/reportAnalytics'
 import { PullRequestPickerSheet } from './PullRequestPickerSheet'
 import { PULL_REQUEST_STATE_LABELS, pullRequestDetails, pullRequestIdentity } from './pullRequestDisplay'
 import { usePullRequestChecks } from './usePullRequestChecks'
@@ -28,6 +31,7 @@ export function PullRequestCard({
 }: PullRequestCardProps): ReactElement | null {
     const [selectedUrl, setSelectedUrl] = useState<string>()
     const [pickerOpen, setPickerOpen] = useState(false)
+    const sheets = useSheetFunnel(reportId)
     const pullRequest = pullRequests.find((pr) => pr.url === selectedUrl) ?? pullRequests[0]
     const checks = usePullRequestChecks(reportId, pullRequest?.id)
     const now = useNow()
@@ -67,6 +71,12 @@ export function PullRequestCard({
     const url = safeHttpsUrl(pullRequest.url)
     const openPullRequest = (): void => {
         if (url) {
+            track('mobile_pull_request_opened', {
+                from: reportId ? 'report' : 'chat',
+                report_id: reportId,
+                state: pullRequest.state,
+                pr_count: pullRequests.length,
+            })
             Linking.openURL(url).catch(() => undefined)
         }
     }
@@ -79,7 +89,10 @@ export function PullRequestCard({
                 </Text>
                 {pullRequests.length > 1 ? (
                     <Pressable44
-                        onPress={() => setPickerOpen(true)}
+                        onPress={() => {
+                            sheets.opened('pull_request_picker', 'action_bar')
+                            setPickerOpen(true)
+                        }}
                         accessibilityLabel="Choose pull request"
                         pressedBackground={colors.pressed}
                         style={styles.selector}
@@ -143,8 +156,13 @@ export function PullRequestCard({
                 visible={pickerOpen}
                 pullRequests={pullRequests}
                 selectedUrl={pullRequest.url}
-                onClose={() => setPickerOpen(false)}
+                onClose={() => {
+                    sheets.closed()
+                    setPickerOpen(false)
+                }}
                 onSelect={(pr) => {
+                    sheets.completed()
+                    sheets.closed()
                     setSelectedUrl(pr.url)
                     setPickerOpen(false)
                 }}

@@ -96,6 +96,10 @@ The pure resolver is `resolveNotificationRoute()` in `notificationRouting.ts`.
 
 A tap turns demo mode off, because a push is about live data.
 Every tap captures `mobile_push_opened` with `kind` (the payload's `notificationKind`, else `report`, `task` or `unknown`).
+A push that arrives while the app is open captures `mobile_push_received` with `kind` and `shown` (false when the user is on that report or snoozed it).
+A permission prompt captures `mobile_push_permission_resolved` with `permission`, `can_ask_again` and `trigger` (`auto` for the first signed-in run, `settings` for the Enable button).
+Registration captures `mobile_push_registration_finished` with `ok` and `trigger`, plus `reason` (`token_unavailable`, `network`, `api_error` or `unknown`) on failure. A success counts only a new registration, not the silent one on every launch.
+The Settings button captures `mobile_push_enable_pressed` with `action` (`request` or `open_system_settings`).
 
 ## Testing
 

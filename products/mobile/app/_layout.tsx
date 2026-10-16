@@ -19,7 +19,9 @@ import { useHedgehogWidgetSync } from '@/features/hedgehog/useHedgehogWidgetSync
 import { configureNotifications } from '@/features/notifications/pushRegistration'
 import { useNotificationRouting } from '@/features/notifications/useNotificationRouting'
 import { usePushRegistration } from '@/features/notifications/usePushRegistration'
+import { track } from '@/lib/analytics'
 import { initAnalytics } from '@/lib/posthogClient'
+import { useScreenTracking } from '@/lib/useScreenTracking'
 import { RouteErrorBoundary } from '@/ui/RouteErrorBoundary'
 import { colors } from '@/ui/tokens'
 
@@ -30,6 +32,7 @@ SplashScreen.setOptions({ fade: true, duration: 250 })
 installAuthProvider()
 configureNotifications()
 initAnalytics()
+const bootStartedAt = Date.now()
 
 export default function RootLayout(): ReactElement {
     const demoHydrated = useDemoHydrated()
@@ -59,10 +62,15 @@ export default function RootLayout(): ReactElement {
         if (shouldHideSplash({ sessionReady: ready, firstScreenReady, segments, timedOut })) {
             splashHidden.current = true
             SplashScreen.hideAsync().catch(() => undefined)
+            track('mobile_splash_hidden', {
+                reason: firstScreenReady ? 'first_screen' : timedOut ? 'timeout' : 'not_held',
+                wait_ms: Date.now() - bootStartedAt,
+            })
         }
     }, [ready, firstScreenReady, segments, timedOut])
 
     useAuthRedirect()
+    useScreenTracking(ready)
     usePushRegistration()
     useHedgehogWidgetSync()
     useNotificationRouting()

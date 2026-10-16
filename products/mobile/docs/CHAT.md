@@ -10,11 +10,13 @@ The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteraction
 | File | Role |
 | --- | --- |
 | `src/features/chat/ChatSheet.tsx` | The sheet: header, thread or empty state, composer, the options reducer, draft restore |
+| `src/features/chat/chatSheetEvents.ts` | The sheet's `entry` from the route params, and the opened and closed events |
 | `src/features/chat/ChatAccessGate.tsx` | The organization AI approval and the personal consent before the composer (see [AI consent](#ai-consent)) |
 | `src/features/chat/session/useSession.ts` | `useSession({ taskId?, runId? })`: create, follow, send, sync options, resume, stop, answer, reset, demo replies |
 | `src/features/chat/session/sessionRun.ts` | Pure request bodies: the create shapes, run fields, the `set_config_option` plan, the tracked run config |
 | `src/features/chat/session/sessionReducer.ts` | Folds run log lines and stream frames into the thread, as the web's `foldLogFromCheckpoint` does |
 | `src/features/chat/session/sessionDisplay.ts` | Groups thoughts and tool calls into activity rows, error copy |
+| `src/features/chat/session/sessionTurn.ts` | `SessionTurnTracker`: one `mobile_session_finished` per sent message |
 | `src/features/chat/session/SessionThread.tsx` | The thread, its rows, the PR card and the status line |
 | `src/features/chat/session/SessionDecisionPanel.tsx` | The notice line and a pending question, plan approval or permission |
 | `src/features/chat/chatRunOptions.ts` | `ChatRunOptions` (model and permission mode), its reducer, the chip label, seeding from a run |
@@ -49,6 +51,7 @@ the new-chat composer. Native drafts use encrypted device storage, scoped to the
 host and project, with at most 50 drafts per project. Changes save after 400 ms of idle time
 and flush when the composer closes or the app backgrounds. Opening a saved chat restores its
 draft after storage loads.
+`mobile_chat_draft_restored` is captured with `text_length` and `report_count` when the restored draft has text.
 
 A successful send clears the submitted text. A failed send keeps it, and a delayed completion
 does not replace text typed for a later message. Sign-out or session expiry clears the account's
@@ -70,6 +73,11 @@ mode and a policy that blocks network requests; navigation is disabled. Wide dia
 horizontally. Incomplete, invalid, or remote-image diagrams stay as code. The web preview also
 uses the code fallback. Adding this renderer requires a new native build with
 `react-native-webview` before distributing an update that uses it.
+`mobile_chat_diagram_failed` is captured once per diagram with `reason` (`timeout`, `render_error`, `load_error`, `process_gone` or `open_window`).
+
+A tap on an object link, an insight card, a SQL card or a markdown link opens it in the browser.
+`mobile_chat_link_opened` is captured after the system opens it, with `source` (`object_chip`, `insight_card`, `query_card` or `markdown`),
+`object_kind` (the registry kind, null for a markdown link) and `app_link` (a markdown link that was an app path).
 
 Insight summaries need the `insight:read` OAuth scope. Existing sessions need a new sign-in,
 and the server's mobile OAuth application must allow the scope; see [AUTH.md](AUTH.md).
@@ -124,6 +132,7 @@ Then `POST tasks/{t}/run/`, unless the create answered with a `latest_run`:
 
 The composer has a Model chip and a Mode chip after `@`.
 They open `ChatOptionsSheet` with the hand-off's `ModelPage` and `ModePage`.
+`mobile_chat_options_opened` is captured with `page` (`model` or `mode`) when a chip opens the sheet.
 `mobile_chat_option_changed` is captured with `option` (`model`, `effort` or `mode`) only.
 
 - **Seeding.** When a chat opens, or the run's config becomes known, the sheet seeds the options from `session.runConfig`:
@@ -166,6 +175,11 @@ On the next message to a live run, `useSession` first sends one command per chan
   No `branch`: a resumed run keeps its base branch.
 - One send at a time. While the agent works, Stop replaces Send.
 - `mobile_session_sent` is captured with `new_task`, `resumed_run`, `report_count`, `model`, `reasoning_effort` and `permission_mode`.
+- `mobile_session_send_failed` is captured with `code` and `new_task` when a send shows a notice.
+  `code` is `config_rejected`, `command_failed`, `run_not_started`, `warm_run_unavailable`, or the `ChatError` kind from `chatErrors.ts`.
+- `mobile_session_finished` is captured once per sent message, with `status`, `duration_s` (from the accepted send) and `had_decision`.
+  `status` is `completed` (the turn ended), `failed` (the run failed, or the turn ended with a new run error), `cancelled` (the run was cancelled without Stop),
+  `stopped` (the turn or run ended after Stop) or `abandoned` (the sheet closed or New chat dropped the chat first).
 
 ## Reading a run
 
@@ -177,13 +191,15 @@ On the next message to a live run, `useSession` first sends one command per chan
   Opening a thread scrolls straight to the latest message without animation.
   Reconnects follow the hand-off rules (see [HANDOFF.md](HANDOFF.md)); a replay after a lost cursor rebuilds the thread.
 - `mobile_session_resumed` is captured with the run status.
+- `mobile_session_load_failed` is captured with `code` (the `ChatError` kind) each time the thread shows "Couldn't load this session".
+  `mobile_session_load_retried` is captured when the person taps Try again there.
 
 ## Stop
 
 Stop sends the `cancel` command (`{ "jsonrpc": "2.0", "method": "cancel" }`), which interrupts the turn and keeps the run alive.
 The app sends it only after the stream showed the agent generating, because a cancel before that drops the run's first message; until then the notice says "The agent hasn't started yet."
 A JSON-RPC `error` in the answer shows "Couldn't stop this run. Try again."
-`mobile_session_stopped` is captured.
+`mobile_session_stopped` is captured when the cancel goes out. The turn's `mobile_session_finished` then has `status: stopped`.
 
 ## Decisions
 
@@ -191,6 +207,8 @@ Permission requests go through the hand-off tool policy (`toolPolicy.ts`, see [H
 the app allows built-in tools and PostHog `exec` calls on the person's behalf and asks about the rest.
 A question, plan approval or permission shows in `SessionDecisionPanel` and replaces the composer while it waits.
 The answer goes as a `permission_response` command and shows in the thread as the person's bubble.
+`mobile_decision_shown` is captured once per request with `kind` (`question`, `plan` or `permission`), `surface: chat` and `replayed` (the request was in the stored log).
+`mobile_decision_answered` follows with `task_id`, `kind`, `picked_option` and `surface: chat`.
 
 ## Errors
 
@@ -242,6 +260,7 @@ The web thread strips only leading blocks, so the blocks lead and the question f
 - Assistant text renders as markdown with `react-native-markdown-display`, styled from `src/ui/tokens.ts`.
   `html: false`; images are dropped. Relative links open on the signed-in host; only http(s) links open.
 - The status line shows the current stage or tool, "Thinking…", or "Reconnecting…".
+- Thoughts and tool calls fold into activity rows. `mobile_chat_activity_expanded` is captured with `running` and `tool_count` when the person opens one.
 - Known PRs remain available while execution is active, idle or terminal. Their state is separate
   from execution; a discovered URL starts unknown until the report supplies authoritative state.
 - Report task status opens that implementation task, including idle and completed runs that can
@@ -254,6 +273,19 @@ The compose button in the header shows once a chat has a task or a message.
 It drops the open task (or the one the first send created), clears the text and attached reports, and resets the options to Default and Auto.
 The header shows the task title, else "New chat".
 The empty state with suggested prompts shows while there is no task and no message.
+`mobile_chat_suggestion_picked` is captured with `source` (`report` for the report's own prompts, else `default`), `index` and `report_count`; never the prompt.
+
+`@` or the @ button opens the report list. `mobile_chat_mention_opened` is captured with `trigger` (`typed` or `button`),
+`mobile_chat_report_attached` with `attached_count`, and `mobile_chat_report_removed` (a chip's ×) with `attached_count` and `initial` (the report the sheet opened with).
+
+## Sheet lifecycle
+
+The sheet opens from the bottom bar's compose button, a report's Chat button, a report's task status, an inbox row's menu and the Chats tab.
+The route takes an optional `entry` param; `chatSheetSource` falls back on `report` with a `reportId`, `task` with only a `taskId`, else `compose`.
+
+- `mobile_chat_sheet_opened` is captured once per open with `entry` (`chats_list`, `chats_search`, `chats_empty`, `compose`, `report`, `report_task`, `inbox_menu` or `task`),
+  `origin` (the Chats row's origin, else null), `has_context` (a report is attached) and `resumed` (an existing task opened).
+- `mobile_chat_sheet_closed` is captured on unmount, also after an Android back, with `entry`, `messages_sent`, `new_chats` (New chat taps), `had_run` and `dwell_s`.
 
 ## Chats list
 
@@ -264,7 +296,11 @@ The empty state with suggested prompts shows while there is no task and no messa
   the hook calls `reloadAccount()` once and shows loading until it settles, then the list, the account error with Try again, or an empty list.
 - `chatListFromSessions` (`src/model/adapters/chats.ts`) maps `origin_product` to the row's origin: `posthog_ai` is a chat, `signal_report` a report, anything else a session.
   The server already leaves out archived tasks.
-- A row opens the sheet with `{ taskId }`; `mobile_chat_opened` is captured with `origin`.
+- A row opens the sheet with `{ taskId, entry, origin }`: `entry` is `chats_search` while the search field has text, else `chats_list`.
+  `mobile_chat_sheet_opened` carries both; the list sends no event of its own for a row.
+- `mobile_chats_searched` is captured with `query_length` and `result_count` once per query, after typing pauses.
+- `mobile_chats_refreshed` is captured with `trigger` (`pull`, `header` or `retry`).
+- `mobile_chats_load_failed` is captured with `code` (the `ChatError` kind) each time the list shows "Couldn't load your chats".
 - A 403 or 404 from tasks means the user has no sessions and shows the empty state.
 - `chatGroups.ts` labels rows by local calendar day and filters titles on the device.
 - Regaining focus (closing the sheet) invalidates the list, so a new chat appears with its title.

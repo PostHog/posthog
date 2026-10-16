@@ -10,7 +10,7 @@ import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
 import type { QueryState } from '@/model/types'
 import type { BrowseRow, PinView, RecentView } from '@/model/views'
 
-import { trackViewsSearched } from './analytics'
+import { type SearchSection, trackBrowseListPaged, trackViewsSearched } from './analytics'
 import { listRead, retryListRead } from './listReads'
 import { useViewsContext } from './useViewsContext'
 import { viewsKeys } from './viewsCache'
@@ -73,9 +73,16 @@ function useBrowseList<T extends DashboardBasicApi | InsightBasicApi>(
     const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage, refetch } = list
     const retryLoadMore = useCallback(() => {
         if (hasNextPage && !isFetchingNextPage) {
-            void fetchNextPage()
+            const before = data?.pages.length ?? 0
+            void fetchNextPage().then((result) => {
+                // A cancelled fetch also resolves, with the pages it had before.
+                const pagesLoaded = result.data?.pages.length ?? 0
+                if (!result.isFetchNextPageError && pagesLoaded > before) {
+                    trackBrowseListPaged({ section: kind, pagesLoaded })
+                }
+            })
         }
-    }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+    }, [hasNextPage, isFetchingNextPage, fetchNextPage, data, kind])
     const loadMore = useCallback(() => {
         if (!isFetchNextPageError) {
             retryLoadMore()
@@ -179,15 +186,21 @@ function useDebouncedSearchText(text: string): string {
 }
 
 /** Sends `mobile_views_searched` once per query, when every part of the search has settled. */
-function useSearchSettledEvent(active: boolean, settled: boolean, query: string, resultCount: number): void {
+function useSearchSettledEvent(
+    section: SearchSection,
+    active: boolean,
+    settled: boolean,
+    query: string,
+    resultCount: number
+): void {
     const tracked = useRef<string | null>(null)
     useEffect(() => {
         if (!active || !settled || tracked.current === query) {
             return
         }
         tracked.current = query
-        trackViewsSearched({ queryLength: query.length, resultCount })
-    }, [active, settled, query, resultCount])
+        trackViewsSearched({ section, queryLength: query.length, resultCount })
+    }, [section, active, settled, query, resultCount])
 }
 
 /**
@@ -209,6 +222,7 @@ export function useViewsSearch(
     const dashboards = useServerSearch('dashboards', query, active)
     const insights = useServerSearch('insights', query, active)
     useSearchSettledEvent(
+        'views',
         active,
         !dashboards.isLoading && !insights.isLoading,
         query,
@@ -229,6 +243,6 @@ export function useBrowseSearch(kind: 'dashboards' | 'insights', text: string): 
     const query = useDebouncedSearchText(text)
     const active = query.length >= SEARCH_MIN_LENGTH
     const rows = useServerSearch(kind, query, active)
-    useSearchSettledEvent(active, !rows.isLoading, query, rows.data?.length ?? 0)
+    useSearchSettledEvent(kind, active, !rows.isLoading, query, rows.data?.length ?? 0)
     return { active, query, rows }
 }

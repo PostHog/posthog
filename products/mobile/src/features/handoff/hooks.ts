@@ -12,7 +12,7 @@ import type { DecisionAnswerInput, DecisionQuestion } from '@/model/types'
 
 import { CommandFailedError, type DeliveryOutcome, deliverPermissionResponse } from './commands'
 import { handoffEntry, type ReportHandoff, type StoredAnswer, useHandoffStore } from './handoffStore'
-import { handoffErrorMessage, kickOffReportTask } from './kickoff'
+import { handoffErrorMessage, handoffFailureReason, kickOffReportTask } from './kickoff'
 import { currentDecision, sameVisibleEntry, visibleAnswer } from './liveReport'
 import { planAnswer } from './permissionRequest'
 import { buildHandoffRunRequest } from './runOptions'
@@ -183,6 +183,11 @@ export function useHandoffActions(reportId: string): HandoffActions {
             refreshReport()
         } catch (error) {
             useHandoffStore.getState().setNotice(reportId, handoffErrorMessage(error))
+            track('mobile_handoff_failed', {
+                report_id: reportId,
+                agent: 'posthog',
+                reason: handoffFailureReason(error),
+            })
         }
     })
 
@@ -227,6 +232,7 @@ export function useHandoffActions(reportId: string): HandoffActions {
         controller.abort()
         deliveries.delete(reportId)
         useHandoffStore.getState().setAnswer(reportId, undefined)
+        track('mobile_decision_undone', { report_id: reportId })
     })
 
     return { handOff, answerDecision, undoDecision }

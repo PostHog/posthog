@@ -14,7 +14,7 @@ import { SegmentedPill } from '@/ui/SegmentedPill'
 import { colors, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
-import { useAuthStore } from './authStore'
+import { type AuthMethod, useAuthStore } from './authStore'
 import { OAuthError } from './oauth'
 import {
     CLOUD_REGIONS,
@@ -26,8 +26,7 @@ import {
     validateHost,
 } from './regions'
 import { SignInField } from './SignInField'
-
-type SignInMode = 'oauth' | 'personal_api_key'
+import { signInFailureReason } from './signInErrors'
 
 export function SignInScreen(): ReactElement {
     const router = useRouter()
@@ -46,7 +45,7 @@ export function SignInScreen(): ReactElement {
         const { region: lastRegion, clientId: lastClientId } = useAuthStore.getState()
         return lastRegion === 'custom' && lastClientId ? lastClientId : DEFAULT_CUSTOM_CLIENT_ID
     })
-    const [mode, setMode] = useState<SignInMode>('oauth')
+    const [mode, setMode] = useState<AuthMethod>('oauth')
     const [apiKey, setApiKey] = useState('')
     const [error, setError] = useState<{ message: string; retryable: boolean } | null>(null)
 
@@ -59,22 +58,41 @@ export function SignInScreen(): ReactElement {
     const submit = useAsyncAction(async () => {
         setError(null)
         const host = selfHosted ? customHost : (selected?.host ?? '')
+        const method: AuthMethod = usingKey ? 'personal_api_key' : 'oauth'
+        track('mobile_sign_in_started', { method, region, after_expiry: signedOutReason === 'expired' })
         try {
             if (usingKey) {
                 await signInWithPersonalApiKey(host, apiKey)
             } else {
                 await signIn(host, selfHosted ? clientId : (selected?.clientId ?? ''))
             }
+            if (useDemoMode.getState().enabled) {
+                track('mobile_demo_ended', { from: 'sign_in' })
+            }
             setDemo(false)
             router.replace('/inbox')
         } catch (caught) {
             // Retrying cannot help when this platform has no OAuth sign-in.
             const retryable = !(caught instanceof OAuthError && caught.kind === 'unsupported')
+            track('mobile_sign_in_failed', {
+                method,
+                region,
+                reason: signInFailureReason(caught, method),
+                retryable,
+            })
             setError({ message: toError(caught).message, retryable })
         }
     })
 
+    const changeRegion = (next: RegionId): void => {
+        if (next !== region) {
+            track('mobile_sign_in_region_changed', { region: next })
+        }
+        setRegion(next)
+    }
+
     const tryDemo = (): void => {
+        track('mobile_demo_started', { from: 'sign_in' })
         setDemo(true)
         router.replace('/inbox')
     }
@@ -142,7 +160,7 @@ export function SignInScreen(): ReactElement {
                                     accessibilityLabel: `${option.label} cloud`,
                                     selected: region === option.id,
                                     disabled: submit.pending,
-                                    onPress: () => setRegion(option.id),
+                                    onPress: () => changeRegion(option.id),
                                     testID: `region-${option.id}`,
                                     children: (
                                         <Text style={styles.segmentText} numberOfLines={1}>
@@ -225,7 +243,7 @@ export function SignInScreen(): ReactElement {
                     <Pressable44
                         onPress={() => {
                             setError(null)
-                            setRegion(selfHosted ? 'us' : 'custom')
+                            changeRegion(selfHosted ? 'us' : 'custom')
                         }}
                         disabled={submit.pending}
                         pressedBackground={colors.sunken}

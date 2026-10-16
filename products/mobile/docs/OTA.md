@@ -87,5 +87,5 @@ A rollback reaches each device on its next two launches, the same as an update.
 Settings shows the app version in every build.
 Development and preview builds also show an Environment group: the build variant, the update channel, the update (the first 8 characters of `Updates.updateId` and the time of `Updates.createdAt`, or "Built in" when the app runs the JavaScript inside the build), and the API host kind.
 Store builds do not show the channel or update.
-The app's own analytics events carry `app_variant`, `update_channel` and `api_host_kind` as super properties.
+The app's own analytics events carry `app_variant`, `update_channel`, `api_host_kind`, `data_mode` (`demo` or `live`, null until the demo flag loads) and `project_id` (null when signed out) as super properties.
 On the EAS project page, the Updates tab lists each update group with its runtime version, platforms and commit message.

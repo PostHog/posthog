@@ -105,6 +105,7 @@ test('keeps the PR, activity and real request together, with full question and a
     expect(screen.queryByTestId('decision-option-guard')).toBeNull()
     fireEvent.press(screen.getByTestId('view-task-activity'))
     expect(viewProps.onTaskChat).toHaveBeenCalledTimes(1)
+    expect(viewProps.onTaskChat).toHaveBeenCalledWith('pr_card')
     fireEvent.press(screen.getByTestId('decision-request'))
     expect(within(screen.getByTestId('pr-ready-card')).queryByTestId('decision-sheet')).toBeNull()
     expect(screen.getByText('Which fix should ship?')).toBeTruthy()

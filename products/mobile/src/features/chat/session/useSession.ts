@@ -53,7 +53,7 @@ import type { DecisionAnswerInput } from '@/model/types'
 import { toChatError } from '../chatErrors'
 import { type ChatRunOptions, DEFAULT_CHAT_RUN_OPTIONS } from '../chatRunOptions'
 import { bareQuestion, chatPrompt } from '../contextPrompt'
-import type { ChatContext } from '../types'
+import type { ChatContext, ChatError } from '../types'
 import { historyFrames, initialSessionThread, type SessionFrame, sessionThreadReducer } from './sessionReducer'
 import {
     applyConfigChange,
@@ -70,6 +70,7 @@ import {
     type TrackedRunConfig,
     withStreamModeReport,
 } from './sessionRun'
+import { SessionTurnTracker } from './sessionTurn'
 import type { Session, SessionDecision, SessionHistory, SessionPhase } from './types'
 
 // Drives a sandbox task run in the chat sheet through the tasks API. Stream handling follows `docs/HANDOFF.md`.
@@ -173,6 +174,30 @@ function sendErrorMessage(error: unknown): string {
         }
     }
     return toChatError(error).message
+}
+
+type SendErrorCode =
+    | 'config_rejected'
+    | 'command_failed'
+    | 'run_not_started'
+    | 'warm_run_unavailable'
+    | ChatError['kind']
+
+/** The `code` of `mobile_session_send_failed`, which follows the cases of `sendErrorMessage`. */
+function sendErrorCode(error: unknown): SendErrorCode {
+    if (error instanceof ConfigSyncError) {
+        return 'config_rejected'
+    }
+    if (error instanceof CommandFailedError) {
+        return 'command_failed'
+    }
+    if (error instanceof RunNotStartedError) {
+        return 'run_not_started'
+    }
+    if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
+        return 'warm_run_unavailable'
+    }
+    return toChatError(error).kind
 }
 
 /**
@@ -496,6 +521,8 @@ export function useSession(options: SessionOptions): Session {
     const stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const runConfigs = useRef(new Map<string, TrackedRunConfig>())
     const runSource = useRef<RunSourceFieldsApi>({})
+    const [turnTracker] = useState(() => new SessionTurnTracker())
+    const shownDecisions = useRef(new Set<string>())
 
     const setLive = useCallback((next: RunStreamState | null): void => {
         liveRef.current = next
@@ -640,6 +667,7 @@ export function useSession(options: SessionOptions): Session {
     )
 
     const resetState = useCallback((): void => {
+        turnTracker.finish('abandoned')
         actionController.current?.abort()
         actionController.current = null
         bootController.current?.abort()
@@ -660,7 +688,7 @@ export function useSession(options: SessionOptions): Session {
         setPartial(null)
         setLive(null)
         dispatchThread({ type: 'reset' })
-    }, [endStopping, setLive, setPartial])
+    }, [endStopping, setLive, setPartial, turnTracker])
 
     const reloadHistory = useCallback(async (): Promise<void> => {
         epoch.current += 1
@@ -761,6 +789,7 @@ export function useSession(options: SessionOptions): Session {
 
     useEffect(
         () => () => {
+            turnTracker.finish('abandoned')
             epoch.current += 1
             bootController.current?.abort()
             actionController.current?.abort()
@@ -768,8 +797,23 @@ export function useSession(options: SessionOptions): Session {
                 clearTimeout(stopTimer.current)
             }
         },
-        []
+        [turnTracker]
     )
+
+    useEffect(() => {
+        turnTracker.observe(live)
+    }, [turnTracker, live])
+
+    const pendingRequestId = live?.pending?.record.requestId
+    const pendingKind = live?.pending?.kind
+    const pendingReplayed = live?.pending?.replayed ?? false
+    useEffect(() => {
+        if (!pendingRequestId || !pendingKind || shownDecisions.current.has(pendingRequestId)) {
+            return
+        }
+        shownDecisions.current.add(pendingRequestId)
+        track('mobile_decision_shown', { kind: pendingKind, surface: 'chat', replayed: pendingReplayed })
+    }, [pendingRequestId, pendingKind, pendingReplayed])
 
     useEffect(() => {
         if (!follow || !activeTaskId || !active || demo) {
@@ -997,6 +1041,7 @@ export function useSession(options: SessionOptions): Session {
                     report_count: reportCount,
                     ...sentOptionProperties(options, options.permissionMode),
                 })
+                turnTracker.begin(liveRef.current)
                 await playDemoFrames(demoReplyFrames(DEMO_REPLY), controller.signal)
                 return true
             }
@@ -1044,6 +1089,7 @@ export function useSession(options: SessionOptions): Session {
                         report_count: reportCount,
                         ...sentOptionProperties(options, permissionMode),
                     })
+                    turnTracker.begin(liveRef.current)
                 }
             } catch (error) {
                 if (epoch.current !== mine || controller.signal.aborted) {
@@ -1052,6 +1098,7 @@ export function useSession(options: SessionOptions): Session {
                 dispatchThread({ type: 'withdraw', id: localId })
                 setNotice(sendErrorMessage(error))
                 setUnsentText(trimmed)
+                track('mobile_session_send_failed', { code: sendErrorCode(error), new_task: false })
                 return false
             } finally {
                 if (epoch.current === mine) {
@@ -1061,7 +1108,7 @@ export function useSession(options: SessionOptions): Session {
             }
             return true
         },
-        [adoptLatestRun, applyFrame, demo, playDemoFrames, startRun, syncConfig, updateLive]
+        [adoptLatestRun, applyFrame, demo, playDemoFrames, startRun, syncConfig, turnTracker, updateLive]
     )
 
     const startNew = useCallback(
@@ -1098,6 +1145,7 @@ export function useSession(options: SessionOptions): Session {
                 })
                 applyFrame(echo, { source: 'live', sourceRunId: runId }, runId, signal)
                 track('mobile_session_sent', sentProperties)
+                turnTracker.begin(liveRef.current)
                 await playDemoFrames(demoReplyFrames(DEMO_REPLY), signal)
                 return true
             }
@@ -1149,6 +1197,7 @@ export function useSession(options: SessionOptions): Session {
                 setLive(applyRunSnapshot(initialRunState(task.id, run.id, run.status), run))
                 setFollow({ runId: run.id, key: 0, fresh: true })
                 track('mobile_session_sent', sentProperties)
+                turnTracker.begin(liveRef.current)
             } catch (error) {
                 if (epoch.current !== mine || signal.aborted) {
                     return false
@@ -1156,6 +1205,7 @@ export function useSession(options: SessionOptions): Session {
                 dispatchThread({ type: 'withdraw', id: localId })
                 setNotice(sendErrorMessage(error))
                 setUnsentText(trimmed)
+                track('mobile_session_send_failed', { code: sendErrorCode(error), new_task: true })
                 return false
             } finally {
                 if (epoch.current === mine) {
@@ -1165,7 +1215,7 @@ export function useSession(options: SessionOptions): Session {
             }
             return true
         },
-        [applyFrame, demo, playDemoFrames, setLive]
+        [applyFrame, demo, playDemoFrames, setLive, turnTracker]
     )
 
     const submit = useCallback(
@@ -1264,6 +1314,7 @@ export function useSession(options: SessionOptions): Session {
                 setDemoPlaying(false)
                 dispatchThread({ type: 'settle' })
                 track('mobile_session_stopped')
+                turnTracker.finish('stopped')
             }
             return
         }
@@ -1286,6 +1337,7 @@ export function useSession(options: SessionOptions): Session {
         stoppingRef.current = true
         setStopping(true)
         track('mobile_session_stopped')
+        turnTracker.markStopped(true)
         stopTimer.current = setTimeout(endStopping, STOP_TIMEOUT_MS)
         const mine = epoch.current
         sendTaskRunCommand(taskId, current.runId, { method: 'cancel' }, { id: `cancel-${randomUUID()}` })
@@ -1298,9 +1350,10 @@ export function useSession(options: SessionOptions): Session {
                 if (epoch.current === mine) {
                     endStopping()
                     setNotice(STOP_FAILED)
+                    turnTracker.markStopped(false)
                 }
             })
-    }, [active, demo, endStopping, reconnecting])
+    }, [active, demo, endStopping, reconnecting, turnTracker])
 
     const dismissNotice = useCallback((): void => setNotice(undefined), [])
 

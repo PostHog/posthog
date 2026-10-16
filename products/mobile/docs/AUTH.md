@@ -144,7 +144,7 @@ Region, host and client id stay after sign out so the sign-in form starts where 
 | `accountLoading`, `accountError` | the last account reload |
 | `signedOutReason` | `expired` when the server ended the session |
 
-Actions: `restore()`, `signIn(host, clientId)`, `signInWithPersonalApiKey(host, key)`, `selectProject(id)`, `reloadAccount()`, `signOut()`.
+Actions: `restore()`, `signIn(host, clientId)`, `signInWithPersonalApiKey(host, key)`, `selectProject(id, from)`, `reloadAccount()`, `signOut()`.
 `selectProject` resets every TanStack query, so no screen shows the previous project's data.
 `addSignOutTask(task)` registers work that needs the token during sign out (push unregistration uses it).
 
@@ -163,6 +163,24 @@ Internal builds show the environment ribbon above the logo, for example "Dev bui
 It names the selected region, or the self-hosted address once it is valid.
 A store build shows it only for a self-hosted address, in red.
 The link is also hidden while "Use a self-hosted instance" is selected.
+
+## Analytics
+
+The sign-in, session and settings events never carry the host, the error text or anything typed:
+
+- `mobile_sign_in_started` with `method` (`oauth` or `personal_api_key`), `region` and `after_expiry` (the screen showed "Your session ended").
+- `mobile_sign_in_failed` with `method`, `region`, `retryable` and `reason`: an `OAuthErrorKind` (`cancelled`, `denied`, `network`, ...), `invalid_input`, `invalid_key`, `account_rejected`, `account_forbidden`, `account_load` or `unknown` (`signInFailureReason()` in `src/auth/signInErrors.ts`).
+- `mobile_signed_in` with `method` and `region`.
+- `mobile_sign_in_region_changed` with `region`, from the region pill and "Use a self-hosted instance".
+- `mobile_create_account_opened` with `region`.
+- `mobile_session_restored` with `method`, once per cold start that opens signed in.
+- `mobile_signed_out` with `reason` (`user`, or `expired` when the server ended the session) and `method`. It fires before the analytics identity resets.
+- `mobile_account_reload_failed` with `reason` (`forbidden`, `api_error`, `network` or `unknown`).
+- `mobile_project_picker_opened`, and `mobile_project_switched` with `from` (`nav_menu`, `settings` or `push`).
+- `mobile_settings_opened` with `from` (`nav_menu`).
+- `mobile_sign_out_confirm_shown` and `mobile_sign_out_cancelled` with `from` (`settings` or `nav_menu`).
+- `mobile_demo_started` with `from` (`sign_in` or `settings`), and `mobile_demo_ended` with `from` (`settings`, `sign_out`, `sign_in` or `push`).
+- `mobile_deep_link_opened` with `path_kind` (the first path segment as an enum, `deepLinkKind()` in `src/lib/deepLinkKind.ts`) and `initial`. `app/+native-intent.tsx` sends it. `deepLinkKind()` returns null for the app's root URL, which Expo Router also passes on a cold start without a link, so that start sends nothing.
 
 ## Development sign in
 

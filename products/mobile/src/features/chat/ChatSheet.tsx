@@ -6,6 +6,7 @@ import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
+import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import { useNow } from '@/lib/useNow'
 import { reportWebUrl } from '@/model/adapters/report'
@@ -37,6 +38,7 @@ import {
     chipModelLabel,
     DEFAULT_CHAT_RUN_OPTIONS,
 } from './chatRunOptions'
+import { type ChatSheetSource, useChatSheetEvents } from './chatSheetEvents'
 import { inboxContextItem, reportContextFromItem, reportContextFromView } from './contextPrompt'
 import { MentionPopover } from './MentionPopover'
 import { SessionDecisionPanel } from './session/SessionDecisionPanel'
@@ -52,6 +54,7 @@ interface ChatSheetProps {
     initialReportId?: string
     initialTaskId?: string
     initialRunId?: string
+    source: ChatSheetSource
     onClosed: () => void
 }
 
@@ -62,7 +65,13 @@ function sessionTarget(taskId: string | undefined, runId: string | undefined): S
     return runId ? { taskId, runId } : { taskId }
 }
 
-export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClosed }: ChatSheetProps): ReactElement {
+export function ChatSheet({
+    initialReportId,
+    initialTaskId,
+    initialRunId,
+    source,
+    onClosed,
+}: ChatSheetProps): ReactElement {
     const insets = useScreenInsets()
     const { height: windowHeight } = useWindowDimensions()
     const now = useNow()
@@ -82,6 +91,10 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
         initialReportId && isReportId(initialReportId, demo) ? initialReportId : undefined
     )
     const [draftTaskId, setDraftTaskId] = useState<string | null>(initialTaskId ?? null)
+    const sheetEvents = useChatSheetEvents(
+        { ...source, hasContext: draftReportId !== undefined, resumed: initialTaskId !== undefined },
+        session.runId
+    )
     useEffect(() => {
         if (!session.isSending && !session.unsentText && session.taskId) {
             setDraftTaskId(session.taskId)
@@ -100,6 +113,7 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
     }
     const [reports, setReports] = useState<Record<string, ReportView>>({})
     const [mentionOpen, setMentionOpen] = useState(false)
+    const mentionTrigger = useRef<'button' | 'typed'>('button')
     const [runOptions, dispatchRunOptions] = useReducer(chatRunOptionsReducer, DEFAULT_CHAT_RUN_OPTIONS)
     const pickedOptions = useRef(false)
     const [optionsOpen, setOptionsOpen] = useState(false)
@@ -116,6 +130,19 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
     // A live run cannot switch harness, so an open chat stays on the harness its run uses.
     const runAdapter = session.taskId ? (session.runConfig?.runtimeAdapter ?? null) : null
     const permissionMode = chatPermissionMode(runOptions, runDefaults, runAdapter)
+
+    const historyErrorKind = historyStatus === 'error' ? (session.history.error?.kind ?? 'unknown') : null
+    useEffect(() => {
+        if (historyErrorKind) {
+            track('mobile_session_load_failed', { code: historyErrorKind })
+        }
+    }, [historyErrorKind])
+
+    useEffect(() => {
+        if (mentionOpen) {
+            track('mobile_chat_mention_opened', { trigger: mentionTrigger.current })
+        }
+    }, [mentionOpen])
 
     useEffect(() => {
         if (optionsDisabled) {
@@ -209,9 +236,11 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
 
     const changeText = (value: string): void => {
         setText(value)
+        mentionTrigger.current = 'typed'
         setMentionOpen((open) => (value.endsWith('@') ? canMention : open && value.includes('@')))
     }
     const toggleMention = (): void => {
+        mentionTrigger.current = 'button'
         setMentionOpen((open) => !open && canMention)
     }
     const openOptions = (page: ChatOptionsPage): void => {
@@ -223,6 +252,7 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
         setMentionOpen(false)
         setOptionsPage(page)
         setOptionsOpen(true)
+        track('mobile_chat_options_opened', { page })
     }
     const closeOptions = (): void => {
         setOptionsOpen(false)
@@ -233,6 +263,11 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
         dispatchRunOptions(action)
     }
     const pickMention = (item: InboxItem): void => {
+        if (!attached.includes(item.reportId)) {
+            track('mobile_chat_report_attached', {
+                attached_count: Math.min(attached.length + 1, MAX_ATTACHED_REPORTS),
+            })
+        }
         composerDraft.change({
             text: text.replace(/@$/, ''),
             reportIds: attached.includes(item.reportId)
@@ -243,6 +278,10 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
         input.current?.focus()
     }
     const detach = (reportId: string): void => {
+        track('mobile_chat_report_removed', {
+            attached_count: attached.filter((id) => id !== reportId).length,
+            initial: reportId === initialReportId,
+        })
         setAttached((previous) => previous.filter((id) => id !== reportId))
     }
     const send = (): void => {
@@ -260,6 +299,9 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
             .beginSend({ text: message, reportIds: attached })
             .then(async (settle) => {
                 const sent = await session.send(message, context, options).catch(() => false)
+                if (sent) {
+                    sheetEvents.countSent()
+                }
                 await settle(sent)
             })
             .finally(() => {
@@ -268,6 +310,7 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
             })
     }
     const startNewChat = (): void => {
+        sheetEvents.countNewChat()
         if (target.taskId) {
             // The session reloads as an empty new chat when its task option goes.
             setTarget({})
@@ -347,6 +390,7 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
                                 <SessionThread
                                     session={session}
                                     onRetryHistory={() => {
+                                        track('mobile_session_load_retried')
                                         session.reloadHistory().catch(() => undefined)
                                     }}
                                 />

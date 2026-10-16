@@ -1,7 +1,6 @@
 import type { ReactElement, ReactNode } from 'react'
 import { StyleSheet, Text, type TextStyle, View } from 'react-native'
 
-import { track } from '@/lib/analytics'
 import { sourceInfo } from '@/model/sources'
 import type { ReportOwner, ReportPriority, ReportView } from '@/model/types'
 import { Avatar } from '@/ui/Avatar'
@@ -26,14 +25,6 @@ interface ReportMetaProps {
 export function ReportMeta({ report, onReassign, onChangePriority }: ReportMetaProps): ReactElement {
     const { Icon } = sourceInfo(report.sourceProduct)
     const since = report.since ? sinceText(report.since) : undefined
-    const reassign = (): void => {
-        track('mobile_report_chip_pressed', { chip: 'owner' })
-        onReassign()
-    }
-    const changePriority = (): void => {
-        track('mobile_report_chip_pressed', { chip: 'priority' })
-        onChangePriority()
-    }
     return (
         <View>
             <View
@@ -59,8 +50,8 @@ export function ReportMeta({ report, onReassign, onChangePriority }: ReportMetaP
                 ) : null}
             </View>
             <View style={styles.chips}>
-                <OwnerChip owner={report.owner} onPress={reassign} />
-                <PriorityChip priority={report.priority} onPress={changePriority} />
+                <OwnerChip owner={report.owner} onPress={onReassign} />
+                <PriorityChip priority={report.priority} onPress={onChangePriority} />
             </View>
         </View>
     )

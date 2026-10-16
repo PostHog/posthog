@@ -273,8 +273,17 @@ function restoreRead(queryClient: QueryClient, reportId: string, snapshot: ReadS
     }
 }
 
+/** `open` is the mark that opening a report sends by itself; `manual` is a swipe or a row menu choice. */
+type ReadTrigger = 'open' | 'manual'
+
 // A write to the opposite value waits for the one in flight, so the server ends with the last value the user chose.
-function setReportRead(queryClient: QueryClient, scope: ProjectScope, reportId: string, read: boolean): Promise<void> {
+function setReportRead(
+    queryClient: QueryClient,
+    scope: ProjectScope,
+    reportId: string,
+    read: boolean,
+    trigger: ReadTrigger
+): Promise<void> {
     let pending = pendingReads.get(queryClient)
     if (!pending) {
         pending = new Map()
@@ -308,7 +317,7 @@ function setReportRead(queryClient: QueryClient, scope: ProjectScope, reportId: 
         try {
             await postReadStates([reportId], read, controller.signal)
             if (generation !== accountGeneration) return
-            track(read ? 'mobile_report_marked_read' : 'mobile_report_marked_unread', { report_id: reportId })
+            track(read ? 'mobile_report_marked_read' : 'mobile_report_marked_unread', { report_id: reportId, trigger })
             if (!isLatest()) return
             await queryClient.cancelQueries(filters)
             if (generation !== accountGeneration || !isLatest()) return
@@ -347,7 +356,7 @@ export function useSetReportRead(): (reportId: string, read: boolean) => Promise
             if (!scope) {
                 throw new NotSignedInError()
             }
-            await setReportRead(queryClient, scope, reportId, read)
+            await setReportRead(queryClient, scope, reportId, read, 'manual')
         },
         [demo, demoMarkRead, demoMarkUnread, scope, queryClient]
     )
@@ -373,7 +382,7 @@ export function useMarkReadOnOpen(reportId: string | undefined): void {
         if (!scope) {
             return
         }
-        setReportRead(queryClient, scope, reportId, true).catch(() => undefined)
+        setReportRead(queryClient, scope, reportId, true, 'open').catch(() => undefined)
         wakeSnooze(scope, reportId).catch(() => undefined)
     }, [reportId, demo, demoMarkRead, scope, queryClient])
 }

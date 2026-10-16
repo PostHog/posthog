@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Platform, ScrollView, StyleSheet, useColorScheme, View } from 'react-native'
 import WebView from 'react-native-webview'
+import { track } from '@/lib/analytics'
 import {
     type DiagramSize,
     hasRemoteImageNode,
@@ -25,6 +26,18 @@ function mermaidBundle(): string {
 
 // Remounted rows keep their height instead of jumping while the WebView loads.
 const sizes = new Map<string, DiagramSize>()
+
+type DiagramFailure = 'timeout' | 'render_error' | 'load_error' | 'process_gone' | 'open_window'
+
+// A remounted row fails again for the same diagram, so each diagram reports its failure once.
+const reportedFailures = new Set<string>()
+
+function reportFailure(cacheKey: string, reason: DiagramFailure): void {
+    if (reportedFailures.has(cacheKey)) return
+    if (reportedFailures.size >= SIZE_CACHE_LIMIT) reportedFailures.clear()
+    reportedFailures.add(cacheKey)
+    track('mobile_chat_diagram_failed', { reason })
+}
 
 interface MermaidDiagramProps {
     code: string
@@ -52,13 +65,19 @@ function DiagramView({ code, fallback, cacheKey, dark }: DiagramViewProps): Reac
 
     useEffect(() => {
         if (size || failed) return
-        const timeout = setTimeout(() => setFailed(true), 15000)
+        const timeout = setTimeout(() => {
+            reportFailure(cacheKey, 'timeout')
+            setFailed(true)
+        }, 15000)
         return () => clearTimeout(timeout)
-    }, [size, failed])
+    }, [size, failed, cacheKey])
 
     if (failed) return fallback
 
-    const fail = () => setFailed(true)
+    const fail = (reason: DiagramFailure) => {
+        reportFailure(cacheKey, reason)
+        setFailed(true)
+    }
     const onMessage = (data: string) => {
         const message = parseMermaidMessage(data)
         if (message?.type === 'size') {
@@ -66,7 +85,7 @@ function DiagramView({ code, fallback, cacheKey, dark }: DiagramViewProps): Reac
             rememberSize(sizes, cacheKey, next, SIZE_CACHE_LIMIT)
             setSize(next)
         } else if (message?.type === 'error') {
-            fail()
+            fail('render_error')
         }
     }
 
@@ -79,10 +98,10 @@ function DiagramView({ code, fallback, cacheKey, dark }: DiagramViewProps): Reac
                         originWhitelist={['*']}
                         onShouldStartLoadWithRequest={(request) => request.url === 'about:blank'}
                         onMessage={(event) => onMessage(event.nativeEvent.data)}
-                        onError={fail}
-                        onContentProcessDidTerminate={fail}
-                        onRenderProcessGone={fail}
-                        onOpenWindow={fail}
+                        onError={() => fail('load_error')}
+                        onContentProcessDidTerminate={() => fail('process_gone')}
+                        onRenderProcessGone={() => fail('process_gone')}
+                        onOpenWindow={() => fail('open_window')}
                         allowFileAccess={false}
                         allowFileAccessFromFileURLs={false}
                         allowUniversalAccessFromFileURLs={false}

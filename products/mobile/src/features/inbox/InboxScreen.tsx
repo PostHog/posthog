@@ -3,6 +3,7 @@ import { type ReactElement, useCallback, useEffect, useRef, useState } from 'rea
 import { FlatList, RefreshControl, StyleSheet, View } from 'react-native'
 
 import { useBootGate } from '@/auth/bootGate'
+import { track } from '@/lib/analytics'
 import { useNow } from '@/lib/useNow'
 import type { InboxItem } from '@/model/types'
 import { InboxIcon } from '@/ui/icons/InboxIcon'
@@ -11,6 +12,7 @@ import { LoadingView, StateView } from '@/ui/StateView'
 import { colors, iconSizes, layout } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
+import { apiErrorKind } from '../report/reportAnalytics'
 import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
 import { useTabHeader } from '../tabs/tabHeaderStore'
 import type { RowAnchor } from './contextMenuPlacement'
@@ -49,7 +51,10 @@ export function InboxScreen(): ReactElement {
         return () => cancelAnimationFrame(frame)
     }, [query.isLoading])
 
-    const openReport = useCallback((reportId: string) => router.push(`/report/${reportId}`), [router])
+    const openReport = useCallback(
+        (reportId: string) => router.push({ pathname: '/report/[id]', params: { id: reportId, from: 'inbox' } }),
+        [router]
+    )
     const openRowMenu = useCallback((item: InboxItem, anchor: RowAnchor) => setRowMenu({ item, anchor }), [])
     const setReportRead = useSetReportRead()
     // The row changes at once; a failed post reloads the read states, so the row flips back without a message.
@@ -59,14 +64,36 @@ export function InboxScreen(): ReactElement {
         },
         [setReportRead]
     )
-    const refresh = (): void => {
+    const refresh = (trigger: 'pull' | 'button' | 'retry'): void => {
+        track('mobile_inbox_refreshed', { trigger })
         void query.refetch()
     }
     // A refresh keeps only the first page, so the header button also brings the list back to the top.
     const refreshFromHeader = (): void => {
         listRef.current?.scrollToOffset({ offset: 0, animated: true })
-        refresh()
+        refresh('button')
     }
+
+    const listFailed = query.isError
+    const isEmpty = !query.isLoading && !query.isError && (query.data?.length ?? 0) === 0
+    // biome-ignore lint/correctness/useExhaustiveDependencies: one event each time the error screen appears.
+    useEffect(() => {
+        if (listFailed) {
+            track('mobile_inbox_error_shown', { kind: apiErrorKind(query.error), during: 'load' })
+        }
+    }, [listFailed])
+    // The paging state keeps no error object, so a next-page failure has no `kind`.
+    const loadMoreFailed = query.loadMoreFailed
+    useEffect(() => {
+        if (loadMoreFailed) {
+            track('mobile_inbox_error_shown', { during: 'next_page' })
+        }
+    }, [loadMoreFailed])
+    useEffect(() => {
+        if (isEmpty) {
+            track('mobile_inbox_empty_shown')
+        }
+    }, [isEmpty])
     useTabHeader('inbox', {
         refresh: { state: query.isRefetching ? 'busy' : 'idle', onPress: refreshFromHeader },
         status: null,
@@ -92,7 +119,7 @@ export function InboxScreen(): ReactElement {
             title="Couldn't load your inbox"
             message={query.error?.message ?? 'Check your connection and try again.'}
             actionLabel="Try again"
-            onAction={refresh}
+            onAction={() => refresh('retry')}
             testID="inbox-error"
         />
     ) : (
@@ -130,7 +157,7 @@ export function InboxScreen(): ReactElement {
                 refreshControl={
                     <RefreshControl
                         refreshing={query.isRefetching}
-                        onRefresh={refresh}
+                        onRefresh={() => refresh('pull')}
                         tintColor={colors.tertiary}
                         progressViewOffset={contentTop}
                     />

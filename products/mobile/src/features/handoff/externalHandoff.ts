@@ -1,5 +1,6 @@
 import { Linking, Platform } from 'react-native'
 
+import { track } from '@/lib/analytics'
 import type { ReportView } from '@/model/types'
 
 export type ExternalHandoffTarget = 'claude' | 'codex'
@@ -46,4 +47,31 @@ export async function openExternalHandoff(target: ExternalHandoffTarget, report:
                 : "Couldn't open Claude Code. Try again or copy the prompt."
         )
     }
+}
+
+export type ExternalHandoffEntry = 'button' | 'sheet' | 'inbox_menu'
+
+/** Opens the agent and records the outcome. Throws the same errors as `openExternalHandoff`. */
+export async function launchExternalHandoff(
+    target: ExternalHandoffTarget,
+    report: HandoffReport & Pick<ReportView, 'id'>,
+    from: ExternalHandoffEntry
+): Promise<void> {
+    try {
+        await openExternalHandoff(target, report)
+    } catch (error) {
+        track('mobile_handoff_failed', {
+            report_id: report.id,
+            agent: target,
+            from,
+            reason: Platform.OS === 'web' ? 'unsupported_platform' : 'launch_failed',
+        })
+        throw error
+    }
+    track('mobile_external_handoff_opened', {
+        report_id: report.id,
+        target,
+        from,
+        has_repository: handoffRepository(report.repository) !== undefined,
+    })
 }

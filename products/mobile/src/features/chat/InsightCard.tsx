@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 import type { ReactElement } from 'react'
-import { Linking, Pressable, StyleSheet, Text } from 'react-native'
+import { Pressable, StyleSheet, Text } from 'react-native'
 import { getInsightSummary } from '@/api/insights'
 import { scopeKey } from '@/api/reports'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { colors, radii, type } from '@/ui/tokens'
 import { objectMeta, objectWebUrl } from './objectTags'
+import { openReplyUrl } from './webLinks'
 
 export function InsightCard({ shortId, title }: { shortId: string; title?: string }): ReactElement {
     const scope = useProjectScope()
@@ -29,7 +30,7 @@ export function InsightCard({ shortId, title }: { shortId: string; title?: strin
             accessibilityRole="link"
             disabled={!url}
             onPress={() => {
-                if (url) void Linking.openURL(url).catch(() => undefined)
+                if (url) openReplyUrl(url, 'insight_card', { objectKind: 'insight' })
             }}
             style={styles.card}
         >

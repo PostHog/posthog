@@ -5,11 +5,12 @@ import { queryClient } from '@/api/queryClient'
 import { reportKeys, type SignalReportApi } from '@/api/reports'
 import type { TaskApi } from '@/api/tasks'
 import { useAuthStore } from '@/auth/authStore'
+import { track } from '@/lib/analytics'
 
 import { snoozeKey } from '../snooze/snoozeEntries'
 import { useSnoozeStore } from '../snooze/snoozeStore'
 import { NotificationPresentation } from './notificationPresentation'
-import { notificationTarget } from './notificationRouting'
+import { notificationKind, notificationTarget } from './notificationRouting'
 
 interface ViewedReport {
     accountKey: string
@@ -28,6 +29,37 @@ function behavior(show: boolean): NotificationBehavior {
     return { shouldShowBanner: show, shouldShowList: show, shouldPlaySound: false, shouldSetBadge: false }
 }
 
+function shouldShowWhileActive(data: unknown, host: string, accountKey: string): boolean {
+    const target = notificationTarget(data)
+    // Legacy task pushes lack a project. Without it, a cached association cannot safely mute a push.
+    if (!target || target.projectId === null) {
+        return true
+    }
+    const scope = { host, projectId: target.projectId }
+    const active =
+        viewedReport?.accountKey === accountKey && viewedReport.projectId === target.projectId ? viewedReport : null
+    let reportId = target.type === 'report' ? target.id : null
+    if (target.type === 'task') {
+        reportId = queryClient.getQueryData<TaskApi>(reportKeys.task(scope, target.id))?.signal_report ?? null
+        if (!reportId && active) {
+            const report = queryClient.getQueryData<SignalReportApi>(reportKeys.detail(scope, active.reportId))
+            if (report?.assignee?.task_id === target.id) {
+                reportId = active.reportId
+            }
+        }
+    }
+    if (!reportId) {
+        return true
+    }
+    if (active?.reportId === reportId) {
+        return false
+    }
+    const snooze = useSnoozeStore.getState().entries[snoozeKey(scope, reportId)]
+    // Signal snoozes are labels, not authoritative state: the server may already have woken the report.
+    const snoozed = snooze?.kind === 'until' && new Date(snooze.until).getTime() > Date.now()
+    return !snoozed
+}
+
 /** Stay synchronous: Expo has a short handler deadline, so never fetch a task to decide whether to interrupt. */
 export function foregroundNotificationBehavior(notification: Notification): NotificationBehavior {
     if (AppState.currentState !== 'active') {
@@ -44,32 +76,7 @@ export function foregroundNotificationBehavior(notification: Notification): Noti
     if (!firstDelivery) {
         return behavior(false)
     }
-    const target = notificationTarget(data)
-    // Legacy task pushes lack a project. Without it, a cached association cannot safely mute a push.
-    if (!target || target.projectId === null) {
-        return behavior(true)
-    }
-    const scope = { host, projectId: target.projectId }
-    const active =
-        viewedReport?.accountKey === accountKey && viewedReport.projectId === target.projectId ? viewedReport : null
-    let reportId = target.type === 'report' ? target.id : null
-    if (target.type === 'task') {
-        reportId = queryClient.getQueryData<TaskApi>(reportKeys.task(scope, target.id))?.signal_report ?? null
-        if (!reportId && active) {
-            const report = queryClient.getQueryData<SignalReportApi>(reportKeys.detail(scope, active.reportId))
-            if (report?.assignee?.task_id === target.id) {
-                reportId = active.reportId
-            }
-        }
-    }
-    if (!reportId) {
-        return behavior(true)
-    }
-    if (active?.reportId === reportId) {
-        return behavior(false)
-    }
-    const snooze = useSnoozeStore.getState().entries[snoozeKey(scope, reportId)]
-    // Signal snoozes are labels, not authoritative state: the server may already have woken the report.
-    const snoozed = snooze?.kind === 'until' && new Date(snooze.until).getTime() > Date.now()
-    return behavior(!snoozed)
+    const shown = shouldShowWhileActive(data, host, accountKey)
+    track('mobile_push_received', { kind: notificationKind(data), shown })
+    return behavior(shown)
 }

@@ -78,7 +78,7 @@ export function ProjectSwitcher(): ReactElement {
                     return (
                         <Pressable44
                             key={project.id}
-                            onPress={() => selectProject(project.id)}
+                            onPress={() => selectProject(project.id, 'settings')}
                             accessibilityRole="radio"
                             accessibilityState={{ checked: selected }}
                             accessibilityLabel={project.name}

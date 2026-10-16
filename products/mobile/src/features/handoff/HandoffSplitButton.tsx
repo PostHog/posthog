@@ -7,7 +7,7 @@ import { ChevronDownIcon } from '@/ui/icons/ChevronDownIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, iconSizes, radii, type } from '@/ui/tokens'
 
-import { openExternalHandoff } from './externalHandoff'
+import { launchExternalHandoff } from './externalHandoff'
 import { handoffAgentName, useHandoffPreferenceStore } from './handoffPreferenceStore'
 
 interface HandoffSplitButtonProps {
@@ -36,7 +36,7 @@ export function HandoffSplitButton({
             return
         }
         try {
-            await openExternalHandoff(target, report)
+            await launchExternalHandoff(target, report, 'button')
         } catch (cause) {
             setError((cause as Error).message)
         }

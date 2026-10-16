@@ -5,7 +5,13 @@ import { addSessionEndTask } from '@/auth/authStore'
 import { haptic } from '@/lib/haptics'
 import type { RangeChoice, RangePresetKey, SavedRange, ViewKind } from '@/model/views'
 
-import { type RangeMethod, trackDateRangeChanged, trackDateRangeCompared } from './analytics'
+import {
+    type RangeMethod,
+    type RangeSheetEntry,
+    trackDateRangeChanged,
+    trackDateRangeCompared,
+    trackDateRangeSheetOpened,
+} from './analytics'
 import { type FiltersOverride, rangeOverride } from './rangeOverride'
 import { isSavedRange, presetForValues, rangeLabel } from './rangePresets'
 import { type StepContext, type StepDirection, stepRange } from './rangeStep'
@@ -71,6 +77,8 @@ export interface ViewRange {
     canStep: (direction: StepDirection, context: StepContext) => boolean
     /** Returns false when the step is not possible. */
     step: (direction: StepDirection, context: StepContext) => boolean
+    /** Sends `mobile_date_range_sheet_opened`. The control owns the sheet, and this hook knows the view type. */
+    noteSheetOpened: (entry: RangeSheetEntry) => void
 }
 
 /**
@@ -135,5 +143,6 @@ export function useViewRange(
             apply(next, 'step')
             return true
         },
+        noteSheetOpened: (entry) => trackDateRangeSheetOpened({ viewType, entry }),
     }
 }

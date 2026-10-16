@@ -34,7 +34,7 @@ export function usePinFlows(actions: PinActions): PinFlows {
     const pinWithUndo = useCallback(
         (target: PinTarget, from: PinSource) => {
             pinTarget(target, from)
-                .then(() => show('Pinned to Views', () => unpinTarget(target, from).catch(fail)))
+                .then(() => show('Pinned to Views', () => unpinTarget(target, 'undo').catch(fail)))
                 .catch(fail)
         },
         [pinTarget, unpinTarget, show, fail]
@@ -43,7 +43,7 @@ export function usePinFlows(actions: PinActions): PinFlows {
     const unpinWithUndo = useCallback(
         (view: PinView | PinTarget, name: string, target: PinTarget | null, from: PinSource) => {
             unpinTarget(view, from)
-                .then(() => show(`Unpinned ${name}`, target ? () => pinTarget(target, from).catch(fail) : undefined))
+                .then(() => show(`Unpinned ${name}`, target ? () => pinTarget(target, 'undo').catch(fail) : undefined))
                 .catch(fail)
         },
         [pinTarget, unpinTarget, show, fail]

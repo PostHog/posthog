@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useFocusEffect, useRouter } from 'expo-router'
-import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react'
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshControl, SectionList, StyleSheet, View } from 'react-native'
 
 import { useProjectScope } from '@/auth/useProjectScope'
@@ -16,6 +16,8 @@ import { LoadingView, StateView } from '@/ui/StateView'
 import { colors, iconSizes, layout } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
+import { toChatError } from '../chat/chatErrors'
+import type { ChatSheetEntry } from '../chat/chatSheetEvents'
 import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
 import { useTabHeader } from '../tabs/tabHeaderStore'
 import { ChatRow } from './ChatRow'
@@ -29,6 +31,23 @@ interface ChatSection {
 
 function keyFor(item: ChatListItem): string {
     return item.id
+}
+
+const SEARCH_SETTLE_MS = 600
+
+function useSearchEvent(search: string, resultCount: number): void {
+    const tracked = useRef('')
+    const query = search.trim()
+    useEffect(() => {
+        if (!query || tracked.current === query) {
+            return undefined
+        }
+        const timer = setTimeout(() => {
+            tracked.current = query
+            track('mobile_chats_searched', { query_length: query.length, result_count: resultCount })
+        }, SEARCH_SETTLE_MS)
+        return () => clearTimeout(timer)
+    }, [query, resultCount])
 }
 
 export function ChatsScreen(): ReactElement {
@@ -55,19 +74,24 @@ export function ChatsScreen(): ReactElement {
         }, [queryClient, scope])
     )
 
-    const newChat = useCallback(() => router.push('/chat'), [router])
+    const newChat = useCallback(() => {
+        const entry: ChatSheetEntry = 'chats_empty'
+        router.push({ pathname: '/chat', params: { entry } })
+    }, [router])
+    const searching = search.trim().length > 0
     const openChat = useCallback(
         (item: ChatListItem) => {
-            track('mobile_chat_opened', { origin: item.origin })
-            router.push({ pathname: '/chat', params: { taskId: item.sourceId } })
+            const entry: ChatSheetEntry = searching ? 'chats_search' : 'chats_list'
+            router.push({ pathname: '/chat', params: { taskId: item.sourceId, entry, origin: item.origin } })
         },
-        [router]
+        [router, searching]
     )
-    const refresh = (): void => {
+    const refresh = (trigger: 'pull' | 'header' | 'retry'): void => {
+        track('mobile_chats_refreshed', { trigger })
         void query.refetch()
     }
     useTabHeader('chats', {
-        refresh: { state: query.isRefetching ? 'busy' : 'idle', onPress: refresh },
+        refresh: { state: query.isRefetching ? 'busy' : 'idle', onPress: () => refresh('header') },
         status: null,
         editing: null,
         editPins: null,
@@ -82,6 +106,18 @@ export function ChatsScreen(): ReactElement {
             })),
         [query.data, search, now]
     )
+    useSearchEvent(
+        search,
+        sections.reduce((count, section) => count + section.data.length, 0)
+    )
+
+    // The kind only, because a server message can name the customer's host.
+    const loadErrorCode = query.isError ? toChatError(query.error).kind : null
+    useEffect(() => {
+        if (loadErrorCode) {
+            track('mobile_chats_load_failed', { code: loadErrorCode })
+        }
+    }, [loadErrorCode])
 
     // The header floats over the list, so the content starts below it and the pull-to-refresh spinner shows under it.
     const contentTop = topOffset(insets, TABS_HEADER_BOTTOM)
@@ -107,7 +143,7 @@ export function ChatsScreen(): ReactElement {
             title="Couldn't load your chats"
             message={query.error?.message ?? 'Check your connection and try again.'}
             actionLabel="Try again"
-            onAction={refresh}
+            onAction={() => refresh('retry')}
             testID="chats-error"
         />
     ) : hasItems ? (
@@ -156,7 +192,7 @@ export function ChatsScreen(): ReactElement {
                 refreshControl={
                     <RefreshControl
                         refreshing={query.isRefetching}
-                        onRefresh={refresh}
+                        onRefresh={() => refresh('pull')}
                         tintColor={colors.tertiary}
                         progressViewOffset={contentTop}
                     />

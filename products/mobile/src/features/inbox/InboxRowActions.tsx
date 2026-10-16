@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useState } from 'react'
 import { Linking } from 'react-native'
+import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
 import { track } from '@/lib/analytics'
 import { safeHttpsUrl } from '@/lib/urls'
 import { useAsyncAction } from '@/lib/useAsyncAction'
@@ -14,12 +15,13 @@ import {
 import { motion } from '@/ui/tokens'
 
 import { actionBarStateFor } from '../handoff/actionBarState'
-import { openExternalHandoff } from '../handoff/externalHandoff'
+import { launchExternalHandoff } from '../handoff/externalHandoff'
 import { handoffAgentName, useHandoffPreferenceStore } from '../handoff/handoffPreferenceStore'
 import { useHandoffStore } from '../handoff/handoffStore'
 import { useHandoffEntry } from '../handoff/hooks'
 import { mergeLiveRun } from '../handoff/liveReport'
 import { useReport, useReportActions } from '../report/hooks'
+import { useSheetFunnel } from '../report/reportAnalytics'
 import { AssigneeSheet } from '../reviewers/AssigneeSheet'
 import { useGithubOnlyReviewerCount, useReportReviewers } from '../reviewers/hooks'
 import { VerdictSheet } from '../verdict/VerdictSheet'
@@ -111,10 +113,16 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
     const [handoffError, setHandoffError] = useState<string | undefined>()
     const [step, setStep] = useState<Step>('menu')
     const overlay: Overlay = open ? step : 'none'
+    const sheets = useSheetFunnel(reportId)
 
     const close = (): void => {
+        sheets.closed()
         setStep('menu')
         onClose()
+    }
+    const openSheet = (sheet: Exclude<Step, 'menu'>): void => {
+        sheets.opened(sheet, 'inbox_menu')
+        setStep(sheet)
     }
     const choose = (action: RowMenuAction): void => {
         track('mobile_inbox_report_menu_action', { action, report_id: reportId })
@@ -134,7 +142,7 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
                     return
                 }
             } else {
-                await openExternalHandoff(handoffTarget, report)
+                await launchExternalHandoff(handoffTarget, report, 'inbox_menu')
             }
             close()
         } catch (error) {
@@ -147,25 +155,30 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
             return
         }
         choose('view_pr')
+        track('mobile_pull_request_opened', {
+            from: 'inbox_menu',
+            report_id: reportId,
+            state: report?.work.pullRequest?.state ?? item.pullRequestState,
+        })
         close()
         Linking.openURL(safePullRequestUrl).catch(() => undefined)
     }
     const reassign = (): void => {
         choose('reassign')
-        setStep('assignee')
+        openSheet('assignee')
     }
     const openResolve = (): void => {
         choose('resolve')
-        setStep('resolve')
+        openSheet('resolve')
     }
     const openDismiss = (): void => {
         choose('dismiss')
-        setStep('dismiss')
+        openSheet('dismiss')
     }
     const chat = (): void => {
         choose('chat')
         close()
-        router.push({ pathname: '/chat', params: { reportId } })
+        router.push({ pathname: '/chat', params: { reportId, entry: 'inbox_menu' satisfies ChatSheetEntry } })
     }
     // The row changes at once; a failed post reloads the read states, so the row flips back without a message.
     const markRead = (): void => {
@@ -181,11 +194,18 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
     // The report leaves the inbox once the list reloads, so the menu only closes.
     const resolve = async (reason: ResolveReason, note: string): Promise<void> => {
         await actions.resolve(reason, note)
+        sheets.completed()
         close()
     }
     const dismiss = async (reason: DismissReason, note: string): Promise<void> => {
         await actions.dismiss(reason, note)
+        sheets.completed()
         close()
+    }
+    // The assignee sheet closes itself after a save, so the save only marks it complete.
+    const setReviewers = async (uuids: string[]): Promise<void> => {
+        await actions.setReviewers(uuids)
+        sheets.completed()
     }
 
     return (
@@ -240,7 +260,7 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
                     current={reviewers}
                     githubOnlyCount={githubOnlyReviewers}
                     onClose={close}
-                    onSave={actions.setReviewers}
+                    onSave={setReviewers}
                     pending={actions.pending.reviewers}
                 />
             ) : null}

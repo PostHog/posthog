@@ -4,6 +4,7 @@ import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native
 import { refreshPushPermission, syncPushRegistration } from '@/features/notifications/pushRegistration'
 import { type PushState, usePushStore } from '@/features/notifications/pushStore'
 import type { PushUnavailableReason } from '@/features/notifications/pushSupport'
+import { track } from '@/lib/analytics'
 import { useAsyncAction } from '@/lib/useAsyncAction'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, radii, type } from '@/ui/tokens'
@@ -55,6 +56,7 @@ export function PushStatusGroup(): ReactElement {
     }, [])
 
     const enable = useAsyncAction(async () => {
+        track('mobile_push_enable_pressed', { action: openSystemSettings ? 'open_system_settings' : 'request' })
         if (openSystemSettings) {
             await Linking.openSettings()
             return
