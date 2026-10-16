@@ -19,15 +19,16 @@ const HedgehogJudge = pngHoggie(judgePng)
 
 // Ordered by how many people picked each template in the last 180 days.
 const POPULAR_TEMPLATE_KEYS = ['relevance', 'cost_latency', 'helpfulness', 'hallucination', 'sentiment', 'toxicity']
-// One score and one category template first so people see those output types, then the most picked ones.
-// Sentiment is here for its recent picks, even though it ranks lower over 180 days.
+// Sentiment leads because more teams run sentiment checks than any other kind.
+// The score and category templates complete the first row so people discover those output types.
+// The second row holds the other templates that people most often keep running.
 const RECOMMENDED_TEMPLATE_KEYS = [
+    'sentiment',
     'response_quality',
     'task_outcome',
-    'sentiment',
-    'relevance',
-    'helpfulness',
     'cost_latency',
+    'hallucination',
+    'helpfulness',
 ]
 
 type TemplateTab = 'recommended' | 'all' | EvaluationTemplateCategory

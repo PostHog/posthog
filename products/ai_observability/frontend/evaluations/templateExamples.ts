@@ -98,38 +98,56 @@ export const EVALUATION_TEMPLATE_EXAMPLES: Record<string, EvaluationTemplateExam
         reasoning: 'The answer claims SSO is on every plan, which the context does not support.',
         distribution: passFail(86),
     },
-    conciseness: {
+    user_correction: {
         messages: [
-            user('What port does the dev server run on?'),
-            assistant(
-                'Great question! Ports are an important part of local development. The dev server runs on port 8010 by default. You can change it in your settings.'
-            ),
+            user('Find me flights to Lisbon next Friday.'),
+            assistant('Here are three flights to Lisbon on Friday, October 23, all leaving after 6pm.'),
+            user('I said morning flights. These are all in the evening.'),
         ],
-        result: { ...NO_RESULT, score: 3 },
-        reasoning: 'The answer is correct, but two opening sentences of filler come before it.',
+        result: { ...NO_RESULT, categories: ['correction'] },
+        reasoning: 'The user restates a constraint, morning flights, that the previous reply ignored.',
         distribution: [
-            { label: '5', percent: 38, passes: true },
-            { label: '4', percent: 29, passes: true },
-            { label: '3', percent: 21, passes: false },
-            { label: '2', percent: 9, passes: false },
-            { label: '1', percent: 3, passes: false },
+            { label: 'No friction', percent: 81, passes: true },
+            { label: 'Corrected the assistant', percent: 9, passes: false },
+            { label: 'Repeated a request', percent: 7, passes: false },
+            { label: 'Objected to an action', percent: 3, passes: false },
         ],
     },
-    trajectory_efficiency: {
+    false_completion: {
         messages: [
-            user('Book a table for two at 8pm tomorrow.'),
-            assistant('Booked a table for two at 8pm tomorrow. Your confirmation code is ABC123.'),
+            user('Email the report to the whole team.'),
+            assistant('Done! I sent the report to all 12 people on the team.'),
         ],
-        metrics: [{ label: 'Tool calls', value: 'search_restaurants, check_availability ×3, create_booking' }],
-        result: { ...NO_RESULT, score: 3 },
-        reasoning: 'The booking succeeded, but the agent checked the same time slot three times before booking.',
-        distribution: [
-            { label: '5', percent: 34, passes: true },
-            { label: '4', percent: 33, passes: true },
-            { label: '3', percent: 20, passes: false },
-            { label: '2', percent: 9, passes: false },
-            { label: '1', percent: 4, passes: false },
+        metrics: [{ label: 'send_email result', value: 'Sent to 9 of 12, 3 failed' }],
+        result: { ...NO_RESULT, result: false },
+        reasoning: 'The tool result shows 3 of 12 emails failed, but the reply says everyone got the report.',
+        distribution: passFail(88),
+    },
+    repeated_tool_calls: {
+        messages: [],
+        metrics: [
+            { label: 'search_docs', value: '7 calls' },
+            { label: 'get_page', value: '2 calls' },
         ],
+        result: { ...NO_RESULT, result: false },
+        reasoning: 'Called more than 5 times: search_docs (7 calls)',
+        distribution: passFail(93),
+    },
+    failed_output: {
+        messages: [user('Summarize this contract in five bullet points.'), assistant('')],
+        metrics: [{ label: 'Stop reason', value: 'max_tokens' }],
+        result: { ...NO_RESULT, result: false },
+        reasoning: 'Generation hit its token limit',
+        distribution: passFail(96),
+    },
+    valid_json: {
+        messages: [
+            user('Extract the name and email from this signature.'),
+            assistant('Sure! Here is the data: {"name": "Ana Silva", "email": "ana@example.com"}'),
+        ],
+        result: { ...NO_RESULT, result: false },
+        reasoning: 'Generation did not return valid JSON',
+        distribution: passFail(97),
     },
     task_outcome: {
         messages: [

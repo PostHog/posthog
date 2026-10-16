@@ -1,4 +1,5 @@
 import {
+    IconBrackets,
     IconBug,
     IconChatHelp,
     IconCheckCircle,
@@ -6,18 +7,20 @@ import {
     IconCode,
     IconEmoji,
     IconEye,
+    IconFlag,
     IconLock,
     IconPiggyBank,
+    IconRefresh,
     IconSearch,
     IconShield,
     IconStar,
     IconThumbsDown,
     IconTarget,
-    IconTextWidth,
-    IconUserPaths,
     IconThumbsUp,
+    IconUndo,
     IconWarning,
     IconWrench,
+    IconXCircle,
 } from '@posthog/icons'
 
 import type { EvaluationTemplate } from '../templates'
@@ -60,10 +63,16 @@ function TemplateIconGlyph({ icon }: { icon: EvaluationTemplate['icon'] }): JSX.
             return <IconPiggyBank className={ICON_CLASS} />
         case 'clock':
             return <IconClock className={ICON_CLASS} />
-        case 'text-width':
-            return <IconTextWidth className={ICON_CLASS} />
-        case 'paths':
-            return <IconUserPaths className={ICON_CLASS} />
+        case 'x-circle':
+            return <IconXCircle className={ICON_CLASS} />
+        case 'refresh':
+            return <IconRefresh className={ICON_CLASS} />
+        case 'flag':
+            return <IconFlag className={ICON_CLASS} />
+        case 'undo':
+            return <IconUndo className={ICON_CLASS} />
+        case 'brackets':
+            return <IconBrackets className={ICON_CLASS} />
         default: {
             const exhaustiveCheck: never = icon
             return exhaustiveCheck
