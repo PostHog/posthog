@@ -61,6 +61,12 @@ QUOTED = Variable(values=("api'worker\nnext",), is_all=False, all_value=None, op
             ONE,
             'label_replace(rate(x{env="pro\\"d"}[$__rate_interval]), "a", "$1", "b", "(.*)")',
         ),
+        (
+            "named_regex_groups_stay",
+            'label_replace(up, "dst", "$name", "src", "(?P<name>.*)")',
+            ONE,
+            'label_replace(up, "dst", "$name", "src", "(?P<name>.*)")',
+        ),
     ]
 )
 def test_substitutes_promql(_name: str, expr: str, variable: Variable, expected: str) -> None:
@@ -117,7 +123,7 @@ def test_sql_text_that_is_not_a_reference_stays(_name: str, sql: str) -> None:
 
 
 def test_sql_references_in_comments_are_not_dependencies() -> None:
-    assert sql_referenced_names("SELECT 1 -- $job\nWHERE env IN $env /* $zone */ AND x = 'a-$region'") == [
+    assert sql_referenced_names("SELECT 1 -- $job\rWHERE env IN $env /* $zone */ AND x = 'a-$region'") == [
         "env",
         "region",
     ]
@@ -166,6 +172,13 @@ def test_sql_reference_inside_a_longer_string_is_rejected() -> None:
         ("all_value", MetricsFilterOp.EQ, "$env", ALL_WITH_VALUE, (MetricsFilterOp.REGEX, "api-.*")),
         ("inside_a_regex", MetricsFilterOp.REGEX, "^$env-.*", MANY, (MetricsFilterOp.REGEX, "^(?:a\\.b|c)-.*")),
         ("all_inside_a_regex", MetricsFilterOp.REGEX, "^$env$", ALL, (MetricsFilterOp.REGEX, "^.*$")),
+        (
+            "escaped_dollar_in_a_regex",
+            MetricsFilterOp.REGEX,
+            "\\$env-$env",
+            ONE,
+            (MetricsFilterOp.REGEX, '\\$env-(?:pro"d)'),
+        ),
     ]
 )
 def test_substitutes_builder_filters(
