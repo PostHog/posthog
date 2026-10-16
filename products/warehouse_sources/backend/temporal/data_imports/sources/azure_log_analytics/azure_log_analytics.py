@@ -47,6 +47,8 @@ MIN_PAGE_SIZE = 100
 # stop once the total passes this budget.
 PROBE_REQUEST_TIMEOUT_SECONDS = (10, 30)
 PROBE_BUDGET_SECONDS = 60.0
+# Creation and the schema picker each probe inside the same 120 s setup request.
+CREATION_PROBE_BUDGET_SECONDS = 30.0
 
 _GUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 # The cursor values are embedded in KQL, so they must keep the exact shape Log Analytics returns.
@@ -442,7 +444,11 @@ def _is_missing_table(error: requests.HTTPError) -> bool:
 
 
 def probe_tables(
-    credentials: WorkspaceCredentials, tables: list[str], missing_table_reason: str
+    credentials: WorkspaceCredentials,
+    tables: list[str],
+    missing_table_reason: str,
+    stop_at_first_readable: bool = False,
+    budget_seconds: float = PROBE_BUDGET_SECONDS,
 ) -> dict[str, str | None]:
     """Why the query API cannot read each table, or None when it can.
 
@@ -458,10 +464,12 @@ def probe_tables(
         return reasons
     started = time.monotonic()
     for table in tables:
-        if time.monotonic() - started > PROBE_BUDGET_SECONDS:
+        if time.monotonic() - started > budget_seconds:
             break
         try:
             client.query(f"{table} | take 0")
+            if stop_at_first_readable:
+                break
         except requests.HTTPError as error:
             status = getattr(error.response, "status_code", None)
             if _is_missing_table(error):

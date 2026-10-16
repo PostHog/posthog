@@ -496,24 +496,37 @@ class TestValidateCredentials:
         assert [request.path for request in network.requests_log] == [TOKEN_PATH]
 
     @pytest.mark.parametrize(
-        ("second_table", "expected_ok"),
-        [(_missing("MyEvents_CL"), False), (_page([]), True)],
+        ("answers", "expected_ok", "expected_fragment", "expected_probes"),
+        [
+            ([_missing("AppTrace"), _missing("MyEvents_CL")], False, "None of the listed tables exist", 2),
+            (
+                [
+                    ScriptedResponse(status=400, json={"error": {"code": "BadArgumentError", "message": "Basic plan"}}),
+                    ScriptedResponse(status=403, json={"error": {"code": "InsufficientAccessError", "message": "No"}}),
+                ],
+                False,
+                "None of the listed tables can be read",
+                2,
+            ),
+            ([_missing("AppTrace"), _page([])], True, None, 2),
+            ([_page([])], True, None, 1),
+        ],
     )
-    def test_creation_fails_only_when_every_listed_table_is_missing(
-        self, second_table: ScriptedResponse, expected_ok: bool
+    def test_creation_needs_one_readable_listed_table(
+        self, answers: list[ScriptedResponse], expected_ok: bool, expected_fragment: str | None, expected_probes: int
     ) -> None:
-        with scripted_network(
-            route({TOKEN_PATH: [_token(), _token()], QUERY_PATH: [_page([]), _missing("AppTrace"), second_table]})
-        ) as network:
+        with scripted_network(route({TOKEN_PATH: [_token(), _token()], QUERY_PATH: [_page([]), *answers]})) as network:
             ok, message = AzureLogAnalyticsSource().validate_credentials(
                 _config(tables="AppTrace\nMyEvents_CL"), team_id=1
             )
 
         assert ok is expected_ok
-        if not expected_ok:
-            assert message is not None and "None of the listed tables exist" in message
+        if expected_fragment is None:
+            assert message is None
+        else:
+            assert message is not None and expected_fragment in message
         queries = [request.json()["query"] for request in network.requests_log if request.path == QUERY_PATH]
-        assert queries == ["print ok = 1", "AppTrace | take 0", "MyEvents_CL | take 0"]
+        assert queries == ["print ok = 1", "AppTrace | take 0", "MyEvents_CL | take 0"][: 1 + expected_probes]
 
     def test_setup_probes_use_short_deadlines_and_no_retries(self) -> None:
         unavailable = ScriptedResponse(

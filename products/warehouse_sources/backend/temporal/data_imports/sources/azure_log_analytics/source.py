@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_log_analytics.azure_log_analytics import (
+    CREATION_PROBE_BUDGET_SECONDS,
     AzureLogAnalyticsResumeConfig,
     WorkspaceCredentials,
     azure_log_analytics_source,
@@ -171,11 +172,21 @@ class LogAnalyticsWorkspaceSource(ResumableSource[ConfigType, AzureLogAnalyticsR
         valid, message = validate_workspace(self.credentials(config), "print ok = 1", self.no_tables_message)
         if not valid or not tables:
             return valid, message
-        # One query per table: a Basic plan table fails any query that names it, and must not block the rest.
-        reasons = probe_tables(self.credentials(config), tables, self.missing_table_reason)
+        # One query per table, stopping at the first readable one: a Basic plan table fails any
+        # query that names it, and must not block the rest.
+        reasons = probe_tables(
+            self.credentials(config),
+            tables,
+            self.missing_table_reason,
+            stop_at_first_readable=True,
+            budget_seconds=CREATION_PROBE_BUDGET_SECONDS,
+        )
+        if any(reason is None for reason in reasons.values()):
+            return True, None
         if all(reason == self.missing_table_reason for reason in reasons.values()):
             return False, self.no_tables_message
-        return True, None
+        first_reason = next(reason for reason in reasons.values() if reason != self.missing_table_reason)
+        return False, f"None of the listed tables can be read. {first_reason}"
 
     def get_resumable_source_manager(
         self, inputs: SourceInputs
