@@ -22,6 +22,7 @@ from uuid import UUID
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 
@@ -137,6 +138,7 @@ def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
             [row.as_row() for row in rows],
             settings={"insert_deduplication_token": _deduplication_token(team_id, rows)},
             team_id=team_id,
+            ch_user=ClickHouseUser.ALERTS_PLATFORM,
         )
     except Exception as error:
         logger.exception(
@@ -211,9 +213,14 @@ def announcement(
         "incident_grouping_keys": list(incident_grouping_keys),
     }
     if parts > 1:
-        rows = sync_execute(_ANNOUNCEMENT_PART_SQL, {**parameters, "part": part, "parts": parts}, team_id=team_id)
+        rows = sync_execute(
+            _ANNOUNCEMENT_PART_SQL,
+            {**parameters, "part": part, "parts": parts},
+            team_id=team_id,
+            ch_user=ClickHouseUser.ALERTS_PLATFORM,
+        )
     else:
-        rows = sync_execute(_ANNOUNCEMENT_SQL, parameters, team_id=team_id)
+        rows = sync_execute(_ANNOUNCEMENT_SQL, parameters, team_id=team_id, ch_user=ClickHouseUser.ALERTS_PLATFORM)
     if not rows:
         return None
 
@@ -262,6 +269,7 @@ def announced_kinds(
             "incident_grouping_keys": list(incident_grouping_keys),
         },
         team_id=team_id,
+        ch_user=ClickHouseUser.ALERTS_PLATFORM,
     )
     return {grouping_key: AlertEventKind(kind) for grouping_key, kind in rows}
 
