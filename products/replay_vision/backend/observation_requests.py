@@ -621,11 +621,28 @@ def step_result(
     if observation is not None and not can_read_observation(access, team.id, observation):
         return _step_answer("failed", None, ["The workflow's owner can't read this scanner's answers."])
     output = (
-        (observation.scanner_result or {}).get("model_output")
+        _step_output((observation.scanner_result or {}).get("model_output"))
         if observation is not None and session.state == RequestSessionState.SUCCEEDED
         else None
     )
     return _step_answer(session.state.value, output, [])
+
+
+# The answer a workflow step gets, per scanner type. Internal fields (citation segments, idle periods,
+# notability) would push a long session's answer over the step result budget and cut the chapters.
+_STEP_OUTPUT_FIELDS: dict[str, tuple[str, ...]] = {
+    ScannerType.MONITOR: ("verdict", "reasoning", "confidence"),
+    ScannerType.CLASSIFIER: ("tags", "reasoning", "confidence"),
+    ScannerType.SCORER: ("score", "reasoning", "confidence"),
+    ScannerType.SUMMARIZER: ("title", "summary", "chapters", "confidence"),
+}
+
+
+def _step_output(model_output: Any) -> Any:
+    fields = _STEP_OUTPUT_FIELDS.get(model_output.get("scanner_type")) if isinstance(model_output, dict) else None
+    if fields is None:
+        return model_output
+    return {key: model_output[key] for key in fields if key in model_output}
 
 
 def _step_answer(state: str, output: Any, warnings: list[str]) -> dict[str, Any]:

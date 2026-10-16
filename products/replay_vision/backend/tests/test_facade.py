@@ -178,6 +178,19 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
                 {"verdict": "yes", "reasoning": "x" * 1500},
                 ["The answer was cut to fit the step result: reasoning"],
             ),
+            (
+                "internal_fields_dropped",
+                {
+                    "scanner_type": "monitor",
+                    "verdict": "yes",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "reasoning_segments": [{"text": "r", "t": 12}] * 200,
+                    "notability_reason": "n" * 2000,
+                },
+                {"verdict": "yes", "reasoning": "r", "confidence": 0.9},
+                [],
+            ),
         ]
     )
     def test_returns_the_answer_at_once_when_the_session_was_already_scanned(
