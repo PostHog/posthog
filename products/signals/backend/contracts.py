@@ -409,6 +409,8 @@ class LogsAlertStateChangeSignalExtra(SignalExtraBase):
     consecutive_failures: int
     filters: dict[str, object]
     url: str
+    # The group a grouped alert fired for, by column. Absent for an ungrouped alert.
+    group_labels: dict[str, str] | None = None
 
 
 class LogsAlertStateChangeSignalInput(SignalInputBase):

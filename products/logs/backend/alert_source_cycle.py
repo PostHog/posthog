@@ -85,7 +85,6 @@ from products.alerts_platform.backend.facade.platform_metrics import (
 )
 from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.logs.backend.alert_check_query import (
-    GROUPABLE_LOGS_COLUMNS,
     BatchedAlertCheckQuery,
     BucketedCount,
     GroupedAlertCheckQuery,
@@ -97,6 +96,7 @@ from products.logs.backend.alert_check_query import (
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.alert_error_classifier import classify as classify_alert_error
 from products.logs.backend.alert_evaluation_key import WINDOW_MARKER
+from products.logs.backend.alert_group_columns import GROUP_COLUMNS
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import platform_upsert_of
 
@@ -742,8 +742,8 @@ def _labels_of(grouping_key: str) -> dict[str, str] | None:
 def _broken_grouping(check: PlatformAlertCheckInput) -> str | None:
     if check.grouping.mode == GroupingMode.SINGLE:
         return None
-    if set(check.grouping.keys) - GROUPABLE_LOGS_COLUMNS:
-        return f"A logs alert can only group by {', '.join(sorted(GROUPABLE_LOGS_COLUMNS))}"
+    if set(check.grouping.keys) - GROUP_COLUMNS.keys():
+        return f"A logs alert can only group by {', '.join(sorted(GROUP_COLUMNS))}"
     # A group with no matching log returns no row, so a service gone silent, the case a `below`
     # alert exists for, is never seen unless it was already open.
     if check.condition.get("threshold_operator") != LogsAlertConfiguration.ThresholdOperator.ABOVE:
@@ -772,7 +772,6 @@ def _evaluate_grouped(
         condition.window_minutes, check.check_interval_minutes, check.evaluation_periods
     )
     open_keys = check.open_keys()
-    limit = len(open_keys) + check.grouping.max_instances
     try:
         result = GroupedAlertCheckQuery(
             team=team,
@@ -782,8 +781,12 @@ def _evaluate_grouped(
             group_by=check.grouping.keys,
             open_groups=[labels for key in open_keys if (labels := _labels_of(key)) is not None],
             worst_is_highest=condition.threshold_operator == LogsAlertConfiguration.ThresholdOperator.ABOVE,
-            # Room for every open group and a full cap of new ones, so admission sees the worst.
-            limit=limit,
+            threshold_count=condition.threshold_count,
+            datapoints_to_alarm=check.datapoints_to_alarm,
+            # Room for every open group and a full cap of new ones, so admission sees the worst. The
+            # query's one row past that reaches admission too, and when it breaches, admission finds
+            # no room for it and reports the cut as overflow.
+            limit=len(open_keys) + check.grouping.max_instances,
             max_execution_time=query_seconds,
             ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS,
         ).execute_rolling_checks(
@@ -796,9 +799,6 @@ def _evaluate_grouped(
         return _delivery(check, _failed(check, error, now=now, muted=muted), window_end=date_to, now=now, failed=True)
 
     counts = {grouping_key_of(group.labels): group for group in result.groups}
-    # A hashed key keeps no labels, so the query cannot put that open group first, and the limit can
-    # cut it while it still breaches. Its absence means no matching log only when nothing was cut.
-    truncated = len(result.groups) >= limit
 
     def observe(key: str, buckets: list[BucketedCount], labels: dict[str, str]) -> GroupObservation:
         current_breached, *prior_breached = _derive_breaches(
@@ -814,7 +814,9 @@ def _evaluate_grouped(
 
     def absent(key: str) -> GroupObservation | None:
         labels = _labels_of(key)
-        if truncated and labels is None:
+        # A hashed key keeps no labels, so the query cannot put that open group first, and the limit
+        # can cut it while it still breaches. Its absence means no matching log only when nothing was cut.
+        if result.truncated and labels is None:
             return None
         return observe(key, result.zero_counts(), labels or {})
 
