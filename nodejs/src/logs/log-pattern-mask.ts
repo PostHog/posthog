@@ -148,28 +148,18 @@ export const MASK_RULES: readonly MaskRule[] = [
             '\\b[a-z]{2,10}_(?:[A-Za-z0-9]*[A-Z][A-Za-z0-9]*[0-9]|[A-Za-z0-9]*[0-9][A-Za-z0-9]*[A-Z])[A-Za-z0-9]*(?:-[A-Za-z0-9]+)*',
         replacement: '<ID>',
     },
-    // A Stripe id with no digit in it, which `id` cannot reach (`cus_TjuwpGlQcCSDCk`). The shape alone
-    // cannot tell random letters from a camelCase name, so the rule takes only the `cus_` and `sub_`
-    // prefixes and the exact 14 and 24 letter lengths Stripe prints. The uppercase first letter keeps
-    // it off snake_case words such as `sub_categorization`.
+    // A digit-free Stripe id, which `id` cannot reach. Letters alone cannot tell an id from a camelCase
+    // name, so only Stripe's exact prefixes and 14 or 24 letter lengths match.
     {
         name: 'stripeid',
         pattern: '\\b(?:cus|sub)_[A-Z][A-Za-z]{13}(?:[A-Za-z]{10})?\\b',
         replacement: '<ID>',
     },
-    // Digits joined to a word by an underscore (`team_190219`, a ClickHouse part `<N>_4682747_4682751_2`).
-    // `\b\d+` cannot reach them, because `_` is a word character and leaves no boundary before the digits.
+    // `\b\d+` cannot reach digits after `_`, because `_` is a word character. Runs under 4 digits stay
+    // literal so constants such as `aes_128` keep their meaning.
     //
-    // These rules start on the underscore and write it back. A run under 4 digits stays literal, so
-    // constants such as `aes_128` or `line_1` keep their meaning. The tail takes the short `_\d+` groups
-    // after the first run, so a part name masks whole instead of splitting on its merge level.
-    //
-    // The two `snakeuuid` rules sit ahead of `uuid` and `snakenum`. `uuid` has no leading boundary, so in
-    // a single pass it starts after an underscore rule would, and the leftmost match wins. Without them,
-    // `snakenum` takes digits that run into a UUID (`job_1234_01905063-07e3-...`, `x_123456789012-07e3-...`)
-    // and leaves the rest of the UUID behind as literals. The first takes a digit chain that ends in a
-    // UUID. The second takes any hex run glued to the front of a UUID, which `uuid` alone would leave
-    // in front of the placeholder, for `snakenum` to reach on a second pass.
+    // `snakeuuid` sits ahead of `uuid` and `snakenum` because the leftmost match wins: otherwise
+    // `snakenum` takes digits that run into a UUID and leaves the rest of the UUID as literals.
     {
         name: 'snakeuuid',
         pattern: '_\\d{4,}(?:_\\d+)*_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',

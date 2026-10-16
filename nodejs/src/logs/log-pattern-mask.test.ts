@@ -214,9 +214,11 @@ describe('log-pattern-mask', () => {
                 'GET /v1/customers/cus_TjuwpGlQcCSDCk/payment_methods',
                 'GET /v1/customers/<ID>/payment_methods',
             ],
-            // The known limit: a PascalCase name of exactly 14 or 24 letters behind `cus_` or `sub_` reads as
-            // an id. None turned up among the matches in a day of live logs, and every real id has this shape.
-            ['a PascalCase name of exactly 14 letters', 'calling sub_PaymentMethods now', 'calling <ID> now'],
+            [
+                'a PascalCase name of exactly 14 letters, a known limit',
+                'calling sub_PaymentMethods now',
+                'calling <ID> now',
+            ],
         ])('stripeid masks %s', (_name, input, expected) => {
             expect(maskString(input).masked).toEqual(expected)
         })
@@ -244,9 +246,11 @@ describe('log-pattern-mask', () => {
             ['a long query id', 'running hubspot_sync__query_1792084441 now', 'running hubspot_sync__query_<N> now'],
             ['a year after an underscore, as num masks a bare year', 'report daily_2026 sent', 'report daily_<N> sent'],
             ['a nanosecond epoch', 'flushed batch_1792084441123456789 ok', 'flushed batch_<N> ok'],
-            // An accepted trade-off: a vendor code that is only a 4-digit number merges with its siblings,
-            // as `num` already merges the same code written with a hyphen or a space.
-            ['a 4-digit vendor error code', 'failed with ERR_ACME_3200', 'failed with ERR_ACME_<N>'],
+            [
+                'a 4-digit vendor error code, as num masks its hyphen form',
+                'failed with ERR_ACME_3200',
+                'failed with ERR_ACME_<N>',
+            ],
         ])('snakenum masks %s', (_name, input, expected) => {
             expect(maskString(input).masked).toEqual(expected)
         })
@@ -578,8 +582,7 @@ describe('log-pattern-mask', () => {
     })
 
     describe('property sweeps', () => {
-        // Deterministic PRNG (mulberry32): each sweep must reproduce identically on every run, so a
-        // failure names one input that fails again.
+        // Seeded, so a failing input reproduces.
         const mulberry32 = (seed: number) => (): number => {
             seed = (seed + 0x6d2b79f5) | 0
             let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
@@ -596,15 +599,8 @@ describe('log-pattern-mask', () => {
         const sequentialChain = (input: string): string =>
             MASK_RULES.reduce((acc, rule) => acc.replace(new RE2(rule.pattern, 'g'), rule.replacement), input)
 
-        // One fragment per rule, plus near-misses for the underscore rules, so a generated line puts
-        // every pair of rules next to each other at some offset. Each fragment names the separators it
-        // must not sit next to: these joins already split a single pass from the chain, and they belong
-        // to `id`, `email`, `host`, `hex0x`, and `hex` rather than to anything these sweeps guard.
-        //  - `id` takes a hyphen tail, so `-` after an id reaches into the next fragment.
-        //  - `email` grows its domain over a `.` or `-` and the next fragment.
-        //  - `host` labels take digits and hyphens, so `.` or `-` before a host pulls the previous fragment in.
-        //  - `hex0x` needs a boundary, so `_` after it hands the `0` to `num`.
-        //  - `hex` starts before `uuid` on a hex run glued to a UUID, so a glued run gets an underscore here.
+        // `notBefore` and `notAfter` skip joins where `id`, `email`, `host`, `hex0x` and `hex` already
+        // disagree with the chain in v5, so the sweeps test only the new rules.
         type Fragment = { text: string; notBefore: string; notAfter?: string }
         const fragment = (rand: () => number): Fragment =>
             pick(rand, [
@@ -752,10 +748,8 @@ describe('log-pattern-mask', () => {
             'trace_0A1B2C3D-4E5F-6789-ABCD-EF0123456789 started',
             // An id-shaped local part: `id` and `email` match at one offset, so the chain must run `email` first.
             'john_D2oe@example.com sent',
-            // An underscore-led UUID with an all-digit first group: `snakenum` starts one character before
-            // `uuid` can, so the chain must run the underscore-led `uuid` rule ahead of `snakenum`.
+            // `snakenum` starts before `uuid` here, so the chain must run `snakeuuid` ahead of both.
             'job_12345678-07e3-4cff-bf47-7efa1024aee2 queued',
-            // A UUID at the end of a digit chain: the chain must mask the digits too, not only the UUID.
             'export job_1234_01905063-07e3-4cff-bf47-7efa1024aee2 done',
             'No active replica has part 202610_4682747_4682751_2 for ops_12345@example.com',
             'GET /v1/customers/cus_TjuwpGlQcCSDCk then shard_1234.example.com then x86_64',
