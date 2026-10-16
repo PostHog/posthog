@@ -137,7 +137,8 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
             keywords=["sp-api", "seller central", "amazon seller", "fba"],
             caption=(
                 "Syncs orders, order items, financial transactions and FBA inventory from your Amazon seller account. "
-                "The app needs the Inventory and Order Tracking, Finance and Accounting and Amazon Fulfillment roles."
+                "The app needs the Inventory and Order Tracking, Finance and Accounting and Amazon Fulfillment roles. "
+                "Orders and order items read the same Amazon endpoint, so syncing both takes twice as long."
             ),
             iconPath="/static/services/amazon_selling_partner.png",
             docsUrl="https://posthog.com/docs/cdp/sources/amazon-selling-partner",
@@ -183,7 +184,7 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
                     SourceFieldInputConfig(
                         name="marketplace_ids",
                         label="Marketplace IDs",
-                        caption="Comma-separated. Leave blank to sync every marketplace the seller participates in.",
+                        caption="Comma-separated. Applies to orders, order items and inventory, while transactions always cover every marketplace. Leave blank to use every marketplace the seller sells in.",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="ATVPDKIKX0DER, A1F83G8C2ARO7P",
