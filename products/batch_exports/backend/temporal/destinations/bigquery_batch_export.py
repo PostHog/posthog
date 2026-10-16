@@ -598,7 +598,15 @@ def _is_contention_exception(exc: Exception) -> bool:
 
 def _quote_bigquery_identifier(identifier: str) -> str:
     escaped = identifier.translate(
-        str.maketrans({"\\": r"\\", "`": r"\`", "\n": r"\n", "\r": r"\r", "\t": r"\t", "\b": r"\b", "\f": r"\f"})
+        {
+            ord("\\"): r"\\",
+            ord("`"): r"\`",
+            ord("\n"): r"\n",
+            ord("\r"): r"\r",
+            ord("\t"): r"\t",
+            ord("\b"): r"\b",
+            ord("\f"): r"\f",
+        }
     )
     return f"`{escaped}`"
 
