@@ -842,6 +842,17 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
         )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "element",
+                    "key": "href",
+                    "value": ["a", "b"],
+                    "operator": "not_in",
+                }
+            ),
+            self._parse_expr("elements_chain_href NOT IN ['a'] AND elements_chain_href NOT IN ['b']"),
+        )
         for text_key in ("text", "$el_text"):
             self.assertEqual(
                 self._property_to_expr(
@@ -1297,47 +1308,35 @@ class TestProperty(BaseTest):
             self._parse_expr("person.extended_properties.bool_prop = true"),
         )
 
-    def test_data_warehouse_property_with_list_values(self):
-        credential = DataWarehouseCredential.objects.create(
-            team=self.team, access_key="_accesskey", access_secret="_secret"
-        )
-        DataWarehouseTable.objects.create(
-            team=self.team,
-            name="foobars",
-            columns={
-                "event": {"hogql": "StringDatabaseField", "clickhouse": "String"},
-                "properties": {"hogql": "JSONField", "clickhouse": "String"},
-            },
-            credential=credential,
-            url_pattern="",
-        )
-
-        expr = self._property_to_expr(
-            Property(
-                type="data_warehouse",
-                key="foobars.properties.$feature/test",
-                value=["control", "test"],
-                operator="exact",
+    @parameterized.expand(
+        [
+            (
+                "exact",
+                "foobars.properties.`$feature/test` = 'control' OR foobars.properties.`$feature/test` = 'test'",
             ),
+            (
+                "not_in",
+                "foobars.properties.`$feature/test` NOT IN ['control'] AND foobars.properties.`$feature/test` NOT IN ['test']",
+            ),
+            (
+                "not_icontains_multi",
+                "NOT multiSearchAnyCaseInsensitive(toString(foobars.properties.`$feature/test`), ['control']) > 0"
+                " AND NOT multiSearchAnyCaseInsensitive(toString(foobars.properties.`$feature/test`), ['test']) > 0",
+            ),
+        ]
+    )
+    def test_data_warehouse_property_with_list_values(self, operator: str, expected: str):
+        expr = self._property_to_expr(
+            {
+                "type": "data_warehouse",
+                "key": "foobars.properties.$feature/test",
+                "value": ["control", "test"],
+                "operator": operator,
+            },
             self.team,
         )
 
-        self.assertIsInstance(expr, ast.Or)
-        self.assertEqual(len(expr.exprs), 2)
-
-        # First expression
-        compare_op_1 = expr.exprs[0]
-        self.assertIsInstance(compare_op_1, ast.CompareOperation)
-        self.assertIsInstance(compare_op_1.left, ast.Field)
-        self.assertEqual(compare_op_1.left.chain, ["foobars", "properties", "$feature/test"])
-        self.assertEqual(compare_op_1.right.value, "control")
-
-        # Second expression
-        compare_op_2 = expr.exprs[1]
-        self.assertIsInstance(compare_op_2, ast.CompareOperation)
-        self.assertIsInstance(compare_op_2.left, ast.Field)
-        self.assertEqual(compare_op_2.left.chain, ["foobars", "properties", "$feature/test"])
-        self.assertEqual(compare_op_2.right.value, "test")
+        self.assertEqual(expr, self._parse_expr(expected))
 
     def test_revenue_analytics_property(self):
         self.assertEqual(
