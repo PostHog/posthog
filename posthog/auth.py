@@ -201,6 +201,8 @@ class ZxcvbnValidator:
     Validate that the password satisfies zxcvbn
     """
 
+    NEXT_STEP = "Try a longer password that isn't a common word or pattern."
+
     def __init__(self, min_length=8):
         self.min_length = min_length
 
@@ -208,10 +210,12 @@ class ZxcvbnValidator:
         result = zxcvbn(password)
 
         if result["score"] < 3:
-            joined_feedback = " ".join(result["feedback"]["suggestions"])
+            # zxcvbn's suggestions assume passphrases ("Add another word or two"), so only its
+            # warning is shown, which names the weakness it found
+            warning = result["feedback"]["warning"] or "This password is too easy to guess."
 
             raise ValidationError(
-                joined_feedback or "This password is too weak.",
+                f"{warning} {self.NEXT_STEP}",
                 code="password_too_weak",
             )
 

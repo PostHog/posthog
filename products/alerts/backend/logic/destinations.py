@@ -139,18 +139,22 @@ def list_alert_destination_groups(
 
 
 def owned_alert_destinations_qs(
-    *, team_id: int, alert_ids: Collection[str], allowed_event_ids: Collection[str]
+    *,
+    team_id: int,
+    alert_ids: Collection[str],
+    allowed_event_ids: Collection[str],
+    known_templates_only: bool = True,
 ) -> QuerySet[HogFunction]:
     alert_id_filter = Q(pk__in=[])
     for alert_id in alert_ids:
         alert_id_filter |= Q(filters__properties__contains=[{"key": "alert_id", "value": alert_id}])
-    return HogFunction.objects.filter(
+    functions = HogFunction.objects.filter(
         alert_id_filter,
         _allowed_event_filter(allowed_event_ids),
         team_id=team_id,
         deleted=False,
-        template_id__in=SPEC_BY_TEMPLATE_ID,
     )
+    return functions.filter(template_id__in=SPEC_BY_TEMPLATE_ID) if known_templates_only else functions
 
 
 def list_owned_alert_destinations(
@@ -421,7 +425,8 @@ def _allowed_event_filter(allowed_event_ids: Collection[str]) -> Q:
 
     event_filter = Q()
     for event_id in allowed_event_ids:
-        event_filter |= Q(filters__events__contains=[{"id": event_id, "type": "events"}])
+        # `type` is optional in a stored filter, and the internal events consumer matches on the id alone.
+        event_filter |= Q(filters__events__contains=[{"id": event_id}])
     return event_filter
 
 

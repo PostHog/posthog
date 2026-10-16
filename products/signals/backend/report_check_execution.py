@@ -582,7 +582,9 @@ def _park_checks(active: Iterable[SignalReportCheck], now: datetime, *, resolved
         if status_filter is None:
             if check.team_id not in team_filters:
                 team_filters[check.team_id] = report_status_filter(
-                    [SignalReport.Status.RESOLVED], team_id=check.team_id, field="report__status"
+                    [SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING],
+                    team_id=check.team_id,
+                    field="report__status",
                 )
             status_filter = team_filters[check.team_id]
         soak_minutes = check.soak_minutes
@@ -622,7 +624,7 @@ def park_report_checks_on_reopen(*, team_id: int, report_id: str, now: datetime)
 def park_checks_on_unresolved_reports(
     now: datetime, *, disabled_monitoring_organization_ids: frozenset[UUID] | None = None
 ) -> int:
-    """Move active checks whose report is not resolved back to `pending`. Returns how many moved.
+    """Park active checks whose report no longer has an implemented fix. Returns how many moved.
 
     A check can be active on an unresolved report in three ways: a report that left `resolved`
     (reopened, archived, or restored somewhere else), a row written active before the create path
@@ -638,7 +640,7 @@ def park_checks_on_unresolved_reports(
     if disabled_monitoring_organization_ids is None:
         disabled_monitoring_organization_ids = check_monitoring_disabled_organizations(candidates)
     status_filter = report_status_filter(
-        [SignalReport.Status.RESOLVED],
+        [SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING],
         field="report__status",
         disabled_monitoring_organization_ids=disabled_monitoring_organization_ids,
     )
@@ -708,7 +710,7 @@ def collect_due_checks(
     return due
 
 
-def _arm_disabled_monitoring_checks(now: datetime, *, disabled_monitoring_organization_ids: frozenset[UUID]) -> None:
+def _arm_monitoring_checks(now: datetime, *, disabled_monitoring_organization_ids: frozenset[UUID]) -> None:
     from products.signals.backend.report_check_authoring import arm_pending_checks
 
     pending_checks = SignalReportCheck.all_teams.filter(
@@ -719,18 +721,23 @@ def _arm_disabled_monitoring_checks(now: datetime, *, disabled_monitoring_organi
     )
     reports = (
         SignalReport.objects.filter(
-            report_status_filter(
-                [SignalReport.Status.RESOLVED],
-                disabled_monitoring_organization_ids=disabled_monitoring_organization_ids,
-            ),
+            Q(monitoring_started_at__isnull=False) | Q(team__organization_id__in=disabled_monitoring_organization_ids),
             Exists(pending_checks),
             status=SignalReport.Status.MONITORING,
         )
-        .only("id", "status", "team_id")
+        .select_related("team")
+        .only("id", "status", "team_id", "monitoring_started_at", "team__organization_id")
         .order_by("id")[:MAX_CHECK_PARKS_PER_TICK]
     )
     for report in reports:
-        arm_pending_checks(team_id=report.team_id, report_id=report.id, resolved_at=now, monitoring_enabled=False)
+        monitoring_enabled = report.team.organization_id not in disabled_monitoring_organization_ids
+        arm_pending_checks(
+            team_id=report.team_id,
+            report_id=report.id,
+            resolved_at=now,
+            monitoring_enabled=monitoring_enabled,
+            expected_monitoring_started_at=report.monitoring_started_at if monitoring_enabled else None,
+        )
 
 
 def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK_RUNS_PER_TICK) -> CheckRunSummary:
@@ -747,7 +754,7 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
         Q(status=SignalReportCheck.Status.ACTIVE) | Q(status=SignalReportCheck.Status.PENDING, expires_at__gt=now)
     )
     disabled_organizations = check_monitoring_disabled_organizations(candidate_checks)
-    _arm_disabled_monitoring_checks(now, disabled_monitoring_organization_ids=disabled_organizations)
+    _arm_monitoring_checks(now, disabled_monitoring_organization_ids=disabled_organizations)
     park_checks_on_unresolved_reports(now, disabled_monitoring_organization_ids=disabled_organizations)
     deadline = time.monotonic() + CHECK_RUN_TIME_BUDGET_SECONDS
     counts: dict[str, int] = {

@@ -57,7 +57,7 @@ export function createProduceCollectedImagesStep<
                 : undefined
 
         // The ack handlers must capture only the refs: `image.bytes` are subarray views into the
-        // whole packed FFI buffer (up to 32 MB per source message), and queueMessages copies the
+        // whole packed FFI buffer (up to 64 MiB per source message), and queueMessages copies the
         // slices synchronously — a closure holding `fresh` would pin the full packed buffer per
         // in-flight produce, unbounded by the producer queue's byte accounting.
         const refs = fresh.map((image) => image.ref)

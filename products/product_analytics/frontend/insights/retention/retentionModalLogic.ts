@@ -6,7 +6,6 @@ import type { DataColorTheme } from 'lib/colors'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
-import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { urls } from 'scenes/urls'
@@ -33,6 +32,8 @@ import type {
 import type { PathsV2Query } from '~/queries/schema/schema-general'
 import { isInsightActorsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
+
+import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'products/product_analytics/frontend/insights/shared/aggregationTargetUtils'
 
 import { retentionToActorsQuery } from './queries'
 import { retentionLogic } from './retentionLogic'
