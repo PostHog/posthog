@@ -15,11 +15,12 @@ it lists successful runs unless `--status` says otherwise.
 `gh run download` produces. `gate-runs` writes the newest runs of one trigger as JSON, each
 with the conclusion of its gate job, in the shape .github/scripts/ci-alerts-devex.js reads
 GitHub workflow runs in.
-Needs the `depot` CLI and DEPOT_TOKEN.
+Needs the `depot` CLI and DEPOT_TOKEN. Reading push runs also needs the `gh` CLI and a GitHub token.
 """
 
 from __future__ import annotations
 
+import re
 import sys
 import json
 import time
@@ -28,6 +29,7 @@ import zipfile
 import argparse
 import tempfile
 import subprocess
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -47,6 +49,10 @@ PARALLEL_CLI_CALLS = 8
 MAX_LISTED = 200
 TRIGGERS = ("push", "schedule")
 MASTER_REF = "refs/heads/master"
+# Master is the compare base, so these statuses mean master contains the commit.
+ON_MASTER_STATUSES = frozenset({"BEHIND", "IDENTICAL"})
+COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
+GITHUB_TIMEOUT_SECONDS = 30
 
 
 class ListedWorkflow(TypedDict):
@@ -69,14 +75,8 @@ class Job(TypedDict, total=False):
     finished_at: str
 
 
-class ShownRun(TypedDict):
-    trigger: str
-    ref: str
-
-
 class ShownWorkflow(TypedDict):
     org_id: str
-    run: ShownRun
     jobs: list[Job]
 
 
@@ -97,8 +97,38 @@ def depot(*args: str, timeout: int = CLI_TIMEOUT_SECONDS) -> str:
     return result.stdout
 
 
-def master_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str = REPO) -> list[ListedWorkflow]:
-    """The master Backend CI workflows of one trigger in the given states, newest first."""
+def commits_on_master(shas: Iterable[str], repo: str = REPO) -> frozenset[str]:
+    """A commit GitHub cannot resolve fails the whole query."""
+    candidates = sorted({sha for sha in shas if COMMIT_SHA.fullmatch(sha)})
+    if not candidates:
+        return frozenset()
+    owner, name = repo.split("/")
+    # Without headTarget, GitHub answers IDENTICAL for a commit it does not have.
+    fields = " ".join(
+        f'c{i}: compare(headRef: "{sha}") {{ status headTarget {{ oid }} }}' for i, sha in enumerate(candidates)
+    )
+    query = (
+        f"query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) "
+        f'{{ ref(qualifiedName: "{MASTER_REF}") {{ {fields} }} }} }}'
+    )
+    result = subprocess.run(
+        ["gh", "api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}", "-f", f"name={name}"],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+        timeout=GITHUB_TIMEOUT_SECONDS,
+    )
+    compared = json.loads(result.stdout)["data"]["repository"]["ref"]
+    return frozenset(
+        sha
+        for i, sha in enumerate(candidates)
+        if (comparison := compared.get(f"c{i}"))
+        and comparison["status"] in ON_MASTER_STATUSES
+        and comparison["headTarget"]["oid"] == sha
+    )
+
+
+def listed_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str = REPO) -> list[ListedWorkflow]:
     args = ["workflow", "list", "--repo", repo, "--name", WORKFLOW_NAME, "--trigger", trigger, "-n", str(limit)]
     for status in statuses:
         args += ["--status", status]
@@ -109,6 +139,21 @@ def master_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str
         output = depot(*args, "--output", "json")
     workflows = cast(list[ListedWorkflow], json.loads(output or "null") or [])
     return sorted(workflows, key=lambda w: w["created_at"], reverse=True)
+
+
+def master_only(workflows: list[ListedWorkflow], *, trigger: str, repo: str = REPO) -> list[ListedWorkflow]:
+    """A branch can add itself to the push trigger in its own copy of the workflow, and Depot
+    records a push run's ref as its sha, so only GitHub can say a push ran on master.
+    """
+    if trigger == "schedule":
+        return workflows
+    on_master = commits_on_master((w["sha"] for w in workflows), repo)
+    return [w for w in workflows if w["sha"] in on_master]
+
+
+def master_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str = REPO) -> list[ListedWorkflow]:
+    """The master Backend CI workflows of one trigger in the given states, newest first."""
+    return master_only(listed_workflows(statuses, limit, trigger=trigger, repo=repo), trigger=trigger, repo=repo)
 
 
 def show(workflow_id: str) -> ShownWorkflow:
@@ -139,10 +184,6 @@ def find(
         try:
             names = {a["name"] for a in artifacts(workflow["run_id"]) if a["name"].startswith(prefix)}
             sys.stderr.write(f"Run {workflow['run_id']} has {len(names)} {prefix}* artifacts\n")
-            # Only a candidate push run pays for the extra CLI call that reads its ref.
-            if len(names) >= min_artifacts and trigger == "push" and not ran_on_master(show(workflow["workflow_id"])):
-                sys.stderr.write(f"Run {workflow['run_id']} did not run on master, skipping it\n")
-                continue
         except (subprocess.SubprocessError, json.JSONDecodeError) as error:
             sys.stderr.write(f"Run {workflow['run_id']}: could not read it, skipping it: {error!r}\n")
             continue
@@ -190,21 +231,9 @@ def download(run_id: str, patterns: list[str], directory: Path) -> int:
     return len(matching)
 
 
-def ran_on_master(shown: ShownWorkflow) -> bool:
-    """A branch can add itself to the push trigger in its own copy of the workflow.
-
-    Depot leaves a scheduled run's ref empty, and the schedule fires only on the default branch.
-    Any other run counts as master only when its ref says so, so a payload without a ref fails closed.
-    """
-    run = shown.get("run") or {}
-    return run.get("trigger") == "schedule" or run.get("ref") == MASTER_REF
-
-
-def gate_run(listed: ListedWorkflow) -> GateRun | None:
+def gate_run(listed: ListedWorkflow) -> GateRun:
     """One workflow as a GitHub-shaped run. A workflow whose gate job has not ended is not completed."""
     shown = show(listed["workflow_id"])
-    if not ran_on_master(shown):
-        return None
     gate = next((job for job in shown.get("jobs") or [] if job.get("job_key") == GATE_JOB_KEY), None)
     conclusion: str | None = None
     if gate and gate.get("status") in GATE_CONCLUSIONS:
@@ -228,7 +257,7 @@ def gate_run(listed: ListedWorkflow) -> GateRun | None:
 def gate_runs(trigger: str, limit: int) -> list[GateRun]:
     listed = master_workflows(["queued", "running", *sorted(ENDED)], limit, trigger=trigger)
     with ThreadPoolExecutor(max_workers=PARALLEL_CLI_CALLS) as pool:
-        runs = [run for run in pool.map(gate_run, listed) if run is not None]
+        runs = list(pool.map(gate_run, listed))
     # An empty or inconclusive window must not resolve an existing CI incident.
     if not any(
         run["status"] == "completed" and run["conclusion"] not in (None, "cancelled", "skipped") for run in runs

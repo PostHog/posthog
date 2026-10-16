@@ -792,6 +792,9 @@ export interface hogFlowEditorLogicActions {
                       | {
                             config:
                                 | {
+                                      type: 'api'
+                                  }
+                                | {
                                       type: 'schedule'
                                   }
                                 | {
@@ -962,6 +965,9 @@ export interface hogFlowEditorLogicActions {
                   tags: string[]
                   team_id: number
                   trigger?:
+                      | {
+                            type: 'api'
+                        }
                       | {
                             type: 'schedule'
                         }
@@ -1669,6 +1675,9 @@ export interface hogFlowEditorLogicActions {
                       | {
                             config:
                                 | {
+                                      type: 'api'
+                                  }
+                                | {
                                       type: 'schedule'
                                   }
                                 | {
@@ -1839,6 +1848,9 @@ export interface hogFlowEditorLogicActions {
                   tags: string[]
                   team_id: number
                   trigger?:
+                      | {
+                            type: 'api'
+                        }
                       | {
                             type: 'schedule'
                         }
