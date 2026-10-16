@@ -284,19 +284,21 @@
         $("routing").textContent = routingText;
         const sliceSet = new Set(r.slice || []);
 
-        const d = s.batcher;
+        // A consumer pod from before the batcher rename still answers with
+        // `dispatcher`; read whichever key the pod sends during a rollout.
+        const d = s.batcher || s.dispatcher || {};
         // In-flight is transient (a request is sent→resolved in ms), so a
         // single sample often reads 0. Hold the peak over a short window so the
         // panel reflects the concurrency actually happening.
         const now = Date.now();
-        loadSamples.push({ t: now, v: d.total_in_flight });
+        loadSamples.push({ t: now, v: d.total_in_flight ?? 0 });
         loadSamples = loadSamples.filter((x) => now - x.t <= PEAK_WINDOW_MS);
         const peak = loadSamples.reduce((m, x) => Math.max(m, x.v), 0);
 
         $("disp-stats").innerHTML = [
-          ["in-flight", d.total_in_flight],
+          ["in-flight", d.total_in_flight ?? 0],
           ["peak 4s", peak],
-          ["pending", d.pending_messages],
+          ["pending", d.pending_messages ?? 0],
         ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
 
         // Stable order — slice members first, then by IP. Sorting by load made
