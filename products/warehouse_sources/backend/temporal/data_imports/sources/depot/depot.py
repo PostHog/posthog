@@ -5,11 +5,14 @@ from typing import Any
 from requests import Response, Session
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
     make_tracked_session,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.settings import (
     JOB_ATTEMPTS,
@@ -29,6 +32,16 @@ TERMINAL_STATUSES = ["finished", "failed", "cancelled"]
 # Connect sends every RPC as a POST. Every RPC this source calls is a read, so a retry is as safe as
 # a retried GET.
 _DEPOT_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
+
+
+@frozen
+class DepotResumeState:
+    created_after: str | None
+    # None when the sync replays only recent runs.
+    reconciled_at: str | None
+    # The oldest run that an earlier attempt of this sync handed to the pipeline.
+    run_created_at: str
+    run_id: str
 
 
 def _make_session(api_token: str) -> Session:
@@ -152,26 +165,46 @@ def depot_source(
     api_token: str,
     repository: str,
     created_after: dt.datetime | str | None,
+    reconciled_at: str | None,
+    resumable_source_manager: ResumableSourceManager[DepotResumeState],
     logger: FilteringBoundLogger,
-    on_complete: Callable[[], None] | None = None,
+    stage_reconciliation: Callable[[str], None] | None = None,
 ) -> SourceResponse:
-    lower_bound = _parse_timestamp(created_after) if created_after is not None else None
-
     def items() -> Iterator[list[JSONObject]]:
+        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+        # A resumed attempt keeps the window of the first attempt, so a long reconciliation finishes across restarts.
+        window_start = resume.created_after if resume is not None else created_after
+        window_reconciled_at = resume.reconciled_at if resume is not None else reconciled_at
+        lower_bound = _parse_timestamp(window_start) if window_start is not None else None
         session = _make_session(api_token)
+        listed = _list_runs(session, repository, TERMINAL_STATUSES, lower_bound)
+        if resume is not None:
+            resume_key = (_parse_timestamp(resume.run_created_at), resume.run_id)
+            listed = [entry for entry in listed if (entry[0], entry[1]["runId"]) < resume_key]
         # Newest first, so a sync that stops partway has already stored the runs that no earlier sync read.
-        runs = [run for _, run in reversed(_list_runs(session, repository, TERMINAL_STATUSES, lower_bound))]
+        runs = [run for _, run in reversed(listed)]
         logger.info(
             "depot_ci.runs_to_sync",
             run_count=len(runs),
             created_after=lower_bound.isoformat() if lower_bound else None,
+            resumed=resume is not None,
         )
+        state_created_after = lower_bound.isoformat() if lower_bound is not None else None
         for run in runs:
             rows = _run_attempt_rows(session, run)
+            resumable_source_manager.save_state(
+                DepotResumeState(
+                    created_after=state_created_after,
+                    reconciled_at=window_reconciled_at,
+                    run_created_at=run["createdAt"],
+                    run_id=run["runId"],
+                )
+            )
             if rows:
                 yield rows
-        if on_complete is not None:
-            on_complete()
+            resumable_source_manager.safe_point()
+        if window_reconciled_at is not None and stage_reconciliation is not None:
+            stage_reconciliation(window_reconciled_at)
 
     return SourceResponse(
         name=JOB_ATTEMPTS,
@@ -184,6 +217,7 @@ def depot_source(
         sort_mode="desc",
         # Rows become durable per chunk, and the default chunk holds a whole first sync of a busy repository.
         chunk_size=5_000,
+        on_complete=resumable_source_manager.clear_state,
     )
 
 

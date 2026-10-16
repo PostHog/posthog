@@ -12,19 +12,21 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
     build_endpoint_schemas,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot import (
+    DepotResumeState,
     depot_source,
     validate_credentials as validate_depot_credentials,
 )
@@ -52,7 +54,7 @@ class DepotReconciliationCursor:
 
 
 @SourceRegistry.register
-class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliationCursor]):
+class DepotSource(ResumableSource[DepotSourceConfig, DepotResumeState], CursorSource[DepotReconciliationCursor]):
     codebase_detection = detect(
         env=("^DEPOT_",), npm=("@depot/cli", "@depot/sdk-node"), go=("github.com/depot/depot-go",)
     )
@@ -138,7 +140,15 @@ class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliat
     def cursor_class(self) -> type[DepotReconciliationCursor]:
         return DepotReconciliationCursor
 
-    def source_for_pipeline(self, config: DepotSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[DepotResumeState]:
+        return ResumableSourceManager(inputs, DepotResumeState)
+
+    def source_for_pipeline(
+        self,
+        config: DepotSourceConfig,
+        resumable_source_manager: ResumableSourceManager[DepotResumeState],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         if inputs.sync_type == ExternalDataSchemaSyncType.APPEND:
             raise ValueError(_APPEND_UNSUPPORTED)
         manager = self.get_cursor_manager(inputs)
@@ -163,8 +173,10 @@ class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliat
             api_token=config.api_token,
             repository=config.repository,
             created_after=lower_bound,
+            reconciled_at=now.isoformat() if reconcile else None,
+            resumable_source_manager=resumable_source_manager,
             logger=inputs.logger,
-            on_complete=(lambda: manager.stage(DepotReconciliationCursor(reconciled_at=now.isoformat())))
-            if reconcile
-            else None,
+            stage_reconciliation=lambda reconciled_at: manager.stage(
+                DepotReconciliationCursor(reconciled_at=reconciled_at)
+            ),
         )
