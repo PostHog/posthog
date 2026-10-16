@@ -3214,6 +3214,21 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Server runtime that handled the MCP request. 'hono' means it was served by the Hono-based MCP server.",
             "examples": ["hono"],
         },
+        "mcp_project_has_data": {
+            "label": "MCP project has data",
+            "description": "Whether the active project had received at least one event when the MCP request ran. Missing when the project could not be read.",
+            "type": "Boolean",
+        },
+        "mcp_no_data_blocked": {
+            "label": "MCP no-data blocked",
+            "description": "Whether the MCP server returned install guidance instead of running the tool, because the project has not received any events yet. Set only on tool calls for projects without events.",
+            "type": "Boolean",
+        },
+        "mcp_no_data_install_notice_variant": {
+            "label": "MCP no-data install notice variant",
+            "description": "Variant of the mcp-no-data-install-notice feature flag for this tool call. Set only on tool calls for projects without events.",
+            "examples": ["control", "test"],
+        },
         "mcp_vendor_client": {
             "label": "MCP vendor client (legacy)",
             "description": "Older unprefixed variant of $mcp_vendor_client, stamped only by PostHog's hosted MCP server. Coalesce both keys when querying vendor identity directly; the harness resolution in MCP analytics already does.",

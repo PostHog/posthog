@@ -2932,9 +2932,24 @@
             "description": "Older unprefixed variant of $mcp_mode. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_mode for new dashboards.",
             "label": "MCP mode (unprefixed)"
         },
+        "mcp_no_data_blocked": {
+            "description": "Whether the MCP server returned install guidance instead of running the tool, because the project has not received any events yet. Set only on tool calls for projects without events.",
+            "label": "MCP no-data blocked",
+            "type": "Boolean"
+        },
+        "mcp_no_data_install_notice_variant": {
+            "description": "Variant of the mcp-no-data-install-notice feature flag for this tool call. Set only on tool calls for projects without events.",
+            "examples": ["control", "test"],
+            "label": "MCP no-data install notice variant"
+        },
         "mcp_oauth_client_name": {
             "description": "Older unprefixed variant of $mcp_oauth_client_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_oauth_client_name for new dashboards.",
             "label": "MCP OAuth client name (unprefixed)"
+        },
+        "mcp_project_has_data": {
+            "description": "Whether the active project had received at least one event when the MCP request ran. Missing when the project could not be read.",
+            "label": "MCP project has data",
+            "type": "Boolean"
         },
         "mcp_protocol_version": {
             "description": "Older unprefixed variant of $mcp_protocol_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_protocol_version for new dashboards.",
@@ -7100,9 +7115,24 @@
             "description": "Older unprefixed variant of $mcp_mode. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_mode for new dashboards.",
             "label": "MCP mode (unprefixed)"
         },
+        "mcp_no_data_blocked": {
+            "description": "Whether the MCP server returned install guidance instead of running the tool, because the project has not received any events yet. Set only on tool calls for projects without events.",
+            "label": "MCP no-data blocked",
+            "type": "Boolean"
+        },
+        "mcp_no_data_install_notice_variant": {
+            "description": "Variant of the mcp-no-data-install-notice feature flag for this tool call. Set only on tool calls for projects without events.",
+            "examples": ["control", "test"],
+            "label": "MCP no-data install notice variant"
+        },
         "mcp_oauth_client_name": {
             "description": "Older unprefixed variant of $mcp_oauth_client_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_oauth_client_name for new dashboards.",
             "label": "MCP OAuth client name (unprefixed)"
+        },
+        "mcp_project_has_data": {
+            "description": "Whether the active project had received at least one event when the MCP request ran. Missing when the project could not be read.",
+            "label": "MCP project has data",
+            "type": "Boolean"
         },
         "mcp_protocol_version": {
             "description": "Older unprefixed variant of $mcp_protocol_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_protocol_version for new dashboards.",

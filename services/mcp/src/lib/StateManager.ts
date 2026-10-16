@@ -20,6 +20,10 @@ const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 // its scopes are read again after this delay. Reconnecting the client does not help: same token.
 export const API_KEY_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
+// A project without events, or without warehouse data, is re-read sooner so that its first data
+// shows up within a minute. `ingested_event` never returns to false and warehouse sources are
+// rarely removed, so a positive answer keeps the default TTL.
+export const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
 
 // Entitlement-related fields shared by both org shapes we read from — the
 // standalone org endpoint and the org embedded in `/api/users/@me/`.
@@ -448,14 +452,15 @@ export class StateManager {
         cacheKey: D
         fetchedAtKey: F
         fetcher: () => Promise<NonNullable<State[D]>>
-        ttlMs?: number
+        ttlMs?: number | ((cached: State[D]) => number)
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
             this._cache.get(opts.cacheKey),
             this._cache.get(opts.fetchedAtKey),
         ])) as [State[D], number | undefined]
 
-        if (!this.isCacheStale(fetchedAt, opts.ttlMs)) {
+        const ttlMs = typeof opts.ttlMs === 'function' ? opts.ttlMs(cached) : opts.ttlMs
+        if (!this.isCacheStale(fetchedAt, ttlMs)) {
             return cached
         }
 
@@ -531,7 +536,58 @@ export class StateManager {
                 }
                 return result.data
             },
+            ttlMs: (cached) => (cached?.ingested_event === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS),
         })
+    }
+
+    /**
+     * `undefined` means unknown. Reads two lists because each misses a kind of table:
+     * `warehouse_tables` omits direct-access sources, and `external_data_sources` omits
+     * self-managed tables linked from a bucket.
+     */
+    async getOrFetchHasWarehouseData(projectId: string): Promise<boolean | undefined> {
+        const { scopes } = await this.getApiKey()
+        const checks = [
+            hasScope(scopes, 'warehouse_table:read')
+                ? `/api/projects/${encodeURIComponent(projectId)}/warehouse_tables/`
+                : undefined,
+            hasScope(scopes, 'external_data_source:read')
+                ? `/api/projects/${encodeURIComponent(projectId)}/external_data_sources/`
+                : undefined,
+        ].filter((path): path is string => path !== undefined)
+        if (checks.length === 0) {
+            return undefined
+        }
+        const count = await this.getOrFetchCached({
+            name: 'warehouse_object_count',
+            cacheKey: `warehouseObjectCount:${projectId}` as const,
+            fetchedAtKey: `warehouseObjectCountFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                const results = await Promise.allSettled(
+                    checks.map((path) =>
+                        this._api.request<{ count?: number; results?: unknown[] }>({
+                            method: 'GET',
+                            path,
+                            query: { limit: 1, include_columns: 'false' },
+                        })
+                    )
+                )
+                let total = 0
+                for (const result of results) {
+                    if (result.status === 'fulfilled') {
+                        total += result.value.count ?? result.value.results?.length ?? 0
+                    }
+                }
+                const failure = results.find((result) => result.status === 'rejected')
+                // A failed list could hold the only table, so zero is a real answer only when both lists were read.
+                if (failure && total === 0) {
+                    throw failure.reason
+                }
+                return total
+            },
+            ttlMs: (cached) => (cached !== undefined && cached > 0 ? CACHE_TTL_MS : NO_DATA_CACHE_TTL_MS),
+        })
+        return count === undefined ? undefined : count > 0
     }
 
     async getOrFetchGroupTypes(projectId: string): Promise<GroupType[] | undefined> {
@@ -595,6 +651,7 @@ export class StateManager {
         projectId?: string
         projectUuid?: string
         projectName?: string
+        projectHasData?: boolean
     }> {
         const [orgId, project] = await Promise.all([
             this._pinned ? this._pinned.orgId : this._cache.get('orgId'),
@@ -610,6 +667,7 @@ export class StateManager {
             ...(project?.id !== undefined ? { projectId: String(project.id) } : {}),
             ...(project?.uuid ? { projectUuid: project.uuid } : {}),
             ...(project?.name ? { projectName: project.name } : {}),
+            ...(typeof project?.ingested_event === 'boolean' ? { projectHasData: project.ingested_event } : {}),
         }
     }
 

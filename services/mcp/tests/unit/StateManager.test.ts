@@ -1031,6 +1031,54 @@ describe('StateManager', () => {
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
         })
+
+        // A project without events is re-read after a minute so the no-data notice stops soon
+        // after the first event. A project with events never flips back, so it keeps the long TTL.
+        it.each([
+            ['without events is re-read', false, 2],
+            ['with events stays cached', true, 1],
+        ])('a project %s two minutes after the fetch', async (_name, ingestedEvent, expectedFetches) => {
+            await cache.set('projectId', projectId)
+            const get = vi.fn().mockResolvedValue({ success: true, data: { id: 42, ingested_event: ingestedEvent } })
+            ;(stateManager as any)._api = { projects: () => ({ get }) }
+
+            await stateManager.getCachedOrFetchProject()
+            await cache.set(`cachedProjectFetchedAt:${projectId}`, Date.now() - 2 * 60 * 1000)
+            await stateManager.getCachedOrFetchProject()
+
+            expect(get).toHaveBeenCalledTimes(expectedFetches)
+        })
+    })
+
+    describe('getOrFetchHasWarehouseData', () => {
+        const projectId = '42'
+        const warehouseScopes = ['warehouse_table:read', 'external_data_source:read']
+        const rejected = new Error('Synthetic list failure')
+
+        it.each<[string, string[], unknown[], boolean | undefined]>([
+            ['unknown without a warehouse read scope', ['query:read'], [], undefined],
+            ['true when a table exists', warehouseScopes, [{ count: 1 }, { count: 0 }], true],
+            ['true when only a source exists', warehouseScopes, [{ count: 0 }, { count: 2 }], true],
+            ['false when both lists are empty', warehouseScopes, [{ count: 0 }, { count: 0 }], false],
+            ['unknown when a list fails and the other is empty', warehouseScopes, [{ count: 0 }, rejected], undefined],
+            ['true when a list fails and the other has a table', warehouseScopes, [{ count: 1 }, rejected], true],
+        ])('is %s', async (_name, scopes, responses, expected) => {
+            const capture = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
+            await cache.set('apiKey', { scopes, scoped_organizations: [], scoped_teams: [] })
+            const request = vi.fn()
+            for (const response of responses) {
+                if (response instanceof Error) {
+                    request.mockRejectedValueOnce(response)
+                } else {
+                    request.mockResolvedValueOnce(response)
+                }
+            }
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchHasWarehouseData(projectId)).toBe(expected)
+            expect(request).toHaveBeenCalledTimes(responses.length)
+            capture.mockRestore()
+        })
     })
 
     describe('getOrFetchIntegrationKinds', () => {
@@ -1071,6 +1119,7 @@ describe('StateManager', () => {
                 uuid: 'project-uuid-456',
                 name: 'My Project',
                 organization: 'org-1',
+                ingested_event: false,
             } as any)
 
             const result = await stateManager.getAnalyticsContext()
@@ -1080,6 +1129,7 @@ describe('StateManager', () => {
                 projectId: '456',
                 projectUuid: 'project-uuid-456',
                 projectName: 'My Project',
+                projectHasData: false,
             })
         })
 

@@ -19,6 +19,7 @@ import { ToolExecutor } from '@/hono/tool-executor'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { PostHogApiError } from '@/lib/errors'
 import { buildToolDomainsCompact } from '@/lib/instructions'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
@@ -226,6 +227,86 @@ describe('ToolExecutor', () => {
                 expect(result.isError).toBeFalsy()
                 expect(result.content[0].text).toContain(expected)
                 expect(result.content[0].text).not.toContain('call skill-list')
+            }
+        )
+    })
+
+    describe('no-data install notice', () => {
+        type Row = {
+            mode: 'direct' | 'exec'
+            tool: string
+            projectHasData?: boolean
+            variant?: string
+            hasWarehouseData?: boolean
+            overrides?: Partial<ResolvedState>
+            withInstallTool?: boolean
+            blocked: boolean
+        }
+        const noData = { projectHasData: false, variant: 'test' }
+
+        it.each<Row>([
+            { mode: 'direct', tool: 'query-trends', ...noData, blocked: true },
+            { mode: 'exec', tool: 'query-trends', ...noData, blocked: true },
+            // Direct mode, because exec looks up every roster entry in the static tool registry,
+            // and `wizard-install-start` may not be registered there.
+            { mode: 'direct', tool: 'query-trends', ...noData, withInstallTool: true, blocked: true },
+            { mode: 'direct', tool: 'query-trends', projectHasData: false, variant: 'control', blocked: false },
+            { mode: 'exec', tool: 'query-trends', projectHasData: true, variant: 'test', blocked: false },
+            { mode: 'direct', tool: 'query-trends', projectHasData: undefined, variant: 'test', blocked: false },
+            { mode: 'exec', tool: 'docs-search', ...noData, blocked: false },
+            { mode: 'direct', tool: 'query-logs', ...noData, blocked: false },
+            { mode: 'direct', tool: 'execute-sql', ...noData, hasWarehouseData: false, blocked: true },
+            { mode: 'exec', tool: 'execute-sql', ...noData, hasWarehouseData: true, blocked: false },
+            { mode: 'exec', tool: 'execute-sql', ...noData, hasWarehouseData: undefined, blocked: false },
+            { mode: 'exec', tool: 'query-trends', ...noData, overrides: { isImpersonated: true }, blocked: false },
+            {
+                mode: 'direct',
+                tool: 'query-trends',
+                ...noData,
+                overrides: { apiKeyScopes: ['internal_run:read'] },
+                blocked: false,
+            },
+            {
+                mode: 'exec',
+                tool: 'query-trends',
+                ...noData,
+                overrides: {
+                    clientProfile: { ...makeToolExecutorState([]).clientProfile, consumer: 'posthog_ai' } as any,
+                },
+                blocked: false,
+            },
+        ])(
+            '$mode call to $tool (has data: $projectHasData, variant: $variant, warehouse: $hasWarehouseData) blocked=$blocked',
+            async ({ mode, tool, projectHasData, variant, hasWarehouseData, overrides, withInstallTool, blocked }) => {
+                const roster = [
+                    ...catalog.getFilteredTools({ scopes: ['*'] }).filter((t) => t.name === tool),
+                    ...(withInstallTool ? [{ name: 'wizard-install-start' }] : []),
+                ]
+                const getOrFetchHasWarehouseData = vi.fn().mockResolvedValue(hasWarehouseData)
+                const state = makeToolExecutorState(roster as any, {
+                    useSingleExec: mode === 'exec',
+                    projectHasData,
+                    toolFeatureFlags: { [MCP_NO_DATA_INSTALL_NOTICE_FLAG]: variant },
+                    context: {
+                        ...makeToolExecutorState([]).context,
+                        stateManager: { getProjectId: vi.fn().mockResolvedValue('7'), getOrFetchHasWarehouseData },
+                    } as any,
+                    ...overrides,
+                })
+                const call =
+                    mode === 'exec'
+                        ? { name: 'exec', arguments: { command: `call ${tool} {}` } }
+                        : { name: tool, arguments: {} }
+
+                const result = (await executor.handleToolCall(call, state)) as any
+                const text: string = result.content?.[0]?.text ?? ''
+
+                expect(text.includes("This project (id 7) hasn't received any events yet")).toBe(blocked)
+                if (blocked) {
+                    expect(result.isError).toBeFalsy()
+                    expect(text).toContain('npx -y @posthog/wizard@latest --project-id=7')
+                    expect(text.includes('`wizard-install-start`')).toBe(withInstallTool === true)
+                }
             }
         )
     })
