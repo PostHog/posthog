@@ -1,6 +1,8 @@
 import {
     MESSAGING_WIZARD_STEPS,
+    customFrequencyCapError,
     firstOpenStepIndex,
+    initialFrequencyCapChoice,
     requiredConnections,
     sendingRulesToSave,
     wizardSteps,
@@ -55,22 +57,51 @@ describe('onboardingWizardSteps', () => {
         expect(wizardSteps(path, pushEnabled)).toEqual(expected)
     })
 
-    const recommendedCap = { marketing_frequency_cap_max_messages: 1, marketing_frequency_cap_window_days: 2 }
+    const unset = { maxMessages: null, windowDays: null }
+    test.each<[string, Parameters<typeof initialFrequencyCapChoice>[0], string]>([
+        ['a new setup starts on the recommended cap', unset, 'recommended'],
+        ['a saved recommended cap starts on recommended', { maxMessages: 1, windowDays: 2 }, 'recommended'],
+        ['a saved custom cap starts on custom', { maxMessages: 3, windowDays: 5 }, 'custom'],
+    ])('%s', (_, saved, expected) => {
+        expect(initialFrequencyCapChoice(saved)).toBe(expected)
+    })
+
+    test.each<[string, Parameters<typeof customFrequencyCapError>[0], boolean]>([
+        ['an empty field blocks a custom cap', { maxMessages: 3, windowDays: null }, true],
+        ['a window above 30 days blocks a custom cap', { maxMessages: 3, windowDays: 31 }, true],
+        ['a valid custom cap passes', { maxMessages: 3, windowDays: 5 }, false],
+    ])('%s', (_, cap, blocked) => {
+        expect(customFrequencyCapError(cap) !== null).toBe(blocked)
+    })
+
+    const saved = { ...unset, engagementEvents: false }
     test.each<[string, Parameters<typeof sendingRulesToSave>, ReturnType<typeof sendingRulesToSave>]>([
         [
-            'a new setup gets the recommended cap and engagement events',
-            [{ maxMessages: null, windowDays: null, engagementEvents: false }, true, true],
-            { capture_workflows_engagement_events: true, ...recommendedCap },
+            'a new setup saves the recommended cap and engagement events',
+            [saved, { maxMessages: 1, windowDays: 2 }, true, true],
+            {
+                capture_workflows_engagement_events: true,
+                marketing_frequency_cap_max_messages: 1,
+                marketing_frequency_cap_window_days: 2,
+            },
         ],
         [
-            'turning engagement events off still sets the cap',
-            [{ maxMessages: null, windowDays: null, engagementEvents: false }, false, true],
-            { capture_workflows_engagement_events: false, ...recommendedCap },
+            'an unchanged custom cap is not saved again',
+            [{ maxMessages: 3, windowDays: 5, engagementEvents: true }, { maxMessages: 3, windowDays: 5 }, true, true],
+            null,
         ],
-        ['a custom cap is kept', [{ maxMessages: 3, windowDays: 5, engagementEvents: true }, true, true], null],
+        [
+            'no cap clears a saved cap',
+            [{ maxMessages: 3, windowDays: 5, engagementEvents: true }, unset, true, true],
+            {
+                capture_workflows_engagement_events: true,
+                marketing_frequency_cap_max_messages: null,
+                marketing_frequency_cap_window_days: null,
+            },
+        ],
         [
             'a non-admin only saves engagement events',
-            [{ maxMessages: null, windowDays: null, engagementEvents: false }, true, false],
+            [saved, { maxMessages: 1, windowDays: 2 }, true, false],
             { capture_workflows_engagement_events: true },
         ],
     ])('%s', (_, args, expected) => {

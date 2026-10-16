@@ -1,13 +1,32 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonDivider, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 
-import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 
+import {
+    MAX_FREQUENCY_CAP_MESSAGES,
+    MAX_FREQUENCY_CAP_WINDOW_DAYS,
+    frequencyCapFieldError,
+    toFrequencyCapInputValue,
+} from '../../scenes/settings/frequencyCap'
 import { WorkflowsEmailTrackingConsentSettings } from '../../scenes/settings/WorkflowsEmailTrackingConsentSettings'
-import { RECOMMENDED_FREQUENCY_CAP } from './onboardingWizardSteps'
+import { FrequencyCapChoice } from './onboardingWizardSteps'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
+
+const ADMIN_ONLY_REASON = 'Only project admins can change the frequency cap'
+
+const CAP_OPTIONS: LemonRadioOption<FrequencyCapChoice>[] = [
+    {
+        value: 'recommended',
+        label: 'At most 1 email every 2 days (recommended)',
+        description: 'Keeps marketing email from piling up when several workflows reach the same person.',
+    },
+    { value: 'off', label: 'No cap', description: 'Each workflow and broadcast sends on its own schedule.' },
+    { value: 'custom', label: 'Set your own cap' },
+]
 
 function SendingRule({
     title,
@@ -30,14 +49,12 @@ function SendingRule({
 }
 
 export function WizardSendingRulesStep(): JSX.Element {
-    const { savedFrequencyCap, canEditSendingRules, shownEngagementEvents } = useValues(workflowsOnboardingWizardLogic)
-    const { setEngagementEventsChoice } = useActions(workflowsOnboardingWizardLogic)
-
-    const hasSavedCap = savedFrequencyCap.maxMessages !== null && savedFrequencyCap.windowDays !== null
-    const cap = hasSavedCap ? savedFrequencyCap : RECOMMENDED_FREQUENCY_CAP
-    const isRecommended =
-        cap.maxMessages === RECOMMENDED_FREQUENCY_CAP.maxMessages &&
-        cap.windowDays === RECOMMENDED_FREQUENCY_CAP.windowDays
+    const { shownFrequencyCapChoice, shownCustomFrequencyCap, canEditSendingRules, shownEngagementEvents } =
+        useValues(workflowsOnboardingWizardLogic)
+    const { setFrequencyCapChoice, setCustomFrequencyCap, setEngagementEventsChoice } =
+        useActions(workflowsOnboardingWizardLogic)
+    const disabledReason = canEditSendingRules ? undefined : ADMIN_ONLY_REASON
+    const { maxMessages, windowDays } = shownCustomFrequencyCap
 
     return (
         <div className="flex flex-col gap-6">
@@ -45,20 +62,58 @@ export function WizardSendingRulesStep(): JSX.Element {
                 title="Frequency cap"
                 description="The most marketing emails one person gets across all workflows and broadcasts. Transactional email is never capped."
             >
-                <div className="flex flex-wrap items-center gap-2 rounded border bg-surface-primary px-3 py-2">
-                    <span className="font-semibold">
-                        {`At most ${pluralize(cap.maxMessages ?? 0, 'email')} every ${pluralize(cap.windowDays ?? 0, 'day')}`}
-                    </span>
-                    {isRecommended && <LemonTag type="success">Recommended</LemonTag>}
-                </div>
-                <p className="mb-0 text-sm text-secondary">
-                    {!hasSavedCap && !canEditSendingRules ? 'Only project admins can set the frequency cap. ' : null}
-                    To set a different cap or turn it off, go to{' '}
-                    <Link to={urls.workflows('settings')} data-attr="workflows-onboarding-wizard-messaging-settings">
-                        Messaging settings
-                    </Link>
-                    .
-                </p>
+                <LemonRadio
+                    value={shownFrequencyCapChoice}
+                    onChange={setFrequencyCapChoice}
+                    aria-label="Frequency cap"
+                    options={CAP_OPTIONS.map((option) => ({
+                        ...option,
+                        disabledReason,
+                        'data-attr': `workflows-onboarding-wizard-frequency-cap-${option.value}`,
+                    }))}
+                />
+                {shownFrequencyCapChoice === 'custom' && (
+                    <div className="flex flex-wrap gap-4 pl-6">
+                        <LemonField.Pure
+                            className="flex-1 min-w-60"
+                            label="Messages per person"
+                            htmlFor="workflows-onboarding-wizard-frequency-cap-max-messages"
+                            error={frequencyCapFieldError(maxMessages, windowDays, MAX_FREQUENCY_CAP_MESSAGES)}
+                        >
+                            <LemonInput
+                                id="workflows-onboarding-wizard-frequency-cap-max-messages"
+                                type="number"
+                                min={1}
+                                max={MAX_FREQUENCY_CAP_MESSAGES}
+                                value={maxMessages ?? undefined}
+                                onChange={(value) =>
+                                    setCustomFrequencyCap({ maxMessages: toFrequencyCapInputValue(value), windowDays })
+                                }
+                                disabledReason={disabledReason}
+                                data-attr="workflows-onboarding-wizard-frequency-cap-max-messages"
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure
+                            className="flex-1 min-w-60"
+                            label="Within this many days"
+                            htmlFor="workflows-onboarding-wizard-frequency-cap-window-days"
+                            error={frequencyCapFieldError(windowDays, maxMessages, MAX_FREQUENCY_CAP_WINDOW_DAYS)}
+                        >
+                            <LemonInput
+                                id="workflows-onboarding-wizard-frequency-cap-window-days"
+                                type="number"
+                                min={1}
+                                max={MAX_FREQUENCY_CAP_WINDOW_DAYS}
+                                value={windowDays ?? undefined}
+                                onChange={(value) =>
+                                    setCustomFrequencyCap({ maxMessages, windowDays: toFrequencyCapInputValue(value) })
+                                }
+                                disabledReason={disabledReason}
+                                data-attr="workflows-onboarding-wizard-frequency-cap-window-days"
+                            />
+                        </LemonField.Pure>
+                    </div>
+                )}
             </SendingRule>
             <LemonDivider className="my-0" />
             <SendingRule

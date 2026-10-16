@@ -4,6 +4,11 @@ import { urls } from 'scenes/urls'
 
 import type { WorkflowsConfig } from '~/types'
 
+import {
+    MAX_FREQUENCY_CAP_MESSAGES,
+    MAX_FREQUENCY_CAP_WINDOW_DAYS,
+    frequencyCapFieldError,
+} from '../../scenes/settings/frequencyCap'
 import type { HogFlowAction } from '../../Workflows/hogflows/types'
 import type { WorkflowsOnboardingPath } from '../workflowsSetupGuideLogic'
 
@@ -132,14 +137,47 @@ export interface FrequencyCap {
 }
 
 export const RECOMMENDED_FREQUENCY_CAP: FrequencyCap = { maxMessages: 1, windowDays: 2 }
+const NO_FREQUENCY_CAP: FrequencyCap = { maxMessages: null, windowDays: null }
 
-// A saved cap stays as it is, so the wizard never overwrites a cap set in Messaging settings.
+// pinned: analytics property values for the sending rules step - renaming breaks dashboards
+export type FrequencyCapChoice = 'recommended' | 'custom' | 'off'
+
+function sameFrequencyCap(a: FrequencyCap, b: FrequencyCap): boolean {
+    return a.maxMessages === b.maxMessages && a.windowDays === b.windowDays
+}
+
+/** The choice the step starts on. An unset cap starts on the recommended cap, so a new setup gets it by default. */
+export function initialFrequencyCapChoice(saved: FrequencyCap): FrequencyCapChoice {
+    if (saved.maxMessages === null || saved.windowDays === null) {
+        return 'recommended'
+    }
+    return sameFrequencyCap(saved, RECOMMENDED_FREQUENCY_CAP) ? 'recommended' : 'custom'
+}
+
+export function chosenFrequencyCap(choice: FrequencyCapChoice, custom: FrequencyCap): FrequencyCap {
+    return choice === 'recommended' ? RECOMMENDED_FREQUENCY_CAP : choice === 'off' ? NO_FREQUENCY_CAP : custom
+}
+
+// Both fields are required here, because "No cap" is its own choice in the wizard.
+export function customFrequencyCapError(cap: FrequencyCap): string | null {
+    if (cap.maxMessages === null || cap.windowDays === null) {
+        return 'Fill in both fields'
+    }
+    return (
+        frequencyCapFieldError(cap.maxMessages, cap.windowDays, MAX_FREQUENCY_CAP_MESSAGES) ??
+        frequencyCapFieldError(cap.windowDays, cap.maxMessages, MAX_FREQUENCY_CAP_WINDOW_DAYS) ??
+        null
+    )
+}
+
+/** What the sending rules step saves when the person continues, or null when nothing changes. */
 export function sendingRulesToSave(
     saved: FrequencyCap & { engagementEvents: boolean },
+    cap: FrequencyCap,
     engagementEvents: boolean,
     canEditCap: boolean
 ): WorkflowsConfig | null {
-    const setCap = canEditCap && (saved.maxMessages === null || saved.windowDays === null)
+    const setCap = canEditCap && !sameFrequencyCap(saved, cap)
     if (!setCap && engagementEvents === saved.engagementEvents) {
         return null
     }
@@ -147,8 +185,8 @@ export function sendingRulesToSave(
         capture_workflows_engagement_events: engagementEvents,
         ...(setCap
             ? {
-                  marketing_frequency_cap_max_messages: RECOMMENDED_FREQUENCY_CAP.maxMessages,
-                  marketing_frequency_cap_window_days: RECOMMENDED_FREQUENCY_CAP.windowDays,
+                  marketing_frequency_cap_max_messages: cap.maxMessages,
+                  marketing_frequency_cap_window_days: cap.windowDays,
               }
             : {}),
     }
