@@ -195,6 +195,13 @@ async fn insert_or_revive_persons(
 /// Step 2: batch-fetch the committed winners for conflicted keys. This must
 /// be a separate statement: the insert's snapshot predates a concurrent
 /// winner's commit, a fresh statement snapshot sees it.
+///
+/// The key-share lock holds each winner live until this transaction
+/// commits. A delete's sweep locks the person `FOR UPDATE`, so it either
+/// waits for the mappings written below and sweeps them too, or it holds
+/// the row first and this select re-reads the person tombstoned and drops
+/// it. Without the lock, the mapping insert below could revive a swept
+/// mapping under a person the delete already tombstoned.
 async fn fetch_conflict_winners(
     tx: &mut Tx<'_>,
     person_table: &str,
@@ -219,6 +226,7 @@ async fn fetch_conflict_winners(
         JOIN unnest($1::int[], $2::uuid[]) AS k(team_id, uuid)
           ON p.team_id = k.team_id AND p.uuid = k.uuid
         WHERE p.is_deleted = false
+        FOR KEY SHARE OF p
         "#,
         person_cols = person_columns("p"),
     );
