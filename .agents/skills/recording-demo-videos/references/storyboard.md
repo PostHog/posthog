@@ -50,7 +50,7 @@ A `card` or `http` step does only that.
 | `wait_for` | A target that must be visible. In a `goto` step it waits after the load, otherwise after the action. The wait is cut from the video, so wait on real content, not on a fixed time                               |
 | `say`      | The voiceover line for the step, when it should differ from the caption. `""` keeps the step silent                                                                                                             |
 | `sticker`  | A hedgehog that pops in once the action is done: `{ "hog": "mailbox", "text": "You've got mail", "position": "bottom-right", "seconds": 3 }`. Positions: `bottom-right`, `bottom-left`, `top-right`, `top-left` |
-| `hold`     | Seconds to stay on the result. Default: a third of a second per caption word, at least 2.5. With a voiceover, one second, and the step always waits for its line to finish                                      |
+| `hold`     | Seconds to stay on the result. Default: a quarter of a second per caption word, at least 1.5. With a voiceover, half a second, and the step always waits for its line to finish. Usually leave it unset         |
 | `card`     | A full-screen card mid-video, with the same fields as `title`                                                                                                                                                   |
 | `http`     | A terminal card that types out a curl command, sends the request, and shows the response. See below                                                                                                             |
 
@@ -133,7 +133,8 @@ The final mix is normalized to -16 LUFS, the usual level for web video.
 
 ## Example
 
-This storyboard recorded the narrated transactional email demo. It starts on the template library, makes a template transactional, sends it over the API, shows the email in the local inbox, edits the template, sends again, and ends on the metrics.
+This storyboard records the narrated transactional email demo. It starts on the template library, makes a template transactional, sends it over the API, shows the email in the local inbox, edits the template, sends again, and ends on the metrics.
+It sets `hold` only on the two sticker steps and on navigation steps that must stay short.
 `TEAM`, `TEMPLATE` and `POSTHOG_PROJECT_SECRET_API_KEY` come from the seed script's env file, see [seeding.md](seeding.md).
 
 ```json
@@ -163,16 +164,14 @@ This storyboard recorded the narrated transactional email demo. It starts on the
       "wait_for": {
         "role": "tab",
         "name": "API"
-      },
-      "hold": 2
+      }
     },
     {
       "caption": "The API tab explains what transactional sending does",
       "click": {
         "role": "tab",
         "name": "API"
-      },
-      "hold": 4
+      }
     },
     {
       "caption": "Make transactional creates a hidden workflow with an API trigger",
@@ -182,12 +181,7 @@ This storyboard recorded the narrated transactional email demo. It starts on the
       "wait_for": {
         "role": "tab",
         "name": "Metrics"
-      },
-      "hold": 2
-    },
-    {
-      "caption": "Now it has Metrics, Sends and Versions from the workflow, and the API tab shows the call",
-      "hold": 5
+      }
     },
     {
       "http": {
@@ -219,7 +213,7 @@ This storyboard recorded the narrated transactional email demo. It starts on the
       "click": {
         "text": "Reset your password, Jane"
       },
-      "hold": 5,
+      "hold": 2,
       "sticker": {
         "hog": "mailbox",
         "text": "You've got mail",
@@ -242,16 +236,14 @@ This storyboard recorded the narrated transactional email demo. It starts on the
       },
       "wait_for": {
         "text": "SUCCEEDED"
-      },
-      "hold": 6
+      }
     },
     {
       "caption": "Edit the template like any other email",
       "click": {
         "role": "tab",
         "name": "Design"
-      },
-      "hold": 2
+      }
     },
     {
       "type": {
@@ -260,23 +252,20 @@ This storyboard recorded the narrated transactional email demo. It starts on the
         },
         "keys": ["Control+Home", "Home", "ArrowRight x10"],
         "text": " PostHog"
-      },
-      "hold": 1
+      }
     },
     {
-      "caption": "Saving publishes a new version of the workflow, so the next send uses it",
+      "caption": "Saving publishes a new version for the next send",
       "click": {
         "role": "button",
         "name": "Save"
-      },
-      "hold": 3
+      }
     },
     {
       "click": {
         "role": "tab",
         "name": "Versions"
       },
-      "hold": 5,
       "caption": "Every save is a version you can restore"
     },
     {
@@ -308,8 +297,7 @@ This storyboard recorded the narrated transactional email demo. It starts on the
       "caption": "The next email uses the new subject",
       "click": {
         "text": "Reset your PostHog password, Sam"
-      },
-      "hold": 4.5
+      }
     },
     {
       "goto": "/project/${TEAM}/workflows/library/templates/${TEMPLATE}",
@@ -320,7 +308,7 @@ This storyboard recorded the narrated transactional email demo. It starts on the
       "hold": 0.5
     },
     {
-      "caption": "Sends, deliveries, opens and clicks show up in the workflow metrics",
+      "caption": "Sends, opens and clicks show up in the metrics",
       "click": {
         "role": "tab",
         "name": "Metrics"
@@ -328,7 +316,7 @@ This storyboard recorded the narrated transactional email demo. It starts on the
       "wait_for": {
         "text": "Emails sent"
       },
-      "hold": 7,
+      "hold": 2,
       "sticker": {
         "hog": "chart",
         "text": "Tracked",
@@ -344,8 +332,7 @@ This storyboard recorded the narrated transactional email demo. It starts on the
       "caption": "Transactional templates are tagged, with a filter in the library",
       "click": {
         "selector": "[data-attr=templates-transactional-only]"
-      },
-      "hold": 5
+      }
     }
   ],
   "end": {

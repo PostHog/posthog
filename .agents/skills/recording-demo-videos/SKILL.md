@@ -15,7 +15,7 @@ description: >
 
 A demo video shows a feature working, from the first click to the proof that it worked.
 The recorder drives the real app on the local stack, so what the viewer sees is what the code does.
-It writes an MP4 of one to three minutes, a contact sheet of frames to review, and a log.
+It writes a short MP4, usually under a minute, a contact sheet of frames to review, and a log.
 
 The output looks like this: a title card with the logo and a hedgehog, the app with a caption bar and a cursor for each step, terminal cards for API calls, and an end card.
 Waits for page loads and data are cut, so the video moves at reading speed.
@@ -67,8 +67,17 @@ Plan the beats before you write steps:
 
 Captions are user-facing copy, so `/writing-user-facing-copy` applies: sentence case, one idea each, no em dashes.
 Write them to be read aloud too, when the video has a voiceover.
-A caption holds for about a third of a second per word, at least two and a half seconds.
-Aim for one to two minutes in total.
+
+#### Pacing
+
+A demo that drags loses the viewer. Keep it short, and keep it moving.
+
+- Aim for 30 to 60 seconds. Go past 90 seconds only when the flow needs every beat. Cut beats before you add time.
+- Change something on screen at least every two seconds. A still frame is a pause, even with a caption on it.
+- Show each idea once. Cut a step that proves nothing new.
+- Keep captions under ten words. A long caption holds its step longer, and a long voiceover line holds it longer still.
+- Leave `hold` unset. The defaults hold a caption for about a quarter of a second per word, at least one and a half seconds. With a voiceover, a step waits for its line to finish.
+- Set `hold` only to give a sticker time to land or to make a navigation step shorter. Keep it at two seconds or less.
 
 For a voiceover or music, add `voiceover` or `music` to the storyboard.
 They need an ElevenLabs API key in `ELEVENLABS_API_KEY`. Do not ask the developer to paste the key into the chat.
@@ -93,6 +102,7 @@ When a step fails, it writes `<output>.error.png` and `<output>.failed.webm` ins
 Read the contact sheet before you share anything.
 Most first takes need another one. Look for:
 
+- pauses: frames where nothing changes for more than two seconds, or a `duration` in the log over 60 seconds. Remove the `hold`, shorten the caption, or cut the step.
 - spinners, skeletons or empty tables where the step expected data. Add a `wait_for` on the content.
 - numbers that disagree with what happened in the video.
 - debug chrome, banners and toasts that distract. Add them to `hide_text` or `hide_selectors`.

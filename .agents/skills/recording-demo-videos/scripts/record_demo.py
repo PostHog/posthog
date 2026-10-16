@@ -29,7 +29,7 @@ DEFAULT_VIEWPORT = {"width": 1440, "height": 900}
 FIRST_LOAD_TIMEOUT_MS = 300_000
 STEP_TIMEOUT_MS = 120_000
 # A wait longer than this is cut from the final video, keeping this many seconds of it.
-CUT_KEEP_SECONDS = 0.6
+CUT_KEEP_SECONDS = 0.3
 FPS = 25
 # The debug chrome of a local dev stack. It is noise in a demo.
 DEFAULT_HIDE_SELECTORS = [".tricolor"]
@@ -434,8 +434,8 @@ class Recorder:
         start = self.now()
         await coro
         end = self.now()
-        if end - start > keep + 0.6:
-            self.cuts.append((round(start + keep, 2), round(end - 0.3, 2)))
+        if end - start > keep + 0.4:
+            self.cuts.append((round(start + keep, 2), round(end - 0.2, 2)))
 
     def url(self, path: str) -> str:
         path = self.vars.real(path)
@@ -465,7 +465,7 @@ class Recorder:
         box = await loc.bounding_box()
         if box:
             await page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, steps=25)
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(0.25)
 
     async def log_in(self, context: BrowserContext) -> None:
         login = self.sb.get("login", {"email": "test@posthog.com", "password": "12345678"})
@@ -496,7 +496,7 @@ class Recorder:
         )
         await page.set_content(html)
         self.speak(key)
-        await asyncio.sleep(spec.get("hold", 1.5 if self.voice else 4))
+        await asyncio.sleep(spec.get("hold", 1.0 if self.voice else 2.5))
         await self.finish_speaking()
 
     async def http(self, page: Page, spec: dict[str, Any], key: str) -> None:
@@ -518,7 +518,7 @@ class Recorder:
                for (let i = 0; i < t.length; i += 3) { el.textContent = t.slice(0, i + 3); await new Promise(r => setTimeout(r, 12)); } }""",
             command,
         )
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
         response = requests.request(
             method,
             real_url,
@@ -538,7 +538,7 @@ class Recorder:
         expected = spec.get("expect_status")
         if expected and status != expected:
             raise RuntimeError(f"{method} {shown_url} returned {status}, expected {expected}: {text[:300]}")
-        await asyncio.sleep(spec.get("hold", 2.5 if self.voice else 4))
+        await asyncio.sleep(spec.get("hold", 1.5 if self.voice else 3))
         await self.finish_speaking()
 
     async def step(self, page: Page, step: dict[str, Any], key: str) -> None:
@@ -579,7 +579,7 @@ class Recorder:
             await self.waited(self.locate(page, step["wait_for"]).wait_for(timeout=STEP_TIMEOUT_MS))
         if "sticker" in step:
             await self.sticker(page, step["sticker"])
-        default_hold = 1.0 if self.voice else max(2.5, len(step.get("caption", "").split()) * 0.32)
+        default_hold = 0.5 if self.voice else max(1.5, len(step.get("caption", "").split()) * 0.25)
         await asyncio.sleep(step.get("hold", default_hold))
         await self.finish_speaking()
 
