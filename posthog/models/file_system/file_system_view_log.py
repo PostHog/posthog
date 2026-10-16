@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 from dataclasses import is_dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional, cast
+from zoneinfo import ZoneInfo
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import IntegrityError, models
 from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.signals import post_delete
@@ -14,10 +16,13 @@ from django.utils import timezone
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
     from posthog.models.user import User
+
+VIEW_DAYS_KEPT = 35
 
 
 class FileSystemViewLog(UUIDModel):
@@ -31,6 +36,7 @@ class FileSystemViewLog(UUIDModel):
     # so (team, user, type, ref) already identifies a view uniquely. The column only lets us
     # filter Recents to a single surface without joining back to FileSystem.
     surface = models.CharField(max_length=100, null=True, blank=True)
+    view_days = ArrayField(models.DateField(), null=True, blank=True)
 
     class Meta:
         indexes = [
@@ -90,17 +96,26 @@ def log_file_system_view(
         "ref": str(representation.ref),
     }
     surface = getattr(representation, "surface", DEFAULT_SURFACE)
+    known = FileSystemViewLog.objects.filter(**update_kwargs).values_list("view_days", "team__timezone").first()
+    known_days, team_timezone = known or (
+        None,
+        Team.objects.filter(id=resolved_team_id).values_list("timezone", flat=True).first(),
+    )
+    day = now.astimezone(ZoneInfo(team_timezone or "UTC")).date()
+    view_days = sorted({d for d in [*(known_days or []), day] if d > day - timedelta(days=VIEW_DAYS_KEPT)})
 
-    updated = FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface)
+    updated = FileSystemViewLog.objects.filter(**update_kwargs).update(
+        viewed_at=now, surface=surface, view_days=view_days
+    )
 
     if updated:
         return
 
     try:
-        FileSystemViewLog.objects.create(viewed_at=now, surface=surface, **update_kwargs)
+        FileSystemViewLog.objects.create(viewed_at=now, surface=surface, view_days=view_days, **update_kwargs)
     except IntegrityError:
         # Another request may have created the row after our update attempt.
-        FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface)
+        FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface, view_days=view_days)
 
 
 def recent_view_logs(

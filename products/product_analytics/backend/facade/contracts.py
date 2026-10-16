@@ -106,3 +106,17 @@ class InsightDataChecks:
     status: InsightDataChecksStatus
     checks: list[InsightDataCheck]
     coverage: InsightDataChecksCoverage | None
+
+
+@dataclass(frozen=True)
+class InsightSeries:
+    short_id: str
+    name: str | None
+    series: dict[str, list[tuple[date, float]]]
+    period: str
+    averaged: bool
+    event_name: str
+    value_format: str | None = None
+    value_prefix: str | None = None
+    value_postfix: str | None = None
+    decimal_places: int | None = None

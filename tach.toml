@@ -1642,6 +1642,8 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.conversations",
+    "products.dashboards",
+    "products.product_analytics",
     "products.signals",
     "products.tasks",
 ]

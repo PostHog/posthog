@@ -11,6 +11,8 @@ matters. Refusals are raised as the error types defined here — the caller deci
 response they become.
 """
 
+import re
+import json
 from collections.abc import Collection, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -23,6 +25,7 @@ from rest_framework import serializers
 from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models.user import User
+from posthog.models.user_home_settings import UserHomeSettings
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -91,6 +94,28 @@ def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ..
         for dashboard_id in dashboard_ids
         if dashboard_id in names
     )
+
+
+@dataclass(frozen=True)
+class HomeDashboardInsights:
+    dashboard_id: int
+    filters: dict[str, Any]
+    insight_short_ids: tuple[str, ...]
+
+
+def home_dashboard_insights(*, team: "Team", user: User, limit: int) -> HomeDashboardInsights | None:
+    home = UserHomeSettings.objects.filter(team=team, user=user).values_list("homepage", flat=True).first()
+    match = re.search(r"/dashboard/(\d+)", json.dumps(home) if home else "")
+    dashboard_id = int(match.group(1)) if match else team.primary_dashboard_id
+    if dashboard_id is None or viewable_dashboard_ref(dashboard_id, team=team, user=user) is None:
+        return None
+    filters = Dashboard.objects.filter(team_id=team.id, pk=dashboard_id).values_list("filters", flat=True).first()
+    short_ids = (
+        DashboardTile.objects.filter(dashboard_id=dashboard_id, insight__isnull=False, insight__deleted=False)
+        .order_by("id")
+        .values_list("insight__short_id", flat=True)[:limit]
+    )
+    return HomeDashboardInsights(dashboard_id=dashboard_id, filters=filters or {}, insight_short_ids=tuple(short_ids))
 
 
 def viewable_dashboard_ref(dashboard_id: int, *, team: "Team", user: User) -> DashboardRef | None:
