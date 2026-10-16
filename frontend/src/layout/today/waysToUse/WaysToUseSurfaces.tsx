@@ -1,4 +1,4 @@
-import { IconMCP, IconTerminal } from '@posthog/icons'
+import { IconExternal, IconMCP, IconTerminal } from '@posthog/icons'
 import { Badge, Button } from '@posthog/quill'
 
 import { Logomark } from 'lib/brand'
@@ -14,24 +14,24 @@ import { WaysToUseSurface } from './waysToUse'
 import { WaysToUseSurfaceCard } from './WaysToUseSurfaceCard'
 
 export interface WaysToUseSurfacesProps {
-    onSurfaceLinkClick: (surface: WaysToUseSurface) => void
+    onSurfaceLinkClick: (surface: WaysToUseSurface, opensNewTab: boolean) => void
 }
 
 export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps): JSX.Element {
     return (
         <div className="@container">
-            <div className="grid grid-cols-1 gap-x-4 gap-y-6 @md:grid-cols-2 @3xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-x-4 gap-y-8 @md:grid-cols-2 @4xl:grid-cols-4">
                 <WaysToUseSurfaceCard
                     logo={<Logomark size="xs" />}
                     title="Web app"
-                    description="See what changed today, chat with PostHog AI, and open every product."
+                    description="See what changed today, chat with PostHog AI, and open any product."
                     illustration={<WebAppIllustration />}
                     action={<Badge>You are here</Badge>}
                 />
                 <WaysToUseSurfaceCard
                     logo={<IconSlack className="size-5" />}
                     title="Slack"
-                    description="Tag @PostHog in a thread to ask about your data and get the answer there."
+                    description="Tag @PostHog in any thread to ask about your data."
                     illustration={<SlackIllustration />}
                     action={
                         <Button
@@ -41,7 +41,7 @@ export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps
                             render={
                                 <LinkPrimitive
                                     to={urls.settings('environment-integrations', 'integration-slack')}
-                                    onClick={() => onSurfaceLinkClick('slack')}
+                                    onClick={() => onSurfaceLinkClick('slack', false)}
                                 />
                             }
                             data-attr="today-ways-to-use-slack"
@@ -53,7 +53,7 @@ export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps
                 <WaysToUseSurfaceCard
                     logo={<IconMCP className="size-5" />}
                     title="MCP"
-                    description="Use PostHog tools and data in Claude, Cursor, and other AI agents."
+                    description="Use PostHog data and tools in Claude, Cursor, and other AI agents."
                     illustration={<McpIllustration />}
                     action={
                         <Button
@@ -63,7 +63,7 @@ export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps
                             render={
                                 <LinkPrimitive
                                     to={urls.settings('posthog-mcp')}
-                                    onClick={() => onSurfaceLinkClick('mcp')}
+                                    onClick={() => onSurfaceLinkClick('mcp', false)}
                                 />
                             }
                             data-attr="today-ways-to-use-mcp"
@@ -75,7 +75,7 @@ export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps
                 <WaysToUseSurfaceCard
                     logo={<IconTerminal className="size-5" />}
                     title="CLI"
-                    description="Call PostHog tools from your terminal, scripts, and coding agents."
+                    description="Call PostHog tools from your terminal, your scripts, and your coding agents."
                     illustration={<CliIllustration />}
                     action={
                         <Button
@@ -86,12 +86,13 @@ export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps
                                 <LinkPrimitive
                                     to="https://posthog.com/docs/cli"
                                     target="_blank"
-                                    onClick={() => onSurfaceLinkClick('cli')}
+                                    onClick={() => onSurfaceLinkClick('cli', true)}
                                 />
                             }
                             data-attr="today-ways-to-use-cli"
                         >
                             Install the CLI
+                            <IconExternal />
                         </Button>
                     }
                 />

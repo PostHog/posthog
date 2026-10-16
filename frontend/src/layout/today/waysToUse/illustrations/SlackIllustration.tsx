@@ -37,7 +37,7 @@ export function SlackIllustration(): JSX.Element {
                 <span className="font-semibold">@PostHog</span> why did signups drop?
             </SlackMessage>
             <SlackMessage avatar={<IconLogomark className="size-3.5" />} name="PostHog">
-                Signups fell after the pricing change.
+                The new pricing page.
             </SlackMessage>
         </div>
     )

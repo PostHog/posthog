@@ -12,24 +12,20 @@ export function WebAppIllustration(): JSX.Element {
             </div>
             <div className="flex min-w-0 flex-1 flex-col gap-2 p-2">
                 <div className="flex flex-col">
-                    <Text size="xs" weight="semibold" className="truncate">
+                    <Text size="xs" weight="semibold">
                         Good morning
                     </Text>
-                    <Text size="xxs" variant="muted" className="truncate">
-                        2 things changed since yesterday
+                    <Text size="xxs" variant="muted">
+                        2 things changed
                     </Text>
                 </div>
                 <div className="flex items-center gap-1.5 rounded-sm border border-border px-1.5 py-1">
                     <Dot variant="destructive" />
-                    <Text size="xxs" className="truncate">
-                        Checkout errors doubled
-                    </Text>
+                    <Text size="xxs">Errors doubled</Text>
                 </div>
                 <div className="flex items-center gap-1.5 rounded-sm border border-border px-1.5 py-1">
                     <Dot variant="success" />
-                    <Text size="xxs" className="truncate">
-                        Signups are up this week
-                    </Text>
+                    <Text size="xxs">Signups are up</Text>
                 </div>
             </div>
         </div>
