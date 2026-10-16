@@ -12,9 +12,17 @@ use rdkafka::consumer::{
 use rdkafka::message::{BorrowedMessage, Headers, Message as _};
 use rdkafka::{ClientConfig, ClientContext, Offset, TopicPartitionList};
 
+use chrono::Utc;
+use replay_core_v4::keys::batch::{KeyStore, SessionId};
+use replay_core_v4::keys::kms::AwsKms;
+use replay_core_v4::keys::rows::key_day;
+use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
+
 use crate::batch::{Batch, Block, Inspectors, SessionKey};
 use crate::process::{admit, read, sampled};
+use crate::store::BlobStore;
 use crate::teams::TeamCache;
+use crate::write::{write_blocks, WriteError};
 
 /// Records the partitions each rebalance takes away, so the loop can drop what it buffered for them.
 pub struct RebalanceContext {
@@ -112,6 +120,21 @@ fn header<'m>(message: &'m BorrowedMessage<'_>, name: &str) -> Option<&'m str> {
         .and_then(|v| std::str::from_utf8(v).ok())
 }
 
+/// What a flush needs to store blocks. Without it the recorder runs dry.
+pub struct Writer {
+    pub keys: KeyStore<CachedKeyTable<AwsKeyTable>, AwsKms>,
+    pub store: Arc<dyn BlobStore>,
+    pub rrweb_bucket: String,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum FlushError {
+    #[error(transparent)]
+    Keys(#[from] replay_core_v4::keys::batch::KeyError),
+    #[error(transparent)]
+    Write(#[from] WriteError),
+}
+
 pub struct Settings {
     pub sample_percentage: f64,
     pub flush_interval: Duration,
@@ -123,6 +146,7 @@ pub async fn run(
     consumer: RecorderConsumer,
     settings: Settings,
     teams: Arc<TeamCache>,
+    writer: Option<Writer>,
     handle: Handle,
 ) {
     let shutdown = handle.shutdown_signal();
@@ -150,7 +174,12 @@ pub async fn run(
         }
         if batch.should_flush(settings.flush_interval, settings.flush_max_bytes) {
             let (blocks, offsets) = inspectors.inspect(std::mem::take(&mut batch));
-            flush(&blocks);
+            if let Err(error) = flush(&blocks, writer.as_ref()).await {
+                // Nothing of this flush is committed, so a restart reads it again from the last commit.
+                tracing::error!(%error, "flush failed");
+                handle.signal_failure(format!("flush failed: {error}"));
+                break;
+            }
             consumer.commit(&offsets);
             inspectors.evict_idle(settings.session_idle);
         }
@@ -193,8 +222,8 @@ fn handle_message(
     }
 }
 
-/// Reports what a flush inspected. The writers that store blocks come in the next layers.
-fn flush(blocks: &[Block]) {
+/// Stores a flush's blocks, or only reports them when the recorder runs dry.
+async fn flush(blocks: &[Block], writer: Option<&Writer>) -> Result<(), FlushError> {
     counter!("replay_recorder_v4_blocks_total").increment(blocks.len() as u64);
     for block in blocks {
         counter!("replay_recorder_v4_block_events_total").increment(block.stats.event_count);
@@ -205,4 +234,26 @@ fn flush(blocks: &[Block]) {
             counter!("replay_recorder_v4_orphan_mutation_blocks_total").increment(1);
         }
     }
+    let Some(writer) = writer else { return Ok(()) };
+    let now = Utc::now();
+    let sessions: Vec<SessionId> = blocks
+        .iter()
+        .map(|b| SessionId {
+            team_id: b.session.team_id,
+            session_id: b.session.session_id.clone(),
+        })
+        .collect();
+    // Keys are stored before anything is sealed with them, as in v3.
+    let keys = writer.keys.keys_for_flush(&sessions, &key_day(now)).await?;
+    counter!("replay_recorder_v4_dropped_sessions_total").increment(keys.dropped.len() as u64);
+    let written = write_blocks(
+        blocks,
+        &keys,
+        &writer.rrweb_bucket,
+        writer.store.as_ref(),
+        now,
+    )
+    .await?;
+    counter!("replay_recorder_v4_written_blocks_total").increment(written.len() as u64);
+    Ok(())
 }
