@@ -1461,7 +1461,7 @@
 4 posthog/temporal/proxy_service/monitor.py
 4 posthog/temporal/salesforce_enrichment/conversations_slack_workflow.py
 4 posthog/temporal/salesforce_enrichment/usage_workflow.py
-4 products/alerts/backend/evaluation/contract.py
+3 products/alerts/backend/evaluation/contract.py
 4 products/approvals/backend/services.py
 4 products/batch_exports/backend/temporal/destinations/file_download_batch_export.py
 4 products/conversations/backend/temporal/coordinator.py
