@@ -89,12 +89,18 @@ class BrowserlessPermanentError(BrowserlessError):
     """A failure that will not be fixed by retrying (4xx, misconfiguration, oversized output)."""
 
 
-class PageHttpStatusError(BrowserlessError):
+class PageHttpStatusError(BrowserlessPermanentError):
     """The customer's page answered the render with a non-2xx, so the capture is a picture of that."""
 
     @property
     def retryable(self) -> bool:
         return self.status_code in (408, 429) or (self.status_code is not None and 500 <= self.status_code < 600)
+
+
+def is_retryable_failure(e: BaseException) -> bool:
+    if isinstance(e, PageHttpStatusError):
+        return e.retryable
+    return not isinstance(e, BrowserlessPermanentError)
 
 
 def _width_bucket(width: int) -> str:
@@ -298,9 +304,7 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
             # Transient Browserless failure: retry with backoff, but only record FAILED + emit the
             # failure event once retries are exhausted, so a blip doesn't flap the status or inflate
             # the failure metric.
-            permanent = isinstance(e, (BrowserlessPermanentError, SoftTimeLimitExceeded)) or (
-                isinstance(e, PageHttpStatusError) and not e.retryable
-            )
+            permanent = isinstance(e, SoftTimeLimitExceeded) or not is_retryable_failure(e)
             if permanent or self.request.called_directly or self.request.retries >= self.max_retries:
                 _record_failure(screenshot, e, started_at=started_at)
                 raise
