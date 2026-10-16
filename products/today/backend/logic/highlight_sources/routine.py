@@ -82,12 +82,16 @@ def _metric(context: Context, short_id: str) -> contracts.HighlightMetric | None
         or insight.decimal_places is not None
         else None
     )
+    title = short(insight.name or pretty(name), 40)
+    if len(series) > 1 and insight.name:
+        measured = short(pretty(name), 18)
+        title = f"{short(insight.name, 37 - len(measured))} ({measured})"
     return contracts.HighlightMetric(
         key=f"insight:{short_id}",
-        name=short(insight.name or pretty(name), 40),
+        name=title,
         value=values[-1],
         unit=HighlightUnit.NUMBER,
-        change_pct=round((values[-1] / values[-2] - 1) * 100, 1) if values[-2] else None,
+        change_pct=round((values[-1] - values[-2]) / abs(values[-2]) * 100, 1) if values[-2] else None,
         series=line,
         interval=HighlightInterval(period),
         url=f"/insights/{short_id}",

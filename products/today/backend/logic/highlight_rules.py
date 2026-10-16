@@ -1,9 +1,13 @@
 import re
 from datetime import date
 
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
 from products.product_analytics.backend.facade.contracts import InsightSeries
 
 from .highlight_trends import UNCLEAR_LABEL, stale
+
+CORE_EVENTS = CORE_FILTER_DEFINITIONS_BY_GROUP["events"]
 
 
 def human(value: float) -> str:
@@ -17,11 +21,18 @@ def human(value: float) -> str:
     return f"{value:.0f}" if size >= 10 or float(value).is_integer() else f"{value:.1f}"
 
 
-def exact(value: float) -> str:
-    return f"{value:,.0f}" if abs(value) < 100_000 else human(value)
+def exact(value: float, decimal_places: int | None = None) -> str:
+    if abs(value) >= 100_000:
+        return human(value)
+    if decimal_places is None:
+        decimal_places = 0 if abs(value) >= 100 or float(value).is_integer() else 2
+    return f"{value:,.{decimal_places}f}"
 
 
 def pretty(name: str) -> str:
+    event, separator, rest = name.partition(" · ")
+    if event in CORE_EVENTS:
+        return f"{CORE_EVENTS[event]['label']}{separator}{rest}"
     if re.fullmatch(r"[a-z0-9]+(_[a-z0-9]+)+", name):
         name = name.replace("_", " ")
         return name[0].upper() + name[1:]
@@ -42,6 +53,6 @@ def usable_series(insight: InsightSeries, today: date) -> dict[str, list[tuple[d
         name: points
         for name, points in insight.series.items()
         if "@" not in name
-        and not (unclear and UNCLEAR_LABEL.search(name.strip()))
+        and not (unclear and UNCLEAR_LABEL.search(pretty(name).strip()))
         and not stale(points, insight.period, today)
     }

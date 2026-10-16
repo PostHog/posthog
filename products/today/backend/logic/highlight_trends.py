@@ -8,9 +8,9 @@ from posthog.dataclasses import frozen
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 BAD_METRIC = re.compile(
     r"(?i)(error|fail|latency|duration|(load|response|build|query|wait) time|time to|p50|p90|p95|p99|cost|spend|churn"
-    r"|bounce|cancel|refund|exception|crash|timeout|lost|contraction|downgrade|abort|rage)"
+    r"|bounce|cancel|refund|exception|crash|timeout|lost|contraction|downgrade|abort|(?<![a-z])rage)"
 )
-UNKNOWN_DIRECTION = re.compile(r"(?i)(share|split| vs\.? |ratio|%|percent|rate by)")
+UNKNOWN_DIRECTION = re.compile(r"(?i)(share|split| vs\.? |(?<![a-z])ratios?(?![a-z])|%|percent|rate by)")
 UNCLEAR_LABEL = re.compile(
     r"(?i)^(other|others|series \d+|null|none|unknown|\$.*|(sum|count|avg|unique|total)[ _].*)$|, series \d+$"
 )

@@ -1,6 +1,4 @@
-import math
-from datetime import date, datetime, timedelta
-from decimal import Decimal
+from datetime import datetime, timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -18,31 +16,39 @@ from products.access_control.backend.facade.testing import create_access_control
 from products.product_analytics.backend import insight_series
 from products.product_analytics.backend.facade.api import get_insight_series
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext
-from products.product_analytics.backend.insight_series import _table_series
+from products.product_analytics.backend.insight_series import _visible
 from products.product_analytics.backend.models.insight import Insight
 
 
-class TestTableSeries(SimpleTestCase):
+class TestVisibleResults(SimpleTestCase):
     @parameterized.expand(
         [
-            ("decimal values", [[date(2026, 10, d), Decimal("1.5")] for d in (1, 2, 3)], "day", 4.5),
             (
-                "non-finite values are skipped",
-                [[date(2026, 10, d), v] for d, v in ((1, 2.0), (2, math.inf))],
-                "day",
-                2.0,
+                "by value",
+                None,
+                {'{"series":1,"breakdown_value":["Chrome"]}': {"hidden": True}},
+                ["0 Chrome", "1 Safari"],
             ),
-            ("sparse daily data stays daily", [[date(2026, 10, d), 1] for d in (1, 2, 5, 9, 14)], "day", 5.0),
-            ("weekly rows read as weeks", [[date(2026, 9, d), 2] for d in (7, 14, 21, 28)], "week", 8.0),
+            ("by position", "position", {"2": {"hidden": True}}, ["0 Chrome", "1 Chrome"]),
+            (
+                "a visible customization",
+                None,
+                {'{"series":0,"breakdown_value":["Chrome"]}': {"color": "preset-2"}},
+                ["0 Chrome", "1 Chrome", "1 Safari"],
+            ),
         ]
     )
-    def test_a_table_with_a_date_column_becomes_a_series(
-        self, _name: str, rows: list[list[Any]], period: str, total: float
+    def test_hidden_trend_results_are_left_out(
+        self, _name: str, by: str | None, customizations: dict[str, Any], expected: list[str]
     ) -> None:
-        found = _table_series(["day", "value"], rows)
+        results = [
+            {"action": {"order": order}, "breakdown_value": browser}
+            for order, browser in ((1, "Chrome"), (1, "Safari"), (0, "Chrome"))
+        ]
 
-        assert found is not None
-        self.assertEqual((found.period, sum(v for _, v in found.series["value"])), (period, total))
+        visible = _visible({"resultCustomizationBy": by, "resultCustomizations": customizations}, results)
+
+        self.assertEqual(sorted(f"{r['action']['order']} {r['breakdown_value']}" for r in visible), expected)
 
 
 class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
@@ -124,12 +130,12 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
             ("a table", {"kind": "TrendsQuery", "series": [], "trendsFilter": {"display": "ActionsTable"}}),
             ("a funnel", {"kind": "FunnelsQuery", "series": []}),
             (
-                "a SQL insight without a date filter",
+                "a SQL insight",
                 {"kind": "HogQLQuery", "query": "SELECT toDate(timestamp), count() FROM events GROUP BY 1"},
             ),
         ]
     )
-    def test_an_insight_without_a_bounded_time_series_returns_none(self, _name: str, source: dict[str, Any]) -> None:
+    def test_an_insight_without_a_trend_series_returns_none(self, _name: str, source: dict[str, Any]) -> None:
         insight = Insight.objects.create(team=self.team, query={"kind": "InsightVizNode", "source": source})
 
         self.assertIsNone(get_insight_series(team=self.team, user=self.user, short_id=insight.short_id))

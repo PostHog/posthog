@@ -103,6 +103,7 @@ class HomeDashboardTile:
 
 @dataclass(frozen=True)
 class HomeDashboardInsights:
+    dashboard_id: int
     filters: dict[str, Any]
     variables: dict[str, Any] | None
     tiles: tuple[HomeDashboardTile, ...]
@@ -121,6 +122,7 @@ def home_dashboard_insights(*, team: "Team", user: User, limit: int) -> HomeDash
     insight_tiles = DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
     tiles = DashboardTile.sort_tiles_by_layout(insight_tiles.select_related("insight"))
     return HomeDashboardInsights(
+        dashboard_id=dashboard.id,
         filters=dashboard.filters or {},
         variables=dashboard.variables or None,
         tiles=tuple(

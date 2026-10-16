@@ -1,3 +1,4 @@
+import re
 from datetime import date, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -13,10 +14,10 @@ from parameterized import parameterized
 from posthog.models import FileSystemViewLog
 
 from products.dashboards.backend.facade.api import HomeDashboardInsights, HomeDashboardTile
-from products.product_analytics.backend.facade.contracts import InsightSeries
+from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
 from products.today.backend.logic.highlight_rules import human, short
 from products.today.backend.logic.highlight_sources import home, routine
-from products.today.backend.logic.highlight_trends import MONEY
+from products.today.backend.logic.highlight_trends import BAD_METRIC, MONEY, UNKNOWN_DIRECTION
 from products.today.backend.logic.highlight_types import Context
 
 TODAY = date(2026, 10, 13)
@@ -110,6 +111,38 @@ class TestHomeTiles(SimpleTestCase):
                 ["Chrome"],
                 ("‘By browser’ decreased by 20% last week", "7,000 → 5,600"),
             ),
+            (
+                "built-in events read as their names",
+                DROP,
+                "",
+                False,
+                ["$pageview", "$autocapture"],
+                ("‘By browser’ (Pageview) decreased by 45% last week", "7,000 → 3,850"),
+            ),
+            (
+                "net revenue rising toward zero is good news",
+                days([-30.0] * 49 + [-20.0] * 7),
+                "revenue",
+                False,
+                ["Chrome"],
+                None,
+            ),
+            (
+                "revenue falling below zero is bad news",
+                days([30.0] * 49 + [-10.0] * 7),
+                "revenue",
+                False,
+                ["Chrome"],
+                ("‘By browser’ decreased by 133% last week", "210 → -70"),
+            ),
+            (
+                "small money values keep their cents",
+                days([0.2] * 49 + [0.1] * 7),
+                "revenue",
+                False,
+                ["Chrome"],
+                ("‘By browser’ decreased by 50% last week", "1.40 → 0.70"),
+            ),
         ]
     )
     def test_a_home_tile_shows_when_it_moves_the_wrong_way(
@@ -136,6 +169,7 @@ class TestHomeTiles(SimpleTestCase):
             ),
         )
         home_tiles = HomeDashboardInsights(
+            dashboard_id=7,
             filters={},
             variables=None,
             tiles=(HomeDashboardTile(insight_short_id="abc", filters_overrides=None),),
@@ -151,14 +185,31 @@ class TestHomeTiles(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("$pageview", False),
-            ("Revenue by plan", True),
-            ("Spend in $", True),
-            ("$5 orders", True),
+            ("$pageview", MONEY, False),
+            ("Revenue by plan", MONEY, True),
+            ("Spend in $", MONEY, True),
+            ("$5 orders", MONEY, True),
+            ("Average order value", BAD_METRIC, False),
+            ("payment_failed", BAD_METRIC, True),
+            ("Rage clicks", BAD_METRIC, True),
+            ("Registrations", UNKNOWN_DIRECTION, False),
+            ("Conversion ratio", UNKNOWN_DIRECTION, True),
         ]
     )
-    def test_money_names_do_not_include_built_in_events(self, label: str, money: bool) -> None:
-        self.assertEqual(bool(MONEY.search(label)), money)
+    def test_metric_names_match_whole_terms(self, label: str, pattern: re.Pattern[str], matches: bool) -> None:
+        self.assertEqual(bool(pattern.search(label)), matches)
+
+    def test_a_home_link_opens_the_insight_as_the_dashboard_shows_it(self) -> None:
+        dashboard = InsightDashboardContext(
+            filters={"properties": [{"key": "$browser", "value": "Safari"}]}, tile_filters={"date_from": "-7d"}
+        )
+
+        self.assertEqual(
+            home._url("abc", 7, dashboard),
+            "/insights/abc?dashboard=7"
+            "&filters_override=%7B%22properties%22%3A%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%22Safari%22%7D%5D%7D"
+            "&tile_filters_override=%7B%22date_from%22%3A%22-7d%22%7D",
+        )
 
 
 class TestRoutineInsights(BaseTest):
@@ -172,7 +223,11 @@ class TestRoutineInsights(BaseTest):
             view_days=[TODAY - timedelta(days=d) for d in range(10)],
         )
         points = [(TODAY - timedelta(days=d), 2.0 if d <= 7 else 1.0) for d in range(14, 0, -1)]
-        found_insight = insight({"exported_report": points}, name="Files opened", value_format="currency")
+        found_insight = insight(
+            {"exported_report": points, "$pageview": [(day, value / 2) for day, value in points]},
+            name="Files opened",
+            value_format="currency",
+        )
 
         with patch.object(routine, "get_insight_series", return_value=found_insight):
             pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
@@ -182,5 +237,5 @@ class TestRoutineInsights(BaseTest):
                 (m.name, m.value, m.change_pct, m.interval, m.url, m.value_format and m.value_format.format)
                 for m in pulse
             ],
-            [("Files opened", 14.0, 100.0, "day", "/insights/abc", "currency")],
+            [("Files opened (Exported report)", 14.0, 100.0, "day", "/insights/abc", "currency")],
         )
