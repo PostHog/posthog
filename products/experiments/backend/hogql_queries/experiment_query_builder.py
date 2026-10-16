@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional, Union
+from typing import Optional, Union
 
 from django.utils import timezone
 
@@ -57,7 +57,6 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
     resolve_filter_test_accounts,
 )
-from products.experiments.backend.warehouse_timestamp_validation import enforce_warehouse_metric_timestamp_types
 
 
 def resolve_exposure_config_for_builder(
@@ -166,19 +165,9 @@ class ExperimentQueryBuilder:
         only_count_matured_users: bool = False,
         cuped_config: CupedQueryConfig | None = None,
         activation_config: ExperimentEventExposureConfig | ActionsNode | None = None,
-        user: Any = None,
-        bypass_warehouse_access_control: bool = False,
     ):
         self.team = team
         self.metric = metric
-        if metric is not None:
-            # The column can change type after the metric was saved.
-            enforce_warehouse_metric_timestamp_types(
-                [metric.model_dump(mode="json")],
-                team=team,
-                user=user,
-                bypass_warehouse_access_control=bypass_warehouse_access_control,
-            )
         self.only_count_matured_users = only_count_matured_users
         self.feature_flag_key = feature_flag_key
         self.variants = variants

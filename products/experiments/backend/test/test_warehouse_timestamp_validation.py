@@ -1,4 +1,6 @@
-from unittest.mock import MagicMock, patch
+from collections.abc import Collection
+
+from unittest.mock import MagicMock
 
 from django.test import SimpleTestCase
 
@@ -25,11 +27,11 @@ class TestEnforceWarehouseMetricTimestampTypes(SimpleTestCase):
             "source": {"kind": "ExperimentDataWarehouseNode", "table_name": table_name, "timestamp_field": column},
         }
 
-    def _database(self, field: FieldOrTable, *, denied: bool = False) -> MagicMock:
+    def _database(self, tables: dict[str, FieldOrTable], *, denied: Collection[str] = ()) -> MagicMock:
         database = MagicMock(spec=Database)
-        database.has_table.return_value = True
-        database.is_table_access_denied.return_value = denied
-        database.get_table.return_value = Table(fields={"created_at": field})
+        database.has_table.side_effect = lambda name: name in tables
+        database.is_table_access_denied.side_effect = lambda name: name in denied
+        database.get_table.side_effect = lambda name: Table(fields={"created_at": tables[name]})
         return database
 
     @parameterized.expand(
@@ -40,29 +42,19 @@ class TestEnforceWarehouseMetricTimestampTypes(SimpleTestCase):
         ]
     )
     def test_accepts_date_like_columns(self, _name: str, field: FieldOrTable) -> None:
-        with patch.object(Database, "create_for", return_value=self._database(field)):
-            enforce_warehouse_metric_timestamp_types([self._metric()], team=MagicMock())
+        enforce_warehouse_metric_timestamp_types([self._metric()], self._database({"payments": field}))
 
-    def test_rejects_plain_string_column(self) -> None:
-        with (
-            patch.object(Database, "create_for", return_value=self._database(StringDatabaseField(name="created_at"))),
-            self.assertRaisesMessage(
-                ValidationError, "Column 'created_at' on data warehouse table 'payments' has type string"
-            ),
+    def test_rejects_plain_string_column_on_any_table_in_the_metric(self) -> None:
+        database = self._database(
+            {"payments": DateTimeDatabaseField(name="created_at"), "refunds": StringDatabaseField(name="created_at")}
+        )
+        with self.assertRaisesMessage(
+            ValidationError, "Column 'created_at' on data warehouse table 'refunds' has type string"
         ):
-            enforce_warehouse_metric_timestamp_types([self._metric()], team=MagicMock())
-
-    def test_rechecks_a_cached_rejection_against_fresh_sources(self) -> None:
-        # A column converted to a datetime within the sources cache TTL must not be rejected on the stale type.
-        stale = self._database(StringDatabaseField(name="created_at"))
-        fresh = self._database(DateTimeDatabaseField(name="created_at"))
-        with patch.object(Database, "create_for", side_effect=[stale, fresh]) as create_for:
-            enforce_warehouse_metric_timestamp_types([self._metric()], team=MagicMock())
-        assert [call.kwargs["use_cached_sources"] for call in create_for.call_args_list] == [True, False]
+            enforce_warehouse_metric_timestamp_types([self._metric("payments"), self._metric("refunds")], database)
 
     def test_skips_table_the_caller_is_denied(self) -> None:
         # The query must fail on access later, without this message revealing the column's type.
-        database = self._database(StringDatabaseField(name="created_at"), denied=True)
-        with patch.object(Database, "create_for", return_value=database):
-            enforce_warehouse_metric_timestamp_types([self._metric()], team=MagicMock(), user=MagicMock())
+        database = self._database({"payments": StringDatabaseField(name="created_at")}, denied={"payments"})
+        enforce_warehouse_metric_timestamp_types([self._metric()], database)
         database.get_table.assert_not_called()
