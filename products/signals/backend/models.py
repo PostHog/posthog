@@ -333,6 +333,7 @@ class SignalReport(UUIDModel):
     # set via `billing.mark_report_billing_exempt` while no billable PR run exists, and never
     # flipped afterwards, so no usage report can observe the value changing. Null = billable.
     billing_exempt_reason = models.CharField(max_length=30, choices=BillingExemptReason, null=True, blank=True)
+    usage_based_billing = models.BooleanField(default=False, db_default=False, null=True)
     # The status held immediately before the report was suppressed (archived). Lets "restore"
     # return the report to where it was instead of always dropping it back to POTENTIAL.
     # Null for reports that were never suppressed (and cleared again on restore).
@@ -3714,7 +3715,9 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     signal_id = models.UUIDField(null=True, blank=True)
-    scout_run = models.ForeignKey(SignalScoutRun, on_delete=models.CASCADE, null=True, blank=True, related_name="+")
+    scout_run = models.ForeignKey(
+        SignalScoutRun, on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True, related_name="+"
+    )
     report_id = models.UUIDField(null=True, blank=True, db_index=True)
     task_ids = ArrayField(models.UUIDField(), default=list)
     sources = models.JSONField(default=dict)
@@ -3723,12 +3726,18 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     task_count = models.PositiveIntegerField(default=0)
     accounting_failed = models.BooleanField(default=False)
     finalized_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    usage_based_billing = models.BooleanField(default=False, null=True)
+    billing_exempt = models.BooleanField(default=False)
+    billing_amounts = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "signals_ownerspend"
-        indexes = [GinIndex(fields=["task_ids"], name="signals_owner_spend_tasks")]
+        indexes = [
+            GinIndex(fields=["task_ids"], name="signals_owner_spend_tasks"),
+            GinIndex(fields=["billing_amounts"], name="signals_spend_billing_days"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["team", "signal_id"], name="signals_owner_spend_signal"),
             models.UniqueConstraint(fields=["team", "scout_run"], name="signals_owner_spend_scout"),

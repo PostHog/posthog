@@ -1,4 +1,10 @@
-"""Signals billing — a flat credit charge per report that ships an implementation PR.
+"""Signals billing — legacy report charges and finalized usage in the same credit units.
+
+New work snapshots the self-driving-usage-based-billing flag. Usage-mode reports do not
+produce a flat PR charge; their owner rows recognize settled spend on UTC completion days.
+Flag changes never reinterpret existing work or historical daily quantities.
+
+Legacy mode: a flat credit charge per report that ships an implementation PR.
 
 Signals is billed on outcomes, not LLM spend: each signal report whose implementation task
 opens a pull request is charged a flat number of credits, once. The chargeable moment is
@@ -50,8 +56,15 @@ from posthog.models.organization import BillingPeriod
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.enums import SignalSourceProduct
-from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportRefund,
+    SignalReportTask,
+    SignalScoutRun,
+    SignalSpend,
+)
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_is_proven_canonical
+from products.signals.backend.spend_billing import spend_billing_credits_by_team
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.api import GITHUB_PR_URL_PREFIX
 
@@ -87,6 +100,7 @@ def _bridges_with_pr_run(**run_created_at: datetime) -> QuerySet[SignalReportTas
     """
     return SignalReportTask.objects.filter(
         relationship=_IMPLEMENTATION,
+        report__usage_based_billing=False,
         task__runs__output__pr_url__startswith=GITHUB_PR_URL_PREFIX,
         # Fail closed on team disagreement across run / task / bridge / report.
         task__team_id=F("team_id"),
@@ -167,6 +181,10 @@ def mark_report_billing_exempt(report: SignalReport, reason: str) -> bool:
         raise ValueError(f"Unknown billing exemption reason: {reason!r}")
     if report.billing_exempt_reason:
         return False
+    if report.usage_based_billing and (
+        SignalSpend.objects.for_team(report.team_id).filter(report_id=report.id).exclude(billing_amounts={}).exists()
+    ):
+        raise BillingExemptionError(f"Report {report.id} already has recognized usage; use a billing credit instead.")
     if first_billable_pr_run_at(report.id) is not None:
         raise BillingExemptionError(
             f"Report {report.id} already has a billable PR run; use a refund instead of a billing exemption."
@@ -326,7 +344,7 @@ def current_billing_period_bounds(organization: "Organization") -> BillingPeriod
     return BillingPeriod(start=start, end=start + relativedelta(months=1))
 
 
-def get_signals_billing_credits_by_team(
+def _report_billing_credits_by_team(
     begin: datetime, end: datetime, organization_id: str | uuid.UUID | None = None
 ) -> list[tuple[int, int]]:
     """Signals credits used per team in `[begin, end)`.
@@ -393,6 +411,18 @@ def get_signals_billing_credits_by_team(
             continue
         totals[team_id] += SIGNALS_CREDITS_PER_REPORT_WITH_PR
 
+    return list(totals.items())
+
+
+def get_signals_billing_credits_by_team(
+    begin: datetime, end: datetime, organization_id: str | uuid.UUID | None = None
+) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass — preserves the existing usage-counter contract
+    """Daily credit quantities from each owner's frozen billing mode, in existing billing units."""
+    totals = dict(_report_billing_credits_by_team(begin, end, organization_id))
+    for team_id, credits in spend_billing_credits_by_team(
+        begin, end, organization_id=str(organization_id) if organization_id is not None else None
+    ).items():
+        totals[team_id] = totals.get(team_id, 0) + credits
     return list(totals.items())
 
 

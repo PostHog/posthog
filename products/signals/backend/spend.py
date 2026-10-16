@@ -23,6 +23,12 @@ from products.signals.backend.models import (
     SignalSpend,
 )
 from products.signals.backend.pricing import cost_to_spend
+from products.signals.backend.spend_billing import (
+    apply_report_billing,
+    recognize_spend,
+    scout_spend_exempt,
+    usage_billing_enabled,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -158,9 +164,12 @@ def _save_spend(spend: SignalSpend) -> None:
     spend.accounting_failed = any(source["accounting_failed"] for source in sources.values())
     finished = not spend.pending_work and all(source["finished"] for source in sources.values())
     spend.finalized_at = (spend.finalized_at or timezone.now()) if finished and not spend.accounting_failed else None
+    recognize_spend(spend, now=timezone.now())
     spend.save()
     if spend.scout_run_id:
-        scout = SignalScoutRun.objects.for_team(spend.team_id).select_for_update().get(id=spend.scout_run_id)
+        scout = SignalScoutRun.objects.for_team(spend.team_id).select_for_update().filter(id=spend.scout_run_id).first()
+        if scout is None:
+            return
         scout.total_spend = cost_to_spend(cost, task_count=tasks)
         scout.metadata = {
             **(scout.metadata or {}),
@@ -199,17 +208,35 @@ def _merge_legacy_sources(spend: SignalSpend, legacy: list[LegacySignalSpend]) -
 
 
 def _locked_spend(
-    *, team_id: int, signal_id: str | None = None, scout_run_id: str | None = None, create: bool = True
+    *,
+    team_id: int,
+    signal_id: str | None = None,
+    scout_run_id: str | None = None,
+    create: bool = True,
+    report_id: str | None = None,
 ) -> SignalSpend | None:
     if (signal_id is None) == (scout_run_id is None):
         raise ValueError("Spend must have exactly one owner")
     owner = {"signal_id": signal_id} if signal_id is not None else {"scout_run_id": scout_run_id}
     queryset = SignalSpend.objects.for_team(team_id)
-    if create or LegacySignalSpend.objects.for_team(team_id).filter(**owner).exists():
-        queryset.get_or_create(team_id=team_id, **owner, defaults={"pending_work": ["pipeline"] if signal_id else []})
     spend = queryset.select_for_update().filter(**owner).first()
     if spend is None:
-        return None
+        legacy_exists = LegacySignalSpend.objects.for_team(team_id).filter(**owner).exists()
+        if not create and not legacy_exists:
+            return None
+        report = SignalReport.objects.filter(team_id=team_id, id=report_id).first() if report_id else None
+        usage_billing = not legacy_exists and (report.usage_based_billing if report else usage_billing_enabled(team_id))
+        scout = SignalScoutRun.objects.for_team(team_id).filter(id=scout_run_id).first() if scout_run_id else None
+        queryset.get_or_create(
+            team_id=team_id,
+            **owner,
+            defaults={
+                "pending_work": ["pipeline"] if signal_id else [],
+                "usage_based_billing": usage_billing,
+                "billing_exempt": scout_spend_exempt(scout) if scout else False,
+            },
+        )
+        spend = queryset.select_for_update().get(**owner)
     _merge_legacy_sources(spend, list(LegacySignalSpend.objects.for_team(team_id).filter(**owner)))
     return spend
 
@@ -308,7 +335,7 @@ def record_task_spend(
     if run is None:
         return
     with transaction.atomic():
-        spend = _locked_spend(team_id=team_id, signal_id=signal_id, scout_run_id=scout_run_id)
+        spend = _locked_spend(team_id=team_id, signal_id=signal_id, scout_run_id=scout_run_id, report_id=report_id)
         assert spend is not None
         usage = get_task_run_token_usage(team_id=team_id, run_id=UUID(run_id))
         key = f"task:{run_id}"
@@ -328,6 +355,10 @@ def record_task_spend(
             spend.task_ids.append(run.task_id)
         if report_id:
             spend.report_id = UUID(report_id)
+        if spend.report_id:
+            report = SignalReport.objects.filter(team_id=team_id, id=spend.report_id).first()
+            if report:
+                apply_report_billing(spend, report)
         if signal_id:
             if report_id:
                 spend.pending_work = [work for work in spend.pending_work if work != "pipeline"]
@@ -423,16 +454,21 @@ def refresh_task_spend(*, team_id: int, run_id: str) -> str | None:
     return None
 
 
-def complete_signal_pipeline(*, team_id: int, signal_id: str, report_id: str | None = None) -> None:
+def complete_signal_pipeline(
+    *, team_id: int, signal_id: str, report_id: str | None = None, billing_exempt: bool = False
+) -> None:
     try:
         with transaction.atomic():
-            spend = _locked_spend(team_id=team_id, signal_id=signal_id)
+            spend = _locked_spend(team_id=team_id, signal_id=signal_id, report_id=report_id)
             assert spend is not None
+            spend.billing_exempt = spend.billing_exempt or billing_exempt
             pending = set(spend.pending_work)
             pending.discard("pipeline")
             if report_id:
                 spend.report_id = UUID(report_id)
                 report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
+                if report:
+                    apply_report_billing(spend, report)
                 if report and UUID(signal_id) in {report.triggering_signal_id, report.pending_triggering_signal_id}:
                     if report.status in {SignalReport.Status.CANDIDATE, SignalReport.Status.IN_PROGRESS}:
                         pending.add(f"report:{report_id}")
@@ -445,9 +481,12 @@ def complete_signal_pipeline(*, team_id: int, signal_id: str, report_id: str | N
 def begin_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None:
     try:
         with transaction.atomic():
-            spend = _locked_spend(team_id=team_id, signal_id=signal_id)
+            spend = _locked_spend(team_id=team_id, signal_id=signal_id, report_id=report_id)
             assert spend is not None
             spend.report_id = UUID(report_id)
+            report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
+            if report:
+                apply_report_billing(spend, report)
             spend.pending_work = sorted((set(spend.pending_work) - {"pipeline"}) | {f"report:{report_id}"})
             _save_spend(spend)
     except Exception:
@@ -465,6 +504,8 @@ def finish_report_spend(*, team_id: int, report_id: str) -> None:
                 .select_for_update()
                 .filter(Q(report_id=report_id) | Q(pending_work__contains=[f"report:{report_id}"]))
             ):
+                if report:
+                    apply_report_billing(spend, report)
                 spend.pending_work = [work for work in spend.pending_work if work != f"report:{report_id}"]
                 _save_spend(spend)
     except Exception:

@@ -35,6 +35,9 @@ class Migration(migrations.Migration):
                 ),
                 ("sources", models.JSONField(default=dict)),
                 ("pending_work", models.JSONField(default=list)),
+                ("usage_based_billing", models.BooleanField(default=False, null=True)),
+                ("billing_exempt", models.BooleanField(default=False)),
+                ("billing_amounts", models.JSONField(default=dict)),
                 ("token_cost_microusd", models.BigIntegerField(default=0)),
                 ("task_count", models.PositiveIntegerField(default=0)),
                 ("accounting_failed", models.BooleanField(default=False)),
@@ -49,7 +52,8 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         blank=True,
                         null=True,
-                        on_delete=django.db.models.deletion.CASCADE,
+                        on_delete=django.db.models.deletion.DO_NOTHING,
+                        db_constraint=False,
                         related_name="+",
                         to="signals.signalscoutrun",
                     ),
@@ -67,7 +71,10 @@ class Migration(migrations.Migration):
             options={
                 "db_table": "signals_ownerspend",
                 "indexes": [
-                    django.contrib.postgres.indexes.GinIndex(fields=["task_ids"], name="signals_owner_spend_tasks")
+                    django.contrib.postgres.indexes.GinIndex(fields=["task_ids"], name="signals_owner_spend_tasks"),
+                    django.contrib.postgres.indexes.GinIndex(
+                        fields=["billing_amounts"], name="signals_spend_billing_days"
+                    ),
                 ],
                 "constraints": [
                     models.UniqueConstraint(fields=("team", "signal_id"), name="signals_owner_spend_signal"),

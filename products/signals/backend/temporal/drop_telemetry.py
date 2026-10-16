@@ -14,6 +14,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.facade.api import _telemetry_props_from_extra
 from products.signals.backend.spend import complete_signal_pipeline
+from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.types import EmitSignalInputs
 
@@ -108,7 +109,9 @@ async def capture_signal_dropped_activity(input: CaptureSignalDroppedInput) -> N
     """Emit a lifecycle event when the pipeline drops a signal, so drops are trackable per signal."""
     metrics.increment_dropped(stage=input.stage, reason=input.error_type)
     if input.signal_id:
-        await database_sync_to_async(complete_signal_pipeline)(team_id=input.team_id, signal_id=input.signal_id)
+        await database_sync_to_async(complete_signal_pipeline)(
+            team_id=input.team_id, signal_id=input.signal_id, billing_exempt=system_source_exempt(input.source_product)
+        )
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
         capture_signal_dropped_event(team, input)

@@ -647,7 +647,8 @@ class TestSignalSpend(BaseTest):
         scout = SignalScoutRun.objects.for_team(self.team.id).create(
             team=self.team, task_run=run, skill_name="example-scout", skill_version=1
         )
-        record_task_spend(team_id=self.team.id, run_id=str(run.id), scout_run_id=str(scout.id), stage="scout")
+        with patch("products.signals.backend.spend.usage_billing_enabled", return_value=True):
+            record_task_spend(team_id=self.team.id, run_id=str(run.id), scout_run_id=str(scout.id), stage="scout")
         self._set_task_cost(run, 100, pending=True)
         run.status = status
         run.save(update_fields=["status"])
@@ -656,6 +657,7 @@ class TestSignalSpend(BaseTest):
         spend = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
         self.assertIsNone(spend.finalized_at)
         self.assertTrue(spend.accounting_failed)
+        assert spend.billing_amounts == {}
         assert spend.sources[f"task:{run.id}"]["finished"]
         with patch(
             "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
@@ -672,6 +674,7 @@ class TestSignalSpend(BaseTest):
         assert spend.token_cost_microusd == 150
         assert spend.task_count == 1
         assert scout.total_spend == Decimal("4.0150")
+        assert sum(spend.billing_amounts.values()) == 40_150
 
     def test_resumed_task_reopens_original_owner_after_report_changes_driver(self) -> None:
         driver, other = str(uuid4()), str(uuid4())
