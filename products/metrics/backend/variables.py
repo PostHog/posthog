@@ -16,7 +16,13 @@ import re
 import dataclasses
 from collections.abc import Collection, Iterable, Mapping
 
-from posthog.schema import MetricsDashboardVariable, MetricsFilterOp, MetricsQueryFilter, MetricsVariableValue
+from posthog.schema import (
+    MetricsDashboardVariable,
+    MetricsDashboardVariableSource,
+    MetricsFilterOp,
+    MetricsQueryFilter,
+    MetricsVariableValue,
+)
 
 from posthog.hogql import ast
 
@@ -86,6 +92,12 @@ def referenced_names(text: str | None) -> list[str]:
     return list(dict.fromkeys(name for name in names if _is_variable_reference(name)))
 
 
+def sql_referenced_names(sql: str | None) -> list[str]:
+    """The variables a SQL query refers to. `[[name]]` is not a SQL reference, because `[[x]]` is a nested array."""
+    names = (match.group("braced") or match.group("plain") for match in _SQL_REFERENCE.finditer(sql or ""))
+    return list(dict.fromkeys(name for name in names if _is_variable_reference(name)))
+
+
 def filter_referenced_names(filters: Iterable[MetricsQueryFilter] | None) -> list[str]:
     return list(
         dict.fromkeys(name for metric_filter in filters or () for name in referenced_names(metric_filter.value))
@@ -135,15 +147,51 @@ def from_query(values: Mapping[str, MetricsVariableValue] | None) -> dict[str, V
     }
 
 
-def to_query(variables: Mapping[str, Variable], names: Iterable[str]) -> dict[str, MetricsVariableValue]:
-    """The values to set on a metrics query: only the variables it refers to, so the others do not reach its cache key."""
+def to_query(
+    variables: Mapping[str, Variable],
+    names: Iterable[str],
+    definitions: Mapping[str, MetricsDashboardVariable] | None = None,
+) -> dict[str, MetricsVariableValue]:
+    """The values to set on a metrics query: only the variables it refers to, so the others do not reach its cache key.
+
+    `definitions` are the variables whose All options the query loads when it runs.
+    """
     return {
         name: MetricsVariableValue(
-            values=list(variable.values), all=variable.is_all or None, allValue=variable.all_value
+            values=list(variable.values),
+            all=variable.is_all or None,
+            allValue=variable.all_value,
+            definition=(definitions or {}).get(name),
         )
         for name in names
         if (variable := variables.get(name)) is not None
     }
+
+
+def query_definitions(values: Mapping[str, MetricsVariableValue] | None) -> dict[str, MetricsDashboardVariable]:
+    return {name: value.definition for name, value in (values or {}).items() if value.definition is not None}
+
+
+def all_definitions(
+    names: Iterable[str],
+    variables: Mapping[str, Variable],
+    definitions: Mapping[str, MetricsDashboardVariable],
+) -> dict[str, MetricsDashboardVariable]:
+    """The definitions that SQL needs to load the options of All: of the named variables, and of the
+    variables that their SQL queries refer to."""
+    needed: dict[str, MetricsDashboardVariable] = {}
+    queue = list(names)
+    while queue:
+        name = queue.pop()
+        variable = variables.get(name)
+        definition = definitions.get(name)
+        if name in needed or variable is None or not variable.is_all or variable.values or definition is None:
+            continue
+        # The options query needs no current selection or label.
+        needed[name] = definition.model_copy(update={"current": None, "label": None})
+        if definition.source == MetricsDashboardVariableSource.SQL:
+            queue.extend(sql_referenced_names(definition.query))
+    return needed
 
 
 def with_values(variable: Variable, values: Iterable[str]) -> Variable:

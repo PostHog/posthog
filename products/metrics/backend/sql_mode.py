@@ -245,35 +245,20 @@ def run_metrics_sql(
 _VARIABLE_VALUE_COLUMN = "__variable_value"
 
 
-def _leftmost_select(query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
-    while isinstance(query, ast.SelectSetQuery):
-        query = query.initial_select_query
-    return query
-
-
-def _first_column_name(query: ast.SelectQuery | ast.SelectSetQuery) -> str:
-    select = _leftmost_select(query).select
-    if not select:
+def _name_first_column(query: ast.SelectQuery | ast.SelectSetQuery) -> str:
+    """The name of the first column, aliased when it has none. The other columns stay, so ORDER BY can use them."""
+    select_query = query
+    while isinstance(select_query, ast.SelectSetQuery):
+        select_query = select_query.initial_select_query
+    if not select_query.select:
         raise ExposedHogQLError("A SQL variable query must select the values in its first column.")
-    first = select[0]
+    first = select_query.select[0]
     if isinstance(first, ast.Field) and first.chain[-1] == "*":
         raise ExposedHogQLError("A SQL variable query must name its first column. SELECT * is not supported.")
-    # An alias keeps its name, so an ORDER BY that refers to it still works.
-    return first.alias if isinstance(first, ast.Alias) else _VARIABLE_VALUE_COLUMN
-
-
-def _keep_first_column(query: ast.SelectQuery | ast.SelectSetQuery, name: str) -> None:
-    """Keep only the first column of each part of the query, under one name."""
-    if isinstance(query, ast.SelectSetQuery):
-        _keep_first_column(query.initial_select_query, name)
-        for node in query.subsequent_select_queries:
-            _keep_first_column(node.select_query, name)
-        return
-    first = query.select[0]
     if isinstance(first, ast.Alias):
-        query.select = [first if first.alias == name else ast.Alias(alias=name, expr=first.expr)]
-    else:
-        query.select = [ast.Alias(alias=name, expr=first)]
+        return first.alias
+    select_query.select[0] = ast.Alias(alias=_VARIABLE_VALUE_COLUMN, expr=first)
+    return _VARIABLE_VALUE_COLUMN
 
 
 def run_metrics_sql_values(
@@ -286,11 +271,10 @@ def run_metrics_sql_values(
 ) -> list[str]:
     """The distinct values of the first column, for the options of a dashboard variable.
 
-    Only the first column is read, and ClickHouse removes duplicates and stops at the limit.
+    The outer query reads only the first column, and ClickHouse removes duplicates and stops at the limit.
     """
     inner = _parse_metrics_sql(team, sql, date_from, date_to, None, variables)
-    name = _first_column_name(inner)
-    _keep_first_column(inner, name)
+    name = _name_first_column(inner)
     query = parse_select(
         "SELECT DISTINCT {value} FROM {inner} LIMIT {limit}",
         placeholders={

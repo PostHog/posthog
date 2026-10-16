@@ -10,6 +10,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import type { MetricsDashboardVariable } from '~/queries/schema/schema-general'
 
 import { dashboardMetricVariablesLogic } from './dashboardMetricVariablesLogic'
+import { ownValue } from './metricVariables'
 import { MetricVariableSelect } from './MetricVariableSelect'
 import { MetricVariablesModal } from './MetricVariablesModal'
 
@@ -48,9 +49,9 @@ export function DashboardMetricVariables(): JSX.Element | null {
                 <MetricVariableSelect
                     key={variable.name}
                     variable={variable}
-                    options={options[variable.name] ?? []}
+                    options={ownValue(options, variable.name) ?? []}
                     loading={loadingNames.includes(variable.name)}
-                    error={errors[variable.name] ?? null}
+                    error={ownValue(errors, variable.name) ?? null}
                     onRetry={() => retry(variable.name)}
                     onChange={(current) =>
                         change(variables.map((other) => (other.name === variable.name ? { ...other, current } : other)))

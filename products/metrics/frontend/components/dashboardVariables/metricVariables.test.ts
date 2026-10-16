@@ -7,7 +7,6 @@ import {
     reconcileSelection,
     selectionFromValues,
     selectionsForRequest,
-    variableLevels,
     variablesToReload,
 } from './metricVariables'
 
@@ -33,16 +32,14 @@ describe('metricVariables', () => {
         expect(orderVariables([promql('job', 'label_values(up{job="$job"}, job)')]).cycle).toEqual(['job'])
     })
 
-    it('groups variables that can load at once', () => {
-        const zone = custom('zone', ['a'])
-        expect(variableLevels([instance, job, cluster, zone])).toEqual([['cluster', 'zone'], ['job'], ['instance']])
-    })
-
-    it('sends the loaded options of a variable set to All', () => {
-        const all = { ...custom('zone', []), includeAll: true, current: { values: [], all: true } }
-        expect(selectionsForRequest([all, cluster], { zone: ['a', 'b'] })).toEqual([
-            { name: 'zone', values: ['a', 'b'], all: true, allValue: null },
-            { name: 'cluster', values: ['a'], all: false, allValue: null },
+    it.each([
+        ['a SQL query gets the loaded options of All', 'sql', ['a', 'b']],
+        ['a PromQL query matches everything without them', 'promql', []],
+    ])('%s, and only of the variables it refers to', (_name, source, values) => {
+        const zone = { ...custom('zone', []), includeAll: true, current: { values: [], all: true } }
+        const query = { name: 'q', source, query: 'label_values(up{zone=~"$zone"}, a)' } as MetricsDashboardVariable
+        expect(selectionsForRequest(query, [zone, cluster, query], { zone: ['a', 'b'] })).toEqual([
+            { name: 'zone', values, all: true, allValue: null },
         ])
     })
 

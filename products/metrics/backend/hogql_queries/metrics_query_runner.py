@@ -14,6 +14,8 @@ from posthog.schema import (
     CachedMetricsQueryResponse,
     DashboardFilter,
     DateRange,
+    MetricsDashboardVariable,
+    MetricsDashboardVariableSource,
     MetricsQuery,
     MetricsQueryLanguage,
     MetricsQueryPoint,
@@ -52,10 +54,13 @@ from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.sql_mode import run_metrics_sql
 from products.metrics.backend.variable_options import fill_all_values
 from products.metrics.backend.variables import (
+    all_definitions,
     filter_referenced_names,
     from_dashboard,
     from_query,
+    query_definitions,
     referenced_names,
+    sql_referenced_names,
     substitute_filters,
     substitute_promql,
     substitute_sql,
@@ -106,7 +111,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         ):
             raise UserAccessControlError("metrics", "viewer")
         # PromQL runs through Snuffle, which has its own private-alpha flag.
-        if self.query.language == MetricsQueryLanguage.PROMQL and not posthog_feature_flag_enabled(
+        if self._sends_promql() and not posthog_feature_flag_enabled(
             SNUFFLE_API_FEATURE_FLAG,
             str(user.distinct_id),
             organization_id=self.team.organization_id,
@@ -134,7 +139,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         ):
             raise UserAccessControlError("metrics", "viewer")
         # A team can have metrics without Snuffle, so a PromQL insight checks the Snuffle flag on every run.
-        if self.query.language == MetricsQueryLanguage.PROMQL and not posthog_feature_flag_enabled(
+        if self._sends_promql() and not posthog_feature_flag_enabled(
             SNUFFLE_API_FEATURE_FLAG,
             distinct_id,
             organization_id=self.team.organization_id,
@@ -219,6 +224,15 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             return run_promql_range(self.team, text, date_from, date_to, self.query.interval)
         if not (self.query.sql or "").strip():
             raise ValueError("Write a SQL query first.")
+        if definitions := query_definitions(self.query.variables):
+            variables = fill_all_values(
+                team=self.team,
+                names=sql_referenced_names(self.query.sql),
+                variables=variables,
+                definitions=definitions,
+                date_from=date_from,
+                date_to=date_to,
+            )
         sql = substitute_sql(self.query.sql or "", variables)
         if sql.unresolved:
             raise ValueError(unresolved_message(sql.unresolved))
@@ -266,23 +280,31 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
 
     def _apply_variables(self, dashboard_filter: DashboardFilter) -> None:
         # The values go into the query, so each selection has its own cache entry and reaches the async worker.
-        sql_names = referenced_names(self.query.sql)
+        # No options query runs here: this step comes before the access checks and the cache lookup.
+        sql_names = sql_referenced_names(self.query.sql)
+        variables = from_dashboard(dashboard_filter.metricVariables)
+        definitions: dict[str, MetricsDashboardVariable] = {}
+        if (self.query.language or MetricsQueryLanguage.BUILDER) == MetricsQueryLanguage.SQL:
+            definitions = all_definitions(
+                sql_names,
+                variables,
+                {definition.name: definition for definition in dashboard_filter.metricVariables or []},
+            )
         names = dict.fromkeys(
             [
                 *referenced_names(self.query.promql),
                 *sql_names,
                 *(name for clause in self.query.clauses for name in filter_referenced_names(clause.filters)),
+                *(name for definition in definitions.values() for name in referenced_names(definition.query)),
             ]
         )
-        variables = from_dashboard(dashboard_filter.metricVariables)
-        if (self.query.language or MetricsQueryLanguage.BUILDER) == MetricsQueryLanguage.SQL and sql_names:
-            date_range = metrics_query_date_range(self.team, self.query.dateRange)
-            variables = fill_all_values(
-                team=self.team,
-                names=sql_names,
-                variables=variables,
-                definitions={definition.name: definition for definition in dashboard_filter.metricVariables or []},
-                date_from=date_range.date_from(),
-                date_to=date_range.date_to(),
-            )
-        self.query.variables = to_query(variables, names) or None
+        self.query.variables = to_query(variables, names, definitions) or None
+
+    def _sends_promql(self) -> bool:
+        """Whether the query runs PromQL on Snuffle: as its language, or to load the options of a variable set to All."""
+        if self.query.language == MetricsQueryLanguage.PROMQL:
+            return True
+        return any(
+            definition.source == MetricsDashboardVariableSource.PROMQL
+            for definition in query_definitions(self.query.variables).values()
+        )

@@ -89,6 +89,7 @@ def test_sql_references_become_placeholders(_name: str, sql: str, variable: Vari
         ("field_names", "SELECT properties.$env, $environment FROM t"),
         ("comments", "SELECT 1 -- $env\n/* $env */"),
         ("other_strings", "SELECT '$1', \"$env\""),
+        ("nested_arrays", "SELECT [[env]]"),
     ]
 )
 def test_sql_text_that_is_not_a_reference_stays(_name: str, sql: str) -> None:

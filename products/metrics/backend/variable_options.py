@@ -6,10 +6,14 @@ The query can refer to other variables, so a variable can depend on the selectio
 from __future__ import annotations
 
 import re
+import json
+import hashlib
 import datetime as dt
 from collections.abc import Iterable, Mapping
 from itertools import islice
 from typing import Any
+
+from django.core.cache import cache
 
 from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSource
 
@@ -29,6 +33,7 @@ from products.metrics.backend.variables import (
     Variable,
     promql_string_escape,
     referenced_names,
+    sql_referenced_names,
     substitute_promql,
     substitute_sql,
     unresolved_message,
@@ -40,6 +45,12 @@ MAX_VARIABLE_OPTIONS = 1000
 _MAX_ALL_DEPTH = 5
 _FUNCTION = re.compile(r"^\s*(?P<name>label_values|label_names|metrics|query_result)\s*\((?P<args>.*)\)\s*$", re.DOTALL)
 _LABEL_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_REGEX_QUERY = "SELECT arrayDistinct(arrayFilter(x -> match(x, {pattern}), {options}))"
+_REGEX_WITH_GROUP_QUERY = (
+    "SELECT arrayDistinct(arrayMap(x -> extract(x, {pattern}), arrayFilter(x -> match(x, {pattern}), {options})))"
+)
+# Every SQL tile that uses a variable set to All loads its options. Tiles of one dashboard share them for this long.
+_ALL_OPTIONS_CACHE_SECONDS = 60
 
 
 @frozen
@@ -164,9 +175,8 @@ def apply_regex(team: Team, options: list[str], regex: str | None) -> list[str]:
         pattern = pattern[1 : pattern.rfind("/")]
     if not pattern or not options:
         return options
-    value = "extract(x, {pattern})" if _has_capture_group(pattern) else "x"
     query = parse_select(
-        f"SELECT arrayDistinct(arrayMap(x -> {value}, arrayFilter(x -> match(x, {{pattern}}), {{options}})))",
+        _REGEX_WITH_GROUP_QUERY if _has_capture_group(pattern) else _REGEX_QUERY,
         placeholders={
             "pattern": ast.Constant(value=pattern),
             "options": ast.Array(exprs=[ast.Constant(value=option) for option in options]),
@@ -205,19 +215,44 @@ def fill_all_values(
             continue
         if depth >= _MAX_ALL_DEPTH:
             raise ValueError(f"The variable queries refer to each other in a loop through ${name}.")
-        options = list_variable_options(
-            team=team,
-            source=definition.source,
-            query=definition.query,
-            custom_values=definition.customValues,
-            variables=filled,
-            definitions=definitions,
-            date_from=date_from,
-            date_to=date_to,
-            depth=depth + 1,
-        )
-        filled[name] = with_values(variable, apply_regex(team, options, definition.regex))
+        cache_key = _all_options_cache_key(team, definition, filled, date_from, date_to)
+        options = cache.get(cache_key)
+        if options is None:
+            options = list_variable_options(
+                team=team,
+                source=definition.source,
+                query=definition.query,
+                custom_values=definition.customValues,
+                variables=filled,
+                definitions=definitions,
+                date_from=date_from,
+                date_to=date_to,
+                depth=depth + 1,
+            )
+            options = apply_regex(team, options, definition.regex)
+            cache.set(cache_key, options, _ALL_OPTIONS_CACHE_SECONDS)
+        filled[name] = with_values(variable, options)
     return filled
+
+
+def _all_options_cache_key(
+    team: Team,
+    definition: MetricsDashboardVariable,
+    variables: Mapping[str, Variable],
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+) -> str:
+    parents = {
+        name: [variable.values, variable.is_all, variable.all_value]
+        for name in referenced_names(definition.query)
+        if (variable := variables.get(name)) is not None
+    }
+    # Minutes, so that tiles loaded a few seconds apart share the options.
+    window = [date_from.isoformat(timespec="minutes"), date_to.isoformat(timespec="minutes")]
+    payload = json.dumps(
+        [definition.model_dump(mode="json", exclude={"current", "label"}), parents, window], sort_keys=True
+    )
+    return f"metrics:variable_all_options:{team.pk}:{hashlib.sha256(payload.encode()).hexdigest()}"
 
 
 def list_variable_options(
@@ -252,7 +287,7 @@ def list_variable_options(
         if definitions:
             variables = fill_all_values(
                 team=team,
-                names=referenced_names(query),
+                names=sql_referenced_names(query),
                 variables=variables,
                 definitions=definitions,
                 date_from=date_from,

@@ -7,6 +7,7 @@ import type { MetricsDashboardVariable } from '~/queries/schema/schema-general'
 
 import { metricVariableEditorLogic } from './metricVariableEditorLogic'
 import { MetricVariableForm } from './MetricVariableForm'
+import { ownValue } from './metricVariables'
 
 const SOURCE_LABELS: Record<MetricsDashboardVariable['source'], string> = {
     custom: 'List',
@@ -66,7 +67,9 @@ export function MetricVariablesModal({
                                 active={index === selectedIndex}
                                 onClick={() => selectVariable(index)}
                                 sideIcon={
-                                    shownErrors[variable.name] ? <IconWarning className="text-warning" /> : undefined
+                                    ownValue(shownErrors, variable.name) ? (
+                                        <IconWarning className="text-warning" />
+                                    ) : undefined
                                 }
                             >
                                 <span className="flex flex-col items-start min-w-0">

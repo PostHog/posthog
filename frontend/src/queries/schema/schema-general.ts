@@ -4903,6 +4903,9 @@ export interface MetricsVariableValue {
      * filter, and SQL gets `values`, which the dashboard fills with every option of the variable. */
     all?: boolean
     allValue?: string | null
+    /** The variable's definition, when SQL needs the options of All. The runner loads them when the query runs,
+     * after its access checks, so a cached result runs no options query. */
+    definition?: MetricsDashboardVariable | null
 }
 
 /** A Grafana-style dashboard variable. Metrics tiles refer to it as `$name`, `${name}` or `${name:format}`. */

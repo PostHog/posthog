@@ -19,6 +19,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import type { MetricsDashboardVariable, MetricsDashboardVariableSource } from '~/queries/schema/schema-general'
 
 import { metricVariableEditorLogic } from './metricVariableEditorLogic'
+import { ownValue } from './metricVariables'
 
 const QUERY_PLACEHOLDERS: Record<'promql' | 'sql', string> = {
     promql: 'label_values(up{job=~"$job"}, instance)',
@@ -36,7 +37,7 @@ export function MetricVariableForm({ variable }: { variable: MetricsDashboardVar
         useValues(metricVariableEditorLogic)
     const { updateVariable, removeVariable, moveVariable } = useActions(metricVariableEditorLogic)
     const update = (patch: Partial<MetricsDashboardVariable>): void => updateVariable(selectedIndex, patch)
-    const error = shownErrors[variable.name]
+    const error = ownValue(shownErrors, variable.name)
     const references = [`$${variable.name}`, `\${${variable.name}:regex}`, `\${${variable.name}:csv}`]
 
     return (
@@ -180,6 +181,7 @@ export function MetricVariableForm({ variable }: { variable: MetricsDashboardVar
                             />
                         )}
                     </div>
+                    {error?.field === 'allValue' && <p className="text-danger text-sm m-0">{error.message}</p>}
                     {(variable.source === 'promql' || variable.source === 'sql') && (
                         <div className="flex flex-col gap-1 border-t border-primary pt-3">
                             <span className="flex items-center gap-2 text-sm font-semibold">

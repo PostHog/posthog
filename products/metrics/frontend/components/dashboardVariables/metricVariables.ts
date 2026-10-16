@@ -48,23 +48,6 @@ export function orderVariables(variables: MetricsDashboardVariable[]): { order: 
     return { order, cycle: variables.map((variable) => variable.name).filter((name) => !placed.has(name)) }
 }
 
-/** The variable names in groups: each group depends only on the groups before it, so a group can load at once. */
-export function variableLevels(variables: MetricsDashboardVariable[]): string[][] {
-    const parents = new Map(variables.map((variable) => [variable.name, variableParents(variable, variables)]))
-    const levels: string[][] = []
-    const placed = new Set<string>()
-    for (;;) {
-        const level = variables
-            .map((variable) => variable.name)
-            .filter((name) => !placed.has(name) && parents.get(name)!.every((parent) => placed.has(parent)))
-        if (!level.length) {
-            return levels
-        }
-        levels.push(level)
-        level.forEach((name) => placed.add(name))
-    }
-}
-
 /** The variables whose options depend on any of `names`, directly or through other variables. */
 export function dependentsOf(variables: MetricsDashboardVariable[], names: string[]): string[] {
     const found = new Set<string>()
@@ -170,20 +153,34 @@ export function selectionFromValues(
     return picked.length ? { values: picked } : null
 }
 
-/** The selections that a variable options request sends. All sends the loaded options, which a SQL query needs. */
+/** The value that the record holds for the key itself, so a variable named `constructor` does not read `Object.prototype`. */
+export function ownValue<T>(record: Record<string, T>, key: string): T | undefined {
+    return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined
+}
+
+/** The selections that the options request of `variable` sends: only of the variables its query refers to.
+ * All sends the loaded options to a SQL query, which needs them. PromQL matches everything without them. */
 export function selectionsForRequest(
+    variable: MetricsDashboardVariable,
     variables: MetricsDashboardVariable[],
     options: Record<string, string[]>
 ): _MetricVariableSelectionApi[] {
+    const parents = new Set(variableParents(variable, variables))
+    parents.delete(variable.name)
     return variables
-        .filter((variable) => variable.current && (variable.current.values.length || variable.current.all))
-        .map((variable) => {
-            const all = !!(variable.current!.all && variable.includeAll)
+        .filter((other) => parents.has(other.name))
+        .filter((other) => other.current && (other.current.values.length || other.current.all))
+        .map((other) => {
+            const all = !!(other.current!.all && other.includeAll)
             return {
-                name: variable.name,
-                values: all ? (options[variable.name] ?? []) : variable.current!.values,
+                name: other.name,
+                values: all
+                    ? variable.source === 'sql'
+                        ? (ownValue(options, other.name) ?? [])
+                        : []
+                    : other.current!.values,
                 all,
-                allValue: variable.allValue ?? null,
+                allValue: other.allValue ?? null,
             }
         })
 }
