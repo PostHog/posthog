@@ -1364,7 +1364,10 @@ class TestRepartitionActivity:
             mocked.assert_awaited_once()
             purge.assert_not_called()
 
-    def test_an_append_split_whose_temp_cannot_be_deleted_stays_queued_for_the_next_run(self, team):
+    @pytest.mark.parametrize("prior_attempts, gives_up", [(0, False), (MAX_REPARTITION_ATTEMPTS - 1, True)])
+    def test_an_append_split_whose_temp_cannot_be_deleted_is_retried_a_bounded_number_of_times(
+        self, team, prior_attempts, gives_up
+    ):
         schema = _make_schema(team, {})
         schema.sync_type = ExternalDataSchema.SyncType.APPEND
         schema.save()
@@ -1374,18 +1377,30 @@ class TestRepartitionActivity:
                 "partition_count": 4,
                 "partition_keys": ["id"],
                 "trigger_reason": "proactive_threshold",
+                "drop_attempts": prior_attempts,
             }
         )
         schema.set_repartition_rewrite({"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10})
         mocked = AsyncMock()
-        with patch.object(repartition_table, "purge_abandoned_rewrite_temp", new=AsyncMock(side_effect=OSError("s3"))):
-            capture = self._run(self._inputs(team, schema), mocked)
+        with (
+            patch.object(repartition_table, "purge_abandoned_rewrite_temp", new=AsyncMock(side_effect=OSError("s3"))),
+            patch.object(repartition_table, "capture_exception") as captured,
+        ):
+            self._run(self._inputs(team, schema), mocked)
 
         schema.refresh_from_db()
         mocked.assert_not_called()
-        assert schema.repartition_pending is not None
-        assert schema.repartition_rewrite == {"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10}
-        assert "warehouse_repartition_skipped" not in [c.args[0] for c in capture.call_args_list]
+        if gives_up:
+            assert schema.repartition_pending is None
+            assert schema.repartition_rewrite is None
+            assert any("dropped append split" in str(c.args[0]) for c in captured.call_args_list)
+        else:
+            assert schema.repartition_pending is not None
+            assert schema.repartition_pending["dropping"] is True
+            assert schema.repartition_pending["drop_attempts"] == 1
+            assert schema.repartition_rewrite == {"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10}
+        # A dropped split changes no layout, so it must not start the cooldown or age the layout.
+        assert schema.last_repartition_at is None
 
     def test_failure_increments_attempts_without_clearing(self, team):
         schema = _make_schema(team, {})

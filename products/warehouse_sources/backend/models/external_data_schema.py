@@ -1032,7 +1032,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         )
         return self.sync_type_config.get("repartition_claim") == claim
 
-    def abandon_repartition_if_claimed(self, claim_token: str) -> bool:
+    def abandon_repartition_if_claimed(self, claim_token: str, *, stamp_cooldown: bool = True) -> bool:
         from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
 
         def _write(config: dict[str, Any]) -> None:
@@ -1043,7 +1043,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 return
             for key in ("repartition_pending", "repartition_swap", "repartition_rewrite"):
                 config.pop(key, None)
-            config["last_repartition_at"] = timezone.now().isoformat()
+            if stamp_cooldown:
+                config["last_repartition_at"] = timezone.now().isoformat()
 
         self.sync_type_config = retry_on_db_connection_drop(
             lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
@@ -2119,10 +2120,11 @@ def pending_scheme_for_table_replacement(config: dict[str, Any]) -> dict[str, An
 
     None while a swap is staged, because the temp table can then be the only intact copy and the
     swap recovery owns the scheme. None when an operator pinned a scheme, because that pin is the
-    newer decision. A marker with no keys holds bookkeeping only and describes no scheme.
+    newer decision. A marker with no keys holds bookkeeping only and describes no scheme. A target that
+    the activity is dropping (`dropping`) describes no table either.
     """
     pending = config.get("repartition_pending")
-    if not isinstance(pending, dict) or not pending.get("partition_keys"):
+    if not isinstance(pending, dict) or not pending.get("partition_keys") or pending.get("dropping"):
         return None
     if config.get("repartition_swap") is not None:
         return None

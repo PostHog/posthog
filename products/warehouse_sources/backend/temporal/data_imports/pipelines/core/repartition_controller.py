@@ -175,7 +175,8 @@ def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: Ext
     if measurement.get("budget") != target_partition_bytes():
         return False
     if (
-        ExternalDataSchemaOOMEvent.recent_count(schema, days=repartition_oom_window_days())
+        not schema.is_append
+        and ExternalDataSchemaOOMEvent.recent_count(schema, days=repartition_oom_window_days())
         >= repartition_oom_threshold()
     ):
         return False
@@ -510,8 +511,9 @@ async def maybe_flag_for_repartition(
         )
 
         if not over_budget and not oom_triggered:
+            verdict = "within budget and no repeated OOMs" if split_applies else "append table, a split does not apply"
             await logger.adebug(
-                f"repartition: not needed, within budget and no repeated OOMs schema_id={schema.id} "
+                f"repartition: not needed, {verdict} schema_id={schema.id} "
                 f"max_partition_bytes={max_bytes} budget_bytes={budget} recent_oom_count={oom_count} "
                 f"partition_count={len(partition_bytes)}",
                 schema_id=str(schema.id),

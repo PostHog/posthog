@@ -1573,6 +1573,40 @@ class TestResetDeferral:
         assert mock_capture.call_args.args[0] == "warehouse_repartition_skipped"
         assert mock_capture.call_args.args[1]["reason"] == "reset_replaces_the_table"
 
+    @patch(f"{MODULE}.purge_abandoned_rewrite_temp", new_callable=AsyncMock)
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_an_automatic_split_on_an_append_table_is_dropped_before_a_reset_can_write_it(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture: MagicMock,
+        mock_purge: AsyncMock,
+    ) -> None:
+        mock_schema_model.SyncType.FULL_REFRESH = "full_refresh"
+        schema = _reset_schema(sync_type="append", config_reset=True, rewrite=dict(CHECKPOINT))
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_purge.return_value = True
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        mock_repartition.assert_not_awaited()
+        assert mock_purge.await_args is not None
+        assert mock_purge.await_args.args[2] == TEMP_URI
+        schema.abandon_repartition_if_claimed.assert_called_once()
+        reasons = [c.args[1].get("reason") for c in mock_capture.call_args_list]
+        assert reasons == ["append_never_merges"]
+
     @patch(f"{MODULE}.capture_repartition_event")
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)

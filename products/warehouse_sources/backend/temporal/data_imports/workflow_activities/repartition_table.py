@@ -1176,18 +1176,25 @@ def _drop_append_split(
         logger.info("repartition: append split drop superseded by a newer claim")
         return
     # A predecessor can stage a swap before the claim above fences it out. Temp is then the only
-    # intact copy, so the swap must finish, and the next run drops nothing.
-    schema.refresh_from_db(fields=["sync_type_config"])
+    # intact copy, so the swap must finish, and the next run drops nothing. The claim write reloaded
+    # the config under the row lock, so this reads the current markers.
     if schema.repartition_swap is not None:
         logger.info("repartition: a swap is staged, so the append split stays until it lands")
         return
     rewrite_rows = _rewrite_rows_written(schema)
-    # The checkpoint is the only record of the temp table, and an append table never runs the fresh
-    # rebuild that sweeps orphans, so the markers stay until the delete succeeds and the next run retries.
     if not _purge_abandoned_temp(schema, table_ref, claim_token, logger):
-        logger.info("repartition: append split drop waits for the temp table delete, retrying next run")
-        return
-    if not schema.abandon_repartition_if_claimed(claim_token):
+        # The checkpoint is the only record of the temp table, and an append table rarely runs the fresh
+        # rebuild that sweeps orphans, so the drop retries on later runs, up to the attempt cap.
+        pending = schema.repartition_pending or {}
+        drop_attempts = int(pending.get("drop_attempts", 0)) + 1
+        if drop_attempts < MAX_REPARTITION_ATTEMPTS:
+            schema.set_repartition_pending({**pending, "dropping": True, "drop_attempts": drop_attempts})
+            logger.info(f"repartition: append split drop waits for the temp table delete, attempt {drop_attempts}")
+            return
+        capture_exception(
+            Exception(f"repartition: could not delete the temp table of a dropped append split schema_id={schema.id}")
+        )
+    if not schema.abandon_repartition_if_claimed(claim_token, stamp_cooldown=False):
         logger.info("repartition: append split drop superseded by a newer claim")
         return
     logger.info(
