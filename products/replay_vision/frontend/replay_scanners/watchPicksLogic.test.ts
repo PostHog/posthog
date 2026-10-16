@@ -7,7 +7,7 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { PICKS_SHOWN_COUNT_STORAGE_KEY, watchPicksLogic } from './watchPicksLogic'
+import { EMPTY_IMPRESSIONS_STORAGE_KEY, PICKS_SHOWN_COUNT_STORAGE_KEY, watchPicksLogic } from './watchPicksLogic'
 import { watchPicksVariantFromFlag } from './watchPicksVariant'
 
 describe('watchPicksLogic', () => {
@@ -122,7 +122,32 @@ describe('watchPicksLogic', () => {
         })
 
         it.each([
-            ['the feed is empty', () => feedSpy.mockImplementation(() => [200, { results: [] }]), {}],
+            [0, 'picks', '1'],
+            [1, 'picks', '2'],
+            [2, 'recordings', '2'],
+        ])(
+            'opens an empty feed on the picks until %i untouched impressions, then on the recordings',
+            async (stored, mode, storedAfter) => {
+                logic.unmount()
+                playlistLogic.unmount()
+                feedSpy.mockImplementation(() => [200, { results: [] }])
+                localStorage.setItem(EMPTY_IMPRESSIONS_STORAGE_KEY, String(stored))
+                await mountList()
+                expect(logic.values.effectiveListMode).toBe(mode)
+                expect(localStorage.getItem(EMPTY_IMPRESSIONS_STORAGE_KEY)).toBe(storedAfter)
+                expect(shownEvents()).toEqual([])
+            }
+        )
+
+        it('starting a scanner from the column keeps the picks open and forgets the empty impressions', async () => {
+            localStorage.setItem(EMPTY_IMPRESSIONS_STORAGE_KEY, '2')
+            logic.actions.setListMode('recordings')
+            logic.actions.adoptPicksMode()
+            expect(logic.values.effectiveListMode).toBe('picks')
+            expect(localStorage.getItem(EMPTY_IMPRESSIONS_STORAGE_KEY)).toBe('0')
+        })
+
+        it.each([
             ['the feed fails', () => feedSpy.mockImplementation(() => [500, {}]), {}],
             ['the link carries filters', () => {}, { filters: { date_from: '-30d' } }],
             ['the link carries a saved filter', () => {}, { savedFilterId: 'sf-1' }],

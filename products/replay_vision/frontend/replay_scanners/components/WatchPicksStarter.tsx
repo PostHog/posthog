@@ -1,0 +1,159 @@
+import { useActions, useMountedLogic, useValues } from 'kea'
+
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import { LemonBanner, LemonButton, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
+
+import { pngHoggie } from 'lib/brand/hoggies'
+import { cn } from 'lib/utils/css-classes'
+import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
+
+import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
+import { formatCreditCount, formatCreditsMaybeUsd } from '../../utils/credits'
+import { defaultScannerTemplates } from '../scannerTemplates'
+import { watchPicksLogic } from '../watchPicksLogic'
+import { BUDGET_PRESETS, TARGET_MONTHLY_SCANS } from '../watchPicksStarter'
+import { watchPicksStarterLogic } from '../watchPicksStarterLogic'
+
+const SCANS_PER_DAY = Math.round(TARGET_MONTHLY_SCANS / 30)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+
+export function WatchPicksStarter({ size }: { size: 'small' | 'large' }): JSX.Element {
+    const { props: picksProps } = useMountedLogic(watchPicksLogic)
+    const logic = watchPicksStarterLogic(picksProps)
+    const { template, burstPlan, spendMode, freeAvailable, budget, starting, startError, freeCreditsLeft } =
+        useValues(logic)
+    const { chooseTemplate, setBudget, chooseBudget, startScanner } = useActions(logic)
+    const { showUsd } = useValues(visionQuotaLogic)
+    const large = size === 'large'
+    const editDisabledReason = getReplayVisionEditDisabledReason()
+
+    if (!template) {
+        return (
+            <div
+                className={cn(
+                    'flex flex-col items-center gap-2 text-center text-secondary',
+                    large ? 'rounded border bg-bg-light p-8 text-sm' : 'p-4 text-xs'
+                )}
+                data-attr="vision-watch-picks-starter"
+            >
+                <HedgehogMagnifyingGlass className={large ? 'h-48 w-48' : 'h-24 w-24'} />
+                <span className={cn('font-semibold text-default', large ? 'text-lg' : 'text-sm')}>
+                    What should we look for?
+                </span>
+                <span className="max-w-lg">
+                    Pick one. We create the scanner and start on your newest recordings right away.
+                </span>
+                <div className="mt-1 flex flex-wrap items-center justify-center gap-1">
+                    {defaultScannerTemplates.map((candidate) => (
+                        <LemonButton
+                            key={candidate.key}
+                            type="secondary"
+                            size={large ? 'small' : 'xsmall'}
+                            tooltip={candidate.goal}
+                            disabledReason={editDisabledReason}
+                            onClick={() => chooseTemplate(candidate.key)}
+                            data-attr="vision-watch-picks-starter-template"
+                        >
+                            {candidate.name}
+                        </LemonButton>
+                    ))}
+                </div>
+                <Link
+                    to={urls.replayVisionTemplates()}
+                    className="mt-1"
+                    data-attr="vision-watch-picks-starter-own-goal"
+                >
+                    Write my own goal
+                </Link>
+            </div>
+        )
+    }
+
+    const burstCount = burstPlan.sessionIds.length
+    const rows: [string, string][] = [
+        [
+            'Scans now',
+            burstCount > 0 ? pluralize(burstCount, 'recent recording') : 'nothing yet, no eligible recordings loaded',
+        ],
+        ['Then', `new recordings, about ${SCANS_PER_DAY} a day`],
+        [
+            'Cost',
+            spendMode === 'free'
+                ? `free credits only${freeCreditsLeft !== null ? `, ${formatCreditCount(freeCreditsLeft)} left` : ''}. Stops by itself at the limit.`
+                : freeAvailable
+                  ? 'a monthly budget you set. Free credits are used first.'
+                  : 'free credits are used up, so this scanner needs a monthly limit',
+        ],
+    ]
+    return (
+        <div
+            className={cn(
+                'flex flex-col items-center gap-2 text-center text-secondary',
+                large ? 'rounded border bg-bg-light p-8 text-sm' : 'p-4 text-xs'
+            )}
+            data-attr="vision-watch-picks-starter-confirm"
+        >
+            <HedgehogMagnifyingGlass className={large ? 'h-48 w-48' : 'h-24 w-24'} />
+            <span className={cn('font-semibold text-default', large ? 'text-lg' : 'text-sm')}>{template.name}</span>
+            <span className="max-w-lg">{template.description}</span>
+            <div className="mt-1 flex w-full max-w-xs flex-col items-stretch gap-2">
+                <div className="flex flex-col divide-y rounded border bg-bg-light text-left">
+                    {rows.map(([label, value]) => (
+                        <div key={label} className="flex flex-col gap-0.5 px-3 py-2">
+                            <span className="text-xs font-semibold text-default">{label}</span>
+                            <span className="text-xs text-secondary">{value}</span>
+                        </div>
+                    ))}
+                </div>
+                {spendMode === 'budget' && (
+                    <LemonSegmentedButton
+                        size="small"
+                        fullWidth
+                        value={budget}
+                        onChange={(value) => setBudget(value)}
+                        options={BUDGET_PRESETS.map((preset) => ({
+                            value: preset,
+                            label: formatCreditsMaybeUsd(preset, showUsd),
+                            'data-attr': 'vision-watch-picks-starter-budget',
+                        }))}
+                    />
+                )}
+                {startError && <LemonBanner type="error">{startError}</LemonBanner>}
+                <LemonButton
+                    type="primary"
+                    size={large ? 'medium' : 'small'}
+                    fullWidth
+                    center
+                    loading={starting}
+                    disabledReason={editDisabledReason}
+                    onClick={startScanner}
+                    data-attr="vision-watch-picks-starter-start"
+                >
+                    {spendMode === 'free' ? 'Start free scanner' : `Start with ${formatCreditCount(budget)} a month`}
+                </LemonButton>
+                {freeAvailable && (
+                    <LemonButton
+                        type="tertiary"
+                        size={large ? 'medium' : 'small'}
+                        fullWidth
+                        center
+                        disabledReason={starting ? 'Starting' : null}
+                        onClick={() => chooseBudget(spendMode === 'free')}
+                        data-attr="vision-watch-picks-starter-toggle-budget"
+                    >
+                        {spendMode === 'free' ? 'Set a monthly budget instead' : 'Use free credits instead'}
+                    </LemonButton>
+                )}
+                <Link
+                    className="mt-1 self-center"
+                    onClick={() => !starting && chooseTemplate(null)}
+                    data-attr="vision-watch-picks-starter-back"
+                >
+                    Choose another scanner
+                </Link>
+            </div>
+        </div>
+    )
+}

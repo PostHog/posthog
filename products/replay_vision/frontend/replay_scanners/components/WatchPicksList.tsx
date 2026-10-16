@@ -1,16 +1,23 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { watchPicksLogic } from '../watchPicksLogic'
+import { watchPicksStarterLogic } from '../watchPicksStarterLogic'
 import { WatchPickRow } from './WatchPickRow'
 import { WatchPicksEmptyState } from './WatchPicksEmptyState'
+import { WatchPicksExtraRows } from './WatchPicksExtraRows'
+import { WatchPicksStaleBanner } from './WatchPicksStaleBanner'
+import { WatchPicksStarterStatus } from './WatchPicksStarterStatus'
 
 const LIST_TOP_COUNT = 5
 
 export function WatchPicksList(): JSX.Element {
-    const { picks, picksLoading, picksFailed, activeSessionId } = useValues(watchPicksLogic)
-    const { loadPicks } = useActions(watchPicksLogic)
+    const picksLogic = useMountedLogic(watchPicksLogic)
+    const { picks, picksLoading, picksFailed, activeSessionId } = useValues(picksLogic)
+    const { loadPicks } = useActions(picksLogic)
+    const { startedScanner, burstDone, burstStalled } = useValues(watchPicksStarterLogic(picksLogic.props))
+    const burstActive = startedScanner !== null && (!burstDone || burstStalled)
 
     return (
         <div
@@ -18,35 +25,56 @@ export function WatchPicksList(): JSX.Element {
             data-attr="vision-watch-picks-list"
         >
             <div className="min-h-0 flex-1 overflow-y-auto">
-                {picksLoading || (picks === null && !picksFailed) ? (
+                {picks === null && !picksFailed ? (
                     <div className="flex flex-col gap-2 p-2" aria-busy>
                         {[0, 1, 2, 3].map((i) => (
                             <LemonSkeleton key={i} className="h-16 rounded" />
                         ))}
                     </div>
                 ) : picksFailed ? (
-                    <LemonBanner
-                        type="error"
-                        className="m-2"
-                        action={{ children: 'Try again', onClick: loadPicks, 'data-attr': 'vision-watch-picks-retry' }}
+                    <div
+                        className="flex flex-col items-center gap-2 p-4 text-center text-xs text-secondary"
+                        data-attr="vision-watch-picks-failed"
                     >
-                        Couldn't load what to watch.
-                    </LemonBanner>
-                ) : !picks || picks.length === 0 ? (
-                    <WatchPicksEmptyState size="small" />
-                ) : (
-                    <div className="flex flex-col gap-0.5 p-1">
-                        {picks.map((item, index) => (
-                            <WatchPickRow
-                                key={item.observation.id}
-                                item={item}
-                                position={index}
-                                surface="list"
-                                rank={index < LIST_TOP_COUNT ? index + 1 : undefined}
-                                isActive={item.observation.session_id === activeSessionId}
-                            />
-                        ))}
+                        <span className="text-sm font-semibold text-default">Couldn't load what to watch</span>
+                        <span>Something went wrong on our side. Try again in a moment.</span>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            className="mt-1"
+                            loading={picksLoading}
+                            onClick={loadPicks}
+                            data-attr="vision-watch-picks-retry"
+                        >
+                            Try again
+                        </LemonButton>
                     </div>
+                ) : !picks || picks.length === 0 ? (
+                    startedScanner ? (
+                        <>
+                            <WatchPicksStarterStatus />
+                            <WatchPicksExtraRows />
+                        </>
+                    ) : (
+                        <WatchPicksEmptyState size="small" />
+                    )
+                ) : (
+                    <>
+                        {burstActive ? <WatchPicksStarterStatus /> : <WatchPicksStaleBanner />}
+                        <div className="flex flex-col gap-0.5 p-1">
+                            {picks.map((item, index) => (
+                                <WatchPickRow
+                                    key={item.observation.id}
+                                    item={item}
+                                    position={index}
+                                    surface="list"
+                                    rank={index < LIST_TOP_COUNT ? index + 1 : undefined}
+                                    isActive={item.observation.session_id === activeSessionId}
+                                />
+                            ))}
+                        </div>
+                        <WatchPicksExtraRows />
+                    </>
                 )}
             </div>
         </div>
