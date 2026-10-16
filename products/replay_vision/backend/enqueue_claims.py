@@ -13,16 +13,23 @@ import structlog
 
 from posthog import redis
 
-from products.replay_vision.backend.temporal.constants import (
+from products.replay_vision.backend.in_flight_caps import (
     MAX_IN_FLIGHT_APPLIES_PER_BACKFILL,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     ON_DEMAND_RESERVED_SCANNER_SLOTS,
     ON_DEMAND_RESERVED_TEAM_SLOTS,
 )
-from products.replay_vision.backend.temporal.metrics import record_enqueue_claim_failure
 
 logger = structlog.get_logger(__name__)
+
+
+def _record_failure(operation: str) -> None:
+    # Imported here so this module never loads the temporal package, whose activities import this module.
+    from products.replay_vision.backend.temporal.metrics import record_enqueue_claim_failure  # noqa: PLC0415
+
+    record_enqueue_claim_failure(operation)
+
 
 # Must exceed worst-case enqueue-to-first-activity lag; crashed claims are reclaimed after this long.
 _CLAIM_TTL_SECONDS = 15 * 60
@@ -114,7 +121,7 @@ def try_claim_enqueue_slot(
         )
         return bool(allowed)
     except Exception:
-        record_enqueue_claim_failure("claim")
+        _record_failure("claim")
         logger.warning("replay_vision.enqueue_claim.failed_open", team_id=team_id, exc_info=True)
         return True
 
@@ -178,7 +185,7 @@ def release_enqueue_claim(
                 pipeline.zadd(key, {workflow_id: expiry}, xx=True)
         pipeline.execute()
     except Exception:
-        record_enqueue_claim_failure("release")
+        _record_failure("release")
         logger.warning("replay_vision.enqueue_claim.release_failed", team_id=team_id, exc_info=True)
 
 
@@ -203,7 +210,7 @@ def pending_enqueue_claims(team_id: int, scanner_id: UUID, backfill_id: UUID | N
             pipeline.zcount(key, cutoff, "+inf")
         return dict(zip(keys, (int(count) for count in pipeline.execute())))
     except Exception:
-        record_enqueue_claim_failure("count")
+        _record_failure("count")
         logger.warning("replay_vision.enqueue_claim.count_failed", keys=list(keys.values()), exc_info=True)
         return dict.fromkeys(keys, 0)
 
@@ -212,6 +219,6 @@ def _pending(key: str) -> int:
     try:
         return int(redis.get_client().zcount(key, f"({time.time()}", "+inf"))
     except Exception:
-        record_enqueue_claim_failure("count")
+        _record_failure("count")
         logger.warning("replay_vision.enqueue_claim.count_failed", key=key, exc_info=True)
         return 0

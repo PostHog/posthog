@@ -13,6 +13,9 @@ class TestImportOrder(SimpleTestCase):
         [
             ("prompt_questions", "products.replay_vision.backend.prompt_questions"),
             ("inline_scan", "products.replay_vision.backend.inline_scan"),
+            ("enqueue_claims", "products.replay_vision.backend.enqueue_claims"),
+            ("observation_requests", "products.replay_vision.backend.observation_requests"),
+            ("scanning", "products.replay_vision.backend.scanning"),
             (
                 "backfill_command",
                 "products.replay_vision.backend.management.commands.backfill_replay_scanner_prompt_questions",

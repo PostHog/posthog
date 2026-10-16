@@ -3,6 +3,14 @@ from uuid import UUID
 
 from temporalio.common import Priority, RetryPolicy
 
+from products.replay_vision.backend.in_flight_caps import (  # noqa: F401 — re-exported for temporal callers
+    MAX_IN_FLIGHT_APPLIES_PER_BACKFILL,
+    MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
+    MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    ON_DEMAND_RESERVED_SCANNER_SLOTS,
+    ON_DEMAND_RESERVED_TEAM_SLOTS,
+)
+
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 BUILD_BENCHMARK_WORKFLOW_NAME = "replay-vision-build-benchmark"
@@ -159,22 +167,10 @@ VISION_SIGNALS_SOURCE_PRODUCT = "replay_vision"
 VISION_SIGNALS_SOURCE_TYPE = "scanner_finding"
 
 
-# Hard ceiling on a single scanner's concurrently-running apply-scanner workflows. Bounds one bad config
-# (broad filter on a high-volume team) from monopolising the shared rasterizer queue + provider concurrency.
-MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 150
-# Team-wide ceiling across all of a team's scanners and on-demand triggers, so N scanners can't hold
-# N x 150 rasterizer slots. Fairness only; the rasterizer scales horizontally for total throughput.
-MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
 CREATE_OBSERVATION_TIMEOUT = dt.timedelta(seconds=30)
 
 CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
-
-
-# Slots at each cap that scheduled dispatch (sweep, backfill) must leave free, so a user-initiated
-# observe still admits when scheduled work is saturated; on-demand admission checks the full caps.
-ON_DEMAND_RESERVED_SCANNER_SLOTS = 25
-ON_DEMAND_RESERVED_TEAM_SLOTS = 50
 
 
 def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
@@ -206,10 +202,6 @@ PREPARE_BACKFILL_TICK_TIMEOUT = dt.timedelta(seconds=30)
 FIND_BACKFILL_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
 ADVANCE_BACKFILL_CURSOR_TIMEOUT = dt.timedelta(seconds=30)
 BACKFILL_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
-
-# A backfill's dispatches count toward the shared per-scanner/per-team caps but never fill more than
-# this many slots, so live sweeps always retain rasterizer + provider capacity.
-MAX_IN_FLIGHT_APPLIES_PER_BACKFILL = 50
 
 
 def backfill_schedule_id(backfill_id: UUID) -> str:
