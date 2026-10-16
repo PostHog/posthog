@@ -26,7 +26,7 @@ use serde_json::Value;
 use tonic::Status;
 use uuid::Uuid;
 
-use crate::config::IdentityTables;
+use crate::config::{IdentityTables, OutboxWrites};
 use crate::pools::{IdentityPools, Lane};
 
 /// Terminal step: the op ran to the end.
@@ -857,6 +857,10 @@ impl Engine {
     /// Delete completed op rows past retention (per-person rows cascade).
     /// The retention window exists only for op_id idempotency — the durable
     /// deletion shield is the person tombstone row, not the op row.
+    ///
+    /// An op with a row in the publish outbox outlives retention: a pending
+    /// pointer still has to be resolved against the op's `moved` rows, and a
+    /// given-up pointer must stay inspectable until an operator clears it.
     pub async fn gc(&self, retention: Duration) -> Result<u64, SagaError> {
         let result = mirrored_query!(
             self.tables.is_validation(),
@@ -864,9 +868,12 @@ impl Engine {
             r#"
             DELETE FROM {lifecycle_op}
             WHERE op_id IN (
-                SELECT op_id FROM {lifecycle_op}
-                WHERE completed_at IS NOT NULL
-                  AND completed_at < now() - make_interval(secs => $1)
+                SELECT op.op_id FROM {lifecycle_op} op
+                WHERE op.completed_at IS NOT NULL
+                  AND op.completed_at < now() - make_interval(secs => $1)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM {person_publish_outbox} o WHERE o.op_id = op.op_id
+                  )
                 LIMIT $2
             )
             "#,
@@ -906,9 +913,46 @@ pub async fn advance_step_in_tx(
     Ok(result.rows_affected() == 1)
 }
 
-/// Terminal flavor of [`advance_step_in_tx`]: record the outcome, stamp
-/// `completed_at`, and drop the lease in the same compare-and-swap.
+/// Terminal flavor of [`advance_step_in_tx`] for an op that ran to the
+/// end: record the outcome, stamp `completed_at`, drop the lease and, with
+/// outbox writes enabled, enqueue the op's publish pointer, all in one
+/// compare-and-swap. The insert selects from the update's own `RETURNING`,
+/// so a pointer cannot exist unless the compare-and-swap won in the same
+/// statement. With outbox writes disabled the statement names only
+/// `lifecycle_op`, so identity completes ops without the outbox table
+/// until the flag is turned on.
 pub async fn complete_op_in_tx(
+    tx: &mut Tx<'_>,
+    tables: &IdentityTables,
+    op_id: Uuid,
+    from: &str,
+    outcome: &Value,
+    outbox_writes: OutboxWrites,
+) -> Result<bool, sqlx::Error> {
+    match outbox_writes {
+        OutboxWrites::Enabled => {
+            complete_op_with_pointer_in_tx(tx, tables, op_id, from, outcome).await
+        }
+        OutboxWrites::Disabled => {
+            settle_op_in_tx(tx, tables, op_id, from, STEP_COMPLETED, outcome).await
+        }
+    }
+}
+
+/// Terminal flavor of [`advance_step_in_tx`] for an op that backed out
+/// before mutating anything. It takes no publish setting because there is
+/// nothing to publish; that is structural, not a branch.
+pub async fn abort_op_in_tx(
+    tx: &mut Tx<'_>,
+    tables: &IdentityTables,
+    op_id: Uuid,
+    from: &str,
+    outcome: &Value,
+) -> Result<bool, sqlx::Error> {
+    settle_op_in_tx(tx, tables, op_id, from, STEP_ABORTED, outcome).await
+}
+
+async fn settle_op_in_tx(
     tx: &mut Tx<'_>,
     tables: &IdentityTables,
     op_id: Uuid,
@@ -931,4 +975,35 @@ pub async fn complete_op_in_tx(
         => execute(&mut **tx)
     )?;
     Ok(result.rows_affected() == 1)
+}
+
+async fn complete_op_with_pointer_in_tx(
+    tx: &mut Tx<'_>,
+    tables: &IdentityTables,
+    op_id: Uuid,
+    from: &str,
+    outcome: &Value,
+) -> Result<bool, sqlx::Error> {
+    let advanced = mirrored_query_scalar!(
+        tables.is_validation(),
+        op = "op_complete_with_pointer",
+        r#"
+        WITH done AS (
+            UPDATE {lifecycle_op}
+            SET step = $3, outcome = $4, completed_at = now(), lease_expires_at = NULL
+            WHERE op_id = $1 AND step = $2
+            RETURNING op_id, team_id, op_type
+        ), queued AS (
+            INSERT INTO {person_publish_outbox} (team_id, kind, op_id)
+            SELECT team_id, op_type || '_op', op_id FROM done
+        )
+        SELECT count(*) AS "advanced!" FROM done
+        "#,
+        op_id,
+        from,
+        STEP_COMPLETED,
+        outcome
+        => fetch_one(&mut **tx)
+    )?;
+    Ok(advanced == 1)
 }

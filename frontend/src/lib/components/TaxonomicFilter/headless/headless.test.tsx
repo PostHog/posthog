@@ -153,6 +153,35 @@ describe('TaxonomicFilterHeadless integration', () => {
         )
     })
 
+    it.each(['{Enter}', ' '])('retries a failed search with %s without selecting the query', async (key) => {
+        const onEnter = jest.fn()
+        apiGet.mockRejectedValue(new Error('search unavailable'))
+        render(
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                    onChange={onChangeMock}
+                    onEnter={onEnter}
+                    searchQuery="needle"
+                >
+                    <TaxonomicFilterHeadless.Panel />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+        await waitFor(() => expect(screen.getByTestId('taxonomic-panel-retry')).toBeInTheDocument())
+        apiGet.mockClear()
+        apiGet.mockResolvedValue({ results: [{ name: 'needle_result' }], count: 1 })
+
+        await user.tab()
+        expect(screen.getByTestId('taxonomic-panel-retry')).toHaveFocus()
+        await user.keyboard(key)
+
+        await waitFor(() => expect(screen.getByText('needle_result')).toBeInTheDocument())
+        expect(apiGet).toHaveBeenCalledTimes(1)
+        expect(onEnter).not.toHaveBeenCalled()
+        expect(onChangeMock).not.toHaveBeenCalled()
+    })
+
     it('shows the empty-state slot when local search returns nothing', async () => {
         apiGet.mockResolvedValue({ results: [], count: 0 })
         renderHeadless()
