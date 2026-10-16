@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sprig.settings import (
-    DEFAULT_PAGE_SIZE,
     SPRIG_API_BASE_URL,
     SPRIG_ENDPOINTS,
 )
@@ -73,17 +72,18 @@ def _incremental_param_config(incremental_field: str) -> dict[str, Any]:
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     cfg = SPRIG_ENDPOINTS[name]
+    incremental = should_use_incremental_field and cfg.supports_incremental
 
-    params: dict[str, Any] = {"limit": DEFAULT_PAGE_SIZE}
-    if should_use_incremental_field:
+    params: dict[str, Any] = {}
+    if cfg.page_size is not None:
+        params["limit"] = cfg.page_size
+    if incremental:
         params["start"] = _incremental_param_config("createdAt")
 
     return {
         "name": cfg.name,
         "table_name": cfg.table_name,
-        "write_disposition": {"disposition": "merge", "strategy": "upsert"}
-        if should_use_incremental_field
-        else "replace",
+        "write_disposition": {"disposition": "merge", "strategy": "upsert"} if incremental else "replace",
         "endpoint": {
             "data_selector": "data",
             "path": cfg.path,

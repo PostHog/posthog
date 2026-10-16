@@ -49,6 +49,7 @@ def _membership(*, team_id: int, organization_id: str) -> ManagedWarehouseTeamMe
         table_names=ManagedWarehouseTableNames(
             events_table="events_production",
             persons_table="persons_production",
+            groups_table="groups_production",
             data_imports_schema="posthog_data_imports_production",
         ),
         earliest_event_date=None,
@@ -425,6 +426,8 @@ class TestPreparedTrinoCompiler:
             compiler = prepare_hogql_to_trino_compiler(team.pk, team=team)
             first = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "first"}))
             second = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "second"}))
+            groups = compiler.compile(HogQLQuery(query="SELECT index, key, properties.name FROM groups"))
+            raw_groups = compiler.compile(HogQLQuery(query="SELECT key, updated_at FROM raw_groups"))
 
         get_catalog.assert_called_once_with(str(team.organization_id))
         get_membership.assert_called_once_with(str(team.organization_id), team.pk)
@@ -434,6 +437,11 @@ class TestPreparedTrinoCompiler:
         assert compiler.catalog_name == "org_catalog"
         assert first.values == {"hogql_val_0": "first"}
         assert second.values == {"hogql_val_0": "second"}
+        for result in (groups, raw_groups):
+            assert '"org_catalog"."posthog"."groups_production"' in result.sql
+            assert "group_key" in result.sql
+        assert "group_properties" in groups.sql
+        assert "_timestamp" in raw_groups.sql
 
     def test_rejects_a_team_object_for_another_project(self) -> None:
         team = _team()
@@ -545,6 +553,7 @@ def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_
     table_names = ManagedWarehouseTableNames(
         events_table="events_production",
         persons_table="persons_production",
+        groups_table="groups_production",
         data_imports_schema="imports_production",
     )
     database = mock.Mock()
@@ -564,6 +573,8 @@ def test_build_trino_table_locators_uses_provisioned_names_and_canonical_source_
     assert locators == {
         "events": ("org_catalog", "posthog", "events_production"),
         "persons": ("org_catalog", "posthog", "persons_production"),
+        "groups": ("org_catalog", "posthog", "groups_production"),
+        "raw_groups": ("org_catalog", "posthog", "groups_production"),
         "orders_model": (
             "org_catalog",
             f"posthog_data_modeling_team_{team.pk}",
