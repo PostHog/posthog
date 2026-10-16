@@ -1,9 +1,7 @@
-import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { urls } from 'scenes/urls'
-
 import { useMocks } from '~/mocks/jest'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { analyticsSpacesLogic } from './analyticsSpacesLogic'
@@ -26,13 +24,9 @@ const row = (type: string, ref: string, path: string): Record<string, unknown> =
 
 describe('analyticsSpacesLogic', () => {
     let requests: string[]
-    let rows: Record<string, unknown>[]
-    let moveSucceeds: boolean
 
     beforeEach(() => {
         requests = []
-        moveSucceeds = true
-        rows = [row('insight/trends', 'i1', 'Scratch/Inner/I'), row('canvas', 'c1', 'Scratch/C')]
         useMocks({
             get: {
                 '/api/projects/:team_id/file_system_shortcut/': {
@@ -45,22 +39,12 @@ describe('analyticsSpacesLogic', () => {
                     const params = new URL(request.url).searchParams
                     const parent = params.get('parent')
                     const type = params.get('type') ?? params.get('type__startswith')
-                    if (params.get('path')) {
-                        return { results: [folder(params.get('path')!)], count: 1, next: null }
-                    }
                     if (params.get('depth') === '1' && type === 'folder') {
                         return {
                             results: ['Growth', 'Unfiled', 'Finance', 'Users'].map(folder),
                             count: 4,
                             next: null,
                         }
-                    }
-                    if (parent && type === 'folder') {
-                        return { results: [folder(`${parent}/Inner`)], count: 1, next: null }
-                    }
-                    if (parent && params.get('not_type') === 'folder') {
-                        const inside = rows.filter((entry) => String(entry.path).startsWith(`${parent}/`))
-                        return { results: inside, count: inside.length, next: null }
                     }
                     if (parent && type) {
                         // Per-type counts come from `count`, not from the one row the page holds.
@@ -70,19 +54,9 @@ describe('analyticsSpacesLogic', () => {
                     return { results: [], count: 0, next: null }
                 },
             },
-            post: {
-                '/api/projects/:team_id/file_system/:id/move/': async ({ params, request }) => {
-                    const body = (await request.json()) as { new_path: string }
-                    requests.push(`move ${params.id} -> ${body.new_path}`)
-                    if (moveSucceeds) {
-                        rows = rows.filter((entry) => entry.id !== params.id)
-                    }
-                    return { id: params.id, path: body.new_path }
-                },
-            },
             delete: {
-                '/api/projects/:team_id/file_system/:id/': ({ params, request }) => {
-                    requests.push(`delete ${params.id} recursive=${new URL(request.url).searchParams.get('recursive')}`)
+                '/api/projects/:team_id/file_system_shortcut/:id/': ({ params }) => {
+                    requests.push(`delete shortcut ${params.id}`)
                     return [204, null]
                 },
             },
@@ -110,30 +84,16 @@ describe('analyticsSpacesLogic', () => {
         expect(logic.values.visibleSpaces.map((space) => space.name)).toEqual(['Finance'])
     })
 
-    it('empties a space to unfiled, then removes its folders deepest first without a recursive delete', async () => {
+    it('drops the pin of a collection deleted through the project tree, and only for a top-level folder', async () => {
         const logic = analyticsSpacesLogic()
         logic.mount()
-        logic.actions.openDeleteSpace({ path: 'Scratch', name: 'Scratch' })
-        await expectLogic(logic, () => logic.actions.deleteSpace()).toDispatchActions(['deleteSpaceDone'])
+        await expectLogic(logic, () => logic.actions.loadShortcuts()).toDispatchActions(['loadShortcutsSuccess'])
 
-        expect(requests).toEqual([
-            'move fs-i1 -> Unfiled/Insights/I',
-            'move fs-c1 -> Unfiled/Canvases/C',
-            'delete fs-Scratch-Inner recursive=false',
-            'delete fs-Scratch recursive=false',
-        ])
-        expect(logic.values.deletingSpace).toBeNull()
-        expect(router.values.location.pathname).toContain(urls.analyticsSpaces())
-    })
+        logic.actions.deleteSavedItem({ id: 'fs-Growth-Q4', type: 'folder', path: 'Growth/Q4' } as FileSystemEntry)
+        await expectLogic(logic, () =>
+            logic.actions.deleteSavedItem({ id: 'fs-Growth', type: 'folder', path: 'Growth' } as FileSystemEntry)
+        ).toDispatchActions(['loadShortcuts'])
 
-    it('keeps the space when something inside could not be moved out', async () => {
-        moveSucceeds = false
-        const logic = analyticsSpacesLogic()
-        logic.mount()
-        logic.actions.openDeleteSpace({ path: 'Scratch', name: 'Scratch' })
-        await expectLogic(logic, () => logic.actions.deleteSpace()).toDispatchActions(['deleteSpaceDone'])
-
-        expect(requests.filter((request) => request.startsWith('delete'))).toEqual([])
-        expect(logic.values.deletingSpace).toEqual({ path: 'Scratch', name: 'Scratch' })
+        expect(requests).toEqual(['delete shortcut sc-growth'])
     })
 })

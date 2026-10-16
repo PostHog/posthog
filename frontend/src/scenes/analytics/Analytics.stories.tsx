@@ -298,15 +298,6 @@ export const ListShareDialog: Story = {
     },
 }
 
-export const ListSpaceDeleteDialog: Story = {
-    parameters: { pageUrl: urls.analyticsList({ folder: 'Growth' }) },
-    play: async () => {
-        await clickWhenRendered('analytics-space-manage')
-        await clickWhenRendered('analytics-space-delete')
-        await within(document.body).findByText('Delete "Growth"', {}, { timeout: 15000 })
-    },
-}
-
 export const ListNewInsightDialog: Story = {
     parameters: { pageUrl: urls.analyticsList() },
     play: async () => {

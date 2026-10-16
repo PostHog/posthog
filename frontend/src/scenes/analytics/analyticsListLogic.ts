@@ -12,7 +12,7 @@ import { AnalyticsListUrlParams, urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { isPathUnder, joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import type { UserBasicType, UserType } from '~/types'
@@ -767,7 +767,17 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             folderCreated: () => actions.loadList(),
             // Drags and folder deletes go through the project tree, which reports here once they land.
             movesSettled: () => actions.loadList(),
-            deleteSavedItem: () => actions.loadList(),
+            deleteSavedItem: ({ savedItem }) => {
+                const folder = values.filters.folder
+                if (savedItem.type === 'folder' && folder && isPathUnder(folder, savedItem.path)) {
+                    const parent = splitPath(savedItem.path).slice(0, -1)
+                    router.actions.push(
+                        parent.length ? urls.analyticsList({ folder: joinPath(parent) }) : urls.analyticsSpaces()
+                    )
+                    return
+                }
+                actions.loadList()
+            },
         }
     }),
     actionToUrl(({ values }) => {

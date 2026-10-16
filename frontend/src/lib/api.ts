@@ -2395,14 +2395,8 @@ const api = {
         async update(id: NonNullable<FileSystemEntry['id']>, data: Partial<FileSystemEntry>): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemDetail(id).update({ data })
         },
-        async delete(
-            id: NonNullable<FileSystemEntry['id']>,
-            options: { recursive?: boolean } = {}
-        ): Promise<FileSystemDeleteResponse | null> {
-            const request = new ApiRequest().fileSystemDetail(id)
-            const response = await (
-                options.recursive === undefined ? request : request.withQueryString({ recursive: options.recursive })
-            ).delete()
+        async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemDeleteResponse | null> {
+            const response = await new ApiRequest().fileSystemDetail(id).delete()
 
             if (typeof Response !== 'undefined' && response instanceof Response) {
                 if (response.status === 204) {

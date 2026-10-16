@@ -35,10 +35,12 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { TodayAnalyticsNewFolderDialog } from '~/layout/today/TodayAnalyticsNewFolderDialog'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
@@ -46,9 +48,7 @@ import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
 import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
-import { analyticsSpacesLogic } from './analyticsSpacesLogic'
-import { ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
-import { DeleteSpaceDialog } from './DeleteSpaceDialog'
+import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
 import { ShareToSpaceDialog } from './ShareToSpaceDialog'
 
@@ -92,7 +92,7 @@ function AnalyticsListContent(): JSX.Element {
     } = useValues(analyticsListLogic)
     const { clearFilters, loadList, loadMore } = useActions(analyticsListLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
-    const { openDeleteSpace } = useActions(analyticsSpacesLogic)
+    const { deleteItem } = useActions(projectTreeDataLogic)
     const { ref: endRef, inView: endInView } = useInView({
         root: document.getElementById('main-content'),
         rootMargin: SCROLL_PREFETCH_MARGIN,
@@ -283,7 +283,12 @@ function AnalyticsListContent(): JSX.Element {
                                 <DropdownMenuContent align="end" className="min-w-48">
                                     <DropdownMenuItem
                                         variant="destructive"
-                                        onClick={() => openDeleteSpace({ path: filters.folder!, name: topLevelSpace })}
+                                        onClick={() =>
+                                            deleteItem(
+                                                { path: filters.folder!, type: 'folder' } as FileSystemEntry,
+                                                ANALYTICS_DRAG_SCOPE
+                                            )
+                                        }
                                         data-attr="analytics-space-delete"
                                     >
                                         <IconTrash />
@@ -322,7 +327,6 @@ function AnalyticsListContent(): JSX.Element {
             </div>
             <AnalyticsCreateModals />
             <ShareToSpaceDialog />
-            <DeleteSpaceDialog />
             <TodayAnalyticsNewFolderDialog />
         </SceneContent>
     )
