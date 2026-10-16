@@ -3,9 +3,12 @@
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
+use metrics::counter;
 use replay_core_v4::inspect::session::{BlockInspection, Moment, SessionInspector};
 use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::scan::message::Message;
+
+use crate::process::{check_read, read};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SessionKey {
@@ -13,10 +16,17 @@ pub struct SessionKey {
     pub session_id: String,
 }
 
+/// An admitted message, not decoded yet.
+pub struct Raw {
+    pub offset: i64,
+    pub payload: Vec<u8>,
+    pub content_encoding: Option<String>,
+}
+
 /// One session's messages in the current flush. Capture keys messages by session, so a session has one partition.
 pub struct Pending {
     pub partition: i32,
-    pub messages: Vec<Message>,
+    pub messages: Vec<Raw>,
 }
 
 /// What a flush hands to the writers.
@@ -55,11 +65,9 @@ impl Batch {
         *last = (*last).max(offset);
     }
 
-    pub fn add(&mut self, partition: i32, offset: i64, session: SessionKey, mut message: Message) {
-        self.handled(partition, offset);
-        // Decoded once here, for the inspector and the block writer both, and counted toward the flush size.
-        message.decode_compressed();
-        self.bytes += message.buffered_bytes();
+    pub fn add(&mut self, partition: i32, session: SessionKey, raw: Raw) {
+        self.handled(partition, raw.offset);
+        self.bytes += raw.payload.len();
         self.sessions
             .entry(session)
             .or_insert_with(|| Pending {
@@ -67,7 +75,7 @@ impl Batch {
                 messages: Vec::new(),
             })
             .messages
-            .push(message);
+            .push(raw);
     }
 
     pub fn should_flush(&self, interval: Duration, max_bytes: usize) -> bool {
@@ -85,7 +93,7 @@ impl Batch {
             .sessions
             .values()
             .flat_map(|p| &p.messages)
-            .map(Message::buffered_bytes)
+            .map(|m| m.payload.len())
             .sum();
     }
 }
@@ -97,7 +105,7 @@ pub struct Inspectors {
 }
 
 impl Inspectors {
-    /// Runs every buffered message through its session's inspector and returns one block per session.
+    /// Decodes every buffered message, runs it through its session's inspector and returns one block per session.
     pub fn inspect(&mut self, batch: Batch) -> (Vec<Block>, HashMap<i32, i64>) {
         let now = Instant::now();
         let mut blocks = Vec::with_capacity(batch.sessions.len());
@@ -108,14 +116,35 @@ impl Inspectors {
                 .or_insert_with(|| (SessionInspector::default(), pending.partition, now));
             *partition = pending.partition;
             *last_seen = now;
+            let mut messages = Vec::with_capacity(pending.messages.len());
+            for raw in pending.messages {
+                let message = read(raw.payload, raw.content_encoding.as_deref())
+                    .and_then(|m| check_read(&m, &session.session_id).map(|()| m));
+                match message {
+                    Ok(mut message) => {
+                        // Decoded once here, for the inspector and the block writer both.
+                        message.decode_compressed();
+                        messages.push(message);
+                    }
+                    Err(skip) => {
+                        counter!("replay_recorder_v4_messages_total", "outcome" => skip.as_str())
+                            .increment(1);
+                    }
+                }
+            }
+            if messages.is_empty() {
+                continue;
+            }
+            counter!("replay_recorder_v4_messages_total", "outcome" => "recorded")
+                .increment(messages.len() as u64);
             let mut block = BlockInspection::default();
-            for message in &pending.messages {
+            for message in &messages {
                 inspector.observe_message(&mut block, message);
             }
             let inspected = block.finish();
             blocks.push(Block {
                 session,
-                messages: pending.messages,
+                messages,
                 stats: inspected.stats,
                 moments: inspected.moments,
                 image_urls: inspected.image_urls,
@@ -138,19 +167,19 @@ impl Inspectors {
 
 #[cfg(test)]
 mod tests {
-    use replay_core_v4::scan::message::read_message;
     use serde_json::{json, Value};
 
     use super::*;
 
-    fn message(session: &str, items: Value) -> Message {
-        let inner = json!({"event": "$snapshot_items", "properties": {"$session_id": session, "$window_id": "w", "$snapshot_items": items}});
-        read_message(
-            json!({"distinct_id": "d", "data": inner.to_string()})
+    fn raw(offset: i64, session: &str, items: Value) -> Raw {
+        let inner = json!({"event": "$snapshot_items", "properties": {"$session_id": session, "$window_id": "w", "$snapshot_source": "web", "$snapshot_items": items}});
+        Raw {
+            offset,
+            payload: json!({"distinct_id": "d", "data": inner.to_string()})
                 .to_string()
                 .into_bytes(),
-        )
-        .unwrap()
+            content_encoding: None,
+        }
     }
 
     fn key(session: &str) -> SessionKey {
@@ -171,8 +200,8 @@ mod tests {
     #[test]
     fn a_revoked_partition_leaves_nothing_behind() {
         let mut batch = Batch::default();
-        batch.add(0, 10, key("a"), message("a", mouse()));
-        batch.add(1, 20, key("b"), message("b", mouse()));
+        batch.add(0, key("a"), raw(10, "a", mouse()));
+        batch.add(1, key("b"), raw(20, "b", mouse()));
         batch.handled(1, 21);
         let mut inspectors = Inspectors::default();
         batch.drop_partitions(&[1]);
@@ -193,13 +222,13 @@ mod tests {
     fn session_state_carries_across_flushes() {
         let mut inspectors = Inspectors::default();
         let mut first = Batch::default();
-        first.add(0, 1, key("a"), message("a", snapshot()));
-        first.add(0, 2, key("b"), message("b", mouse()));
+        first.add(0, key("a"), raw(1, "a", snapshot()));
+        first.add(0, key("b"), raw(2, "b", mouse()));
         inspectors.inspect(first);
 
         let mut second = Batch::default();
-        second.add(0, 3, key("a"), message("a", mouse()));
-        second.add(0, 4, key("b"), message("b", mouse()));
+        second.add(0, key("a"), raw(3, "a", mouse()));
+        second.add(0, key("b"), raw(4, "b", mouse()));
         let (blocks, _) = inspectors.inspect(second);
         let cold: Vec<_> = blocks
             .iter()
