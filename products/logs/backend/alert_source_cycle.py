@@ -462,7 +462,7 @@ def _request(
         evaluation_key=recorded.evaluation_key,
         destination_alert_id=destination_alert_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
-        event_ids_by_incident_action=_EVENT_IDS_BY_INCIDENT_ACTION,
+        event_ids_by_incident_action=EVENT_IDS_BY_INCIDENT_ACTION,
         incident_actions=actions,
         sends_messages=sends_messages,
         # The logs alert page, as the HogFunction messages linked. An alert with no logs row has none.
@@ -485,7 +485,7 @@ def _has_incident_destination(team_id: int, destination_alert_id: str) -> bool:
         configured_destination_template_ids(
             team_id=team_id,
             alert_id=destination_alert_id,
-            allowed_event_ids=tuple(_EVENT_IDS_BY_INCIDENT_ACTION.values()),
+            allowed_event_ids=tuple(EVENT_IDS_BY_INCIDENT_ACTION.values()),
         )
     )
 
@@ -499,7 +499,7 @@ _EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
 }
 
 # Which event id an incident manager destination filters on for each incident action.
-_EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
+EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
     spec.incident_action.value: spec.event_id for spec in EVENT_KIND_CONFIG.values() if spec.incident_action
 }
 

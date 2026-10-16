@@ -861,6 +861,25 @@ class SourceEditMirror(Protocol):
 
 
 @frozen
+class IncidentCloseAddress:
+    """Where a source's incident destinations listen for the close of an alert's firing.
+
+    The same three fields a check's `AlertDeliveryRequest` carries, because the platform imports no
+    source and cannot derive them.
+    """
+
+    destination_alert_id: str
+    event_ids_by_incident_action: dict[str, str]
+    source_alert_url: str | None
+
+
+class IncidentCloseAddresser(Protocol):
+    """The address for closing an alert's incidents, or None when no destination follows them."""
+
+    def __call__(self, *, team_id: int, legacy_configuration_id: UUID) -> IncidentCloseAddress | None: ...
+
+
+@frozen
 class SourceConfigSpec:
     """A source kind's schema for `source_config` and its rules for a whole edit.
 
@@ -871,6 +890,7 @@ class SourceConfigSpec:
     model: type[BaseModel]
     validate: Callable[[PlatformAlertConfigurationEdit], None]
     mirror: SourceEditMirror | None = None
+    incident_address: IncidentCloseAddresser | None = None
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]
