@@ -57,7 +57,8 @@ Its caller is ReviewHog, which uses a shared gateway key and the product model p
 No open-weight model is behind a per-model access flag now; the mechanism stays for the next rollout.
 The Go catalog serves GLM 5.2 only, and Baseten on Go still depends on the provider deployment check below.
 `gpt-6-astra` is also Python-only because the Go catalog does not serve it, while cloud agents require the Python product policy above.
-`claude-opus-5-5`, `gpt-6-sol` and `gpt-6-luna` stay Python-only for the same reason: the Go catalog does not serve them.
+`claude-opus-5-5` and `gpt-6-sol` stay Python-only for the same reason: the Go catalog does not serve them.
+The Go catalog serves `gpt-6-luna`, and the `slack_app_routing` route allows it too, so the Slack reply suggestions keep working in an environment that has only the Python gateway.
 
 `gpt-6.1-sol` uses the Python product policies for Slack tasks and background agents.
 These callers still require the OAuth application restrictions and product billing policies above, even when the Go catalog discovers the model.

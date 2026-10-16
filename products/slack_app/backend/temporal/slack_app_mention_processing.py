@@ -373,12 +373,3 @@ async def _execute_posthog_code_agent_activity(activity_fn: Any, *args: Any) -> 
         heartbeat_timeout=timedelta(minutes=5),
         retry_policy=RetryPolicy(maximum_attempts=1),
     )
-
-
-@workflow.defn(name="posthog-code-slack-mention-processing")
-class LegacyPostHogCodeSlackMentionWorkflow(SlackAppMentionProcessingWorkflow):
-    """Previous type name, kept registered until no execution of it remains in any region."""
-
-    @workflow.run
-    async def run(self, inputs: PostHogCodeSlackMentionWorkflowInputs) -> None:
-        await super().run(inputs)

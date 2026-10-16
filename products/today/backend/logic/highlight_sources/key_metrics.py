@@ -1,11 +1,11 @@
-from products.customer_analytics.backend.facade.api import get_key_metrics, get_key_metrics_fingerprint
+from products.customer_analytics.backend.facade.api import get_key_metrics
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 
 from ...facade import contracts
 from ...facade.enums import HighlightLabel, HighlightUnit
 from ..highlight_rules import exact
 from ..highlight_trends import detect
-from ..highlight_types import Candidate, Context, Found, Source
+from ..highlight_types import Candidate, Context, DailyValueNotReady, Found, Source
 
 KEY_METRIC_DAY = {
     True: "‘{name}’ increased by {pct}% yesterday",
@@ -16,10 +16,9 @@ KEY_METRIC_DAY_DETAIL_WEEK = "{now} yesterday · {usual} a day over the week bef
 
 
 def find(context: Context) -> Found:
-    metrics = context.daily(
-        f"key_metrics:{context.user.id}:{get_key_metrics_fingerprint(context.team)}",
-        lambda: get_key_metrics(team=context.team, user=context.user),
-    )
+    metrics = get_key_metrics(team=context.team, user=context.user)
+    if metrics is None:
+        raise DailyValueNotReady("key_metrics")
     shown = [metric for metric in metrics if metric.this_week or metric.last_week]
     candidates = [candidate for metric in shown if (candidate := _same_weekday(context, metric)) is not None]
     return Found(items=tuple(candidates), pulse=tuple(_tile(metric) for metric in shown))
