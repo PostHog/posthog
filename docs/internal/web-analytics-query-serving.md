@@ -201,7 +201,8 @@ The eager and demand jobs can still overlap if either pass runs long.
 The in-app digest notification batch retries a team's read-only digest build up to three times for
 `CH_TRANSIENT_ERRORS` and `ConcurrencyLimitExceeded`, with 30- and 60-second backoff. Additional retries stop five minutes after the batch
 starts; later teams still receive their initial attempt. Each team's reporting bounds are fixed before
-its first attempt, so a retry crossing midnight cannot change the reporting period. Invalid filters and
+its first attempt, so a retry crossing midnight cannot change the reporting period. The comparison period
+stays the seven days before those bounds, matching the `-7d` digest. Invalid filters and
 other permanent query errors are not retried.
 
 Completed team builds remain available while other teams recover. Notification delivery starts only

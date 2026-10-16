@@ -76,6 +76,10 @@ def _require_digest_response(
     return response
 
 
+def _digest_compare_filter(compare: bool, days: int, date_range: DateRange | None) -> CompareFilter:
+    return CompareFilter(compare=compare, compare_to=f"-{days}d" if compare and date_range else None)
+
+
 def _default_overview() -> dict:
     return {
         "visitors": {"current": 0, "previous": None, "change": None},
@@ -101,7 +105,7 @@ def get_overview_for_team(
 
     query = WebOverviewQuery(
         dateRange=date_range or DateRange(date_from=f"-{days}d"),
-        compareFilter=CompareFilter(compare=compare),
+        compareFilter=_digest_compare_filter(compare, days, date_range),
         filterTestAccounts=True,
         properties=[],
     )
@@ -191,7 +195,7 @@ def _run_stats_table_query(
     query = WebStatsTableQuery(
         breakdownBy=breakdown_by,
         dateRange=date_range or DateRange(date_from=f"-{days}d"),
-        compareFilter=CompareFilter(compare=compare),
+        compareFilter=_digest_compare_filter(compare, days, date_range),
         limit=limit,
         orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
         filterTestAccounts=True,
@@ -289,7 +293,7 @@ def get_goals_for_team(
     try:
         query = WebGoalsQuery(
             dateRange=date_range or DateRange(date_from=f"-{days}d"),
-            compareFilter=CompareFilter(compare=compare),
+            compareFilter=_digest_compare_filter(compare, days, date_range),
             properties=[],
         )
         runner = WebGoalsQueryRunner(

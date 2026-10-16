@@ -1,6 +1,6 @@
 import uuid
 from collections import Counter
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -27,6 +27,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.organization import Organization
 
 from products.notifications.backend.facade.api import NotificationData, NotificationType, TargetType
+from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.temporal.digest_notification.activities import (
     _build_and_send_for_org,
     _expose_and_notify_user,
@@ -419,6 +420,7 @@ class TestRunWaDigestNotificationBatch(_DigestNotificationTestBase):
         self.build_digest_patcher.stop()
         attempts: Counter[int] = Counter()
         periods: list[DateRange] = []
+        compare_periods: list[tuple[datetime, datetime]] = []
         clock = [0.0]
         waits: list[float] = []
         bypass_flags: list[bool] = []
@@ -438,6 +440,9 @@ class TestRunWaDigestNotificationBatch(_DigestNotificationTestBase):
             if team.id == other_team.id:
                 assert query.dateRange is not None
                 periods.append(query.dateRange)
+                compare_range = WebStatsTableQueryRunner(team=team, query=query).query_compare_to_date_range
+                assert compare_range is not None
+                compare_periods.append((compare_range.date_from(), compare_range.date_to()))
             if query.breakdownBy == WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 attempts[team.id] += 1
                 if team.id == self.team.id and spend_budget:
@@ -482,6 +487,9 @@ class TestRunWaDigestNotificationBatch(_DigestNotificationTestBase):
         assert periods and all(period == periods[0] for period in periods)
         assert periods[0].date_from == "2025-12-25T00:00:00+00:00"
         assert periods[0].date_to == "2026-01-01T23:59:59.999999+00:00"
+        assert set(compare_periods) == {
+            (datetime(2025, 12, 18, tzinfo=UTC), datetime(2025, 12, 25, 23, 59, 59, 999999, tzinfo=UTC))
+        }
         assert bypass_flags and all(bypass_flags)
 
     def test_passes_flag_key_and_dry_run_through(self):
