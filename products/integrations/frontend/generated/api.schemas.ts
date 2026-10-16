@@ -162,6 +162,7 @@ export interface RoleLookupResponseApi {
  * * `customerio-app` - Customerio App
  * * `customerio-track` - Customerio Track
  * * `customerio-webhook` - Customerio Webhook
+ * * `daisycon` - Daisycon
  * * `databricks` - Databricks
  * * `email` - Email
  * * `firebase` - Firebase
@@ -216,6 +217,7 @@ export const IntegrationKindEnumApi = {
     CustomerioApp: 'customerio-app',
     CustomerioTrack: 'customerio-track',
     CustomerioWebhook: 'customerio-webhook',
+    Daisycon: 'daisycon',
     Databricks: 'databricks',
     Email: 'email',
     Firebase: 'firebase',
@@ -606,6 +608,7 @@ export interface IntegrationAccessRequestApi {
      * * `customerio-app` - Customerio App
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
+     * * `daisycon` - Daisycon
      * * `databricks` - Databricks
      * * `email` - Email
      * * `firebase` - Firebase
@@ -772,6 +775,7 @@ export type IntegrationsListParams = {
      * * `customerio-app` - Customerio App
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
+     * * `daisycon` - Daisycon
      * * `databricks` - Databricks
      * * `email` - Email
      * * `firebase` - Firebase
@@ -837,6 +841,7 @@ export const IntegrationsListKind = {
     CustomerioApp: 'customerio-app',
     CustomerioTrack: 'customerio-track',
     CustomerioWebhook: 'customerio-webhook',
+    Daisycon: 'daisycon',
     Databricks: 'databricks',
     Email: 'email',
     Firebase: 'firebase',

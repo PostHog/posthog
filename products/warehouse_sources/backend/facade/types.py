@@ -886,6 +886,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     RAILWAY = "Railway", "Railway"
     ARGOCD = "Argocd", "Argocd"
     PREFECTCLOUD = "PrefectCloud", "PrefectCloud"
+    DAISYCON = "Daisycon", "Daisycon"
     DAGSTERCLOUD = "DagsterCloud", "DagsterCloud"
     ENV0 = "Env0", "Env0"
     KUBECOST = "Kubecost", "Kubecost"

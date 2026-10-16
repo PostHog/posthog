@@ -44,7 +44,7 @@ from posthog.api.github_callback.team_services import (
     list_org_github_installations,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
+from posthog.api.integration import IntegrationSerializer, IntegrationViewSet, _ensure_oauth_token_valid
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
@@ -8032,3 +8032,21 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/integrations/github/link_existing/", payload)
         assert response.status_code == 200
         assert link.call_args.kwargs["installation_id_param"] is None
+
+
+class TestEnsureOauthTokenValid(APIBaseTest):
+    @parameterized.expand([("resend",), ("daisycon",)])
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_leaves_rotating_refresh_tokens_to_the_locked_sync_path(self, kind: str, mock_post: MagicMock) -> None:
+        # Any integration action reaches this helper. Spending a single-use refresh token here, outside the
+        # sync path's row lock, would race a running sync and burn the grant.
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=kind,
+            config={"expires_in": 1800, "refreshed_at": int(time.time()) - 3600},
+            sensitive_config={"refresh_token": "rt_1", "access_token": "at_1"},
+        )
+
+        _ensure_oauth_token_valid(integration)
+
+        mock_post.assert_not_called()

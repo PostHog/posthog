@@ -99,6 +99,9 @@ APPLE_ADS_REFRESH_TOKEN_FALLBACK_URL = "https://appleid.apple.com/auth/token"
 # documents it as the call to make once per access token, and it is the only identity Apple exposes
 # for a service provider grant.
 APPLE_ADS_ACL_URL = "https://api.ads.apple.com/v1/acls"
+DAISYCON_PUBLISHERS_URL = "https://services.daisycon.com/publishers"
+# Daisycon access tokens live 30 minutes; its token response may omit expires_in.
+DAISYCON_ACCESS_TOKEN_TTL_SECONDS = 1800
 
 
 @frozen
@@ -185,6 +188,43 @@ def _apple_ads_account_name(accounts: list[dict[str, Any]]) -> str:
         return ", ".join(org_names)
     first = accounts[0]
     return str(first.get("name") or f"Apple Ads account {first['id']}")
+
+
+def _daisycon_publishers(access_token: str) -> list[dict[str, Any]]:
+    """Publisher accounts a Daisycon access token can read, as `{"id", "name"}` rows.
+
+    Returns an empty list when Daisycon rejects the call, so the caller decides what a grant with no
+    readable publisher means. Raises when Daisycon cannot answer, so an outage does not read as that.
+    """
+    unreachable = "Could not reach Daisycon. Try connecting again in a minute."
+    try:
+        res = requests.get(
+            DAISYCON_PUBLISHERS_URL,
+            params={"per_page": 1000},
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+            timeout=10,
+            # This call carries the access token; a 30x must not resend it to another origin.
+            allow_redirects=False,
+        )
+    except requests.RequestException as e:
+        logger.warning("daisycon_publishers_request_failed", error=str(e))
+        raise ValidationError(unreachable) from e
+
+    if res.status_code >= 500:
+        logger.warning("daisycon_publishers_request_failed", status_code=res.status_code)
+        raise ValidationError(unreachable)
+    if res.status_code != 200:
+        logger.warning("daisycon_publishers_request_rejected", status_code=res.status_code, response=res.text[:500])
+        return []
+
+    try:
+        payload = res.json()
+    except ValueError:
+        return []
+
+    if not isinstance(payload, list):
+        return []
+    return [row for row in payload if isinstance(row, dict) and row.get("id") is not None]
 
 
 def _salesforce_instance_host(instance_url: str | None) -> str | None:
@@ -344,8 +384,12 @@ class OauthIntegration:
         "pinterest-ads",
         "stripe",
         "resend",
+        "daisycon",
         "youtube-analytics",
     ]
+    # Kinds whose single-use refresh token rotates on every refresh. Only the source sync path refreshes
+    # them, under a row lock, because two unlocked refreshes would spend the same token twice.
+    rotating_refresh_token_kinds = ("resend", "daisycon")
     integration: model.Integration
 
     def __str__(self) -> str:
@@ -855,6 +899,25 @@ class OauthIntegration:
                 name_path="resend_account_name",
             )
 
+        elif kind == "daisycon":
+            if not settings.DAISYCON_APP_CLIENT_ID or not settings.DAISYCON_APP_CLIENT_SECRET:
+                raise NotImplementedError("Daisycon app not configured")
+
+            # Daisycon implements OAuth 2.1: PKCE is required, access tokens live 30 minutes and the
+            # single-use refresh token rotates on every refresh. Permissions live on the registered
+            # app, so the authorize request carries no scope. The token response names no account,
+            # so the integration id comes from the publisher list (see integration_from_oauth_response).
+            return OauthConfig(
+                authorize_url="https://login.daisycon.com/oauth/authorize",
+                token_url="https://login.daisycon.com/oauth/access-token",
+                client_id=settings.DAISYCON_APP_CLIENT_ID,
+                client_secret=settings.DAISYCON_APP_CLIENT_SECRET,
+                scope="",
+                pkce=True,
+                id_path="daisycon_integration_key",
+                name_path="daisycon_account_name",
+            )
+
         elif kind == "apple-ads":
             if not all(
                 (
@@ -1257,6 +1320,32 @@ class OauthIntegration:
             grant_token = config.get("refresh_token") or config["access_token"]
             integration_id = f"grant:{hashlib.sha256(grant_token.encode()).hexdigest()}"
 
+        # Daisycon's token response names no account. The integration is keyed on the publishers the
+        # grant reaches, so while that set is unchanged, reconnecting after the refresh token lapses
+        # updates the same row and the sources bound to it keep working.
+        if kind == "daisycon" and not integration_id:
+            publishers = _daisycon_publishers(config["access_token"])
+            if not publishers:
+                raise ValidationError(
+                    "This Daisycon login cannot read any publisher account. Check that the user has access "
+                    "to a publisher in Daisycon, then connect again."
+                )
+            publisher_ids = sorted(str(publisher["id"]) for publisher in publishers)
+            config["daisycon_publisher_ids"] = publisher_ids
+            # The source's publisher picker lists these, so it needs no call to Daisycon.
+            config["daisycon_publishers"] = sorted(
+                (
+                    {"id": str(publisher["id"]), "name": str(publisher.get("name") or f"Publisher {publisher['id']}")}
+                    for publisher in publishers
+                ),
+                key=lambda publisher: publisher["id"],
+            )
+            config["daisycon_account_name"] = ", ".join(
+                str(publisher.get("name") or f"Publisher {publisher['id']}") for publisher in publishers
+            )
+            integration_id = f"publishers:{','.join(publisher_ids)}"
+            config["daisycon_integration_key"] = integration_id
+
         # LinkedIn id_token is a JWT, extract user ID and email from it
         # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
         if kind == "linkedin-ads" and not integration_id:
@@ -1360,6 +1449,9 @@ class OauthIntegration:
         # Stripe Apps OAuth tokens don't include expires_in in the response
         if not config.get("expires_in") and kind == "stripe":
             config["expires_in"] = 3600
+
+        if not config.get("expires_in") and kind == "daisycon":
+            config["expires_in"] = DAISYCON_ACCESS_TOKEN_TTL_SECONDS
 
         config["refreshed_at"] = int(time.time())
 
@@ -1546,6 +1638,20 @@ class OauthIntegration:
                 headers={"Idempotency-Key": hashlib.sha256(refresh_token.encode()).hexdigest()},
                 timeout=10,
             )
+        elif kind == "daisycon":
+            # Daisycon documents redirect_uri on the refresh grant as well as on the code exchange.
+            return requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                },
+                timeout=10,
+                allow_redirects=False,
+            )
         elif kind == "apple-ads":
             # Apple's guide names `/auth/token` for the refresh grant while the exchange it pairs
             # with uses `/auth/oauth2/token`. Try the exchange endpoint first, then the documented
@@ -1704,10 +1810,11 @@ class OauthIntegration:
                 expires_in = 3600
             if not expires_in and self.integration.kind == "stripe":
                 expires_in = 3600
+            if not expires_in and self.integration.kind == "daisycon":
+                expires_in = DAISYCON_ACCESS_TOKEN_TTL_SECONDS
 
             self.integration.config["expires_in"] = expires_in
             self.integration.config["refreshed_at"] = int(time.time())
-            reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             refresh_tracking.oauth_refresh_counter.labels(
                 kind=self.integration.kind,
                 result="success_fallback" if used_fallback else "success",
@@ -1716,3 +1823,10 @@ class OauthIntegration:
             ).inc()
 
         self.integration.save()
+
+        # Notify workers only after the save: a provider that rotates refresh tokens has already
+        # spent the old one, so a failed notification must not stop the new token from being stored.
+        try:
+            reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+        except Exception:
+            logger.exception("Failed to notify workers of a refreshed integration", integration_id=self.integration.id)

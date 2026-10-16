@@ -31676,6 +31676,7 @@ export namespace Schemas {
      * * `Railway` - Railway
      * * `Argocd` - Argocd
      * * `PrefectCloud` - PrefectCloud
+     * * `Daisycon` - Daisycon
      * * `DagsterCloud` - DagsterCloud
      * * `Env0` - Env0
      * * `Kubecost` - Kubecost
@@ -33063,6 +33064,7 @@ export namespace Schemas {
       Railway: 'Railway',
       Argocd: 'Argocd',
       PrefectCloud: 'PrefectCloud',
+      Daisycon: 'Daisycon',
       DagsterCloud: 'DagsterCloud',
       Env0: 'Env0',
       Kubecost: 'Kubecost',
@@ -34464,6 +34466,7 @@ export namespace Schemas {
        * * `Railway` - Railway
        * * `Argocd` - Argocd
        * * `PrefectCloud` - PrefectCloud
+       * * `Daisycon` - Daisycon
        * * `DagsterCloud` - DagsterCloud
        * * `Env0` - Env0
        * * `Kubecost` - Kubecost
@@ -37109,6 +37112,7 @@ export namespace Schemas {
        * * `Railway` - Railway
        * * `Argocd` - Argocd
        * * `PrefectCloud` - PrefectCloud
+       * * `Daisycon` - Daisycon
        * * `DagsterCloud` - DagsterCloud
        * * `Env0` - Env0
        * * `Kubecost` - Kubecost
@@ -48899,6 +48903,7 @@ export namespace Schemas {
        * * `Railway` - Railway
        * * `Argocd` - Argocd
        * * `PrefectCloud` - PrefectCloud
+       * * `Daisycon` - Daisycon
        * * `DagsterCloud` - DagsterCloud
        * * `Env0` - Env0
        * * `Kubecost` - Kubecost
@@ -50320,6 +50325,7 @@ export namespace Schemas {
        * * `Railway` - Railway
        * * `Argocd` - Argocd
        * * `PrefectCloud` - PrefectCloud
+       * * `Daisycon` - Daisycon
        * * `DagsterCloud` - DagsterCloud
        * * `Env0` - Env0
        * * `Kubecost` - Kubecost
@@ -60452,6 +60458,7 @@ export namespace Schemas {
      * * `customerio-app` - Customerio App
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
+     * * `daisycon` - Daisycon
      * * `databricks` - Databricks
      * * `email` - Email
      * * `firebase` - Firebase
@@ -60507,6 +60514,7 @@ export namespace Schemas {
       CustomerioApp: 'customerio-app',
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',
+      Daisycon: 'daisycon',
       Databricks: 'databricks',
       Email: 'email',
       Firebase: 'firebase',
@@ -60562,6 +60570,7 @@ export namespace Schemas {
        * * `customerio-app` - Customerio App
        * * `customerio-track` - Customerio Track
        * * `customerio-webhook` - Customerio Webhook
+       * * `daisycon` - Daisycon
        * * `databricks` - Databricks
        * * `email` - Email
        * * `firebase` - Firebase
@@ -104002,6 +104011,7 @@ export namespace Schemas {
        * * `Railway` - Railway
        * * `Argocd` - Argocd
        * * `PrefectCloud` - PrefectCloud
+       * * `Daisycon` - Daisycon
        * * `DagsterCloud` - DagsterCloud
        * * `Env0` - Env0
        * * `Kubecost` - Kubecost
@@ -105454,6 +105464,7 @@ export namespace Schemas {
        * * `Railway` - Railway
        * * `Argocd` - Argocd
        * * `PrefectCloud` - PrefectCloud
+       * * `Daisycon` - Daisycon
        * * `DagsterCloud` - DagsterCloud
        * * `Env0` - Env0
        * * `Kubecost` - Kubecost
@@ -106873,6 +106884,7 @@ export namespace Schemas {
        * * `Railway` - Railway
        * * `Argocd` - Argocd
        * * `PrefectCloud` - PrefectCloud
+       * * `Daisycon` - Daisycon
        * * `DagsterCloud` - DagsterCloud
        * * `Env0` - Env0
        * * `Kubecost` - Kubecost
@@ -126773,6 +126785,7 @@ export namespace Schemas {
      * * `customerio-app` - Customerio App
      * * `customerio-track` - Customerio Track
      * * `customerio-webhook` - Customerio Webhook
+     * * `daisycon` - Daisycon
      * * `databricks` - Databricks
      * * `email` - Email
      * * `firebase` - Firebase
@@ -126839,6 +126852,7 @@ export namespace Schemas {
       CustomerioApp: 'customerio-app',
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',
+      Daisycon: 'daisycon',
       Databricks: 'databricks',
       Email: 'email',
       Firebase: 'firebase',

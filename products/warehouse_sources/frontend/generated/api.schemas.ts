@@ -1551,6 +1551,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Railway` - Railway
  * * `Argocd` - Argocd
  * * `PrefectCloud` - PrefectCloud
+ * * `Daisycon` - Daisycon
  * * `DagsterCloud` - DagsterCloud
  * * `Env0` - Env0
  * * `Kubecost` - Kubecost
@@ -2938,6 +2939,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Railway: 'Railway',
     Argocd: 'Argocd',
     PrefectCloud: 'PrefectCloud',
+    Daisycon: 'Daisycon',
     DagsterCloud: 'DagsterCloud',
     Env0: 'Env0',
     Kubecost: 'Kubecost',
@@ -4467,6 +4469,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Railway` - Railway
      * * `Argocd` - Argocd
      * * `PrefectCloud` - PrefectCloud
+     * * `Daisycon` - Daisycon
      * * `DagsterCloud` - DagsterCloud
      * * `Env0` - Env0
      * * `Kubecost` - Kubecost
@@ -6361,6 +6364,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Railway` - Railway
      * * `Argocd` - Argocd
      * * `PrefectCloud` - PrefectCloud
+     * * `Daisycon` - Daisycon
      * * `DagsterCloud` - DagsterCloud
      * * `Env0` - Env0
      * * `Kubecost` - Kubecost
@@ -7828,6 +7832,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Railway` - Railway
      * * `Argocd` - Argocd
      * * `PrefectCloud` - PrefectCloud
+     * * `Daisycon` - Daisycon
      * * `DagsterCloud` - DagsterCloud
      * * `Env0` - Env0
      * * `Kubecost` - Kubecost
@@ -9219,6 +9224,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Railway` - Railway
      * * `Argocd` - Argocd
      * * `PrefectCloud` - PrefectCloud
+     * * `Daisycon` - Daisycon
      * * `DagsterCloud` - DagsterCloud
      * * `Env0` - Env0
      * * `Kubecost` - Kubecost
@@ -10664,6 +10670,7 @@ export interface SourcePreviewRequestApi {
      * * `Railway` - Railway
      * * `Argocd` - Argocd
      * * `PrefectCloud` - PrefectCloud
+     * * `Daisycon` - Daisycon
      * * `DagsterCloud` - DagsterCloud
      * * `Env0` - Env0
      * * `Kubecost` - Kubecost
@@ -12090,6 +12097,7 @@ export interface SourceSetupApi {
      * * `Railway` - Railway
      * * `Argocd` - Argocd
      * * `PrefectCloud` - PrefectCloud
+     * * `Daisycon` - Daisycon
      * * `DagsterCloud` - DagsterCloud
      * * `Env0` - Env0
      * * `Kubecost` - Kubecost
@@ -13523,6 +13531,7 @@ export interface SourceCredentialCreateApi {
      * * `Railway` - Railway
      * * `Argocd` - Argocd
      * * `PrefectCloud` - PrefectCloud
+     * * `Daisycon` - Daisycon
      * * `DagsterCloud` - DagsterCloud
      * * `Env0` - Env0
      * * `Kubecost` - Kubecost

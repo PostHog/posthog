@@ -336,6 +336,7 @@ from .customerly.source import CustomerlySource
 from .cybersource.source import CybersourceSource
 from .d2l_brightspace.source import D2lBrightspaceSource
 from .dagster_cloud.source import DagsterCloudSource
+from .daisycon.source import DaisyconSource
 from .databricks.source import DatabricksSource
 from .datadog.source import DatadogSource
 from .dataforseo.source import DataForSEOSource

@@ -199,6 +199,7 @@ Custom not-checkable:schemas
 CustomerIO fail:rate-limit-budget,stall-budget
 Customerly fail:rate-limit-budget,stall-budget
 DagsterCloud fail:stall-budget
+Daisycon not-checkable:database
 DataForSEO fail:stall-budget
 Databricks not-checkable:driver:databricks
 Datadog fail:rate-limit-budget,safe-point,stall-budget

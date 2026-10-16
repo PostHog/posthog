@@ -262,6 +262,10 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
             "Please reconnect or disconnect this integration and connect a different account."
         )
 
+    # Their single-use refresh token may only be spent under the sync path's row lock.
+    if instance.kind in OauthIntegration.rotating_refresh_token_kinds:
+        return
+
     oauth = OauthIntegration(instance)
     if oauth.access_token_expired():
         oauth.refresh_access_token()
