@@ -911,6 +911,7 @@ from .pandadoc.source import PandaDocSource
 from .paperform.source import PaperformSource
 from .papersign.source import PapersignSource
 from .pardot.source import PardotSource
+from .particle.source import ParticleSource
 from .partnerize.source import PartnerizeSource
 from .partnerstack.source import PartnerStackSource
 from .patreon.source import PatreonSource
