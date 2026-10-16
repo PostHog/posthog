@@ -11,15 +11,13 @@ Standard library only: the job runs this with the runner's python3 before any in
 
 import os
 import sys
-import json
-import subprocess
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
+from cancel_superseded_depot_runs import ALL, depot, list_pr
+
 RETRYABLE = ("failed", "cancelled")
-ALL_STATUSES = ("queued", "running", "finished", *RETRYABLE)
-CLI_TIMEOUT_SECONDS = 60
 
 
 def newest_run_id(runs: Sequence[dict[str, str]]) -> str | None:
@@ -37,30 +35,19 @@ def retryable_workflow_ids(status: dict[str, Any]) -> list[str]:
     ]
 
 
-def depot(*args: str) -> Any:
-    # stderr passes through, so a failed call explains itself in the job log.
-    result = subprocess.run(
-        ["depot", "ci", *args, "-o", "json"], check=True, stdout=subprocess.PIPE, text=True, timeout=CLI_TIMEOUT_SECONDS
-    )
-    return json.loads(result.stdout)
-
-
-def main() -> int:
+def main() -> None:
     repo, pr_number = os.environ["REPO"], os.environ["PR_NUMBER"]
-    statuses = (flag for status in ALL_STATUSES for flag in ("--status", status))
-    # Both commands print `null` when nothing matches, as for a run that has no workflow yet.
-    runs = depot("run", "list", "--repo", repo, "--pr", pr_number, "--trigger", "pull_request", "-n", "200", *statuses)
-    run_id = newest_run_id(runs or [])
-    workflow_ids = retryable_workflow_ids(depot("status", run_id) or {}) if run_id else []
+    run_id = newest_run_id(list_pr("run", repo, pr_number, ALL))
+    # `depot()` turns a `null` status into `[]`, as for a run that has no workflow yet.
+    workflow_ids = retryable_workflow_ids(depot("status", run_id, "-o", "json") or {}) if run_id else []
     for workflow_id in workflow_ids:
         sys.stdout.write(f"Retrying the failed and cancelled jobs of run {run_id} (workflow {workflow_id})\n")
-        depot("retry", run_id, "--failed", "--workflow", workflow_id)
+        depot("retry", run_id, "--failed", "--workflow", workflow_id, "-o", "json")
     if not workflow_ids:
         sys.stdout.write(f"::notice::PR {pr_number} has no failed or cancelled Depot jobs to retry.\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"retried={len(workflow_ids)}\n")
-    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

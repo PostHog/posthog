@@ -21,7 +21,9 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: .github/scripts/retry_depot_pr_run.py
+                  sparse-checkout: |
+                      .github/scripts/retry_depot_pr_run.py
+                      .github/scripts/cancel_superseded_depot_runs.py
                   sparse-checkout-cone-mode: false
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
             - name: Retry this PR's failed Depot jobs
