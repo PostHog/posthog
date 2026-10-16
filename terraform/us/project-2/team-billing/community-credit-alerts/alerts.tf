@@ -36,8 +36,9 @@ resource "posthog_hog_function" "community_credit_claim_failure" {
   hog         = "let res := fetch('https://slack.com/api/chat.postMessage', {\n  'body': {\n    'channel': inputs.channel,\n    'icon_emoji': inputs.icon_emoji,\n    'username': inputs.username,\n    'blocks': inputs.blocks,\n    'text': inputs.text\n  },\n  'method': 'POST',\n  'headers': {\n    'Authorization': f'Bearer {inputs.slack_workspace.access_token}',\n    'Content-Type': 'application/json'\n  }\n});\n\nif (res.status != 200 or res.body.ok == false) {\n  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');\n}"
 
   inputs_json = jsonencode({
+    # Slack shows this fallback text in notifications and can't set verbatim on it, so it carries no event values.
     "text" = {
-      "value"      = "${local.mentions} Community credit claim failed: {${local.message}} | {${local.details}} | Issue: ${local.issue_url}"
+      "value"      = "${local.mentions} Community credit claim failed"
       "templating" = "hog"
     }
     "blocks" = {
