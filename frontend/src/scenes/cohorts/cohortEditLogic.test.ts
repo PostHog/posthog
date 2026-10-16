@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { cohortBlockingWorkflowsModalLogic } from 'scenes/cohorts/cohortBlockingWorkflowsModalLogic'
 import { CohortLogicProps, REALTIME_POLL_INTERVAL_MS, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -58,6 +59,7 @@ const mockUsedInResponse: CohortUsedInResponseApi = {
     },
     insights: { results: [], total: 0, has_more: false },
     cohorts: { results: [], total: 0, has_more: false },
+    workflows: { results: [], total: 0, hidden: 0, has_more: false },
 }
 
 describe('cohortEditLogic', () => {
@@ -107,6 +109,15 @@ describe('cohortEditLogic', () => {
         })
 
         it('loads used-in references on mount before the cohort has resolved', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
+        })
+
+        it('treats a used-in response without a workflows block as no workflows', async () => {
+            const { workflows: _, ...olderResponse } = mockUsedInResponse
+            useMocks({ get: { '/api/projects/:team_id/cohorts/:id/used_in/': olderResponse } })
             await initCohortLogic({ id: 1 })
             await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
 
@@ -409,6 +420,115 @@ describe('cohortEditLogic', () => {
             },
             expect.anything()
         )
+    })
+
+    describe('workflows that rely on the cohort', () => {
+        const blockingWorkflows = {
+            results: [{ id: 'flow-1', name: 'Welcome series', status: 'active' }],
+            total: 2,
+            hidden: 1,
+            has_more: true,
+        }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/used_in/': {
+                        ...mockUsedInResponse,
+                        workflows: blockingWorkflows,
+                    },
+                    '/api/projects/:team_id/cohorts/:id/blocking_workflows/': blockingWorkflows,
+                },
+                patch: {
+                    '/api/projects/:team_id/cohorts/:id/': () => [
+                        400,
+                        { type: 'validation_error', code: 'cohort_used_by_workflows', detail: 'Blocked', attr: null },
+                    ],
+                },
+            })
+        })
+
+        it('lists the blocking workflows instead of deleting the cohort', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toMatchValues({
+                usedIn: expect.objectContaining({ workflows: blockingWorkflows }),
+            })
+
+            await expectLogic(logic, () => logic.actions.deleteCohort())
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([cohortsModel.actionTypes.deleteCohort])
+            expect(cohortBlockingWorkflowsModalLogic.values.blocking).toEqual({
+                action: 'delete',
+                workflows: blockingWorkflows,
+            })
+        })
+
+        it('deletes on the next attempt once the blocking workflows are gone', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toMatchValues({
+                usedIn: expect.objectContaining({ workflows: blockingWorkflows }),
+            })
+            useMocks({ get: { '/api/projects/:team_id/cohorts/:id/used_in/': mockUsedInResponse } })
+
+            await expectLogic(logic, () => logic.actions.deleteCohort()).toDispatchActions([
+                'deleteCohort',
+                'loadUsedIn',
+                'loadUsedInSuccess',
+            ])
+            await expectLogic(logic, () => logic.actions.deleteCohort()).toDispatchActions([
+                cohortsModel.actionTypes.deleteCohort,
+            ])
+        })
+
+        it('does nothing after the blocked save workflow check when the editor has closed', async () => {
+            let releaseLookup: () => void = () => {}
+            const lookupHeld = new Promise<void>((resolve) => {
+                releaseLookup = resolve
+            })
+            let lookupStarted: () => void = () => {}
+            const started = new Promise<void>((resolve) => {
+                lookupStarted = resolve
+            })
+            let lookupAnswered: () => void = () => {}
+            const answered = new Promise<void>((resolve) => {
+                lookupAnswered = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/blocking_workflows/': async () => {
+                        lookupStarted()
+                        await lookupHeld
+                        lookupAnswered()
+                        return [200, blockingWorkflows]
+                    },
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            // The cohorts list keeps the modal logic mounted after the editor closes.
+            cohortBlockingWorkflowsModalLogic.mount()
+            const deleteSpy = jest.spyOn(cohortsModel.actions, 'deleteCohort')
+
+            logic.actions.saveCohort()
+            await started
+            logic.unmount()
+            releaseLookup()
+            await answered
+            await expectLogic(cohortsModel).toFinishAllListeners()
+
+            expect(deleteSpy).not.toHaveBeenCalled()
+            expect(cohortBlockingWorkflowsModalLogic.values.blocking).toEqual(null)
+        })
+
+        it('lists the blocking workflows when the API refuses an edit that stops realtime updates', async () => {
+            await initCohortLogic({ id: 1 })
+
+            await expectLogic(logic, () => logic.actions.saveCohort()).toFinishAllListeners()
+            expect(cohortBlockingWorkflowsModalLogic.values.blocking).toEqual({
+                action: 'edit',
+                workflows: blockingWorkflows,
+            })
+            expect(lemonToast.error).not.toHaveBeenCalledWith('Blocked')
+        })
     })
 
     describe('form validation', () => {
