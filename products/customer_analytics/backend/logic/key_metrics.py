@@ -69,6 +69,12 @@ def _anchored(filters: Any, team: Team, anchor: datetime) -> Any:
     return anchored
 
 
+def _anchored_node(node: dict[str, Any], team: Team, anchor: datetime) -> dict[str, Any]:
+    if not node.get("properties"):
+        return node
+    return {**node, "properties": _anchored(node["properties"], team, anchor)}
+
+
 def _condition(node: dict[str, Any], team: Team, anchor: datetime) -> ast.Expr:
     if node["kind"] == "ActionsNode":
         match = parse_expr("matchesAction({id})", placeholders={"id": ast.Constant(value=int(node["id"]))})
@@ -169,6 +175,7 @@ def key_metrics(team: Team, user: User) -> list[KeyMetric] | None:
                 daily=points,
                 this_week=this_week,
                 last_week=last_week,
+                node=_anchored_node(nodes[key], team, anchor),
             )
         )
     return metrics
