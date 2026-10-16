@@ -437,6 +437,7 @@ class TestTrackReviewCompleted(BaseTest):
             patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
         ):
             gate.return_value.decide.return_value = decision
+            gate.return_value.record_small_change_streak.side_effect = lambda decision, **_: decision
             result = _gate_push(
                 GatePushInput(
                     team_id=self.team.id,
