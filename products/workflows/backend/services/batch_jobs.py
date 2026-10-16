@@ -1,39 +1,30 @@
 from collections.abc import Collection
-from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
 from django.db.models import Exists, OuterRef, Q, Subquery
 from django.utils import timezone
 
 import structlog
+from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
-from posthog.plugins.plugin_server_api import cancel_hog_flow_batch_job
+from posthog.plugins.plugin_server_api import resume_hog_flow_batch_job
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.facade.contracts import WorkflowBatchJob, WorkflowBatchJobNotFound
 from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
-from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import (
-    batch_job_audience_filters,
-    dispatch_batch_job,
-)
+from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import batch_job_audience_filters
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.services.batch_audience_cohorts import (
     realtime_audience_cohort,
     realtime_cohort_is_ready,
 )
 
-if TYPE_CHECKING:
-    from products.cohorts.backend.models.cohort import Cohort
-
 logger = structlog.get_logger(__name__)
-
-# A run waits this long for its realtime cohort to finish calculating, then fails.
-REALTIME_COHORT_WAIT_LIMIT = timedelta(hours=24)
 
 
 def to_batch_job(job: HogFlowBatchJob) -> WorkflowBatchJob:
@@ -144,73 +135,47 @@ def hog_flow_ids_with_broadcast_status(*, team_id: int, statuses: Collection[str
     return list(queryset.filter(combined).values_list("id", flat=True))
 
 
-def cancel_waiting_batch_job(*, team_id: int, batch_job_id: UUID) -> bool:
-    """Cancel a run that still waits for its realtime cohort. False when it already left that state."""
-    return (
-        HogFlowBatchJob.objects.filter(team_id=team_id, pk=batch_job_id, status=HogFlowBatchJobState.WAITING).update(
-            status=HogFlowBatchJobState.CANCELLED
-        )
-        == 1
-    )
+REALTIME_COHORT_RESUMES = Counter(
+    "workflows_realtime_cohort_resume_total",
+    "Batch runs woken after their realtime cohort finished calculating, by the CDP API's outcome.",
+    labelnames=["outcome"],
+)
 
 
-def dispatch_batch_jobs_waiting_for_cohorts() -> None:
-    """Start each run that waits for its realtime cohort, once that cohort's membership is calculated.
+def resume_batch_jobs_waiting_for_cohort(*, team_id: int, cohort_id: int) -> None:
+    """Wake the parked runs that wait for this realtime cohort, once it is ready.
 
-    Every waiting run is checked on each pass, so runs whose cohorts are still calculating don't
-    hold back the rest. A run whose workflow stopped being active is cancelled, and a run that
-    waits past REALTIME_COHORT_WAIT_LIMIT fails.
+    Does nothing while the cohort still calculates. A run the CDP API confirms awake moves to queued.
+    Raises after trying every run if any resume failed, so the caller retries; a second resume of the
+    same run is a no-op.
     """
-    waiting = (
-        HogFlowBatchJob.objects.filter(status=HogFlowBatchJobState.WAITING)
-        .select_related("team", "hog_flow")
-        .order_by("created_at")
-    )
+    cohort = Cohort.objects.filter(pk=cohort_id, team_id=team_id, deleted=False).select_related("team").first()
+    if cohort is None or not realtime_cohort_is_ready(cohort):
+        return
+    waiting = HogFlowBatchJob.objects.filter(
+        status=HogFlowBatchJobState.WAITING, team__project_id=cohort.team.project_id
+    ).select_related("team", "hog_flow")
+    errors: list[Exception] = []
     for job in waiting.iterator(chunk_size=500):
-        still_waiting = HogFlowBatchJob.objects.filter(pk=job.pk, status=HogFlowBatchJobState.WAITING)
-        if job.hog_flow.status != HogFlow.State.ACTIVE:
-            still_waiting.update(status=HogFlowBatchJobState.CANCELLED, updated_at=timezone.now())
+        audience_cohort = realtime_audience_cohort(job.team.project_id, batch_job_audience_filters(job))
+        if audience_cohort is None or audience_cohort.pk != cohort_id:
             continue
-        realtime_cohort = realtime_audience_cohort(job.team.project_id, batch_job_audience_filters(job))
-        if realtime_cohort is not None and not realtime_cohort_is_ready(realtime_cohort):
-            if job.created_at < timezone.now() - REALTIME_COHORT_WAIT_LIMIT:
-                logger.warning("realtime_cohort_wait_expired", batch_job_id=str(job.id), cohort_id=realtime_cohort.pk)
-                still_waiting.update(status=HogFlowBatchJobState.FAILED, updated_at=timezone.now())
-            continue
-        _dispatch_waiting_batch_job(job, realtime_cohort)
-
-
-def _dispatch_waiting_batch_job(job: HogFlowBatchJob, realtime_cohort: "Cohort | None") -> None:
-    # The row lock makes a stop that arrives during the dispatch wait for it. The stop then finds
-    # the run queued and cancels its resolver, instead of marking a run cancelled that still sends.
-    with transaction.atomic():
-        claimed = (
-            HogFlowBatchJob.objects.select_for_update(skip_locked=True)
-            .filter(pk=job.pk, status=HogFlowBatchJobState.WAITING)
-            .exists()
-        )
-        if not claimed:
-            return
         try:
-            dispatch_batch_job(job, realtime_cohort).raise_for_status()
-            status = HogFlowBatchJobState.QUEUED
+            response = resume_hog_flow_batch_job(
+                team_id=job.team_id, hog_flow_id=str(job.hog_flow_id), batch_job_id=str(job.id)
+            )
+            outcome = str(response.json().get("outcome", f"http_{response.status_code}"))
         except Exception as error:
-            # The CDP API may have enqueued the resolver before the error, so a retry could send
-            # twice. The run fails only once the CDP API confirms nothing of it runs. Otherwise it
-            # stays queued, where a stop still reaches the resolver.
-            logger.exception("waiting_batch_job_dispatch_failed", batch_job_id=str(job.id))
+            REALTIME_COHORT_RESUMES.labels(outcome="error").inc()
             capture_exception(error)
-            status = HogFlowBatchJobState.FAILED if _stop_resolver(job) else HogFlowBatchJobState.QUEUED
-        HogFlowBatchJob.objects.filter(pk=job.pk).update(status=status, updated_at=timezone.now())
-
-
-def _stop_resolver(job: HogFlowBatchJob) -> bool:
-    """Whether the CDP API confirmed that no resolver or run of this batch is left to stop."""
-    try:
-        response = cancel_hog_flow_batch_job(
-            team_id=job.team_id, hog_flow_id=str(job.hog_flow_id), batch_job_id=str(job.id)
-        )
-        return response.status_code == 200 and bool(response.json().get("done"))
-    except Exception as error:
-        capture_exception(error)
-        return False
+            errors.append(error)
+            continue
+        REALTIME_COHORT_RESUMES.labels(outcome=outcome).inc()
+        if outcome in ("resumed", "already_resumed"):
+            HogFlowBatchJob.objects.filter(pk=job.pk, status=HogFlowBatchJobState.WAITING).update(
+                status=HogFlowBatchJobState.QUEUED, updated_at=timezone.now()
+            )
+        else:
+            logger.warning("realtime_cohort_resume_not_delivered", batch_job_id=str(job.id), outcome=outcome)
+    if errors:
+        raise errors[0]

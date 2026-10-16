@@ -1,6 +1,7 @@
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -67,7 +68,19 @@ def batch_job_audience_filters(job: HogFlowBatchJob) -> dict:
     }
 
 
-def dispatch_batch_job(job: HogFlowBatchJob, realtime_cohort: "Cohort | None") -> "requests.Response":
+# A run waits this long for its realtime cohort to finish calculating, then fails.
+REALTIME_COHORT_WAIT_LIMIT = timedelta(hours=24)
+
+
+def dispatch_batch_job(
+    job: HogFlowBatchJob, realtime_cohort: "Cohort | None", *, wait_for_cohort: bool = False
+) -> "requests.Response":
+    cohort_target: dict | None = None
+    if realtime_cohort is not None:
+        cohort_target = {"id": realtime_cohort.pk, "team_id": realtime_cohort.team_id}
+        if wait_for_cohort:
+            # The resolver parks until a resume wakes it, and fails the run at this instant otherwise.
+            cohort_target["wait_until"] = (job.created_at + REALTIME_COHORT_WAIT_LIMIT).isoformat()
     return create_batch_hog_flow_job_invocation(
         team_id=job.team.id,
         hog_flow_id=job.hog_flow.id,
@@ -83,7 +96,7 @@ def dispatch_batch_job(job: HogFlowBatchJob, realtime_cohort: "Cohort | None") -
         # The audience snapshot the confirm check validated - the resolver dispatches from
         # this, not the live trigger, so a trigger edit racing the dispatch can't widen it.
         filters=job.filters,
-        realtime_cohort={"id": realtime_cohort.pk, "team_id": realtime_cohort.team_id} if realtime_cohort else None,
+        realtime_cohort=cohort_target,
     )
 
 
@@ -91,14 +104,14 @@ def dispatch_batch_job(job: HogFlowBatchJob, realtime_cohort: "Cohort | None") -
 def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
     if created:
         realtime_cohort = realtime_audience_cohort(instance.team.project_id, batch_job_audience_filters(instance))
-        if realtime_cohort is not None and not realtime_cohort_is_ready(realtime_cohort):
-            # The cohort's membership is partial until it finishes calculating. The run waits, and
-            # dispatch_batch_jobs_waiting_for_cohorts starts it once the cohort is ready.
+        # The cohort's membership is partial until it finishes calculating, so its resolver parks until
+        # the cohort's ready signal resumes it.
+        wait_for_cohort = realtime_cohort is not None and not realtime_cohort_is_ready(realtime_cohort)
+        if wait_for_cohort:
             HogFlowBatchJob.objects.filter(pk=instance.pk).update(status=HogFlowBatchJobState.WAITING)
             instance.status = HogFlowBatchJobState.WAITING
-            return
         try:
-            dispatch_batch_job(instance, realtime_cohort)
+            dispatch_batch_job(instance, realtime_cohort, wait_for_cohort=wait_for_cohort)
         except Exception as e:
             logger.exception(
                 "Failed to create batch hogflow job invocation",
@@ -106,3 +119,13 @@ def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
                 error=str(e),
             )
             raise
+        if wait_for_cohort and realtime_cohort is not None:
+            # The cohort can finish between the check above and the park, and its ready signal then finds
+            # no parked resolver. A resume check after the park covers that; it does nothing while the
+            # cohort still calculates.
+            from products.workflows.backend.tasks.batch_jobs import (  # noqa: PLC0415 — the task module imports this model
+                resume_batch_jobs_waiting_for_realtime_cohort,
+            )
+
+            team_id, cohort_id = realtime_cohort.team_id, realtime_cohort.pk
+            transaction.on_commit(lambda: resume_batch_jobs_waiting_for_realtime_cohort.delay(team_id, cohort_id))

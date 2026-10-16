@@ -142,7 +142,6 @@ from products.workflows.backend.facade.activity import (
     resume_workflow_email_sending,
 )
 from products.workflows.backend.facade.batch_jobs import (
-    cancel_waiting_batch_job,
     create_batch_job,
     get_batch_job,
     list_batch_jobs,
@@ -6613,12 +6612,6 @@ class HogFlowViewSet(
         }
         if batch_job.status not in non_terminal:
             return Response({"status": batch_job.status, "marked": 0, "remaining": 0, "done": True})
-        if batch_job.status == HogFlowBatchJobState.WAITING and cancel_waiting_batch_job(
-            team_id=self.team_id, batch_job_id=batch_job.id
-        ):
-            # A run that waits for its realtime cohort was never dispatched, so there is nothing to stop.
-            return Response({"status": HogFlowBatchJobState.CANCELLED, "marked": 0, "remaining": 0, "done": True})
-
         # One CDP call flags a bounded chunk of rows; a large batch needs several. Same
         # shape as cancel_invocations — `done: false` after the cap tells the caller to
         # request again for the rest.

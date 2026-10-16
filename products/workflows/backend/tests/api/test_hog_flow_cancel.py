@@ -133,8 +133,10 @@ class TestHogFlowCancelBatchJob(APIBaseTest):
             f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/batch_jobs/{batch_job_id}/cancel/"
         )
 
-    def test_cancel_active_batch_job_flags_run_and_marks_cancelled(self):
-        batch_job = self._create_batch_job("active")
+    # A waiting run's resolver is parked on its realtime cohort, so stopping it goes through the worker too.
+    @parameterized.expand([("active",), ("waiting",)])
+    def test_cancel_running_batch_job_flags_run_and_marks_cancelled(self, job_status):
+        batch_job = self._create_batch_job(job_status)
 
         with patch(CANCEL_BATCH_PROXY, return_value=_cdp_response(marked=5)) as mock_cancel:
             response = self._cancel(batch_job.id)
@@ -146,19 +148,6 @@ class TestHogFlowCancelBatchJob(APIBaseTest):
             hog_flow_id=str(self.hog_flow.id),
             batch_job_id=str(batch_job.id),
         )
-        batch_job.refresh_from_db()
-        assert batch_job.status == "cancelled"
-
-    def test_cancel_waiting_batch_job_marks_cancelled_without_the_worker(self):
-        # A run that waits for its realtime cohort was never dispatched, so the worker has nothing to stop.
-        batch_job = self._create_batch_job("waiting")
-
-        with patch(CANCEL_BATCH_PROXY) as mock_cancel:
-            response = self._cancel(batch_job.id)
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["status"] == "cancelled"
-        mock_cancel.assert_not_called()
         batch_job.refresh_from_db()
         assert batch_job.status == "cancelled"
 
