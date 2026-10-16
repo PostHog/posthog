@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -41,6 +41,7 @@ import { appendSharedTrailingSteps, mayBeAppendedLater } from './sharedSteps'
 import { buildSimpleOnboardingFlow, SIMPLE_ONBOARDING_PRODUCT_KEY } from './simple/simpleOnboardingFlow'
 import { onboardingProviderRegistry } from './stepProviderRegistry'
 import { type OnboardingFlowContext, type OnboardingStepDescriptor } from './types'
+import { buildWelcomeEmbeddedFlow } from './welcome/welcomeEmbeddedFlow'
 
 /** Interface kept for step components that import it. */
 export interface OnboardingStepComponentType<P = object> extends React.FC<P> {
@@ -80,6 +81,7 @@ export interface onboardingLogicValues {
     flowVariant: OnboardingFlowVariant
     hasNextStep: boolean
     hasPreviousStep: boolean
+    installStepReturnUrl: string
     isCompleting: boolean
     isOnSimpleFlowArm: boolean
     isSkippingOnboarding: boolean
@@ -231,6 +233,11 @@ export interface onboardingLogicMeta {
             currentFlowStep: OnboardingStepDescriptor | null,
             secondaryProductKeys: ProductKey[]
         ) => Breadcrumb[]
+        installStepReturnUrl: (
+            flowVariant: OnboardingFlowVariant,
+            productKey: ProductKey | null,
+            currentStepProductKey: ProductKey | null
+        ) => string
         onCompleteOnboardingRedirectUrl: (
             flowVariant: OnboardingFlowVariant,
             productKey: ProductKey | null,
@@ -489,11 +496,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     }
                     return provider.steps({ ...baseCtx, role: i === 0 ? 'primary' : 'secondary' })
                 })
-                // The welcome page shows one product's own setup. Plans and invites already had their
-                // turn in the onboarding that led there.
                 const allSteps =
                     flowVariant === 'embedded'
-                        ? productSteps
+                        ? buildWelcomeEmbeddedFlow(productSteps, primary)
                         : appendSharedTrailingSteps(
                               productSteps,
                               { ...baseCtx, role: 'primary' },
@@ -668,6 +673,29 @@ export const onboardingLogic = kea<onboardingLogicType>([
                         iconType: 'action',
                     },
                 ]
+            },
+        ],
+        // Where an OAuth round trip started from the install step returns to, so the user lands back in
+        // the same flow instead of the default per-product one.
+        installStepReturnUrl: [
+            (s) => [s.flowVariant, s.productKey, s.currentStepProductKey],
+            (
+                flowVariant: OnboardingFlowVariant,
+                productKey: ProductKey | null,
+                currentStepProductKey: ProductKey | null
+            ): string => {
+                if (flowVariant === 'simple') {
+                    return combineUrl(urls.simpleOnboarding(), {
+                        step: `${OnboardingStepKey.INSTALL}:${SIMPLE_ONBOARDING_PRODUCT_KEY}`,
+                    }).url
+                }
+                if (flowVariant === 'embedded') {
+                    return combineUrl(urls.onboardingWelcome(), { product: productKey }).url
+                }
+                return urls.onboarding({
+                    productKey: currentStepProductKey ?? undefined,
+                    stepKey: OnboardingStepKey.INSTALL,
+                })
             },
         ],
         onCompleteOnboardingRedirectUrl: [
