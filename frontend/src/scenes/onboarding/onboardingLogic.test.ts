@@ -716,10 +716,14 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.flowVariant).toBe(flowVariant)
         })
 
-        it('the simple flow is install then MCP, and advancing stays on its own URL', async () => {
+        it('the simple flow is install, MCP, then invite, and advancing stays on its own URL', async () => {
             router.actions.push(urls.simpleOnboarding())
             await expectLogic(logic).toFinishAllListeners()
-            expect(flowIds()).toEqual(['install:product_analytics', 'mcp:product_analytics'])
+            expect(flowIds()).toEqual([
+                'install:product_analytics',
+                'mcp:product_analytics',
+                'invite_teammates:product_analytics',
+            ])
 
             logic.actions.goToNextStep()
             await expectLogic(logic).toFinishAllListeners()

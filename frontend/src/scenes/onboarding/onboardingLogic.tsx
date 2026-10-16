@@ -466,7 +466,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     return []
                 }
                 if (flowVariant === 'simple') {
-                    return buildSimpleOnboardingFlow(billingProduct, shouldShowBilling)
+                    return buildSimpleOnboardingFlow(billingProduct, shouldShowBilling, canInviteTeammates)
                 }
                 const orderedProducts: ProductKey[] = [primary, ...secondaries]
                 const baseCtx: Omit<OnboardingFlowContext, 'role'> = {
