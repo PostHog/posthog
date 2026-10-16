@@ -13891,25 +13891,29 @@ snapshots:
     scenes-app-replay-vision--scanner-editor-details--light:
         hash: v1.k794b7964.6a0bec1cca5a2d30c5ae7ad47d071406b55c337c4b6574d0c601d97ef5f56749.ebPyjAyNgVrgCHUvj3sL2nLQm23sw5Pe28YYdK94Gtw
     scenes-app-replay-vision--scanner-editor-goal-flow--dark:
-        hash: v1.k794b7964.4e4f1adef25e8ecdab67f67e509caebdfbb8098500f3a070d89a695ac8f91852.mkbyvXbnVWikExo74IoI1pwSOKN6uuAYkQ9Gu9TJ0pk
+        hash: v1.k794b7964.54704e12a4eb28c568f1d7341371eb85b8626b88258f316cf635286ebb4e0eb8.JtMuT9-1OV64NzYC-PcNEqIErarlvklO9kSY4o3N37g
     scenes-app-replay-vision--scanner-editor-goal-flow--light:
-        hash: v1.k794b7964.29d093aecbf976edb75dc11d72308bd72779a2c87bc669f3d98596748d72bb77.d4netmI6e388wifkra4IA4HOOuF8Et-oNrIYegrxM5Q
+        hash: v1.k794b7964.25084193b6d9cab0c0a3dc32fd6c37e7016558e4c3fba4c86b1131fcc289957f.A9CGMyFwJTyhWBfMhdee4G0z9xIA6TKpRSzXPzQy4c0
     scenes-app-replay-vision--scanner-editor-goal-flow-budget--dark:
-        hash: v1.k794b7964.7057b5e8825ff9fb5bf4397dd4b40f423038367cb81aebc519ef62c68bd78fd6.lDf8ThWKFgRsClSogBWyLfDEtkB3tRA1diKxBHqAfTo
+        hash: v1.k794b7964.ed055bebedf289193506b4672a715d170cd3e810ca097ff1a5e65335ca4516b2.4SP2GfwEyX728qJhrzeuRl7LSSRFU_2jKK_IPWdimeE
     scenes-app-replay-vision--scanner-editor-goal-flow-budget--light:
-        hash: v1.k794b7964.644e1350b0953c9df13cf881fde9f63e6b6c7831241f0792e0a17c75be410221.VD8tZXOJbq8zsFeLTpTHDVCeTGIKSlgmUoVh71RDwZc
+        hash: v1.k794b7964.0f56f5b7de26046ba909c3eb42adeaefe0e317cc59c5f51e2c8158c8a07b71e0.2yS8pSdT8665oU61jJ6s4aR-7fgYIqXjruZegY45PjQ
+    scenes-app-replay-vision--scanner-editor-goal-flow-experiment-picker--dark:
+        hash: v1.k794b7964.5eac4fee3e088daf0f204dcb2896bee08c82769ceebb309b83b5eb8a1e1665d4.dfXnGv5RS9Zij8XqzUN_Zg5gtl9pPXu0AKbOcij9MqI
+    scenes-app-replay-vision--scanner-editor-goal-flow-experiment-picker--light:
+        hash: v1.k794b7964.1d9c603ab0b9b663aad7ba9a9f7f7f411c9701e7ef6dab18a48ba86da72e6e92.i8xJt0k7zeGGUcL7HiMpuLz7HjzV0RZiTgDY-O9aLWQ
     scenes-app-replay-vision--scanner-editor-goal-flow-free-credits-used--dark:
-        hash: v1.k794b7964.4e020db337e427c01e8d7870cd07c7c12b27ea8715b0b2e945d45b7444f05852.nHfzx6tV51Cj5FLdfFWGGO_UVt2-5CHAFKh5Tzsq7x8
+        hash: v1.k794b7964.26d07fac294f96d1105726af596f2d43c688400a29bff7ccc346b9a06f2a00e3.yWrxPU0zdX_M24CSIxtQJPhjQ9HOfVF0-YXr7j8CuYE
     scenes-app-replay-vision--scanner-editor-goal-flow-free-credits-used--light:
-        hash: v1.k794b7964.ecb94f70f6b13b80d47a3a7f59b45c1f9a9012ecef1ff0a56fbd8eba088cad39.pnydN1giJjbyCc7o0n98joUjg46NcA7L4NKWGkqbvuA
+        hash: v1.k794b7964.b707385d0abb1de4de312429fbf86f73995f23d46c9dc5b234d507e2a0912deb.GC9QylMvwVKSGOgRv01k3tVf1e8LZSUvdGRS1DVq_-U
     scenes-app-replay-vision--scanner-editor-goal-overview--dark:
         hash: v1.k794b7964.f01ae73fc01d6f402ea1587d8fa62cd0195288283e5f02640a7d533b4ad09bfd.udZKrn75onISEkfnNqDPgFTA1zHMAm5n383-eNRdoPw
     scenes-app-replay-vision--scanner-editor-goal-overview--light:
         hash: v1.k794b7964.9522d0cf5a021637d694e64b47499b3ea59b1f4190b418a3c956edd230bb6674.jMbMAjH6vT_UynFlvsCkdNSpKOI3kiY2sEvjaYd6458
     scenes-app-replay-vision--scanner-editor-goal-overview-experiment--dark:
-        hash: v1.k794b7964.eb9e640621c319777e9d0f35160e175e5740430705ed29e2b00190a416916561.LnXPwb9D0h9JoDXETFIZmQ9mX_kexX838Nm7XfM33TA
+        hash: v1.k794b7964.ff99ba79fbfec7a00ba628dd14684009f265db243e1229b5c310b0ddff910761.LiBVYYeSabHpDOdizYDUvhClIU-BHbV9bHqX7eH722Y
     scenes-app-replay-vision--scanner-editor-goal-overview-experiment--light:
-        hash: v1.k794b7964.d2d2658ddbf2aace36438d92fa5aa1689badeb9445c1c55322234d0e3a0d66ce.AMSsv3Q7mbqIiVnfFXikAe3a0i4NMkDGtc9JJc-ZE_U
+        hash: v1.k794b7964.c7f92ae93655de4db16599b2c0dab86aba90f532e1f1fcd8a84f356cbe93a913.BqywSiFVge-leDfmo8pelcW3VgQZFZRCHiEmCxS2jqI
     scenes-app-replay-vision--scanner-editor-goal-overview-free-only--dark:
         hash: v1.k794b7964.c3c29df373cd8e663770b097f02a4772ffc2ba0c51e10a245fb5cf8ef7bdff68.rPAbWs7-3bfCc9X1HQcY30nfQscWET-stKmszLHV-fo
     scenes-app-replay-vision--scanner-editor-goal-overview-free-only--light:
