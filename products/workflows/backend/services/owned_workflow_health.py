@@ -3,7 +3,6 @@ from datetime import timedelta
 from django.db.models import Count
 from django.utils import timezone
 
-from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source
 from posthog.models import Team, User
 
 from products.workflows.backend.facade.contracts import OwnedWorkflowHealth
@@ -33,7 +32,10 @@ def list_owned_workflow_health(*, team: Team, user: User, limit: int) -> list[Ow
         .annotate(count=Count("id"))
         .values_list("hog_flow_id", "count")
     )
-    runs = fetch_app_metric_totals_by_source(
+    # The workflows facade loads during django.setup(), and app_metrics2 pulls in posthog.schema.
+    from posthog.api import app_metrics2  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+    runs = app_metrics2.fetch_app_metric_totals_by_source(
         team_id=team.id, app_source="hog_flow", after=timezone.now() - HEALTH_WINDOW
     )
     return [
