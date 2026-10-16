@@ -2,6 +2,8 @@
 
 pub mod envelope;
 pub mod gate;
+#[cfg(feature = "store")]
+pub mod keys;
 pub mod refs;
 pub mod seal;
 pub mod session;
