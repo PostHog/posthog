@@ -122,7 +122,7 @@ impl TopicOffsetLedger {
                 Err(Rejection::Stale { stamp, generation })
             } else {
                 match ledger.charge(offset_charges) {
-                    Ok(_) => Ok(ledger.held()),
+                    Ok(_) => Ok((ledger.held(), ledger.uncommitted())),
                     Err(error) => {
                         let held = ledger.held();
                         *ledger = PartitionOffsetLedger::new(generation + 1);
@@ -139,10 +139,10 @@ impl TopicOffsetLedger {
         };
         // Outside the lock, and on every path, so no caller has to remember.
         match result {
-            Ok(held) => publish_held(topic_partition, held),
+            Ok((_, uncommitted)) => publish_uncommitted(topic_partition, uncommitted),
             Err(rejection) => count_rejection("charge", rejection),
         }
-        result
+        result.map(|(held, _)| held)
     }
 
     /// Settle one batch's offsets, stamped with the generation they were
@@ -201,15 +201,39 @@ impl TopicOffsetLedger {
     /// window. The drained offsets leave the window, so the gauges follow
     /// them down.
     pub fn take_frontier(&self, topic_partition: &TopicPartition) -> Option<TakenFrontier> {
-        let (taken, held) = {
+        let (taken, uncommitted) = {
             let mut partitions = self.partitions.lock().unwrap();
             let ledger = partitions.get_mut(topic_partition)?;
             let taken = ledger.take_frontier()?;
-            (taken, ledger.held())
+            (taken, ledger.uncommitted())
         };
-        publish_held(topic_partition, held);
+        publish_uncommitted(topic_partition, uncommitted);
         report_gap_offsets(topic_partition, &taken);
         Some(taken)
+    }
+
+    /// The commit covering the partition's takes so far has gone out.
+    pub fn release_taken(&self, topic_partition: &TopicPartition) {
+        let uncommitted = {
+            let mut partitions = self.partitions.lock().unwrap();
+            let Some(ledger) = partitions.get_mut(topic_partition) else {
+                return;
+            };
+            ledger.release_taken();
+            ledger.uncommitted()
+        };
+        publish_uncommitted(topic_partition, uncommitted);
+    }
+
+    /// Everything the partition has charged and not yet released; nothing
+    /// without a ledger.
+    pub fn uncommitted(&self, topic_partition: &TopicPartition) -> Held {
+        self.partitions
+            .lock()
+            .unwrap()
+            .get(topic_partition)
+            .map(PartitionOffsetLedger::uncommitted)
+            .unwrap_or_default()
     }
 
     /// What the partition's window still holds; nothing without a ledger.
@@ -248,32 +272,31 @@ impl TopicOffsetLedger {
                 .fetch_add(forgotten.len() as u64, Ordering::Relaxed);
         }
         for topic_partition in forgotten {
-            publish_held(&topic_partition, Held::default());
+            publish_uncommitted(&topic_partition, Held::default());
         }
     }
 }
 
-/// Publish what a partition's window holds.
-fn publish_held(topic_partition: &TopicPartition, held: Held) {
+fn publish_uncommitted(topic_partition: &TopicPartition, uncommitted: Held) {
     let (topic, partition) = labels(topic_partition);
     gauge!(
         UNCOMMITTED_OFFSETS,
         "topic" => topic.clone(),
         "partition" => partition.clone()
     )
-    .set(held.offsets as f64);
+    .set(uncommitted.offsets as f64);
     gauge!(
         UNCOMMITTED_EVENTS,
         "topic" => topic.clone(),
         "partition" => partition.clone()
     )
-    .set(held.charge.events as f64);
+    .set(uncommitted.charge.events as f64);
     gauge!(
         UNCOMMITTED_BYTES,
         "topic" => topic,
         "partition" => partition
     )
-    .set(held.charge.bytes as f64);
+    .set(uncommitted.charge.bytes as f64);
 }
 
 fn report_gap_offsets(topic_partition: &TopicPartition, taken: &TakenFrontier) {

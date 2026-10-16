@@ -79,8 +79,6 @@ pub struct TakenFrontier {
     pub gap_offset_count: usize,
 }
 
-/// What a window holds: the offsets charged and not yet drained by
-/// `take_frontier`, and the charge they carry.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Held {
     pub offsets: usize,
@@ -119,6 +117,7 @@ pub struct PartitionOffsetLedger {
     /// Charge of every slot in the window, kept current on every charge and
     /// take so `held` stays O(1).
     held_charge: Charge,
+    taken: Held,
     /// A dense sliding window over one contiguous offset range: `charge`
     /// appends at the back, `take_frontier` pops the front, and `complete`
     /// indexes by offset minus `base_offset`. Every operation is amortized constant
@@ -133,6 +132,7 @@ impl PartitionOffsetLedger {
             base_offset: None,
             completed_prefix_len: 0,
             held_charge: Charge::ZERO,
+            taken: Held::default(),
             slots: VecDeque::new(),
         }
     }
@@ -242,6 +242,8 @@ impl PartitionOffsetLedger {
             }
         }
         self.held_charge -= charge;
+        self.taken.offsets += self.completed_prefix_len;
+        self.taken.charge += charge;
         self.base_offset = Some(frontier_offset);
         self.completed_prefix_len = 0;
         Some(TakenFrontier {
@@ -259,6 +261,18 @@ impl PartitionOffsetLedger {
             offsets: self.slots.len(),
             charge: self.held_charge,
         }
+    }
+
+    /// The window plus the takes not yet released.
+    pub fn uncommitted(&self) -> Held {
+        Held {
+            offsets: self.slots.len() + self.taken.offsets,
+            charge: self.held_charge + self.taken.charge,
+        }
+    }
+
+    pub fn release_taken(&mut self) {
+        self.taken = Held::default();
     }
 }
 
@@ -444,6 +458,29 @@ mod tests {
                 }
             }
         );
+    }
+
+    #[test]
+    fn a_take_stays_uncommitted_until_it_is_released() {
+        let mut ledger = PartitionOffsetLedger::new(1);
+        ledger.charge([charge(0), charge(1), charge(2)]).unwrap();
+        ledger.complete([Offset(0), Offset(1)]).unwrap();
+        ledger.take_frontier().unwrap();
+
+        assert_eq!(ledger.held().offsets, 1);
+        assert_eq!(
+            ledger.uncommitted(),
+            Held {
+                offsets: 3,
+                charge: Charge {
+                    events: 3,
+                    bytes: 30
+                }
+            }
+        );
+
+        ledger.release_taken();
+        assert_eq!(ledger.uncommitted(), ledger.held());
     }
 
     #[test]
