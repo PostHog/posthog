@@ -741,6 +741,9 @@ _SANDBOX_DEADLINE_REASONS = {
     "snapshot_missing",
     "provision_failed",
     "snapshot_unused",
+    "agent_activity",
+    "activity_during_snapshot",
+    "activity_during_handoff",
 }
 
 

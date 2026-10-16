@@ -3005,6 +3005,16 @@ export class AgentServer {
         "Could not load task run to determine its initial prompt",
       );
     }
+    const acknowledgementPath = this.pendingPromptAcknowledgementPath(taskRun);
+    if (acknowledgementPath) {
+      try {
+        await access(acknowledgementPath);
+        await this.clearPendingInitialPromptState(payload, taskRun);
+        return { taskRun, action: "idle" };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
     const taskRunState = taskRun.state;
     const prewarmed = taskRunState.prewarmed === true;
     const sameRunResume =
@@ -3778,6 +3788,30 @@ export class AgentServer {
     return pendingKeys.length > 0 ? pendingKeys : null;
   }
 
+  private pendingPromptAcknowledgementPath(
+    taskRun: TaskRun | null,
+  ): string | null {
+    if (
+      !this.config.agentStateDir ||
+      !taskRun ||
+      !this.getClearedPendingUserState(taskRun)
+    )
+      return null;
+    const state = taskRun.state;
+    const key = createHash("sha256")
+      .update(
+        JSON.stringify([
+          taskRun.id,
+          state.pending_user_message_id,
+          state.pending_user_message_ts,
+          state.pending_user_message,
+          state.pending_user_artifact_ids,
+        ]),
+      )
+      .digest("hex");
+    return join(this.config.agentStateDir, "prompt-acknowledgements", key);
+  }
+
   private async clearPendingInitialPromptState(
     payload: JwtPayload,
     taskRun: TaskRun | null,
@@ -3785,6 +3819,12 @@ export class AgentServer {
     const stateRemoveKeys = this.getClearedPendingUserState(taskRun);
     if (!stateRemoveKeys) {
       return;
+    }
+
+    const acknowledgementPath = this.pendingPromptAcknowledgementPath(taskRun);
+    if (acknowledgementPath) {
+      await mkdir(dirname(acknowledgementPath), { recursive: true });
+      await writeFile(acknowledgementPath, "");
     }
 
     try {
