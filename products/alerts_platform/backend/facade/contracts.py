@@ -318,6 +318,60 @@ class PlatformOwnershipHandover:
     at: datetime
 
 
+class HandbackRefusal(StrEnum):
+    """Why the platform keeps an alert its source asked for back."""
+
+    # Firing episodes are keyed per stack, so a firing alert stays until it resolves.
+    FIRING = "firing"
+    # A platform check may be running and could record or notify after the handback.
+    CHECK_DUE = "check_due"
+    # A handback carries one alert on an interval cadence. A calendar schedule or grouped alerts stay.
+    NOT_PORTABLE = "not_portable"
+
+
+@frozen
+class PlatformHandback:
+    """The runtime state the source carries on from when the platform hands an alert back."""
+
+    state: PlatformAlertState
+    last_notified_at: datetime | None
+    consecutive_failures: int
+    next_check_at: datetime | None
+
+
+@frozen
+class PlatformAlertRuntime:
+    """Where an alert the platform owns stands, for a source whose API still shows the alert."""
+
+    state: PlatformAlertState
+    last_notified_at: datetime | None
+    consecutive_failures: int
+    next_check_at: datetime | None
+
+
+@frozen
+class PlatformStateChange:
+    """One check that moved an alert the platform owns from one state to another."""
+
+    occurred_at: datetime
+    previous_state: PlatformAlertState
+    state: PlatformAlertState
+
+
+@frozen
+class PlatformAlertHistory:
+    """What the platform's check history says about an alert it owns, over one window.
+
+    An alert the platform did not check in the window has no history at all, so a source can
+    tell "not checked here" from "checked and succeeded".
+    """
+
+    state_changes: tuple[PlatformStateChange, ...]
+    last_checked_at: datetime
+    # None when the last check in the window succeeded.
+    last_error_message: str | None
+
+
 class SkipReason(StrEnum):
     """Why a check reached an outcome without a query answering it.
 
