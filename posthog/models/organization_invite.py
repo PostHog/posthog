@@ -73,6 +73,11 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         null=True,
     )
     emailing_attempt_made = models.BooleanField(default=False)
+    email_suppressed = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="True when the email provider reported the target address as suppressed at send time.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     message = models.TextField(blank=True, null=True)

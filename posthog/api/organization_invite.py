@@ -44,7 +44,7 @@ from posthog.rate_limit import (
     OrganizationInviteBurstThrottle,
     OrganizationInviteSustainedThrottle,
 )
-from posthog.tasks.email import send_invite
+from posthog.tasks.email import check_invite_email_suppression, send_invite
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, ordered_access_levels
 
@@ -175,6 +175,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "target_email",
             "first_name",
             "emailing_attempt_made",
+            "email_suppressed",
             "level",
             "is_expired",
             "created_by",
@@ -188,6 +189,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "emailing_attempt_made",
+            "email_suppressed",
             "created_at",
             "updated_at",
         ]
@@ -326,6 +328,8 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             invite.emailing_attempt_made = True
             send_invite(invite_id=invite.id)
             invite.save()
+            # Runs after the save so the save cannot overwrite the result. The lookup can take seconds, so it stays off the request path.
+            check_invite_email_suppression.delay(str(invite.id))
 
         report_team_member_invited(
             self.context["request"].user,

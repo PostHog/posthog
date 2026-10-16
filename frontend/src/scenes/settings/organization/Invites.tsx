@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconX } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -85,9 +85,18 @@ export function InvitesTable(): JSX.Element {
             key: 'target_email',
             render: function TargetEmail(_, invite): JSX.Element | string {
                 return invite.target_email ? (
-                    <div className="ph-no-capture flex items-center">
-                        {invite.target_email}
-                        {invite.first_name ? ` (${invite.first_name})` : ''}
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="ph-no-capture">
+                            {invite.target_email}
+                            {invite.first_name ? ` (${invite.first_name})` : ''}
+                        </span>
+                        {invite.email_suppressed && (
+                            <Tooltip title="We can't deliver email to this address because an earlier email to it bounced. Share the invite link with them directly, or contact support to unblock the address.">
+                                <LemonTag type="danger" data-attr="invite-email-suppressed">
+                                    Email not delivered
+                                </LemonTag>
+                            </Tooltip>
+                        )}
                     </div>
                 ) : (
                     <i>no one</i>
