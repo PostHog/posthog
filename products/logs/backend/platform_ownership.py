@@ -41,8 +41,8 @@ def on_updated(alert: LogsAlertConfiguration, *, snooze_changed: bool) -> None:
     )
 
 
-def on_deleted(alert: LogsAlertConfiguration) -> None:
-    delete_owned_copy(team_id=alert.team_id, legacy_configuration_id=alert.id)
+def on_deleted(*, team_id: int, alert_id: UUID) -> None:
+    delete_owned_copy(team_id=team_id, legacy_configuration_id=alert_id)
 
 
 def _platform_change_of(
