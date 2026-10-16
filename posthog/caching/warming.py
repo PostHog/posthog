@@ -1,9 +1,9 @@
 import itertools
-from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from time import perf_counter
+from typing import Any, Literal, Optional
 
-from django.db.models import Q
+from django.db.models import Max, Q
 
 import structlog
 import posthoganalytics
@@ -15,13 +15,21 @@ from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
 
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.utils import largest_teams
+from posthog.caching.warming_cost import (
+    InsightContext,
+    get_warming_durations,
+    record_failed_warming_duration,
+    record_warming_duration,
+)
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
-from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.dataclasses import frozen
+from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
+from posthog.models.instance_setting import get_instance_settings
 from posthog.ph_client import ph_scoped_capture
 from posthog.query_cache.freshness_index import clean_up_stale_insights, get_stale_insights
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
@@ -48,8 +56,12 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
     "Number of priority insights warmed",
     ["team_id", "dashboard", "is_cached"],
 )
+SKIPPED_INSIGHTS_COUNTER = Counter(
+    "posthog_cache_warming_skipped_insights",
+    "Insights that cache warming did not warm because their last warm was expensive",
+    ["reason"],
+)
 
-LAST_VIEWED_THRESHOLD = timedelta(days=7)
 SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
 
 # Each team's chain starts at its own offset inside this window, so the largest teams do not all
@@ -62,6 +74,81 @@ WARMING_CHAIN_LIFETIME = timedelta(minutes=50)
 # ClickHouse capacity/concurrency errors that should retry with backoff rather than fail the task.
 # ClickHouseAtCapacity is included via CH_TRANSIENT_ERRORS (it's what codes 202/439 surface as).
 RETRIABLE_WARMING_ERRORS = (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded)
+
+SkipReason = Literal["over_max_duration", "expensive_not_recently_viewed"]
+
+_SETTING_KEYS = [
+    "CACHE_WARMING_EXPENSIVE_SECONDS",
+    "CACHE_WARMING_EXPENSIVE_VIEWED_HOURS",
+    "CACHE_WARMING_MAX_SECONDS",
+    "CACHE_WARMING_EXCLUDED_TEAMS",
+    "CACHE_WARMING_MAX_INSIGHTS_PER_TEAM",
+    "CACHE_WARMING_LARGEST_TEAMS",
+    "CACHE_WARMING_LAST_VIEWED_DAYS",
+]
+
+
+@frozen
+class WarmingSettings:
+    expensive_seconds: int
+    expensive_viewed_window: timedelta
+    max_seconds: int
+    excluded_team_ids: frozenset[int]
+    max_insights_per_team: int
+    largest_teams: int
+    last_viewed_window: timedelta
+
+
+@frozen
+class WarmingSelection:
+    insights: list[InsightContext]
+    skipped: dict[SkipReason, int]
+
+
+def _as_int(value: Any, *, minimum: int) -> int:
+    try:
+        return max(minimum, int(value))
+    except (TypeError, ValueError):
+        return minimum
+
+
+def _as_team_ids(value: Any) -> frozenset[int]:
+    items = value.split(",") if isinstance(value, str) else value
+    if not isinstance(items, list):
+        return frozenset()
+    team_ids: set[int] = set()
+    for item in items:
+        try:
+            team_ids.add(int(item))
+        except (TypeError, ValueError):
+            continue
+    return frozenset(team_ids)
+
+
+def load_warming_settings() -> WarmingSettings:
+    values = get_instance_settings(_SETTING_KEYS)
+    return WarmingSettings(
+        expensive_seconds=_as_int(values["CACHE_WARMING_EXPENSIVE_SECONDS"], minimum=0),
+        expensive_viewed_window=timedelta(hours=_as_int(values["CACHE_WARMING_EXPENSIVE_VIEWED_HOURS"], minimum=0)),
+        max_seconds=_as_int(values["CACHE_WARMING_MAX_SECONDS"], minimum=0),
+        excluded_team_ids=_as_team_ids(values["CACHE_WARMING_EXCLUDED_TEAMS"]),
+        max_insights_per_team=_as_int(values["CACHE_WARMING_MAX_INSIGHTS_PER_TEAM"], minimum=1),
+        largest_teams=_as_int(values["CACHE_WARMING_LARGEST_TEAMS"], minimum=0),
+        last_viewed_window=timedelta(days=_as_int(values["CACHE_WARMING_LAST_VIEWED_DAYS"], minimum=1)),
+    )
+
+
+def _skip_reason(
+    *, duration: Optional[float], last_seen: Optional[datetime], settings: WarmingSettings, now: datetime
+) -> Optional[SkipReason]:
+    if duration is None:
+        return None
+    if settings.max_seconds and duration > settings.max_seconds:
+        return "over_max_duration"
+    if settings.expensive_seconds and duration > settings.expensive_seconds:
+        if last_seen is None or last_seen < now - settings.expensive_viewed_window:
+            return "expensive_not_recently_viewed"
+    return None
 
 
 def teams_enabled_for_cache_warming() -> list[int]:
@@ -97,33 +184,41 @@ def teams_enabled_for_cache_warming() -> list[int]:
     return enabled_team_ids
 
 
-def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]]]:
+def insights_to_keep_fresh(team: Team, *, settings: WarmingSettings, shared_only: bool = False) -> WarmingSelection:
     """
     This is the place to decide which insights should be kept warm for the provided team.
     The reasoning is that this will be a yes or no decision. If we need to keep it warm, we try our best
     to not let the cache go stale. There isn't any middle ground, like trying to refresh it once a day, since
     that would be like clock that's only right twice a day.
+
+    The exception is an insight whose last warm was expensive: it stays warm only while people look at it,
+    because each warm takes offline ClickHouse capacity from every other query.
     """
+    now = datetime.now(UTC)
     # for shared insights, use a lower cut off
-    threshold = datetime.now(UTC) - (
-        LAST_VIEWED_THRESHOLD if not shared_only else SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD
+    threshold = now - (
+        settings.last_viewed_window
+        if not shared_only
+        else min(settings.last_viewed_window, SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD)
     )
 
     clean_up_stale_insights(team_id=team.pk, threshold=threshold)
 
     # get all insights currently in the cache for the team
-    combos = get_stale_insights(team_id=team.pk, limit=500)
+    combos = get_stale_insights(team_id=team.pk, limit=settings.max_insights_per_team)
 
     STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
 
     dashboard_q_filter = Q()
     insight_ids_single = set()
 
-    for insight_id, dashboard_id in (combo.split(":") for combo in combos):
-        if dashboard_id:
-            dashboard_q_filter |= Q(insight_id=insight_id, dashboard_id=dashboard_id)
+    for combo_insight_id, combo_dashboard_id in (combo.split(":") for combo in combos):
+        if combo_dashboard_id:
+            dashboard_q_filter |= Q(insight_id=combo_insight_id, dashboard_id=combo_dashboard_id)
         else:
-            insight_ids_single.add(insight_id)
+            insight_ids_single.add(combo_insight_id)
+
+    candidates: list[tuple[int, Optional[int], Optional[datetime]]] = []
 
     if insight_ids_single:
         single_insight_q_filter = Q(
@@ -134,23 +229,51 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
         if shared_only:
             single_insight_q_filter &= Q(sharingconfiguration__enabled=True)
 
-        single_insight_ids = Insight.objects.filter(single_insight_q_filter).distinct().values_list("id", flat=True)
-        for single_insight_id in single_insight_ids:
-            yield single_insight_id, None
+        single_insights = (
+            Insight.objects.filter(single_insight_q_filter)
+            .values("id")
+            .annotate(last_seen=Max("insightviewed__last_viewed_at"))
+            .values_list("id", "last_seen")
+        )
+        candidates.extend((single_insight_id, None, last_seen) for single_insight_id, last_seen in single_insights)
 
-    if not dashboard_q_filter:
-        return
+    if dashboard_q_filter:
+        if shared_only:
+            dashboard_q_filter &= Q(dashboard__sharingconfiguration__enabled=True)
 
-    if shared_only:
-        dashboard_q_filter &= Q(dashboard__sharingconfiguration__enabled=True)
+        dashboard_tiles = (
+            DashboardTile.objects.filter(dashboard__last_accessed_at__gte=threshold)
+            .filter(dashboard_q_filter)
+            .distinct()
+            .values_list("insight_id", "dashboard_id", "dashboard__last_accessed_at")
+        )
+        candidates.extend(dashboard_tiles)
 
-    dashboard_tiles = (
-        DashboardTile.objects.filter(dashboard__last_accessed_at__gte=threshold)
-        .filter(dashboard_q_filter)
-        .distinct()
-        .values_list("insight_id", "dashboard_id")
+    durations = (
+        get_warming_durations(
+            team_id=team.pk, contexts=[(insight_id, dashboard_id) for insight_id, dashboard_id, _ in candidates]
+        )
+        if settings.max_seconds or settings.expensive_seconds
+        else {}
     )
-    yield from dashboard_tiles
+
+    insights: list[InsightContext] = []
+    skipped: dict[SkipReason, int] = {}
+    for insight_id, dashboard_id, last_seen in candidates:
+        reason = _skip_reason(
+            duration=durations.get((insight_id, dashboard_id)), last_seen=last_seen, settings=settings, now=now
+        )
+        if reason is None:
+            insights.append((insight_id, dashboard_id))
+        else:
+            skipped[reason] = skipped.get(reason, 0) + 1
+
+    for reason, count in skipped.items():
+        SKIPPED_INSIGHTS_COUNTER.labels(reason=reason).inc(count)
+    if skipped:
+        logger.info("cache_warming_skipped_expensive_insights", team_id=team.pk, skipped=skipped)
+
+    return WarmingSelection(insights=insights, skipped=skipped)
 
 
 @shared_task(ignore_result=True, expires=60 * 15)
@@ -172,21 +295,26 @@ def schedule_warming_for_teams_task():
         logger.info("kill_switch_on_skipping_cache_warming", level=kill_switch_level)
         return
 
-    team_ids = largest_teams(limit=10)
-    threshold = datetime.now(UTC) - LAST_VIEWED_THRESHOLD
+    settings = load_warming_settings()
+    team_ids = largest_teams(limit=settings.largest_teams) if settings.largest_teams else []
+    threshold = datetime.now(UTC) - settings.last_viewed_window
 
     enabled_teams = Team.objects.filter(
         Q(pk__in=team_ids)
         | Q(extra_settings__insights_cache_warming=True)
         | Q(pk__in=teams_enabled_for_cache_warming())
+    ).exclude(pk__in=settings.excluded_team_ids)
+    teams_with_recently_viewed_shared = (
+        Team.objects.filter(
+            Q(
+                Q(sharingconfiguration__dashboard__last_accessed_at__gte=threshold)
+                | Q(sharingconfiguration__insight__insightviewed__last_viewed_at__gte=threshold)
+            ),
+            sharingconfiguration__enabled=True,
+        )
+        .exclude(pk__in=settings.excluded_team_ids)
+        .difference(enabled_teams)
     )
-    teams_with_recently_viewed_shared = Team.objects.filter(
-        Q(
-            Q(sharingconfiguration__dashboard__last_accessed_at__gte=threshold)
-            | Q(sharingconfiguration__insight__insightviewed__last_viewed_at__gte=threshold)
-        ),
-        sharingconfiguration__enabled=True,
-    ).difference(enabled_teams)
 
     all_teams = itertools.chain(
         zip(enabled_teams, [False] * len(enabled_teams)),
@@ -197,7 +325,8 @@ def schedule_warming_for_teams_task():
 
     with ph_scoped_capture() as capture_ph_event:
         for team, shared_only in all_teams:
-            insight_tuples = list(insights_to_keep_fresh(team, shared_only=shared_only))
+            selection = insights_to_keep_fresh(team, settings=settings, shared_only=shared_only)
+            insight_tuples = selection.insights
 
             capture_ph_event(
                 distinct_id=str(team.uuid),
@@ -209,6 +338,8 @@ def schedule_warming_for_teams_task():
                     "team_id": team.id,
                     "organization_id": team.organization_id,
                     "shared_only": shared_only,
+                    "skipped_over_max_duration": selection.skipped.get("over_max_duration", 0),
+                    "skipped_expensive_not_recently_viewed": selection.skipped.get("expensive_not_recently_viewed", 0),
                 },
             )
 
@@ -263,6 +394,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
     with upgrade_insight(insight):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
+        started_at = perf_counter()
         try:
             tile = dashboard.tiles.filter(insight=insight).first() if dashboard is not None else None
             variables_override = (
@@ -286,6 +418,13 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
             )
 
             is_cached = results.is_cached
+            if not is_cached:
+                record_warming_duration(
+                    team_id=insight.team_id,
+                    insight_id=insight.pk,
+                    dashboard_id=dashboard_id,
+                    seconds=perf_counter() - started_at,
+                )
 
             PRIORITY_INSIGHTS_COUNTER.labels(
                 team_id=insight.team_id,
@@ -310,6 +449,13 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         except RETRIABLE_WARMING_ERRORS:
             raise
         except Exception as e:
+            if classify_query_error(e) == QueryErrorCategory.QUERY_PERFORMANCE_ERROR:
+                record_failed_warming_duration(
+                    team_id=insight.team_id,
+                    insight_id=insight.pk,
+                    dashboard_id=dashboard_id,
+                    seconds=perf_counter() - started_at,
+                )
             # A revoked creator's access-denied error is a known limitation - report it as an event
             # rather than surfacing it in error tracking.
             if isinstance(e, TableAccessDeniedError) and creator_access_revoked(insight.created_by, insight.team):
