@@ -6,6 +6,8 @@ ENDPOINTS = {
     "labels": ("labels", "labels"),
     "memberships": ("memberships", "memberships"),
     "transfers": ("sepa/transfers", "transfers"),
+    "beneficiaries": ("sepa/beneficiaries", "beneficiaries"),
+    "client_invoices": ("client_invoices", "client_invoices"),
 }
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
