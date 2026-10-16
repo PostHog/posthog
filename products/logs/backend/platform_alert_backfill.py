@@ -9,7 +9,8 @@ logs on the platform.
 rather than duplicates, and a later comparison can line the two stacks up per alert.
 """
 
-from collections.abc import Collection
+from collections.abc import Callable, Collection
+from dataclasses import replace
 from datetime import datetime
 from typing import Final
 from uuid import UUID
@@ -19,7 +20,11 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
-from products.alerts_platform.backend.facade.contracts import PlatformAlertUpsert, SourceKind
+from products.alerts_platform.backend.facade.contracts import (
+    PlatformAlertConfigurationEdit,
+    PlatformAlertUpsert,
+    SourceKind,
+)
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.logs.backend.alert_state_machine import AlertState
 from products.logs.backend.models import LogsAlertConfiguration
@@ -64,6 +69,31 @@ def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
         next_check_at=alert.next_check_at,
         snooze_until=alert.snooze_until,
     )
+
+
+def platform_change_of(
+    alert: LogsAlertConfiguration,
+) -> Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit]:
+    """An edit made in the logs API, as a change to the platform's copy of the alert.
+
+    Only the settings a logs alert has. The platform's own settings, such as grouping, keep what the
+    copy stores, so an edit through the logs API never resets them.
+    """
+    upsert = platform_upsert_of(alert)
+
+    def change(stored: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
+        return replace(
+            stored,
+            name=upsert.name,
+            enabled=upsert.enabled,
+            source_config=upsert.source_config,
+            schedule_restriction=upsert.schedule_restriction,
+            evaluation_periods=upsert.evaluation_periods,
+            datapoints_to_alarm=upsert.datapoints_to_alarm,
+            cooldown_minutes=upsert.cooldown_minutes,
+        )
+
+    return change
 
 
 # A muted logs alert is a state of its own. On the platform a mute only silences notifications,
