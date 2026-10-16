@@ -16,36 +16,8 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub primary_database_url: String,
 
-    /// Person table every identity query reads and writes (stub creation,
-    /// resolution, and the delete saga's person mutations). Must pair with
-    /// the leader's FALLBACK_TABLE and the writer's PG_TARGET_TABLE so the
-    /// three services agree on where person rows live. Defaults to the
-    /// validation table, matching the writer; set to "posthog_person" at
-    /// production cutover — and flip all three services together.
-    #[envconfig(default = "personhog_person_tmp")]
-    pub person_table: String,
-
-    /// Distinct id table paired with PERSON_TABLE. Person ids come from the
-    /// person table's own sequence, so the mapping must live in the same
-    /// namespace (and posthog_persondistinctid's FK rejects ids that are not
-    /// in posthog_person). Set to "posthog_persondistinctid" at cutover.
-    #[envconfig(default = "personhog_persondistinctid_tmp")]
-    pub person_distinct_id_table: String,
-
-    /// Feature-flag hash-key-override table the delete saga clears by
-    /// person_id — same namespace rule as the distinct id table. Set to
-    /// "posthog_featureflaghashkeyoverride" at cutover.
-    #[envconfig(default = "personhog_featureflaghashkeyoverride_tmp")]
-    pub ff_hash_key_override_table: String,
-
-    /// Saga state table. Same namespace rule as PERSON_TABLE; the leader
-    /// derives the same pair from FALLBACK_TABLE. Set to "lifecycle_op" at cutover.
-    #[envconfig(default = "lifecycle_op_tmp")]
-    pub lifecycle_op_table: String,
-
-    /// Claim table paired with LIFECYCLE_OP_TABLE. Set to "lifecycle_op_person" at cutover.
-    #[envconfig(default = "lifecycle_op_person_tmp")]
-    pub lifecycle_op_person_table: String,
+    #[envconfig(nested = true)]
+    pub tables: IdentityTablesConfig,
 
     /// Fast pool (see `crate::pools`).
     #[envconfig(default = "10")]
@@ -201,6 +173,11 @@ pub struct Config {
     #[envconfig(default = "5")]
     pub lifecycle_attempt_alert_threshold: i32,
 
+    /// Merge saga drives allowed to outlive a caller that hangs up; past this
+    /// many a drive runs inline and stops with its caller. 0 disables.
+    #[envconfig(default = "256")]
+    pub lifecycle_detached_drive_limit: usize,
+
     /// Run the sweeper + GC loop for abandoned lifecycle ops; the lease
     /// arbitrates, so any number of instances may run it.
     #[envconfig(default = "true")]
@@ -218,13 +195,90 @@ pub struct Config {
     /// locks for long; the next pass continues.
     #[envconfig(default = "10000")]
     pub lifecycle_gc_batch_limit: i64,
+
+    /// Write the publish outbox, one row per create or attach mapping and
+    /// one pointer per completed merge or delete op, for the separate
+    /// personhog-publisher deployment to drain. Off, identity writes nothing
+    /// there and never names the outbox table in a mapping or completion
+    /// statement. An outbox nobody drains holds every pointed op past GC
+    /// retention, so turn this on only where a publisher runs against the
+    /// same table set.
+    #[envconfig(default = "false")]
+    pub lifecycle_outbox_enabled: bool,
+}
+
+/// The six table variables identity and the publisher both read. One
+/// struct, nested in both configs, so the names and defaults cannot drift
+/// between the deployment that writes the outbox and the one that drains it.
+#[derive(Envconfig, Clone, Debug)]
+pub struct IdentityTablesConfig {
+    /// Person table every identity query reads and writes (stub creation,
+    /// resolution, and the delete saga's person mutations). Must pair with
+    /// the leader's FALLBACK_TABLE and the writer's PG_TARGET_TABLE so the
+    /// three services agree on where person rows live. Defaults to the
+    /// validation table, matching the writer; set to "posthog_person" at
+    /// production cutover — and flip all three services together.
+    #[envconfig(default = "personhog_person_tmp")]
+    pub person_table: String,
+
+    /// Distinct id table paired with PERSON_TABLE. Person ids come from the
+    /// person table's own sequence, so the mapping must live in the same
+    /// namespace (and posthog_persondistinctid's FK rejects ids that are not
+    /// in posthog_person). Set to "posthog_persondistinctid" at cutover.
+    #[envconfig(default = "personhog_persondistinctid_tmp")]
+    pub person_distinct_id_table: String,
+
+    /// Feature-flag hash-key-override table the delete saga clears by
+    /// person_id — same namespace rule as the distinct id table. Set to
+    /// "posthog_featureflaghashkeyoverride" at cutover.
+    #[envconfig(default = "personhog_featureflaghashkeyoverride_tmp")]
+    pub ff_hash_key_override_table: String,
+
+    /// Saga state table. Same namespace rule as PERSON_TABLE; the leader
+    /// derives the same pair from FALLBACK_TABLE. Set to "lifecycle_op" at cutover.
+    #[envconfig(default = "lifecycle_op_tmp")]
+    pub lifecycle_op_table: String,
+
+    /// Claim table paired with LIFECYCLE_OP_TABLE. Set to "lifecycle_op_person" at cutover.
+    #[envconfig(default = "lifecycle_op_person_tmp")]
+    pub lifecycle_op_person_table: String,
+
+    /// Outbox the publisher drains, paired with LIFECYCLE_OP_TABLE: a merge
+    /// or delete op's pointer row resolves against that op's rows. Set to
+    /// "person_publish_outbox" at cutover.
+    #[envconfig(default = "person_publish_outbox_tmp")]
+    pub person_publish_outbox_table: String,
+}
+
+impl IdentityTablesConfig {
+    pub fn tables(&self) -> IdentityTables {
+        IdentityTables {
+            person: self.person_table.clone(),
+            person_distinct_id: self.person_distinct_id_table.clone(),
+            ff_hash_key_override: self.ff_hash_key_override_table.clone(),
+            lifecycle_op: self.lifecycle_op_table.clone(),
+            lifecycle_op_person: self.lifecycle_op_person_table.clone(),
+            person_publish_outbox: self.person_publish_outbox_table.clone(),
+        }
+    }
+}
+
+/// Whether identity writes the publish outbox (`LIFECYCLE_OUTBOX_ENABLED`):
+/// one row per create or attach mapping and one pointer per completed merge
+/// or delete op. Carried by every writer so the choice is made where the
+/// writer is built, never defaulted at the write site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutboxWrites {
+    Enabled,
+    Disabled,
 }
 
 /// The paired table set identity operates on: the person table plus the
 /// tables it writes rows into (or clears rows from) keyed by that table's
-/// person ids, plus the saga tables whose marks claim those ids. All five
-/// must come from the same namespace — mixing the validation set with the
-/// real set cross-contaminates id spaces.
+/// person ids, plus the saga tables whose marks claim those ids and the
+/// outbox whose pointers name those ops. All six must come from the same
+/// namespace — mixing the validation set with the real set
+/// cross-contaminates id spaces.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IdentityTables {
     pub person: String,
@@ -232,6 +286,7 @@ pub struct IdentityTables {
     pub ff_hash_key_override: String,
     pub lifecycle_op: String,
     pub lifecycle_op_person: String,
+    pub person_publish_outbox: String,
 }
 
 impl IdentityTables {
@@ -242,6 +297,7 @@ impl IdentityTables {
             ff_hash_key_override: "posthog_featureflaghashkeyoverride".to_string(),
             lifecycle_op: "lifecycle_op".to_string(),
             lifecycle_op_person: "lifecycle_op_person".to_string(),
+            person_publish_outbox: "person_publish_outbox".to_string(),
         }
     }
 
@@ -252,6 +308,7 @@ impl IdentityTables {
             ff_hash_key_override: "personhog_featureflaghashkeyoverride_tmp".to_string(),
             lifecycle_op: "lifecycle_op_tmp".to_string(),
             lifecycle_op_person: "lifecycle_op_person_tmp".to_string(),
+            person_publish_outbox: "person_publish_outbox_tmp".to_string(),
         }
     }
 
@@ -270,20 +327,23 @@ impl IdentityTables {
         }
         Err(format!(
             "mixed identity table set {self:?}: set PERSON_TABLE, PERSON_DISTINCT_ID_TABLE, \
-             FF_HASH_KEY_OVERRIDE_TABLE, LIFECYCLE_OP_TABLE, and LIFECYCLE_OP_PERSON_TABLE \
-             together, to either the full real set or the full validation set"
+             FF_HASH_KEY_OVERRIDE_TABLE, LIFECYCLE_OP_TABLE, LIFECYCLE_OP_PERSON_TABLE, and \
+             PERSON_PUBLISH_OUTBOX_TABLE together, to either the full real set or the full \
+             validation set"
         ))
     }
 }
 
 impl Config {
     pub fn tables(&self) -> IdentityTables {
-        IdentityTables {
-            person: self.person_table.clone(),
-            person_distinct_id: self.person_distinct_id_table.clone(),
-            ff_hash_key_override: self.ff_hash_key_override_table.clone(),
-            lifecycle_op: self.lifecycle_op_table.clone(),
-            lifecycle_op_person: self.lifecycle_op_person_table.clone(),
+        self.tables.tables()
+    }
+
+    pub fn outbox_writes(&self) -> OutboxWrites {
+        if self.lifecycle_outbox_enabled {
+            OutboxWrites::Enabled
+        } else {
+            OutboxWrites::Disabled
         }
     }
 
@@ -411,9 +471,6 @@ impl Config {
     }
 }
 
-// A mixed table set pairs person ids from one sequence with rows keyed by
-// another; validation must refuse it rather than let a partial env override
-// through.
 #[cfg(test)]
 mod tests {
     use super::IdentityTables;
@@ -424,6 +481,9 @@ mod tests {
         assert!(IdentityTables::validation().validate().is_ok());
     }
 
+    // A mixed table set pairs person ids from one sequence with rows keyed by
+    // another; validation must refuse it rather than let a partial env
+    // override through.
     #[test]
     fn a_mixed_table_set_is_refused() {
         let mixed = IdentityTables {

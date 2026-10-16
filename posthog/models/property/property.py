@@ -236,6 +236,11 @@ class PropertyValidationError(ValueError):
     owned type callers can catch, instead of having to discover each new internal raise
     site (e.g. via validate_group_type_index) by reading Property.__init__'s source."""
 
+    def __init__(self, message: str, attr: Optional[str] = None) -> None:
+        super().__init__(message)
+        # The failing attribute, so error tracking can group by it instead of by the message.
+        self.attr = attr
+
 
 class Property:
     key: str
@@ -343,17 +348,19 @@ class Property:
         elif self.type == "hogql":
             pass  # keep value as None
         elif value is None:
-            raise PropertyValidationError(f"Value must be set for property type {self.type} & operator {self.operator}")
+            raise PropertyValidationError(
+                f"Value must be set for property type {self.type} & operator {self.operator}", attr="value"
+            )
         else:
             self.value = value
 
         if self.type not in VALIDATE_PROP_TYPES.keys():
-            raise PropertyValidationError(f"Invalid property type: {self.type}")
+            raise PropertyValidationError(f"Invalid property type: {self.type}", attr="type")
 
         for attr in VALIDATE_PROP_TYPES[self.type]:
             if getattr(self, attr, None) is None:
                 raise PropertyValidationError(
-                    f"Missing required attr {attr} for property type {self.type} with key {self.key}"
+                    f"Missing required attr {attr} for property type {self.type} with key {self.key}", attr=attr
                 )
 
         if self.type == "behavioral":
@@ -362,12 +369,12 @@ class Property:
             )
             required_attrs = VALIDATE_BEHAVIORAL_PROP_TYPES.get(behavioral_value)
             if required_attrs is None:
-                raise PropertyValidationError(f"Invalid behavioral value: {self.value}")
+                raise PropertyValidationError(f"Invalid behavioral value: {self.value}", attr="value")
 
             for attr in required_attrs:
                 if getattr(self, attr, None) is None:
                     raise PropertyValidationError(
-                        f"Missing required attr {attr} for property type {self.type}::{self.value}"
+                        f"Missing required attr {attr} for property type {self.type}::{self.value}", attr=attr
                     )
 
             if behavioral_value in VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES:

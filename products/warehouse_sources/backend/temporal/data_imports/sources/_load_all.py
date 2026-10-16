@@ -1277,6 +1277,7 @@ from .uk_companies_house.source import UkCompaniesHouseSource
 from .uk_ons.source import UkOnsSource
 from .umami.source import UmamiSource
 from .un_comtrade.source import UnComtradeSource
+from .unity_ads.source import UnityAdsSource
 from .unleash.source import UnleashSource
 from .unstructured.source import UnstructuredSource
 from .uploadcare.source import UploadcareSource

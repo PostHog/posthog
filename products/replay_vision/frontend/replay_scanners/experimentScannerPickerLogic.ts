@@ -92,7 +92,10 @@ export const experimentScannerPickerLogic = kea<experimentScannerPickerLogicType
                         search: values.search || undefined,
                     })
                     breakpoint()
-                    return response.results ?? []
+                    // A group-aggregated flag exposes groups, not persons, so the API refuses a scanner on it.
+                    return (response.results ?? []).filter(
+                        (experiment) => experiment.feature_flag?.filters?.aggregation_group_type_index == null
+                    )
                 },
             },
         ],

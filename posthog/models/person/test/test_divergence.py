@@ -611,6 +611,8 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             ("clickhouse_timeout_while_planning", "planning", ClickHouseQueryTimeOut()),
             ("personhog_internal_error_on_the_raise", "raise", grpc.StatusCode.INTERNAL),
             ("personhog_unavailable_on_the_raise", "raise", grpc.StatusCode.UNAVAILABLE),
+            # A merge or delete holding the person's lifecycle mark clears once that operation commits.
+            ("personhog_mark_held_on_the_raise", "raise", grpc.StatusCode.FAILED_PRECONDITION),
         ]
     )
     def test_retries_a_transient_error_and_counts_the_person_once(

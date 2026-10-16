@@ -691,7 +691,14 @@
                                             "orderBy": {
                                                 "default": "occurrences",
                                                 "description": "Issue ranking column.",
-                                                "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+                                                "enum": [
+                                                    "last_seen",
+                                                    "first_seen",
+                                                    "occurrences",
+                                                    "users",
+                                                    "sessions",
+                                                    "severity"
+                                                ],
                                                 "type": "string"
                                             },
                                             "orderDirection": {

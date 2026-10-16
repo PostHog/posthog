@@ -38,20 +38,6 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
-from posthog.temporal.ai.slack_app import (
-    PostHogCodeSlackMentionCommandWorkflowInputs,
-    PostHogCodeSlackMentionWorkflowInputs,
-    SlackAppMentionWorkflowInputs,
-    derive_mention_workflow_id,
-)
-from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
-from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
-from posthog.temporal.ai.slack_app.slack_app_fork import SlackAppForkThreadWorkflow
-from posthog.temporal.ai.slack_app.slack_app_mention import (
-    SlackAppMentionWorkflow,
-    derive_slack_app_mention_workflow_id,
-)
-from posthog.temporal.ai.slack_app.types import SlackAppForkThreadInputs
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
@@ -146,6 +132,22 @@ from products.slack_app.backend.slack_link_unfurl import (
     parse_posthog_resource_link,
 )
 from products.slack_app.backend.slack_workflow_events import emit_slack_message_event, is_triggering_message
+from products.slack_app.backend.temporal import (
+    PostHogCodeSlackMentionCommandWorkflowInputs,
+    PostHogCodeSlackMentionWorkflowInputs,
+    SlackAppMentionWorkflowInputs,
+    derive_mention_workflow_id,
+)
+from products.slack_app.backend.temporal.posthog_code_slack_mention_command import (
+    PostHogCodeSlackMentionCommandWorkflow,
+)
+from products.slack_app.backend.temporal.slack_app_fork import SlackAppForkThreadWorkflow
+from products.slack_app.backend.temporal.slack_app_mention import (
+    SlackAppMentionWorkflow,
+    derive_slack_app_mention_workflow_id,
+)
+from products.slack_app.backend.temporal.slack_app_mention_processing import SlackAppMentionProcessingWorkflow
+from products.slack_app.backend.temporal.types import SlackAppForkThreadInputs
 
 logger = structlog.get_logger(__name__)
 
@@ -207,7 +209,11 @@ UNTAGGED_FOLLOWUP_ACTION_DISMISS = "posthog_code_untagged_followup_dismiss"
 UNTAGGED_FOLLOWUP_CONTEXT_KIND = "untagged_followup"
 
 _MAX_GITHUB_REPOS = 500
-REPO_LIST_CACHE_TTL_SECONDS = 300
+# The installation webhook marks snapshots stale without saving rows, so it does not clear this key.
+# This TTL is the longest time a repo access change can take to reach Slack.
+REPO_LIST_CACHE_TTL_SECONDS = 60 * 60
+# Mentions do not wait for this refresh, so the interval only sets how often Slack lists GitHub.
+REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS = 6 * 60 * 60
 PENDING_REPO_PICKER_TTL_SECONDS = PICKER_TOKEN_MAX_AGE_SECONDS
 
 
@@ -1082,7 +1088,7 @@ def _post_repo_picker_message(
     try:
         _get_full_repo_names(integration, user_id=user_id)
     except Exception:
-        logger.warning("repo_list_prewarm_failed", user_id=user_id, exc_info=True)
+        logger.warning("slack_app_repo_list_prewarm_failed", user_id=user_id, exc_info=True)
 
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
@@ -1102,6 +1108,24 @@ def _extract_explicit_repo_from_thread(thread_messages: list[SlackThreadMessage]
     return extract_repo_from_scopes(
         [_strip_bot_mentions(message.text) for message in reversed(thread_messages)], all_repos
     )
+
+
+def _schedule_user_repo_cache_refresh(user_integration_id: str) -> None:
+    # The task module imports this module, so a module-level import here would be circular.
+    from products.slack_app.backend.tasks import refresh_user_github_repository_cache  # noqa: PLC0415
+
+    try:
+        refresh_user_github_repository_cache.delay(user_integration_id=user_integration_id)
+    except Exception:
+        # The stale snapshot still answers this mention, and the next mention schedules the refresh again.
+        logger.warning("slack_app_github_repo_cache_refresh_dispatch_failed", user_integration_id=user_integration_id)
+
+
+def _repo_snapshot_needs_refresh(record: UserIntegration) -> bool:
+    updated_at = record.repository_cache_updated_at
+    if updated_at is None:
+        return True
+    return (timezone.now() - updated_at).total_seconds() >= REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
@@ -1125,12 +1149,19 @@ def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> li
 
     for record in user_records:
         github = UserGitHubIntegration(record, source="slack_app_repo_selection", priority=Priority.NORMAL)
-        repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)
+        # A live listing of a large install takes seconds while the person waits in Slack, so a
+        # snapshot with repos is served as it is and refreshed in the background.
+        has_cached_repos = bool(record.repository_cache)
+        if has_cached_repos and _repo_snapshot_needs_refresh(record):
+            _schedule_user_repo_cache_refresh(str(record.id))
+        repo_entries = github.list_all_cached_repositories(
+            max_repos=_MAX_GITHUB_REPOS, allow_refresh=not has_cached_repos
+        )
         for repo in repo_entries:
             all_repos.add(repo["full_name"])
             if len(all_repos) >= _MAX_GITHUB_REPOS:
                 logger.warning(
-                    "github_repo_list_capped",
+                    "slack_app_github_repo_list_capped",
                     user_id=user_id,
                     team_id=integration.team_id,
                     cap=_MAX_GITHUB_REPOS,
@@ -1259,7 +1290,7 @@ def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integratio
     try:
         client = sync_connect()
         handle = client.get_workflow_handle(workflow_id)
-        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.repo_selected, selected_repo))
+        asyncio.run(handle.signal(SlackAppMentionProcessingWorkflow.repo_selected, selected_repo))
     except Exception as e:
         logger.warning(
             "slack_app_pending_picker_signal_failed",
@@ -4326,7 +4357,7 @@ def _start_mention_workflow(
     # Use derive_mention_workflow_id as the single source of truth: the workflow persists the same
     # value as slack_mention_workflow_id, so dispatch and the debug-tool Temporal link stay consistent
     _start_posthog_code_workflow(
-        PostHogCodeSlackMentionWorkflow,
+        SlackAppMentionProcessingWorkflow,
         workflow_inputs,
         id_prefix="posthog-code-mention",
         slack_team_id=slack_team_id,
@@ -4512,11 +4543,13 @@ def _link_shared_url_region(event: dict[str, Any]) -> str | None:
 
 
 def _link_shared_url_team_ids(event: dict[str, Any]) -> set[int]:
-    """Team ids named by ``/project/:id`` in the event's unfurlable links."""
+    """Team ids named by ``/project/:id`` or ``/api/projects/:id`` in the event's unfurlable links."""
     team_ids: set[int] = set()
     for url in _link_shared_resource_urls(event):
         parts = [part for part in urlparse(url).path.split("/") if part]
-        if len(parts) >= 2 and parts[0] == "project":
+        if parts[:2] == ["api", "projects"]:
+            parts = parts[1:]
+        if len(parts) >= 2 and parts[0] in ("project", "projects"):
             try:
                 team_ids.add(int(parts[1]))
             except ValueError:
@@ -4842,7 +4875,7 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
     try:
         client = sync_connect()
         handle = client.get_workflow_handle(workflow_id)
-        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.repo_selected, selected_repo))
+        asyncio.run(handle.signal(SlackAppMentionProcessingWorkflow.repo_selected, selected_repo))
         if context and pending_picker_user_id:
             _clear_pending_repo_picker(
                 integration_id=context["integration_id"],
@@ -4900,7 +4933,7 @@ def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
     try:
         client = sync_connect()
         handle = client.get_workflow_handle(workflow_id)
-        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.no_repo_needed))
+        asyncio.run(handle.signal(SlackAppMentionProcessingWorkflow.no_repo_needed))
         if pending_picker_user_id:
             _clear_pending_repo_picker(
                 integration_id=context["integration_id"],

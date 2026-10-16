@@ -1,6 +1,7 @@
 import { MakeLogicType, connect, kea, key, path, props, selectors } from 'kea'
 
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardBasicType, DashboardTileBasicType } from '~/types'
@@ -12,7 +13,6 @@ import type { DashboardWidgetPlacementDestination } from './DashboardWidgetPlace
 export interface DashboardWidgetMenusLogicProps {
     instanceKey: string
     dashboardId: number | null | undefined
-    dashboards: number[] | null | undefined
     dashboard_tiles: DashboardTileBasicType[] | null | undefined
 }
 
@@ -34,7 +34,6 @@ export interface dashboardWidgetMenusLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         dashboardIdsWithThisWidget: (
-            dashboards: number[] | null | undefined,
             dashboard_tiles: DashboardTileBasicType[] | null | undefined,
             dashboardId: number | null | undefined
         ) => Set<number>
@@ -64,23 +63,12 @@ export const dashboardWidgetMenusLogic = kea<dashboardWidgetMenusLogicType>([
     selectors(() => ({
         /** Dashboards where this widget (insight / text / button / …) is already placed. */
         dashboardIdsWithThisWidget: [
-            (_, p) => [p.dashboards, p.dashboard_tiles, p.dashboardId],
+            (_, p) => [p.dashboard_tiles, p.dashboardId],
             (
-                dashboards: number[] | null | undefined,
                 dashboard_tiles: DashboardTileBasicType[] | null | undefined,
                 dashboardId: number | null | undefined
             ): Set<number> => {
-                const set = new Set<number>()
-                for (const rawId of dashboards ?? []) {
-                    if (rawId != null) {
-                        set.add(Number(rawId))
-                    }
-                }
-                for (const t of dashboard_tiles ?? []) {
-                    if (t.dashboard_id != null) {
-                        set.add(Number(t.dashboard_id))
-                    }
-                }
+                const set = new Set(liveDashboardIds(dashboard_tiles).map(Number))
                 if (dashboardId != null) {
                     set.add(Number(dashboardId))
                 }

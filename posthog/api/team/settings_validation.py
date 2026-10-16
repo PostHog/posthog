@@ -79,6 +79,20 @@ def _validate_trigger_property_filters(properties: object, context: str) -> None
             raise exceptions.ValidationError(f"{context}: property {prop_idx} must have a 'value' field.")
 
 
+def _replay_gate_flag_id(flag_id: object) -> int | None:
+    # jsonb containment (`__contains={"id": <int>}`) is type-sensitive, so a non-integer id
+    # makes the flag-delete guard miss the team's row and delete a flag the team still advertises.
+    # This normalizes a numeric string instead of rejecting it, so a client that sends "123"
+    # stores a usable row rather than a broken one. It rejects bools because
+    # isinstance(True, int) is True. It rejects floats because int(12.5) would silently link flag 12.
+    if isinstance(flag_id, bool) or not isinstance(flag_id, int | str):
+        return None
+    try:
+        return int(flag_id)
+    except ValueError:
+        return None
+
+
 def validate_test_account_filters(value: object) -> list[dict[str, object]]:
     try:
         test_account_filters_adapter.validate_python(value)
