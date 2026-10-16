@@ -19,7 +19,7 @@ class SeriesPoint:
     value: float | None  # None = missing data point this interval
 
 
-@dataclass
+@frozen
 class ComparableSeries:
     label: str  # series / breakdown label, used in breach messages
     points: list[SeriesPoint]  # chronologically ascending; extractor guarantees order
