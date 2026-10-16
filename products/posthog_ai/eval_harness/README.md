@@ -37,7 +37,11 @@ python -m products.posthog_ai.eval_harness.harness [SELECTOR ...] [flags]
 No manual env sourcing is needed on either path.
 The harness loads the repo-root `.env` itself (shell values win), and `hogli evals` additionally layers in `.env.local` / `.env.development` / `.env.services` through hogli's standard env loading — including 1Password resolution when `.env.local` holds `op://` references.
 Before any infrastructure boots, a preflight validates that the required variables are set and fails with a one-line fix per missing variable.
-Which variables are required depends on the eval engine and the selected suites' kinds: the braintrust engine (the default, and only one today) requires `BRAINTRUST_API_KEY` on every run — it is the engine's own `required_env()`, not a core harness variable; sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`; one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
+Required credentials depend on each selected suite's engine and kind.
+The default `braintrust` engine requires `BRAINTRUST_API_KEY`; modules declaring `EVAL_ENGINE = "posthog"` require `POSTHOG_OFFLINE_EVAL_API_KEY` instead.
+A run selecting both engines requires both keys.
+Modules can add suite-specific credentials with `EVAL_REQUIRED_ENV`, a tuple of `EnvVarSpec` values checked before infrastructure starts.
+Sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`; one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
 
 Selectors are substrings matched against a suite id of the form `<domain>/<module>::<fn>`, for example `experiments`, `sql`, or `eval_lifecycle_skills`.
 Omit them to run every suite.
@@ -386,16 +390,35 @@ The harness shortens long case names in filenames to stay within 255 bytes. It k
 The summary includes the trial ID, the agent trace ID when available, phase durations in seconds, and the scores for that trial.
 Case names and `--eval` filters stay the same.
 
-`SandboxedPublicEval` sets `no_send_logs=False` and reports results to Braintrust, plus PostHog when the suite has offline publishing configured.
+`SandboxedPublicEval` sets `no_send_logs=False` and reports through the selected engine, plus PostHog when the suite has offline publishing configured.
+The `posthog` engine uses the existing evaluator library locally and disables Braintrust uploads, including when `BRAINTRUST_API_KEY` is set.
 `SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service; local logs are still written.
 PostHog result uploads follow `no_send_logs` independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
 See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md) for capture settings and scope.
+
+### Notebook offline experiments
+
+Both notebook suites report exclusively to PostHog's offline experiment API:
+
+- `notebooks/eval_notebook_cells::eval_notebook_cells`: four cases covering SQL, Python, DuckDB, and parameterized notebook runs.
+- `notebooks/eval_notebook_analysis::eval_notebook_analysis`: three churn-analysis cases with execution checks, planted-cohort recall, and an LLM approach judge.
+
+Set `POSTHOG_OFFLINE_EVAL_API_KEY` with `offline_evaluation_ingestion:write` access to project `2`.
+Preflight also checks `OPENAI_API_KEY` for the analysis judge; it uses OpenAI directly by default and honors `OPENAI_BASE_URL`.
+Neither suite requires `BRAINTRUST_API_KEY`. The existing agent and sandbox credentials still apply.
+Run with Docker because the Python and DuckDB cases need notebook kernel sandboxes:
+
+```bash
+hogli evals notebooks --provider docker
+```
+
+The [notebook reporting configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#notebook-offline-experiments) lists scorer mappings and upload behavior.
 
 ### SQL offline experiment pilot
 
 The `sql/eval_sql::eval_sql` suite can also send its seven scorer results to PostHog's offline experiment API.
 It publishes the same completed case results through the Python SDK and keeps sending to Braintrust.
-The harness no longer emits legacy `$ai_evaluation` result events. Other public suites report scores to Braintrust until they opt into offline publishing.
+The harness no longer emits legacy `$ai_evaluation` result events. Public suites using the default engine continue reporting scores to Braintrust.
 Agent and judge trace capture remains available, and `no_send_logs=True` suppresses offline result uploads.
 
 Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal or project secret key with `offline_evaluation_ingestion:write` and access to project `2`.

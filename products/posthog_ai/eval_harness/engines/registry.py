@@ -1,17 +1,18 @@
 """Engine registry: resolve an ``EvalEngine`` by name.
 
-There is no ``--engine`` CLI flag yet — the default is the only entry until a
-second engine exists — but ``EvalContext.engine`` and preflight both resolve
-through here, so adding one is a one-line change.
+Suite modules can select an engine with ``EVAL_ENGINE``. Suites without that
+marker use the default engine.
 """
 
 from __future__ import annotations
 
 from .base import EvalEngine
 from .braintrust import BraintrustEngine
+from .posthog import PostHogEngine
 
 _ENGINES: dict[str, type[EvalEngine]] = {
     BraintrustEngine.name: BraintrustEngine,
+    PostHogEngine.name: PostHogEngine,
 }
 
 DEFAULT_ENGINE = BraintrustEngine.name

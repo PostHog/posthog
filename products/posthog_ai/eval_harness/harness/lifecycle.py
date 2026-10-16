@@ -127,8 +127,7 @@ class SandboxedEvalHarness:
         self.options = options
         self._dashboard = dashboard
         self.provider: SandboxProviderStrategy | None = None
-        # The execution/reporting backend for this run. No --engine flag yet, so
-        # this is the registry default; it feeds preflight and every suite's run.
+        # The shared context uses the default; each suite receives its selected engine.
         self._engine: EvalEngine = resolve_engine()
         self._stack = ExitStack()
         self._database: EvalDatabase | None = None
@@ -192,7 +191,12 @@ class SandboxedEvalHarness:
         with asyncio.Runner() as runner:
             try:
                 reporter.setup_started("check configuration")
-                validate_eval_env(self.options.agent_runtime, kinds=kinds, engine_env=self._engine.required_env())
+                required_env = {
+                    requirement.name: requirement
+                    for suite in suites
+                    for requirement in (*resolve_engine(suite.engine_name).required_env(), *suite.required_env)
+                }
+                validate_eval_env(self.options.agent_runtime, kinds=kinds, engine_env=tuple(required_env.values()))
                 if Infra.SANDBOX in required:
                     self.provider = build_provider(
                         self.options.provider,
@@ -475,7 +479,7 @@ class SandboxedEvalHarness:
         await ctx.reporter.suite_started(suite.id)
         started = time.monotonic()
         try:
-            await suite.fn(ctx)
+            await suite.fn(replace(ctx, engine=resolve_engine(suite.engine_name)))
         except Exception as e:
             logger.exception("Eval suite %s crashed", suite.id)
             result = SuiteRunResult(

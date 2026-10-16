@@ -4,11 +4,14 @@ import inspect
 import logging
 import importlib
 from collections.abc import Callable, Coroutine, Iterator, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
+from posthog.dataclasses import frozen
+
+from ..engines.registry import DEFAULT_ENGINE, resolve_engine
+from ..engines.types import EnvVarSpec
 from .requirements import SuiteKind
 
 if TYPE_CHECKING:
@@ -37,7 +40,7 @@ cover a whole conversation. ``_collect_suites`` copies the marker onto every
 suite function of the module so lifecycle can read it off the suite."""
 
 
-@dataclass(frozen=True)
+@frozen
 class EvalSuite:
     domain: str
     """Directory the suite lives in, e.g. ``experiments`` for a sandboxed suite or
@@ -49,6 +52,9 @@ class EvalSuite:
 
     kind: SuiteKind = SuiteKind.SANDBOXED
     """How the suite's cases execute, from the module-level ``SUITE_KIND``."""
+
+    engine_name: str = DEFAULT_ENGINE
+    required_env: tuple[EnvVarSpec, ...] = ()
 
     @property
     def id(self) -> str:
@@ -111,6 +117,16 @@ def _collect_suites(module: ModuleType, domain: str, module_name: str, dotted: s
     kind = getattr(module, "SUITE_KIND", SuiteKind.SANDBOXED)
     if not isinstance(kind, SuiteKind):
         raise SuiteDiscoveryError(f"{dotted}.SUITE_KIND must be a SuiteKind member, got {kind!r}")
+    engine_name = getattr(module, "EVAL_ENGINE", DEFAULT_ENGINE)
+    if not isinstance(engine_name, str):
+        raise SuiteDiscoveryError(f"{dotted}.EVAL_ENGINE must be an engine name, got {engine_name!r}")
+    try:
+        resolve_engine(engine_name)
+    except ValueError as error:
+        raise SuiteDiscoveryError(f"{dotted}.EVAL_ENGINE: {error}") from error
+    required_env = getattr(module, "EVAL_REQUIRED_ENV", ())
+    if not isinstance(required_env, tuple) or not all(isinstance(value, EnvVarSpec) for value in required_env):
+        raise SuiteDiscoveryError(f"{dotted}.EVAL_REQUIRED_ENV must be a tuple of EnvVarSpec values")
     multi_turn = bool(getattr(module, MULTI_TURN_MODULE_MARKER, False))
     collected: list[EvalSuite] = []
     for fn_name, fn in vars(module).items():
@@ -123,7 +139,17 @@ def _collect_suites(module: ModuleType, domain: str, module_name: str, dotted: s
         if multi_turn:
             # The dataclass is frozen, so carry the marker on the function.
             setattr(fn, MULTI_TURN_MODULE_MARKER, True)
-        collected.append(EvalSuite(domain=domain, module_name=module_name, fn_name=fn_name, fn=fn, kind=kind))
+        collected.append(
+            EvalSuite(
+                domain=domain,
+                module_name=module_name,
+                fn_name=fn_name,
+                fn=fn,
+                kind=kind,
+                engine_name=engine_name,
+                required_env=required_env,
+            )
+        )
     return collected
 
 

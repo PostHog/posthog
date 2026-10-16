@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
 from threading import Event, Thread, get_ident
+from types import ModuleType
 from typing import Any, Literal
 from uuid import UUID
 
@@ -29,9 +30,11 @@ from psycopg.errors import AdminShutdown, InvalidPassword
 
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
+from products.notebooks.evals import eval_notebook_analysis, eval_notebook_cells
 from products.posthog_ai.eval_harness import base, log_sink
 from products.posthog_ai.eval_harness.acp_log import GenerationDescriptor, ParsedLog
 from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
+from products.posthog_ai.eval_harness.engines.posthog import PostHogEngine
 from products.posthog_ai.eval_harness.engines.types import (
     AggregateScore,
     CaseResult,
@@ -388,6 +391,7 @@ def test_sandboxed_eval_run_adds_exit_code_scorer(monkeypatch: pytest.MonkeyPatc
         ("sandboxed", True, True, "valid", 200, "ready"),
         ("sandboxed", False, False, "valid", 200, "ready"),
         ("one-shot", True, False, "valid", 200, "ready"),
+        ("posthog", True, False, "valid", 200, "ready"),
         ("sandboxed", True, False, "valid", 200, "unavailable"),
         ("sandboxed", True, False, "valid", 200, "closed"),
     ],
@@ -397,7 +401,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    suite_kind: Literal["sandboxed", "one-shot"],
+    suite_kind: Literal["sandboxed", "one-shot", "posthog"],
     enrolled: bool,
     no_send_logs: bool,
     configuration: Literal["valid", "invalid", "absent"],
@@ -445,6 +449,16 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
         ],
     )
     engine = MagicMock(run_experiment=AsyncMock(return_value=result))
+    if suite_kind == "posthog":
+        monkeypatch.setattr(
+            "braintrust.framework.init_experiment", MagicMock(side_effect=AssertionError("Braintrust upload"))
+        )
+        monkeypatch.setattr(
+            base._SandboxedEvalRun,
+            "_execute_case",
+            AsyncMock(return_value={"exit_code": 0, "last_message": "Done", "large_integer": 2**64}),
+        )
+        engine = MagicMock(run_experiment=AsyncMock(wraps=PostHogEngine().run_experiment))
     reporter = ProgressReporter(total_suites=1)
     delivery = OfflineEvalDelivery(reporter)
     if delivery_state == "closed":
@@ -464,7 +478,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
         offline_delivery=delivery if delivery_state != "unavailable" else None,
     )
 
-    run_eval = base.SandboxedEval if suite_kind == "sandboxed" else partial(OneShotEval, task=AsyncMock())
+    run_eval = base.SandboxedEval if suite_kind != "one-shot" else partial(OneShotEval, task=AsyncMock())
     returned = await asyncio.wait_for(
         run_eval(
             experiment_name="offline-pilot",
@@ -485,7 +499,10 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
         timeout=5,
     )
 
-    assert returned is result
+    if suite_kind != "posthog":
+        assert returned is result
+    else:
+        assert returned.summary.engine_name == "posthog"
     export_path = tmp_path / "offline-pilot" / "latest" / "case_results.jsonl"
     assert json.loads(export_path.read_text())["scores"] == {"exit_code_zero": 1.0}
     assert not release_upload.is_set()
@@ -498,7 +515,10 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     assert reporter.mean_score() == 1.0
     reporter.print_final_summary([], exit_code=0, fail_under=None, duration_seconds=0)
     output = capsys.readouterr().out
-    assert "Braintrust: https://braintrust.example.com/experiment/test" in output
+    if suite_kind == "posthog":
+        assert "Braintrust:" not in output
+    else:
+        assert "Braintrust: https://braintrust.example.com/experiment/test" in output
     assert "exit_code_zero: 100.0%" in output
     assert not (tmp_path / "offline-pilot" / "latest" / "posthog-offline-upload.json").exists()
     if enrolled and not no_send_logs and configuration == "valid" and delivery_state == "ready":
@@ -538,26 +558,78 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
 
 
 @pytest.mark.asyncio
-async def test_sql_suite_enrolls_every_scorer_in_offline_publishing(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "module, function_name, suite_key, expected_kinds",
+    [
+        (
+            sql_eval,
+            "eval_sql",
+            "sql/eval_sql::eval_sql",
+            {
+                "exit_code_zero": "boolean",
+                "no_persistent_insight_save": "boolean",
+                "execute_sql_called": "boolean",
+                "answer_tool_not_typed_query": "boolean",
+                "querying_posthog_data_skill_loaded": "boolean",
+                "sql_schema_alignment": "numeric",
+                "sql_result_message_alignment": "numeric",
+            },
+        ),
+        (
+            eval_notebook_cells,
+            "eval_notebook_cells",
+            "notebooks/eval_notebook_cells::eval_notebook_cells",
+            {
+                "exit_code_zero": "boolean",
+                "required_tool_call": "boolean",
+                "notebook_created": "boolean",
+                "cell_runs_completed": "boolean",
+                "notebook_run_completed": "boolean",
+            },
+        ),
+        (
+            eval_notebook_analysis,
+            "eval_notebook_analysis",
+            "notebooks/eval_notebook_analysis::eval_notebook_analysis",
+            {
+                "exit_code_zero": "boolean",
+                "required_tool_call": "boolean",
+                "notebook_created": "boolean",
+                "cell_runs_completed": "boolean",
+                "churn_cohort_surfaced": "numeric",
+                "notebook_approach_quality": "numeric",
+            },
+        ),
+    ],
+)
+async def test_suite_enrolls_every_scorer_in_offline_publishing(
+    monkeypatch: pytest.MonkeyPatch,
+    module: ModuleType,
+    function_name: str,
+    suite_key: str,
+    expected_kinds: dict[str, str],
+) -> None:
     run = AsyncMock()
-    monkeypatch.setattr(sql_eval, "SandboxedPublicEval", run)
+    monkeypatch.setattr(module, "SandboxedPublicEval", run)
+    monkeypatch.setenv("OPENAI_API_KEY", "fake-openai-test-key")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
 
-    await sql_eval.eval_sql(MagicMock())
+    await getattr(module, function_name)(MagicMock())
 
     run.assert_awaited_once()
     suite = run.call_args.kwargs["offline_suite"]
-    assert suite.key == "sql/eval_sql::eval_sql"
-    assert suite.scorer_kinds == {
-        "exit_code_zero": "boolean",
-        "no_persistent_insight_save": "boolean",
-        "execute_sql_called": "boolean",
-        "answer_tool_not_typed_query": "boolean",
-        "querying_posthog_data_skill_loaded": "boolean",
-        "sql_schema_alignment": "numeric",
-        "sql_result_message_alignment": "numeric",
-    }
+    assert suite.key == suite_key
+    assert suite.scorer_kinds == expected_kinds
+    assert set(suite.scorer_versions) == set(expected_kinds)
+    assert len(set(suite.scorer_versions.values())) == len(expected_kinds)
     configured_names = {scorer._name() for scorer in run.call_args.kwargs["scorers"]}
     assert set(suite.scorer_kinds) == {"exit_code_zero", *configured_names}
+    if module is eval_notebook_analysis:
+        judge = next(
+            scorer for scorer in run.call_args.kwargs["scorers"] if scorer._name() == "notebook_approach_quality"
+        )
+        assert str(judge.client.openai.base_url) == "https://api.openai.com/v1/"
+        assert not judge.client._is_wrapped
 
 
 @pytest.mark.parametrize(

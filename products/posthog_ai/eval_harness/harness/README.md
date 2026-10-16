@@ -12,8 +12,8 @@ Under pytest that infrastructure lived in session fixtures, and suites ran stric
 Wall-clock was dominated by suites queueing behind each other while sandbox capacity sat idle.
 
 The harness boots the same infrastructure once, then runs every suite concurrently on a single event loop and bounds sandbox and team-setup load with shared semaphores.
-Braintrust remains the eval engine and reporting backend; it just no longer controls scheduling.
-The `EvalAsync` call itself lives behind an `EvalEngine` seam (`../engines/`): `_BaseEvalRun.run()` hands a neutral `ExperimentSpec` to the engine resolved by `engines/registry.resolve_engine()` (shared via `EvalContext.engine`) and gets back a neutral `ExperimentResult` (`engines/types.py`), so a future PostHog-native engine can slot in behind the same interface — implementing the `EvalEngine` protocol and passing the conformance suite — without touching the run base or any suite.
+Braintrust remains the default evaluator and reporting backend. Notebook suites select the `posthog` engine, which evaluates locally and publishes through the shared offline reporter.
+The `EvalAsync` call itself lives behind an `EvalEngine` seam (`../engines/`): `_BaseEvalRun.run()` hands a neutral `ExperimentSpec` to the engine resolved by `engines/registry.resolve_engine()` (shared via `EvalContext.engine`) and gets back a neutral `ExperimentResult` (`engines/types.py`), so both engines use the same execution and finalization path. Suite modules select their engine with `EVAL_ENGINE`; discovery defaults to `braintrust`.
 
 Not every suite is sandboxed anymore: each suite declares a `SUITE_KIND` (`requirements.py`), the kind maps to a set of `Infra` requirements, and the harness boots only the union of what the selected suites need.
 A run of one-shot suites never pays for — or fails preflight on — the sandbox provider, Temporal, the live server, the LLM gateway, or the MCP server.

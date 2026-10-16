@@ -18,14 +18,18 @@ from parameterized import parameterized
 
 from products.posthog_ai.eval_harness import runner
 from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
-from products.posthog_ai.eval_harness.engines.types import AggregateScore, EvalSummary
+from products.posthog_ai.eval_harness.engines.types import AggregateScore, EnvVarSpec, EvalSummary
 from products.posthog_ai.eval_harness.harness import lifecycle
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery, parse_args
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.discovery import EvalSuite
 from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness, eval_feature_enabled
 from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer
-from products.posthog_ai.eval_harness.harness.providers import ModalProviderStrategy, SandboxProviderStrategy
+from products.posthog_ai.eval_harness.harness.providers import (
+    ModalProviderStrategy,
+    PreflightError,
+    SandboxProviderStrategy,
+)
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
 from products.tasks.backend.constants import (
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
@@ -230,6 +234,71 @@ def test_eval_run_exit_status(
     assert SandboxedEvalHarness(parse_args(args)).run() == expected_exit_code
     output = capsys.readouterr().out
     assert f"Status: {'PASS' if expected_exit_code == 0 else 'FAIL'}" in output
+
+
+@pytest.mark.parametrize(
+    "engine_names, braintrust_key, posthog_key, requires_judge, judge_key, missing",
+    [
+        (["posthog"], False, True, False, False, None),
+        (["posthog"], False, True, True, False, "OPENAI_API_KEY"),
+        (["posthog"], False, True, True, True, None),
+        (["posthog"], True, False, False, False, "POSTHOG_OFFLINE_EVAL_API_KEY"),
+        (["posthog", "braintrust"], False, True, False, False, "BRAINTRUST_API_KEY"),
+        (["posthog", "braintrust"], True, True, False, False, None),
+    ],
+)
+def test_preflight_and_execution_use_selected_suite_engines(
+    monkeypatch: pytest.MonkeyPatch,
+    engine_names: list[str],
+    braintrust_key: bool,
+    posthog_key: bool,
+    requires_judge: bool,
+    judge_key: bool,
+    missing: str | None,
+) -> None:
+    observed: list[str] = []
+
+    async def suite(ctx: EvalContext) -> None:
+        observed.append(ctx.engine.name)
+
+    for key, present in [
+        ("BRAINTRUST_API_KEY", braintrust_key),
+        ("POSTHOG_OFFLINE_EVAL_API_KEY", posthog_key),
+        ("OPENAI_API_KEY", judge_key),
+    ]:
+        monkeypatch.delenv(key, raising=False)
+        if present:
+            monkeypatch.setenv(key, "synthetic-test-key")
+    monkeypatch.setenv("LLM_GATEWAY_ANTHROPIC_API_KEY", "synthetic-test-key")
+    monkeypatch.setattr(
+        lifecycle,
+        "discover_suites",
+        lambda _selectors: [
+            EvalSuite(
+                domain="test",
+                module_name=name,
+                fn_name="suite",
+                fn=suite,
+                engine_name=name,
+                required_env=(EnvVarSpec("OPENAI_API_KEY", "runs the judge"),) if requires_judge else (),
+            )
+            for name in engine_names
+        ],
+    )
+    monkeypatch.setattr(lifecycle, "infra_union", lambda _kinds: frozenset())
+    monkeypatch.setenv("SANDBOX_JWT_PRIVATE_KEY", "synthetic-test-key")
+    bootstrap = MagicMock()
+    monkeypatch.setattr(SandboxedEvalHarness, "_bootstrap", bootstrap)
+    harness = SandboxedEvalHarness(parse_args([]))
+
+    if missing:
+        with pytest.raises(PreflightError, match=missing):
+            harness.run()
+        assert observed == []
+        bootstrap.assert_not_called()
+    else:
+        assert harness.run() == 0
+        assert observed == engine_names
 
 
 @pytest.mark.asyncio

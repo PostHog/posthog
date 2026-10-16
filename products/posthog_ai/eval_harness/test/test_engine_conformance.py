@@ -5,7 +5,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from autoevals.score import Score as AutoevalsScore
 from braintrust import Score
@@ -13,6 +13,7 @@ from braintrust_core.score import Scorer
 from pydantic import SecretStr
 
 from products.posthog_ai.eval_harness.engines.braintrust import BraintrustEngine
+from products.posthog_ai.eval_harness.engines.posthog import PostHogEngine
 from products.posthog_ai.eval_harness.engines.types import (
     CaseHooks,
     CaseSpec,
@@ -29,13 +30,17 @@ from products.posthog_ai.eval_harness.scorers.contract import (
 from products.posthog_ai.eval_harness.scorers.judged import JudgedScorer
 from products.posthog_ai.eval_harness.scorers.tracing import TracedClients, TracedScorer, _build_posthog_kwargs
 
-# Every ``EvalEngine`` must satisfy these obligations; a future ``PostHogEvalsEngine``
-# joins this parameter list and must pass the same suite unchanged.
-pytestmark = pytest.mark.parametrize("engine", ["braintrust"], indirect=True)
+pytestmark = pytest.mark.parametrize("engine", ["braintrust", "posthog"], indirect=True)
 
 
 @pytest.fixture
 def engine(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> BraintrustEngine:
+    if request.param == "posthog":
+        monkeypatch.setenv("BRAINTRUST_API_KEY", "synthetic-key-that-must-not-be-used")
+        monkeypatch.setattr(
+            "braintrust.framework.init_experiment", Mock(side_effect=AssertionError("Braintrust upload"))
+        )
+        return PostHogEngine()
     if request.param == "braintrust":
         # Keep the run fully offline: no API key means no login and no network.
         monkeypatch.delenv("BRAINTRUST_API_KEY", raising=False)
