@@ -467,15 +467,14 @@ export function PropertiesSummary({
     const overrideGroups = overrides ?? []
     const overriddenProperties = overriddenByTile ?? []
     const allOverrideProperties = overrideGroups.flatMap((group) => group.properties)
-    const hasOverrides = allOverrideProperties.length > 0
     const { base, overrideFound } = splitOutOverrideProperties(properties, allOverrideProperties)
     const dedupedBase = overrideFound ? dropDuplicatesOfOverrides(base, allOverrideProperties) : base
-    const label = hasOverrides ? 'Active filters' : 'Filters'
+    const label = overrideFound ? 'Active filters' : 'Filters'
     return (
         <InsightDetailSectionDisplay icon={<IconFilter />} label={label}>
-            {hasOverrides && <OverrideNote source="insight">base filters:</OverrideNote>}
+            {overrideFound && <OverrideNote source="insight">base filters:</OverrideNote>}
             <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(dedupedBase)} />
-            {hasOverrides &&
+            {overrideFound &&
                 overrideGroups.map((group) => (
                     <React.Fragment key={group.source}>
                         <OverrideNote source={group.source}>filters added on top:</OverrideNote>
@@ -485,7 +484,7 @@ export function PropertiesSummary({
                     </React.Fragment>
                 ))}
             {/* Dashboard filters the tile shadowed — shown struck-through so precedence is visible. */}
-            {hasOverrides && overriddenProperties.length > 0 && (
+            {overrideFound && overriddenProperties.length > 0 && (
                 <>
                     <LemonDivider className="my-2" />
                     <div className="text-muted-alt">

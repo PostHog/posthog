@@ -35,7 +35,7 @@ export interface InsightAsSceneProps {
 
 export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JSX.Element | null {
     // insightSceneLogic
-    const { insightMode, insight, filtersOverride, variablesOverride, hasOverrides, dashboardId } =
+    const { insightMode, insight, filtersOverride, variablesOverride, tileFiltersOverride, hasOverrides, dashboardId } =
         useValues(insightSceneLogic)
     const { currentTeamId } = useValues(teamLogic)
 
@@ -47,6 +47,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
         cachedInsight: hasOverrides && insight?.short_id === insightId ? insight : null,
         filtersOverride,
         variablesOverride,
+        tileFiltersOverride,
     })
     const { insightProps, accessDeniedToInsight, insightLoading } = useValues(logic)
 

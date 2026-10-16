@@ -2,20 +2,28 @@ import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
+import { compareFilterLabel } from 'lib/components/CompareFilter/compareFilterLabel'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
+import { IntervalFilterStandalone } from 'lib/components/IntervalFilter/IntervalFilter'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { dateFilterToText } from 'lib/utils/dateFilters'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { urls } from 'scenes/urls'
 
 import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, InsightShortId } from '~/types'
 
 import { FunnelBinsPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelDisplayLayoutPicker'
@@ -24,15 +32,25 @@ import { PathStepPicker } from 'products/product_analytics/frontend/insights/pat
 import { RetentionBreakdownFilter } from 'products/product_analytics/frontend/insights/retention/filters/RetentionBreakdownFilter'
 import { RetentionChartPicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionChartPicker'
 import { RetentionDatePicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionDatePicker'
+import { InsightFilterOverride } from 'products/product_analytics/frontend/insights/shared/InsightFilterOverride'
 
+import { getBreakdownSummary } from './editorFilterUtils'
 import { useInsightDisplayOptions } from './insightDisplayOptions'
 import { InsightDisplayOptionsPanel } from './InsightDisplayOptionsPanel'
 
 export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: ReactNode }): JSX.Element {
-    const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
+    const {
+        insightProps,
+        canEditInsight,
+        editingDisabledReason,
+        hasOverrides,
+        dashboardFilterOverrides,
+        dashboardDateOverride,
+    } = useValues(insightLogic)
 
     const {
         querySource,
+        dateRange,
         isTrends,
         isFunnels,
         isRetention,
@@ -46,6 +64,7 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
         supportsCompare,
         interval,
         insightData,
+        filterTestAccountsDefault,
     } = useValues(insightVizDataLogic(insightProps))
     const { updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
@@ -70,6 +89,11 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
         isLifecycle ||
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
 
+    const savedDateLabel = dateFilterToText(dateRange?.date_from, dateRange?.date_to, 'Last 7 days')
+    const appliedDateLabel = dashboardDateOverride
+        ? dateFilterToText(dashboardDateOverride.dateFrom, dashboardDateOverride.dateTo, 'Last 7 days')
+        : null
+    const savedTestAccountsExcluded = querySource?.filterTestAccounts ?? filterTestAccountsDefault
     const { tabs: displayOptionTabs, count: advancedOptionsCount } = useInsightDisplayOptions()
 
     return (
@@ -77,22 +101,65 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
             className="InsightDisplayConfig @container flex justify-between items-center flex-wrap gap-2 [&_.LemonButton--small]:[--lemon-button-gap:0.25rem] [&_.LemonButton--small]:[--lemon-button-padding-horizontal:0.375rem]"
             data-attr="insight-filters"
         >
-            <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
-                {!isRetention && (
-                    <ConfigFilter>
-                        <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
-                    </ConfigFilter>
+            {hasOverrides && insightProps.dashboardItemId && (
+                <div className="flex basis-full flex-wrap items-center gap-2 text-sm">
+                    <span>Dashboard filters apply to this view. Discard them to edit the saved insight.</span>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        to={urls.insightView(insightProps.dashboardItemId as InsightShortId, insightProps.dashboardId)}
+                    >
+                        Discard dashboard filters
+                    </LemonButton>
+                </div>
+            )}
+            <div className="flex items-start gap-x-2 flex-wrap gap-y-2">
+                {dashboardDateOverride ? (
+                    <InsightFilterOverride
+                        source={dashboardDateOverride.source}
+                        savedValue={appliedDateLabel !== savedDateLabel ? savedDateLabel : null}
+                    >
+                        <DateFilter
+                            dateFrom={dashboardDateOverride.dateFrom}
+                            dateTo={dashboardDateOverride.dateTo}
+                            disabledReason={editingDisabledReason}
+                            onChange={(): void => {}}
+                        />
+                    </InsightFilterOverride>
+                ) : (
+                    !isRetention && (
+                        <ConfigFilter>
+                            <InsightDateFilter disabled={isFunnels && !!isEmptyFunnel} />
+                        </ConfigFilter>
+                    )
                 )}
 
                 {showInterval && (
-                    <ConfigFilter>
-                        <IntervalFilter />
-                    </ConfigFilter>
+                    <InsightFilterOverride
+                        source={dashboardFilterOverrides.interval?.source}
+                        savedValue={
+                            dashboardFilterOverrides.interval?.value !== interval
+                                ? capitalizeFirstLetter(interval || 'day')
+                                : null
+                        }
+                    >
+                        {dashboardFilterOverrides.interval ? (
+                            <IntervalFilterStandalone
+                                interval={dashboardFilterOverrides.interval.value}
+                                disabledReason={editingDisabledReason}
+                                onIntervalChange={(): void => {}}
+                            />
+                        ) : (
+                            <ConfigFilter>
+                                <IntervalFilter />
+                            </ConfigFilter>
+                        )}
+                    </InsightFilterOverride>
                 )}
 
                 {!!isRetention && (
                     <ConfigFilter>
-                        <RetentionDatePicker />
+                        {!dashboardDateOverride && <RetentionDatePicker />}
                         {hasBreakdownFilter(breakdownFilter) && <RetentionBreakdownFilter />}
                     </ConfigFilter>
                 )}
@@ -104,9 +171,17 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
                 )}
 
                 {showCompare && (
-                    <ConfigFilter>
+                    <InsightFilterOverride
+                        source={dashboardFilterOverrides.compareFilter?.source}
+                        savedValue={
+                            compareFilterLabel(dashboardFilterOverrides.compareFilter?.value) !==
+                            compareFilterLabel(compareFilter)
+                                ? compareFilterLabel(compareFilter)
+                                : null
+                        }
+                    >
                         <CompareFilter
-                            compareFilter={compareFilter}
+                            compareFilter={dashboardFilterOverrides.compareFilter?.value ?? compareFilter}
                             updateCompareFilter={updateCompareFilter}
                             disabled={!canEditInsight || !supportsCompare}
                             disableReason={editingDisabledReason}
@@ -114,8 +189,58 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
                                 alignResolvedDateRangeToInterval(insightData?.resolved_compare_date_range, interval)
                             )}
                         />
-                    </ConfigFilter>
+                    </InsightFilterOverride>
                 )}
+                {dashboardFilterOverrides.breakdown && (
+                    <InsightFilterOverride
+                        source={dashboardFilterOverrides.breakdown.source}
+                        savedValue={getBreakdownSummary(breakdownFilter) ?? 'No breakdown'}
+                    >
+                        <TaxonomicBreakdownFilter
+                            insightProps={insightProps}
+                            breakdownFilter={dashboardFilterOverrides.breakdown.breakdownFilter}
+                            display={display}
+                            isTrends={isTrends}
+                            isFunnels={isFunnels}
+                            disabledReason={editingDisabledReason ?? undefined}
+                            updateBreakdownFilter={(): void => {}}
+                            updateDisplay={(): void => {}}
+                            showLabel={false}
+                            size="small"
+                        />
+                    </InsightFilterOverride>
+                )}
+                {dashboardFilterOverrides.filterTestAccounts && (
+                    <InsightFilterOverride
+                        source={dashboardFilterOverrides.filterTestAccounts.source}
+                        savedValue={
+                            dashboardFilterOverrides.filterTestAccounts.value !== savedTestAccountsExcluded &&
+                            (savedTestAccountsExcluded ? 'Excluded' : 'Included')
+                        }
+                    >
+                        <LemonSelect
+                            size="small"
+                            value={dashboardFilterOverrides.filterTestAccounts.value}
+                            disabledReason={editingDisabledReason}
+                            options={[
+                                { value: true, label: 'Exclude internal and test users' },
+                                { value: false, label: 'Include internal and test users' },
+                            ]}
+                        />
+                    </InsightFilterOverride>
+                )}
+                {dashboardFilterOverrides.propertyGroups.map(({ properties, source }) => (
+                    <InsightFilterOverride key={source} source={source}>
+                        <PropertyFilters
+                            propertyFilters={properties}
+                            pageKey={`insight-dashboard-filters-${source}`}
+                            onChange={(): void => {}}
+                            editable={false}
+                            disabledReason={editingDisabledReason ?? undefined}
+                            buttonSize="small"
+                        />
+                    </InsightFilterOverride>
+                ))}
             </div>
             <div className="flex items-center gap-x-2">
                 {displayOptionTabs.length > 0 && (

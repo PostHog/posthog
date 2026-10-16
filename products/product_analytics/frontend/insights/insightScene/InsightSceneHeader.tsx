@@ -9,7 +9,6 @@ import { InsightLogicProps, ItemMode } from '~/types'
 
 import { ReloadInsight } from 'products/product_analytics/frontend/insights/shared/ReloadInsight'
 
-import { InsightDashboardFiltersBanner } from './InsightDashboardFiltersBanner'
 import { InsightPageHeader } from './InsightPageHeader'
 import { InsightsNav } from './InsightsNav'
 
@@ -18,26 +17,13 @@ export interface InsightSceneHeaderProps {
 }
 
 export function InsightSceneHeader({ insightLogicProps }: InsightSceneHeaderProps): JSX.Element {
-    const { insightMode, hasOverrides, freshQuery, filtersOverride, variablesOverride, tileFiltersOverride } =
-        useValues(insightSceneLogic)
+    const { insightMode, freshQuery } = useValues(insightSceneLogic)
     const { showDebugPanel } = useValues(insightDataLogic(insightLogicProps))
-    const { insight, savedInsight } = useValues(insightLogic(insightLogicProps))
-    const insightId = insightLogicProps.dashboardItemId
+    const { insight } = useValues(insightLogic(insightLogicProps))
 
     return (
         <>
             <InsightPageHeader insightLogicProps={insightLogicProps} />
-
-            {hasOverrides && insightId && (
-                <InsightDashboardFiltersBanner
-                    query={savedInsight.query ?? null}
-                    insightId={insightId}
-                    dashboardId={insightLogicProps.dashboardId}
-                    filtersOverride={filtersOverride ?? undefined}
-                    variablesOverride={variablesOverride ?? undefined}
-                    tileFiltersOverride={tileFiltersOverride}
-                />
-            )}
 
             {insightMode === ItemMode.Edit && (
                 <div className="[&_.LemonTabs]:![--lemon-tabs-margin-bottom:0]">

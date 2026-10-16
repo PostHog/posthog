@@ -1348,7 +1348,11 @@ describe('insightLogic', () => {
 
     describe('editingDisabledReason', () => {
         it.each([
-            ['overrides present', { filtersOverride: { date_from: '-7d' } }, 'Discard overrides to edit the insight.'],
+            [
+                'overrides present',
+                { filtersOverride: { date_from: '-7d' } },
+                'Discard dashboard filters to edit the saved insight.',
+            ],
             ['no overrides', { filtersOverride: null }, null],
         ])('returns correct value when %s', (_label, propsOverride, expected) => {
             logic = insightLogic({

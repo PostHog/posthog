@@ -20,6 +20,10 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { isTransientServerError, shouldReportApiFailure } from 'lib/api-error'
+import {
+    getEffectiveFilterOverrides,
+    getDateRangeOverrideDisplay,
+} from 'lib/components/Cards/InsightCard/insightDetailsFilterOverrides'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -49,10 +53,12 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
+import { DashboardFilter, DateRange, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
 import {
     convertDataTableNodeToDataVisualizationNode,
     isFunnelsQuery,
+    isInsightQueryNode,
+    isHogQLQuery,
     isLifecycleQuery,
     isNodeWithSource,
     isPathsQuery,
@@ -84,6 +90,10 @@ import { IndexedTrendResult } from 'products/product_analytics/frontend/insights
 
 import type { AlertType } from '../../../../products/alerts/frontend/types'
 import type { InsightFilterOverrideContextApi } from '../../../../products/product_analytics/frontend/generated/api.schemas'
+import type {
+    EffectiveDateOverride,
+    EffectiveFilterOverrides,
+} from '../../lib/components/Cards/InsightCard/insightDetailsFilterOverrides'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
@@ -134,8 +144,10 @@ export interface insightLogicValues {
     user: UserType | null // userLogic
     accessDeniedToInsight: boolean
     canEditInsight: boolean
+    dashboardDateOverride: EffectiveDateOverride | null
+    dashboardFilterOverrides: EffectiveFilterOverrides
     derivedName: string
-    editingDisabledReason: 'Discard overrides to edit the insight.' | null
+    editingDisabledReason: 'Discard dashboard filters to edit the saved insight.' | null
     hasDashboardItemId: boolean
     hasOverrides: boolean
     highlightedSeries: IndexedTrendResult | null
@@ -552,8 +564,14 @@ export interface insightLogicMeta {
             insight: Partial<InsightModel<Node<Record<string, any>>>>,
             activeSceneId: string | null
         ) => boolean | null
+        dashboardFilterOverrides: (arg: any, arg2: any) => EffectiveFilterOverrides
+        dashboardDateOverride: (
+            savedInsight: Partial<InsightModel<Node<Record<string, any>>>>,
+            arg: any,
+            arg2: any
+        ) => EffectiveDateOverride | null
         hasOverrides: (arg: any, arg2: any, arg3: any) => boolean
-        editingDisabledReason: (hasOverrides: boolean) => 'Discard overrides to edit the insight.' | null
+        editingDisabledReason: (hasOverrides: boolean) => 'Discard dashboard filters to edit the saved insight.' | null
     }
 }
 
@@ -1094,6 +1112,36 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     Scene.ExperimentsSharedMetrics,
                 ].includes(activeSceneId),
         ],
+        dashboardFilterOverrides: [
+            () => [(_, props) => props.filtersOverride, (_, props) => props.tileFiltersOverride],
+            (
+                filtersOverride: DashboardFilter | null | undefined,
+                tileFiltersOverride: TileFilters | null | undefined
+            ) => getEffectiveFilterOverrides(undefined, filtersOverride ?? undefined, tileFiltersOverride),
+        ],
+        dashboardDateOverride: [
+            (s) => [s.savedInsight, (_, props) => props.filtersOverride, (_, props) => props.tileFiltersOverride],
+            (
+                savedInsight: Partial<InsightModel>,
+                filtersOverride: DashboardFilter | null | undefined,
+                tileFiltersOverride: TileFilters | null | undefined
+            ) => {
+                const query = savedInsight.query
+                const source = isNodeWithSource(query) ? query.source : query
+                let dateRange: DateRange | null | undefined
+                if (isInsightQueryNode(source)) {
+                    dateRange = source.dateRange
+                } else if (isHogQLQuery(source)) {
+                    dateRange = source.filters?.dateRange
+                }
+                return getDateRangeOverrideDisplay(
+                    dateRange ?? undefined,
+                    undefined,
+                    filtersOverride ?? undefined,
+                    tileFiltersOverride
+                )
+            },
+        ],
         hasOverrides: [
             () => [
                 (_, props) => props.filtersOverride,
@@ -1110,7 +1158,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ],
         editingDisabledReason: [
             (s) => [s.hasOverrides],
-            (hasOverrides: boolean) => (hasOverrides ? 'Discard overrides to edit the insight.' : null),
+            (hasOverrides: boolean) => (hasOverrides ? 'Discard dashboard filters to edit the saved insight.' : null),
         ],
     }),
     listeners(({ actions, values, props }) => ({
