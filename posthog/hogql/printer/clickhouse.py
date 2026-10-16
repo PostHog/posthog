@@ -96,6 +96,23 @@ def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_month
     )
 
 
+# ClickHouse reads a string unit in `dateAdd('hour', n, date)` as a third operand of `plus`, so the printer
+# rewrites the 3-argument form into an interval sum.
+DATE_ADD_UNIT_INTERVAL_FUNCTIONS: dict[str, str] = {
+    "nanosecond": "toIntervalNanosecond",
+    "microsecond": "toIntervalMicrosecond",
+    "millisecond": "toIntervalMillisecond",
+    "second": "toIntervalSecond",
+    "minute": "toIntervalMinute",
+    "hour": "toIntervalHour",
+    "day": "toIntervalDay",
+    "week": "toIntervalWeek",
+    "month": "toIntervalMonth",
+    "quarter": "toIntervalQuarter",
+    "year": "toIntervalYear",
+}
+
+
 # The $ai_* properties whose materialized columns carry bloom-filter skip indexes. We read them bare — no nullIf/ifNull
 # wrapping — so the index stays usable. Canonical set; ClickHouse property resolution imports it to make the same call.
 AI_BLOOM_FILTER_PROPERTIES = {"$ai_trace_id", "$ai_session_id", "$ai_is_error"}
@@ -174,7 +191,25 @@ class ClickHousePrinter(BasePrinter):
         if node.within_group is not None:
             raise QueryError(f"Aggregation '{node.name}' with WITHIN GROUP is not supported in ClickHouse dialect")
 
+    def _render_date_add_with_unit(self, node: ast.Call) -> str:
+        unit_arg, amount_arg, date_arg = node.args
+        interval_function = (
+            DATE_ADD_UNIT_INTERVAL_FUNCTIONS.get(unit_arg.value.lower())
+            if isinstance(unit_arg, ast.Constant) and isinstance(unit_arg.value, str)
+            else None
+        )
+        if interval_function is None:
+            raise QueryError(
+                f"{node.name} needs a constant unit such as 'hour' or 'day' as its first argument. "
+                f"You can also write {node.name}(date, INTERVAL n HOUR)."
+            )
+        operator = "plus" if node.name == "dateAdd" else "minus"
+        return f"{operator}({self.visit(date_arg)}, {interval_function}({self.visit(amount_arg)}))"
+
     def _render_function_call(self, node: ast.Call, func_meta) -> str:
+        if node.name in ("dateAdd", "dateSub") and len(node.args) == 3:
+            return self._render_date_add_with_unit(node)
+
         args_count = len(node.args) - func_meta.passthrough_suffix_args_count
         node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
 
