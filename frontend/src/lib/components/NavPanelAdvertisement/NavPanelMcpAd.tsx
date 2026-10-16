@@ -6,10 +6,10 @@ import * as wizardPng from '@posthog/brand/hoggies/png/wizard-1'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
+import { agentConnectionLogic } from 'lib/components/MCPHint/agentConnectionLogic'
 import { MCP_INSTALL_COMMAND } from 'lib/components/MCPHint/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { connectedAppsLogic } from 'scenes/settings/user/connectedAppsLogic'
 
 import { AdvertisementCard, NAV_PANEL_CARD_TYPE, ProductPushDisplay } from './navPanelAdShared'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
@@ -29,9 +29,10 @@ const MCP_HERO: ProductPushDisplay = {
  */
 export function NavPanelMcpAd({ fallback }: { fallback: JSX.Element | null }): JSX.Element | null {
     const { hidden } = useValues(navPanelAdvertisementLogic(logicProps))
-    const { hasConnectedAgent, connectedAppsLoading } = useValues(connectedAppsLogic)
+    const { hasConnectedAgent, connectedAppsLoading } = useValues(agentConnectionLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const isEligible = !hidden && !connectedAppsLoading && !hasConnectedAgent
+    // `null` means the lookup has not succeeded yet, which never counts as eligible.
+    const isEligible = !hidden && hasConnectedAgent === false
     // Read the experiment flag only for users who would see the card: each read reports an exposure,
     // and users who already connected or dismissed it would dilute the experiment.
     const shouldShow = isEligible && featureFlags[FEATURE_FLAGS.NAV_PANEL_MCP_CARD] === 'test'
@@ -43,7 +44,7 @@ export function NavPanelMcpAd({ fallback }: { fallback: JSX.Element | null }): J
     }, [shouldShow])
 
     // Hold the slot while the first load runs, so a lower card does not flash in and get replaced.
-    if (connectedAppsLoading && !hidden) {
+    if (connectedAppsLoading && hasConnectedAgent === null && !hidden) {
         return null
     }
     if (!shouldShow) {
@@ -65,7 +66,8 @@ export function NavPanelMcpAd({ fallback }: { fallback: JSX.Element | null }): J
                             copyLabel="MCP install command"
                             ariaLabel="Copy MCP install command"
                             size="sm"
-                            className="bg-surface-secondary border border-primary !m-0 max-w-full"
+                            decoration="rainbow"
+                            className="bg-surface-secondary border border-primary !m-0 max-w-full hover:border-accent"
                             onCopy={() =>
                                 posthog.capture('nav panel mcp card command copied', {
                                     card_type: NAV_PANEL_CARD_TYPE.MCP_CONNECT,
