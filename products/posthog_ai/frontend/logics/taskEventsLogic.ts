@@ -7,7 +7,7 @@ export interface taskEventsLogicActions {
     }
 }
 
-export type taskEventsLogicType = MakeLogicType<Record<string, never>, taskEventsLogicActions>
+export type taskEventsLogicType = MakeLogicType<{}, taskEventsLogicActions>
 
 /**
  * Global bus for task lifecycle events. It holds no state and fetches nothing, so a host can connect
