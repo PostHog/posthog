@@ -83,6 +83,9 @@ const styles = StyleSheet.create({
         height: 42,
         paddingVertical: 0,
         fontSize: 16,
+        lineHeight: 20,
+        textAlignVertical: 'center',
+        includeFontPadding: false,
         color: colors.ink,
     },
     // Visual 32pt; the default hit slop brings the target to 44pt.

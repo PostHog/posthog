@@ -49,6 +49,9 @@ navigation use larger glyphs; inline metadata and chip accessories use smaller o
 The unassigned avatar occupies the same 32pt column as a person's avatar in the Assignee card.
 Sizing a glyph does not change its button's tap target, which stays at least 44pt including hit slop.
 
+Views, Chats and browse lists use the shared `SearchField`.
+Its 16pt input has an explicit 20pt line height, centered vertically without Android font padding, so placeholder and entered text keep the same alignment across screens.
+
 ## Reading handoff values
 
 - **Box sizing.** The prototype's `div`s use CSS `content-box`, so a `height` or `min-height`
