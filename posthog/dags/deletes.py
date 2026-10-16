@@ -189,22 +189,13 @@ def _any_of(*arms: str) -> str:
 
 _DELETE_PREDICATE = _any_of(_PERSON_ARM, _TEAM_ARM, _EVENT_ARM, _ADHOC_ARM)
 
-# sharded_events_json writes deletes as patch parts, which suit the few rows a person, event or
-# adhoc deletion names. The team_id sets come from the dictionaries and lead the sorting key, so the
-# read skips the granules of every team with nothing to delete.
+# sharded_events_json writes deletes as patch parts. The team_id sets come from the dictionaries and
+# lead the sorting key, so the read skips the granules of every team with nothing to delete.
 _PATCH_PART_DELETE_PREDICATE = (
-    _any_of(_PERSON_ARM, _EVENT_ARM, _ADHOC_ARM)
+    _DELETE_PREDICATE
     + """
-    AND (team_id IN (SELECT DISTINCT team_id FROM dictionary(%(pending_deletes_dictionary)s) WHERE deletion_type IN (%(person_deletion_type)s, %(event_deletion_type)s))
+    AND (team_id IN (SELECT DISTINCT team_id FROM dictionary(%(pending_deletes_dictionary)s) WHERE deletion_type IN (%(person_deletion_type)s, %(team_deletion_type)s, %(event_deletion_type)s))
         OR team_id IN (SELECT team_id FROM dictionary(%(adhoc_event_deletes_dictionary)s)))"""
-)
-
-# A team deletion removes every row the team has, which as patch parts would store one patch row per
-# deleted row until merges fold them in. A mutation rewrites the affected parts instead.
-_TEAM_DELETE_PREDICATE = (
-    _TEAM_ARM
-    + """
-    AND team_id IN (SELECT team_id FROM dictionary(%(pending_deletes_dictionary)s) WHERE deletion_type = %(team_deletion_type)s)"""
 )
 
 
@@ -669,18 +660,13 @@ def load_and_verify_adhoc_event_deletes_dictionary(
     return dictionary
 
 
-def _delete_with_patch_parts(
-    placement: TargetPlacement,
-    parameters: dict[str, str | int],
-    reuse_floor: datetime,
-    by_shard: dict[int, list[MutationWaiter]],
-) -> None:
-    """Delete from a patch-part target one partition at a time, and team deletions as a mutation.
+def _delete_with_patch_parts(placement: TargetPlacement, parameters: dict[str, str | int]) -> None:
+    """Delete from a patch-part target one partition at a time.
 
     A lightweight delete whose WHERE cannot be pruned holds a block number open in every partition
     until it finishes, which stalls merges across the table. One statement per partition, sent only to
     the shards that hold it, keeps that to a single partition. Each statement has finished writing its
-    patch part when it returns, so only the team mutation leaves anything to wait on.
+    patch part when it returns, so nothing is left to wait on.
     """
     for partition_id, shards in sorted(shards_by_partition(placement).items()):
         runner = LightweightDeleteMutationRunner(
@@ -691,27 +677,6 @@ def _delete_with_patch_parts(
             patch_parts=True,
         )
         placement.cluster.map_any_host_in_shards(dict.fromkeys(shards, runner)).result()
-
-    [[pending_team_deletes]] = placement.cluster.any_host(
-        Query(
-            "SELECT count() FROM dictionary(%(pending_deletes_dictionary)s) WHERE deletion_type = %(team_deletion_type)s",
-            parameters,
-        )
-    ).result()
-    if not pending_team_deletes:
-        return
-
-    team_runner = LightweightDeleteMutationRunner(
-        table=placement.target.data_table,
-        predicate=_TEAM_DELETE_PREDICATE,
-        parameters=parameters,
-        reuse_since=reuse_floor,
-        # The session can default DELETE to patch parts, so the mutation mode is named here.
-        settings={"lightweight_delete_mode": "alter_update"},
-    )
-    for host, mutation in placement.cluster.map_one_host_per_shard(team_runner).result().items():
-        if host.shard_num is not None:
-            by_shard.setdefault(host.shard_num, []).append(mutation)
 
 
 @dagster.op
@@ -774,7 +739,7 @@ def delete_events(
         key = (placement.cluster.data_cluster_name, placement.cluster.shard_role)
         by_shard = waiters.setdefault(key, {})
         if placement.target.uses_patch_parts:
-            _delete_with_patch_parts(placement, parameters, reuse_floor, by_shard)
+            _delete_with_patch_parts(placement, parameters)
             continue
         runner = LightweightDeleteMutationRunner(
             table=placement.target.data_table,
