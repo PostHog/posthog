@@ -934,6 +934,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.exports()]: [Scene.Exports, 'exports'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
+    // The settings navigation's home for this page, next to billing. The /startups routes stay until links move over.
+    [urls.organizationStartups()]: [Scene.StartupProgram, 'organizationStartupProgram'],
+    [urls.organizationStartups(':referrer')]: [Scene.StartupProgram, 'organizationStartupProgramWithReferrer'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],

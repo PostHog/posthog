@@ -5,9 +5,15 @@ had webhook destinations before the platform delivered for them keep that body u
 so a receiver that parses it does not break when the platform takes over.
 """
 
-from typing import Final
+from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
+from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.facade.contracts import LegacyWebhookBody, SourceKind
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 # A closed list of teams. No team joins it after the platform delivers for its source.
 LEGACY_WEBHOOK_BODY_FLAG: Final = "alert-platform-legacy-webhook-body"
@@ -27,3 +33,8 @@ def register(source: SourceKind, body: LegacyWebhookBody) -> None:
 
 def body_for(source: SourceKind) -> LegacyWebhookBody | None:
     return _bodies.get(source)
+
+
+def keeps_legacy_webhook_body(team: Team) -> bool | None:
+    """Whether native delivery sends this team the body its source's own stack sent. None when unknown."""
+    return team_flag_enabled(LEGACY_WEBHOOK_BODY_FLAG, team)

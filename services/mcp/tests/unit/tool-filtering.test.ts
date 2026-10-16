@@ -1089,6 +1089,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'replay-vision-scanner-dashboard',
             'metrics-dashboard-import',
             'managed-warehouse-trino-query',
+            'llm-analytics-tags',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1132,9 +1133,9 @@ describe('Tool Filtering - Feature Flags', () => {
                 'context-layer',
                 'warehouse-multi-destination',
                 'autoresearch',
-                'today-rail-nav',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
+                'workflows-data-suggestions',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')

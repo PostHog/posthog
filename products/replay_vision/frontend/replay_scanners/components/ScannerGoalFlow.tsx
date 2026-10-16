@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChevronRight, IconPlus, IconSparkles } from '@posthog/icons'
+import { IconChevronRight, IconFlask, IconPlus, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, LemonTextArea } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -34,10 +35,12 @@ interface PendingDraft {
  * step to review it, so a one-click start still gets a scanner fitted to the project. */
 export function ScannerGoalFlow(): JSX.Element {
     const logic = replayScannerLogic({ id: 'new' })
-    const { goalDraftInput, goalBudgetInput, goalSpendMode, goalDraftLoading, experimentContext } = useValues(logic)
+    const { goalDraftInput, goalBudgetInput, goalSpendMode, goalDraftLoading, linkedExperimentContext } =
+        useValues(logic)
     const { draftScannerFromGoal, setGoalDraftInput, setGoalBudgetInput, setGoalSpendMode } = useActions(logic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const { freeCreditsLeft } = useValues(visionQuotaLogic)
+    const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
     // The spend choice is captured with the goal, so a quota that loads while consent is open cannot change it.
     const [pendingDraft, setPendingDraft] = useState<PendingDraft | null>(null)
 
@@ -117,10 +120,10 @@ export function ScannerGoalFlow(): JSX.Element {
                             </div>
                             {/* A draft restored from an earlier experiment-scoped session keeps its targeting
                                 through this flow, so say whose sessions the scanner ends up watching. */}
-                            {experimentContext ? (
+                            {linkedExperimentContext ? (
                                 <div className="text-xs text-muted">
-                                    This scanner keeps watching people exposed to {experimentContext.experiment.name}.
-                                    You don't have to mention the experiment.
+                                    This scanner keeps watching people exposed to{' '}
+                                    {linkedExperimentContext.experiment.name}. You don't have to mention the experiment.
                                 </div>
                             ) : null}
                         </div>
@@ -222,6 +225,19 @@ export function ScannerGoalFlow(): JSX.Element {
                                     {template.goal_question}
                                 </LemonButton>
                             ))}
+                            {experimentScanners && (
+                                <LemonButton
+                                    fullWidth
+                                    icon={<IconFlask />}
+                                    sideIcon={<IconChevronRight />}
+                                    tooltip="Pick a running experiment and compare what people do in each variant"
+                                    disabledReason={editDisabledReason}
+                                    onClick={() => startScannerFromTemplate(null, 'experiment')}
+                                    data-attr="vision-goal-starter-experiment"
+                                >
+                                    Watch my experiment
+                                </LemonButton>
+                            )}
                         </div>
                     </div>
                 </div>

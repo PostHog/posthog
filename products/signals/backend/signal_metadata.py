@@ -505,6 +505,8 @@ def fetch_signals_for_report_sync(team: Team, report_id: str, newest: int | None
                 "timestamp": timestamp,
                 "extra": metadata.get("extra", {}),
                 "match_metadata": metadata.get("match_metadata"),
+                "total_spend": metadata.get("total_spend"),
+                "spend_accounting_failed_stages": metadata.get("spend_accounting_failed_stages", []),
             }
         )
 

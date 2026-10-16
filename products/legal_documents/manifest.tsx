@@ -20,11 +20,14 @@ export const manifest: ProductManifest = {
     routes: {
         '/legal': ['LegalDocuments', 'legalDocuments'],
         '/legal/new/:type': ['LegalDocumentNew', 'legalDocumentNew'],
+        // The settings navigation's home for the list, next to billing. The /legal routes stay until links move over.
+        '/organization/legal': ['LegalDocuments', 'organizationLegalDocuments'],
     },
     redirects: {},
     urls: {
         legalDocuments: (): string => '/legal',
         legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
+        organizationLegalDocuments: (): string => '/organization/legal',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

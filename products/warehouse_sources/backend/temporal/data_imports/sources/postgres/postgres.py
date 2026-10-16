@@ -1885,6 +1885,18 @@ def get_foreign_keys(
         return _foreign_keys_from_conn(connection, schema, names)
 
 
+def _get_connection_functions(cursor: psycopg.Cursor, query: str) -> list[str]:
+    try:
+        cursor.execute(query)
+        functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
+        return [fn for fn in functions if not is_dangerous_table_function(fn)]
+    except Exception as error:
+        # Even a failed SELECT aborts PostgreSQL's transaction; reset it before the next catalog query.
+        cursor.connection.rollback()
+        capture_exception(error)
+        return []
+
+
 def get_connection_metadata(
     host: str,
     database: str,
@@ -1911,42 +1923,42 @@ def get_connection_metadata(
             is_duckdb = "duckdb" in version.lower() or "duckgres" in version.lower()
 
             function_source = "duckdb_functions" if is_duckdb else "pg_proc"
-            available_functions: list[str] = []
-            available_table_functions: list[str] = []
-
-            try:
-                if is_duckdb:
-                    cursor.execute("SELECT DISTINCT function_name FROM duckdb_functions()")
-                else:
-                    cursor.execute("SELECT DISTINCT proname FROM pg_proc WHERE pg_function_is_visible(oid)")
-                available_functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
-            except Exception as error:
-                capture_exception(error)
-
-            try:
-                if is_duckdb:
-                    cursor.execute(
-                        "SELECT DISTINCT function_name FROM duckdb_functions() WHERE function_type = 'table'"
-                    )
-                else:
-                    # prokind='f' excludes aggregates/windows/procedures; proretset=true selects set-returning fns,
-                    # which is how Postgres exposes table functions in pg_proc.
-                    cursor.execute(
-                        "SELECT DISTINCT proname FROM pg_proc "
-                        "WHERE pg_function_is_visible(oid) AND proretset = true AND prokind = 'f'"
-                    )
-                available_table_functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
-            except Exception as error:
-                capture_exception(error)
-
-            available_functions = [fn for fn in available_functions if not is_dangerous_table_function(fn)]
-            available_table_functions = [fn for fn in available_table_functions if not is_dangerous_table_function(fn)]
-
-            return {
+            metadata: dict[str, Any] = {
                 "database": current_database,
                 "version": version,
                 "engine": "duckdb" if is_duckdb else "postgres",
                 "function_source": function_source,
+            }
+            if is_duckdb:
+                available_functions = _get_connection_functions(
+                    cursor, "SELECT DISTINCT function_name FROM duckdb_functions()"
+                )
+                available_table_functions = _get_connection_functions(
+                    cursor, "SELECT DISTINCT function_name FROM duckdb_functions() WHERE function_type = 'table'"
+                )
+            else:
+                available_functions = _get_connection_functions(
+                    cursor, "SELECT DISTINCT proname FROM pg_proc WHERE pg_function_is_visible(oid)"
+                )
+                # prokind='f' excludes aggregates/windows/procedures; proretset=true selects set-returning fns,
+                # which is how Postgres exposes table functions in pg_proc.
+                available_table_functions = _get_connection_functions(
+                    cursor,
+                    "SELECT DISTINCT proname FROM pg_proc "
+                    "WHERE pg_function_is_visible(oid) AND proretset = true AND prokind = 'f'",
+                )
+                try:
+                    cursor.execute(
+                        "SELECT n.nspname FROM pg_extension e "
+                        "JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = 'pgcrypto'"
+                    )
+                    extension = cursor.fetchone()
+                    metadata["pgcrypto_schema"] = extension[0] if extension else None
+                except Exception as error:
+                    capture_exception(error)
+
+            return {
+                **metadata,
                 "available_functions": available_functions,
                 "available_table_functions": available_table_functions,
             }

@@ -128,8 +128,8 @@ export function BIToolbar(): JSX.Element {
                 value={config.limit}
                 options={LIMIT_OPTIONS}
                 onChange={setLimit}
-                renderButtonContent={(option) => `Limit: ${option?.label ?? config.limit}`}
-                aria-label="Query row limit"
+                renderButtonContent={(option) => `Aggregated rows: ${option?.label ?? config.limit}`}
+                aria-label="Aggregated result row limit"
                 tooltip="Maximum aggregated result rows, after grouping and calculations. This does not limit the source rows read."
                 size="xsmall"
                 type="tertiary"

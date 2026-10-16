@@ -163,6 +163,28 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             })
         })
 
+        it('pages a realtime cohort audience from realtime membership, not the Django audience query', async () => {
+            const getMemberPage = jest.fn().mockResolvedValue({
+                ids: ['member-1', 'member-2', 'member-3'],
+                cursor: 'member-3',
+                has_more: false,
+            })
+            Object.assign(consumer, {
+                config: { SITE_URL: 'https://us.posthog.com', BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://cohorts' },
+                realtimeCohortAudience: { getMemberPage },
+            })
+
+            await (consumer as any).processOnePage(
+                { bulkCreateAndCheckIn, reschedule: jest.fn() },
+                { ...state, realtimeCohort: { id: 42, teamId: 7 } }
+            )
+
+            // Membership rows belong to the cohort's own team, which can differ from the workflow's.
+            expect(getMemberPage).toHaveBeenCalledWith(7, 42, null)
+            expect((consumer as any).hogFlowBatchPersonQueryService.getBlastRadiusPersons).not.toHaveBeenCalled()
+            expect(triggeredMetrics()).toHaveLength(3)
+        })
+
         it('counts each enrolled person as a triggered run against the batch job', async () => {
             await processPage()
 
@@ -447,6 +469,27 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                         message:
                             'Batch resolver failed: Audience query timed out after 30s on the last of ' +
                             `${MAX_RESOLVER_ATTEMPTS} attempts. Use fewer or simpler audience filters, or a smaller audience.`,
+                    }),
+                ],
+                'hog_flow'
+            )
+        })
+
+        it('fails a realtime cohort run at once when the resolver has no behavioral cohorts database', async () => {
+            // Without its own URL the router reads the main database, so retrying would never succeed.
+            const queueLogs = jest.fn()
+            const getBlastRadiusPersons = jest.fn()
+            const consumer = buildConsumer(getBlastRadiusPersons, queueLogs)
+            const job = buildJob({ ...lastAttemptState(), attempts: 0, realtimeCohort: { id: 42, teamId: team.id } })
+
+            await consumer.processResolverJob(job)
+
+            expect(getBlastRadiusPersons).not.toHaveBeenCalled()
+            expect(queueLogs).toHaveBeenCalledWith(
+                [
+                    expect.objectContaining({
+                        message:
+                            "Batch resolver failed: Sending to a realtime cohort isn't available here yet. Use a different audience.",
                     }),
                 ],
                 'hog_flow'
