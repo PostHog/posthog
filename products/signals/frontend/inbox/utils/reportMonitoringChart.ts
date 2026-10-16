@@ -201,7 +201,7 @@ export function monitoringChartTargetLines({
         return [
             {
                 value,
-                label: `${linear ? 'Avg goal' : 'Target'}: ${target.sign}${formatted}${linear ? `/${interval}` : ''}`,
+                label: `${linear ? 'Goal' : 'Target'}: ${target.sign}${formatted}${linear ? `/${interval} (avg)` : ''}`,
                 labelPosition: bounds && index === 0 ? 'start' : 'end',
                 showValueOnHover: false,
             },
