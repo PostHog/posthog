@@ -53,19 +53,24 @@ def _basic_plan() -> ScriptedResponse:
 
 
 @pytest.mark.parametrize(
-    ("gateway", "llm", "websocket", "expected_ok"),
+    ("gateway", "llm", "websocket", "expected_ok", "expected_probes"),
     [
         (
             _unresolved("ApiManagementGatewayLogs"),
             _unresolved("ApiManagementGatewayLlmLog"),
             _unresolved("ApiManagementWebSocketConnectionLogs"),
             False,
+            3,
         ),
-        (_basic_plan(), _empty(), _unresolved("ApiManagementWebSocketConnectionLogs"), True),
+        (_basic_plan(), _empty(), _unresolved("ApiManagementWebSocketConnectionLogs"), True, 2),
     ],
 )
 def test_creation_fails_only_when_the_workspace_has_none_of_the_tables(
-    gateway: ScriptedResponse, llm: ScriptedResponse, websocket: ScriptedResponse, expected_ok: bool
+    gateway: ScriptedResponse,
+    llm: ScriptedResponse,
+    websocket: ScriptedResponse,
+    expected_ok: bool,
+    expected_probes: int,
 ) -> None:
     with scripted_network(
         route({TOKEN_PATH: [_token(), _token()], QUERY_PATH: [_empty(), gateway, llm, websocket]})
@@ -83,7 +88,7 @@ def test_creation_fails_only_when_the_workspace_has_none_of_the_tables(
         "ApiManagementGatewayLogs",
         "ApiManagementGatewayLlmLog",
         "ApiManagementWebSocketConnectionLogs",
-    ]
+    ][:expected_probes]
 
 
 def test_a_missing_named_table_points_at_its_log_category() -> None:
