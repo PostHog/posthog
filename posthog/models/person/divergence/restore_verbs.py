@@ -1,5 +1,5 @@
-"""Repair verbs that rebuild Postgres from ClickHouse: restore a lost person with its distinct ids, fold a lost
-person into the person that holds its distinct ids now, or merge two live persons through ingestion."""
+"""Repair verbs that rebuild Postgres from ClickHouse: restore a lost person with its distinct ids, or merge two
+live persons through ingestion."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from posthog.api.capture import capture_internal
 from posthog.dataclasses import frozen
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_PERSON
-from posthog.models.person.deletion import find_orphaned_ch_persons, tombstone_orphaned_ch_persons
 from posthog.models.person.sql import INSERT_PERSON_SQL
 from posthog.models.person.util import (
     _person_row,
@@ -40,7 +39,7 @@ from posthog.personhog_client.proto import (
     WriteDistinctIdsRequest,
 )
 
-from . import lookups, observe, repairs, stale_merge
+from . import lookups, observe, repairs
 
 if TYPE_CHECKING:
     from .verbs import VerbContext
@@ -178,7 +177,8 @@ def _write_mappings(context: VerbContext, rows: list[dict[str, Any]], targets: d
                 context.deliveries.track(
                     create_person_distinct_id(
                         context.team_id, result.distinct_id, write.person_uuid, version=int(stored.version)
-                    )
+                    ),
+                    repairs.PublishedKey(kind="mapping", key=result.distinct_id),
                 )
                 outcome = done if result.outcome == DISTINCT_ID_WRITE_OUTCOME_APPLIED else f"already_{done}"
                 context.action(
@@ -272,16 +272,20 @@ def _restore_persons(
             row = by_uuid[result.person_uuid]
             ids = list(result.restored_distinct_ids)
             if result.outcome == RESTORE_OUTCOME_INSERTED:
+                # A person whose publish does not land is recorded undelivered; it then exists in Postgres, so the
+                # next scan reports it as behind ClickHouse, and republish publishes it.
                 context.deliveries.track(
                     _publish_person(
                         context.team_id, result.person_uuid, payloads[result.person_uuid], int(result.version)
-                    )
+                    ),
+                    repairs.PublishedKey(kind="person", key=result.person_uuid),
                 )
                 for distinct_id in ids:
                     context.deliveries.track(
                         create_person_distinct_id(
                             context.team_id, distinct_id, result.person_uuid, version=versions.get(distinct_id, 0)
-                        )
+                        ),
+                        repairs.PublishedKey(kind="mapping", key=distinct_id),
                     )
                 restored[result.person_uuid] = ids
                 context.action(row, "restored", version=int(result.version))
@@ -323,139 +327,6 @@ def _person_processing_off(team_id: int) -> bool:
     return bool(Team.objects.only("person_processing_opt_out").get(id=team_id).person_processing_opt_out)
 
 
-def fold(rows: list[dict[str, Any]], context: VerbContext) -> None:
-    """Fold a lost person A into the live person B that holds its distinct ids in Postgres.
-
-    Full fold, when A still has a distinct id Postgres has no row for and A or B is identified: restore A with
-    those ids, then send $merge_dangerously so ingestion merges A into B (B survives; it takes the earlier
-    created_at, and B's properties win over A's). Every merge marks B identified, so a pair where neither is
-    identified folds light instead.
-
-    Light fold: send A's ClickHouse-only properties to B as $set_once ($identify when only A is identified).
-    A later run that finds them on B points A's ids at B in both stores and tombstones A. B keeps its created_at.
-
-    Neither fold rewrites a diverged id before ingestion confirmed the merge or the properties, so a rescan finds
-    any group a run did not finish.
-    """
-    for row in rows:
-        if not (row.get("group") or "").startswith("fold:"):
-            context.action(row, "skipped_no_group")
-    if _person_processing_off(context.team_id):
-        for row in rows:
-            context.action(row, "skipped_person_processing_off")
-        return
-    for pair, group_rows in _pairs(rows, "fold").items():
-        repairs._retry_transient(
-            partial(_fold_pair, pair, group_rows, context), what=f"fold {pair.old}>{pair.new}", log=context.log
-        )
-
-
-@frozen
-class _Survivor:
-    properties: dict[str, Any]
-    is_identified: bool
-    distinct_ids: list[str]
-
-
-def _survivor(team_id: int, person_uuid: str) -> _Survivor | None:
-    persons = get_persons_by_uuids(team_id, [person_uuid], distinct_id_limit=0)
-    if not persons:
-        return None
-    person = persons[0]
-    dids = lookups._live_distinct_ids_for_persons(team_id, [person.pk]).get(person.pk) or []
-    return _Survivor(
-        properties=person.properties or {},
-        is_identified=bool(person.is_identified),
-        distinct_ids=[d for d, _ in dids],
-    )
-
-
-def _absent_in_postgres(team_id: int, distinct_ids: list[str]) -> list[str]:
-    present = (
-        {r.distinct_id for r in get_distinct_id_rows(team_id, distinct_ids, strong=True)} if distinct_ids else set()
-    )
-    return [d for d in distinct_ids if d not in present]
-
-
-def _fold_pair(pair: _Pair, rows: list[dict[str, Any]], context: VerbContext) -> None:
-    old, new = pair.old, pair.new
-    person_rows = [r for r in rows if r["kind"] == "person"]
-    diverged = [r for r in rows if r["kind"] == "mapping" and r["flavor"] == "diverged"]
-    ghosts = [r for r in rows if r["kind"] == "mapping" and r["flavor"] == "ghost"]
-    states = observe.pg_person_states(context.team_id, [old, new])
-    survivor = _survivor(context.team_id, new) if new in states and not states[new].is_deleted else None
-    if survivor is None or (old in states and states[old].is_deleted):
-        for row in rows:
-            context.action(row, "skipped_changed")
-        return
-    ghost_ids = _absent_in_postgres(context.team_id, [r["key"] for r in ghosts])
-    if old in states:
-        # An earlier full fold restored A and stopped before the merge landed: finish A's ids, then send it again.
-        absent = [r for r in ghosts if r["key"] in ghost_ids]
-        if absent and context.apply:
-            _write_mappings(context, absent, {r["key"]: old for r in absent}, "restored")
-        _send_fold_merge(context, old, new, [r for r in rows if r not in absent], survivor)
-        return
-    payload = _live_payloads(context.team_id, [old]).get(old)
-    if payload is not None and ghost_ids and (payload.is_identified or survivor.is_identified):
-        for row in ghosts:
-            if row["key"] not in ghost_ids:
-                context.action(row, "skipped_changed")
-        live_ghosts = [r for r in ghosts if r["key"] in ghost_ids]
-        _full_fold(context, old, new, person_rows, live_ghosts, [*person_rows, *diverged, *live_ghosts], survivor)
-    else:
-        _light_fold(context, old, new, payload, person_rows, diverged, ghosts, ghost_ids, survivor)
-
-
-def _full_fold(
-    context: VerbContext,
-    old: str,
-    new: str,
-    person_rows: list[dict[str, Any]],
-    ghost_rows: list[dict[str, Any]],
-    rows: list[dict[str, Any]],
-    survivor: _Survivor,
-) -> None:
-    if not context.apply:
-        for row in rows:
-            context.action(row, "would_repair", mode="full", target_person=new)
-        return
-    restored_ids = _restore_persons(person_rows, ghost_rows, context).restored.get(old)
-    if not restored_ids:
-        # A exists again, or every ghost id was claimed since the scan: the next scan names its new state.
-        return
-    _send_fold_merge(
-        context,
-        old,
-        new,
-        [r for r in rows if r["kind"] != "mapping" or r["flavor"] == "diverged"],
-        survivor,
-        alias=restored_ids[0],
-    )
-
-
-def _send_fold_merge(
-    context: VerbContext,
-    old: str,
-    new: str,
-    rows: list[dict[str, Any]],
-    survivor: _Survivor,
-    alias: str | None = None,
-) -> None:
-    alias = alias or _any_live_distinct_id(context.team_id, old)
-    target = next((d for d in survivor.distinct_ids if d != alias), None)
-    if alias is None or target is None or not _owned_on_primary(context.team_id, {alias: old, target: new}):
-        for row in rows:
-            context.action(row, "skipped_no_alias")
-        return
-    if not context.apply:
-        for row in rows:
-            context.action(row, "would_repair", mode="merge", target_person=new)
-        return
-    outcome = _send_merge(context, distinct_id=target, alias=alias)
-    _report_merge(context, old, new, f"fold:{old}>{new}", rows, outcome)
-
-
 def _report_merge(
     context: VerbContext, old: str, new: str, group: str, rows: list[dict[str, Any]], outcome: str
 ) -> None:
@@ -473,76 +344,6 @@ def _owned_on_primary(team_id: int, owners: dict[str, str]) -> bool:
     rows = {r.distinct_id: r for r in get_distinct_id_rows(team_id, list(owners), strong=True)}
     return all(
         (row := rows.get(d)) is not None and not row.is_deleted and row.person_uuid == u for d, u in owners.items()
-    )
-
-
-def _light_fold(
-    context: VerbContext,
-    old: str,
-    new: str,
-    payload: _Payload | None,
-    person_rows: list[dict[str, Any]],
-    diverged: list[dict[str, Any]],
-    ghosts: list[dict[str, Any]],
-    ghost_ids: list[str],
-    survivor: _Survivor,
-) -> None:
-    for row in ghosts:
-        if row["key"] not in ghost_ids:
-            # Its id has a Postgres row now; the next scan names its new state.
-            context.action(row, "skipped_changed")
-    moving = [*diverged, *(r for r in ghosts if r["key"] in ghost_ids)]
-    missing = {k: v for k, v in (payload.properties if payload else {}).items() if k not in survivor.properties}
-    # A same-person $identify needs two of B's ids; with one, B cannot be marked identified by an event.
-    needs_identified = bool(payload and payload.is_identified and not survivor.is_identified)
-    identify = needs_identified and len(survivor.distinct_ids) > 1
-    carry = {"identified_not_carried": True} if needs_identified and not identify else {}
-    if missing or identify:
-        if not context.apply:
-            for row in [*person_rows, *moving]:
-                context.action(
-                    row, "would_repair", mode="light", target_person=new, set_once_keys=len(missing), **carry
-                )
-            return
-        context.pacer.before_write()
-        refusal = _send_light_fold_event(context, survivor, missing, identify)
-        for row in [*person_rows, *moving]:
-            context.action(row, refusal or "properties_sent", target_person=new, set_once_keys=len(missing), **carry)
-        return
-    if not context.apply:
-        for row in [*person_rows, *moving]:
-            context.action(row, "would_repair", mode="light", target_person=new)
-        return
-    # B holds A's properties now. Burying A first means a run stopped here leaves diverged ids, which a rescan
-    # reports as a fold with nothing left to carry, rather than a ghost of A that restore could revive.
-    orphans = find_orphaned_ch_persons(context.team_id, [old]) if payload is not None else []
-    if orphans:
-        context.pacer.before_write()
-        tombstone_orphaned_ch_persons(context.team_id, orphans, dry_run=False)
-    _write_mappings(context, moving, {r["key"]: new for r in moving}, "moved")
-    for row in person_rows:
-        context.action(row, "folded", target_person=new, buried=bool(orphans), **carry)
-
-
-def _send_light_fold_event(
-    context: VerbContext, survivor: _Survivor, missing: dict[str, Any], identify: bool
-) -> str | None:
-    distinct_id = survivor.distinct_ids[0] if survivor.distinct_ids else None
-    if distinct_id is None:
-        return "skipped_no_distinct_id"
-    if not identify:
-        return stale_merge.send_set_once(
-            context.team_id, distinct_id, missing, survivor.properties, event_source="person_consistency_fold"
-        )
-    # Both ids already belong to B, so ingestion merges nothing and only marks B identified and applies $set_once.
-    return stale_merge.send_set_once(
-        context.team_id,
-        distinct_id,
-        missing,
-        survivor.properties,
-        event_source="person_consistency_fold",
-        event_name="$identify",
-        extra_properties={"$anon_distinct_id": survivor.distinct_ids[1]},
     )
 
 

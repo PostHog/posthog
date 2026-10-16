@@ -9,8 +9,11 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from confluent_kafka import KafkaError
 from parameterized import parameterized
 
+from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
+from posthog.kafka_client.topics import KAFKA_PERSON
 from posthog.models.person.divergence import repairs, team_scan, verbs
 from posthog.models.person.test.divergence_fixtures import DivergenceFixturesMixin
 from posthog.models.person.util import tombstone_persons_in_postgres
@@ -198,6 +201,37 @@ class TestRepairVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         with patch(target, side_effect=step_then_stop), pytest.raises(_Stop):
             self._run(scan_dir, verb, apply=True)
         self._run(scan_dir, verb, apply=True, resume=True)
+
+        assert self._scan()[1] == {}
+
+    # Republish counts a failed delivery after the run; the orphan repair behind bury raises on it.
+    @parameterized.expand([("republish", False), ("bury", True)])
+    def test_a_publish_that_did_not_land_is_retried_on_resume(self, verb: str, raises: bool):
+        if verb == "republish":
+            key = self._hidden_person_with_stale_mapping()
+        else:
+            deleted = self._pg_person(version=2)
+            tombstone_persons_in_postgres(self.team.pk, [deleted.uuid])
+            self._ch_person(str(deleted.uuid), 7, {"email": "old@example.com"})
+            key = str(deleted.uuid)
+        scan_dir, _ = self._scan()
+        failed = ProduceResult(topic=KAFKA_PERSON)
+        failed.set_result(KafkaError(-192, "Local: Message timed out"), None)
+        actions_path = scan_dir / f"{verb}.jsonl"
+
+        with patch.object(ClickhouseProducer, "produce", return_value=failed):
+            if raises:
+                with pytest.raises(Exception):
+                    verbs.run_verb(scan_dir, verb, apply=True, actions_path=actions_path)
+            else:
+                counts = verbs.run_verb(scan_dir, verb, apply=True, actions_path=actions_path)
+                assert counts["undelivered"] > 0
+        last = {}
+        for action in map(json.loads, actions_path.read_text().splitlines()):
+            last[action["key"]] = action["outcome"]
+        assert last[key] == "undelivered"
+
+        verbs.run_verb(scan_dir, verb, apply=True, actions_path=actions_path, resume=True)
 
         assert self._scan()[1] == {}
 

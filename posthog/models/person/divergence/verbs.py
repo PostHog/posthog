@@ -34,9 +34,6 @@ DONE_OUTCOMES = frozenset(
         "buried",
         "restored",
         "already_restored",
-        "moved",
-        "already_moved",
-        "folded",
     }
 )
 
@@ -107,31 +104,17 @@ def load_rows(
     keys: Sequence[str] = (),
     limit: int | None = None,
     skip: Iterable[RowKey] = (),
-    pairs: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
-    """The report rows that name `verb`, optionally only those in `groups` or with `keys`, at most `limit`.
-
-    Each of `pairs` ("A>B") names an old person A and the live person B to fold or merge it into, which the scan
-    leaves ambiguous when A's distinct ids went to more than one person. It selects A's person row, A's ghost
-    mappings and the mappings that moved from A to B, whatever their verb, as one group of `verb`.
-    """
+    """The report rows that name `verb`, optionally only those in `groups` or with `keys`, at most `limit`."""
     path = scan_dir / team_scan.REPORT_FILE
     if not path.exists():
         raise VerbError(f"{path} does not exist; finalize the scan first")
     wanted_groups, wanted_keys, skipped = set(groups), set(keys), set(skip)
-    chosen = _parse_pairs(verb, pairs)
     rows: list[dict[str, Any]] = []
     with path.open() as handle:
         for line in handle:
             row = json.loads(line)
-            if RowKey(kind=row["kind"], key=row["key"]) in skipped:
-                continue
-            if chosen:
-                group = _pair_group(row, chosen, verb)
-                if group is None:
-                    continue
-                row = {**row, "verb": verb, "group": group}
-            elif row["verb"] != verb:
+            if row["verb"] != verb or RowKey(kind=row["kind"], key=row["key"]) in skipped:
                 continue
             if wanted_groups and row["group"] not in wanted_groups:
                 continue
@@ -141,31 +124,6 @@ def load_rows(
             if limit is not None and len(rows) >= limit:
                 break
     return rows
-
-
-def _parse_pairs(verb: str, pairs: Sequence[str]) -> dict[str, str]:
-    if pairs and verb not in ("fold", "merge"):
-        raise VerbError("--pair applies to fold and merge only")
-    chosen: dict[str, str] = {}
-    for pair in pairs:
-        old, sep, new = pair.partition(">")
-        if not sep or not old or not new or old == new:
-            raise VerbError(f"--pair {pair!r} must be OLD_UUID>NEW_UUID")
-        if old in chosen:
-            raise VerbError(f"--pair names {old} twice; fold or merge a person into one survivor")
-        chosen[old] = new
-    return chosen
-
-
-def _pair_group(row: dict[str, Any], chosen: dict[str, str], verb: str) -> str | None:
-    if row["kind"] == "person":
-        old = row["key"] if row["key"] in chosen else None
-    else:
-        ch_owner = ((row.get("evidence") or {}).get("ch") or {}).get("winner_person_uuid")
-        pg_owner = ((row.get("evidence") or {}).get("pg") or {}).get("person_uuid")
-        moved = row["flavor"] == "diverged" and ch_owner in chosen and pg_owner == chosen[ch_owner]
-        old = ch_owner if moved or (row["flavor"] == "ghost" and ch_owner in chosen) else None
-    return None if old is None else f"{verb}:{old}>{chosen[old]}"
 
 
 def done_keys(actions_path: Path) -> set[RowKey]:
@@ -191,7 +149,6 @@ def run_verb(
     limit: int | None = None,
     max_calls_per_second: float | None = None,
     force: bool = False,
-    pairs: Sequence[str] = (),
     log: Callable[[str], None] = lambda _: None,
 ) -> Counter[str]:
     """Run one verb over the scan's report rows and append one action per key to `actions_path`.
@@ -205,7 +162,7 @@ def run_verb(
     plan = team_scan.load_plan(scan_dir)
     if not plan.team_exists:
         raise VerbError(f"team {plan.team_id} does not exist; there is nothing to repair")
-    rows = load_rows(scan_dir, verb, groups=groups, keys=keys, limit=limit, skip=done_keys(actions_path), pairs=pairs)
+    rows = load_rows(scan_dir, verb, groups=groups, keys=keys, limit=limit, skip=done_keys(actions_path))
     counts: Counter[str] = Counter()
     with actions_path.open("a") as out:
 
@@ -233,7 +190,16 @@ def run_verb(
             if apply:
                 undelivered = context.deliveries.undelivered(repairs._FLUSH_TIMEOUT_SECONDS)
                 if undelivered:
-                    counts["undelivered"] += undelivered
+                    # A key whose publish did not land gets a last action that is not done, so resume retries it.
+                    by_key = {RowKey(kind=r["kind"], key=r["key"]): r for r in rows}
+                    for key in context.deliveries.undelivered_keys():
+                        row = by_key.get(RowKey(kind=key.kind, key=key.key)) or {
+                            "kind": key.kind,
+                            "key": key.key,
+                            "group": None,
+                        }
+                        context.action(row, "undelivered")
+                    counts["undelivered"] += undelivered - len(context.deliveries.undelivered_keys())
                     log(f"{verb}: {undelivered} ClickHouse messages were not delivered; rerun with resume")
     return counts
 
@@ -267,7 +233,7 @@ def _republish_persons(
     stale_merge_distinct_ids: dict[str, str] | None = None,
 ) -> None:
     rows_by_key = {row["key"]: row for row in rows}
-    summary = repairs.repair_persons(
+    repairs.repair_persons(
         [datatypes.PersonRef(team_id=context.team_id, person_uuid=u) for u in dict.fromkeys(person_uuids)],
         apply=context.apply,
         max_writes_per_second=context.max_calls_per_second,
@@ -275,9 +241,8 @@ def _republish_persons(
         log=context.log,
         republish_equal=frozenset(republish_equal),
         stale_merge_distinct_ids=stale_merge_distinct_ids,
+        deliveries=context.deliveries,
     )
-    if summary.undelivered:
-        context.log(f"{context.verb}: {summary.undelivered} ClickHouse messages were not delivered; rerun with resume")
 
 
 def republish(rows: list[dict[str, Any]], context: VerbContext) -> None:
@@ -351,12 +316,22 @@ def _bury_persons(rows: list[dict[str, Any]], context: VerbContext) -> None:
             for orphan in orphans:
                 context.action(by_uuid[orphan.uuid], "skipped_share_limit")
             return
-    tombstone_orphaned_ch_persons(
-        context.team_id,
-        orphans,
-        dry_run=False,
-        on_outcome=lambda person_uuid, outcome: context.action(by_uuid[person_uuid], outcome),
-    )
+    # The orphan repair reports an outcome before it publishes and raises when a publish fails, so outcomes are
+    # recorded only once every publish landed; otherwise each key is recorded as undelivered for resume to retry.
+    outcomes: list[tuple[str, str]] = []
+    try:
+        tombstone_orphaned_ch_persons(
+            context.team_id,
+            orphans,
+            dry_run=False,
+            on_outcome=lambda person_uuid, outcome: outcomes.append((person_uuid, outcome)),
+        )
+    except Exception:
+        for person_uuid, _ in outcomes:
+            context.action(by_uuid[person_uuid], "undelivered")
+        raise
+    for person_uuid, outcome in outcomes:
+        context.action(by_uuid[person_uuid], outcome)
 
 
 def _strong_row(team_id: int, distinct_id: str) -> DistinctIdRow | None:
@@ -389,7 +364,8 @@ def _bury_mapping(row: dict[str, Any], context: VerbContext) -> None:
         return
     owner = confirmed.person_uuid if confirmed.HasField("person_uuid") else ch.winner_person_uuid
     context.deliveries.track(
-        create_person_distinct_id(team_id, distinct_id, owner, version=int(confirmed.version), is_deleted=True)
+        create_person_distinct_id(team_id, distinct_id, owner, version=int(confirmed.version), is_deleted=True),
+        repairs.PublishedKey(kind="mapping", key=distinct_id),
     )
     context.action(row, "buried", version=int(confirmed.version))
 
@@ -399,6 +375,5 @@ VERBS: dict[str, VerbFn] = {
     "merge_stale": merge_stale,
     "bury": bury,
     "restore": restore_verbs.restore,
-    "fold": restore_verbs.fold,
     "merge": restore_verbs.merge,
 }

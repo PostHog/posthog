@@ -14,7 +14,7 @@ use personhog_proto::personhog::types::v1::{
     GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
     GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
     GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
-    ListPersonsForTeamRequest, PersonVersionFloor, PersonVersionFloorResult,
+    ListPersonsForTeamRequest, PersonVersionFloor, PersonVersionFloorResult, RaiseOutcome,
     RaisePersonVersionFloorsRequest, ReadOptions, RestoreOutcome, RestorePersonsRequest,
     RestoredDistinctId, RestoredPerson, SetPersonDistinctIdVersionFloorRequest,
     SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
@@ -1985,8 +1985,26 @@ async fn test_list_persons_for_team_rejects_bad_requests(
 async fn test_repair_writes_round_trip_through_the_service() {
     let ctx = ServiceTestContext::new().await;
     let person = ctx.insert_person("svc_repair", None).await.unwrap();
-    let absent = Uuid::new_v4();
 
+    let raised = ctx
+        .service
+        .raise_person_version_floors(Request::new(RaisePersonVersionFloorsRequest {
+            team_id: ctx.team_id,
+            floors: vec![PersonVersionFloor {
+                person_uuid: person.uuid.to_string(),
+                min_version: 5,
+            }],
+        }))
+        .await
+        .expect("raise")
+        .into_inner()
+        .results;
+    assert_eq!(
+        (raised[0].outcome, raised[0].version),
+        (RaiseOutcome::Raised as i32, 5)
+    );
+
+    let absent = Uuid::new_v4();
     let restored = ctx
         .service
         .restore_persons(Request::new(RestorePersonsRequest {

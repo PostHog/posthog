@@ -16,7 +16,7 @@ Usage:
     python manage.py person_consistency repair --dir /tmp/scan-2 --verb republish --apply --resume <actions file>
 
 Scans are read-only. A scan that stops resumes with --resume. The report (report.jsonl) holds one row per
-key that is not ok, with the raw keys a repair needs; summary.json holds counts and group names only.
+key that is not ok, with the raw keys a repair needs; summary.json holds counts and hashed group names, and names no key.
 A repair writes nothing without --apply, and records one action per key in an actions file.
 """
 
@@ -117,13 +117,6 @@ class Command(BaseCommand):
         repair.add_argument("--verb", choices=sorted(VERBS), required=True, help="The repair to run.")
         repair.add_argument("--group", action="append", default=[], help="Only rows of this group. Repeatable.")
         repair.add_argument("--key", action="append", default=[], help="Only rows with this key. Repeatable.")
-        repair.add_argument(
-            "--pair",
-            action="append",
-            default=[],
-            metavar="OLD>NEW",
-            help="fold or merge: repair an ambiguous old person into this survivor. Repeatable.",
-        )
         repair.add_argument("--limit", type=_positive_int, default=None, help="At most this many rows, for a canary.")
         repair.add_argument("--apply", action="store_true", help="Write. Without it the repair only reports.")
         repair.add_argument(
@@ -272,7 +265,6 @@ class Command(BaseCommand):
             limit=options["limit"],
             max_calls_per_second=options["max_calls_per_second"],
             force=options["force"],
-            pairs=options["pair"],
             log=self._log,
         )
         outcomes = ", ".join(f"{outcome}={n}" for outcome, n in sorted(counts.items())) or "nothing to do"
