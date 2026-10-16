@@ -5181,6 +5181,7 @@
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
                 "marketing_suggest_utm_mappings",
+                "compare_replay_vision_variants",
                 "draft_replay_vision_scanner_prompt",
                 "search_replay_vision_observations",
                 "scan_replay_vision_sessions",
@@ -30410,6 +30411,10 @@
                 "sessionTableVersion": {
                     "enum": ["auto", "v1", "v2", "v3"],
                     "type": "string"
+                },
+                "sessionTimestampBufferMinutes": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range."
                 },
                 "sessionsV2JoinMode": {
                     "enum": ["string", "uuid"],
