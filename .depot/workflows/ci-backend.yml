@@ -4350,6 +4350,9 @@ jobs:
                   # GitHub rejects a summary over 65535 characters, and the byte budget below stays
                   # under that however the characters are encoded.
                   touch "$GATE_SUMMARY"
+                  if [ "$CONCLUSION" = failure ]; then
+                      printf '\nTo retry the failed jobs without a new push, comment `/retry` on this pull request.\n' >> "$GATE_SUMMARY"
+                  fi
                   jq -n --arg name "$GATE_CHECK" --arg sha "$SHA" --arg conclusion "$CONCLUSION" --arg url "$DEPOT_JOB_URL" \
                       --arg title "$title" --rawfile summary "$GATE_SUMMARY" \
                       '{name: $name, head_sha: $sha, status: "completed", conclusion: $conclusion, details_url: $url,
