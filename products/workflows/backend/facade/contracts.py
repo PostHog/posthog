@@ -51,6 +51,18 @@ class WorkflowActivitySummary:
 
 
 @frozen
+class OwnedWorkflowHealth:
+    """A live workflow one person created: its runs over the last 7 days and what waits on its owner."""
+
+    workflow_id: UUID
+    name: str
+    succeeded: int
+    failed: int
+    email_sending_paused: bool
+    pending_suggestions: int
+
+
+@frozen
 class WorkflowTaskDailyLimits:
     """A team's daily caps on tasks created by workflows. None means the default cap applies."""
 
