@@ -1209,7 +1209,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'logs-pii-scrub',
                 title: 'PII scrubbing',
                 description:
-                    'Remove or mask common personally identifiable information from log payloads during ingestion.',
+                    'Redact common personally identifiable information and secrets from log bodies and attribute values during ingestion.',
+                docsUrl: 'https://posthog.com/docs/logs/pii-scrubbing',
                 component: <LogsPiiScrubSettings />,
                 flag: 'LOGS_SETTINGS_PII_SCRUB',
                 keywords: ['pii', 'privacy', 'gdpr', 'redact', 'mask', 'scrub', 'sensitive'],
