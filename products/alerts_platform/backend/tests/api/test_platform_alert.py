@@ -292,6 +292,7 @@ class TestPlatformAlertAPI(APIBaseTest):
                 "datapoints_to_alarm",
             ),
             ("source_kind_changed", {"source_kind": "insight"}, "source_kind"),
+            ("grouping_without_mode", {"grouping": {"keys": ["service_name"]}}, "grouping__mode"),
             ("enabled_without_filters", {"source_config": {"filters": {}, "condition": CONDITION}}, "source_config"),
             ("grouped_by_an_attribute", {"grouping": {"mode": "by_result_labels", "keys": ["http.route"]}}, "grouping"),
         ]
