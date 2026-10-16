@@ -17,7 +17,7 @@ from products.messaging.backend.services import template_uploads
 from products.messaging.backend.services.transactional_email import make_transactional
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 
-WELCOME = {
+WELCOME: dict[str, Any] = {
     "name": "Welcome",
     "subject": "Welcome, {{ variables.first_name }}",
     "html": "<p>Hi {{ variables.first_name }}</p>",

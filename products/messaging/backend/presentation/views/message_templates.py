@@ -390,7 +390,7 @@ class UploadTemplateSerializer(serializers.Serializer):
         trim_whitespace=False,
         help_text="Inbox preview text shown after the subject. Leaving it out removes the stored one.",
     )
-    source = TemplateSourceSerializer(
+    source = TemplateSourceSerializer(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         required=False,
         help_text="Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of "
         "it, keeps what is stored.",
@@ -410,7 +410,9 @@ class UploadTemplateResponseSerializer(serializers.Serializer):
         "PostHog holds the content you hold."
     )
     managed_by = serializers.ChoiceField(choices=TemplateManagedBy.choices, help_text="Always `code` after an upload.")
-    source = TemplateSourceSerializer(help_text="Where the template file lives, as stored after the upload.")
+    source = TemplateSourceSerializer(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        help_text="Where the template file lives, as stored after the upload."
+    )
     transactional_hog_flow_id = serializers.UUIDField(
         help_text="The workflow that sends this template. Each upload that changes the content writes a new version "
         "of it."
@@ -437,20 +439,17 @@ class UploadRefused:
     attr: str | None
     why: str
     fix: str
+    type: str = "invalid_request"
 
-    def response(self) -> Response:
-        return Response(
-            {
-                "type": "invalid_request",
-                "code": self.code,
-                "detail": self.detail,
-                "attr": self.attr,
-                "why": self.why,
-                "fix": self.fix,
-                "docs_url": f"{TRANSACTIONAL_EMAIL_DOCS_URL}#{self.code}",
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    @property
+    def docs_url(self) -> str:
+        return f"{TRANSACTIONAL_EMAIL_DOCS_URL}#{self.code}"
+
+
+@frozen
+class FieldError:
+    attr: str
+    message: str
 
 
 def invalid_template_key(key: str) -> UploadRefused | None:
@@ -466,23 +465,23 @@ def invalid_template_key(key: str) -> UploadRefused | None:
 
 
 def invalid_upload(errors: Any) -> UploadRefused:
-    attr, message = first_field_error(errors)
+    error = first_field_error(errors)
     return UploadRefused(
         code="invalid_request",
-        detail=f"{attr}: {message}",
-        attr=attr,
+        detail=f"{error.attr}: {error.message}",
+        attr=error.attr,
         why="An upload needs a name, a subject and HTML, each as a string.",
-        fix=f"Fix `{attr}` and upload again.",
+        fix=f"Fix `{error.attr}` and upload again.",
     )
 
 
-def first_field_error(errors: Any, path: tuple[str, ...] = ()) -> tuple[str, str]:
+def first_field_error(errors: Any, path: tuple[str, ...] = ()) -> FieldError:
     if isinstance(errors, dict):
         field, nested = next(iter(errors.items()))
         return first_field_error(nested, (*path, str(field)))
     if isinstance(errors, list) and errors and not isinstance(errors[0], str):
         return first_field_error(errors[0], path)
-    return "__".join(path), str(errors[0] if isinstance(errors, list) else errors)
+    return FieldError(attr="__".join(path), message=str(errors[0] if isinstance(errors, list) else errors))
 
 
 TEMPLATE_KEY_PARAMETER = OpenApiParameter(
@@ -831,7 +830,7 @@ class MessageTemplatesViewSet(
             refused = invalid_upload(body.errors)
         if refused is not None:
             self._report_template_upload(request, {"result": "rejected", "error_code": refused.code})
-            return refused.response()
+            return Response(TemplateUploadErrorSerializer(refused).data, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             uploaded = upload_template(
@@ -895,7 +894,7 @@ class MessageTemplatesViewSet(
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
             raise exceptions.PermissionDenied("You need editor access to workflows to upload a new template.")
 
-    def _report_template_upload(self, request: Request, outcome: dict[str, Any]) -> None:
+    def _report_template_upload(self, request: Any, outcome: dict[str, Any]) -> None:
         # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
         try:
             posthoganalytics.capture(

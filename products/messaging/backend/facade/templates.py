@@ -166,11 +166,11 @@ def upload_template(
     there is none. Raises TransactionalEmailError when the template can't send. `require_workflow_create` runs
     before a new workflow is made, and raises to refuse the upload.
     """
-    result, template = template_uploads.upload_template(
+    uploaded = template_uploads.upload_template(
         team_id,
         upload,
         user_id=user_id,
         require_workflow_editor=require_workflow_editor,
         require_workflow_create=require_workflow_create,
     )
-    return UploadedTemplate(result=result, template=_to_contract(template))
+    return UploadedTemplate(result=uploaded.result, template=_to_contract(uploaded.template))

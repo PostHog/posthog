@@ -5,6 +5,8 @@ from typing import Any
 
 from django.db import IntegrityError, transaction
 
+from posthog.dataclasses import frozen
+
 from products.messaging.backend.facade.contracts import (
     SenderUnavailable,
     TemplateManagedBy,
@@ -24,6 +26,12 @@ SOURCE_PARTS = ("repository", "path", "ref")
 WorkflowCreateCheck = Callable[[], None]
 
 
+@frozen
+class Uploaded:
+    result: TemplateUploadResult
+    template: MessageTemplate
+
+
 def upload_template(
     team_id: int,
     upload: TemplateUpload,
@@ -31,8 +39,8 @@ def upload_template(
     user_id: int | None,
     require_workflow_editor: WorkflowEditorCheck,
     require_workflow_create: WorkflowCreateCheck,
-) -> tuple[TemplateUploadResult, MessageTemplate]:
-    def attempt() -> tuple[TemplateUploadResult, MessageTemplate]:
+) -> Uploaded:
+    def attempt() -> Uploaded:
         with transaction.atomic():
             return _upload(
                 team_id,
@@ -58,14 +66,14 @@ def _upload(
     user_id: int | None,
     require_workflow_editor: WorkflowEditorCheck,
     require_workflow_create: WorkflowCreateCheck,
-) -> tuple[TemplateUploadResult, MessageTemplate]:
+) -> Uploaded:
     template = locked_template_with_key(team_id, upload.key)
     if template is None:
         require_workflow_create()
-        return TemplateUploadResult.CREATED, _create(team_id, upload, user_id=user_id)
+        return Uploaded(result=TemplateUploadResult.CREATED, template=_create(team_id, upload, user_id=user_id))
     if _is_unchanged(template, upload):
         _save_source(template, upload.source)
-        return TemplateUploadResult.UNCHANGED, template
+        return Uploaded(result=TemplateUploadResult.UNCHANGED, template=template)
     save_locked_template(
         template,
         lambda locked: _write_upload(locked, upload),
@@ -76,7 +84,7 @@ def _upload(
         # An adopted template, or one whose workflow was deleted.
         require_workflow_create()
         _make_transactional(template, user_id=user_id)
-    return TemplateUploadResult.UPDATED, template
+    return Uploaded(result=TemplateUploadResult.UPDATED, template=template)
 
 
 def locked_template_with_key(team_id: int, key: str) -> MessageTemplate | None:
