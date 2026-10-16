@@ -15154,6 +15154,14 @@ snapshots:
         hash: v1.k794b7964.9c4901f2fd036dde6005571c91a0614fbe86ed75692bef8c6b9eb46eaf500b93.-H-jk4ghSU02mUj-657ibApn_DE-SQibqIShQqlwtLo
     scenes-other-billing--billing-managed-by-partner--light:
         hash: v1.k794b7964.60287e6a945be4ebce959c34bc7806927268d678b473ec000d6ef104db3aa6c4.7yOxBzp7X6CqAfJStAvdccTo7MYJz9u9VOydRpU-iBI
+    scenes-other-billing--billing-managed-by-vercel--dark:
+        hash: v1.k794b7964.68344f009e863c11016ba1b8cd67115fd209f5dbfa8bcc9a7fd54dd04aae6464.FObRaJvaoO0UmEeme0s-vHv0e1glMIdCp8Nghm7Cer4
+    scenes-other-billing--billing-managed-by-vercel--light:
+        hash: v1.k794b7964.ea6cc3637b1a906cf63ea8df90981e93afc0e80ff08e267535c753186847690c.Hab7Ab-RJyG4pYXNFugGpnHUVBQPquA3PYJAtmb9Pbw
+    scenes-other-billing--billing-managed-by-vercel-without-subscription--dark:
+        hash: v1.k794b7964.9ac1320cbb5caa3a32874333b4ea79ec0e57f9976c053a475259fe6ad9cf4e77.EO-Vq9V9IX1OYOT54xoSmSJHRpQ2SoG2FgbaBFeFbtU
+    scenes-other-billing--billing-managed-by-vercel-without-subscription--light:
+        hash: v1.k794b7964.47f96c85dbfc75283077063514f7d22f15db67e03c155d791c2e734484e09020.yMoXHXlQWwXF2UP3pCtl6WU4CBwSRriWG98N2R9UUmY
     scenes-other-billing--billing-on-startup-plan--dark:
         hash: v1.k794b7964.327140e7888b473bf72795b84b3524a8effa471cdf5da775e81e9b060ae5ae5b.DyCRhAUTLZNQm4YUA_GDmPQ-FXb0z7XI0x0p8me4E8s
     scenes-other-billing--billing-on-startup-plan--light:

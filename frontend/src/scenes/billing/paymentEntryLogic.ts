@@ -436,9 +436,9 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                 window.location.href = urls.organizationBilling()
             },
             startPaymentEntryFlow: async ({ product, redirectPath }) => {
-                const { billing, billingManagedByPartnerNotice } = billingLogic.values
-                if (billingManagedByPartnerNotice) {
-                    lemonToast.info(billingManagedByPartnerNotice)
+                const { billing, selfServeBillingNotice } = billingLogic.values
+                if (selfServeBillingNotice) {
+                    lemonToast.info(selfServeBillingNotice)
                     return
                 }
                 const organizationId = startFlow(redirectPath || null)
