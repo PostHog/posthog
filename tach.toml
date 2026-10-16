@@ -980,6 +980,7 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.cdp",
     "products.conversations",
     "products.data_modeling",
@@ -1645,6 +1646,7 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.conversations",
+    "products.customer_analytics",
     "products.dashboards",
     "products.product_analytics",
     "products.signals",
