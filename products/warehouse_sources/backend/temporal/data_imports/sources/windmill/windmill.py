@@ -279,6 +279,13 @@ def windmill_source(
     )
 
 
+_PATH_SEGMENT_FIELD = "_path_segment"
+
+
+def _add_path_segment(row: dict[str, Any]) -> dict[str, Any]:
+    return {**row, _PATH_SEGMENT_FIELD: quote(str(row["name"]), safe="")}
+
+
 def _detail_rest_config(
     endpoint: str, detail_path: str, client_config: ClientConfig, list_endpoint: Endpoint
 ) -> RESTAPIConfig:
@@ -288,7 +295,7 @@ def _detail_rest_config(
         "name": endpoint,
         "endpoint": {
             "path": detail_path,
-            "params": {"name": {"type": "resolve", "resource": parent_name, "field": "name"}},
+            "params": {"name": {"type": "resolve", "resource": parent_name, "field": _PATH_SEGMENT_FIELD}},
             "paginator": SinglePagePaginator(),
             # A row deleted between the list call and its detail call is gone, not an error.
             "response_actions": [{"status_code": 404, "action": "ignore"}],
@@ -297,5 +304,9 @@ def _detail_rest_config(
     return {
         "client": client_config,
         "resource_defaults": {},
-        "resources": [{"name": parent_name, "endpoint": list_endpoint}, detail_resource],
+        "resources": [
+            # The path is bound with `str.format`, so percent-encode the name here (`#`, `/`, `?` in a name).
+            {"name": parent_name, "endpoint": list_endpoint, "data_map": _add_path_segment},
+            detail_resource,
+        ],
     }

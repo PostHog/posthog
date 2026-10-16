@@ -251,6 +251,21 @@ class TestSync:
         ]
         assert [{k: row[k] for k in detail_alpha} for row in result.rows] == [detail_alpha]
 
+    def test_groups_percent_encode_names_in_detail_path(self):
+        result = _driver().run(
+            "groups",
+            route(
+                {
+                    "/groups/list": [_json_response([{"name": "team#ops/eu", "extra_perms": {}}])],
+                    "/groups/get/team%23ops%2Feu": [_json_response({"name": "team#ops/eu", "members": ["ann"]})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths[-1] == f"/api/w/{WORKSPACE}/groups/get/team%23ops%2Feu"
+        assert [row["members"] for row in result.rows] == [["ann"]]
+
     @mock.patch(HOST_SAFE_PATCH)
     def test_raises_when_host_not_allowed(self, mock_host_safe):
         mock_host_safe.return_value = (False, "host not allowed")
