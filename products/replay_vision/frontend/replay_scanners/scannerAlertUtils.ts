@@ -1,6 +1,12 @@
 import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 
-import { CyclotronJobFiltersType, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    CyclotronJobFiltersType,
+    HogFunctionType,
+    IntegrationType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import type { VisionAlertConfigurationApi } from '../generated/api.schemas'
 
@@ -29,6 +35,22 @@ export type VisionAlertDestinationGroup = {
     label: string
     hogFunctions: HogFunctionType[]
     enabled: boolean
+}
+
+export function pendingVisionAlertNotificationView(
+    notification: PendingVisionAlertNotification,
+    slackIntegrations: IntegrationType[] | undefined
+): { title: string; detail?: string } {
+    if (notification.type === VISION_ALERT_NOTIFICATION_TYPE_SLACK) {
+        const workspaceName = slackIntegrations?.find(
+            (integration) => integration.id === notification.slackWorkspaceId
+        )?.display_name
+        return {
+            title: 'Slack',
+            detail: `${workspaceName ?? 'Unknown workspace'} · #${notification.slackChannelName ?? 'channel'}`,
+        }
+    }
+    return { title: 'Webhook', detail: notification.webhookUrl }
 }
 
 // The alert predicate compares tag strings exactly, so an option's `label` stays the raw tag.
@@ -69,10 +91,14 @@ export function buildVisionAlertFilterConfig(alertId: string): CyclotronJobFilte
     }
 }
 
-export function groupVisionAlertDestinations(hogFunctions: HogFunctionType[]): VisionAlertDestinationGroup[] {
+export function groupVisionAlertDestinations(
+    hogFunctions: HogFunctionType[],
+    slackIntegrations: IntegrationType[] | undefined
+): VisionAlertDestinationGroup[] {
     const groups = new Map<string, VisionAlertDestinationGroup>()
     for (const hf of hogFunctions) {
         const templateId = hf.template_id ?? hf.template?.id
+        const slackWorkspaceValue = hf.inputs?.slack_workspace?.value as number | undefined
         const slackChannelValue = hf.inputs?.channel?.value as string | undefined
         const webhookUrl = hf.inputs?.url?.value as string | undefined
 
@@ -81,8 +107,16 @@ export function groupVisionAlertDestinations(hogFunctions: HogFunctionType[]): V
         let label: string
         if (templateId === 'template-slack') {
             type = VISION_ALERT_NOTIFICATION_TYPE_SLACK
-            key = `slack:${slackChannelValue ?? hf.id}`
-            label = 'Slack'
+            key = `slack:${slackWorkspaceValue ?? 'unknown'}:${slackChannelValue ?? hf.id}`
+            const workspaceName = slackIntegrations?.find(
+                (integration) => integration.id === slackWorkspaceValue
+            )?.display_name
+            const channelName =
+                hf.name
+                    .split(' → ')
+                    .at(-1)
+                    ?.replace(/^Slack /, '') ?? '#channel'
+            label = `${workspaceName ?? 'Unknown workspace'} · ${channelName}`
         } else {
             type = VISION_ALERT_NOTIFICATION_TYPE_WEBHOOK
             key = `webhook:${webhookUrl ?? hf.id}`
