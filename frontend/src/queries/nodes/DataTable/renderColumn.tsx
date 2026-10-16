@@ -43,7 +43,7 @@ import {
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { aiObservabilityGlobalColumnRenderers } from 'products/ai_observability/frontend/aiObservabilityGlobalColumns'
-import { HarnessLabel } from 'products/mcp_analytics/frontend/dashboard/harness'
+import { HarnessLabel } from 'products/mcp_analytics/frontend/dashboard/HarnessLabel'
 import { GroupActorDisplay } from 'products/persons/frontend/components/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'products/persons/frontend/components/PersonDisplay'
 import { pickBestPersonDistinctId } from 'products/persons/frontend/person-utils'
