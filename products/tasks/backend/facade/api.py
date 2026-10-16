@@ -2914,6 +2914,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "cancel_requested_by_user_id",
         "cancel_source",
         "cancel_fallback_cleanup_complete",
+        "cancel_fallback_stream_generation",
+        "stream_generation",
         "pending_external_followups",
         "pending_external_followups_generation",
         "pending_external_followups_checkpoint",

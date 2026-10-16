@@ -47,7 +47,7 @@ Existing Django callers should use `build_openai_client`, `build_async_openai_cl
 | Python product usage status                                | The Python product usage and quota API is different from Go request usage and wallet APIs.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 The `posthog_code` product is retired on this gateway.
-PostHog Desktop and PostHog Code mint scoped tokens on the Go gateway, and a `posthog_code` call here answers 403 with reason `product_retired` and a message that tells the user to update PostHog Desktop.
+PostHog Desktop and PostHog Code mint scoped tokens on the Go gateway, and a `posthog_code` call here answers 403 with reason `product_retired` and a message that names the token refusals that send a client here.
 The desktop access gate and the Code-only per-user spend caps stay in the code, but no request reaches them.
 The retirement also closes the gap where the `posthog_code_credits` quota check failed open: Django's quota endpoint requires `project:read`, a Code OAuth token carries only `llm_gateway:read`, so every check answered 403 and the gateway let the request through.
 
