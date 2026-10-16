@@ -1,1 +1,1 @@
-1399_alter_user_ui_configuration_help_text
+1400_disable_activitylog_detail_gin_fastupdate
