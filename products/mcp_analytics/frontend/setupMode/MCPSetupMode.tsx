@@ -5,14 +5,18 @@ import { LemonModal } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { useMCPAnalyticsWizardCommand } from '../onboarding/MCPAnalyticsInstall'
 import { mcpSetupModeLogic } from './mcpSetupModeLogic'
 import { MCPSetupModeView } from './MCPSetupModeView'
 
 function MCPSetupModeOverlay(): JSX.Element | null {
-    const { isOpen, step, connectState, recentCalls, recentCallsFailed, agentPrompt } = useValues(mcpSetupModeLogic)
+    const { isOpen, setupPath, step, connectState, recentCalls, recentCallsFailed, agentPrompt } =
+        useValues(mcpSetupModeLogic)
     const { exitSetupMode, goToUsefulStep, askPostHogAI } = useActions(mcpSetupModeLogic)
+    // Self-hosted can't run the Wizard against cloud, so it gets no command to copy.
+    const { command, isCloudOrDev } = useMCPAnalyticsWizardCommand()
 
-    if (!isOpen) {
+    if (!isOpen || !setupPath) {
         return null
     }
     return (
@@ -31,7 +35,9 @@ function MCPSetupModeOverlay(): JSX.Element | null {
                 connectState={connectState}
                 recentCalls={recentCalls}
                 recentCallsFailed={recentCallsFailed}
+                setupPath={setupPath}
                 agentPrompt={agentPrompt}
+                wizardCommand={isCloudOrDev ? command : null}
                 onExit={exitSetupMode}
                 onAskPostHogAI={askPostHogAI}
                 onGoToUseful={goToUsefulStep}

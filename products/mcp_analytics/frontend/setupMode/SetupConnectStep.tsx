@@ -8,7 +8,7 @@ import { StepIcon } from 'scenes/onboarding/shared/wizard-sync/StepIcon'
 import { Timeline } from 'scenes/onboarding/shared/wizard-sync/Timeline'
 
 import { SetupCallsPanel } from './SetupCallsPanel'
-import type { MCPConnectState } from './setupMode'
+import type { MCPConnectState, MCPSetupPath } from './setupMode'
 import { SetupStepHero } from './SetupStepHero'
 import { SetupStepLayout } from './SetupStepLayout'
 
@@ -23,18 +23,27 @@ const LEADERBOARD_URL =
 const COPY = {
     waiting: {
         title: 'Waiting for your server to connect',
-        lead: "Setup is making the change in your server's repository.",
-        stuck: 'Agent stuck?',
-        copyPrompt: 'Copy the prompt again',
+        lead: 'Follow these steps. This page moves on by itself when your server connects.',
+        help: 'Need help?',
         installGuide: 'Read the install guide',
     },
-    agentChecklist: {
-        title: 'What your agent should do',
-        source: "This page can't see your agent. Only the last step is live.",
-        steps: ["Find your server's entry point", 'Install the PostHog MCP SDK', 'Add your project token'],
-        restart: 'Restart your server',
-        restartWaiting: 'Restart it after your agent is done. This step ticks when your server sends its first event.',
-        restartDone: 'Your server connected.',
+    nextSteps: {
+        title: 'Your next steps',
+        install: {
+            wizard: {
+                title: "Run the Wizard command in your server's repository",
+                detail: 'The setup agent installs the SDK and adds your project token.',
+                copied: 'Wizard command',
+            },
+            agent: {
+                title: 'Paste the prompt into your coding agent',
+                detail: "Open your server's repository in Claude Code, Cursor or Codex first.",
+                copied: 'installation prompt',
+            },
+        } satisfies Record<MCPSetupPath, { title: string; detail: string; copied: string }>,
+        restart: 'Restart your server when setup is done',
+        connect: 'Your server connects',
+        connectWaiting: 'This step ticks when your server sends its first event.',
     },
     whileYouWait: {
         title: 'While you wait',
@@ -54,36 +63,72 @@ const COPY = {
     listening: 'Listening for your first tool call',
 }
 
-// Only the restart is observable: the server connecting proves it, and with it every step before it.
-function AgentChecklist({ connected }: { connected: boolean }): JSX.Element {
-    const copy = COPY.agentChecklist
-    const expected = connected ? (
-        <StepIcon status="completed" />
-    ) : (
-        <span className="size-4 rounded-full border-2 border-secondary" />
+const pendingIcon = <span className="size-4 rounded-full border-2 border-secondary" />
+
+function CopyableLine({ text, label, dataAttr }: { text: string; label: string; dataAttr: string }): JSX.Element {
+    return (
+        <div className="mt-1 flex min-w-0 items-center gap-2 rounded border border-primary bg-surface-secondary py-1 pl-3 pr-1">
+            <span className="min-w-0 flex-1 truncate font-mono text-xs">{text}</span>
+            <LemonButton
+                size="small"
+                type="secondary"
+                icon={<IconCopy />}
+                onClick={() => void copyToClipboard(text, label)}
+                data-attr={dataAttr}
+            >
+                Copy
+            </LemonButton>
+        </div>
     )
+}
+
+/** What the user does next, for the button that opened setup mode. Only the last step is observable. */
+function NextSteps({
+    setupPath,
+    installText,
+    connected,
+}: {
+    setupPath: MCPSetupPath
+    installText: string | null
+    connected: boolean
+}): JSX.Element {
+    const copy = COPY.nextSteps
+    const install = copy.install[setupPath]
+    const done = <StepIcon status="completed" />
     return (
         <div className="flex flex-col gap-3 rounded border border-primary bg-surface-primary p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-secondary">
-                <span className="font-semibold">{copy.title}</span>
-                {connected ? null : <span>{copy.source}</span>}
-            </div>
+            <span className="text-xs font-semibold text-secondary">{copy.title}</span>
             <Timeline
                 ariaLabel={copy.title}
                 items={[
-                    ...copy.steps.map((label) => ({
-                        key: label,
-                        icon: expected,
-                        content: <span className="text-sm text-secondary">{label}</span>,
-                    })),
+                    {
+                        key: 'install',
+                        icon: connected ? done : pendingIcon,
+                        content: <span className="text-sm font-semibold">{install.title}</span>,
+                        detail: (
+                            <div className="flex flex-col gap-1">
+                                <span className="block text-sm text-secondary">{install.detail}</span>
+                                {installText && !connected ? (
+                                    <CopyableLine
+                                        text={installText}
+                                        label={install.copied}
+                                        dataAttr={`mcp-analytics-setup-mode-copy-${setupPath}`}
+                                    />
+                                ) : null}
+                            </div>
+                        ),
+                    },
                     {
                         key: 'restart',
-                        icon: <StepIcon status={connected ? 'completed' : 'in_progress'} />,
+                        icon: connected ? done : pendingIcon,
                         content: <span className="text-sm font-semibold">{copy.restart}</span>,
-                        detail: (
-                            <span className="block text-sm text-secondary">
-                                {connected ? copy.restartDone : copy.restartWaiting}
-                            </span>
+                    },
+                    {
+                        key: 'connect',
+                        icon: <StepIcon status={connected ? 'completed' : 'in_progress'} />,
+                        content: <span className="text-sm font-semibold">{copy.connect}</span>,
+                        detail: connected ? undefined : (
+                            <span className="block text-sm text-secondary">{copy.connectWaiting}</span>
                         ),
                     },
                 ]}
@@ -121,23 +166,13 @@ function WhileYouWait(): JSX.Element {
     )
 }
 
-function ConnectWaiting({ agentPrompt }: { agentPrompt: string | null }): JSX.Element {
+function ConnectWaiting(props: SetupConnectStepProps): JSX.Element {
     return (
         <>
             <SetupStepHero Hedgehog={HedgehogSearching} title={COPY.waiting.title} lead={COPY.waiting.lead} />
-            <AgentChecklist connected={false} />
+            <NextSteps setupPath={props.setupPath} installText={installTextFor(props)} connected={false} />
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                <span className="text-secondary">{COPY.waiting.stuck}</span>
-                <LemonButton
-                    size="small"
-                    type="tertiary"
-                    icon={<IconCopy />}
-                    disabledReason={agentPrompt ? undefined : 'Select a project to get the prompt.'}
-                    onClick={() => agentPrompt && void copyToClipboard(agentPrompt, 'installation prompt')}
-                    data-attr="mcp-analytics-setup-mode-copy-prompt"
-                >
-                    {COPY.waiting.copyPrompt}
-                </LemonButton>
+                <span className="text-secondary">{COPY.waiting.help}</span>
                 <LemonButton
                     size="small"
                     type="tertiary"
@@ -154,11 +189,17 @@ function ConnectWaiting({ agentPrompt }: { agentPrompt: string | null }): JSX.El
 
 interface SetupConnectStepProps {
     connectState: MCPConnectState
+    setupPath: MCPSetupPath
     agentPrompt: string | null
+    wizardCommand: string | null
 }
 
-function ConnectStepBody({ connectState, agentPrompt }: SetupConnectStepProps): JSX.Element {
-    if (connectState.kind === 'connected') {
+function installTextFor({ setupPath, agentPrompt, wizardCommand }: SetupConnectStepProps): string | null {
+    return setupPath === 'wizard' ? wizardCommand : agentPrompt
+}
+
+function ConnectStepBody(props: SetupConnectStepProps): JSX.Element {
+    if (props.connectState.kind === 'connected') {
         return (
             <>
                 <SetupStepHero Hedgehog={HedgehogSearching} title={COPY.connected.title} lead={COPY.connected.lead} />
@@ -174,11 +215,11 @@ function ConnectStepBody({ connectState, agentPrompt }: SetupConnectStepProps): 
                         Copy
                     </LemonButton>
                 </div>
-                <AgentChecklist connected />
+                <NextSteps setupPath={props.setupPath} installText={null} connected />
             </>
         )
     }
-    return <ConnectWaiting agentPrompt={agentPrompt} />
+    return <ConnectWaiting {...props} />
 }
 
 export function SetupConnectStep(props: SetupConnectStepProps): JSX.Element {

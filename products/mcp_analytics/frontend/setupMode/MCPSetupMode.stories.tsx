@@ -36,6 +36,8 @@ const FAILED_CALL: MCPActivityRecentCallApi = {
 const BASE: MCPSetupModeViewProps = {
     step: 'connect',
     connectState: { kind: 'waiting' },
+    setupPath: 'agent',
+    wizardCommand: 'npx -y @posthog/wizard@latest mcp-analytics --region us --project-id 997',
     recentCalls: null,
     recentCallsFailed: false,
     agentPrompt:
@@ -83,6 +85,11 @@ type Story = StoryObj<typeof MCPSetupModeView>
 
 export const Connect: Story = {
     parameters: { testOptions: { viewportWidths: ['narrow', 'medium'], waitForLoadersToDisappear: false } },
+}
+
+export const ConnectFromWizard: Story = {
+    args: { setupPath: 'wizard' },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 export const Connected: Story = {
