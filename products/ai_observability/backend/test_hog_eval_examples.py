@@ -320,6 +320,23 @@ class TestHogEvalExamplesBehavior:
         assert result["verdict"] is expected
 
     @parameterized.expand(
+        [
+            ("empty_string", "", True),
+            ("false", False, True),
+            ("zero", 0, True),
+            ("message", "Rate limit exceeded", False),
+        ]
+    )
+    def test_failed_output_treats_falsy_error_as_success(self, _name: str, ai_error: Any, expected: bool) -> None:
+        bytecode = compile_hog(_get_source("Empty or failed output"), "destination")
+        event = _make_event()
+        event["properties"]["$ai_error"] = ai_error
+
+        result = run_hog_eval(bytecode, event)
+
+        assert result["verdict"] is expected
+
+    @parameterized.expand(
         [("under_limit", "search,search,fetch", True), ("over_limit", ",".join(["search"] * 6), False)]
     )
     def test_repeated_tool_calls_limit(self, _name: str, tools_called: str, expected: bool) -> None:
