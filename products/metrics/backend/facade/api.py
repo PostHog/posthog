@@ -9,6 +9,7 @@ import math
 import datetime as dt
 from collections.abc import Sequence
 from dataclasses import replace
+from functools import partial
 from typing import Any
 
 import structlog
@@ -66,6 +67,7 @@ from products.metrics.backend.metric_names_query_runner import MetricNamesQueryR
 from products.metrics.backend.metric_query_runner import MAX_QUERY_SPAN, MAX_RAW_SERIES
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.variable_options import list_variable_options
 from products.metrics.backend.variables import from_dashboard
 
@@ -517,7 +519,8 @@ def list_metric_variable_options(
     to them as `$name`, which is how one variable depends on another. `date_from` and `date_to` are a
     dashboard date filter, such as `-7d`, which resolves to the same window as the tiles. Returns at
     most 1,000 options. Raises `ValueError` for a bad query, a bad or too wide window, or for a
-    reference to a variable that has no value.
+    reference to a variable that has no value. Raises `ConcurrencyLimitExceeded` when too many
+    queries of the organization are running.
     """
     try:
         window = metrics_query_date_range(team, DateRange(date_from=date_from, date_to=date_to))
@@ -537,6 +540,7 @@ def list_metric_variable_options(
         variables=from_dashboard(variables),
         date_from=resolved_from,
         date_to=resolved_to,
+        slot=partial(query_concurrency_slots, team),
     )
 
 

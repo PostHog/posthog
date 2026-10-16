@@ -11,6 +11,7 @@ import time
 import hashlib
 import datetime as dt
 from collections.abc import Callable, Iterable, Mapping
+from contextlib import AbstractContextManager, nullcontext
 from functools import partial
 from itertools import islice
 from typing import Any
@@ -270,11 +271,13 @@ def _query_cache_key(
     return _cache_key(team, [source.value, text, values, window])
 
 
-def _shared_options(key: str, load: Callable[[], list[str]]) -> list[str]:
+def _shared_options(
+    key: str, load: Callable[[], list[str]], slot: Callable[[], AbstractContextManager[None]] = nullcontext
+) -> list[str]:
     """The options from the shared cache. When several callers miss at once, one runs `load` and the others wait.
 
-    Only the caller that holds the lock runs `load`. When the loader fails, it releases the lock and the
-    next waiter takes it.
+    Only the caller that holds the lock runs `load`, inside `slot`. A cache hit or a waiter takes no
+    slot. When the loader fails, it releases the lock and the next waiter takes it.
     """
     lock_key = f"{key}:lock"
     deadline = time.monotonic() + _OPTIONS_LOCK_SECONDS
@@ -288,7 +291,8 @@ def _shared_options(key: str, load: Callable[[], list[str]]) -> list[str]:
             raise ValueError("The variable values are still loading. Try again in a moment.")
         time.sleep(_OPTIONS_POLL_SECONDS)
     try:
-        options = load()
+        with slot():
+            options = load()
         cache.set(key, options, _OPTIONS_CACHE_SECONDS)
         return options
     finally:
@@ -306,10 +310,12 @@ def list_variable_options(
     date_to: dt.datetime,
     definitions: Mapping[str, MetricsDashboardVariable] | None = None,
     depth: int = 0,
+    slot: Callable[[], AbstractContextManager[None]] = nullcontext,
 ) -> list[str]:
     """The options of one variable, in the order the source gives them. Raises `ValueError` for a bad query.
 
     `definitions` lets a SQL query use another variable that is set to All, by loading its options.
+    `slot` holds a concurrency slot while the query runs. A query runner already holds one, so it passes none.
     """
     options: list[Any]
     if source == MetricsDashboardVariableSource.CUSTOM:
@@ -323,7 +329,7 @@ def list_variable_options(
         if substitution.unresolved:
             raise ValueError(unresolved_message(substitution.unresolved))
         key = _query_cache_key(team, source, substitution.text, {}, date_from, date_to)
-        options = _shared_options(key, lambda: _promql_options(team, substitution.text, date_from, date_to))
+        options = _shared_options(key, lambda: _promql_options(team, substitution.text, date_from, date_to), slot)
     else:
         if definitions:
             variables = fill_all_values(
@@ -345,6 +351,7 @@ def list_variable_options(
                 lambda: run_metrics_sql_values(
                     team, sql.sql, date_from, date_to, MAX_VARIABLE_OPTIONS, sql.placeholders
                 ),
+                slot,
             )
         except (ExposedHogQLError, ExposedCHQueryError) as exc:
             raise ValueError(str(exc)) from exc

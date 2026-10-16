@@ -17,15 +17,17 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError, PermissionDenied
+from rest_framework.exceptions import ParseError, PermissionDenied, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSelection, MetricsDashboardVariableSource
 
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.models import User
@@ -1143,6 +1145,8 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 date_from=data["dateFrom"],
                 date_to=data["dateTo"],
             )
+        except ConcurrencyLimitExceeded as exc:
+            raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE) from exc
         except ValueError as exc:
             raise ParseError(str(exc))
 

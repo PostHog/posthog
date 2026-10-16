@@ -16,6 +16,7 @@ from rest_framework import status
 
 from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.models.organization import OrganizationMembership
@@ -108,6 +109,20 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         run.assert_not_called()
+
+    def test_only_option_queries_that_run_take_a_concurrency_slot(self) -> None:
+        with patch("products.metrics.backend.variable_options.run_metrics_sql_values", return_value=["api"]) as run:
+            assert self._post({"source": "sql", "query": OPTIONS_SQL}).status_code == status.HTTP_200_OK
+            with patch(
+                "products.metrics.backend.query_concurrency.app_org_concurrency_slot",
+                side_effect=ConcurrencyLimitExceeded("full"),
+            ):
+                cached = self._post({"source": "sql", "query": OPTIONS_SQL})
+                throttled = self._post({"source": "sql", "query": f"{OPTIONS_SQL} WHERE 1 = 1"})
+
+        assert cached.status_code == status.HTTP_200_OK
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert run.call_count == 1
 
     def test_clickhouse_limits_are_shown_to_the_user(self) -> None:
         with patch(
