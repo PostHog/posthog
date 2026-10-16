@@ -290,8 +290,12 @@ async fn async_main(config: Config) -> Result<()> {
     let state_machine = config
         .batcher_state_machine()
         .map_err(|err| anyhow::anyhow!("invalid batcher configuration: {err}"))?;
-    let (batcher, batcher_outputs) =
-        Batcher::new(state_machine, pool_source.clone(), Arc::clone(&transport));
+    let (batcher, batcher_outputs) = Batcher::new(
+        state_machine,
+        pool_source.clone(),
+        Arc::clone(&transport),
+        debug_recorder.clone(),
+    );
 
     // Select the worker discovery provider and start it (static applies the
     // configured list immediately; endpointslice watches and keeps in sync).
@@ -364,18 +368,26 @@ async fn async_main(config: Config) -> Result<()> {
             app = app.route(
                 "/debug/load",
                 get(move |headers: axum::http::HeaderMap| {
-                    let result = if !debug_authorized(&headers, &secret) {
-                        Err(axum::http::StatusCode::UNAUTHORIZED)
-                    } else {
-                        Ok(axum::Json(build_debug_load(
+                    let registry = Arc::clone(&registry);
+                    let pool_source = pool_source.clone();
+                    let observer = observer.clone();
+                    let peer_tracker = peer_tracker.clone();
+                    let group_id = group_id.clone();
+                    let secret = Arc::clone(&secret);
+                    async move {
+                        if !debug_authorized(&headers, &secret) {
+                            return Err(axum::http::StatusCode::UNAUTHORIZED);
+                        }
+                        let load = build_debug_load(
                             &group_id,
                             &registry,
                             &pool_source,
                             &observer,
                             &peer_tracker,
-                        )))
-                    };
-                    ready(result)
+                        )
+                        .await;
+                        Ok(axum::Json(load))
+                    }
                 }),
             );
         }
@@ -390,16 +402,25 @@ async fn async_main(config: Config) -> Result<()> {
             app = app.route(
                 "/debug/state",
                 get(move |headers: axum::http::HeaderMap| {
-                    let result = if !debug_authorized(&headers, &secret) {
-                        Err(axum::http::StatusCode::UNAUTHORIZED)
-                    } else {
+                    let recorder = Arc::clone(&recorder);
+                    let registry = Arc::clone(&registry);
+                    let pool_source = pool_source.clone();
+                    let observer = observer.clone();
+                    let peer_tracker = peer_tracker.clone();
+                    let group_id = group_id.clone();
+                    let secret = Arc::clone(&secret);
+                    async move {
+                        if !debug_authorized(&headers, &secret) {
+                            return Err(axum::http::StatusCode::UNAUTHORIZED);
+                        }
                         let load = build_debug_load(
                             &group_id,
                             &registry,
                             &pool_source,
                             &observer,
                             &peer_tracker,
-                        );
+                        )
+                        .await;
                         Ok(axum::Json(DebugState {
                             group_id: load.group_id,
                             workers: load.workers,
@@ -409,8 +430,7 @@ async fn async_main(config: Config) -> Result<()> {
                             routing: load.routing,
                             events: recorder.backlog(),
                         }))
-                    };
-                    ready(result)
+                    }
                 }),
             );
         }
@@ -590,7 +610,7 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 
 /// Merge the registry's health snapshots with the batcher's load into the
 /// `/debug/load` payload.
-fn build_debug_load(
+async fn build_debug_load(
     group_id: &str,
     registry: &WorkerRegistry,
     pool_source: &WorkerPoolSource,
@@ -604,6 +624,7 @@ fn build_debug_load(
         }
         None => (None, None),
     };
+    let batcher = observer.snapshot().await;
     // One registry pass feeds the worker rows AND the routing ring/slice, so a
     // worker joining or changing health mid-request can't make the payload
     // show slice badges that contradict the worker table.
@@ -628,22 +649,35 @@ fn build_debug_load(
     };
     let workers = snapshots
         .into_iter()
-        .map(|snap| WorkerStatus {
-            busy: observer.has_in_flight(&WorkerId::from(snap.url.as_str())),
-            url: snap.url,
-            state: snap.state,
-            draining: snap.draining,
-            consecutive_probe_failures: snap.consecutive_probe_failures,
-            passive_error_rate: snap.passive_error_rate,
-            passive_samples: snap.passive_samples,
+        .map(|snap| {
+            let (in_flight_requests, in_flight_messages) = batcher
+                .per_worker
+                .iter()
+                .find(|load| load.worker.as_ref() == snap.url)
+                .map_or((0, 0), |load| (load.requests, load.messages));
+            WorkerStatus {
+                url: snap.url,
+                state: snap.state,
+                draining: snap.draining,
+                consecutive_probe_failures: snap.consecutive_probe_failures,
+                passive_error_rate: snap.passive_error_rate,
+                passive_samples: snap.passive_samples,
+                in_flight_requests,
+                in_flight_messages,
+            }
         })
         .collect();
     DebugLoad {
         group_id: group_id.to_string(),
         workers,
         batcher: BatcherLoad {
-            total_in_flight: observer.total_in_flight(),
-            pending_messages: observer.pending_messages(),
+            total_in_flight: batcher.in_flight_messages,
+            pending_messages: batcher.pending_messages,
+            in_flight_requests: batcher.in_flight_requests,
+            keys: batcher.keys,
+            queued_bytes: batcher.queued_bytes,
+            waiting_keys: batcher.waiting_keys,
+            claimed_keys: batcher.claimed_keys,
         },
         peer_index,
         peer_count,

@@ -50,7 +50,7 @@ pub fn batcher(
     )
     .expect("valid stall timeout")
     .with_request_budget(budget);
-    Batcher::new(state_machine, pool_source, transport)
+    Batcher::new(state_machine, pool_source, transport, None)
 }
 
 /// A batcher that sends every message in its own request.
