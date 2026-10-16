@@ -172,9 +172,6 @@ export interface sharingLogicActions {
             whitelabel: boolean
         }
     }
-    setBrandingMode: (mode: 'none' | 'organization' | 'posthog') => {
-        mode: 'none' | 'organization' | 'posthog'
-    }
     setIsEnabled: (enabled: boolean) => boolean
     setIsEnabledFailure: (
         error: string,
@@ -377,7 +374,6 @@ export const sharingLogic = kea<sharingLogicType>([
     connect(() => [preflightLogic, userLogic, dashboardsModel, organizationLogic]),
 
     actions({
-        setBrandingMode: (mode: 'posthog' | 'organization' | 'none') => ({ mode }),
         togglePreview: true,
         reloadIframe: true,
     }),
@@ -423,25 +419,6 @@ export const sharingLogic = kea<sharingLogicType>([
             if (props.dashboardId) {
                 dashboardsModel.actions.loadDashboards()
             }
-        },
-        setBrandingMode: ({ mode }) => {
-            if (values.sharingConfigurationLoading || !values.sharingConfiguration) {
-                return
-            }
-            if (mode !== 'posthog' && !values.whitelabelAvailable) {
-                return
-            }
-            const settings = {
-                whitelabel: mode !== 'posthog',
-                showOrganizationLogo: mode === 'organization',
-            }
-            actions.setSharingSettingsValues(settings)
-            actions.updateSettings({ ...values.sharingConfiguration.settings, ...settings })
-            posthog.capture('dashboard custom branding updated', {
-                dashboard_id: props.dashboardId,
-                setting: 'brandingMode',
-                branding_mode: mode,
-            })
         },
         setSharingSettingsValue: ({ name, value }) => {
             if (name === 'whitelabel' && props.dashboardId) {

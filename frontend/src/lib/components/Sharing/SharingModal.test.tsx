@@ -102,6 +102,7 @@ describe('SharingModal (dashboard)', () => {
         themeLogic.mount()
         useMocks({
             get: mockDashboardSharingConfiguration({}),
+            patch: mockDashboardSharingConfiguration({}),
         })
 
         const props: SharingModalProps = {
@@ -123,12 +124,17 @@ describe('SharingModal (dashboard)', () => {
         expect(await screen.findByText('Shared dashboard appearance')).toBeInTheDocument()
 
         expect(screen.getByTestId('sharing-branding-posthog')).toBeChecked()
-        expect(screen.getByTestId('sharing-show-organization-logo')).toBeDisabled()
+        expect(screen.queryByTestId('sharing-show-organization-logo')).toBeNull()
         if (licensed) {
-            await waitFor(() => expect(screen.getByTestId('sharing-branding-none')).toBeEnabled())
+            await waitFor(() => expect(screen.getByTestId('sharing-branding-posthog')).toBeEnabled())
+            await user.click(screen.getByTestId('sharing-branding-posthog'))
+            expect(screen.getByTestId('sharing-branding-posthog')).not.toBeChecked()
+            expect(screen.getByText('Dashboard logo')).toBeInTheDocument()
+            expect(screen.getByTestId('sharing-show-organization-logo')).toBeDisabled()
+            expect(screen.getByText('organization settings')).toBeInTheDocument()
             expect(screen.queryByTestId('sharing-branding-upgrade')).toBeNull()
         } else {
-            expect(screen.getByTestId('sharing-branding-none')).toBeDisabled()
+            expect(screen.getByTestId('sharing-branding-posthog')).toBeDisabled()
             await user.click(screen.getByTestId('sharing-branding-upgrade'))
             expect(upgradeModalLogic.values.upgradeModalFeatureKey).toBe(AvailableFeature.WHITE_LABELLING)
         }
