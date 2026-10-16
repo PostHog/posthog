@@ -132,13 +132,8 @@ def commits_on_master(shas: Iterable[str], repo: str = REPO) -> frozenset[str]:
     )
 
 
-def master_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str = REPO) -> list[ListedWorkflow]:
-    """The master Backend CI workflows of one trigger in the given states, newest first.
-
-    The schedule fires only on the default branch. A branch can add itself to the push trigger
-    in its own copy of the workflow, and Depot records a push run's ref as its commit sha, so a
-    push workflow counts only when GitHub says master contains its commit.
-    """
+def listed_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str = REPO) -> list[ListedWorkflow]:
+    """The Backend CI workflows of one trigger in the given states on any branch, newest first."""
     args = ["workflow", "list", "--repo", repo, "--name", WORKFLOW_NAME, "--trigger", trigger, "-n", str(limit)]
     for status in statuses:
         args += ["--status", status]
@@ -148,10 +143,23 @@ def master_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str
     except subprocess.TimeoutExpired:
         output = depot(*args, "--output", "json")
     workflows = cast(list[ListedWorkflow], json.loads(output or "null") or [])
-    if trigger != "schedule":
-        on_master = commits_on_master((w["sha"] for w in workflows), repo)
-        workflows = [w for w in workflows if w["sha"] in on_master]
     return sorted(workflows, key=lambda w: w["created_at"], reverse=True)
+
+
+def master_only(workflows: list[ListedWorkflow], *, trigger: str, repo: str = REPO) -> list[ListedWorkflow]:
+    """The schedule fires only on the default branch. A branch can add itself to the push trigger
+    in its own copy of the workflow, and Depot records a push run's ref as its commit sha, so a
+    push workflow counts only when GitHub says master contains its commit.
+    """
+    if trigger == "schedule":
+        return workflows
+    on_master = commits_on_master((w["sha"] for w in workflows), repo)
+    return [w for w in workflows if w["sha"] in on_master]
+
+
+def master_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str = REPO) -> list[ListedWorkflow]:
+    """The master Backend CI workflows of one trigger in the given states, newest first."""
+    return master_only(listed_workflows(statuses, limit, trigger=trigger, repo=repo), trigger=trigger, repo=repo)
 
 
 def show(workflow_id: str) -> ShownWorkflow:
