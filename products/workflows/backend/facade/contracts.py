@@ -504,6 +504,7 @@ class WorkflowListQuery:
     broadcast_eligible: bool = False
     broadcast_statuses: frozenset[str] = frozenset()
     suggestions_first: bool = False
+    latest_send_first: bool = False
     field_filters: Mapping[str, str] = field(default_factory=dict)
 
 

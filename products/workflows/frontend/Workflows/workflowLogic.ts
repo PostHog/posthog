@@ -43,6 +43,7 @@ import {
     requestAiEmailDraft,
 } from '../MessageAudience/aiEmailDraft'
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
+import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
@@ -69,7 +70,13 @@ import {
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
-import { prefilledEmailContent, prefilledWorkflow, withEmailSender, withPrefilledEmail } from './workflowEmailPrefill'
+import {
+    prefilledEmailContent,
+    prefilledWorkflow,
+    withEmailBrand,
+    withEmailSender,
+    withPrefilledEmail,
+} from './workflowEmailPrefill'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
 import { parseWorkflowTriggerPrefill } from './workflowTriggerPrefill'
@@ -3291,13 +3298,20 @@ export const workflowLogic = kea<workflowLogicType>([
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
                         if (triggerConfig) {
-                            return await withDefaultEmailSender(
-                                prefilledWorkflow(
-                                    NEW_WORKFLOW,
-                                    triggerConfig,
-                                    parseMessageDraftPrefill(props.emailPrefill)
-                                )
+                            const prefilled = prefilledWorkflow(
+                                NEW_WORKFLOW,
+                                triggerConfig,
+                                parseMessageDraftPrefill(props.emailPrefill)
                             )
+                            const emailAction = prefilled.actions.find((action) => action.type === 'function_email')
+                            const brand = emailAction
+                                ? await loadEmailBrand(
+                                      String(values.currentProjectId),
+                                      (emailAction.config as Record<string, any>).inputs?.email?.value ?? {}
+                                  )
+                                : null
+                            cache.emailBrand = brand
+                            return await withDefaultEmailSender(withEmailBrand(prefilled, brand))
                         }
                         return { ...NEW_WORKFLOW }
                     }
@@ -4498,12 +4512,17 @@ export const workflowLogic = kea<workflowLogicType>([
                     skipped = 'edited'
                 } else if (values.workflowChanged) {
                     actions.setWorkflowValues({
-                        actions: withPrefilledEmail(values.workflow, aiEmailDraft.draft).actions,
+                        actions: withEmailBrand(
+                            withPrefilledEmail(values.workflow, aiEmailDraft.draft),
+                            cache.emailBrand
+                        ).actions,
                     })
                     actions.markAiEmailDraftApplied()
                 } else {
                     // Untouched, so the draft becomes the baseline and "Clear changes" doesn't offer the template back.
-                    actions.loadWorkflowSuccess(withPrefilledEmail(loaded, aiEmailDraft.draft))
+                    actions.loadWorkflowSuccess(
+                        withEmailBrand(withPrefilledEmail(loaded, aiEmailDraft.draft), cache.emailBrand)
+                    )
                     actions.markAiEmailDraftApplied()
                 }
             }
