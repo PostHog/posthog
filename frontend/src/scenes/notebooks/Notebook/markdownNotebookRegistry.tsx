@@ -42,6 +42,7 @@ import {
     useEffect,
     useMemo,
     useRef,
+    useState,
 } from 'react'
 import { useInView } from 'react-intersection-observer'
 
@@ -786,6 +787,27 @@ export function RealNotebookNodeComponent({
     )
 }
 
+const scrollContainersByNotebook = new WeakMap<Element, Element | null>()
+
+function findScrollContainer(element: Element): Element | null {
+    const notebook = element.closest('.MarkdownNotebook')
+    const cached = notebook ? scrollContainersByNotebook.get(notebook) : undefined
+    if (cached !== undefined) {
+        return cached
+    }
+    let container: Element | null = null
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+        if (/auto|scroll|overlay/.test(getComputedStyle(parent).overflowY)) {
+            container = parent
+            break
+        }
+    }
+    if (notebook) {
+        scrollContainersByNotebook.set(notebook, container)
+    }
+    return container
+}
+
 export function MountedRealNotebookNodeComponent({
     node,
     mode,
@@ -803,16 +825,25 @@ export function MountedRealNotebookNodeComponent({
 }): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const contentRef = useRef<HTMLDivElement | null>(null)
+    const [scrollContainer, setScrollContainer] = useState<Element | null | undefined>(undefined)
     const { ref: inViewRef, inView } = useInView({
         triggerOnce: !options.unmountWhenOutOfView,
         fallbackInView: true,
+        // The observer clips targets to every scrolling ancestor, so the margin only reaches beyond
+        // the visible area when the notebook's own scroll container is the root.
+        ...(options.deferUntilInView
+            ? { root: scrollContainer, rootMargin: '100% 0px', skip: scrollContainer === undefined }
+            : {}),
     })
     const setContentRefs = useCallback(
         (element: HTMLDivElement | null): void => {
             contentRef.current = element
             inViewRef(element)
+            if (element && options.deferUntilInView) {
+                setScrollContainer(findScrollContainer(element))
+            }
         },
-        [inViewRef]
+        [inViewRef, options.deferUntilInView]
     )
     const attributes = useMemo(
         () => getNodeAttributes(node.props, node.id, options, notebookNodeType, forceEditing),
@@ -976,7 +1007,7 @@ export function MountedRealNotebookNodeComponent({
                             style={contentStyle}
                             onMouseDown={handleResizeStart}
                         >
-                            {!options.unmountWhenOutOfView || inView ? (
+                            {!(options.unmountWhenOutOfView || options.deferUntilInView) || inView ? (
                                 <Component attributes={attributes} updateAttributes={updateAttributes} />
                             ) : (
                                 <LemonSkeleton className="h-full w-full" />

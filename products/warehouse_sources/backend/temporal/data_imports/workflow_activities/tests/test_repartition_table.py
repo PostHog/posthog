@@ -62,6 +62,7 @@ PENDING_TARGET = {
     "trigger_reason": "proactive_threshold",
     "attempts": 0,
 }
+ADMIN_TARGET = {**PENDING_TARGET, "trigger_reason": "admin"}
 
 
 def _read_only_transaction_error() -> InternalError:
@@ -93,6 +94,7 @@ def _schema(
     schema.resolved_s3_folder_name = s3_folder_name
     schema.team_id = TEAM_ID
     schema.delta_revive_required = None
+    schema.is_append = False
     schema.sync_frequency_interval = None
     schema.repartition_swap = swap
     schema.repartition_pending = pending
@@ -1517,8 +1519,10 @@ class TestFullRefreshDeferral:
         # The next full refresh deletes the table and writes it again, so a rewrite only copies rows
         # that sync throws away, and the sync moves the live version under any checkpoint it saves.
         mock_schema_model.SyncType.FULL_REFRESH = "full_refresh"
-        schema = _schema(name="contacts", s3_folder_name="contacts", swap=swap)
+        pending = ADMIN_TARGET if sync_type == "append" else PENDING_TARGET
+        schema = _schema(name="contacts", s3_folder_name="contacts", pending=pending, swap=swap)
         schema.sync_type = sync_type
+        schema.is_append = sync_type == "append"
         if swap_after_refresh is not None:
             schema.refresh_from_db.side_effect = lambda **_kwargs: setattr(
                 schema, "repartition_swap", swap_after_refresh
@@ -1554,6 +1558,7 @@ def _reset_schema(
 ) -> MagicMock:
     schema = _schema(name="contacts", s3_folder_name="contacts", pending=pending, swap=swap, rewrite=rewrite)
     schema.sync_type = sync_type
+    schema.is_append = sync_type == "append"
     schema.is_webhook = sync_type == "webhook"
     schema.sync_type_config = {"reset_pipeline": True} if config_reset else {}
     schema.initial_sync_complete = initial_sync_complete
@@ -1611,7 +1616,10 @@ class TestResetDeferral:
         expect_rewrite: bool,
     ) -> None:
         mock_schema_model.SyncType.FULL_REFRESH = "full_refresh"
-        schema = _reset_schema(sync_type=sync_type, config_reset=config_reset, swap=swap, rewrite=dict(CHECKPOINT))
+        pending = ADMIN_TARGET if sync_type == "append" else PENDING_TARGET
+        schema = _reset_schema(
+            sync_type=sync_type, config_reset=config_reset, pending=pending, swap=swap, rewrite=dict(CHECKPOINT)
+        )
         mock_schema_model.objects.select_related.return_value.get.return_value = schema
         mock_repartition.return_value = {"outcome": "completed"}
         mock_purge.return_value = True
@@ -1629,7 +1637,7 @@ class TestResetDeferral:
             mock_purge.assert_not_awaited()
             return
         # The queued target stays for the reset to write, and for a later rewrite if no reset happens.
-        assert schema.repartition_pending == PENDING_TARGET
+        assert schema.repartition_pending == pending
         schema.set_repartition_pending.assert_not_called()
         schema.clear_repartition_pending.assert_not_called()
         schema.stamp_last_repartition_at.assert_not_called()
@@ -1639,6 +1647,42 @@ class TestResetDeferral:
         assert mock_clear_checkpoint.call_args.kwargs["temp_uri"] == TEMP_URI
         assert mock_capture.call_args.args[0] == "warehouse_repartition_skipped"
         assert mock_capture.call_args.args[1]["reason"] == "reset_replaces_the_table"
+
+    @patch(f"{MODULE}.release_repartition_hold_if_claimed")
+    @patch(f"{MODULE}.purge_abandoned_rewrite_temp", new_callable=AsyncMock)
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_an_automatic_split_on_an_append_table_is_dropped_before_a_reset_can_write_it(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture: MagicMock,
+        mock_purge: AsyncMock,
+        _mock_release: MagicMock,
+    ) -> None:
+        mock_schema_model.SyncType.FULL_REFRESH = "full_refresh"
+        schema = _reset_schema(sync_type="append", config_reset=True, rewrite=dict(CHECKPOINT))
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_purge.return_value = True
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        mock_repartition.assert_not_awaited()
+        assert mock_purge.await_args is not None
+        assert mock_purge.await_args.args[2] == TEMP_URI
+        schema.abandon_repartition_if_claimed.assert_called_once()
+        reasons = [c.args[1].get("reason") for c in mock_capture.call_args_list]
+        assert reasons == ["append_never_merges"]
 
     @patch(f"{MODULE}.capture_repartition_event")
     @patch(f"{MODULE}.HeartbeaterSync")

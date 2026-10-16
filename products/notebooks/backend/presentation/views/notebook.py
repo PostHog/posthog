@@ -749,7 +749,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def _require_query_access(self) -> None:
         # SQLV2 runs arbitrary HogQL and returns analytics rows, so notebook access alone is not
         # enough — a notebook editor whose query access is denied must not read data through it.
-        # Mirrors ee/api/subscription.py: the query:read scope gates tokens, this gates sessions
+        # Mirrors products/subscriptions/backend/presentation/views.py: the query:read scope gates tokens, this gates sessions
         # (which carry no scopes) and enforces real RBAC for tokens too.
         if not self._has_query_access():
             raise PermissionDenied("You need query access to run SQL in a notebook.")

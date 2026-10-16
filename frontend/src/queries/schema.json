@@ -2204,6 +2204,25 @@
             "enum": ["exact", "is_not"],
             "type": "string"
         },
+        "AssistantBIVisualizationNode": {
+            "additionalProperties": {},
+            "properties": {
+                "config": {
+                    "additionalProperties": {},
+                    "description": "Complete worksheet configuration, including shelves and filters. Validated by the insight API.",
+                    "type": "object"
+                },
+                "kind": {
+                    "const": "BIVisualizationNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantBareHogQLQuery"
+                }
+            },
+            "required": ["kind", "source", "config"],
+            "type": "object"
+        },
         "AssistantBareHogQLQuery": {
             "additionalProperties": {},
             "properties": {
@@ -2408,7 +2427,7 @@
                     "type": "string"
                 },
                 "label": {
-                    "description": "Custom label for this series, shown in the legend and tooltips instead of the column name.",
+                    "description": "Series label in legends and tooltips; replaces the column name.",
                     "type": "string"
                 },
                 "trendLine": {
@@ -2435,12 +2454,12 @@
                     "type": "string"
                 },
                 "style": {
-                    "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.",
+                    "description": "`none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.",
                     "enum": ["none", "number", "short", "percent"],
                     "type": "string"
                 },
                 "suffix": {
-                    "description": "Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.",
+                    "description": "Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.",
                     "type": "string"
                 }
             },
@@ -6195,6 +6214,10 @@
         "BIConfig": {
             "additionalProperties": false,
             "properties": {
+                "catalogMetric": {
+                    "description": "Catalog provenance only: the snapshot does not track subsequent definition edits.",
+                    "type": "string"
+                },
                 "chartType": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
@@ -6314,6 +6337,10 @@
                 "panes": {
                     "$ref": "#/definitions/BIPaneSettings",
                     "description": "Split the returned groups into charts using these ordered dimension IDs."
+                },
+                "querySnapshot": {
+                    "$ref": "#/definitions/HogQLQuery",
+                    "description": "Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves."
                 },
                 "resultFilterGroup": {
                     "$ref": "#/definitions/BIConditionGroup"
@@ -30331,6 +30358,9 @@
             "anyOf": [
                 {
                     "$ref": "#/definitions/AssistantDataTableNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantBIVisualizationNode"
                 },
                 {
                     "$ref": "#/definitions/AssistantInsightVizNode"
