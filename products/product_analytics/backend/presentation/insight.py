@@ -162,7 +162,6 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.exports.backend.facade.api import delete_insight_subscriptions
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
@@ -190,6 +189,7 @@ from products.product_analytics.backend.presentation.insight_metadata import (
 )
 from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
 from products.product_analytics.backend.presentation.query_concurrency import query_concurrency_slots
+from products.subscriptions.backend.facade.api import delete_insight_subscriptions
 
 from common.hogvm.python.utils import HogVMException
 
