@@ -589,8 +589,8 @@ Exit criterion at the canary: zero ledger errors and gap walks, and a stalled pa
 **Interfaces:**
 
 - Modify `Config`: add the completion granularity and `CONSUMER_COMMIT_INTERVAL_MS`.
-- Modify `IngestionConsumer::process`: at `group` granularity, select over `GroupCompletion` events. The per-poll path stays for rollback.
-- Replace `ImmediateCommitPacer` with `CommitPacer::every(interval)`; `poll` granularity uses the zero interval.
+- Add `src/settlement/`: a `Settlement` trait (`settle_run`, `settle_poll`, `take_due`, `take_all`, `forget_partitions`) with one implementation per granularity, each owning its commit pacer; the consumer loop calls it unconditionally and has no granularity branches. The poll implementation stays for rollback.
+- `CommitPacer::every(interval)` paces the group implementation; the poll implementation runs it at zero. `ImmediateCommitPacer` goes.
 - Delete `commit_sentinel.rs` and `commit_monitor.rs`, with `ingestion_consumer_commit_violations_total{kind=gap|out_of_order|overlap}`, `ingestion_consumer_commits_checked_total`, `ingestion_consumer_broker_committed_offset`, `ingestion_consumer_commit_confirmation_lag`, `ingestion_consumer_last_successful_commit_timestamp_seconds` and `ingestion_consumer_commit_monitor_errors_total`. The rdkafka context moves to `rebalance.rs` as `RebalanceContext`, an event source with a revoke hook and an assign hook; the consumer's hooks forget a partition's ledger window and pending frontier together, on either path.
 
 ### 22. Delete the per-poll completion path (cleanup)
