@@ -28,6 +28,10 @@ const KAFKA_TIMEOUT: Duration = Duration::from_secs(10);
 const COMMIT_ATTEMPTS: u32 = 3;
 const HEARTBEAT: Duration = Duration::from_secs(5);
 
+/// The consumer's `session.timeout.ms`, the replay lanes' value. Past it the group can give the partitions to another
+/// process, so a flush stops storing then.
+pub const SESSION_TIMEOUT: Duration = Duration::from_secs(90);
+
 /// The most messages read before the limiter decides on their sessions.
 const POLL_BATCH: usize = 1000;
 
@@ -241,6 +245,10 @@ impl RecorderConsumer {
             .set("enable.auto.commit", "false")
             .set("enable.auto.offset.store", "false")
             .set("partition.assignment.strategy", "cooperative-sticky")
+            .set(
+                "session.timeout.ms",
+                SESSION_TIMEOUT.as_millis().to_string(),
+            )
             // `Config::validate` keeps every flush under this, so the group keeps the partitions while one runs.
             .set(
                 "max.poll.interval.ms",
@@ -393,6 +401,7 @@ pub struct Settings {
     pub flush_retries: u32,
     pub shutdown_flush: Duration,
     pub session_idle: Duration,
+    pub session_state_max_bytes: usize,
     /// The main topic, when the main lane moves its force-overflow messages to the overflow topic.
     pub redirecting_topic: Option<String>,
 }
@@ -414,7 +423,7 @@ pub async fn run(
     let shutdown = handle.shutdown_signal();
     tokio::pin!(shutdown);
     let mut batch = Batch::default();
-    let mut inspectors = Inspectors::default();
+    let mut inspectors = Inspectors::new(settings.session_state_max_bytes);
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     loop {
         tokio::select! {
@@ -673,12 +682,36 @@ async fn flush_steps(
     .await;
     report(&blocks);
     if let Some(writer) = writer {
-        let blocks: Vec<Arc<Block>> = blocks.into_iter().map(Arc::new).collect();
+        let mut blocks: Vec<Arc<Block>> = blocks.into_iter().map(Arc::new).collect();
         let work = Arc::new(FlushWork::default());
+        let started = Instant::now();
         let mut attempt = 0;
         loop {
+            // Readers keep the newest attempt of a flush, so an attempt after this process lost a partition would
+            // win over the new owner's flush. It also loses the partitions when the group hears nothing for the
+            // session timeout, so no attempt runs past it.
+            let owned = still_owned(
+                blocks.clone(),
+                &offsets,
+                consumer.consumer.assignment_lost(),
+                |tp| consumer.current_epoch(tp),
+            );
+            if owned.is_empty() && !blocks.is_empty() {
+                tracing::warn!(
+                    "the flush lost its partitions: nothing more is written or committed"
+                );
+                return Ok(());
+            }
+            blocks = owned;
+            let left = SESSION_TIMEOUT.saturating_sub(started.elapsed());
+            if left.is_zero() {
+                return Err(format!(
+                    "the flush did not store its blocks within the session timeout of {SESSION_TIMEOUT:?}"
+                ));
+            }
+            let timeout = settings.flush_timeout.min(left);
             let stored = tokio::time::timeout(
-                settings.flush_timeout,
+                timeout,
                 with_heartbeat(
                     handle,
                     write_flush(&blocks, writer, settings.flush_concurrency, &work),
@@ -688,7 +721,7 @@ async fn flush_steps(
             let error = match stored {
                 Ok(Ok(())) => break,
                 Ok(Err(error)) => error.to_string(),
-                Err(_) => format!("timed out after {:?}", settings.flush_timeout),
+                Err(_) => format!("timed out after {timeout:?}"),
             };
             counter!("ai_research_v4_recorder_flush_failures_total").increment(1);
             attempt += 1;
@@ -702,6 +735,28 @@ async fn flush_steps(
     with_heartbeat(handle, consumer.commit(&offsets)).await?;
     inspectors.evict_idle(settings.session_idle);
     Ok(())
+}
+
+/// The blocks this process may still write: none once the group took its assignment away, and otherwise those of the
+/// partitions it still owns under the assignment the flush read them in.
+fn still_owned(
+    blocks: Vec<Arc<Block>>,
+    offsets: &HashMap<Tp, (u64, i64)>,
+    lost: bool,
+    current_epoch: impl Fn(Tp) -> Option<u64>,
+) -> Vec<Arc<Block>> {
+    if lost {
+        return Vec::new();
+    }
+    blocks
+        .into_iter()
+        .filter(|block| {
+            let tp = block.origin.tp;
+            offsets
+                .get(&tp)
+                .is_some_and(|&(epoch, _)| current_epoch(tp) == Some(epoch))
+        })
+        .collect()
 }
 
 fn report(blocks: &[Block]) {
@@ -719,7 +774,10 @@ fn report(blocks: &[Block]) {
 
 #[cfg(test)]
 mod tests {
+    use replay_core_v4::inspect::stats::BlockStats;
+
     use super::*;
+    use crate::batch::Origin;
 
     fn tp(partition: i32) -> Tp {
         Tp {
@@ -746,5 +804,42 @@ mod tests {
         assert_eq!(starts, [(tp(0), 10)]);
         state.starts_committed(&starts, true, now);
         assert!(state.uncommitted.is_empty());
+    }
+
+    #[test]
+    fn a_retry_writes_only_the_partitions_this_process_still_owns() {
+        let block = |partition: i32| {
+            Arc::new(Block {
+                session: SessionKey {
+                    team_id: 7,
+                    session_id: "s".to_owned(),
+                },
+                origin: Origin {
+                    tp: tp(partition),
+                    start_offset: 0,
+                    end_offset: 0,
+                    flush_end_offset: 0,
+                },
+                messages: Vec::new(),
+                stats: BlockStats::default(),
+                moments: Vec::new(),
+                image_urls: Vec::new(),
+                remote_urls: Vec::new(),
+                url_limit: None,
+            })
+        };
+        let offsets = HashMap::from([(tp(0), (1, 5)), (tp(1), (1, 5)), (tp(2), (1, 5))]);
+        // Partition 1 was assigned again, and partition 2 was revoked.
+        let epochs = HashMap::from([(tp(0), 1), (tp(1), 2)]);
+        let owned = |lost: bool| -> Vec<i32> {
+            still_owned(vec![block(0), block(1), block(2)], &offsets, lost, |tp| {
+                epochs.get(&tp).copied()
+            })
+            .iter()
+            .map(|b| b.origin.tp.partition)
+            .collect()
+        };
+        assert_eq!(owned(false), [0]);
+        assert!(owned(true).is_empty());
     }
 }

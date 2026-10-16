@@ -1,6 +1,19 @@
 //! The v4 index files: Parquet in `rrweb-v4/index/`. Column names are the ones in `replay-data.md`.
 //!
 //! Integer columns are signed, the types parquetjs writes, so a parquetjs writer can produce the same files.
+//!
+//! A flush can store its blocks and index rows and then fail before it commits its Kafka offsets. The next attempt
+//! for the partition, in this process or after a restart, starts again at the same committed offset and writes the
+//! same messages again. Every block index row therefore names its flush attempt (`flush_id`, `flushed_at_ms`) and the
+//! Kafka data it came from (`topic`, `partition`, `start_offset` of the flush on that partition, the block's own
+//! `end_offset`). A retry can cover a different range than the attempts it replaces, so the rule for readers works on
+//! ranges: per (`topic`, `partition`), a flush covers its `start_offset` to its highest `end_offset`. Walk the flushes
+//! from the highest (`flushed_at_ms`, `flush_id`) and keep a flush only if its range overlaps no flush already kept.
+//!
+//! The rows of a flush can also arrive in part. Per (`flush_id`, `topic`, `partition`), every row holds the same
+//! `flush_end_offset`, the last offset the flush covers there, and `flush_row_count`, the rows it writes there. The
+//! flush is whole when that many distinct `flush_row_index` values are present. Check this before any filter on
+//! sessions or teams.
 
 use std::sync::Arc;
 
@@ -10,7 +23,8 @@ use arrow_schema::{ArrowError, DataType, Field, Fields, Schema};
 use replay_core_v4::inspect::session::Moment;
 use replay_core_v4::inspect::stats::BlockStats;
 
-use crate::write::Written;
+use crate::batch::Origin;
+use crate::write::{FlushAttempt, Written};
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::errors::ParquetError;
@@ -99,12 +113,18 @@ pub fn image_index(rows: &[ImageIndexRow]) -> Result<RecordBatch, IndexError> {
 /// One block's index row: where it is, what the inspector found, and its sealed URLs.
 pub struct BlockIndexRow<'a> {
     pub written: &'a Written,
+    pub origin: &'a Origin,
+    pub attempt: &'a FlushAttempt,
     pub stats: &'a BlockStats,
     pub moments: &'a [Moment],
     pub snapshot_source: Option<&'a str>,
     pub snapshot_library: Option<&'a str>,
     /// The block's visited URLs as a v4 JSON envelope under the session key.
     pub urls: Option<String>,
+    /// The block rows this flush writes for the row's partition, and the row's place among them. With `flush_id`,
+    /// `topic` and `partition`, the place names the row across retries of the same publish.
+    pub flush_row_count: u32,
+    pub flush_row_index: u32,
 }
 
 fn moment_fields() -> Fields {
@@ -211,6 +231,64 @@ pub fn block_index(rows: &[BlockIndexRow<'_>]) -> Result<RecordBatch, IndexError
     utf8!("session_id", |r| r.written.session.session_id.clone());
     utf8!("key_month", |r| r.written.key_month.clone());
     utf8!("block_s3_key", |r| r.written.object_key.clone());
+    utf8!("topic", |r| r.origin.tp.topic);
+    push(
+        "partition",
+        DataType::Int32,
+        false,
+        Arc::new(Int32Array::from_iter_values(
+            rows.iter().map(|r| r.origin.tp.partition),
+        )),
+    );
+    push(
+        "start_offset",
+        DataType::Int64,
+        false,
+        Arc::new(Int64Array::from_iter_values(
+            rows.iter().map(|r| r.origin.start_offset),
+        )),
+    );
+    push(
+        "end_offset",
+        DataType::Int64,
+        false,
+        Arc::new(Int64Array::from_iter_values(
+            rows.iter().map(|r| r.origin.end_offset),
+        )),
+    );
+    utf8!("flush_id", |r| r.attempt.flush_id.clone());
+    push(
+        "flushed_at_ms",
+        DataType::Int64,
+        false,
+        Arc::new(Int64Array::from_iter_values(
+            rows.iter().map(|r| r.attempt.flushed_at_ms),
+        )),
+    );
+    push(
+        "flush_end_offset",
+        DataType::Int64,
+        false,
+        Arc::new(Int64Array::from_iter_values(
+            rows.iter().map(|r| r.origin.flush_end_offset),
+        )),
+    );
+    push(
+        "flush_row_count",
+        DataType::Int32,
+        false,
+        Arc::new(Int32Array::from_iter_values(
+            rows.iter().map(|r| int32(r.flush_row_count)),
+        )),
+    );
+    push(
+        "flush_row_index",
+        DataType::Int32,
+        false,
+        Arc::new(Int32Array::from_iter_values(
+            rows.iter().map(|r| int32(r.flush_row_index)),
+        )),
+    );
     push(
         "block_byte_start",
         DataType::Int64,
