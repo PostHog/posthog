@@ -88,9 +88,9 @@ export interface sendCalendarLogicActions {
     applyMove: (
         send: CalendarSend,
         days: number,
-        at: dayjs.Dayjs
+        at: string
     ) => {
-        at: dayjs.Dayjs
+        at: string
         days: number
         send: CalendarSend
     }
@@ -181,7 +181,9 @@ export interface sendCalendarLogicMeta {
             typeFilter: CalendarTypeFilter
         ) => CalendarSend[]
         sendsByDay: (sends: CalendarSend[], timezone: string) => Record<string, CalendarSend[]>
-        messageCategoryNames: (categories: any) => Record<string, string>
+        messageCategoryNames: (
+            categories: import('products/messaging/frontend/generated/api.schemas').MessageCategoryApi[]
+        ) => Record<string, string>
     }
 }
 
@@ -224,7 +226,7 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
         reportSendOpened: (send: CalendarSend) => ({ send }),
         startNewSend: (kind: CalendarSendKind, day: string) => ({ kind, day }),
         moveSend: (send: CalendarSend, day: string) => ({ send, day }),
-        applyMove: (send: CalendarSend, days: number, at: dayjs.Dayjs) => ({ send, days, at }),
+        applyMove: (send: CalendarSend, days: number, at: string) => ({ send, days, at }),
         undoMove: (send: CalendarSend, previous: HogFlowScheduleApi) => ({ send, previous }),
         scheduleChanged: (flowId: string, schedule: HogFlowScheduleApi) => ({ flowId, schedule }),
         setScheduleSaving: (scheduleId: string, saving: boolean) => ({ scheduleId, saving }),
@@ -343,7 +345,7 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
                 return
             }
             if (!send.isRecurring) {
-                actions.applyMove(send, target.days, target.at)
+                actions.applyMove(send, target.days, target.at.toISOString())
                 return
             }
             const distance = `${Math.abs(target.days)} ${Math.abs(target.days) === 1 ? 'day' : 'days'}`
@@ -352,7 +354,7 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
                 description: `${send.name} repeats. This moves every future send ${target.days > 0 ? 'later' : 'earlier'} by ${distance}.`,
                 primaryButton: {
                     children: 'Move all future sends',
-                    onClick: () => actions.applyMove(send, target.days, target.at),
+                    onClick: () => actions.applyMove(send, target.days, target.at.toISOString()),
                     'data-attr': 'send-calendar-move-series',
                 },
                 secondaryButton: { children: 'Cancel' },
@@ -385,7 +387,7 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
                 const repeat = describeRepeat(fields)
                 const message = send.isRecurring
                     ? `Moved ${send.name}. It now sends ${repeat.charAt(0).toLowerCase()}${repeat.slice(1)}.`
-                    : `Moved ${send.name} to ${at.tz(values.timezone).format('ddd, MMM D [at] h:mm A')}.`
+                    : `Moved ${send.name} to ${dayjs(at).tz(values.timezone).format('ddd, MMM D [at] h:mm A')}.`
                 lemonToast.success(message, {
                     button: {
                         label: 'Undo',

@@ -222,7 +222,7 @@ class TestHogFlowScheduleAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         entries = list(ActivityLog.objects.filter(scope="HogFlow", item_id=workflow["id"]).order_by("created_at"))
-        new_changes = [entry.detail["changes"][0] for entry in entries[logged_before:]]
+        new_changes = [(entry.detail or {})["changes"][0] for entry in entries[logged_before:]]
         if expected_action is None:
             assert new_changes == []
         else:
@@ -240,7 +240,7 @@ class TestHogFlowScheduleAPI(APIBaseTest):
         self.client.delete(self._schedule_detail_url(workflow["id"], schedule_id))
 
         entries = ActivityLog.objects.filter(scope="HogFlow", item_id=workflow["id"], activity="updated")
-        changes = [entry.detail["changes"][0] for entry in entries.order_by("created_at")]
+        changes = [(entry.detail or {})["changes"][0] for entry in entries.order_by("created_at")]
         assert [(change["field"], change["action"]) for change in changes] == [
             ("schedule", "created"),
             ("schedule", "deleted"),
