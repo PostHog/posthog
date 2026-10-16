@@ -14,6 +14,8 @@ from google.genai import (
     types,
 )
 
+from posthog.llm.gateway_client import AIGatewayHostError
+
 from products.replay_vision.backend.gemini_client import (
     GATEWAY_FLAG,
     ReplayGemini,
@@ -340,6 +342,39 @@ class TestGatewayFilesAndCaches:
         for request in seen:
             assert request.headers["x-posthog-product"] == "replay_vision", request.url
             assert request.headers["x-goog-api-key"] == "phs_gateway", request.url
+
+    def test_upload_chunks_never_leave_the_gateway_host(self) -> None:
+        def respond(request: httpx.Request) -> httpx.Response:
+            upload_url = "https://generativelanguage.googleapis.com/upload/v1beta/files?upload_id=u1"
+            return httpx.Response(200, json={}, headers={"x-goog-upload-url": upload_url})
+
+        client, seen = _wired_gateway_client({}, respond)
+
+        with pytest.raises(AIGatewayHostError, match="generativelanguage.googleapis.com"):
+            _write_and_upload(client.raw, b"mp4-bytes", "video/mp4", "wf-1")
+
+        assert [request.url.host for request in seen] == ["ai-gateway.example"]
+
+    def test_a_gateway_refusal_on_an_upload_chunk_is_ours(self) -> None:
+        refusal = {
+            "error": {
+                "code": 403,
+                "details": [{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "domain": "posthog.com"}],
+            }
+        }
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            if "upload_id" not in request.url.params:
+                upload_url = "https://ai-gateway.example/upload/v1beta/files?upload_id=u1"
+                return httpx.Response(200, json={}, headers={"x-goog-upload-url": upload_url})
+            return httpx.Response(403, json=refusal)
+
+        client, _ = _wired_gateway_client({}, respond)
+
+        with patch("google.genai._api_client.time.sleep"), pytest.raises(genai_errors.ClientError) as exc_info:
+            _write_and_upload(client.raw, b"mp4-bytes", "video/mp4", "wf-1")
+
+        assert classify_gemini_error(exc_info.value) == FailureKind.INFRA_TRANSIENT
 
     def test_an_in_band_error_frame_raises(self) -> None:
         frame = {"error": {"code": 503, "message": "gateway shutting down", "status": "UNAVAILABLE"}}

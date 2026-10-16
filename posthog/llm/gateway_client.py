@@ -598,6 +598,14 @@ def build_anthropic_client(
     )
 
 
+class AIGatewayHostError(RuntimeError):
+    """A gateway client was about to send its key to a host other than the gateway."""
+
+
+def _origin(url: httpx.URL) -> str:
+    return f"{url.scheme}://{url.host}:{url.port or (443 if url.scheme == 'https' else 80)}"
+
+
 def build_gemini_client(
     ai_product: str | None = None,
     trace_id: str | None = None,
@@ -626,21 +634,37 @@ def build_gemini_client(
     )
     if privacy_mode:
         headers["X-PostHog-Privacy-Mode"] = "true"
+    base_url = anthropic_gateway_base_url(gateway.url)
     # `files.upload` sends its chunks with none of the client's headers, so the transports carry them and the key.
     transport_headers = {**headers, "x-goog-api-key": gateway.api_key}
+    # Chunks go to whatever URL the upload start returned, so pin every request to the gateway host.
+    expected_origin = _origin(httpx.URL(base_url))
+
+    def pin_to_gateway(request: httpx.Request) -> None:
+        if (origin := _origin(request.url)) != expected_origin:
+            raise AIGatewayHostError(f"request origin must be the AI gateway {expected_origin}, got {origin}")
+
+    async def apin_to_gateway(request: httpx.Request) -> None:
+        pin_to_gateway(request)
+
     return genai.Client(
         api_key=gateway.api_key,
         http_options=genai_types.HttpOptions(
-            base_url=anthropic_gateway_base_url(gateway.url),
+            base_url=base_url,
             headers=headers,
             timeout=timeout_ms,
-            client_args={"trust_env": False, "headers": transport_headers},
+            client_args={
+                "trust_env": False,
+                "headers": transport_headers,
+                "event_hooks": {"request": [pin_to_gateway]},
+            },
             # The SDK uses aiohttp for async whenever it is installed, and that session always trusts
             # proxy env vars. An explicit httpx transport switches async to httpx, which honours trust_env.
             async_client_args={
                 "trust_env": False,
                 "transport": httpx.AsyncHTTPTransport(),
                 "headers": transport_headers,
+                "event_hooks": {"request": [apin_to_gateway]},
             },
         ),
     )
