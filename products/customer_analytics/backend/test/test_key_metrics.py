@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
@@ -97,6 +98,7 @@ class TestKeyMetrics(ClickhouseTestMixin, BaseTest):
 
         metrics = get_key_metrics(team=self.team, user=viewer)
         cached = get_key_metrics(team=self.team, user=viewer)
+        assert metrics is not None
 
         self.assertEqual(
             (
@@ -118,4 +120,20 @@ class TestKeyMetrics(ClickhouseTestMixin, BaseTest):
         ):
             metrics = get_key_metrics(team=self.team, user=self.user)
 
-        self.assertEqual((metrics, enqueue.call_count), ([], 1))
+        self.assertEqual((metrics, enqueue.call_count), (None, 1))
+
+    def test_a_new_day_does_not_reuse_the_previous_days_result(self) -> None:
+        config = self.team.customer_analytics_config
+        config.activity_event = {"kind": "EventsNode", "event": "opened_file"}
+        config.save()
+
+        with time_machine.travel("2026-03-02T12:00:00Z", tick=False) as traveller:
+            yesterday = get_key_metrics(team=self.team, user=self.user)
+            traveller.shift(timedelta(days=1))
+            with (
+                patch.object(key_metrics_logic, "EXECUTION_MODE", ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE),
+                patch("posthog.hogql_queries.query_runner.QueryRunner.enqueue_async_calculation") as enqueue,
+            ):
+                today = get_key_metrics(team=self.team, user=self.user)
+
+        self.assertEqual((yesterday is not None, today, enqueue.call_count), (True, None, 1))

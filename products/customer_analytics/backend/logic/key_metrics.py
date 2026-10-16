@@ -28,14 +28,14 @@ DAYS = 35
 EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
 DAILY = (
     "SELECT toDate(timestamp) AS day FROM events"
-    " WHERE timestamp >= toStartOfDay(now()) - INTERVAL {days} DAY AND timestamp < toStartOfDay(now())"
+    " WHERE timestamp >= toStartOfDay({today}) - INTERVAL {days} DAY AND timestamp < toStartOfDay({today})"
     " AND {match} AND {test_accounts}"
     " GROUP BY day ORDER BY day"
 )
 WEEKLY_PEOPLE = (
-    "SELECT uniqIf(person_id, timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY),"
-    " uniqIf(person_id, timestamp < toStartOfDay(now()) - INTERVAL 7 DAY) FROM events"
-    " WHERE timestamp >= toStartOfDay(now()) - INTERVAL 14 DAY AND timestamp < toStartOfDay(now())"
+    "SELECT uniqIf(person_id, timestamp >= toStartOfDay({today}) - INTERVAL 7 DAY),"
+    " uniqIf(person_id, timestamp < toStartOfDay({today}) - INTERVAL 7 DAY) FROM events"
+    " WHERE timestamp >= toStartOfDay({today}) - INTERVAL 14 DAY AND timestamp < toStartOfDay({today})"
     " AND {match} AND {test_accounts}"
 )
 
@@ -86,7 +86,7 @@ def _day(value: date | str) -> date:
     return value if isinstance(value, date) else date.fromisoformat(value[:10])
 
 
-def key_metrics(team: Team, user: User) -> list[KeyMetric]:
+def key_metrics(team: Team, user: User) -> list[KeyMetric] | None:
     nodes = _configured_nodes(team)
     actions = action_filter_conditions(team=team, action_ids=_action_ids(nodes))
     conditions = {
@@ -97,9 +97,11 @@ def key_metrics(team: Team, user: User) -> list[KeyMetric]:
     if not conditions:
         return []
     test_accounts = property_to_expr(team.test_account_filters or [], team)
+    today = timezone.now().astimezone(team.timezone_info).date()
 
     daily = _select(
         DAILY,
+        today=ast.Constant(value=today),
         days=ast.Constant(value=DAYS),
         match=ast.Or(exprs=[clone_expr(c) for c in conditions.values()]),
         test_accounts=clone_expr(test_accounts),
@@ -116,19 +118,20 @@ def key_metrics(team: Team, user: User) -> list[KeyMetric]:
     )
     rows = _run(daily, team, user)
     if rows is None:
-        return []
+        return None
     by_day = {_day(row[0]): row[1:] for row in rows}
 
-    today = timezone.now().astimezone(team.timezone_info).date()
     days = [today - timedelta(days=offset) for offset in range(DAYS, 0, -1)]
     metrics = []
     for index, (key, condition) in enumerate(conditions.items()):
         points = [(day, float(by_day[day][index]) if day in by_day else 0.0) for day in days]
         if key == PEOPLE_METRIC:
-            weekly_query = _select(WEEKLY_PEOPLE, match=condition, test_accounts=clone_expr(test_accounts))
+            weekly_query = _select(
+                WEEKLY_PEOPLE, today=ast.Constant(value=today), match=condition, test_accounts=clone_expr(test_accounts)
+            )
             weekly = _run(weekly_query, team, user)
-            if not weekly:
-                return []
+            if weekly is None:
+                return None
             this_week, last_week = (float(value) for value in weekly[0])
         else:
             this_week, last_week = sum(v for _, v in points[-7:]), sum(v for _, v in points[-14:-7])
