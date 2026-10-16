@@ -36,15 +36,7 @@ from typing import cast
 
 from .codeowners import project_repo
 from .matcher import normalize_path
-from .resolver import (
-    DEFAULT_PURPOSE,
-    OwnersResolver,
-    Purpose,
-    RepoRootNotFound,
-    read_stdin_paths,
-    resolution_to_wire,
-    team_entry_to_wire,
-)
+from .resolver import DEFAULT_PURPOSE, OwnersResolver, Purpose, RepoRootNotFound, read_stdin_paths, resolution_to_wire
 
 
 def main() -> None:
@@ -71,11 +63,6 @@ def main() -> None:
         default=None,
         help="GitHub organization for --codeowners; default: github_org in the root owners.yaml",
     )
-    parser.add_argument(
-        "--teams",
-        action="store_true",
-        help="Write the root teams registry as JSON, team slug to its declared fields, and exit",
-    )
     parser.add_argument("paths", nargs="*")
     ns = parser.parse_args()
     # A root that is not a directory reads as a repo with no ownership files, so every path
@@ -91,10 +78,6 @@ def main() -> None:
     producer_error = resolver.producer_error()
     if producer_error is not None:
         parser.error(producer_error)
-
-    if ns.teams:
-        json.dump({slug: team_entry_to_wire(entry) for slug, entry in resolver.teams().items()}, sys.stdout)
-        return
 
     if ns.codeowners:
         org = ns.org or resolver.settings().github_org

@@ -165,23 +165,6 @@ def resolution_to_wire(r: Resolution) -> WireResolution:
     }
 
 
-class WireTeamEntry(TypedDict):
-    slack: str | bool | None
-    notifications: str | bool | dict[str, str | bool] | None
-    pr_label: str | None
-    review_every_change: bool
-
-
-def team_entry_to_wire(entry: TeamEntry) -> WireTeamEntry:
-    notifications = entry.notifications
-    return {
-        "slack": entry.slack,
-        "notifications": dict(notifications) if isinstance(notifications, Mapping) else notifications,
-        "pr_label": entry.pr_label,
-        "review_every_change": bool(entry.review_every_change),
-    }
-
-
 def read_stdin_paths() -> list[str]:
     """Newline-delimited repo-relative paths from stdin, blanks dropped."""
     return [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
@@ -495,8 +478,8 @@ class OwnersResolver:
         norm = normalize_path(path)
         return self._build_resolution(norm, self._merge(norm), self._added(norm))
 
-    def teams(self) -> dict[str, TeamEntry]:
-        """The root file's ``teams:`` registry (team slug -> its declared settings),
+    def _teams_registry(self) -> dict[str, TeamEntry]:
+        """The root file's ``teams:`` Slack registry (team slug -> its declared channels),
         loaded once. Empty when there is no root file or it declares none."""
         if self._teams_cache is None:
             root = self._load_dir_file("")
@@ -530,7 +513,7 @@ class OwnersResolver:
         (team slugs only), then the derived ``#<slug>``, else None. Only a team slug
         (not an ``@handle``) carries a channel."""
         if owners and not owners[0].startswith("@"):
-            return team_channel(owners[0], self.teams(), self.purpose, self.producer).channel
+            return team_channel(owners[0], self._teams_registry(), self.purpose, self.producer).channel
         return None
 
     def _build_resolution(self, path: str, merged: _Merged, added: Addition | None) -> Resolution:

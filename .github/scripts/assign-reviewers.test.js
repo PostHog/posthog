@@ -8,7 +8,6 @@ const {
     isExcludedFile,
     classifyOwner,
     teamSlugToLabel,
-    teamRegistrySettings,
     partitionExternalTeams,
     computeOwnerFootprints,
     computeAdditionOwners,
@@ -215,62 +214,6 @@ const fp = (owner, lines, fileCount = 1, type = 'team') => ({
     fileCount,
     lines,
 })
-
-const TEAMS_REGISTRY = {
-    'team-every-change': { slack: null, notifications: null, pr_label: 'feature/a', review_every_change: true },
-    'team-label-only': { slack: null, notifications: null, pr_label: 'feature/b', review_every_change: null },
-    'team-channel-only': { slack: '#c', notifications: null, pr_label: null, review_every_change: null },
-}
-
-const REGISTRY_RESOLUTION = {
-    'surveys/a.py': resolved(['team-surveys'], 'owners.yaml'),
-    'surveys/moved.py': resolved(['team-surveys'], 'owners.yaml'),
-    'every/a.py': resolved(['team-every-change'], 'owners.yaml'),
-    'every/moved.py': resolved(['team-every-change'], 'owners.yaml'),
-    'label/a.py': resolved(['team-label-only'], 'owners.yaml'),
-    'channel/a.py': resolved(['team-channel-only'], 'owners.yaml'),
-}
-
-for (const [description, files, expectedRequested, expectedLabels] of [
-    [
-        'requests and labels a minor change by a team that reviews every change',
-        [file('surveys/a.py', 200), file('every/a.py', 1)],
-        ['@PostHog/team-surveys', '@PostHog/team-every-change'],
-        ['feature/a'],
-    ],
-    [
-        'requests and labels a team that reviews every change when a rename moves a file out of its path',
-        [
-            file('surveys/a.py', 200),
-            { ...file('surveys/moved.py', 1), status: 'renamed', previousFilename: 'every/moved.py' },
-        ],
-        ['@PostHog/team-surveys', '@PostHog/team-every-change'],
-        ['feature/a'],
-    ],
-    [
-        'labels a minor change by a team with only a label, without requesting it',
-        [file('surveys/a.py', 200), file('label/a.py', 1)],
-        ['@PostHog/team-surveys'],
-        ['feature/b'],
-    ],
-    [
-        'leaves a team with only a channel to the size rules',
-        [file('surveys/a.py', 200), file('channel/a.py', 1)],
-        ['@PostHog/team-surveys'],
-        [],
-    ],
-]) {
-    test(`teamRegistrySettings: ${description}`, () => {
-        const footprints = computeOwnerFootprints(REGISTRY_RESOLUTION, files)
-        const { reviewEveryChange, prLabels } = teamRegistrySettings(REGISTRY_RESOLUTION, files, TEAMS_REGISTRY)
-        const { requested } = classifyOwnersWithPinned(footprints, reviewEveryChange)
-        assert.deepEqual(
-            requested.map((f) => f.owner),
-            expectedRequested
-        )
-        assert.deepEqual(prLabels, expectedLabels)
-    })
-}
 
 test('classifyOwners: a single matched owner is always requested, even when tiny', () => {
     const { requested, demoted } = classifyOwners([fp('@PostHog/team-a', 1)])

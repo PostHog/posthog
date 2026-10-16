@@ -33,7 +33,7 @@ MAX_ALIAS_FILES = 8
 # their trees, so an undeclared list means this rather than no aliases at all. `alias_files: []`
 # turns aliases off.
 DEFAULT_ALIAS_FILES: tuple[str, ...] = ("product.yaml",)
-_TEAMS_ENTRY_KEYS = {"slack", "notifications", "pr_label", "review_every_change"}
+_TEAMS_ENTRY_KEYS = {"slack", "notifications"}
 _CODEOWNERS_KEYS = {"jest_root", "jest_root_tests", "jest_root_packages"}
 
 # The name of an automation that posts to a team's notifications channel, such as a review bot.
@@ -60,8 +60,6 @@ class TeamEntry:
 
     slack: str | bool | None = None
     notifications: str | bool | Mapping[str, str | bool] | None = None
-    pr_label: str | None = None
-    review_every_change: bool | None = None
 
 
 class _Unset:
@@ -236,9 +234,9 @@ def _validate_producer_map(
 def _validate_teams(
     value: object, producers: frozenset[str] | None, errors: list[str], warnings: list[str]
 ) -> dict[str, TeamEntry]:
-    """Validate the root-only ``teams:`` registry, a mapping of team slug to its settings.
+    """Validate the root-only ``teams:`` registry, a mapping of team slug to its channels.
 
-    A slug registers only when it declares at least one setting. Membership of the returned
+    A slug registers only when it declares at least one channel. Membership of the returned
     mapping therefore means "this repo answered for that team", and nothing more.
     """
     known_keys = ", ".join(sorted(_TEAMS_ENTRY_KEYS))
@@ -258,19 +256,9 @@ def _validate_teams(
             errors.append(f"{where}: entry must be a mapping with a {known_keys} key")
             continue
         declared: dict[str, str | bool | Mapping[str, str | bool]] = {}
-        pr_label: str | None = None
-        review_every_change: bool | None = None
         for key, raw in entry.items():
             if not isinstance(key, str) or key not in _TEAMS_ENTRY_KEYS:
                 warnings.append(f"{where}: unknown field '{key}'")
-            elif key == "pr_label":
-                if isinstance(raw, str) and raw:
-                    pr_label = raw
-                else:
-                    errors.append(f"{where}: 'pr_label' must be a non-empty string")
-            elif key == "review_every_change":
-                validated = _validate_bool(raw, key, where, errors)
-                review_every_change = validated if isinstance(validated, bool) else None
             elif isinstance(raw, dict):
                 per_producer = _validate_producer_map(raw, where, key, producers, errors)
                 if per_producer:
@@ -284,8 +272,8 @@ def _validate_teams(
                 declared[key] = raw
             else:
                 errors.append(f"{where}: '{key}' must be a string starting with '#' or false")
-        if declared or pr_label is not None or review_every_change is not None:
-            registry[slug] = TeamEntry(**declared, pr_label=pr_label, review_every_change=review_every_change)
+        if declared:
+            registry[slug] = TeamEntry(**declared)
     return registry
 
 

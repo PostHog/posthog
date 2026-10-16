@@ -20,7 +20,6 @@ hogli owners:unowned                          # every tracked file with no owner
 
 `owners:who` prints the resolved `owners`, the `status`, the Slack channel, and `source` — the `owners.yaml`/`product.yaml` file that decided the answer.
 The channel comes from the root `teams:` registry entry for the primary owner, else a derived `#<slug>`; a path whose primary owner is an `@handle` has no channel.
-A registry entry can also set `pr_label`, which the reviewer assigner adds to every PR that changes the team's paths, and `review_every_change: true`, which requests the team for every such change, whatever its size.
 `owners:resolve` takes paths as arguments or newline-delimited on stdin, so you can pipe a file list: `git ls-files posthog/hogql | hogli owners:resolve --json`.
 No hogli/flox available? The dependency-light fallback needs only pyyaml: `git ls-files posthog/hogql | PYTHONPATH=packages/owners-yaml python -m owners_yaml` (stdin paths → the same JSON).
 

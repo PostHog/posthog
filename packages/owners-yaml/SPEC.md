@@ -242,7 +242,7 @@ An author MUST NOT put these fields in a file other than the root file. A linter
 
 | Field           | Type             | Meaning                                                                                              |
 | --------------- | ---------------- | ---------------------------------------------------------------------------------------------------- |
-| `teams`         | mapping          | The team registry (section 5.2).                                                                     |
+| `teams`         | mapping          | The team channel registry (section 5.2).                                                             |
 | `github_org`    | string           | The GitHub organization of the team slugs.                                                           |
 | `producers`     | list of strings  | The automation names a team can address in `notifications`.                                          |
 | `reserved_dirs` | list of patterns | Extra reserved locations (section 2, rule 4). The patterns are relative to the repository root.      |
@@ -255,24 +255,20 @@ An author MUST NOT put these fields in a file other than the root file. A linter
 2. The value MUST NOT contain `/`.
 3. A tool MAY accept an override on its command line.
 
-### 5.2 Team registry
+### 5.2 Team channels
 
 `teams` maps a team slug to a mapping with these OPTIONAL fields:
 
-| Field                 | Type                                                             | Meaning                                                                                            |
-| --------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `slack`               | channel or `false`                                               | Where people on the team talk.                                                                     |
-| `notifications`       | channel, `false`, or a mapping of producer to channel or `false` | Where automation posts.                                                                            |
-| `pr_label`            | string                                                           | A label for pull requests that change a path the team owns.                                        |
-| `review_every_change` | boolean                                                          | Whether a review assigner requests the team for every change to a path it owns, whatever its size. |
+| Field           | Type                                                             | Meaning                        |
+| --------------- | ---------------------------------------------------------------- | ------------------------------ |
+| `slack`         | channel or `false`                                               | Where people on the team talk. |
+| `notifications` | channel, `false`, or a mapping of producer to channel or `false` | Where automation posts.        |
 
 1. A channel is a string that starts with `#`.
 2. `false` means the team has no channel for that purpose.
 3. A key of `teams` MUST be a team slug. It MUST NOT be a person handle.
 4. When the root file declares `producers`, each key of a `notifications` mapping MUST name a producer from that list. A mapping MAY leave out any producer. When the root file does not declare `producers`, any non-empty name is valid.
 5. A tool that cannot read a `notifications` mapping SHOULD treat it as `false`. A typo then silences automation. Automation does not post to an unwanted channel. One rejected entry makes the whole mapping unreadable. A tool that keeps the other entries sends the rejected producer to the `slack` channel.
-6. `pr_label` and `review_every_change` apply to every path the team owns, whatever its position in `owners`.
-7. `review_every_change` does not make a review required, as for `sensitive` (section 3.7).
 
 To find the channel for a team slug `T`, a purpose, and an optional producer:
 
@@ -363,7 +359,6 @@ This section describes the reference implementation. It is not part of the forma
 - It reads the alias files the root `owners.yaml` declares. PostHog's own repository declares `product.yaml`.
 - It removes the placeholder owner `team-CHANGEME` from every `owners` and `additions` list. Section 4 allows this removal.
 - Its linter reports schema errors, unknown fields as warnings, sensitive paths that are unowned as warnings, reserved locations, directories with both an `owners.yaml` and an alias file, rules that name a tracked directory without the trailing `/`, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
-- `python -m owners_yaml --teams` writes the `teams` registry as JSON, team slug to its declared fields, for a consumer that cannot read YAML.
 - It reports `added` when its source can tell whether the repository holds a path, as its disk source does (`TreeSource`). A source that reads only the ownership files reports none. It treats a symbolic link as a file, as git does.
 - Its CODEOWNERS export covers test files only: `test_*.py` and `*_test.py` for pytest, and `*.test.*` or `*.spec.*` with a `.js`, `.jsx`, `.ts`, or `.tsx` extension for Jest. The `codeowners` setting accepts these keys:
 
@@ -505,7 +500,6 @@ rules:
 - **Owners of additions add up.** Owners are nearest-file-wins because the union tags too many teams. `additions` answers a different question: who owns additions below a directory. If a nested file could drop the owners of additions that an ancestor file names, the answer of the ancestor would not be reliable. A separate field keeps coverage checks correct: `owners` on the parent directory would claim every file below it that has no nearer owner.
 - **Routing, not approval.** The format answers "who owns this path" for review requests, alerts, and reports. It does not replace a platform's required-approval rules. `additions` is routing too: it names owners, and it does not approve or block a change. So is `sensitive`: it states that a small change matters, and a consumer decides what to do about it.
 - **`sensitive` is a fact, not an instruction.** A field such as "always review" would tell one kind of consumer what to do. A fact about the paths serves every consumer: a review assigner can request the owners, an approval bot can ask for a person, and a report can rank a sensitive unowned path first. It belongs to the paths and not to the owners, so a nearer file that changes the owners keeps it.
-- **Team settings are requests from the team.** `pr_label` and `review_every_change` say what a team asks of tools for every path it owns, so they live in the team registry and not on paths. On a path with several owners, each team's settings apply to that team only. A tool that ignores them gives the result it gave before they existed.
 - **Unknown fields are warnings.** A typo in an optional field, such as `staus:`, then only gives a warning. A typo in a required field, such as `owner:`, still fails, because the file then has no `owners` field. In exchange, a repository can adopt a new field before every tool that reads it upgrades. The amendment rule in section 3 keeps that safe: a field that an older tool ignores must not make its answer wrong.
 - **`additions` does not default to `owners`.** An empty list means that the file names no separate owners of additions. A default would hide which directories have their own owners of additions and which only have owners.
 - **One input format.** A resolver reads ownership files only. CODEOWNERS is an export target, and a source for a one-time migration into ownership files, never a second input the resolver reads. The two formats resolve differently: CODEOWNERS takes the last matching line in one file, and this format takes the nearest file, field by field. CODEOWNERS also carries owners and nothing else, so it can say nothing about status or channels. Reading both would make the answer depend on which file a tool found first.
@@ -518,4 +512,3 @@ rules:
 - **1**, amended (unreleased): Section 3.4 applies every matching rule, field by field. Before, the last matching rule replaced the earlier ones. Section 3.6 adds the optional `additions` field. Section 7.2 adds the `additions` member, and a consumer treats a missing member as empty (section 7.4). Section 4 step 1 removes a trailing `/`, so a request for `docs/` resolves the same as `docs`.
 - **1**, amended (unreleased): Section 4, step 6 adds `added`: for a path that the repository does not hold, the first part of it that the repository does not hold as a directory, with its owners of additions. Section 7.2 adds the `added` member, and a consumer treats a missing member as `null` (section 7.4). No ownership file changes meaning.
 - **1**, amended (unreleased): Section 3 makes a field that a tool does not know a warning, not an error, so a file written for a later amendment still passes an older linter. An amendment adds a field only when a tool that ignores it still gives a safe result. Section 3.7 adds the optional `sensitive` field, and section 6 lets an alias file set it. Section 7.2 adds the `sensitive` member, and a consumer treats a missing member as `false` (section 7.4). No `owners.yaml` that was valid before changes meaning. An alias file that already used a `sensitive` key for another purpose now marks its paths as sensitive.
-- **1**, amended (unreleased): Section 5.2 adds the optional `pr_label` and `review_every_change` fields to a `teams` entry. No ownership file changes meaning.
