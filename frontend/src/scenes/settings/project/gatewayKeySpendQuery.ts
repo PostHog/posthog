@@ -1,6 +1,6 @@
-import api from 'lib/api'
-
-import { hogql } from '~/queries/utils'
+import { performQuery } from '~/queries/query'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 
 export const GATEWAY_SPEND_WINDOW_DAYS = 30
 
@@ -12,9 +12,12 @@ export interface GatewayCredentialSpend {
 }
 
 // The events table is team-scoped, so the query needs no project filter.
+// The query scans every generation in the window, which can outrun a sync request on a large
+// project, so it runs async and polls.
 export async function fetchGatewaySpendByCredential(): Promise<GatewayCredentialSpend[]> {
-    const response = await api.queryHogQL(
-        hogql`
+    const query: HogQLQuery = setLatestVersionsOnQuery({
+        kind: NodeKind.HogQLQuery,
+        query: hogql`
             SELECT
                 properties.$ai_credential AS credential,
                 count() AS requests,
@@ -27,8 +30,9 @@ export async function fetchGatewaySpendByCredential(): Promise<GatewayCredential
             ORDER BY cost_usd DESC
             LIMIT 200
         `,
-        { scene: 'Settings', productKey: 'ai_gateway', name: 'gateway_spend_by_key' }
-    )
+        tags: { scene: 'Settings', productKey: 'ai_gateway', name: 'gateway_spend_by_key' },
+    })
+    const response = await performQuery(query, undefined, 'async')
     return (response.results ?? []).map((row: unknown[]) => ({
         credential: row[0] ? String(row[0]) : null,
         requests: Number(row[1]) || 0,
