@@ -164,5 +164,6 @@ Sizing a glyph does not change its button's tap target, which stays at least 44p
   Project card (search field, projects grouped by organization, check on the current one),
   chat sheet with @-mention popover, the Model and Mode chips, and the session thread. The chat sheet shares the sheets' grabber
   and drag-down dismissal (`useSheetDrag`), on its header only, so a drag never competes with the thread's scroll.
-- **Sign-in** and **Settings**: minimal, built from the same tokens. Settings keeps its Back chip on blurred floating chrome; the
+- **Sign-in**: the logo, form and account link are vertically centered above the legal footer. Privacy policy and Terms sit at the bottom safe area. The page scrolls when the form needs more room, including with the keyboard open.
+- **Settings**: minimal, built from the same tokens. Settings keeps its Back chip on blurred floating chrome; the
   large title scrolls up into the chrome beside the chip, shrinking to section-header size (`SettingsChrome`, `collapsingTitle`).
