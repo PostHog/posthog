@@ -12,6 +12,11 @@ ui_apps:
     workflow-list:
         type: list
         detail_tool: workflows-get
+    workflow-setup-status:
+        type: detail
+        view_prop: data
+        app_name: PostHog Messaging Setup
+        description: The messaging setup checklist, with a link to finish each open step.
     workflow-data-suggestions:
         type: custom
         app_name: PostHog Workflow Suggestions
@@ -455,6 +460,7 @@ tools:
             happen in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send
             until it is. Automations that only post to Slack or call webhooks need none of these steps. When
             data_suggestions_available is true, offer workflows-data-suggestions-list once setup is done.
+        ui_app: workflow-setup-status
         feature_flag: workflows-mcp-onboarding
     workflows-stats:
         operation: hog_flows_metrics_retrieve
