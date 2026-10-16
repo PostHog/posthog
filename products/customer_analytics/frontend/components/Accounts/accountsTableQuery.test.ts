@@ -3,6 +3,7 @@ import {
     AccountsTableAccountFieldOperator,
     AccountsTableCustomPropertyOperator,
     AccountsTableRelationshipOperator,
+    AccountsTableRow,
     AccountsTableSortDirection,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -19,6 +20,7 @@ import {
     BuildAccountsTableQueryPlanInput,
     accountsTableCell,
     accountsTableDatasetKey,
+    accountsTableSortValue,
     buildAccountsTableQueryPlan,
 } from './accountsTableQuery'
 
@@ -265,6 +267,39 @@ describe('accountsTableQuery', () => {
             column: { kind: 'custom_property', definitionId: CUSTOM_PROPERTY_ID },
             direction: AccountsTableSortDirection.Ascending,
         })
+    })
+
+    it('sorts sparkline columns by their latest value', () => {
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                querySelectColumns: [
+                    'name',
+                    `accounts.custom_properties_history.values.\`${CUSTOM_PROPERTY_ID}\` AS cp_value`,
+                ],
+                visibleColumnNames: ['name', 'cp_value'],
+                columnDisplay: { [CUSTOM_PROPERTY_ID]: { mode: 'sparkline', window_days: 30 } },
+            })
+        ) as AccountsTableQueryPlan
+        const row = (points: { timestamp: string; value: number }[]): AccountsTableRow => ({
+            id: 'account-id',
+            name: 'Acme',
+            accountFields: {},
+            relationships: {},
+            customProperties: {},
+            customPropertyHistory: { [CUSTOM_PROPERTY_ID]: points },
+        })
+
+        expect(
+            accountsTableSortValue(
+                row([
+                    { timestamp: '2026-10-01T00:00:00Z', value: 12000 },
+                    { timestamp: '2026-10-10T00:00:00Z', value: 16000 },
+                ]),
+                'cp_value',
+                plan
+            )
+        ).toBe(16000)
+        expect(accountsTableSortValue(row([]), 'cp_value', plan)).toBeNull()
     })
 
     it('uses only the account ID filter for deep-link state', () => {

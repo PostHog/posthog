@@ -457,6 +457,19 @@ export function accountsTableCell(row: AccountsTableRow, visibleName: string, pl
     }
 }
 
+// Sparkline cells display the latest point, so sort by that and not by the history array
+export function accountsTableSortValue(
+    row: AccountsTableRow,
+    visibleName: string,
+    plan: AccountsTableQueryPlan
+): unknown {
+    const column = plan.columns.find((candidate) => candidate.visibleName === visibleName)?.column
+    if (column?.kind === 'custom_property_history') {
+        return row.customPropertyHistory[column.definitionId]?.at(-1)?.value ?? null
+    }
+    return accountsTableCell(row, visibleName, plan)
+}
+
 export function isAccountsTableRow(value: unknown): value is AccountsTableRow {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         return false
