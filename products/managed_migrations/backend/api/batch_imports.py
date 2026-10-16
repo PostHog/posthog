@@ -895,23 +895,7 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if batch_import.status != BatchImport.Status.PAUSED:
             return Response({"error": "Only paused imports can be resumed"}, status=status.HTTP_400_BAD_REQUEST)
 
-        batch_import.status = BatchImport.Status.RUNNING
-        batch_import.status_message = "Resumed by user"
-        batch_import.lease_id = None
-        batch_import.leased_until = None
-        batch_import.backoff_attempt = 0
-        batch_import.backoff_until = None
-        batch_import.save(
-            update_fields=[
-                "status",
-                "status_message",
-                "lease_id",
-                "leased_until",
-                "backoff_attempt",
-                "backoff_until",
-                "updated_at",
-            ]
-        )
+        batch_import.save(update_fields=batch_import.reset_for_resume("Resumed by user"))
 
         return Response({"status": "resumed"})
 

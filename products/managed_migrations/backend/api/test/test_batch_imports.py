@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
+from django.contrib import admin
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages import get_messages
 from django.contrib.messages.middleware import MessageMiddleware
@@ -58,6 +59,7 @@ class TestBatchImportModel(BaseTest):
             leased_until=datetime.now(UTC) + timedelta(minutes=25),
             backoff_attempt=3,
             backoff_until=datetime.now(UTC) + timedelta(minutes=5),
+            pending_commit={"key": "day-2", "from_offset": 8999000, "to_offset": 8999445},
             state=state,
         )
 
@@ -150,21 +152,27 @@ class TestBatchImportModel(BaseTest):
         self.assertEqual(batch_import.backoff_attempt, 0)
         self.assertIsNone(batch_import.backoff_until)
         self.assertIsNone(batch_import.display_status_message)
+        self.assertIsNone(batch_import.pending_commit)
 
     def test_resume_after_pause_keeps_progress_and_clears_lease(self):
         batch_import = self._paused_import({"parts": self.MIXED_PROGRESS_PARTS})
+        stale_copy = BatchImport.objects.get(id=batch_import.id)
+        worker_progress = {
+            "parts": [*self.MIXED_PROGRESS_PARTS[:2], {"key": "day-3", "current_offset": 77, "total_size": None}]
+        }
+        BatchImport.objects.filter(id=batch_import.id).update(state=worker_progress)
 
-        batch_import.resume_after_pause()
+        stale_copy.resume_after_pause()
 
         batch_import.refresh_from_db()
-        assert batch_import.state is not None
-        self.assertEqual(batch_import.state["parts"], self.MIXED_PROGRESS_PARTS)
+        self.assertEqual(batch_import.state, worker_progress)
         self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
         self.assertIsNone(batch_import.lease_id)
         self.assertIsNone(batch_import.leased_until)
         self.assertEqual(batch_import.backoff_attempt, 0)
         self.assertIsNone(batch_import.backoff_until)
         self.assertIsNone(batch_import.display_status_message)
+        self.assertIsNone(batch_import.pending_commit)
 
     @parameterized.expand(
         [
@@ -603,6 +611,76 @@ class TestBatchImportAdminActions(BaseTest):
 
         levels = sorted(m.level_tag for m in get_messages(request))
         self.assertEqual(levels, ["success", "warning"])
+
+
+class TestBatchImportAdminChangeForm(BaseTest):
+    WORKER_STATE = {"parts": [{"key": "day-1", "current_offset": 9000, "total_size": None}]}
+
+    def _form_values(self, batch_import: BatchImport) -> dict[str, str]:
+        sink = batch_import.import_config["sink"]
+        return {
+            "team": str(batch_import.team_id),
+            "created_by_id": str(batch_import.created_by_id),
+            "status": batch_import.status,
+            "status_message": batch_import.status_message or "",
+            "sink_type": sink["type"],
+            "send_rate": str(sink["send_rate"]),
+        }
+
+    @parameterized.expand(
+        [
+            ("rate_change_keeps_worker_status", "running", "paused", {"send_rate": "500"}, "paused", 500),
+            ("operator_pause", "running", "running", {"status": "paused"}, "paused", 5000),
+            ("operator_resume", "paused", "paused", {"status": "running"}, "running", 5000),
+        ]
+    )
+    def test_save_writes_only_operator_edits(
+        self, _name, shown_status, worker_status, edits, expected_status, expected_send_rate
+    ):
+        batch_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"sink": {"type": "capture", "send_rate": 5000}},
+            secrets={"secret": "value"},
+            status=shown_status,
+            lease_id="lease-at-page-load",
+            leased_until=datetime.now(UTC) + timedelta(minutes=5),
+            backoff_attempt=2,
+            pending_commit={"key": "day-1", "from_offset": 8000, "to_offset": 9000},
+            state={"parts": [{"key": "day-1", "current_offset": 100, "total_size": None}]},
+        )
+        shown = self._form_values(batch_import)
+        loaded_for_save = BatchImport.objects.get(id=batch_import.id)
+        BatchImport.objects.filter(id=batch_import.id).update(
+            status=worker_status, state=self.WORKER_STATE, lease_id="lease-after-worker-commit"
+        )
+
+        self.user.is_staff = True
+        self.user.save()
+        model_admin = admin.site._registry[BatchImport]
+        request = RequestFactory().post("/")
+        request.user = self.user
+        form = model_admin.get_form(request, loaded_for_save, change=True)(
+            data={**{f"initial-{name}": value for name, value in shown.items()}, **shown, **edits},
+            instance=loaded_for_save,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        model_admin.save_model(request, form.save(commit=False), form, change=True)
+
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.status, expected_status)
+        self.assertEqual(batch_import.import_config["sink"]["send_rate"], expected_send_rate)
+        self.assertEqual(batch_import.state, self.WORKER_STATE)
+        if expected_status == "running":
+            self.assertEqual(batch_import.status_message, "Resumed by admin")
+            self.assertIsNone(batch_import.lease_id)
+            self.assertIsNone(batch_import.leased_until)
+            self.assertEqual(batch_import.backoff_attempt, 0)
+            self.assertIsNone(batch_import.pending_commit)
+        else:
+            self.assertEqual(batch_import.lease_id, "lease-after-worker-commit")
+            self.assertEqual(batch_import.backoff_attempt, 2)
+            self.assertIsNotNone(batch_import.pending_commit)
 
 
 class TestBatchImportAPI(APIBaseTest):
@@ -1073,6 +1151,8 @@ class TestBatchImportAPI(APIBaseTest):
             leased_until=datetime.now(tz=UTC) + timedelta(hours=1),
             backoff_attempt=5,
             backoff_until=datetime.now(tz=UTC) + timedelta(hours=1),
+            display_status_message="Job paused after a failed commit",
+            pending_commit={"key": "part-1", "from_offset": 0, "to_offset": 100},
         )
 
         response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/resume")
@@ -1085,6 +1165,8 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertEqual(batch_import.backoff_attempt, 0)
         self.assertIsNone(batch_import.backoff_until)
         self.assertEqual(batch_import.status_message, "Resumed by user")
+        self.assertIsNone(batch_import.display_status_message)
+        self.assertIsNone(batch_import.pending_commit)
 
     @parameterized.expand(
         [
