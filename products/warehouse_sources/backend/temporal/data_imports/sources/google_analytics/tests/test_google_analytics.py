@@ -507,16 +507,17 @@ def test_source_resume_past_end_date_yields_nothing(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "should_use_incremental_field,resume_state,pages_before_quota,expected_rows,expect_raise",
+    "should_use_incremental_field,watermark,resume_state,pages_before_quota,expected_rows,expect_raise",
     [
-        (True, None, 1, 2, False),
-        (True, None, 0, 0, True),
-        (True, GoogleAnalyticsResumeConfig(chunk_start="2025-09-15", offset=0), 0, 0, False),
-        (False, None, 1, 2, True),
+        (True, None, None, 1, 2, False),
+        (True, None, None, 0, 0, True),
+        (True, None, GoogleAnalyticsResumeConfig(chunk_start="2025-09-15", offset=0), 0, 0, False),
+        (True, dt.date(2025, 8, 17), None, 1, 2, True),
+        (False, None, None, 1, 2, True),
     ],
 )
-def test_source_quota_exhaustion_keeps_rows_only_for_incremental_runs(
-    monkeypatch, should_use_incremental_field, resume_state, pages_before_quota, expected_rows, expect_raise
+def test_source_quota_exhaustion_keeps_rows_only_when_the_watermark_advances(
+    monkeypatch, should_use_incremental_field, watermark, resume_state, pages_before_quota, expected_rows, expect_raise
 ):
     monkeypatch.setattr(ga, "_credentials", lambda *args: OAuthCredentials(token="test-token"))
     page = ScriptedResponse(json=_report_payload(["20250816", "20250817"], [1, 2], row_count=5))
@@ -533,6 +534,7 @@ def test_source_quota_exhaustion_keeps_rows_only_for_incremental_runs(
         resume_state=resume_state,
         incremental_field="date",
         should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=watermark,
     )
 
     assert len(result.rows) == expected_rows

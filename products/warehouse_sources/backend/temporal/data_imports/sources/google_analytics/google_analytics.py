@@ -339,21 +339,25 @@ class _SyncWindow:
     end: dt.date
 
 
+def _watermark_date(db_incremental_field_last_value: Any) -> dt.date | None:
+    if db_incremental_field_last_value is None:
+        return None
+    if isinstance(db_incremental_field_last_value, dt.datetime):
+        return db_incremental_field_last_value.date()
+    if isinstance(db_incremental_field_last_value, dt.date):
+        return db_incremental_field_last_value
+    return dt.date.fromisoformat(str(db_incremental_field_last_value)[:10])
+
+
 def _resolve_window(
     today: dt.date, db_incremental_field_last_value: Any, history_days: int | None = None
 ) -> _SyncWindow:
     # End at yesterday: today's aggregates are still accruing and would land as
     # permanently stale rows for schemas whose primary key is just `date`.
     end_date = today - dt.timedelta(days=1)
-    if db_incremental_field_last_value is None:
+    last = _watermark_date(db_incremental_field_last_value)
+    if last is None:
         return _SyncWindow(start=_initial_start_date(today, history_days), end=end_date)
-
-    if isinstance(db_incremental_field_last_value, dt.datetime):
-        last = db_incremental_field_last_value.date()
-    elif isinstance(db_incremental_field_last_value, dt.date):
-        last = db_incremental_field_last_value
-    else:
-        last = dt.date.fromisoformat(str(db_incremental_field_last_value)[:10])
 
     start = max(last - dt.timedelta(days=LOOKBACK_DAYS), _initial_start_date(today, history_days))
     return _SyncWindow(start=start, end=end_date)
@@ -409,8 +413,11 @@ def google_analytics_source(
                 start_date = max(start_date, dt.date.fromisoformat(resume_chunk_start))
 
         session = google_analytics_session(config.google_analytics_integration_id, team_id)
-        # A resumed attempt continues a run whose earlier attempt already queued rows.
-        run_has_rows = resume_chunk_start is not None
+        watermark = _watermark_date(db_incremental_field_last_value) if should_use_incremental_field else None
+        # A resumed attempt continues a run whose earlier attempts read every date before the saved chunk.
+        latest_date_read = (
+            dt.date.fromisoformat(resume_chunk_start) - dt.timedelta(days=1) if resume_chunk_start else None
+        )
 
         for chunk_start, chunk_end in _iter_chunks(start_date, end_date):
             chunk_start_iso = chunk_start.isoformat()
@@ -432,8 +439,10 @@ def google_analytics_source(
                     )
                 except GoogleAnalyticsQuotaExceededError:
                     # Rows arrive in date order, so an incremental run that ends here keeps them and the next run
-                    # re-reads the last date through the lookback window. A full refresh would replace the table.
-                    if not (should_use_incremental_field and run_has_rows):
+                    # re-reads the last date through the lookback window. A full refresh would replace the table,
+                    # and a run still inside the lookback window would leave the watermark where it was.
+                    advanced = latest_date_read is not None and (watermark is None or latest_date_read > watermark)
+                    if not (should_use_incremental_field and advanced):
                         raise
                     logger.warning(
                         "Google Analytics Data API quota is used up. This sync keeps the rows it read, and the "
@@ -448,7 +457,9 @@ def google_analytics_source(
                     break
 
                 yield rows
-                run_has_rows = True
+                last_row_date = rows[-1].get("date")
+                if isinstance(last_row_date, dt.date):
+                    latest_date_read = last_row_date
 
                 next_offset = offset + len(rows)
                 row_count = payload.get("rowCount", 0)
