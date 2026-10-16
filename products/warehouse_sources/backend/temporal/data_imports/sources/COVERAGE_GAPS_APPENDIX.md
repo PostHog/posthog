@@ -8061,10 +8061,10 @@ Today (2): `billing_report_daily`, `billing_report_hourly`
 
 Diffed against: <https://raw.githubusercontent.com/modal-labs/modal-client/main/modal_proto/api.proto>
 
-- [ ] `Apps and Functions (SDK RPC AppList; SDK RPC AppGetInfo)` — resolve function IDs in billing reports to application names, owners, and deployment state (high)
-- [ ] `Workspace billing summary (SDK RPC WorkspaceBillingSummary, Workspace.billing.summary)` — reconcile metered cost with invoiced cost, credits, and other adjustments (high)
+- [x] `Apps and Functions (SDK RPC AppList; SDK RPC AppGetInfo)` — resolve function IDs in billing reports to application names, owners, and deployment state (high)
+- [x] `Workspace billing summary (SDK RPC WorkspaceBillingSummary, Workspace.billing.summary)` — reconcile metered cost with invoiced cost, credits, and other adjustments (high)
 - [ ] `Function statistics (SDK RPC FunctionGetTimeRangeStats, Function.stats)` — measure successful calls, failures, timeouts, latency, and resource utilization, which billing costs cannot show (high)
-- [ ] `Sandboxes (SDK RPC SandboxList/SandboxListV2, Sandbox.list)` — resolve sandbox IDs in billing reports and compare sandbox populations across applications (high)
+- [x] `Sandboxes (SDK RPC SandboxList/SandboxListV2, Sandbox.list)` — resolve sandbox IDs in billing reports and compare sandbox populations across applications (high)
 - [ ] `App deployment history (SDK RPC AppDeploymentHistory)` — connect deployment revisions with cost changes, failed calls, and incident periods (medium)
 - [ ] `Workspace members (SDK RPC WorkspaceMembersList, Workspace.members.list)` — join application creators with workspace member identities for ownership and adoption reports (medium)
 - [ ] `App logs (SDK RPC AppFetchLogs, App.logs.fetch)` — analyze execution errors and runtime activity by function, container, and time (medium)
