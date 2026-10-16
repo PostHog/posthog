@@ -5,7 +5,8 @@ use std::sync::Arc;
 use crate::values::HogMap;
 use base64::Engine as _;
 use chrono::{
-    DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
+    DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, Offset, TimeZone,
+    Timelike,
 };
 use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
@@ -1647,7 +1648,7 @@ fn extract(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
 }
 
 // None where the reference's luxon DateTime is invalid. Luxon also reads values this VM cannot
-// (zones such as `UTC+5`, ISO forms such as `2024` and `2024-W11`, numbers as strings); those
+// (zones such as `UTC+5`, ISO forms such as `2024`, numbers as strings, years past 262142); those
 // return NotImplemented, which the transformation executor turns into a Node VM fallback
 // (`isUnsupportedByRustVm` in nodejs/src/cdp/hog-transformations/rust-vm.ts).
 fn extract_wall_clock(vm: &HogVM, value: &HogValue) -> Result<Option<NaiveDateTime>, VmError> {
@@ -1671,10 +1672,21 @@ fn extract_wall_clock(vm: &HogVM, value: &HogValue) -> Result<Option<NaiveDateTi
             else {
                 return unsupported();
             };
-            Ok(tz
-                .timestamp_opt(secs.floor() as i64, 0)
-                .single()
-                .map(|dt| dt.naive_local()))
+            // luxon adds the zone offset to the millisecond timestamp, then truncates toward zero
+            // as a JavaScript Date does.
+            let utc_ms = (secs * 1000.0).trunc() as i64;
+            let Some(utc) = DateTime::from_timestamp(utc_ms.div_euclid(1000), 0) else {
+                return unsupported();
+            };
+            let offset_secs = tz
+                .offset_from_utc_datetime(&utc.naive_utc())
+                .fix()
+                .local_minus_utc();
+            let local_ms = (secs * 1000.0 + f64::from(offset_secs) * 1000.0).trunc() as i64;
+            match DateTime::from_timestamp(local_ms.div_euclid(1000), 0) {
+                Some(local) => Ok(Some(local.naive_utc())),
+                None => unsupported(),
+            }
         }
         HogLiteral::Object(obj) if obj_marker(heap, obj, "__hogDate__")? => {
             let (Some(year), Some(month), Some(day)) = (

@@ -149,3 +149,6 @@
 {"fn":"extract","label":"extract#23","match":"exact","bytecode":["_H",1,32,"month",32,"__hogDate__",29,32,"year",33,2024,32,"month",34,3.5,32,"day",33,15,42,4,2,"extract",2,2,"print",1],"expected":"NaN"}
 {"fn":"extract","label":"extract#24","match":"exact","bytecode":["_H",1,32,"year",32,"2024-03-15 10:20:30",2,"extract",2,2,"print",1],"expected":"NaN"}
 {"fn":"extract","label":"extract#25","match":"exact","bytecode":["_H",1,32,"year",32,"2024-03-15T10:20:30z",2,"extract",2,2,"print",1],"expected":"NaN"}
+{"fn":"extract","label":"extract#26","match":"exact","bytecode":["_H",1,32,"second",34,-1.0001,2,"fromUnixTimestamp",1,2,"extract",2,2,"print",1],"expected":"59"}
+{"fn":"extract","label":"extract#27","match":"exact","bytecode":["_H",1,32,"second",34,-1.0001,2,"fromUnixTimestamp",1,32,"Asia/Tokyo",2,"toTimeZone",2,2,"extract",2,2,"print",1],"expected":"58"}
+{"fn":"extract","label":"extract#28","match":"exact","bytecode":["_H",1,32,"second",34,-1.0001,2,"fromUnixTimestamp",1,32,"America/New_York",2,"toTimeZone",2,2,"extract",2,2,"print",1],"expected":"59"}
