@@ -1,3 +1,4 @@
+import os
 import json
 import shutil
 import tempfile
@@ -8,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -150,9 +152,13 @@ class TestTeamScan(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         for chunk in range(3):
             team_scan.run_chunk(split, chunk, resume=True)
         team_scan.run_postgres(split, resume=False)
-        team_scan.finalize(split)
+        summary = team_scan.finalize(split)
 
         assert _report(split) == _report(whole)
+        # The chunk bounds are sampled keys, which the summary must not carry.
+        assert summary["plan"]["chunks"] == 3
+        bounds = [b for c in plan.chunks for b in (c.person_from, c.person_to, c.mapping_from, c.mapping_to) if b]
+        assert bounds and not any(b in json.dumps(summary) for b in bounds)
         assert len(_report(whole)) == 11
 
     def test_the_scan_directory_is_private_to_its_owner(self):
@@ -165,6 +171,23 @@ class TestTeamScan(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         shared.chmod(0o755)
         with pytest.raises(team_scan.ScanError, match="readable by other users"):
             team_scan.create_plan(shared, self.team.pk)
+
+        target = self.scan_root / "target"
+        target.mkdir(mode=0o700)
+        linked = self.scan_root / "linked"
+        linked.symlink_to(target)
+        with pytest.raises(team_scan.ScanError, match="not a directory"):
+            team_scan.create_plan(linked, self.team.pk)
+
+        with patch("posthog.models.person.divergence.team_scan.os.geteuid", return_value=os.geteuid() + 1):
+            with pytest.raises(team_scan.ScanError, match="owned by another user"):
+                team_scan.run_chunk(scan_dir, 0, resume=False)
+
+        # A directory opened up after its plan was written is refused when the scan resumes.
+        scan_dir.chmod(0o755)
+        with pytest.raises(team_scan.ScanError, match="readable by other users"):
+            team_scan.run_chunk(scan_dir, 0, resume=False)
+        scan_dir.chmod(0o700)
 
 
 def _mapping(old: str, new: str, sub: str = "a_absent", key: str | None = None) -> dict[str, Any]:
