@@ -27,7 +27,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
 from django.db import ProgrammingError, models
-from django.db.models.functions import Coalesce, Lower
+from django.db.models.functions import Coalesce
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -594,12 +594,10 @@ def _build_template_context(
     # Set the frontend app context
     # nosemgrep: api-query-param-underscore -- shipped public API param, a rename breaks clients
     if not request.GET.get("no-preloaded-app-context"):
-        from posthog.api.file_system.user_product_list import UserProductListSerializer
         from posthog.api.project import ProjectSerializer
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team.team_serializer import TeamSerializer
         from posthog.api.user import UserSerializer
-        from posthog.models.file_system.user_product_list import UserProductList
         from posthog.models.user_home_settings import UserHomeSettings
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
@@ -618,7 +616,6 @@ def _build_template_context(
             "current_team": None,
             "preflight": preflight_payload,
             "default_event_name": "$pageview",
-            "custom_products": [],
             "switched_team": getattr(request, "switched_team", None),
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
             "project_access_denied": getattr(request, "project_access_denied", None),
@@ -697,15 +694,6 @@ def _build_template_context(
                 posthog_app_context["has_pageview"] = event_info["has_pageview"]
                 posthog_app_context["has_screen"] = event_info["has_screen"]
                 posthog_app_context["has_person_email"] = get_has_person_email(user.team)
-
-                with tracer.start_as_current_span("template.user_product_list"):
-                    user_product_list = UserProductListSerializer(
-                        UserProductList.objects.filter(team=user.team, user=user, enabled=True).order_by(
-                            Lower("product_path")
-                        ),
-                        many=True,
-                    )
-                    posthog_app_context["custom_products"] = user_product_list.data
 
                 with tracer.start_as_current_span("template.user_home_settings"):
                     home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
