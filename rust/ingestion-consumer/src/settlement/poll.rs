@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use common_kafka_consumer::{Offset, Rejection, TopicOffsetLedger, TopicPartition};
 use metrics::counter;
@@ -42,8 +44,16 @@ impl Settlement for PollSettlement {
         }
     }
 
-    fn pacer(&self) -> &Arc<CommitPacer> {
-        &self.pacer
+    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+        self.pacer.take_due(now)
+    }
+
+    fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
+        self.pacer.take_all()
+    }
+
+    fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
+        self.pacer.forget_partitions(topic_partitions);
     }
 }
 
@@ -112,19 +122,15 @@ fn settle(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::time::Instant;
-
     use common_kafka_consumer::Charge;
 
     use super::*;
     use crate::order_sentinel::OffsetSpan;
 
-    fn settlement() -> (Arc<TopicOffsetLedger>, Arc<CommitPacer>, PollSettlement) {
+    fn settlement() -> (Arc<TopicOffsetLedger>, PollSettlement) {
         let ledger = Arc::new(TopicOffsetLedger::new());
         let settlement = PollSettlement::new(Arc::clone(&ledger));
-        let pacer = Arc::clone(settlement.pacer());
-        (ledger, pacer, settlement)
+        (ledger, settlement)
     }
 
     struct Charged {
@@ -163,15 +169,15 @@ mod tests {
     }
 
     #[test]
-    fn a_retired_poll_hands_each_partitions_frontier_to_the_pacer() {
-        let (ledger, pacer, settlement) = settlement();
+    fn a_retired_poll_makes_each_partitions_frontier_due() {
+        let (ledger, settlement) = settlement();
         let p0 = charged(&ledger, 0, 10, 11);
         let p1 = charged(&ledger, 1, 20, 21);
 
         settlement.settle_poll(&[p0.slice(), p1.slice()]);
 
         assert_eq!(
-            pacer.take_due(Instant::now()),
+            settlement.take_due(Instant::now()),
             Some(HashMap::from([
                 (p0.topic_partition, Offset(12)),
                 (p1.topic_partition, Offset(22)),
@@ -180,36 +186,36 @@ mod tests {
     }
 
     #[test]
-    fn a_poll_behind_an_earlier_one_hands_over_when_the_earlier_retires() {
-        let (ledger, pacer, settlement) = settlement();
+    fn a_poll_behind_an_earlier_one_becomes_due_when_the_earlier_retires() {
+        let (ledger, settlement) = settlement();
         let older = charged(&ledger, 0, 10, 11);
         let newer = charged(&ledger, 0, 12, 13);
 
         settlement.settle_poll(&[newer.slice()]);
-        assert!(pacer.take_due(Instant::now()).is_none());
+        assert!(settlement.take_due(Instant::now()).is_none());
 
         settlement.settle_poll(&[older.slice()]);
         assert_eq!(
-            pacer.take_due(Instant::now()),
+            settlement.take_due(Instant::now()),
             Some(HashMap::from([(older.topic_partition, Offset(14))]))
         );
     }
 
     #[test]
-    fn a_stale_poll_hands_nothing_to_the_pacer() {
-        let (ledger, pacer, settlement) = settlement();
+    fn a_stale_poll_makes_nothing_due() {
+        let (ledger, settlement) = settlement();
         let poll = charged(&ledger, 0, 10, 11);
         // The partition left and came back while the poll was in flight.
         ledger.forget_partitions([("test", 0)]);
 
         settlement.settle_poll(&[poll.slice()]);
 
-        assert!(pacer.take_due(Instant::now()).is_none());
+        assert!(settlement.take_due(Instant::now()).is_none());
     }
 
     #[test]
     fn an_accepted_run_settles_nothing_before_its_poll_retires() {
-        let (ledger, pacer, settlement) = settlement();
+        let (ledger, settlement) = settlement();
         let poll = charged(&ledger, 0, 10, 11);
 
         settlement.settle_run(
@@ -217,11 +223,11 @@ mod tests {
             poll.generation,
             &[Offset(10), Offset(11)],
         );
-        assert!(pacer.take_due(Instant::now()).is_none());
+        assert!(settlement.take_due(Instant::now()).is_none());
 
         settlement.settle_poll(&[poll.slice()]);
         assert_eq!(
-            pacer.take_due(Instant::now()),
+            settlement.take_due(Instant::now()),
             Some(HashMap::from([(poll.topic_partition, Offset(12))]))
         );
     }

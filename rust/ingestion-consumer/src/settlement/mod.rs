@@ -3,12 +3,12 @@
 mod group;
 mod poll;
 
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{Charge, Offset, TopicOffsetLedger, TopicPartition};
 
-use crate::commit_pacer::CommitPacer;
 use crate::config::CompletionGranularity;
 use crate::order_sentinel::OffsetSpan;
 
@@ -29,11 +29,11 @@ pub(crate) trait Settlement: Send + Sync {
     /// The oldest poll retired with every message accepted.
     fn settle_poll(&self, slices: &[ChargedSlice<'_>]);
 
-    fn pacer(&self) -> &Arc<CommitPacer>;
+    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>>;
 
-    fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
-        self.pacer().forget_partitions(topic_partitions);
-    }
+    fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>>;
+
+    fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
 }
 
 pub(crate) fn for_granularity(
