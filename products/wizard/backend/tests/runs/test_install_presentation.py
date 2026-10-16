@@ -193,8 +193,12 @@ class TestWizardInstallViewSet(APIBaseTest):
 
         with patch("posthog.models.integration.GitHubIntegration.sync_repository_cache") as sync:
             response = self._start(idempotency_key="fresh-install")
+            self.accessible.side_effect = None
+            self.accessible.return_value = False
+            missing = self._start(idempotency_key="missing-repository", repository="posthog/missing")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(missing.json()["code"], "repository_not_accessible")
         sync.assert_called_once_with(min_refresh_interval_seconds=60)
 
     @parameterized.expand(
@@ -261,5 +265,7 @@ class TestWizardInstallViewSet(APIBaseTest):
         other_team = self.create_team_with_organization(organization=self.organization)
 
         response = self.client.get(f"/api/projects/{other_team.id}/wizard/installs/{run_id}")
+        malformed = self.client.get(self._url("-" * 36))
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(malformed.status_code, status.HTTP_404_NOT_FOUND)

@@ -1,5 +1,7 @@
 import logging
 
+from django.core.cache import cache
+
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 
@@ -33,6 +35,12 @@ def authorize_git_repository_access(team_id: int, repository: str, *, refresh_ca
 
 
 def _refresh_repository_cache(team_id: int, integration_id: int) -> bool:
+    # A sync pages through every repository of the installation. One reservation per interval stops concurrent
+    # misses, and repeated failures, from each starting their own sync.
+    reservation_key = f"wizard:repository-cache-refresh:{integration_id}"
+    if not cache.add(reservation_key, 1, timeout=REPOSITORY_CACHE_MIN_REFRESH_INTERVAL_SECONDS):
+        return False
+
     integration = Integration.objects.filter(team_id=team_id, id=integration_id, kind="github").first()
     if integration is None:
         return False

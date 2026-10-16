@@ -127,7 +127,7 @@ class WizardInstallViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         self._require_install_available(cast(User, request.user))
         try:
             install_status = wizard_facade.get_install_status(self.team_id, UUID(cast(str, self.kwargs["run_id"])))
-        except WizardRunNotFoundError:
+        except (ValueError, WizardRunNotFoundError):
             raise NotFound("No setup run was found for this project.")
         return Response(WizardInstallStatusSerializer(install_status).data)
 
