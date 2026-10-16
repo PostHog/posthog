@@ -116,9 +116,6 @@ def _conclusion(status: str) -> str:
 def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
     # Depot reports no branch, so a PR run takes its head branch from the PR snapshot, and branch
     # filters then match it like a GitHub run of the same PR.
-    # Depot reports no actor either, so the run takes the PR's author. A merge-queue gate run's PR is
-    # the gate PR the queue bot opened, so its author is the identity `logic.merge_queue` requires
-    # before it re-keys the run to the PR being landed.
     pr_number = "ifNull(toInt(extract(a.ref, '^refs/pull/([0-9]+)/')), 0)"
     if pull_requests_table:
         head_branch = "nullIf(pr.head_branch, '')"
