@@ -2,6 +2,7 @@ import { asRecord } from '@/lib/records'
 import type { InsightValueFormat } from '@/model/views'
 
 import { asTrendsInsight, chartFormat, formatMetricValue } from './metric'
+import { sqlValuePresentation } from './sqlVisualization'
 
 function precision(value: unknown): number | undefined {
     return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100 ? value : undefined
@@ -11,28 +12,17 @@ function text(value: unknown): string {
     return typeof value === 'string' ? value : ''
 }
 
-export function insightValueFormat(query: unknown, columns?: string[] | null): InsightValueFormat {
+/** `columns` and `types` are a SQL response's own; a SQL format depends on which result column is the first y. */
+export function insightValueFormat(query: unknown, columns?: unknown, types?: unknown): InsightValueFormat {
     const node = asRecord(query)
     const source = asRecord(node?.source) ?? node
     const format = chartFormat(asTrendsInsight(query))
     if (source?.kind === 'HogQLQuery') {
-        // SQL big numbers use the first result column's table settings, as HogQLBoldNumber does on the web.
-        const settings = asRecord(node?.tableSettings)?.columns
-        const column = Array.isArray(settings)
-            ? (settings.find((entry) => asRecord(entry)?.column === columns?.[0]) ??
-              (!columns?.length && settings.length === 1 ? settings[0] : undefined))
-            : undefined
-        const formatting = asRecord(asRecord(asRecord(column)?.settings)?.formatting)
+        const presentation = sqlValuePresentation(query, columns, types)
         return {
             ...format,
-            ...(formatting?.style === 'percent' ? { valueFormat: 'percentage' as const } : {}),
-            presentation: {
-                kind: 'sql',
-                style: typeof formatting?.style === 'string' ? formatting.style : null,
-                prefix: text(formatting?.prefix),
-                suffix: text(formatting?.suffix),
-                decimalPlaces: precision(formatting?.decimalPlaces),
-            },
+            ...(presentation.style === 'percent' ? { valueFormat: 'percentage' as const } : {}),
+            presentation,
         }
     }
     if (source?.kind !== 'TrendsQuery') {
@@ -118,19 +108,20 @@ export function formatInsightValue(value: number, format: InsightValueFormat): s
     const { kind, style, prefix, suffix, decimalPlaces, minDecimalPlaces } = presentation
     let formatted: string
     if (kind === 'sql') {
+        const scaled = value * (presentation.scale ?? 1)
         switch (style) {
             case 'number':
             case 'percent':
-                formatted = number(value, decimalPlaces ?? 3, decimalPlaces ?? 0)
+                formatted = number(scaled, decimalPlaces ?? 3, decimalPlaces ?? 0)
                 if (style === 'percent') {
                     formatted += '%'
                 }
                 break
             case 'short':
-                formatted = shortNumber(value)
+                formatted = shortNumber(scaled)
                 break
             default:
-                formatted = decimalPlaces === undefined ? String(value) : value.toFixed(decimalPlaces)
+                formatted = decimalPlaces === undefined ? String(scaled) : scaled.toFixed(decimalPlaces)
         }
     } else {
         const scaled = style === 'percentage_scaled' ? value * 100 : value

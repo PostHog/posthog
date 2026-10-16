@@ -3,6 +3,7 @@ import { pointActorsInput } from '@/features/views/pointSheet/pointActorsInput'
 import {
     insightDisplay,
     insightRenderState,
+    noDataText,
     snapshotChartSeries,
     snapshotFormatter,
 } from '@/features/views/snapshotChart'
@@ -54,10 +55,29 @@ const FUNNEL = viz({ kind: 'FunnelsQuery', series: [] })
 const RETENTION = viz({ kind: 'RetentionQuery', retentionFilter: { period: 'Week' } })
 const COHORT_ROW = { date: '2026-10-05T00:00:00Z', values: [{ count: 10 }] }
 
+function sqlInsight(extra: Record<string, unknown>, types: [string, string][], result: unknown): Partial<InsightApi> {
+    return {
+        query: { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'select 1' }, ...extra },
+        columns: types.map(([name]) => name),
+        types,
+        hasMore: false,
+        result,
+    }
+}
+
+const SQL_DAILY: [string, string][] = [
+    ['day', 'Date'],
+    ['signups', 'UInt64'],
+]
+const SQL_PLANS: [string, string][] = [
+    ['plan', 'String'],
+    ['mrr', 'Float64'],
+]
+
 describe('insightSnapshot', () => {
     test.each<[string, Record<string, unknown>, number, string]>([
         ['prefix and suffix', { prefix: '£', suffix: 'M', decimalPlaces: 2 }, 42.7, '£42.70M'],
-        ['percent', { style: 'percent', decimalPlaces: 2 }, 12.375, '12.38%'],
+        ['percent', { style: 'percent', decimalPlaces: 2 }, 0.12375, '12.38%'],
         ['grouped number', { style: 'number', decimalPlaces: 2 }, 12345.6, '12,345.60'],
         ['short number', { style: 'short', prefix: '$' }, 2345678, '$2.35\u00a0M'],
         ['raw number', { style: 'none' }, 12345.6789, '12345.6789'],
@@ -312,6 +332,134 @@ describe('insightSnapshot', () => {
         const snapshot = insightSnapshot(insight({ query, result }), undefined, CONTEXT)
 
         expect([insightDisplay(snapshot), insightRenderState(snapshot)]).toEqual([display, state])
+    })
+
+    test('reads a SQL line chart into series, an interval, a format and its table', () => {
+        const yAxis = [{ column: 'signups', settings: { formatting: { style: 'number', suffix: ' accounts' } } }]
+        const response = sqlInsight({ display: 'ActionsBar', chartSettings: { yAxis } }, SQL_DAILY, [
+            ['2026-10-12', 5],
+            ['2026-10-13', 7],
+        ])
+
+        const snapshot = insightSnapshot(insight(response), undefined, CONTEXT)
+
+        expect(snapshot).toMatchObject({
+            kindLabel: 'Bar',
+            chartKind: 'bar',
+            interval: 'day',
+            series: {
+                interval: 'day',
+                points: [
+                    { at: '2026-10-12', value: 5 },
+                    { at: '2026-10-13', value: 7 },
+                ],
+            },
+            allSeries: [{ label: 'signups', compare: null }],
+            inProgressFrom: null,
+            ranking: null,
+            capabilities: { number: false, chart: true, people: false },
+            sqlTable: { columns: [{ name: 'day', isDate: true }, { name: 'signups' }], hasMore: false },
+        })
+        expect(snapshotFormatter(snapshot)(1234)).toBe('1,234 accounts')
+    })
+
+    test.each<[string, Partial<InsightApi>, string]>([
+        ['with a range', {}, 'No rows for this range'],
+        ['without a range', { resolved_date_range: null }, 'No rows'],
+    ])('names rows when a SQL result is empty, %s', (_name, extra, expected) => {
+        const empty = { ...sqlInsight({ display: 'ActionsTable' }, SQL_PLANS, []), ...extra }
+
+        expect(noDataText(insightSnapshot(insight(empty), undefined, CONTEXT))).toBe(expected)
+    })
+
+    test('gives a SQL table no big number, even when its first cell is a number', () => {
+        const types: [string, string][] = [
+            ['views', 'UInt64'],
+            ['page', 'String'],
+        ]
+
+        const snapshot = insightSnapshot(
+            insight(sqlInsight({ display: 'ActionsTable' }, types, [[12, '/']])),
+            undefined,
+            CONTEXT
+        )
+
+        expect([snapshot.value, snapshot.capabilities.number]).toEqual([null, false])
+    })
+
+    test('formats a SQL chart without saved y axes with its first y column, not the x column', () => {
+        const tableSettings = {
+            columns: [
+                { column: 'day', settings: { formatting: { prefix: 'wrong ' } } },
+                { column: 'signups', settings: { formatting: { suffix: ' accounts' } } },
+            ],
+        }
+        const response = sqlInsight({ display: 'ActionsLineGraph', tableSettings }, SQL_DAILY, [
+            ['2026-10-12', 5],
+            ['2026-10-13', 7],
+        ])
+
+        const snapshot = insightSnapshot(insight(response), undefined, CONTEXT)
+
+        expect(snapshotFormatter(snapshot)(1234)).toBe('1234 accounts')
+    })
+
+    test('keeps the last SQL table and marks the failure when a read fails', () => {
+        const table = sqlInsight({ display: 'ActionsTable' }, SQL_PLANS, [['Teams', 9]])
+        const good = insightSnapshot(insight(table), undefined, CONTEXT)
+
+        const after = insightSnapshot(insight({ ...table, result: [], query_status: { error: true } }), good, {
+            ...CONTEXT,
+            readAt: 2000,
+        })
+
+        expect([after.sqlTable?.rows, after.refreshFailed, insightDisplay(after), insightRenderState(after)]).toEqual([
+            [['Teams', 9]],
+            true,
+            'table',
+            'ready',
+        ])
+    })
+
+    // A SQL display can change once the result is known: Auto resolves on the columns, and a chart needs date x values.
+    test.each<[string, Partial<InsightApi>, string, string, string]>([
+        ['a table without a cache', sqlInsight({ display: 'ActionsTable' }, [], null), 'table', 'pending', 'Table'],
+        ['Auto without a cache', sqlInsight({ display: 'Auto' }, [], null), 'table', 'pending', 'SQL'],
+        ['no display without a cache', sqlInsight({}, [], null), 'table', 'pending', 'Table'],
+        ['a table with no rows', sqlInsight({ display: 'ActionsTable' }, SQL_PLANS, []), 'table', 'empty', 'Table'],
+        [
+            'Auto over dates',
+            sqlInsight({ display: 'Auto' }, SQL_DAILY, [
+                ['2026-10-12', 5],
+                ['2026-10-13', 7],
+            ]),
+            'chart',
+            'ready',
+            'Line',
+        ],
+        [
+            'Auto over one number',
+            sqlInsight({ display: 'Auto' }, [['count()', 'UInt64']], [[312]]),
+            'number',
+            'ready',
+            'Big number',
+        ],
+        [
+            'a bar chart over plans',
+            sqlInsight({ display: 'ActionsBar' }, SQL_PLANS, [['Teams', 9]]),
+            'bars',
+            'ready',
+            'Bar',
+        ],
+        ['a heatmap', sqlInsight({ display: 'CalendarHeatmap' }, SQL_DAILY, null), 'web', 'ready', 'SQL'],
+    ])('shows SQL %s with the display, state and label it draws', (_name, response, display, state, label) => {
+        const snapshot = insightSnapshot(insight(response), undefined, CONTEXT)
+
+        expect([insightDisplay(snapshot), insightRenderState(snapshot), snapshot.kindLabel]).toEqual([
+            display,
+            state,
+            label,
+        ])
     })
 
     test.each<[string, Record<string, unknown> | null, unknown, boolean]>([

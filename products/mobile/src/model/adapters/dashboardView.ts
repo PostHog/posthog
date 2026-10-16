@@ -2,7 +2,15 @@ import type { DashboardApi, DashboardTileApi } from '@/api/dashboards'
 import { asRecord } from '@/lib/records'
 
 import type { DashboardTileView, DashboardView, SavedRange } from '../views'
-import { capabilitiesOf, ignoresRangeOverride, kindLabelOf, tileShapeOf, usesOwnRange } from './insightSnapshot'
+import {
+    capabilitiesOf,
+    hasGoodResult,
+    ignoresRangeOverride,
+    kindLabelOf,
+    tileShapeOf,
+    usesOwnRange,
+} from './insightSnapshot'
+import { sqlTableView } from './sqlVisualization'
 
 type Layout = { x?: number; y?: number } | undefined
 
@@ -55,6 +63,7 @@ function tileView(tile: DashboardTileApi): DashboardTileView {
             hasBreakdown: false,
         }
     }
+    const sqlTable = hasGoodResult(insight) ? sqlTableView(insight.query, insight) : null
     return {
         tileId: tile.id,
         kind: 'insight',
@@ -64,8 +73,8 @@ function tileView(tile: DashboardTileApi): DashboardTileView {
         text: null,
         usesOwnRange: usesOwnRange(tile.filters_overrides, insight.query),
         ignoresRangeOverride: ignoresRangeOverride(insight.query),
-        capabilities: capabilitiesOf(insight.query, insight.result),
-        kindLabel: kindLabelOf(insight.query),
+        capabilities: capabilitiesOf(insight.query, insight.result, sqlTable),
+        kindLabel: kindLabelOf(insight.query, sqlTable),
         ...tileShapeOf(insight.query),
     }
 }

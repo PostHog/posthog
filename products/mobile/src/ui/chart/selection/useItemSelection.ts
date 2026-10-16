@@ -9,7 +9,7 @@ import { type ChartDismissReason, useChartSelectionScope } from './ChartSelectio
 import type { SelectMethod } from './useChartSelection'
 
 /** The charts drawn as rows, for the `chart_kind` of the `mobile_chart_*` events. */
-export type ItemChartKind = 'funnel' | 'retention' | 'bar_list'
+export type ItemChartKind = 'funnel' | 'retention' | 'bar_list' | 'table'
 
 export interface ItemSelection {
     /** -1 when nothing is selected. */

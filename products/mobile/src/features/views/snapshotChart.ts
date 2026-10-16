@@ -2,9 +2,10 @@ import { parseBucketStart } from '@/lib/dates'
 import { breakdownLabel, isRankingQuery } from '@/model/adapters/breakdown'
 import { isDrawableFunnel } from '@/model/adapters/funnel'
 import { formatInsightValue } from '@/model/adapters/insightFormatting'
-import { capabilitiesOf, kindLabelOf } from '@/model/adapters/insightSnapshot'
+import { capabilitiesOf, kindLabelOf, queryKindOf } from '@/model/adapters/insightSnapshot'
 import { asTrendsInsight, timeSeriesChartKind } from '@/model/adapters/metric'
 import { isDrawableRetention } from '@/model/adapters/retention'
+import { sqlQueryDisplay, sqlResultDisplay } from '@/model/adapters/sqlVisualization'
 import type { MetricInterval } from '@/model/types'
 import type { InsightSeriesView, InsightSnapshot, NumberDelta, ResolvedRange } from '@/model/views'
 import { formatAxisDate } from '@/ui/chart/chartMath'
@@ -16,17 +17,20 @@ import { formatRangeSpan } from './rangePresets'
 
 /**
  * How a tile or a screen shows an insight: a big number, a line or bar chart, funnel steps, a retention grid, ranked
- * bars, or a card that opens it on the web.
+ * bars, the rows of a SQL result, or a card that opens it on the web.
  */
-export type InsightDisplay = 'number' | 'chart' | 'funnel' | 'retention' | 'bars' | 'web'
+export type InsightDisplay = 'number' | 'chart' | 'funnel' | 'retention' | 'bars' | 'table' | 'web'
 
 /**
  * The display of a saved query, before any result: a tile keeps one display while it loads, and a dashboard pass
- * knows which tiles the phone cannot draw.
+ * knows which tiles the phone cannot draw. A SQL insight on Auto is a table until its result says more.
  */
 export function queryDisplay(query: unknown): InsightDisplay {
     if (kindLabelOf(query) === 'Big number' && capabilitiesOf(query).number) {
         return 'number'
+    }
+    if (queryKindOf(query) === 'HogQLQuery') {
+        return sqlQueryDisplay(query)
     }
     if (isDrawableFunnel(query)) {
         return 'funnel'
@@ -44,6 +48,10 @@ export function queryDisplay(query: unknown): InsightDisplay {
 }
 
 export function insightDisplay(snapshot: InsightSnapshot): InsightDisplay {
+    // The result settles a SQL display: Auto resolves on its columns, and a chart needs a date x axis.
+    if (snapshot.sqlTable) {
+        return sqlResultDisplay(snapshot.query, snapshot.sqlTable)
+    }
     const display = queryDisplay(snapshot.query)
     // The adapters return null for a result they cannot draw, such as retention rows with breakdown values. That is
     // a kind for the web, not an empty range.
@@ -71,13 +79,15 @@ export function insightRenderState(snapshot: InsightSnapshot): InsightRenderStat
         funnel: !snapshot.funnel?.steps.length,
         retention: !snapshot.retention?.cohorts.length,
         bars: !snapshot.ranking?.rows.length,
+        table: !snapshot.sqlTable?.rows.length,
     }[display]
     return empty ? 'empty' : 'ready'
 }
 
-/** The line in a chart's place when its result has nothing to draw. */
-export function noDataText(snapshot: Pick<InsightSnapshot, 'resolvedRange'>): string {
-    return snapshot.resolvedRange ? 'No data for this range' : 'No data'
+/** The line in a chart's place when its result has nothing to draw. A SQL result names its rows. */
+export function noDataText(snapshot: Pick<InsightSnapshot, 'resolvedRange' | 'sqlTable'>): string {
+    const noun = snapshot.sqlTable ? 'rows' : 'data'
+    return snapshot.resolvedRange ? `No ${noun} for this range` : `No ${noun}`
 }
 
 export function snapshotFormatter(snapshot: Pick<InsightSnapshot, 'format'>): (value: number) => string {

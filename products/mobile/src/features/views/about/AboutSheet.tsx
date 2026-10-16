@@ -205,6 +205,9 @@ function Measures({ content }: { content: AboutContent }): ReactElement {
                     {content.sql}
                 </Text>
             ) : null}
+            {content.sqlResult ? (
+                <KeyValues rows={[{ label: 'Result', values: [content.sqlResult], mono: false }]} />
+            ) : null}
             {content.series.length === 0 && !content.sql ? (
                 <Text style={styles.paragraph}>Open it on the web to see how this chart is built.</Text>
             ) : null}

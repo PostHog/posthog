@@ -61,6 +61,7 @@ Compare on dashboards stays off behind `DASHBOARD_COMPARE_SUPPORTED` until US an
 
 `src/demo/views.ts` returns API-shaped answers, so demo mode runs the same adapters, queue and status line.
 Demo numbers start 42 minutes old; a forced demo read makes them current and moves the next allowed force 3 minutes ahead.
+The "SQL views" dashboard (`demo-dash-sql`) has a SQL table, a SQL line chart, a SQL bar list, a SQL big number, and a six-column table wider than a phone, so its first column pins. Its responses carry `columns`, `types` and `hasMore` like the server's.
 
 ## The Views tab
 
@@ -144,7 +145,7 @@ The dashboard, insight and web analytics screens (`app/views/dashboard/[id].tsx`
 
 | Screen | Content |
 | --- | --- |
-| Dashboard | Tiles in one column (`FlatList`, `ChartCanvasBudget` keyed by tile id). The first time the dashboard shows, it sends `mobile_dashboard_tiles_shown` (`tiles_total`, `tiles_text`, `tiles_web_only`). A tile is a number, a line or bar chart, funnel steps, a retention grid, a bar list, a card that opens on the web, or a text card. Tiles that the phone draws have a full-screen button in their head (`view-tile-fullscreen-{tileId}`). Tiles with their own date range say "Uses its own range" and keep their numbers when the range changes. |
+| Dashboard | Tiles in one column (`FlatList`, `ChartCanvasBudget` keyed by tile id). The first time the dashboard shows, it sends `mobile_dashboard_tiles_shown` (`tiles_total`, `tiles_text`, `tiles_web_only`). A tile is a number, a line or bar chart, funnel steps, a retention grid, a bar list, a SQL table, a card that opens on the web, or a text card. Tiles that the phone draws have a full-screen button in their head (`view-tile-fullscreen-{tileId}`). Tiles with their own date range say "Uses its own range" and keep their numbers when the range changes. |
 | Insight | The big number with its change pill, then the visual (`InsightVisual`) under a caption row with the full-screen button (`view-fullscreen`), ⓘ for "About this chart" (`view-about`). |
 | Web analytics | The overview numbers in two columns, each with its change from the previous period. It always compares, as the web's overview tile does. |
 
@@ -171,7 +172,7 @@ Number and Chart pins in the list keep the saved range. Ranges last for the sess
 
 ## Charts beyond line and bar
 
-`insightDisplay(snapshot)` returns `number`, `chart`, `funnel`, `retention`, `bars` or `web`. It takes the display from the saved query (`queryDisplay`), with the same rules the adapters use (`isDrawableFunnel`, `isDrawableRetention`, `isRankingQuery`, `timeSeriesChartKind`). `InsightVisual` (`src/features/views/InsightVisual.tsx`) renders every display except a big number, in tiles and on the insight screen.
+`insightDisplay(snapshot)` returns `number`, `chart`, `funnel`, `retention`, `bars`, `table` or `web`. It takes the display from the saved query (`queryDisplay`), with the same rules the adapters use (`isDrawableFunnel`, `isDrawableRetention`, `isRankingQuery`, `timeSeriesChartKind`, `sqlQueryDisplay`). A SQL result can change the display; see [SQL insights](#sql-insights). `InsightVisual` (`src/features/views/InsightVisual.tsx`) renders every display except a big number, in tiles and on the insight screen.
 
 | Display | When | Renderer |
 | --- | --- | --- |
@@ -180,25 +181,56 @@ Number and Chart pins in the list keep the saved range. Ranges last for the sess
 | `funnel` | `FunnelsQuery` in the steps layout. A breakdown adds its values step by step and says so under the steps | `FunnelSteps` |
 | `retention` | `RetentionQuery` that counts people, without a breakdown | `RetentionGrid` |
 | `bars` | Trends value bars, tables, pies, donuts and proportion bars | `BarList` |
+| `table` | SQL tables, SQL insights without a saved display, and SQL insights on Auto until the result arrives | `SqlTable` |
 | `web` | Everything else, and a funnel or retention result that its adapter cannot draw | `OpensOnWeb` |
 
 - `FunnelSteps`, `RetentionGrid` and `BarList` live in `src/ui/chart/` and draw React Native rows, not a Skia canvas. Their data comes from `src/model/adapters/funnel.ts`, `retention.ts` and `breakdown.ts` through `InsightSnapshot.funnel`, `.retention` and `.ranking`.
-- Pins keep one series: `capabilities.chart` still means one series without a breakdown, and `pinChartSeries` draws the first current series only.
-- Numbers keep the insight's saved units, prefixes, suffixes, number style and decimal precision across dashboard tiles, pins, insight screens and chart labels. SQL big numbers use the first result column's table formatting; trends use the aggregation axis settings.
+- Pins keep one series: `pinChartSeries` draws the first current series only. For trends, `capabilities.chart` means one series without a breakdown. A SQL chart over time is chart-capable with any number of y columns, and its pin draws the first one.
+- Numbers keep the insight's saved units, prefixes, suffixes, number style and decimal precision across dashboard tiles, pins, insight screens and chart labels. `src/model/adapters/insightFormatting.ts` reads the settings (`insightValueFormat`) and formats every value (`formatInsightValue`). SQL big numbers use the first result column's table formatting, SQL charts and bar lists the first y column's formatting, and trends the aggregation axis settings.
 - A breakdown insight has no big number, because no one value stands for it. A trends insight with a breakdown, or a ranking with several values, has `capabilities.number = false`.
 - A tap on a funnel step, bar row or retention cell selects it (`useItemSelection`), under the same one-selected-chart rule as a line chart tooltip: an outside tap, a scroll away, Android back or new data clears it. A funnel step shows the median time from the previous step, a bar row its share of the total (or its rank when the values do not add up), and a retention cell a callout under the grid.
 - A tile ranks six values; "+N more" opens the bar list full screen.
 - Every chart kind is one adjustable VoiceOver element: a summary label, the selected item as its value, and a swipe up or down to move. Its actions are "About this chart" and "Open full screen".
 - These charts have no Point sheet: the API inventory has no actors query for funnels, retention or bars.
 
+### SQL insights
+
+A SQL insight is a `DataVisualizationNode` with a `HogQLQuery` source. Its response carries the rows (`result`), the column names (`columns`), a `[expression, type]` pair per column (`types`) and `hasMore`. `src/model/adapters/sqlVisualization.ts` ports the web's rules from `dataVisualizationLogic.ts`, so the phone picks the same display and axes as the web.
+
+- **Columns.** The ClickHouse type loses its `Nullable(...)` and `LowCardinality(...)` wrappers and becomes a scalar: `INTEGER`, `FLOAT`, `DECIMAL`, `BOOLEAN`, `DATE`, `DATETIME`, `STRING`, `ARRAY` or `TUPLE`. The first three are numbers.
+- **Table.** `snapshot.sqlTable` holds every SQL result, whatever its display: the columns with their formats, the rows in the server's order (objects and arrays as JSON), and `hasMore`. It is null for other kinds.
+- **Numbers.** `sqlCellNumber` reads a cell for the chart, the bar list, the big number and the table. A numeric string counts as a number, because the server's JSON writes a ClickHouse `Decimal` as a string. Other text is a gap in a chart and no row in a bar list. The table keeps an integer string past 2^53 as written when its column has no style or decimals.
+- **No display.** A query without a saved `display` is a table, as on the web (`display ?? ActionsTable`).
+- **Auto.** Only a saved `Auto` resolves from the result. With a date column, a number column and more than one row, a line chart. Else with two text columns and a number, a heatmap. Else one number column alone is a big number, any number column gives a bar chart, and anything else is a table. Before the result, Auto shows as a table.
+- **Axes.** Without saved axes, x is the first date column, else the first column that is not a number, and y is every number column. As on the web, a saved x column missing from the result, or a saved y column that is missing or not a number, drops both axes back to these defaults. The x column and the breakdown column are never a y series.
+- **Dates.** A datetime x value keeps the wall clock the server wrote: `2026-10-01T14:05:09.123456-04:00` is the bucket `2026-10-01 14:05:09` in local time, like a trends bucket and like the table shows it.
+
+| Saved display, or what Auto resolves to | Phone display | Data |
+| --- | --- | --- |
+| `ActionsTable` | `table` | `sqlTable` |
+| `ActionsLineGraph`, `ActionsLineGraphCumulative`, `ActionsAreaGraph`, `ActionsBar`, `ActionsStackedBar`, `ActionsUnstackedBar` over a date x axis | `chart` | `allSeries`, one per y column, or per y column and breakdown value |
+| `ActionsBar`, `ActionsBarValue`, `ActionsPie`, `ActionsDonut`, `ActionsProportionBar` over any other x axis, with one y column and no breakdown column | `bars` | `ranking`, one row per result row |
+| The same displays with several y columns or a breakdown column: the web draws grouped bars or a slice per column | `web` | none |
+| `BoldNumber` | `number` | `value`, the first cell of the first row. Other SQL displays have no big number. |
+| `Metric`: the web shows the latest, total or mean of the first y series by date, which the phone does not port | `web` | none |
+| Anything else, and a transposed table | `web` | none |
+
+- A chart's series share every date of the result, in date order. A date without a value is a gap, and rows with the same date and series add up. A cumulative display draws a running sum. The interval comes from the median gap between dates.
+- `ActionsBar*` displays, and a first y axis drawn as bars, draw bars. Area draws as a line and stacked bars draw side by side.
+- Bar rows keep the server's order, because the SQL orders them on purpose. The total is their sum.
+- Formatting comes from `insightFormatting.ts`, so a value reads the same in the table, the chart tooltip and the bar list. A table column takes its `tableSettings.columns` formatting, else its `chartSettings.yAxis` formatting. A chart and a bar list take the first saved y axis entry's formatting as `snapshot.format`, else the first y column's own format. As on the web, a percent column is a fraction scaled by 100 everywhere: 0.25 reads 25% in the table, on the chart and as a big number.
+- The table draws six rows on a tile and up to 500 rows (`SQL_TABLE_MAX_ROWS`) on the insight screen and full screen, because the rows are plain views, not a virtual list. Past that, the caption and the line under the rows say "First 500 of 5,000 rows". An empty result says "No rows", or "No rows for this range" when the result has a range.
+- `capabilities.number` is true for a big number, `capabilities.chart` for a chart over time with a y column and at least one date, whose first y column a pin draws. A SQL insight has no "View people".
+- `kindLabel` names the resolved display: "Table", "Line", "Bar", "Big number" or "Pie", else "SQL".
+
 ## Full screen
 
-`app/views/chart/[shortId].tsx` renders `FullScreenChart`. Open it with `useOpenFullScreen()`, which sends `mobile_chart_fullscreen_opened` (`entry`: `button`, `legend_more`, `rows_more` or `accessibility`; `display`: `chart`, `funnel`, `retention` or `bars`) and pushes `chartHref(shortId, queryKey)`.
+`app/views/chart/[shortId].tsx` renders `FullScreenChart`. Open it with `useOpenFullScreen()`, which sends `mobile_chart_fullscreen_opened` (`entry`: `button`, `legend_more`, `rows_more` or `accessibility`; `display`: `chart`, `funnel`, `retention`, `bars` or `table`) and pushes `chartHref(shortId, queryKey)`.
 
 - Entries: the tile head button, the insight screen's caption row, the legend "+N" pill, the bar list "+N more" row, and the VoiceOver action "Open full screen".
 - `key` is the JSON cache key of the snapshot that opened the screen. Full screen therefore shows the same session range, compare and tile layers as the tile or insight. While a new range loads on the insight screen, `key` names the previous range's entry, which is the one on screen (`InsightScreenState.queryKey`). Without `key`, it reads the insight's own entry.
 - It reads the cache only and never sends a request. A key without a cached snapshot (the app restarted, or a deep link to an insight not opened yet) shows "This chart isn't loaded" with "Go back" (`chart-fullscreen-missing`).
-- A line or bar chart fills the space, scrubs on a drag in any direction, shows every tooltip row, and lists every series as a 44 pt legend row that scrolls. Funnels, retention (all periods) and bar lists (all rows) show in a card.
+- A line or bar chart fills the space, scrubs on a drag in any direction, shows every tooltip row, and lists every series as a 44 pt legend row that scrolls. Funnels, retention (all periods), bar lists (all rows) and SQL tables (up to 500 rows) show in a card.
 - Charts on this screen send the usual chart events with `context: fullscreen`.
 - Portrait only: the app has no `expo-screen-orientation`, and landscape needs that native module in a new binary. There is no "Zoom to range" or "Show as table" yet.
 
@@ -207,7 +239,8 @@ Number and Chart pins in the list keep the saved range. Ranges last for the sess
 These show the "This chart opens on the web." card, on tiles and on the insight screen. The phone never computes them once it knows the kind: the item's `drawable()` is false, so open, focus, the button, pull and "Try again" send no `blocking` or `force_*` read for them, on a dashboard and on the insight screen. The button and pull still send cache-only reads (the dashboard read, or `force_cache` on the insight screen), and the tile has no refresh button. A cold open of an insight with nothing cached reads once with `blocking`, because the kind is unknown until that read.
 
 - Paths (`PathsQuery`), stickiness (`StickinessQuery`: its x axis is "Day N", not dates) and lifecycle (`LifecycleQuery`: stacked bars with negative dormant values).
-- SQL insights (`HogQLQuery`, `DataVisualizationNode`) that are not a big number. The phone has no table renderer.
+- SQL insights shown as a world map, a calendar or two-dimensional heatmap, a box plot, a slope graph or a scatter plot, and transposed SQL tables. A line chart over an x axis that is not a date, and a bar chart with a breakdown column over such an x axis, open on the web too.
+- SQL settings the phone ignores: conditional formatting, goal lines, pinned columns, a right y axis, per-breakdown colors and annotations. The table cannot sort or resize columns.
 - Trends world maps, calendar heatmaps and box plots.
 - Funnels in the trends or time-to-convert layout, and funnels broken down by cohort: one person can be in several cohorts, so a sum would count them twice.
 - Retention with a breakdown, or with a sum or average aggregation (amounts, not people).

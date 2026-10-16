@@ -23,13 +23,26 @@ export const DEMO_READ_MS = 450
 
 export const DEMO_DASHBOARD_KPIS = 'demo-dash-kpis'
 export const DEMO_DASHBOARD_GROWTH = 'demo-dash-growth'
+export const DEMO_DASHBOARD_SQL = 'demo-dash-sql'
 export const DEMO_INSIGHT_SIGNUPS = 'demo-ins-signups'
 export const DEMO_INSIGHT_DAU = 'demo-ins-dau'
 export const DEMO_INSIGHT_CHECKOUT = 'demo-ins-checkout'
 export const DEMO_INSIGHT_RETENTION = 'demo-ins-retention'
 export const DEMO_INSIGHT_BROWSERS = 'demo-ins-browsers'
+export const DEMO_INSIGHT_SQL_PAGES = 'demo-ins-sql-pages'
+export const DEMO_INSIGHT_SQL_SIGNUPS = 'demo-ins-sql-signups'
+export const DEMO_INSIGHT_SQL_REVENUE = 'demo-ins-sql-revenue'
+export const DEMO_INSIGHT_SQL_COUNTRIES = 'demo-ins-sql-countries'
 
 type JsonRecord = Record<string, unknown>
+
+type DemoSqlCell = string | number
+
+/** A SQL result: `[column, ClickHouse type]` per column, and the rows for a window. */
+interface DemoSqlResult {
+    types: [string, string][]
+    rows: (window: DemoWindow, anchor: Date) => DemoSqlCell[][]
+}
 
 interface DemoInsightDef {
     id: number
@@ -41,8 +54,8 @@ interface DemoInsightDef {
     perDay?: (daysBack: number, weekday: number) => number
     /** A big number over a window of this many days. */
     aggregate?: (windowDays: number) => number
-    /** A SQL big number, the same for every range. */
-    sqlValue?: number
+    /** A SQL insight's columns and rows. */
+    sql?: DemoSqlResult
     /** Funnel steps over 30 days, scaled to the window. `medianSeconds` is the time from the step before. */
     funnel?: { name: string; count: number; medianSeconds: number | null }[]
     /** Weekly cohorts: the size of an average cohort and the percent that comes back in each week after. */
@@ -85,6 +98,43 @@ function trendsQuery(options: {
         },
     }
 }
+
+function sqlQuery(query: string, extra: JsonRecord = {}, dateFrom?: string): JsonRecord {
+    return {
+        kind: 'DataVisualizationNode',
+        source: {
+            kind: 'HogQLQuery',
+            query,
+            ...(dateFrom ? { filters: { dateRange: { date_from: dateFrom, date_to: null } } } : {}),
+        },
+        ...extra,
+    }
+}
+
+const DEMO_SQL_PAGES: DemoSqlCell[][] = [
+    ['example.com/', 12_000, 8400],
+    ['example.com/pricing', 6400, 4100],
+    ['example.com/docs/getting-started', 5200, 3000],
+    ['example.com/blog/hello-world', 3800, 2900],
+    ['example.com/signup', 3000, 2600],
+    ['example.com/changelog', 2200, 1500],
+    ['example.com/about', 1600, 1300],
+    ['example.com/careers', 900, 700],
+]
+
+// Six columns, wider than a phone, so the table pins its first column. `conversion` is a fraction, as SQL returns it.
+const DEMO_SQL_COUNTRIES: DemoSqlCell[][] = [
+    ['United States', 4200, 1890, 0.45, 340, '2023-02-01'],
+    ['Germany', 1800, 900, 0.5, 280, '2023-03-15'],
+    ['United Kingdom', 1500, 600, 0.4, 410, '2023-02-20'],
+    ['India', 1300, 390, 0.3, 520, '2023-06-01'],
+    ['Brazil', 900, 315, 0.35, 460, '2024-01-10'],
+    ['France', 800, 360, 0.45, 300, '2023-04-05'],
+    ['Canada', 700, 280, 0.4, 350, '2023-05-12'],
+    ['Japan', 500, 250, 0.5, 600, '2024-09-30'],
+]
+
+const signupsPerDay = daily(128, 1)
 
 const DEMO_INSIGHTS: DemoInsightDef[] = [
     {
@@ -129,7 +179,7 @@ const DEMO_INSIGHTS: DemoInsightDef[] = [
             display: 'BoldNumber',
             source: { kind: 'HogQLQuery', query: "select count() from groups where properties.plan != 'free'" },
         },
-        sqlValue: 312,
+        sql: { types: [['count()', 'UInt64']], rows: () => [[312]] },
     },
     {
         id: 9106,
@@ -174,6 +224,122 @@ const DEMO_INSIGHTS: DemoInsightDef[] = [
             },
         },
         retention: { cohortSize: 430, curve: [100, 46, 34, 29, 26, 24, 23, 22] },
+    },
+    {
+        id: 9111,
+        shortId: DEMO_INSIGHT_SQL_PAGES,
+        name: 'Top pages this week',
+        description: 'The most viewed pages in the last seven days. The SQL has its own date filter.',
+        query: sqlQuery(
+            "select properties.$pathname as page, count() as views, count(distinct person_id) as visitors from events where event = '$pageview' and timestamp > now() - interval 7 day group by page order by views desc limit 8",
+            {
+                display: 'ActionsTable',
+                tableSettings: {
+                    columns: [
+                        { column: 'views', settings: { formatting: { style: 'number', decimalPlaces: 0 } } },
+                        { column: 'visitors', settings: { formatting: { style: 'number', decimalPlaces: 0 } } },
+                    ],
+                },
+            }
+        ),
+        sql: {
+            types: [
+                ['page', 'String'],
+                ['views', 'UInt64'],
+                ['visitors', 'UInt64'],
+            ],
+            rows: () => DEMO_SQL_PAGES,
+        },
+    },
+    {
+        id: 9112,
+        shortId: DEMO_INSIGHT_SQL_SIGNUPS,
+        name: 'Signups vs activations by day',
+        description: 'New accounts per day, and the ones that created a dashboard.',
+        query: sqlQuery(
+            "select toDate(timestamp) as day, countIf(event = 'user signed up') as signups, countIf(event = 'dashboard created') as activations from events where {filters} group by day order by day",
+            { display: 'ActionsLineGraph' },
+            '-14d'
+        ),
+        sql: {
+            types: [
+                ['day', 'Date'],
+                ['signups', 'UInt64'],
+                ['activations', 'UInt64'],
+            ],
+            rows: (window, anchor) => {
+                const today = startOfDay(anchor)
+                return windowDays(window).map((day) => {
+                    const daysBack = Math.round((today.getTime() - day.getTime()) / DAY)
+                    const signups = signupsPerDay(daysBack, day.getDay())
+                    return [isoDay(day), signups, Math.round(signups * (0.32 + noise(daysBack, 13) * 0.12))]
+                })
+            },
+        },
+    },
+    {
+        id: 9114,
+        shortId: DEMO_INSIGHT_SQL_COUNTRIES,
+        name: 'Signups by country',
+        description: 'Signups, activation and time to activate per country.',
+        query: sqlQuery(
+            "select properties.$geoip_country_name as country, count() as signups, countIf(person.properties.activated) as activated, activated / signups as conversion, toUInt64(median(properties.seconds_to_activate)) as median_seconds, min(toDate(timestamp)) as first_seen from events where event = 'user signed up' group by country order by signups desc limit 8",
+            {
+                display: 'ActionsTable',
+                tableSettings: {
+                    columns: [
+                        { column: 'signups', settings: { formatting: { style: 'number', decimalPlaces: 0 } } },
+                        { column: 'activated', settings: { formatting: { style: 'number', decimalPlaces: 0 } } },
+                        { column: 'conversion', settings: { formatting: { style: 'percent', decimalPlaces: 1 } } },
+                        { column: 'median_seconds', settings: { formatting: { suffix: ' s' } } },
+                    ],
+                },
+            }
+        ),
+        sql: {
+            types: [
+                ['country', 'String'],
+                ['signups', 'UInt64'],
+                ['activated', 'UInt64'],
+                ['conversion', 'Float64'],
+                ['median_seconds', 'UInt64'],
+                ['first_seen', 'Date'],
+            ],
+            rows: () => DEMO_SQL_COUNTRIES,
+        },
+    },
+    {
+        id: 9113,
+        shortId: DEMO_INSIGHT_SQL_REVENUE,
+        name: 'Revenue by plan',
+        description: 'Monthly recurring revenue per plan.',
+        query: sqlQuery(
+            'select properties.plan as plan, sum(properties.mrr) as mrr from groups group by plan order by mrr desc',
+            {
+                display: 'ActionsBarValue',
+                chartSettings: {
+                    xAxis: { column: 'plan' },
+                    yAxis: [
+                        {
+                            column: 'mrr',
+                            settings: { formatting: { prefix: '$', style: 'number', decimalPlaces: 0 } },
+                        },
+                    ],
+                },
+            }
+        ),
+        sql: {
+            types: [
+                ['plan', 'String'],
+                ['mrr', 'Float64'],
+            ],
+            rows: () => [
+                ['Enterprise', 48_000],
+                ['Scale', 24_000],
+                ['Teams', 12_000],
+                ['Starter', 3000],
+            ],
+        },
     },
     {
         id: 9110,
@@ -269,6 +435,21 @@ const DEMO_DASHBOARDS: DemoDashboardDef[] = [
             { id: 1, insight: 'demo-ins-activation' },
             { id: 2, insight: DEMO_INSIGHT_SIGNUPS },
             { id: 3, insight: DEMO_INSIGHT_CHECKOUT },
+            { id: 4, insight: DEMO_INSIGHT_SQL_PAGES },
+        ],
+    },
+    {
+        id: 9005,
+        ref: DEMO_DASHBOARD_SQL,
+        name: 'SQL views',
+        description: 'Tables and charts written in SQL.',
+        dateFrom: '-14d',
+        tiles: [
+            { id: 1, insight: DEMO_INSIGHT_SQL_PAGES },
+            { id: 2, insight: DEMO_INSIGHT_SQL_SIGNUPS },
+            { id: 3, insight: DEMO_INSIGHT_SQL_REVENUE },
+            { id: 4, insight: 'demo-ins-paying' },
+            { id: 5, insight: DEMO_INSIGHT_SQL_COUNTRIES },
         ],
     },
     {
@@ -484,8 +665,8 @@ function breakdownResult(def: DemoInsightDef, window: DemoWindow, anchor: Date):
 }
 
 function demoResult(def: DemoInsightDef, window: DemoWindow, anchor: Date, compare: boolean): unknown {
-    if (def.sqlValue !== undefined) {
-        return [[def.sqlValue]]
+    if (def.sql) {
+        return def.sql.rows(window, anchor)
     }
     if (def.funnel) {
         return funnelResult(def, window)
@@ -533,11 +714,30 @@ function sourceOf(query: JsonRecord): JsonRecord {
     return (query.source as JsonRecord | undefined) ?? query
 }
 
+function savedDateRange(query: JsonRecord): JsonRecord | undefined {
+    const source = sourceOf(query)
+    return (source.dateRange ?? (source.filters as JsonRecord | undefined)?.dateRange) as JsonRecord | undefined
+}
+
 function withRange(query: JsonRecord, dateFrom: string | null, dateTo: string | null): JsonRecord {
+    const source = sourceOf(query)
+    const dateRange = { date_from: dateFrom, date_to: dateTo }
+    // Only a SQL insight with `{filters}` takes the dashboard range; the server runs any other SQL as written.
+    if (source.kind === 'HogQLQuery' && typeof source.query === 'string' && source.query.includes('{filters}')) {
+        return { ...query, source: { ...source, filters: { ...(source.filters as JsonRecord), dateRange } } }
+    }
     if (query.kind !== 'InsightVizNode') {
         return query
     }
-    return { ...query, source: { ...sourceOf(query), dateRange: { date_from: dateFrom, date_to: dateTo } } }
+    return { ...query, source: { ...source, dateRange } }
+}
+
+/** The fields the server adds to a SQL insight's response. */
+function sqlFields(def: DemoInsightDef): Pick<InsightApi, 'columns' | 'types' | 'hasMore'> {
+    if (!def.sql) {
+        return {}
+    }
+    return { columns: def.sql.types.map(([column]) => column), types: def.sql.types, hasMore: false }
 }
 
 export interface DemoInsightRequest {
@@ -566,7 +766,7 @@ export function demoInsightResponse(request: DemoInsightRequest, anchor: number)
           ? request.override
           : dashboard?.dateFrom
             ? { date_from: dashboard.dateFrom, date_to: null }
-            : ((sourceOf(def.query).dateRange as JsonRecord | undefined) ?? {})
+            : (savedDateRange(def.query) ?? {})
     const dateFrom = typeof layer.date_from === 'string' ? layer.date_from : null
     const dateTo = typeof layer.date_to === 'string' ? layer.date_to : null
     const requested = demoWindow(dateFrom, dateTo, new Date(anchor))
@@ -580,6 +780,7 @@ export function demoInsightResponse(request: DemoInsightRequest, anchor: number)
         description: def.description,
         query: withRange(def.query, dateFrom, dateTo),
         result: demoResult(def, window, new Date(anchor), false),
+        ...sqlFields(def),
         ...demoFreshness(anchor, request.refreshedAt),
         timezone: 'UTC',
         resolved_date_range: resolvedRange(window),

@@ -10,6 +10,7 @@ import type {
     NumberDelta,
     ResolvedRange,
     SavedRange,
+    SqlTableView,
 } from '../views'
 import { displaySeriesLabel, rankingView } from './breakdown'
 import { funnelView } from './funnel'
@@ -23,6 +24,18 @@ import {
     trendsInterval,
 } from './metric'
 import { retentionView } from './retention'
+import {
+    effectiveSqlDisplay,
+    hasSqlChartSeries,
+    sqlCellNumber,
+    sqlChartKind,
+    sqlInterval,
+    sqlQueryDisplay,
+    sqlRankingView,
+    sqlResultDisplay,
+    sqlSeriesViews,
+    sqlTableView,
+} from './sqlVisualization'
 
 type JsonRecord = Record<string, unknown>
 
@@ -126,8 +139,28 @@ const TRENDS_DISPLAY_LABELS: Record<string, string> = {
     ActionsBarValue: 'Bar',
 }
 
-export function kindLabelOf(query: unknown): string {
+const SQL_DISPLAY_LABELS: Record<string, string> = {
+    BoldNumber: 'Big number',
+    ActionsTable: 'Table',
+    ActionsLineGraph: 'Line',
+    ActionsLineGraphCumulative: 'Line',
+    ActionsAreaGraph: 'Line',
+    ActionsBar: 'Bar',
+    ActionsStackedBar: 'Bar',
+    ActionsUnstackedBar: 'Bar',
+    ActionsBarValue: 'Bar',
+    ActionsProportionBar: 'Bar',
+    ActionsPie: 'Pie',
+    ActionsDonut: 'Pie',
+}
+
+/** With a SQL result, the label names the display that Auto resolves to. */
+export function kindLabelOf(query: unknown, sqlTable: SqlTableView | null = null): string {
     const kind = queryKindOf(query)
+    if (kind === 'HogQLQuery') {
+        const display = effectiveSqlDisplay(query, sqlTable)
+        return (display ? SQL_DISPLAY_LABELS[display] : undefined) ?? 'SQL'
+    }
     const display = displayOf(query)
     if (display === 'BoldNumber') {
         return 'Big number'
@@ -182,10 +215,20 @@ function trendsEntries(result: unknown): JsonRecord[] {
 
 /**
  * Number: a big number, or a trends insight with one series or one result (a formula), and no breakdown. With several
- * series or breakdown values the first one would stand for the whole insight. Chart: a drawable trends series.
+ * series or breakdown values the first one would stand for the whole insight. Chart: a drawable trends series, or a
+ * SQL chart over time, whose first y column a pin draws. Without its result, a SQL insight on Auto has neither.
  */
-export function capabilitiesOf(query: unknown, result?: unknown): InsightCapabilities {
+export function capabilitiesOf(
+    query: unknown,
+    result?: unknown,
+    sqlTable: SqlTableView | null = null
+): InsightCapabilities {
     const kind = queryKindOf(query)
+    if (kind === 'HogQLQuery') {
+        const display = sqlTable ? sqlResultDisplay(query, sqlTable) : sqlQueryDisplay(query)
+        const chart = display === 'chart' && (!sqlTable || hasSqlChartSeries(query, sqlTable))
+        return { number: display === 'number', chart, people: false }
+    }
     const display = displayOf(query)
     const chart = kind === 'TrendsQuery' && drawableChartKind(asTrendsInsight(query)) !== undefined
     let number = false
@@ -194,8 +237,6 @@ export function capabilitiesOf(query: unknown, result?: unknown): InsightCapabil
         number =
             display === 'BoldNumber' ||
             (!hasBreakdown(sourceOf(query)) && (seriesNodes(query).length === 1 || current.length === 1))
-    } else if (kind === 'HogQLQuery') {
-        number = display === 'BoldNumber'
     }
     return { number, chart, people: canShowPeople(query) }
 }
@@ -389,7 +430,7 @@ export function numberParts(
 
 function sqlNumber(result: unknown): number | null {
     const firstRow = Array.isArray(result) ? result[0] : undefined
-    return finite(Array.isArray(firstRow) ? firstRow[0] : undefined) ?? null
+    return sqlCellNumber(Array.isArray(firstRow) ? firstRow[0] : undefined) ?? null
 }
 
 function userName(user: UserBasicApi | null | undefined): string | null {
@@ -413,6 +454,8 @@ export function insightSnapshot(
     context: SnapshotContext
 ): InsightSnapshot {
     const query = response.query
+    const good = hasGoodResult(response)
+    const sqlTable = good ? sqlTableView(query, response) : (previous?.sqlTable ?? null)
     const metadata = {
         insightId: response.id,
         shortId: response.short_id,
@@ -422,12 +465,13 @@ export function insightSnapshot(
         query,
         savedRange: savedRangeOf(query),
         usesOwnRange: context.usesOwnRange ?? usesOwnRange(context.tileOverrides, query),
-        kindLabel: kindLabelOf(query),
+        kindLabel: kindLabelOf(query, sqlTable),
         // A response without an author, such as a compare read, keeps the last known one.
         createdBy: userName(response.created_by) ?? previous?.createdBy ?? null,
         createdAt: response.created_at ?? previous?.createdAt ?? null,
     }
-    if (!hasGoodResult(response)) {
+    const isSql = metadata.queryKind === 'HogQLQuery'
+    if (!good) {
         const failed = Boolean(response.query_status?.error)
         if (previous) {
             return { ...previous, ...metadata, readAt: context.readAt, refreshFailed: failed || previous.refreshFailed }
@@ -442,35 +486,38 @@ export function insightSnapshot(
             resolvedRange: null,
             timezone: response.timezone ?? null,
             interval: trendsInterval(sourceOf(query)),
-            format: insightValueFormat(query, response.columns),
+            format: insightValueFormat(query, response.columns, response.types),
             value: null,
             valueAt: null,
             previous: null,
             delta: null,
             series: null,
             allSeries: [],
-            chartKind: timeSeriesChartKind(asTrendsInsight(query)) ?? null,
+            chartKind: isSql ? sqlChartKind(query, null) : (timeSeriesChartKind(asTrendsInsight(query)) ?? null),
             funnel: null,
             retention: null,
             ranking: null,
+            sqlTable: null,
             inProgressFrom: null,
             capabilities: capabilitiesOf(query),
             computed: false,
         }
     }
-    const interval = trendsInterval(sourceOf(query))
-    const format = insightValueFormat(query, response.columns)
     const resolvedRange = resolvedRangeOf(response)
     const isTrends = metadata.queryKind === 'TrendsQuery'
     const entries = isTrends ? trendsEntries(response.result) : []
-    const allSeries = seriesViews(entries)
+    const allSeries = sqlTable ? sqlSeriesViews(query, sqlTable) : seriesViews(entries)
+    const interval = sqlTable ? sqlInterval(allSeries[0]?.points ?? []) : trendsInterval(sourceOf(query))
+    const format = insightValueFormat(query, response.columns, response.types)
     const firstCurrent = allSeries.find((series) => series.compare !== 'previous')
-    const inProgress = firstCurrent
-        ? inProgressFrom(firstCurrent.points, resolvedRange, interval, context.serverNow)
-        : null
-    const capabilities = capabilitiesOf(query, response.result)
+    // A SQL result has no resolved window to tell which bucket is still open.
+    const inProgress =
+        firstCurrent && !isSql ? inProgressFrom(firstCurrent.points, resolvedRange, interval, context.serverNow) : null
+    const capabilities = capabilitiesOf(query, response.result, sqlTable)
+    // A SQL table or chart whose first cell is a number has no big number above it.
+    const sqlValue = sqlTable && sqlResultDisplay(query, sqlTable) === 'number' ? sqlNumber(response.result) : null
     const number = !isTrends
-        ? { value: sqlNumber(response.result), valueAt: null, delta: null }
+        ? { value: isSql ? sqlValue : sqlNumber(response.result), valueAt: null, delta: null }
         : capabilities.number
           ? numberParts(query, entries, format, inProgress)
           : NO_NUMBER
@@ -493,10 +540,11 @@ export function insightSnapshot(
         delta: number.delta,
         series,
         allSeries,
-        chartKind: timeSeriesChartKind(asTrendsInsight(query)) ?? null,
+        chartKind: isSql ? sqlChartKind(query, sqlTable) : (timeSeriesChartKind(asTrendsInsight(query)) ?? null),
         funnel: funnelView(query, response.result),
         retention: retentionView(query, response.result, context.serverNow),
-        ranking: rankingView(query, response.result),
+        ranking: sqlTable ? sqlRankingView(query, sqlTable) : rankingView(query, response.result),
+        sqlTable,
         inProgressFrom: inProgress,
         capabilities,
         computed: response.is_cached === false,

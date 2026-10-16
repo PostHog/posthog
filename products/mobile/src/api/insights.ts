@@ -40,7 +40,6 @@ export interface InsightApi {
     /** The query with the dashboard and tile layers applied when the request named `from_dashboard`. */
     query: unknown
     result: unknown
-    columns?: string[] | null
     /** Also set to now on a rate-limited error response, so only a response with a result may be trusted. */
     last_refresh: string | null
     cache_target_age: string | null
@@ -49,6 +48,11 @@ export interface InsightApi {
     query_status?: QueryStatusFieldsApi | null
     timezone?: string | null
     resolved_date_range?: ResolvedDateRangeApi | null
+    /** SQL insights only: the result's column names, and `[expression, clickhouseType]` per column. */
+    columns?: string[] | null
+    types?: [string, string][] | null
+    /** SQL insights only: the server cut the result at its limit. */
+    hasMore?: boolean | null
     created_by?: UserBasicApi | null
     created_at?: string | null
     last_modified_at?: string | null

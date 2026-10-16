@@ -168,8 +168,27 @@ export interface RankedValueView {
     value: number
 }
 
+export interface SqlColumnView {
+    name: string
+    /** The ClickHouse type reduced to the web's scalar names: INTEGER, FLOAT, DECIMAL, STRING, DATE, DATETIME, BOOLEAN or other. */
+    scalar: string
+    isNumerical: boolean
+    isDate: boolean
+    /** From `tableSettings.columns[].settings.formatting`, else from the matching `chartSettings.yAxis` entry. */
+    format: InsightPresentation | null
+}
+
+export type SqlCell = string | number | boolean | null
+
+export interface SqlTableView {
+    columns: SqlColumnView[]
+    rows: SqlCell[][]
+    /** The server cut the result at its limit, so `rows` is a prefix. */
+    hasMore: boolean
+}
+
 export interface RankingView {
-    /** Highest first. */
+    /** Highest first. SQL rows keep the server's order, which the author chose. */
     rows: RankedValueView[]
     /** The sum of the rows, or null when the math counts distinct people, whom several rows can share. */
     total: number | null
@@ -182,15 +201,20 @@ export interface InsightCapabilities {
     people: boolean
 }
 
+/** A saved insight's own number settings: a SQL column's `formatting`, or a trends insight's aggregation axis. */
+export interface InsightPresentation {
+    kind: 'sql' | 'trends'
+    style: string | null
+    prefix: string
+    suffix: string
+    decimalPlaces?: number
+    minDecimalPlaces?: number
+    /** Multiplies the value before it is formatted. The web's SQL table shows a percent column's fractions as percents. */
+    scale?: number
+}
+
 export interface InsightValueFormat extends MetricFormat {
-    presentation?: {
-        kind: 'sql' | 'trends'
-        style: string | null
-        prefix: string
-        suffix: string
-        decimalPlaces?: number
-        minDecimalPlaces?: number
-    }
+    presentation?: InsightPresentation
 }
 
 /** One read of an insight, as the list and the view screens see it. */
@@ -224,6 +248,8 @@ export interface InsightSnapshot extends Freshness {
     retention: RetentionView | null
     /** Totals per breakdown value or series, for value bars, tables and pies. */
     ranking: RankingView | null
+    /** The result of a SQL insight (`HogQLQuery`), whatever its display. Null for other kinds. */
+    sqlTable: SqlTableView | null
     /** Start of the bucket that contains now. It is never complete. */
     inProgressFrom: string | null
     /** On a dashboard: the tile ignores the dashboard range. */

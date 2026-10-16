@@ -1,8 +1,10 @@
 import { asRecord, isRecord } from '@/lib/records'
+import { plural } from '@/model/adapters/text'
 import type { MetricInterval } from '@/model/types'
 import type { InsightSnapshot } from '@/model/views'
 import { formatClockTime } from '@/ui/chart/chartMath'
 import { seriesColor } from '@/ui/chart/palette'
+import { sqlRowsText } from '@/ui/chart/sqlCellFormat'
 import { rangeLabel } from '../rangePresets'
 import { intervalLabel, previousRangeText, resolvedRangeText } from '../snapshotChart'
 
@@ -31,6 +33,8 @@ export interface AboutContent {
     series: AboutSeries[]
     formula: string | null
     sql: string | null
+    /** A SQL insight's result size, such as "First 100 rows, 3 columns". */
+    sqlResult: string | null
     breakdown: string
     filters: string[]
     testAccounts: string
@@ -248,6 +252,9 @@ export function aboutContent(snapshot: InsightSnapshot, now: number): AboutConte
         })),
         formula: formulaOf(source),
         sql: kind === 'HogQLQuery' ? text(source.query) : null,
+        sqlResult: snapshot.sqlTable
+            ? `${sqlRowsText(snapshot.sqlTable)}, ${plural(snapshot.sqlTable.columns.length, 'column')}`
+            : null,
         breakdown: breakdownOf(source),
         filters: flattenFilters(source.properties).map(filterLabel),
         testAccounts: source.filterTestAccounts === true ? 'Filtered out' : 'Included',

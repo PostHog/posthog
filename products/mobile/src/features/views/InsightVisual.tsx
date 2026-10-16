@@ -5,6 +5,8 @@ import type { InsightSnapshot } from '@/model/views'
 import { BarList } from '@/ui/chart/BarList'
 import { FunnelSteps, funnelSummary } from '@/ui/chart/FunnelSteps'
 import { RetentionGrid } from '@/ui/chart/RetentionGrid'
+import { SqlTable } from '@/ui/chart/SqlTable'
+import { SQL_TABLE_MAX_ROWS, sqlRowsText } from '@/ui/chart/sqlCellFormat'
 import type { ChartAccessibilityAction, ChartCanvasSlot } from '@/ui/chart/types'
 import { ExpandIcon } from '@/ui/icons/ExpandIcon'
 import { Pressable44 } from '@/ui/Pressable44'
@@ -26,14 +28,20 @@ import {
     snapshotFormatter,
 } from './snapshotChart'
 
-/** A tile ranks this many values, then "+N more" opens the chart full screen. */
-const TILE_BAR_ROWS = 6
+/** A tile shows this many ranked values or table rows, then "+N more" opens the chart full screen. */
+const TILE_ROWS = 6
 
 const PERIOD_ADJECTIVES = { hour: 'Hourly', day: 'Daily', week: 'Weekly', month: 'Monthly' } as const
 
 /** True for the displays that open full screen: everything the phone draws, except a big number. */
 export function hasFullScreen(display: InsightDisplay): boolean {
-    return display === 'chart' || display === 'funnel' || display === 'retention' || display === 'bars'
+    return (
+        display === 'chart' ||
+        display === 'funnel' ||
+        display === 'retention' ||
+        display === 'bars' ||
+        display === 'table'
+    )
 }
 
 /** "Weekly cohorts" for a retention insight. */
@@ -42,7 +50,7 @@ export function retentionCaption(snapshot: InsightSnapshot): string | null {
 }
 
 interface InsightNoDataProps {
-    snapshot: Pick<InsightSnapshot, 'resolvedRange'>
+    snapshot: Pick<InsightSnapshot, 'resolvedRange' | 'sqlTable'>
     /** The height of the chart this line stands in for, so the layout does not jump when data arrives. */
     minHeight?: number
     testID: string
@@ -67,7 +75,15 @@ function screenCaption(snapshot: InsightSnapshot, display: InsightDisplay): stri
         case 'retention':
             return retentionCaption(snapshot)
         case 'bars':
-            return snapshot.ranking ? `${snapshot.ranking.rows.length} values, highest first` : null
+            if (!snapshot.ranking) {
+                return null
+            }
+            // SQL rows keep the server's order; trends rankings sort highest first.
+            return snapshot.sqlTable
+                ? `${snapshot.ranking.rows.length} values`
+                : `${snapshot.ranking.rows.length} values, highest first`
+        case 'table':
+            return snapshot.sqlTable ? sqlRowsText(snapshot.sqlTable, SQL_TABLE_MAX_ROWS) : null
         default:
             return null
     }
@@ -92,9 +108,9 @@ interface InsightVisualProps {
 }
 
 /**
- * An insight's body when it is not a big number: a line or bar chart, funnel steps, a retention grid, ranked bars, or
- * the card that opens it on the web. Before its result arrives it shows a placeholder, and a result with nothing to
- * draw shows "No data".
+ * An insight's body when it is not a big number: a line or bar chart, funnel steps, a retention grid, ranked bars, a
+ * SQL table, or the card that opens it on the web. Before its result arrives it shows a placeholder, and a result
+ * with nothing to draw shows "No data".
  */
 export function InsightVisual({
     snapshot,
@@ -181,7 +197,20 @@ export function InsightVisual({
                         ranking={snapshot.ranking}
                         label={snapshot.name}
                         formatValue={formatValue}
-                        maxRows={place === 'tile' ? TILE_BAR_ROWS : undefined}
+                        maxRows={place === 'tile' ? TILE_ROWS : undefined}
+                        onPressMore={() => open('rows_more')}
+                        selectionId={selectionId}
+                        trackingContext="view"
+                        accessibilityActions={actions}
+                        testID={testID}
+                    />
+                ) : null
+            case 'table':
+                return snapshot.sqlTable ? (
+                    <SqlTable
+                        table={snapshot.sqlTable}
+                        label={snapshot.name}
+                        maxRows={place === 'tile' ? TILE_ROWS : undefined}
                         onPressMore={() => open('rows_more')}
                         selectionId={selectionId}
                         trackingContext="view"

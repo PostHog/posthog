@@ -10,7 +10,9 @@ import { ChartLegend, useChartLegend } from '@/ui/chart/ChartLegend'
 import { FunnelSteps } from '@/ui/chart/FunnelSteps'
 import { MetricChart } from '@/ui/chart/MetricChart'
 import { RetentionGrid } from '@/ui/chart/RetentionGrid'
+import { SqlTable } from '@/ui/chart/SqlTable'
 import { useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
+import { SQL_TABLE_MAX_ROWS, sqlRowsText } from '@/ui/chart/sqlCellFormat'
 import type { ChartAccessibilityAction } from '@/ui/chart/types'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { FadeEdge } from '@/ui/FadeEdge'
@@ -26,6 +28,7 @@ import type { ChartSheetSource } from '../pointSheet/chartSheetSource'
 import { VIEW_CONTENT_TOP } from '../screen/ViewChrome'
 import { useViewBack, ViewScreenFrame } from '../screen/ViewScreenFrame'
 import {
+    type InsightDisplay,
     insightDisplay,
     insightRenderState,
     intervalLabel,
@@ -53,8 +56,9 @@ interface FullScreenChartProps {
 }
 
 /**
- * One chart on the whole screen: the line or bar chart with every legend row, or the funnel, retention grid or bar
- * list in full. It shows the snapshot the previous screen showed and follows its cache entry; it sends no request.
+ * One chart on the whole screen: the line or bar chart with every legend row, or the funnel, retention grid, bar
+ * list or SQL table in full. It shows the snapshot the previous screen showed and follows its cache entry; it sends
+ * no request.
  */
 export function FullScreenChart({ shortId, queryKey }: FullScreenChartProps): ReactElement {
     const back = useViewBack()
@@ -116,9 +120,7 @@ function FullScreenBody({ snapshot, queryKey }: { snapshot: InsightSnapshot; que
             <Text style={styles.title} numberOfLines={2}>
                 {snapshot.name}
             </Text>
-            <Text style={styles.meta}>
-                {[display === 'chart' ? intervalLabel(snapshot.interval) : null, rangeText].filter(Boolean).join(' · ')}
-            </Text>
+            <Text style={styles.meta}>{[metaLead(snapshot, display), rangeText].filter(Boolean).join(' · ')}</Text>
         </View>
     )
 
@@ -170,6 +172,17 @@ function FullScreenBody({ snapshot, queryKey }: { snapshot: InsightSnapshot; que
                 testID="chart-fullscreen-bars"
             />
         )
+    } else if (display === 'table' && snapshot.sqlTable) {
+        body = (
+            <SqlTable
+                table={snapshot.sqlTable}
+                label={snapshot.name}
+                selectionId={SELECTION_ID}
+                trackingContext="fullscreen"
+                accessibilityActions={actions}
+                testID="chart-fullscreen-table"
+            />
+        )
     } else if (display === 'number' && snapshot.value !== null) {
         body = <Text style={styles.number}>{snapshotFormatter(snapshot)(snapshot.value)}</Text>
     } else {
@@ -186,6 +199,13 @@ function FullScreenBody({ snapshot, queryKey }: { snapshot: InsightSnapshot; que
             <View style={styles.card}>{body}</View>
         </ScrollView>
     )
+}
+
+function metaLead(snapshot: InsightSnapshot, display: InsightDisplay): string | null {
+    if (display === 'chart') {
+        return intervalLabel(snapshot.interval)
+    }
+    return display === 'table' && snapshot.sqlTable ? sqlRowsText(snapshot.sqlTable, SQL_TABLE_MAX_ROWS) : null
 }
 
 interface TimeSeriesProps {
