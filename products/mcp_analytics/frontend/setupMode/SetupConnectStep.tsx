@@ -1,6 +1,6 @@
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as wizardPng from '@posthog/brand/hoggies/png/wizard-1'
-import { IconCopy } from '@posthog/icons'
+import { IconCopy, IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -10,13 +10,19 @@ import { StepIcon } from 'scenes/onboarding/shared/wizard-sync/StepIcon'
 import { Timeline } from 'scenes/onboarding/shared/wizard-sync/Timeline'
 
 import { useMCPAnalyticsWizardCommand } from '../onboarding/MCPAnalyticsInstall'
+import { SetupCallsPanel } from './SetupCallsPanel'
 import type { MCPConnectState, MCPSetupPath, MCPWizardRun } from './setupMode'
 import { SetupStepHero } from './SetupStepHero'
+import { SetupStepLayout } from './SetupStepLayout'
 
 const HedgehogWizard = pngHoggie(wizardPng)
 const HedgehogSearching = pngHoggie(magnifyingGlassPng)
 
 const INSTALL_GUIDE_URL = 'https://posthog.com/docs/mcp-analytics/installation'
+
+// The public leaderboard is built from PostHog's own MCP server, the same data this product shows.
+const LEADERBOARD_URL =
+    'https://posthog.com/mcp/leaderboard?utm_medium=in-product&utm_campaign=mcp-analytics-setup-mode'
 
 const COPY = {
     wizardWaiting: {
@@ -34,20 +40,36 @@ const COPY = {
     },
     agentWaiting: {
         title: 'Waiting for your server to connect',
-        lead: "Your coding agent is making the change. This page can't see its progress, so it waits for your server to send its first event.",
-        status: 'Listening for your server',
-        statusDetail: 'It shows up here once it starts with the SDK installed. Restart it after your agent is done.',
+        lead: "Your coding agent is making the change in your server's repository.",
         stuck: 'Agent stuck?',
         copyPrompt: 'Copy the prompt again',
         installGuide: 'Read the install guide',
         useWizard: 'Use Wizard instead',
     },
+    agentChecklist: {
+        title: 'What your agent should do',
+        source: "This page can't see your agent. Only the last step is live.",
+        steps: ["Find your server's entry point", 'Install the PostHog MCP SDK', 'Add your project token'],
+        restart: 'Restart your server',
+        restartWaiting: 'Restart it after your agent is done. This step ticks when your server sends its first event.',
+        restartDone: 'Your server connected.',
+    },
+    whileYouWait: {
+        title: 'While you wait',
+        lead: 'Once calls arrive, you can see:',
+        items: [
+            'What the agent was trying to do, for every call',
+            'Failed calls, with what your server sent back',
+            'Which clients and models call your tools',
+        ],
+        leaderboard: "See how agents use PostHog's own MCP server",
+    },
     connected: {
         title: 'Your server is connected. Now call a tool',
         lead: 'Ask your agent to do something that uses one of your tools. The first call shows up here within seconds.',
         prompt: 'Use one of the tools on my MCP server and tell me what it returned.',
-        status: 'Listening for your first tool call',
     },
+    listening: 'Listening for your first tool call',
 }
 
 function StatusRow({ children }: { children: string }): JSX.Element {
@@ -102,6 +124,73 @@ function WizardRunProgress({ run }: { run: MCPWizardRun }): JSX.Element {
     )
 }
 
+// Only the restart is observable: the server connecting proves it, and with it every step before it.
+function AgentChecklist({ connected }: { connected: boolean }): JSX.Element {
+    const copy = COPY.agentChecklist
+    const expected = connected ? (
+        <StepIcon status="completed" />
+    ) : (
+        <span className="size-4 rounded-full border-2 border-secondary" />
+    )
+    return (
+        <div className="flex flex-col gap-3 rounded border border-primary bg-surface-primary p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-secondary">
+                <span className="font-semibold">{copy.title}</span>
+                {connected ? null : <span>{copy.source}</span>}
+            </div>
+            <Timeline
+                ariaLabel={copy.title}
+                items={[
+                    ...copy.steps.map((label) => ({
+                        key: label,
+                        icon: expected,
+                        content: <span className="text-sm text-secondary">{label}</span>,
+                    })),
+                    {
+                        key: 'restart',
+                        icon: <StepIcon status={connected ? 'completed' : 'in_progress'} />,
+                        content: <span className="text-sm font-semibold">{copy.restart}</span>,
+                        detail: (
+                            <span className="block text-sm text-secondary">
+                                {connected ? copy.restartDone : copy.restartWaiting}
+                            </span>
+                        ),
+                    },
+                ]}
+            />
+        </div>
+    )
+}
+
+function WhileYouWait(): JSX.Element {
+    const copy = COPY.whileYouWait
+    return (
+        <div className="flex flex-col gap-3 rounded border border-primary bg-surface-primary p-4">
+            <div className="flex flex-col gap-1">
+                <span className="font-semibold">{copy.title}</span>
+                <span className="text-sm text-secondary">{copy.lead}</span>
+            </div>
+            <ul className="m-0 flex list-disc flex-col gap-1 pl-5 text-sm">
+                {copy.items.map((item) => (
+                    <li key={item}>{item}</li>
+                ))}
+            </ul>
+            <div>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    to={LEADERBOARD_URL}
+                    targetBlank
+                    sideIcon={<IconExternal />}
+                    data-attr="mcp-analytics-setup-mode-leaderboard"
+                >
+                    {copy.leaderboard}
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 function WizardWaiting(): JSX.Element {
     const { command, isCloudOrDev } = useMCPAnalyticsWizardCommand()
     return (
@@ -123,13 +212,7 @@ function AgentWaiting({
     return (
         <>
             <SetupStepHero Hedgehog={HedgehogSearching} title={COPY.agentWaiting.title} lead={COPY.agentWaiting.lead} />
-            <div className="flex items-start gap-3 rounded border border-primary bg-surface-primary p-4">
-                <Spinner className="mt-0.5 shrink-0" />
-                <div className="flex min-w-0 flex-col gap-0.5 text-sm">
-                    <span className="font-semibold">{COPY.agentWaiting.status}</span>
-                    <span className="text-secondary">{COPY.agentWaiting.statusDetail}</span>
-                </div>
-            </div>
+            <AgentChecklist connected={false} />
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <span className="text-secondary">{COPY.agentWaiting.stuck}</span>
                 <LemonButton
@@ -164,17 +247,14 @@ function AgentWaiting({
     )
 }
 
-export function SetupConnectStep({
-    path,
-    connectState,
-    agentPrompt,
-    onUseWizard,
-}: {
+interface SetupConnectStepProps {
     path: MCPSetupPath
     connectState: MCPConnectState
     agentPrompt: string | null
     onUseWizard: () => void
-}): JSX.Element {
+}
+
+function ConnectStepBody({ path, connectState, agentPrompt, onUseWizard }: SetupConnectStepProps): JSX.Element {
     if (connectState.kind === 'connected') {
         return (
             <>
@@ -191,7 +271,7 @@ export function SetupConnectStep({
                         Copy
                     </LemonButton>
                 </div>
-                <StatusRow>{COPY.connected.status}</StatusRow>
+                {path === 'agent' ? <AgentChecklist connected /> : null}
             </>
         )
     }
@@ -208,4 +288,19 @@ export function SetupConnectStep({
         )
     }
     return path === 'wizard' ? <WizardWaiting /> : <AgentWaiting agentPrompt={agentPrompt} onUseWizard={onUseWizard} />
+}
+
+export function SetupConnectStep(props: SetupConnectStepProps): JSX.Element {
+    return (
+        <SetupStepLayout
+            aside={
+                <>
+                    <SetupCallsPanel calls="example" status={{ kind: 'listening', text: COPY.listening }} />
+                    <WhileYouWait />
+                </>
+            }
+        >
+            <ConnectStepBody {...props} />
+        </SetupStepLayout>
+    )
 }
