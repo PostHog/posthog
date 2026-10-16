@@ -97,4 +97,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "description": "Meta's human-readable description of the metric.",
         },
     },
+    "account_insights_breakdowns": {
+        "description": "Daily account-level metrics split by a breakdown dimension, in long format: one row per metric, breakdown value and day. Covers follows_and_unfollows by follow_type, likes, comments, shares, saves and total_interactions by media_product_type, and profile_links_taps by contact_button_type.",
+        "docs_url": _INSIGHTS_DOCS,
+        "columns": {
+            "instagram_account_id": "Instagram account the metric belongs to.",
+            "metric": "Metric name, for example follows_and_unfollows, likes or profile_links_taps.",
+            "breakdown": "Dimension the metric is split by: follow_type, media_product_type or contact_button_type.",
+            "breakdown_value": "Value of the breakdown dimension, for example FOLLOWER, REEL or DIRECTION.",
+            "period": "Aggregation period. Always day for this table.",
+            "date": "ISO 8601 end time of the day the metric covers, in UTC.",
+            "value": "The metric's value for that breakdown value and day.",
+            "title": "Meta's human-readable title for the metric.",
+            "description": "Meta's human-readable description of the metric.",
+        },
+    },
 }
