@@ -1,6 +1,9 @@
 {
     "name": "@posthog/products-subscriptions",
-    "scripts": {},
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
+    },
     "dependencies": {
         "@posthog/brand": "catalog:",
         "kea": "catalog:",

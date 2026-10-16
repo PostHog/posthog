@@ -129,6 +129,7 @@ PRODUCTS_APPS = [
     "products.webmcp.backend.apps.WebmcpConfig",
     "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
     "products.groups.backend.apps.GroupsConfig",
+    "products.subscriptions.backend.apps.SubscriptionsConfig",
 ]
 
 INSTALLED_APPS = [
