@@ -789,7 +789,13 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ctx = input.context
 
     with (
-        log_activity_execution("start_agent_server", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        log_activity_execution(
+            "start_agent_server",
+            sandbox_id=input.sandbox_id,
+            boot_path=input.boot_path,
+            used_snapshot=input.used_snapshot,
+            **ctx.to_log_context(),
+        ),
         launch_preparation_metric_context(
             boot_path=input.boot_path,
             runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
@@ -920,7 +926,13 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ctx = input.context
 
     with (
-        log_activity_execution("launch_agent_server", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        log_activity_execution(
+            "launch_agent_server",
+            sandbox_id=input.sandbox_id,
+            boot_path=input.boot_path,
+            used_snapshot=input.used_snapshot,
+            **ctx.to_log_context(),
+        ),
         launch_preparation_metric_context(
             boot_path=input.boot_path,
             runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
@@ -994,7 +1006,13 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
     ctx = input.context
 
     with (
-        log_activity_execution("await_agent_server_ready", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        log_activity_execution(
+            "await_agent_server_ready",
+            sandbox_id=input.sandbox_id,
+            boot_path=input.boot_path,
+            used_snapshot=input.used_snapshot,
+            **ctx.to_log_context(),
+        ),
         launch_preparation_metric_context(
             boot_path=input.boot_path,
             runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),

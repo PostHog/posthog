@@ -60,7 +60,7 @@ See `products/commands/README.md`.
 
 One installation can link to several projects in a region, so `installation.id` never names one project.
 A consumer picks its projects in one of two shapes.
-A consumer that needs the teams behind a delivery's installation calls `installation_integrations()` from `posthog/github/installations.py`, never its own `Integration` query.
+A consumer that needs the teams behind a delivery's installation calls `installation_integrations()` or `installation_team_ids()` from `posthog/github/installations.py`, never its own `Integration` query.
 
 **Subscriptions.**
 Deliver the event to every project that has its own row for the repository, for example a workflow, a loop trigger, an issue link, or a monitored repository.

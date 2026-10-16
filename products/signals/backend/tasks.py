@@ -32,6 +32,7 @@ from products.signals.backend.implementation_dispatch_tasks import (
     sweep_implementation_dispatches as sweep_implementation_dispatches,
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
+from products.signals.backend.inbox_summary import sync_pull_request_participants
 from products.signals.backend.models import (
     SignalReport,
     SignalReportPullRequest,
@@ -79,6 +80,22 @@ logger = structlog.get_logger(__name__)
 
 
 @shared_task(
+    name="products.signals.backend.tasks.refresh_pull_request_participants",
+    ignore_result=True,
+    bind=True,
+    autoretry_for=(GitHubEgressBudgetExhausted, GitHubIntegrationError),
+    retry_backoff=True,
+    max_retries=5,
+)
+@with_team_scope()
+def refresh_pull_request_participants(self, team_id: int, repository: str, pr_number: int) -> None:
+    try:
+        sync_pull_request_participants(team_id=team_id, repository=repository, pr_number=pr_number)
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
+
+
+@shared_task(
     name="products.signals.backend.tasks.refresh_pull_request_review_decision",
     ignore_result=True,
     autoretry_for=(GitHubEgressBudgetExhausted, GitHubIntegrationError, GitHubRateLimitError),
@@ -94,6 +111,10 @@ def refresh_pull_request_review_decision(team_id: int, repository: str, pr_numbe
     )
     if pr is None:
         return
+    if pr.state == SignalReportPullRequest.State.MERGED:
+        from products.signals.backend.pull_requests import schedule_participant_refresh
+
+        schedule_participant_refresh(pr)
 
     github = GitHubIntegration.first_for_team_repository(
         team_id,

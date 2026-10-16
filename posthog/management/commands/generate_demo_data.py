@@ -16,11 +16,8 @@ from django.db.utils import OperationalError
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.health import get_pending_postgres_migrations
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
-from posthog.models import User
-from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import Team
-from posthog.products import Products
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 
 from products.demo.backend.facade.api import (
@@ -116,12 +113,6 @@ class Command(BaseCommand):
             action="store_true",
             default=False,
             help="Skip syncing feature flags from API after data generation",
-        )
-        parser.add_argument(
-            "--skip-user-product-list",
-            action="store_true",
-            default=False,
-            help="Skip creating UserProductList entries after data generation",
         )
         parser.add_argument(
             "--say-on-complete",
@@ -235,15 +226,6 @@ class Command(BaseCommand):
                     print("Continuing anyway...")
             else:
                 print("Skipping feature flag sync.")
-
-            if not options.get("skip_user_product_list"):
-                # Create UserProductList entries for all products
-                # Skip if existing_team_id == 0 (master project reset)
-                if existing_team_id != 0 and team and user:
-                    print("Creating UserProductList entries for all products...")
-                    self.create_default_user_product_list(team, user)
-            else:
-                print("Skipping UserProductList creation.")
 
             if existing_team_id != 0 and team:
                 print("Marking all quick start tasks as completed...")
@@ -389,21 +371,6 @@ class Command(BaseCommand):
             ],
             backfill_period_days=backfill_days,
         )
-
-    def create_default_user_product_list(self, team: Team, user: User) -> None:
-        """Create UserProductList entries for all default sidebar products."""
-        product_paths = Products.get_product_paths()
-        created_count = 0
-        for product_path in product_paths:
-            _, created = UserProductList.objects.get_or_create(
-                team=team,
-                user=user,
-                product_path=product_path,
-                defaults={"enabled": True},
-            )
-            if created:
-                created_count += 1
-        print(f"Created {created_count} UserProductList entries for {len(product_paths)} products.")
 
     @staticmethod
     def complete_all_quick_start_tasks(team: Team) -> None:

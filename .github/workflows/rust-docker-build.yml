@@ -201,6 +201,9 @@ jobs:
                     - release: personhog-identity
                       digest_key: personhog-identity
                       values_key: image
+                    - release: personhog-publisher
+                      digest_key: personhog-publisher
+                      values_key: image
                     - release: personhog-leader
                       digest_key: personhog-leader
                       values_key: image

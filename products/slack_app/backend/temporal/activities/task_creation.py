@@ -691,6 +691,7 @@ def create_posthog_code_task_for_repo_activity(
         thread_ts=thread_ts,
         user_message_ts=user_message_ts,
         mentioning_slack_user_id=slack_user_id,
+        person_message=title_text or None,
     )
 
     # Points at the thread the agent answers in — the DM for a fork, not the thread
@@ -988,9 +989,12 @@ def forward_posthog_code_followup_activity(
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         collect_thread_messages,
         decode_slack_event_text,
+        labeled_mentions_to_display_names,
     )
 
     user_text = decode_slack_event_text(slack, integration, event_text)
+    # Taken before the thread digest and the speaker prefix join it, so it holds only this person's words.
+    person_message = labeled_mentions_to_display_names(user_text) or None
     bot_token = get_slack_bot_token(slack, integration)
     event_files = parse_slack_file_refs(inputs.event.get("files"))
     # Shared with the thread fetch below, so the reply and the catch-up files draw on one
@@ -1094,6 +1098,7 @@ def forward_posthog_code_followup_activity(
         actor_user_id=actor_user.id if actor_user and actor_user.id else None,
         message_id=_slack_followup_message_id(channel, user_message_ts, thread_ts),
         actor_slack_user_id=slack_user_id,
+        person_message=person_message,
     )
     if signal_result is not True:
         logger.warning(
@@ -1349,13 +1354,17 @@ def _resume_task_with_new_run(
     model_override: SlackAppModelOverride | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
-    from products.slack_app.backend.services.slack_messages import decode_slack_event_text  # noqa: PLC0415
+    from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
+        decode_slack_event_text,
+        labeled_mentions_to_display_names,
+    )
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow
 
     integration = slack.integration
     user_text = decode_slack_event_text(slack, integration, event_text)
+    person_message = labeled_mentions_to_display_names(user_text) or None
     prepared_attachments = prepare_slack_file_artifacts(
         parse_slack_file_refs(inputs.event.get("files")), get_slack_bot_token(slack, integration)
     )
@@ -1507,6 +1516,7 @@ def _resume_task_with_new_run(
         thread_ts=thread_ts,
         user_message_ts=user_message_ts,
         mentioning_slack_user_id=slack_user_id,
+        person_message=person_message,
     )
 
     try:

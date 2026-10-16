@@ -15,7 +15,7 @@ import type {
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import type { GoalLineConfig } from '../../utils/goal-lines'
+import { mergeValueDomains, type GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { ComboChart } from '../ComboChart/ComboChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
@@ -28,6 +28,8 @@ export interface TimeSeriesComboChartConfig {
     xAxis?: XAxisConfig
     /** Single object for a standard left axis; array for dual left+right axes. */
     yAxis?: YAxisConfig | YAxisConfig[]
+    /** Pin the primary value scale, overriding its automatic data and goal-line extent. */
+    valueDomain?: ComboChartConfig['valueDomain']
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
     /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
@@ -143,7 +145,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         divergingStack,
         barCornerRadius,
         tooltip: timeSeriesTooltipConfig,
-        valueDomain,
+        valueDomain: mergeValueDomains(config?.valueDomain, valueDomain),
         yAxes,
     }
 

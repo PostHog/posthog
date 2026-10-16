@@ -79,8 +79,8 @@ The grant secret exists only in process memory; these paths never read `Duckgres
 The standalone `resolve_managed_warehouse_trino_connection(...)` helper returns a short-lived snapshot; callers executing queries must use the context manager to get refresh behavior.
 
 The connection uses HTTPS with certificate verification and a 60-second HTTP timeout.
-Its session bypasses environment proxies only for control-plane-issued targets with a single hostname label under `dw.us.postwh.com` or `dw.dev.postwh.com`, on port 443.
-Customer-configured external sources retain the separate fixed-host allowlist (`trino.dw.us.postwh.com` and `trino.dw.dev.postwh.com`).
+Its session bypasses environment proxies only for control-plane-issued targets with a single hostname label under `dw.us.postwh.com`, `dw.eu.postwh.com`, or `dw.dev.postwh.com`, on port 443.
+Customer-configured external sources retain the separate fixed-host allowlist (`trino.dw.us.postwh.com`, `trino.dw.eu.postwh.com`, and `trino.dw.dev.postwh.com`).
 The session checks and renews the same grant before sending POST, polling GET, or cancellation DELETE requests when less than two minutes remain.
 Mint and renewal calls have a ten-second timeout.
 Credential renewal is serialized so polling and cancellation share one renewal decision.

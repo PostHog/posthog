@@ -16889,6 +16889,36 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_resume.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("inbox_task", True, status.HTTP_200_OK),
+            ("plain_task", False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api.warm_task_resume_sandbox", return_value=None)
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_warm_resume_code_access_exempts_inbox_tasks(
+        self, _name, inbox, expected_status, _mock_gate, _mock_warm_enabled, mock_warm
+    ):
+        self.set_tasks_feature_flag(False)
+        task = self._inbox_task(Task.OriginProduct.SIGNAL_REPORT) if inbox else self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/warm/",
+            {"resume_from_run_id": str(run.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(mock_warm.called, inbox)
+
     def test_exemption_ignores_cross_team_report_link(self):
         # The write serializer blocks cross-team report links, so forge one at the ORM level:
         # the exemption query must re-check the report's team rather than trust the FK alone.
