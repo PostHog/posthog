@@ -250,9 +250,9 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         [
             ("current_keys", ("current", "current")),
             # A run from before calculation key version 2. On page load the frontend starts a run when a completed
-            # run leaves a metric uncovered, so the legacy rows must cover every metric of it.
-            ("run_from_before_key_version_2", ("legacy", "legacy")),
-            ("run_partly_recomputed_under_the_current_key", ("legacy", "current")),
+            # run leaves a metric uncovered, so the version 1 rows must cover every metric of it.
+            ("run_from_before_key_version_2", ("version_1", "version_1")),
+            ("run_partly_recomputed_under_the_current_key", ("version_1", "current")),
         ]
     )
     def test_get_latest_returns_most_recent_completed_with_results(
@@ -268,8 +268,6 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             total_metrics=2,
             status="completed",
             query_to=datetime(2026, 6, 1, tzinfo=UTC),
-            # Before the rows below are written, as for a run that finished before key version 2 and whose window a
-            # later run partly recomputed.
             completed_at=timezone.now() - timedelta(minutes=5),
         )
         # Narrow nullable fields populated above. _launched_experiment always sets start_date,
@@ -280,7 +278,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             ExperimentMetricResult.objects.create(
                 experiment=exp,
                 metric_uuid=metric_uuid,
-                fingerprint=_recalc_fingerprint(_calculation_key(exp, metric_uuid, legacy=family == "legacy")),
+                fingerprint=_recalc_fingerprint(_calculation_key(exp, metric_uuid, legacy=family == "version_1")),
                 query_from=exp.start_date,
                 query_to=recalc.query_to,
                 status="completed",
@@ -293,9 +291,9 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert body["id"] == str(recalc.id)
         assert body["status"] == "completed"
         assert body["completed_metrics"] + body["failed_metrics"] == body["total_metrics"] == 2
-        assert [(result["metric_uuid"], result["result"], result["legacy"]) for result in body["results"]] == [
-            ("m1", {"ok": "m1"}, key_families[0] == "legacy"),
-            ("m2", {"ok": "m2"}, key_families[1] == "legacy"),
+        assert [(result["metric_uuid"], result["result"]) for result in body["results"]] == [
+            ("m1", {"ok": "m1"}),
+            ("m2", {"ok": "m2"}),
         ]
         assert body.get("active_run") is None
 
@@ -353,7 +351,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_get_latest_returns_timeseries_fallback_on_cold_start(self, _name: str, legacy: bool) -> None:
         # No real recalc row, but a completed timeseries point exists → 200 with source=timeseries_fallback.
-        # The frontend starts a cold run for any metric the fallback leaves out, so a legacy point must cover it.
+        # The frontend starts a cold run for any metric the fallback leaves out, so a version 1 point must cover it.
         exp = self._launched_experiment(flag_key="ts-fallback")
         self._store_timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1), legacy=legacy)
 
@@ -365,7 +363,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert body["metric_retries"] == {}
         assert body["status"] == "completed"
         assert body["completed_metrics"] == body["total_metrics"] == 1
-        assert [(result["result"], result["legacy"]) for result in body["results"]] == [({"ok": True}, legacy)]
+        assert [result["result"] for result in body["results"]] == [{"ok": True}]
 
     @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_get_latest_prefers_timeseries_fallback_over_first_active_run(self):

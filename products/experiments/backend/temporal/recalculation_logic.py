@@ -39,10 +39,7 @@ from products.experiments.backend.hogql_queries.error_handling import (
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
-from products.experiments.backend.metric_calculation.config import (
-    CALCULATION_KEY_VERSION,
-    get_metric_calculation_config,
-)
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
@@ -237,7 +234,6 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
                     status=update.status or ExperimentMetricsRecalculation.Status.IN_PROGRESS,
                     total_metrics=update.total_metrics if update.total_metrics is not None else 0,
                     metric_uuids=update.metric_uuids if update.metric_uuids is not None else [],
-                    calculation_key_version=CALCULATION_KEY_VERSION,
                 )
                 == 1
             )
@@ -653,16 +649,6 @@ def _calculate_experiment_metric_for_recalculation_sync(
         )
 
     with team_scope(state.team_id, canonical=True):
-        # An activity can resume on a newer worker after the run's start activity has already completed.
-        ExperimentMetricsRecalculation.objects.filter(
-            id=recalculation_id,
-            status__in=[
-                ExperimentMetricsRecalculation.Status.PENDING,
-                ExperimentMetricsRecalculation.Status.IN_PROGRESS,
-            ],
-        ).exclude(calculation_key_version=CALCULATION_KEY_VERSION).update(
-            calculation_key_version=CALCULATION_KEY_VERSION
-        )
         try:
             experiment = Experiment.objects.get(id=experiment_id, deleted=False)
         except Experiment.DoesNotExist:

@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("experiments", "0050_recalculation_key_version"),
+        ("experiments", "0049_experimentmetricresult_display_key"),
         ("posthog", "1397_uploaded_media_dimensions_and_archive"),
     ]
 

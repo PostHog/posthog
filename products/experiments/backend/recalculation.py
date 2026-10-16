@@ -474,20 +474,16 @@ def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
     a successful run, until the settings revert. Symptom: "results disappeared after editing the experiment."
     This is the explicit trade-off of "no FK on ExperimentMetricResult": the snapshot lives in the fingerprint, not
     in a stored column.
-
-    A run from before calculation key version 2 is read through the metrics' legacy keys, and each such result
-    carries `legacy: True`.
     """
-    stored = MetricResultStore(experiment_id=recalc.experiment_id).for_run(recalc)
+    rows = MetricResultStore(experiment_id=recalc.experiment_id).for_run(recalc)
     return [
         {
-            "metric_uuid": item.row.metric_uuid,
-            "status": item.row.status,
-            "result": strip_step_sessions(item.row.result),
-            "error_message": item.row.error_message,
-            "legacy": item.legacy,
+            "metric_uuid": row.metric_uuid,
+            "status": row.status,
+            "result": strip_step_sessions(row.result),
+            "error_message": row.error_message,
         }
-        for item in stored
+        for row in rows
     ]
 
 
@@ -512,19 +508,15 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
         for calculation_config in calculation_configs:
             # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry a future
             # query_to that would surface here as a future completion time.
-            stored = store.latest_daily_point(
-                calculation_config, since=now - TIMESERIES_FALLBACK_MAX_AGE, until=now, include_legacy=True
-            )
-            if stored is None:
+            row = store.latest_daily_point(calculation_config, since=now - TIMESERIES_FALLBACK_MAX_AGE, until=now)
+            if row is None:
                 continue
-            row = stored.row
             results.append(
                 {
                     "metric_uuid": row.metric_uuid,
                     "status": row.status,
                     "result": strip_step_sessions(row.result),
                     "error_message": None,
-                    "legacy": stored.legacy,
                 }
             )
             if latest_query_to is None or row.query_to > latest_query_to:

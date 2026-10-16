@@ -5321,14 +5321,14 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("current_rows", ("current", "current"), []),
-            # History from before calculation key version 2 renders, marked legacy, where no current row covers a day.
-            ("history_before_key_version_2", ("legacy", "current"), [0]),
-            ("rows_of_earlier_settings", ("earlier_settings", "current"), None),
+            ("current_rows", ("current", "current"), "completed"),
+            # History from before calculation key version 2 renders where no current row covers a day.
+            ("history_before_key_version_2", ("version_1", "current"), "completed"),
+            ("rows_of_earlier_settings", ("earlier_settings", "current"), "partial"),
         ]
     )
     def test_get_timeseries_results_completed(
-        self, _name: str, day_keys: tuple[str, str], legacy_day_offsets: list[int] | None
+        self, _name: str, day_keys: tuple[str, str], expected_status: str
     ) -> None:
         self._create_flag(key="ts-completed")
         service = self._service()
@@ -5348,7 +5348,7 @@ class TestExperimentService(APIBaseTest):
         assert calculation_config is not None
         keys = {
             "current": calculation_config.calculation_key(),
-            "legacy": calculation_config.legacy_key(),
+            "version_1": calculation_config.legacy_key(),
             "earlier_settings": "a" * 64,
         }
 
@@ -5367,14 +5367,7 @@ class TestExperimentService(APIBaseTest):
 
         result = service.get_timeseries_results(experiment, metric_uuid="m1")
 
-        if legacy_day_offsets is None:
-            assert result["status"] == "partial"
-            assert result["legacy_dates"] == []
-        else:
-            assert result["status"] == "completed"
-            assert result["legacy_dates"] == [
-                (start_midnight + timedelta(days=offset)).date().isoformat() for offset in legacy_day_offsets
-            ]
+        assert result["status"] == expected_status
         assert result["computed_at"] is not None
 
     def test_get_timeseries_results_strips_step_sessions_and_emits_formatted_results(self):

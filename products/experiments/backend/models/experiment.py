@@ -475,8 +475,8 @@ class ExperimentMetricResult(models.Model):
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     metric_uuid = models.CharField(max_length=255)
     fingerprint = models.CharField(max_length=64, null=True, blank=True)  # SHA256 hash is 64 chars
-    # The legacy key of the calculation config the row was computed from, salted like `fingerprint` on a
-    # recalculation row. It hashes only inputs the experiment owns, so the results page can still show the row as history after a team
+    # The version 1 key of the calculation config the row was computed from, salted like `fingerprint` on a
+    # recalculation row. It hashes only inputs the experiment owns, so the chart still shows the row after a team
     # setting moves `fingerprint` away from the current key. No reuse check reads it.
     display_key = models.CharField(max_length=64, null=True, blank=True)
     query_from = models.DateTimeField()
@@ -606,8 +606,6 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
     metric_retries = models.JSONField(default=dict)
     metric_uuids = models.JSONField(default=list)
 
-    # NULL preserves runs completed by workers that did not record their key version.
-    calculation_key_version = models.PositiveSmallIntegerField(null=True, blank=True)
     query_to = models.DateTimeField(null=True, blank=True)
 
     trigger = models.CharField(max_length=30, choices=Trigger, default=Trigger.MANUAL)

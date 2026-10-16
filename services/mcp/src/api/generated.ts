@@ -45301,8 +45301,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly error_message: string | null;
-      /** True when this result was stored before the calculation key covered every analytical setting (baseline, CUPED, statistics, entity, test account filters). It may come from other settings than the current ones. Show it as history; a new run computes a current result. */
-      readonly legacy: boolean;
     }
 
     /**
@@ -46409,8 +46407,6 @@ export namespace Schemas {
          * @nullable
          */
       result_data_through: string | null;
-      /** True when the result was stored before the calculation key covered every analytical setting (baseline, CUPED, statistics, entity, test account filters), because no result under the current settings exists. Its numbers may come from other settings than the current ones. */
-      result_is_legacy: boolean;
     }
 
     export interface ExperimentSetupPreviousExperiment {
@@ -46789,8 +46785,6 @@ export namespace Schemas {
       status: ExperimentTimeseriesResultsStatusEnum;
       /** Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result. */
       timeseries: ExperimentTimeseriesResultsTimeseries;
-      /** Days whose result was stored before the calculation key covered every analytical setting, because no result under the current settings exists for that day. Show them as history: they may come from other settings than the current ones. */
-      legacy_dates: string[];
       /**
          * When the most recent day's result was computed, or null.
          * @nullable

@@ -41,9 +41,9 @@ A row that already holds that window under another fingerprint, such as a recalc
 A failed write is the exception: it leaves a completed row under another fingerprint in place, so a transient failure cannot replace a recalculation result.
 
 The significance notification compares a new daily result with the metric's previous completed point under the same calculation key.
-Without such a point there is no transition, so nothing is sent.
-That covers the first point of a new experiment, the first point after a settings change, and the first daily run after the calculation key version changed.
-A point under another key, the legacy key (version 1) included, can come from other settings, so it never stands in.
+Without such a point, the latest earlier point under the metric's version 1 key, as fingerprint or display key, stands in.
+That is the point the comparison used before key version 2, so a settings change that version 1 does not cover sends no repeated notification.
+Without any earlier point, every significant variant counts as newly significant, as on the first point of a new experiment.
 
 These workflows used to publish a `timeseries_sync` recalculation row per experiment as well.
 The scheduled recalculation workflow owns that job now, so the publish pass is gated out behind

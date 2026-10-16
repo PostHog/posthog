@@ -51,14 +51,8 @@ export function recalculationMocks(
     const results: MetricRecalculationResultApi[] = metricUuids.map((metricUuid) => {
         const result = resultFor(metricUuid)
         return result
-            ? { metric_uuid: metricUuid, status: 'completed', result, error_message: null, legacy: false }
-            : {
-                  metric_uuid: metricUuid,
-                  status: 'failed',
-                  result: null,
-                  error_message: 'Metric failed to compute',
-                  legacy: false,
-              }
+            ? { metric_uuid: metricUuid, status: 'completed', result, error_message: null }
+            : { metric_uuid: metricUuid, status: 'failed', result: null, error_message: 'Metric failed to compute' }
     })
     const failedUuids = results.filter(({ status }) => status === 'failed').map(({ metric_uuid }) => metric_uuid)
 

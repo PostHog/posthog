@@ -4425,8 +4425,8 @@ class ExperimentService:
         """Retrieve timeseries results for an experiment-metric combination.
 
         The calculation key comes from the metric's current calculation config, never from the client, so the chart
-        shows the rows of the current settings. A day without such a row shows its row from before calculation key
-        version 2, and `legacy_dates` lists those days.
+        shows the rows of the current settings. `MetricResultStore.timeseries` says which row a day without such a row
+        shows.
         """
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
 
@@ -4451,7 +4451,7 @@ class ExperimentService:
         stored = (
             MetricResultStore(experiment_id=experiment.id).timeseries(calculation_config, timezone=project_tz)
             if calculation_config is not None
-            else DailyTimeseries(by_day={}, legacy_days=frozenset(), earliest=None, latest=None)
+            else DailyTimeseries(by_day={}, earliest=None, latest=None)
         )
 
         completed_count = 0
@@ -4503,11 +4503,6 @@ class ExperimentService:
             "metric_uuid": metric_uuid,
             "status": overall_status,
             "timeseries": timeseries,
-            "legacy_dates": [
-                experiment_date.isoformat()
-                for experiment_date in experiment_dates
-                if experiment_date in stored.legacy_days
-            ],
             "errors": errors if errors else None,
             "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
             "created_at": stored.earliest.created_at.isoformat()

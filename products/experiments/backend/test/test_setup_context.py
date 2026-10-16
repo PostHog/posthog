@@ -886,14 +886,14 @@ class TestPostgresSections(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("start_date_edited_after_the_result", "current", {"days": 12}, None),
-            # A result stored before calculation key version 2 still describes the experiment, marked legacy.
-            ("result_from_before_key_version_2", "legacy", None, True),
-            ("result_under_the_current_key", "current", None, False),
+            ("start_date_edited_after_the_result", "current", {"days": 12}, False),
+            # A result stored before calculation key version 2 still describes the experiment.
+            ("result_from_before_key_version_2", "version_1", None, True),
+            ("result_under_the_current_key", "current", None, True),
         ]
     )
     def test_the_outcome_follows_the_calculation_key(
-        self, _name: str, key_family: str, moved_start: dict[str, int] | None, expected_legacy: bool | None
+        self, _name: str, key_family: str, moved_start: dict[str, int] | None, has_outcome: bool
     ) -> None:
         now = timezone.now()
         experiment = self._experiment(
@@ -902,7 +902,7 @@ class TestPostgresSections(APIBaseTest):
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="inline-primary",
-            fingerprint=_key(experiment, "inline-primary", legacy=key_family == "legacy"),
+            fingerprint=_key(experiment, "inline-primary", legacy=key_family == "version_1"),
             query_from=now - timedelta(days=10),
             query_to=now,
             status=ExperimentMetricResult.Status.COMPLETED,
@@ -915,12 +915,12 @@ class TestPostgresSections(APIBaseTest):
         previous = get_previous_experiments(Experiment.objects.filter(team_id=self.team.pk), limit=10)
 
         outcome = previous.experiments[0].outcome
-        if expected_legacy is None:
+        if has_outcome:
+            assert outcome is not None
+            assert outcome.analyzed_exposures == 80
+        else:
             assert outcome is None
             assert previous.summary.launched_without_results == 1
-        else:
-            assert outcome is not None
-            assert (outcome.analyzed_exposures, outcome.result_is_legacy) == (80, expected_legacy)
 
     def test_a_draft_does_not_crowd_out_a_launched_experiment(self) -> None:
         self._experiment("fresh-draft", days_ago=0)

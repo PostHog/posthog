@@ -21,11 +21,7 @@ import structlog
 
 from posthog.models.scoping import team_scope
 
-from products.experiments.backend.metric_calculation.config import (
-    CALCULATION_KEY_VERSION,
-    MetricCalculationConfig,
-    build_calculation_configs,
-)
+from products.experiments.backend.metric_calculation.config import MetricCalculationConfig, build_calculation_configs
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import is_daily_timeseries_metric
 from products.experiments.backend.models.experiment import (
@@ -72,11 +68,9 @@ def sync_timeseries_recalculation(
             if not is_daily_timeseries_metric(calculation_config.definition):
                 continue
             metric_uuids.append(calculation_config.metric_id)
-            # A point under the legacy key is not copied: the copy would carry the current key, and a run that
-            # reuses this window would take it as a result of the current settings.
-            stored = store.latest_daily_point(calculation_config, since=run_started_at, until=now, include_legacy=False)
-            if stored is not None:
-                points[calculation_config.metric_id] = (calculation_config, stored.row)
+            row = store.latest_daily_point(calculation_config, since=run_started_at, until=now)
+            if row is not None:
+                points[calculation_config.metric_id] = (calculation_config, row)
 
         if not points:
             return None
@@ -125,7 +119,6 @@ def sync_timeseries_recalculation(
                 completed_at=now,
                 total_metrics=len(metric_uuids),
                 metric_uuids=metric_uuids,
-                calculation_key_version=CALCULATION_KEY_VERSION,
             )
             store.copy_into_sync_run(window, points.values(), query_from=experiment.start_date, completed_at=now)
             copied = len(points)

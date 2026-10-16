@@ -9,10 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.experiments.backend.facade.timeseries import metric_calculation_keys
-from products.experiments.backend.metric_calculation.config import (
-    CALCULATION_KEY_VERSION,
-    get_metric_calculation_config,
-)
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -104,10 +101,11 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         saved = ExperimentSavedMetric.objects.create(team=self.team, name=metric_uuid, query=_mean_metric(metric_uuid))
         ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": "primary"})
 
-    def test_creates_a_completed_run_from_the_points_of_this_daily_run(self):
-        exp = self._experiment("sync-full", [_mean_metric("m1"), _mean_metric("m2")])
+    @parameterized.expand([("version_2_points", False), ("a_point_from_before_the_conversion", True)])
+    def test_creates_a_completed_run_from_the_points_of_this_daily_run(self, _name: str, m2_version_1: bool):
+        exp = self._experiment(f"sync-full-{_name}", [_mean_metric("m1"), _mean_metric("m2")])
         self._timeseries_point(exp, "m1", IN_RUN, {"m": 1})
-        self._timeseries_point(exp, "m2", LATER_IN_RUN, {"m": 2})
+        self._timeseries_point(exp, "m2", LATER_IN_RUN, {"m": 2}, legacy=m2_version_1)
 
         recalculation_id = self._sync(exp)
 
@@ -115,7 +113,6 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         recalc = ExperimentMetricsRecalculation.objects.get(id=recalculation_id)
         assert recalc.status == ExperimentMetricsRecalculation.Status.COMPLETED
         assert recalc.trigger == ExperimentMetricsRecalculation.Trigger.TIMESERIES_SYNC
-        assert recalc.calculation_key_version == CALCULATION_KEY_VERSION
         assert recalc.total_metrics == 2
         assert recalc.metric_uuids == ["m1", "m2"]
         assert recalc.completed_at is not None
@@ -128,7 +125,7 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         copies = ExperimentMetricResult.objects.filter(experiment=exp, query_to=recalc.query_to)
         assert {row.fingerprint for row in copies} == {
             _recalc_fingerprint(self._config_fp(exp, "m1")),
-            _recalc_fingerprint(self._config_fp(exp, "m2")),
+            _recalc_fingerprint(self._config_fp(exp, "m2", legacy=m2_version_1)),
         }
         # The timeseries rows keep their config fingerprint.
         assert ExperimentMetricResult.objects.filter(experiment=exp, fingerprint=self._config_fp(exp, "m1")).exists()
@@ -193,18 +190,16 @@ class TestSyncTimeseriesRecalculation(BaseTest):
 
     @parameterized.expand(
         [
-            ("point_before_this_run", BEFORE_RUN, None, False),
-            ("point_in_the_future", IN_FUTURE, None, False),
-            ("recalculation_already_newer", IN_RUN, LATER_IN_RUN, False),
-            # A copy would carry the current key, and a run that reuses the window would take it as its result.
-            ("point_under_the_legacy_key", IN_RUN, None, True),
+            ("point_before_this_run", BEFORE_RUN, None),
+            ("point_in_the_future", IN_FUTURE, None),
+            ("recalculation_already_newer", IN_RUN, LATER_IN_RUN),
         ]
     )
     def test_skips_when_no_point_qualifies_or_a_newer_run_exists(
-        self, _name: str, point_query_to: datetime, existing_recalc_query_to: datetime | None, legacy: bool
+        self, _name: str, point_query_to: datetime, existing_recalc_query_to: datetime | None
     ):
         exp = self._experiment(f"sync-skip-{_name}", [_mean_metric("m1")])
-        self._timeseries_point(exp, "m1", point_query_to, {"m": 1}, legacy=legacy)
+        self._timeseries_point(exp, "m1", point_query_to, {"m": 1})
         if existing_recalc_query_to is not None:
             ExperimentMetricsRecalculation.objects.create(
                 team=self.team,
