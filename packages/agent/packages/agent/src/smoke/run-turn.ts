@@ -7,8 +7,8 @@ import {
   ClientSideConnection,
   ndJsonStream,
 } from "@agentclientprotocol/sdk";
-import type { Adapter } from "@posthog/agent-contracts";
 import {
+  type AcpAdapter,
   type AcpConnection,
   createAcpConnection,
 } from "../adapters/acp-connection";
@@ -26,6 +26,12 @@ export interface TurnOutcome {
 const PROMPT =
   "Use a tool to read the file nonce.txt, then reply with its contents only.";
 
+const PERMISSION_MODES: Record<AcpAdapter, string> = {
+  claude: "bypassPermissions",
+  codex: "auto",
+  fx: "full-access",
+};
+
 export async function runTurn({
   runtime,
   model,
@@ -33,7 +39,7 @@ export async function runTurn({
   timeoutSeconds,
   logger,
 }: {
-  runtime: Adapter;
+  runtime: AcpAdapter;
   model: string;
   gatewayEnv: GatewayEnv;
   timeoutSeconds: number;
@@ -101,6 +107,17 @@ export async function runTurn({
               httpHeaders: gatewayEnv.openaiCustomHeaders,
             }
           : undefined,
+      fxOptions:
+        runtime === "fx"
+          ? {
+              cwd,
+              binaryPath: process.env.POSTHOG_FX_BINARY_PATH,
+              model,
+              gatewayBaseUrl: gatewayEnv.openaiBaseUrl,
+              gatewayApiKey: gatewayEnv.openaiApiKey,
+              gatewayHeaders: gatewayEnv.openaiCustomHeaders ?? {},
+            }
+          : undefined,
     });
     const conn = new ClientSideConnection(
       () => client,
@@ -115,7 +132,7 @@ export async function runTurn({
         _meta: {
           environment: "cloud",
           model,
-          permissionMode: runtime === "codex" ? "auto" : "bypassPermissions",
+          permissionMode: PERMISSION_MODES[runtime],
         },
       });
       sessionId = session.sessionId;

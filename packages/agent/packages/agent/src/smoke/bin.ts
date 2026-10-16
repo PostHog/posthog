@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command, Option } from "commander";
+import type { AcpAdapter } from "../adapters/acp-connection";
 import { DEFAULT_CODEX_MODEL, DEFAULT_GATEWAY_MODEL } from "../gateway-models";
 import { buildGatewayEnv } from "../server/gateway-env";
 import { Logger } from "../utils/logger";
@@ -21,21 +22,21 @@ const program = new Command()
   )
   .addOption(
     new Option("--runtime <runtime>", "runtime adapter to drive")
-      .choices(["claude", "codex"])
+      .choices(["claude", "codex", "fx"])
       .makeOptionMandatory(),
   )
   .option("--timeout <seconds>", "turn timeout in seconds", "300")
   .parse();
 
 const { runtime, timeout } = program.opts<{
-  runtime: "claude" | "codex";
+  runtime: AcpAdapter;
   timeout: string;
 }>();
 delete process.env.CLAUDE_CODE_USE_BEDROCK;
 const token = process.env.AI_GATEWAY_TOKEN?.trim() ?? "";
 const model =
   process.env.POSTHOG_CODE_MODEL ||
-  (runtime === "codex" ? DEFAULT_CODEX_MODEL : DEFAULT_GATEWAY_MODEL);
+  (runtime === "claude" ? DEFAULT_GATEWAY_MODEL : DEFAULT_CODEX_MODEL);
 const logger = new Logger({
   debug: true,
   prefix: "[agent-smoke]",

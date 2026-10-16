@@ -2,6 +2,7 @@ name: 'Sandbox agent gateway smoke'
 description: >-
     Run one Claude turn and one Codex turn with the agent installed in a sandbox image,
     through the production Go ai-gateway on the agent's default models and efforts.
+    An fx turn also runs when the image supports it, and is reported without affecting the result.
 inputs:
     image:
         description: 'Sandbox base image to smoke'
@@ -90,10 +91,16 @@ runs:
               echo "::add-mask::$AI_GATEWAY_TOKEN"
               export AI_GATEWAY_TOKEN
 
+              runtimes="claude codex"
+              if docker run --rm "$IMAGE" sh -c \
+                'command -v fx >/dev/null && /scripts/node_modules/.bin/agent-smoke --help | grep -q "\"fx\""'; then
+                runtimes="$runtimes fx"
+              fi
+
               echo '| Runtime | Model | Result | Detail |' >> "$summary"
               echo '| --- | --- | --- | --- |' >> "$summary"
               overall=pass
-              for runtime in claude codex; do
+              for runtime in $runtimes; do
                 for attempt in 1 2; do
                   timeout 300 docker run --rm \
                     -e AI_GATEWAY_URL -e AI_GATEWAY_TOKEN -e AI_GATEWAY_PRODUCT -e AI_GATEWAY_PRODUCTS \
@@ -118,6 +125,9 @@ runs:
                 model=$(jq -r '.model // "?"' <<< "$line" 2>/dev/null || echo '?')
                 detail=$(jq -r '.error // .reply // ""' <<< "$line" 2>/dev/null | tr '\n|' '  ' | cut -c1-300)
                 echo "| $runtime | \`$model\` | $result | $detail |" >> "$summary"
+                if [ "$runtime" = fx ]; then
+                  continue
+                fi
                 case "$result:$overall" in
                   broken:*) overall=broken ;;
                   infra:pass | infra:inconclusive) overall=infra ;;
