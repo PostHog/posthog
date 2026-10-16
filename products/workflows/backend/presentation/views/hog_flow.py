@@ -207,6 +207,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowOriginProduct,
     HogFlowScheduleStatus,
     HogFlowState,
+    RealtimeAudienceCohortState,
     WorkflowProposalStatus,
 )
 from products.workflows.backend.facade.message_assets import fetch_message_asset_html, fetch_message_assets
@@ -1048,7 +1049,7 @@ class RealtimeCohortStatusSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="The realtime cohort the audience sends to.")
     name = serializers.CharField(help_text="The cohort's name.")
     state = serializers.ChoiceField(
-        choices=["ready", "building", "rebuilding", "needs_attention"],
+        choices=RealtimeAudienceCohortState.choices,
         help_text=(
             "'ready' when the cohort's membership is calculated. 'building' or 'rebuilding' while it is "
             "still calculating, when a send waits for it. 'needs_attention' when its calculation is stuck."

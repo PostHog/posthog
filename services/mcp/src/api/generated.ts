@@ -18601,15 +18601,15 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `ready` - ready
-     * * `building` - building
-     * * `rebuilding` - rebuilding
-     * * `needs_attention` - needs_attention
+     * * `ready` - Ready
+     * * `building` - Building
+     * * `rebuilding` - Rebuilding
+     * * `needs_attention` - Needs attention
      */
-    export type RealtimeCohortStatusStateEnum = typeof RealtimeCohortStatusStateEnum[keyof typeof RealtimeCohortStatusStateEnum];
+    export type RealtimeAudienceCohortStateEnum = typeof RealtimeAudienceCohortStateEnum[keyof typeof RealtimeAudienceCohortStateEnum];
 
 
-    export const RealtimeCohortStatusStateEnum = {
+    export const RealtimeAudienceCohortStateEnum = {
       Ready: 'ready',
       Building: 'building',
       Rebuilding: 'rebuilding',
@@ -18623,11 +18623,11 @@ export namespace Schemas {
       name: string;
       /** 'ready' when the cohort's membership is calculated. 'building' or 'rebuilding' while it is still calculating, when a send waits for it. 'needs_attention' when its calculation is stuck.
        *
-       * * `ready` - ready
-       * * `building` - building
-       * * `rebuilding` - rebuilding
-       * * `needs_attention` - needs_attention */
-      state: RealtimeCohortStatusStateEnum;
+       * * `ready` - Ready
+       * * `building` - Building
+       * * `rebuilding` - Rebuilding
+       * * `needs_attention` - Needs attention */
+      state: RealtimeAudienceCohortStateEnum;
       /**
          * How far the calculation has come, while the cohort is not ready.
          * @nullable

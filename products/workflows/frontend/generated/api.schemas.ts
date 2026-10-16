@@ -2080,15 +2080,15 @@ export interface BlastRadiusRequestApi {
 }
 
 /**
- * * `ready` - ready
- * * `building` - building
- * * `rebuilding` - rebuilding
- * * `needs_attention` - needs_attention
+ * * `ready` - Ready
+ * * `building` - Building
+ * * `rebuilding` - Rebuilding
+ * * `needs_attention` - Needs attention
  */
-export type RealtimeCohortStatusStateEnumApi =
-    (typeof RealtimeCohortStatusStateEnumApi)[keyof typeof RealtimeCohortStatusStateEnumApi]
+export type RealtimeAudienceCohortStateEnumApi =
+    (typeof RealtimeAudienceCohortStateEnumApi)[keyof typeof RealtimeAudienceCohortStateEnumApi]
 
-export const RealtimeCohortStatusStateEnumApi = {
+export const RealtimeAudienceCohortStateEnumApi = {
     Ready: 'ready',
     Building: 'building',
     Rebuilding: 'rebuilding',
@@ -2102,11 +2102,11 @@ export interface RealtimeCohortStatusApi {
     name: string
     /** 'ready' when the cohort's membership is calculated. 'building' or 'rebuilding' while it is still calculating, when a send waits for it. 'needs_attention' when its calculation is stuck.
      *
-     * * `ready` - ready
-     * * `building` - building
-     * * `rebuilding` - rebuilding
-     * * `needs_attention` - needs_attention */
-    state: RealtimeCohortStatusStateEnumApi
+     * * `ready` - Ready
+     * * `building` - Building
+     * * `rebuilding` - Rebuilding
+     * * `needs_attention` - Needs attention */
+    state: RealtimeAudienceCohortStateEnumApi
     /**
      * How far the calculation has come, while the cohort is not ready.
      * @nullable
