@@ -676,6 +676,19 @@ class TestSignalSpend(BaseTest):
         assert spend.task_count == 2
         assert SignalSpend.objects.for_team(self.team.id).count() == 1
 
+    def test_pipeline_handoff_stays_open_while_ready_report_buffers_implementation(self) -> None:
+        driver = str(uuid4())
+        report = SignalReport.objects.create(
+            team=self.team, triggering_signal_id=driver, status=SignalReport.Status.READY
+        )
+        record_llm_spend("grouping", token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping")
+        complete_signal_pipeline(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
+        spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=driver)
+        self.assertIsNone(spend.finalized_at)
+        finish_report_spend(team_id=self.team.id, report_id=str(report.id))
+        spend.refresh_from_db()
+        self.assertIsNotNone(spend.finalized_at)
+
     def test_filtered_signal_finalizes_only_when_every_source_is_priced(self) -> None:
         driver = str(uuid4())
         record_llm_spend(

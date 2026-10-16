@@ -371,10 +371,11 @@ def complete_signal_pipeline(
             if report:
                 spend.report_id = report.id
                 apply_report_billing(spend, report)
+            # READY can still be waiting for implementation; the report workflow owns completion.
             handed_off = (
                 report
                 and UUID(signal_id) in {report.triggering_signal_id, report.pending_triggering_signal_id}
-                and report.status in {SignalReport.Status.CANDIDATE, SignalReport.Status.IN_PROGRESS}
+                and report.status != SignalReport.Status.POTENTIAL
             )
             _save_spend(spend, finalize=not handed_off)
     except Exception:

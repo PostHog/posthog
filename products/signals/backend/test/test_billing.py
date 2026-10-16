@@ -31,7 +31,7 @@ from products.signals.backend.models import (
     SignalSpend,
 )
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
-from products.signals.backend.spend import complete_signal_pipeline, record_llm_spend
+from products.signals.backend.spend import complete_signal_pipeline, finish_report_spend, record_llm_spend
 from products.signals.backend.spend_billing import report_usage_billing_mode
 from products.skills.backend.models.skills import LLMSkill
 
@@ -590,6 +590,7 @@ class TestSpendBasedBilling(BaseTest):
             )
             _make_pr_run(self.team, report, created_at=_at(10))
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id, report_id=str(report.id))
+            finish_report_spend(team_id=self.team.id, report_id=str(report.id))
         assert self._day(10) == {self.team.id: 1525}
         assert first_billable_pr_run(report.id) is None  # The fixed-PR refund must not issue 1,500 credits.
         assert first_billable_pr_run(legacy_report.id) is not None
