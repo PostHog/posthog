@@ -5,7 +5,7 @@ Imported from `ready()` through the message wording, so it stays light: no model
 
 from typing import Any, Final
 
-from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY
+from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, SourceConfigSpec
 
 FILTERS_KEY: Final = "filters"
 
@@ -26,3 +26,11 @@ def filters_of(source_config: dict[str, Any]) -> dict[str, Any]:
     if FILTERS_KEY in source_config:
         return source_config[FILTERS_KEY]
     return {key: value for key, value in source_config.items() if key != SOURCE_CONDITION_KEY}
+
+
+def load_logs_source_config() -> SourceConfigSpec:
+    from products.logs.backend.platform_source_config_schema import (  # noqa: PLC0415 - keeps posthog.schema off the startup path
+        LOGS_SOURCE_CONFIG,
+    )
+
+    return LOGS_SOURCE_CONFIG
