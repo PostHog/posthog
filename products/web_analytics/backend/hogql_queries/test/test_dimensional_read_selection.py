@@ -32,6 +32,11 @@ def _runner(opted_in: bool) -> MagicMock:
 
 
 class TestDimensionalReadSelection(SimpleTestCase):
+    def setUp(self) -> None:
+        rules = patch(f"{_QB}.team_has_property_access_rules", return_value=False)
+        self.mock_rules = rules.start()
+        self.addCleanup(rules.stop)
+
     @patch(f"{_QB}.web_bounces_dimensional_ready_jobs", return_value=_READY)
     @patch(f"{_QB}.web_stats_dimensional_ready_jobs", return_value=_READY)
     def test_opted_in_query_with_ready_data_reads_dimensional_and_filters_job_id(self, _mock_stats, _mock_bounces):
@@ -61,6 +66,15 @@ class TestDimensionalReadSelection(SimpleTestCase):
 
     def test_query_without_opt_in_uses_v2(self):
         builder = WebAnalyticsPreAggregatedQueryBuilder(_runner(False), {})
+
+        assert builder.stats_table == "web_pre_aggregated_stats"
+        assert builder.bounces_table == "web_pre_aggregated_bounces"
+
+    @patch(f"{_QB}.web_bounces_dimensional_ready_jobs", return_value=_READY)
+    @patch(f"{_QB}.web_stats_dimensional_ready_jobs", return_value=_READY)
+    def test_team_with_property_access_rules_uses_v2(self, _mock_stats, _mock_bounces):
+        self.mock_rules.return_value = True
+        builder = WebAnalyticsPreAggregatedQueryBuilder(_runner(True), {})
 
         assert builder.stats_table == "web_pre_aggregated_stats"
         assert builder.bounces_table == "web_pre_aggregated_bounces"

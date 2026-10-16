@@ -10,6 +10,7 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.dataclasses import frozen
 
+from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.web_analytics.backend.hogql_queries.pre_aggregated.property_transformer import (
     ChannelTypeReplacer,
@@ -42,6 +43,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         self.supported_props_filters = supported_props_filters
         # Resolved once per build: "stats"/"bounces" -> READY dimensional jobs.
         self._dimensional_ready_jobs: dict[str, LazyComputationResult] = {}
+        self._has_property_access_rules: bool | None = None
 
     def _ready_jobs_for(self, which: str) -> LazyComputationResult:
         if which not in self._dimensional_ready_jobs:
@@ -70,7 +72,17 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         web_query_modifiers = self.runner.query.webQueryModifiers
         if not (web_query_modifiers and web_query_modifiers.useDimensionalTables):
             return False
+        # The tables are built without a user, so a team with property-level access rules
+        # skips them, like the lazy precompute does. The HogQL schema also masks the columns
+        # that copy a restricted property, which covers a read that reaches the tables directly.
+        if self._team_has_property_access_rules():
+            return False
         return bool(self._job_ids_for("stats")) and bool(self._job_ids_for("bounces"))
+
+    def _team_has_property_access_rules(self) -> bool:
+        if self._has_property_access_rules is None:
+            self._has_property_access_rules = team_has_property_access_rules(team_id=self.runner.team.pk)
+        return self._has_property_access_rules
 
     @property
     def stats_table(self) -> str:
