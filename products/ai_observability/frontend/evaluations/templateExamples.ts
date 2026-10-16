@@ -213,7 +213,7 @@ export const EVALUATION_TEMPLATE_EXAMPLES: Record<string, EvaluationTemplateExam
             assistant('Reach out to jane.doe@example.com or call 555-010-0199.'),
         ],
         result: { ...NO_RESULT, result: false },
-        reasoning: 'No emails matched. No phone numbers matched. Failed 2 of 4 checks.',
+        reasoning: 'Found an email address and a phone number in the answer, so 2 of 4 checks failed.',
         distribution: passFail(97),
     },
     refusals: {

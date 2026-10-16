@@ -114,6 +114,8 @@ Consider accuracy, completeness, and clarity together:
         evaluation_type: 'llm_judge',
         icon: 'undo',
         category: 'users',
+        // Tool-calling steps in one turn share the same user message, so grade the turn once.
+        target: 'trace',
         output_type: 'categorical',
         output_config: {
             selection_mode: 'single',
@@ -322,30 +324,7 @@ If there is no previous assistant reply, pick No friction.`,
         target: 'trace',
         output_type: 'boolean',
         output_config: {},
-        source: `// Fail a trace where the same tool is called more often than expected
-// Raise the limit for tools that legitimately poll or retry
-let max_calls_per_tool := 5
-let counts := {}
-for (let i, item in evaluation_events) {
-    let called := splitByString(',', toString(ifNull(item.properties.$ai_tools_called, '')))
-    for (let j, raw in called) {
-        let tool := trim(raw)
-        if (length(tool) > 0) {
-            counts[tool] := ifNull(counts[tool], 0) + 1
-        }
-    }
-}
-let repeated := []
-for (let tool, count in counts) {
-    if (count > max_calls_per_tool) {
-        repeated := arrayPushBack(repeated, concat(tool, ' (', toString(count), ' calls)'))
-    }
-}
-if (length(repeated) > 0) {
-    print(concat('Called more than ', toString(max_calls_per_tool), ' times: ', arrayStringConcat(repeated, ', ')))
-    return false
-}
-return true`,
+        source: getHogEvalExample('repeated_tool_calls').source,
     },
     {
         key: 'false_completion',
@@ -424,32 +403,7 @@ return latency`,
         category: 'quality',
         output_type: 'boolean',
         output_config: {},
-        source: `// Fail a generation that errored, came back empty, or was cut off or blocked by the provider
-let cut_off := ['max_tokens', 'max_output_tokens', 'length', 'model_length']
-let blocked := ['prohibited_content', 'content_filter', 'content_filtered', 'safety', 'recitation', 'blocklist']
-for (let i, item in evaluation_events) {
-    if (item.event == '$ai_generation') {
-        let is_error := toString(ifNull(item.properties.$ai_is_error, false)) == 'true'
-        if (is_error or item.properties.$ai_error != null) {
-            print(concat('Generation ', item.uuid, ' errored'))
-            return false
-        }
-        let stop := replaceAll(lower(trim(toString(ifNull(item.properties.$ai_stop_reason, '')))), '-', '_')
-        if (has(cut_off, stop)) {
-            print(concat('Generation ', item.uuid, ' hit its token limit'))
-            return false
-        }
-        if (has(blocked, stop)) {
-            print(concat('Generation ', item.uuid, ' was blocked by the provider'))
-            return false
-        }
-        if (length(trim(item.output_text)) == 0) {
-            print(concat('Generation ', item.uuid, ' returned no output'))
-            return false
-        }
-    }
-}
-return true`,
+        source: getHogEvalExample('failed_output').source,
     },
     {
         key: 'valid_json',
@@ -460,24 +414,7 @@ return true`,
         category: 'quality',
         output_type: 'boolean',
         output_config: {},
-        source: `// Fail a generation whose output is not valid JSON
-for (let i, item in evaluation_events) {
-    if (item.event == '$ai_generation') {
-        let text := trim(item.output_text)
-        // Models often wrap JSON in a markdown code fence, so strip it before parsing
-        if (text like '\`\`\`%') {
-            text := trim(replaceOne(replaceOne(text, '\`\`\`json', ''), '\`\`\`', ''))
-            if (text like '%\`\`\`') {
-                text := trim(substring(text, 1, length(text) - 3))
-            }
-        }
-        if (not isValidJSON(text)) {
-            print(concat('Generation ', item.uuid, ' did not return valid JSON'))
-            return false
-        }
-    }
-}
-return true`,
+        source: getHogEvalExample('valid_json').source,
     },
     {
         key: 'contains_keyword',

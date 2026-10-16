@@ -272,6 +272,65 @@ class TestHogEvalExamplesBehavior:
 
         assert result["verdict"] is True
 
+    @parameterized.expand(
+        [
+            ("json_openai", "Valid JSON output", [{"message": {"role": "assistant", "content": '{"ok": true}'}}], True),
+            (
+                "json_otel_parts",
+                "Valid JSON output",
+                [{"role": "assistant", "parts": [{"type": "text", "content": '{"ok": true}'}]}],
+                True,
+            ),
+            (
+                "json_fenced",
+                "Valid JSON output",
+                [{"message": {"role": "assistant", "content": '```json\n{"ok": true}\n```'}}],
+                True,
+            ),
+            (
+                "json_fence_inside_string",
+                "Valid JSON output",
+                [{"message": {"role": "assistant", "content": '{"md": "Use ``` for code blocks"}'}}],
+                True,
+            ),
+            (
+                "json_prose",
+                "Valid JSON output",
+                [{"message": {"role": "assistant", "content": "Here you go: ok"}}],
+                False,
+            ),
+            ("empty_openai", "Empty or failed output", [{"message": {"role": "assistant", "content": ""}}], False),
+            ("empty_otel_parts", "Empty or failed output", [{"role": "assistant", "parts": []}], False),
+            (
+                "non_empty_otel_parts",
+                "Empty or failed output",
+                [{"role": "assistant", "parts": [{"type": "text", "content": "Hi"}]}],
+                True,
+            ),
+        ]
+    )
+    def test_output_body_checks_handle_provider_shapes(
+        self, _name: str, label: str, output_choices: Any, expected: bool
+    ) -> None:
+        bytecode = compile_hog(_get_source(label), "destination")
+
+        result = run_hog_eval(bytecode, _make_event(ai_output_choices=output_choices))
+
+        assert result["error"] is None
+        assert result["verdict"] is expected
+
+    @parameterized.expand(
+        [("under_limit", "search,search,fetch", True), ("over_limit", ",".join(["search"] * 6), False)]
+    )
+    def test_repeated_tool_calls_limit(self, _name: str, tools_called: str, expected: bool) -> None:
+        bytecode = compile_hog(_get_source("Repeated tool calls"), "destination")
+        event = _make_event()
+        event["properties"]["$ai_tools_called"] = tools_called
+
+        result = run_hog_eval(bytecode, event)
+
+        assert result["verdict"] is expected
+
     def test_refusal_detection_handles_openai_refusal_field(self):
         bytecode = compile_hog(_get_source("Refusal detection"), "destination")
         event = _make_event(

@@ -157,10 +157,8 @@ export function TemplatePreview({
                     {(example.messages.length > 0 || example.metrics) && (
                         <div className="flex flex-col gap-2 p-3 rounded-lg bg-surface-secondary">
                             {example.messages.length > 0 && (
-                                <TranscriptBubbleStream
-                                    inputs={example.messages.filter((message) => message.role === 'user')}
-                                    outputs={example.messages.filter((message) => message.role !== 'user')}
-                                />
+                                // The stream renders inputs then outputs, so passing every message as input keeps the conversation order.
+                                <TranscriptBubbleStream inputs={example.messages} outputs={[]} />
                             )}
                             {example.metrics && (
                                 <div className="flex flex-wrap gap-1">

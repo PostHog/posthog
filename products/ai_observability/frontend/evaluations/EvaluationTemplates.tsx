@@ -85,6 +85,7 @@ function TemplatePicker({ title, showBackButton = false, learnMoreUrl }: Templat
             template_key: template?.key ?? 'blank',
             output_type: template?.output_type,
             placement,
+            tab,
         })
         router.actions.push(getEvaluationTemplateSelectionUrl(searchParams, template?.key))
     }
