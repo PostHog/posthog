@@ -94,6 +94,13 @@ class TestPagination:
         assert result.params("page") == [None]
         assert [row["id"] for row in result.rows] == ["camp_1", "camp_2"]
 
+    def test_a_paged_campaigns_answer_fails_instead_of_syncing_a_partial_table(self) -> None:
+        body = {"pagination": {"next_page": 2}, "data": [{"id": "camp_1"}]}
+        result = _driver().run("campaigns", [ScriptedResponse(json=body)])
+
+        assert result.raised is not None
+        assert "more than one page of campaigns" in str(result.raised)
+
 
 class TestIncrementalRequestShaping:
     @pytest.mark.parametrize(

@@ -25,6 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rewardful.
 
 REQUEST_TIMEOUT = (10, 60)
 
+CAMPAIGNS_PAGED_ERROR = "Rewardful returned more than one page of campaigns"
+
 
 @frozen
 class RewardfulResumeConfig:
@@ -49,6 +51,9 @@ def unwrap_envelope(item: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any
     """
     data = item.get("data")
     if "pagination" in item and isinstance(data, list):
+        # One request reads only the first page, so a paged answer would sync a partial table.
+        if (item.get("pagination") or {}).get("next_page"):
+            raise ValueError(CAMPAIGNS_PAGED_ERROR)
         return data
     return item
 
