@@ -29,7 +29,7 @@ export function RulesV2ValueInput({
                 aria-label={ariaLabel}
                 value={typeof value === 'string' ? value : ''}
                 onChange={(text) => onChange(nullable && text === '' ? null : text)}
-                placeholder={nullable ? 'null' : undefined}
+                placeholder={nullable ? 'Leave empty for null' : undefined}
                 className="ph-ignore-input"
                 autoComplete="off"
                 spellCheck={false}
