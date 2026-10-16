@@ -1,6 +1,6 @@
 import type { IntegrationType } from '~/types'
 
-import type { GitHubAvailableInstallationApi } from './generated/api.schemas'
+import type { GitHubAvailableInstallationApi } from 'products/integrations/frontend/generated/api.schemas'
 
 export type GitHubConnectStatus = 'loading' | 'connected' | 'link-existing' | 'install'
 

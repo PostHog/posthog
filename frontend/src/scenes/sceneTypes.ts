@@ -95,6 +95,7 @@ export enum Scene {
     InsightQuickStart = 'InsightQuickStart',
     IntegrationsRedirect = 'IntegrationsRedirect',
     IntegrationsLanding = 'IntegrationsLanding',
+    GitHubConnect = 'GitHubConnect',
     StripeConfirmInstall = 'StripeConfirmInstall',
     IngestionWarnings = 'IngestionWarnings',
     IdentityProviderConfig = 'IdentityProviderConfig',

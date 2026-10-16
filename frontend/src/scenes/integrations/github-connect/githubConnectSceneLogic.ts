@@ -19,8 +19,12 @@ import { urls } from 'scenes/urls'
 
 import type { IntegrationType } from '~/types'
 
-import { getIntegrationsAuthorizeRetrieveUrl } from './generated/api'
-import type { GitHubAvailableInstallationApi, GitHubAvailableInstallationsResponseApi } from './generated/api.schemas'
+import { getIntegrationsAuthorizeRetrieveUrl } from 'products/integrations/frontend/generated/api'
+import type {
+    GitHubAvailableInstallationApi,
+    GitHubAvailableInstallationsResponseApi,
+} from 'products/integrations/frontend/generated/api.schemas'
+
 import { GitHubConnectStatus, githubConnectStatus } from './githubConnectStatus'
 
 // pinned: `connect_from=mcp` tells the return page to send the user back to their chat.
@@ -105,7 +109,7 @@ export type githubConnectSceneLogicType = MakeLogicType<
 >
 
 export const githubConnectSceneLogic = kea<githubConnectSceneLogicType>([
-    path(['products', 'integrations', 'frontend', 'githubConnectSceneLogic']),
+    path(['scenes', 'integrations', 'github-connect', 'githubConnectSceneLogic']),
     connect(() => ({
         values: [
             integrationsLogic,
