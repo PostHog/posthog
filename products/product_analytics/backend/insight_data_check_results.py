@@ -34,6 +34,27 @@ class LocalEvents:
 
 
 @frozen
+class InternalEvents:
+    # Events the project's internal and test users filter removes, when the insight does not apply that filter.
+    removed_by_filter: int
+    # Events from the team's own emails or test accounts that the filter keeps.
+    missed_by_filter: int
+    top_events: list[str]
+
+    @property
+    def count(self) -> int:
+        return self.removed_by_filter + self.missed_by_filter
+
+
+@frozen
+class CountedEvents:
+    # Every event the insight reads on the days checked, so a counted check needs no sample for its share.
+    events: int
+    local: LocalEvents
+    internal: InternalEvents | Skipped
+
+
+@frozen
 class SampledEvents:
     rate: float
     events: int
@@ -51,7 +72,7 @@ class SampledEvents:
 
 @frozen
 class CheckedEvents:
-    local: LocalEvents | Skipped
+    counted: CountedEvents | Skipped
     sample: SampledEvents | Skipped
     insight_filters_traffic_type: bool = False
 
@@ -74,23 +95,48 @@ def _usable_sample(sample: SampledEvents | Skipped) -> SampledEvents | Skipped:
     return sample
 
 
-def _local_share(local_events: int, sample: SampledEvents | Skipped) -> float | None:
-    """The share of local events, or None when the sample is too small to estimate the events checked."""
-    usable = _usable_sample(sample)
-    if isinstance(usable, Skipped):
-        return None
-    # The local count is exact and the sample is an estimate, so the share is capped at all of the events.
-    events_checked = max(usable.events / usable.rate, local_events)
-    return local_events / events_checked
+def _share(count: int, events: int) -> float | None:
+    return count / events if events else None
+
+
+def _is_finding(count: int, events: int) -> bool:
+    return count >= MIN_FINDING_EVENTS and count >= MIN_FINDING_SHARE * events
+
+
+def _internal_users_check(checked: CheckedEvents) -> InsightDataCheck:
+    key = InsightDataCheckKey.INTERNAL_USERS
+    counted = checked.counted
+    if isinstance(counted, Skipped):
+        return not_checked(key, counted.reason)
+    internal = counted.internal
+    if isinstance(internal, Skipped):
+        return not_checked(key, internal.reason)
+
+    share = _share(internal.count, counted.events)
+    is_finding = _is_finding(internal.count, counted.events)
+    # Turning the filter on for the insight is enough, unless the filter keeps the team's own emails.
+    action = InsightDataCheckAction.FILTER_INTERNAL_USERS
+    if _is_finding(internal.missed_by_filter, counted.events):
+        action = InsightDataCheckAction.OPEN_FILTER_SETTINGS
+    return InsightDataCheck(
+        key=key,
+        level=_finding_level(share) if is_finding else InsightDataCheckLevel.PASSED,
+        method=InsightDataCheckMethod.COUNTED,
+        events=internal.count,
+        share=share,
+        action=action if is_finding else None,
+        top_events=internal.top_events,
+    )
 
 
 def _local_development_check(checked: CheckedEvents) -> InsightDataCheck:
     key = InsightDataCheckKey.LOCAL_DEVELOPMENT
-    local = checked.local
-    if isinstance(local, Skipped):
-        return not_checked(key, local.reason)
+    counted = checked.counted
+    if isinstance(counted, Skipped):
+        return not_checked(key, counted.reason)
 
-    share = _local_share(local.count, checked.sample)
+    local = counted.local
+    share = _share(local.count, counted.events)
     # No minimum share: a local session also creates test persons and flag exposures, whatever its share.
     is_finding = local.count >= MIN_FINDING_EVENTS
     return InsightDataCheck(
@@ -152,6 +198,8 @@ def _duplicate_events_check(checked: CheckedEvents) -> InsightDataCheck:
 
 
 def found_no_events(checked: CheckedEvents) -> bool:
+    if isinstance(checked.counted, CountedEvents):
+        return checked.counted.events == 0
     sample = checked.sample
     return isinstance(sample, SampledEvents) and sample.read_every_event and sample.events == 0
 
@@ -159,6 +207,7 @@ def found_no_events(checked: CheckedEvents) -> bool:
 def evaluate_data_checks(checked: CheckedEvents) -> list[InsightDataCheck]:
     """Every check, in a fixed order, so the list shows what was checked whatever the result."""
     return [
+        _internal_users_check(checked),
         _local_development_check(checked),
         _bot_traffic_check(checked),
         _duplicate_events_check(checked),

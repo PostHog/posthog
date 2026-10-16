@@ -102,7 +102,7 @@ from posthog.models.organization import Organization
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
-from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.permissions import TeamMemberStrictManagementPermission, get_authenticator_scopes
 from posthog.query_cache import QueryCache
 from posthog.query_scan.serve import hydrate_scan_summary
 from posthog.rate_limit import (
@@ -116,6 +116,7 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
+from posthog.scopes import scopes_not_covered
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA
 from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissionsSerializerMixin
@@ -1760,8 +1761,9 @@ class InsightDataCheckSerializer(serializers.Serializer):
         choices=InsightDataCheckAction.choices,
         allow_null=True,
         help_text=(
-            "The change that fixes it. `open_filter_settings`: change the project's internal and test users filter. "
-            "Null when there is no single change."
+            "The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's "
+            "query. `open_filter_settings`: change the project's internal and test users filter. Null when there is "
+            "no single change."
         ),
     )
     top_events = serializers.ListField(
@@ -1800,8 +1802,8 @@ class InsightDataChecksCoverageSerializer(serializers.Serializer):
     events_checked = serializers.IntegerField(
         allow_null=True,
         help_text=(
-            "How many events the insight reads on the days checked, scaled up from the sample when the sample did "
-            "not read every event. Null when the sample did not run."
+            "How many events the insight reads on the days checked. Counted exactly, or scaled up from the sample "
+            "when the days hold too many events to count. Null when neither ran."
         ),
     )
     sample = InsightDataChecksSampleSerializer(
@@ -2562,12 +2564,14 @@ When set, the specified dashboard's filters and date range override will be appl
             200: OpenApiResponse(response=InsightDataChecksSerializer, description="The result of every check.")
         },
         description=(
-            "Check the events behind an insight for the common ways they mislead: local development traffic, bots "
-            "and crawlers, and events sent twice. Works for trends, funnels, stickiness and lifecycle insights whose "
-            "series are events. The checks apply the insight's own filters, and read the newest days of its date "
-            "range, up to 7. The bot and duplicate checks read a sample of those days. Nothing is stored. This route "
-            "runs the query it is sent, so it needs query access as well as insight access. To check a saved insight by its id, send a GET request "
-            "to `insights/{id}/data_checks/`."
+            "Check the events behind an insight for the common ways they mislead: internal and test users, local "
+            "development traffic, bots and crawlers, and events sent twice. Works for trends, funnels, stickiness "
+            "and lifecycle insights whose series are events. The checks apply the insight's own filters, and read "
+            "the newest days of its date range, up to 7. The bot and duplicate checks read a sample of those days. "
+            "The internal users check matches the emails of the organization's members only for a token with the "
+            "`organization_member:read` scope. Nothing is stored. This route runs the query it is sent, so it needs "
+            "query access as well as insight access. To check a saved insight by its id, send a GET request to "
+            "`insights/{id}/data_checks/`."
         ),
     )
     @action(methods=["POST"], detail=False, required_scopes=["insight:read", "query:read"])
@@ -2601,10 +2605,20 @@ When set, the specified dashboard's filters and date range override will be appl
             enforce_api_queries_budget(self.team)
         try:
             with query_concurrency_slots(self.team):
-                checks = run_insight_data_checks(query, team=self.team, user=cast(User, self.request.user))
+                checks = run_insight_data_checks(
+                    query,
+                    team=self.team,
+                    user=cast(User, self.request.user),
+                    can_read_members=self._can_read_members(),
+                )
         except (ExposedHogQLError, ExposedCHQueryError, ResolutionError) as error:
             raise ValidationError(str(error), getattr(error, "code_name", None))
         return Response(InsightDataChecksSerializer(checks).data)
+
+    def _can_read_members(self) -> bool:
+        # A session has no scopes. A token may only learn which emails belong to members if it may list the members.
+        scopes = get_authenticator_scopes(self.request.successful_authenticator)
+        return scopes is None or "*" in scopes or not scopes_not_covered(scopes, ["organization_member:read"])
 
     # `Sequence` rather than `list` here: this viewset defines a `list` method that shadows the builtin `list`
     # in the class namespace, so `list[...]` in this signature breaks both at class-definition time and for mypy.
