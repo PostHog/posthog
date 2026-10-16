@@ -47,7 +47,6 @@ impl Settlement for PollSettlement {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
 enum NoFrontier {
     EveryPartitionRejected,
     BehindAnEarlierPoll,
@@ -128,92 +127,102 @@ mod tests {
         (ledger, pacer, settlement)
     }
 
-    fn charged(
-        ledger: &TopicOffsetLedger,
-        topic_partition: &TopicPartition,
-        first: i64,
-        last: i64,
-    ) -> (u64, OffsetSpan, Vec<(Offset, Charge)>) {
-        let generation = ledger.generation(topic_partition);
+    struct Charged {
+        topic_partition: TopicPartition,
+        generation: u64,
+        span: OffsetSpan,
+        charges: Vec<(Offset, Charge)>,
+    }
+
+    impl Charged {
+        fn slice(&self) -> ChargedSlice<'_> {
+            ChargedSlice {
+                topic_partition: &self.topic_partition,
+                generation: self.generation,
+                span: self.span,
+                charges: &self.charges,
+            }
+        }
+    }
+
+    fn charged(ledger: &TopicOffsetLedger, partition: i32, first: i64, last: i64) -> Charged {
+        let topic_partition = TopicPartition::new("test", partition);
+        let generation = ledger.generation(&topic_partition);
         let charges: Vec<(Offset, Charge)> = (first..=last)
             .map(|offset| (Offset(offset), Charge::ZERO))
             .collect();
         ledger
-            .charge(topic_partition, generation, charges.iter().copied())
+            .charge(&topic_partition, generation, charges.iter().copied())
             .expect("charge");
-        (generation, OffsetSpan { first, last }, charges)
-    }
-
-    fn slice<'a>(
-        topic_partition: &'a TopicPartition,
-        charged: &'a (u64, OffsetSpan, Vec<(Offset, Charge)>),
-    ) -> ChargedSlice<'a> {
-        ChargedSlice {
+        Charged {
             topic_partition,
-            generation: charged.0,
-            span: charged.1,
-            charges: &charged.2,
+            generation,
+            span: OffsetSpan { first, last },
+            charges,
         }
     }
 
     #[test]
-    fn a_settled_poll_hands_its_frontier_to_the_pacer() {
-        let (ledger, pacer, _) = settlement();
-        let tp = TopicPartition::new("test", 0);
-        let charged = charged(&ledger, &tp, 10, 11);
+    fn a_retired_poll_hands_each_partitions_frontier_to_the_pacer() {
+        let (ledger, pacer, settlement) = settlement();
+        let p0 = charged(&ledger, 0, 10, 11);
+        let p1 = charged(&ledger, 1, 20, 21);
+
+        settlement.settle_poll(&[p0.slice(), p1.slice()]);
 
         assert_eq!(
-            settle_slices(&ledger, &pacer, &[slice(&tp, &charged)]),
-            Ok(())
-        );
-        assert_eq!(
             pacer.take_due(Instant::now()),
-            Some(HashMap::from([(tp, Offset(12))]))
+            Some(HashMap::from([
+                (p0.topic_partition, Offset(12)),
+                (p1.topic_partition, Offset(22)),
+            ]))
         );
     }
 
     #[test]
-    fn a_rejected_slice_hands_nothing_to_the_pacer() {
-        let (ledger, pacer, _) = settlement();
-        let tp = TopicPartition::new("test", 0);
-        let charged = charged(&ledger, &tp, 10, 11);
+    fn a_poll_behind_an_earlier_one_hands_over_when_the_earlier_retires() {
+        let (ledger, pacer, settlement) = settlement();
+        let older = charged(&ledger, 0, 10, 11);
+        let newer = charged(&ledger, 0, 12, 13);
+
+        settlement.settle_poll(&[newer.slice()]);
+        assert!(pacer.take_due(Instant::now()).is_none());
+
+        settlement.settle_poll(&[older.slice()]);
+        assert_eq!(
+            pacer.take_due(Instant::now()),
+            Some(HashMap::from([(older.topic_partition, Offset(14))]))
+        );
+    }
+
+    #[test]
+    fn a_stale_poll_hands_nothing_to_the_pacer() {
+        let (ledger, pacer, settlement) = settlement();
+        let poll = charged(&ledger, 0, 10, 11);
         // The partition left and came back while the poll was in flight.
         ledger.forget_partitions([("test", 0)]);
 
-        assert_eq!(
-            settle_slices(&ledger, &pacer, &[slice(&tp, &charged)]),
-            Err(NoFrontier::EveryPartitionRejected)
-        );
-        assert!(pacer.take_due(Instant::now()).is_none());
-    }
+        settlement.settle_poll(&[poll.slice()]);
 
-    #[test]
-    fn a_poll_behind_an_incomplete_one_hands_nothing_to_the_pacer() {
-        let (ledger, pacer, _) = settlement();
-        let tp = TopicPartition::new("test", 0);
-        let _older = charged(&ledger, &tp, 10, 11);
-        let newer = charged(&ledger, &tp, 12, 13);
-
-        assert_eq!(
-            settle_slices(&ledger, &pacer, &[slice(&tp, &newer)]),
-            Err(NoFrontier::BehindAnEarlierPoll)
-        );
         assert!(pacer.take_due(Instant::now()).is_none());
     }
 
     #[test]
     fn an_accepted_run_settles_nothing_before_its_poll_retires() {
         let (ledger, pacer, settlement) = settlement();
-        let tp = TopicPartition::new("test", 0);
-        let charged = charged(&ledger, &tp, 10, 11);
+        let poll = charged(&ledger, 0, 10, 11);
 
-        settlement.settle_run(&tp, charged.0, &[Offset(10), Offset(11)]);
+        settlement.settle_run(
+            &poll.topic_partition,
+            poll.generation,
+            &[Offset(10), Offset(11)],
+        );
         assert!(pacer.take_due(Instant::now()).is_none());
 
-        settlement.settle_poll(&[slice(&tp, &charged)]);
+        settlement.settle_poll(&[poll.slice()]);
         assert_eq!(
             pacer.take_due(Instant::now()),
-            Some(HashMap::from([(tp, Offset(12))]))
+            Some(HashMap::from([(poll.topic_partition, Offset(12))]))
         );
     }
 }
