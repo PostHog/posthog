@@ -1721,7 +1721,6 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
 
 
 def _latest_log_comment_for_team(team_id: int) -> dict:
-    """Return the log_comment of the most recent QueryFinish entry for this team."""
     sync_execute("SYSTEM FLUSH LOGS")
     rows = sync_execute(
         "SELECT log_comment FROM system.query_log "

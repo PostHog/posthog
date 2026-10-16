@@ -2410,7 +2410,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if tags.productKey:
                     product_key = tags.productKey
                     posthoganalytics.tag("product_key", product_key)
-                    # Client-supplied: an unknown product is left off the log comment and the query still runs.
+                    # Client-supplied: an unknown product must not fail the query.
                     if is_known_product_tag(product_key):
                         tag_queries(product=product_key)
                 if tags.scene:
