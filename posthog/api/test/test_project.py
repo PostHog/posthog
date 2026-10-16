@@ -1490,6 +1490,17 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             [{"type": "Team", "action": "changed", "field": "default_cuped_enabled", "before": False, "after": True}],
         )
 
+    def test_experiments_config_created_with_non_default_values_is_logged(self):
+        # The Django admin creates the row and sets values in one save, so there is no update to diff.
+        TeamExperimentsConfig.objects.create(team=self.team, default_cuped_enabled=True)
+
+        log = ActivityLog.objects.get(team_id=self.team.id, scope="Team", item_id=str(self.team.id))
+        assert log.detail is not None
+        self.assertEqual(
+            log.detail["changes"],
+            [{"type": "Team", "action": "changed", "field": "default_cuped_enabled", "before": False, "after": True}],
+        )
+
     def test_experiments_config_recalculation_times_write_and_clear(self):
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",

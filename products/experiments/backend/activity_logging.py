@@ -97,14 +97,16 @@ def handle_team_experiments_config_change(
     was_impersonated: bool = False,
     **kwargs: Any,
 ) -> None:
-    # The row is created with defaults the first time anything reads the config, so a
-    # "created" activity records no decision a person made.
-    if activity != "updated" or before_update is None:
+    if activity == "deleted":
         return
 
+    # The row is created with defaults the first time anything reads the config, which is no
+    # decision a person made. The Django admin can also create it with non-default values in
+    # one save, so a new row is compared against the defaults instead of being skipped.
+    previous = before_update if before_update is not None else TeamExperimentsConfig(team=after_update.team)
     changes = [
         change
-        for change in changes_between("Team", previous=before_update, current=after_update)
+        for change in changes_between("Team", previous=previous, current=after_update)
         if change.field not in PRECOMPUTATION_FIELDS
     ]
 
