@@ -1,3 +1,4 @@
+from pydantic import JsonValue
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.hogql import ast
@@ -9,10 +10,18 @@ from posthog.hogql.restricted_properties import restricted_property_keys_for_tab
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cdp.backend.mcp_event_properties import MCPEventPropertyAccess
+from products.cdp.backend.validation import action_ids_in_filters, require_viewer_access_to_actions
 
 
 class MCPEventFilterAccessValidator:
+    @staticmethod
+    def validate_actions(filters: dict[str, JsonValue], *, team: Team, user: User) -> None:
+        require_viewer_access_to_actions(
+            UserAccessControl(user, team), team=team, action_ids=action_ids_in_filters(filters)
+        )
+
     @staticmethod
     def validate_snapshot(dependencies: dict[str, list[str | None]], *, team: Team, user: User) -> None:
         restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)

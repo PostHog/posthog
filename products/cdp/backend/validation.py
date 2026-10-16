@@ -3,7 +3,7 @@ import json
 import logging
 import contextlib
 from collections.abc import Iterable
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.db import models
 
@@ -44,6 +44,9 @@ from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = logging.getLogger(__name__)
 
@@ -623,6 +626,7 @@ class _TemplatingChoiceField(serializers.ChoiceField):
 
 
 class InputsSchemaItemSerializer(serializers.Serializer):
+    # nosemgrep: choices-need-a-class -- existing input-type list; this change only adds one value to it
     type = serializers.ChoiceField(
         choices=[
             "string",
@@ -647,6 +651,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_mcp_installations",
             "signals_scout",
             "task_skills",
+            "replay_vision_scan",
         ]
     )
     key = serializers.CharField()
@@ -838,6 +843,13 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "signals_scout":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "replay_vision_scan":
+            if not isinstance(value, dict) or not isinstance(value.get("type"), str):
+                raise serializers.ValidationError({"input": "Choose what Replay Vision should do."})
+            # The setup is never templated. Compiled code or a Liquid template from the client could name a different
+            # scanner than the value the access checks read, so only the literal value reaches the engine.
+            for key in ("bytecode", "transpiled", "templating"):
+                attrs.pop(key, None)
         elif item_type == "task_skills":
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of skill names."})
@@ -1102,7 +1114,7 @@ def _contains_behavioral_property(filters: dict) -> bool:
     )
 
 
-def _action_ids_in_filters(filters: dict[str, Any]) -> set[int]:
+def action_ids_in_filters(filters: dict[str, Any]) -> set[int]:
     # Mirrors compile_filters_expr, which compiles every entry typed "actions" in either list.
     action_ids: set[int] = set()
     for key in ("events", "actions"):
@@ -1125,10 +1137,26 @@ def _filter_action_ids(value: Any) -> set[int]:
     action_ids: set[int] = set()
     for key, item in value.items():
         if key == "filters" and isinstance(item, dict):
-            action_ids |= _action_ids_in_filters(item)
+            action_ids |= action_ids_in_filters(item)
         elif key != "inputs":
             action_ids |= _filter_action_ids(item)
     return action_ids
+
+
+def require_viewer_access_to_actions(
+    user_access_control: "UserAccessControl", *, team: Team, action_ids: set[int]
+) -> None:
+    if not action_ids:
+        return
+    actions = Action.objects.filter(team__project_id=team.project_id, id__in=action_ids)
+    denied_ids = user_access_control.denied_object_ids(
+        "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
+    )
+    if denied_ids:
+        raise serializers.ValidationError(
+            f"You don't have viewer access to action(s) {', '.join(denied_ids)}. "
+            "Remove them from the filters, or ask for access."
+        )
 
 
 def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: Any, stored: Any) -> None:
@@ -1142,15 +1170,7 @@ def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: A
     if not added_ids:
         return
 
-    actions = Action.objects.filter(team__project_id=context["get_team"]().project_id, id__in=added_ids)
-    denied_ids = user_access_control.denied_object_ids(
-        "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
-    )
-    if denied_ids:
-        raise serializers.ValidationError(
-            f"You don't have viewer access to action(s) {', '.join(denied_ids)}. "
-            "Remove them from the filters, or ask for access."
-        )
+    require_viewer_access_to_actions(user_access_control, team=context["get_team"](), action_ids=added_ids)
 
 
 class HogFunctionFiltersSerializer(serializers.Serializer):

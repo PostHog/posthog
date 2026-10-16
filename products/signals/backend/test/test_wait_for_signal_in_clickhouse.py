@@ -78,15 +78,19 @@ async def _run(
     [
         pytest.param(WaitForClickHouseMode.OPTIMISTIC, 0, id="optimistic_trusts_store_and_skips_clickhouse"),
         pytest.param(WaitForClickHouseMode.CH_CONFIRMED, 1, id="ch_confirmed_runs_single_confirm"),
+        pytest.param(WaitForClickHouseMode.METADATA_UPDATE, 0, id="metadata_writer_confirms_its_own_version"),
     ],
 )
 async def test_store_confirmation_short_circuits(mode, expected_ch_queries):
     signals = _signals(2)
+    client = MagicMock()
+    client.get_workflow_handle.return_value.result = AsyncMock()
     with (
         patch(f"{MODULE}.Team", _team_model_mock()),
         patch(f"{MODULE}.async_get_recently_seen_documents", side_effect=_store_returning(timedelta(0))) as store,
         patch(f"{MODULE}.execute_hogql_query_with_retry", AsyncMock(return_value=_ch_result(2))) as ch,
         patch(f"{MODULE}.asyncio.sleep", AsyncMock()) as sleep,
+        patch(f"{MODULE}.async_connect", AsyncMock(return_value=client)),
     ):
         await _run(signals, mode=mode)
 
@@ -94,8 +98,10 @@ async def test_store_confirmation_short_circuits(mode, expected_ch_queries):
     # touching ClickHouse at all, ch_confirmed with exactly one confirm query — and
     # neither should sleep through a poll interval.
     assert ch.await_count == expected_ch_queries
-    assert store.call_count == 1
+    assert store.call_count == (0 if mode == WaitForClickHouseMode.METADATA_UPDATE else 1)
     assert sleep.await_count == 0
+    if mode == WaitForClickHouseMode.METADATA_UPDATE:
+        assert client.get_workflow_handle.return_value.result.await_count == len(signals)
 
 
 @pytest.mark.asyncio

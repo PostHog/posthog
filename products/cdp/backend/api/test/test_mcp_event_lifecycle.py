@@ -19,7 +19,7 @@ class TestMCPEventLifecycle(MCPEventServiceTestCase):
         subscription = self.subscribe()
         disabled = {"state": HogFunctionState.DISABLED.value}
         with (
-            patch("products.cdp.backend.mcp_events.reload_hog_functions_on_workers"),
+            patch("products.cdp.backend.tasks.mcp_events.reload_hog_functions_on_workers"),
             patch("products.cdp.backend.models.hog_functions.hog_function.get_hog_function_status") as read_status,
             patch("products.cdp.backend.models.hog_functions.hog_function.patch_hog_function_status") as write_status,
         ):
@@ -63,7 +63,7 @@ class TestMCPEventLifecycle(MCPEventServiceTestCase):
             subscription.save(update_fields=["expires_at"])
         with (
             patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers") as reload,
-            patch("products.cdp.backend.mcp_events.reload_hog_functions_on_workers", new=reload),
+            patch("products.cdp.backend.tasks.mcp_events.reload_hog_functions_on_workers", new=reload),
             patch("products.cdp.backend.models.hog_functions.hog_function.get_hog_function_status") as read_status,
         ):
             read_status.return_value.status_code = 200
