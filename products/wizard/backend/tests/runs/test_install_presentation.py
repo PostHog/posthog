@@ -130,15 +130,14 @@ class TestWizardInstallViewSet(APIBaseTest):
         self.assertEqual(status_response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(WizardRun.objects.for_team(self.team.id).count(), 1)
 
-    def test_start_requires_a_verified_email(self) -> None:
-        self.user.is_email_verified = False
+    @parameterized.expand([("pending", False), ("legacy", None)])
+    def test_start_allows_users_without_a_verified_email(self, _name: str, is_email_verified: bool | None) -> None:
+        self.user.is_email_verified = is_email_verified
         self.user.save()
 
-        response = self._start(idempotency_key="unverified")
+        response = self._start(idempotency_key=f"unverified-{_name}")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "email_not_verified")
-        self.assertFalse(WizardRun.objects.for_team(self.team.id).exists())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
 
     def test_start_allows_one_active_run_per_project(self) -> None:
         self._start(idempotency_key="first-user")

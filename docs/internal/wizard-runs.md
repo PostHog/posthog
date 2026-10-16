@@ -108,7 +108,6 @@ Start applies these guardrails on top of the per-user limits of the runs endpoin
 
 - One active cloud run per project, across all users.
 - At most 15 runs a day per user from OAuth access tokens, counted in the cache across all projects. Retries that return an existing run do not count.
-- A user whose email verification is pending is refused. Accounts from before email verification existed are allowed, the same as at login.
 - The AI gateway access rules are checked with the caller's IP, the same as browser-started cloud runs.
 
 ## Cloud execution

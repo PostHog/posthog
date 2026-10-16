@@ -7,7 +7,7 @@ import structlog
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -84,11 +84,6 @@ class WizardInstallViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         user = cast(User, request.user)
         self._require_install_available(user)
-        if user.is_email_verified is False:
-            raise PermissionDenied(
-                "Verify your email address to start a setup run. Check your inbox for the verification link.",
-                code="email_not_verified",
-            )
         refuse_blocked_gateway_identity(request, self.team.organization_id, call_site="wizard_install")
 
         try:
