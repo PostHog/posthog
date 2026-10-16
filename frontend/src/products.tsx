@@ -253,6 +253,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/identity-matching': ['IdentityMatching', 'identityMatching'],
     '/ai-enrichment': ['AIEnrichment', 'aiEnrichment'],
     '/ai-enrichment/:label': ['AIEnrichment', 'aiEnrichment'],
+    '/integrations/github/connect': ['GitHubConnect', 'githubConnect'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
     '/legal/new/:type': ['LegalDocumentNew', 'legalDocumentNew'],
     '/organization/legal': ['LegalDocuments', 'organizationLegalDocuments'],
@@ -990,6 +991,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'persons',
     },
     AIEnrichment: { name: 'AI enrichment', instanceLevel: true },
+    GitHubConnect: { name: 'Connect GitHub', projectBased: true, layout: 'plain' },
     LegalDocuments: {
         name: 'Legal documents',
         organizationBased: true,
@@ -1727,6 +1729,7 @@ export const productUrls = {
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
     identityMatching: (): string => '/identity-matching',
     aiEnrichment: (label?: string): string => `/ai-enrichment${label ? `/${encodeURIComponent(label)}` : ''}`,
+    githubConnect: (): string => '/integrations/github/connect',
     legalDocuments: (): string => '/legal',
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
     organizationLegalDocuments: (): string => '/organization/legal',
