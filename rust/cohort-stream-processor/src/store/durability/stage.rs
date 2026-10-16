@@ -12,6 +12,7 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, Utc};
 use metrics::counter;
 use rdkafka::error::{KafkaError, KafkaResult};
 use serde::{Deserialize, Serialize};
@@ -203,6 +204,12 @@ impl PendingRestore {
 
     pub fn source(&self) -> &RestoredFrom {
         &self.record.source
+    }
+
+    /// When the restored checkpoint read its positions. Every output version its source pod
+    /// emitted lies before it.
+    pub fn captured_at(&self) -> DateTime<Utc> {
+        self.record.manifest.captured_at()
     }
 
     /// Commits each follower's planned positions on the partitions `admitted` owns, with its stamp.

@@ -636,12 +636,12 @@ impl Instance {
 /// The ownership fence's admission of the split `config` names, which the processor runs before it
 /// opens the store.
 async fn admit(config: &Config, groups: &Arc<InputGroups>) -> AdmittedSplit {
-    let ownership = config
-        .partition_ownership()
+    let claim = config
+        .split_claim()
         .expect("the pod name ends in an ordinal");
     let groups = groups.clone();
     tokio::task::spawn_blocking(move || {
-        AdmittedSplit::try_admit(ownership, &groups).expect("the fence admits the split")
+        AdmittedSplit::try_admit(claim, &groups).expect("the fence admits the split")
     })
     .await
     .expect("the admission panicked")

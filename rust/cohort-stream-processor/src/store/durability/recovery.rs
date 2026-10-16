@@ -4,10 +4,12 @@
 //!
 //! 1. A leftover staging directory from a killed restore is deleted.
 //! 2. **Reopened.** An intact live store reopens. If it carries a restore marker, the restore it
-//!    published is still pending and resumes instead.
+//!    published is still pending and resumes instead. A reshard child that is taking its
+//!    partitions over discards a live store without a marker, because its parent advanced them.
 //! 3. With checkpoints enabled, candidates are tried newest first, the freshest local checkpoint
-//!    before S3. A candidate restores on any pod whose partitions its split covers. The first one
-//!    that publishes wins.
+//!    before S3. A reshard child that is taking over searches only its parent's S3 lineage. A
+//!    candidate restores on any pod whose partitions its split covers. The first one that
+//!    publishes wins.
 //! 4. **Created.** Nothing is restorable: no candidate, or only unusable ones. Every slice then
 //!    begins when its worker spawns, behind the coverage fence.
 //!
@@ -43,7 +45,7 @@ use crate::observability::metrics::{
     CHECKPOINT_RESTORE_BLOCKED, CHECKPOINT_RESTORE_CANDIDATES_TOTAL,
     CHECKPOINT_RESTORE_DURATION_SECONDS, CHECKPOINT_RESTORE_TOTAL,
 };
-use crate::partitions::{AdmittedSplit, InputGroups, InputTopic, PartitionOwnership};
+use crate::partitions::{AdmittedSplit, InputGroups, InputTopic, PartitionOwnership, StoreSource};
 use crate::store::{CohortStore, StoreError, STORE_SCHEMA_VERSION};
 
 const RETRY_START: Duration = Duration::from_secs(30);
@@ -200,8 +202,9 @@ impl Search {
 /// reset. A restore comes back with it, for the events consumer to finish before anything folds.
 ///
 /// A restore that cannot finish blocks here, retrying with backoff, until the operator fixes the
-/// cause or turns checkpoints off. `lineage` is `None` when checkpoints are disabled. The store
-/// refuses to open when it was written under a split that does not cover the one `admitted`.
+/// cause or turns checkpoints off. `lineage` is this pod's own, and `None` when checkpoints are
+/// disabled. The store refuses to open when it was written under a split that does not cover the
+/// one `admitted`.
 pub async fn open_store(
     config: &Config,
     admitted: &AdmittedSplit,
@@ -257,6 +260,7 @@ async fn restore_until_ready(
                 let started = Instant::now();
                 let attempt = match prepare_store(
                     &config,
+                    admitted.source(),
                     admitted.ownership(),
                     lineage,
                     groups.as_ref(),
@@ -269,7 +273,7 @@ async fn restore_until_ready(
                         // Another split can claim while the restore runs, so the boot's admission
                         // no longer covers the follower commits.
                         let admitted =
-                            AdmittedSplit::admit(admitted.ownership(), groups.clone()).await;
+                            AdmittedSplit::admit(admitted.split_claim(), groups.clone()).await;
                         pending
                             .position_followers(&groups, &admitted)
                             .map(|()| (BootStore::Restored(pending), source))
@@ -311,6 +315,7 @@ async fn restore_until_ready(
 /// Blocks on file and Kafka I/O; see [`restore_until_ready`].
 async fn prepare_store(
     config: &Config,
+    source: StoreSource,
     ownership: PartitionOwnership,
     lineage: Option<CheckpointLineage>,
     window: &impl ReplayWindow,
@@ -324,7 +329,18 @@ async fn prepare_store(
     if !config.effective_wipe_on_start() && live_store_is_intact(&live) {
         match PendingRestore::resume(&live, window, config.partition_count()) {
             Ok(Some(pending)) => return Ok((BootStore::Restored(Box::new(pending)), "pending")),
-            Ok(None) => return Ok((BootStore::Reopened, "reopen_live")),
+            Ok(None) => match source {
+                StoreSource::Own => return Ok((BootStore::Reopened, "reopen_live")),
+                StoreSource::TakeOver { parent } => {
+                    warn!(
+                        %parent,
+                        store = %live.display(),
+                        "taking the partitions over from the parent, which advanced them since this \
+                         store; deleting the store",
+                    );
+                    discard_live_store(&live, &stage).map_err(RestoreBlocked::Local)?;
+                }
+            },
             Err(ResumeError::Undecodable(err)) => {
                 warn!(
                     error = %err,
@@ -332,11 +348,7 @@ async fn prepare_store(
                     "the pending restore's marker is unreadable, so its positions are unknown; \
                      deleting the store and restoring again",
                 );
-                // Renamed first, because a deletion cut short could leave `CURRENT` without the
-                // marker, which would reopen at the broker's old offsets. The next boot deletes a
-                // leftover stage.
-                std::fs::rename(&live, &stage).map_err(RestoreBlocked::Local)?;
-                remove_dir_if_present(&stage).map_err(RestoreBlocked::Local)?;
+                discard_live_store(&live, &stage).map_err(RestoreBlocked::Local)?;
             }
             Err(ResumeError::Window(err)) => return Err(RestoreBlocked::Positions(err)),
             Err(ResumeError::Io(err)) => return Err(RestoreBlocked::Local(err)),
@@ -366,11 +378,19 @@ async fn prepare_store(
     };
     let mut search = Search::default();
 
-    let local = newest_fresh_local_checkpoint(
-        &local_dir,
-        durability.local_checkpoint_max_staleness,
-        searched_at,
-    );
+    // The local directory holds only this pod's own lineage.
+    let (searched, s3_label) = match source {
+        StoreSource::Own => (lineage, "s3"),
+        StoreSource::TakeOver { parent } => (CheckpointLineage::new(parent.ordinal()), "parent_s3"),
+    };
+    let local = match source {
+        StoreSource::Own => newest_fresh_local_checkpoint(
+            &local_dir,
+            durability.local_checkpoint_max_staleness,
+            searched_at,
+        ),
+        StoreSource::TakeOver { .. } => None,
+    };
     if let Some(attempt) = local {
         let verdict = match attempt {
             Ok(attempt) => restore.local(attempt)?,
@@ -381,7 +401,7 @@ async fn prepare_store(
         }
     }
 
-    let downloader = S3Downloader::new(&durability, lineage)
+    let downloader = S3Downloader::new(&durability, searched)
         .await
         .map_err(RestoreBlocked::Listing)?;
     let importer =
@@ -395,7 +415,7 @@ async fn prepare_store(
         )
         .await?
     {
-        return Ok((BootStore::Restored(pending), "s3"));
+        return Ok((BootStore::Restored(pending), s3_label));
     }
     search.conclude().map(|store| (store, "cold"))
 }
@@ -473,8 +493,8 @@ impl<W: ReplayWindow> Restore<'_, W> {
 
     /// Tries the S3 candidates newest first, up to `depth` of them. An unfinished upload does not
     /// count toward the depth, so a run of failed uploads cannot hide a complete one behind it.
-    /// Neither does a candidate whose split does not cover this pod, so checkpoints of another
-    /// split cannot hide a covering one behind them.
+    /// Neither does a candidate whose split does not cover this pod: a reshard child that starts
+    /// late passes over its parent's checkpoints from after the reshard.
     async fn search_s3(
         &mut self,
         importer: &CheckpointImporter,
@@ -660,6 +680,14 @@ impl<W: ReplayWindow> Restore<'_, W> {
         }?;
         sync_dir(parent_dir(&self.uploaded))
     }
+}
+
+/// Renames the live store to the stage before deleting it, because a deletion cut short could leave
+/// `CURRENT` without the marker, which would reopen at the broker's old offsets. The next boot
+/// deletes a leftover stage.
+fn discard_live_store(live: &Path, stage: &Path) -> io::Result<()> {
+    std::fs::rename(live, stage)?;
+    remove_dir_if_present(stage)
 }
 
 /// True when `path` is an opened RocksDB store: the directory holds `CURRENT`, RocksDB's manifest
@@ -1010,10 +1038,25 @@ mod tests {
         }
 
         async fn prepare(&self, window: &impl ReplayWindow) -> Result<BootStore, RestoreBlocked> {
+            self.prepare_from(
+                StoreSource::Own,
+                Some(CheckpointLineage::new(PodOrdinal::STANDALONE)),
+                window,
+            )
+            .await
+        }
+
+        async fn prepare_from(
+            &self,
+            source: StoreSource,
+            lineage: Option<CheckpointLineage>,
+            window: &impl ReplayWindow,
+        ) -> Result<BootStore, RestoreBlocked> {
             prepare_store(
                 &self.config,
+                source,
                 self.ownership,
-                Some(CheckpointLineage::new(PodOrdinal::STANDALONE)),
+                lineage,
                 window,
                 Utc::now(),
                 &mut HashSet::new(),
@@ -1118,8 +1161,8 @@ mod tests {
     #[tokio::test]
     async fn a_candidate_of_a_split_that_does_not_cover_this_pod_is_passed_over_outside_the_depth()
     {
-        // The newest checkpoint is of pod 0 of 2, which does not cover pod 1 of 2, and the one
-        // before is of pod 0 of 1, which does.
+        // Pod 1 of 2 restores its parent's lineage: the newest checkpoint is from after the
+        // reshard, under the parent's new split, and the one before is from the old split.
         let boot = Boot::of(split(2, 1));
         let mut objects = HashMap::new();
         let now = Utc::now();
@@ -1151,6 +1194,35 @@ mod tests {
         };
         assert_eq!(pending.source().checkpoint_id(), before_id);
         assert!(search.failed.is_empty(), "{:?}", search.failed);
+    }
+
+    #[tokio::test]
+    async fn a_takeover_deletes_a_live_store_but_resumes_a_pending_restore() {
+        let takeover = StoreSource::TakeOver {
+            parent: PartitionOwnership::single(1),
+        };
+
+        let boot = Boot::new();
+        drop(CohortStore::open(&StoreConfig {
+            path: boot.live(),
+            ..StoreConfig::default()
+        }));
+        assert!(matches!(
+            boot.prepare_from(takeover, None, &window()).await,
+            Ok(BootStore::Created)
+        ));
+        assert!(!boot.live().exists(), "the parent advanced what it holds");
+
+        let boot = Boot::new();
+        boot.local_checkpoint();
+        let Ok(BootStore::Restored(published)) = boot.prepare(&window()).await else {
+            panic!("a fresh local checkpoint restores");
+        };
+        let Ok(BootStore::Restored(resumed)) = boot.prepare_from(takeover, None, &window()).await
+        else {
+            panic!("a restore the takeover published resumes");
+        };
+        assert_eq!(resumed.source(), published.source());
     }
 
     #[tokio::test(start_paused = true)]

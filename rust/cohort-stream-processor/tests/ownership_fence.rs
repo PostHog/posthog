@@ -1,5 +1,6 @@
 //! The ownership fence against a **real** Kafka broker: commit stamps round-trip on every input
-//! group, and the run-time audit stops a pod when another split commits one of its partitions.
+//! group, a pod of another split waits until the split is consistent, and the run-time audit stops
+//! a pod when another split commits one of its partitions.
 //!
 //! `#[ignore]`d by default: the fence reads Kafka commit metadata, which the in-process
 //! `MockCluster` does not keep. Run against a local stack with:
@@ -18,8 +19,8 @@ use std::time::Duration;
 
 use cohort_stream_processor::config::Config;
 use cohort_stream_processor::partitions::{
-    AdmittedSplit, Committed, InputGroups, OwnershipAudit, PartitionOwnership, PositionsError,
-    ResumeOffset, Stamp,
+    AdmittedSplit, Committed, FenceBlock, FenceError, InputGroups, OwnershipAudit,
+    PartitionOwnership, PositionsError, ResumeOffset, SplitClaim, Stamp, StoreSource,
 };
 use cohort_stream_processor::store::durability::PodOrdinal;
 use cohort_stream_processor::sweep::Sweeper;
@@ -44,6 +45,10 @@ fn split(pods: u16, ordinal: u16) -> PartitionOwnership {
         PARTITIONS,
     )
     .unwrap()
+}
+
+fn claim(pods: u16, ordinal: u16, reshard_from: Option<u16>) -> SplitClaim {
+    SplitClaim::new(split(pods, ordinal), reshard_from.and_then(NonZeroU16::new)).unwrap()
 }
 
 /// The test's own events, merges and transfers topics, each read through its own group.
@@ -162,9 +167,11 @@ async fn commit_stamps_round_trip_on_every_group() {
     );
     assert_eq!(events.commits()[&0], Committed::Never);
 
-    let admitted =
-        AdmittedSplit::try_admit(split(1, 0), &groups).expect("a commit without a stamp admits");
-    let stale = AdmittedSplit::try_admit(split(2, 0), &groups).expect("nothing is stamped yet");
+    let admitted = AdmittedSplit::try_admit(claim(1, 0, None), &groups)
+        .expect("a commit without a stamp admits");
+    assert_eq!(admitted.source(), StoreSource::Own);
+    let stale =
+        AdmittedSplit::try_admit(claim(2, 0, None), &groups).expect("nothing is stamped yet");
     admitted
         .claim(&groups)
         .expect("the claim reads its stamps back");
@@ -198,6 +205,50 @@ async fn commit_stamps_round_trip_on_every_group() {
     inputs.delete().await;
 }
 
+/// A pod of a new split waits while the old split's stamps say its pods may still run. Without a
+/// reshard marker it never admits. With one, it waits until its parent restarts under the new split,
+/// then takes the partitions over, and after its own claim it keeps what it took over.
+#[tokio::test]
+#[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
+async fn a_pod_of_another_split_waits_until_the_split_is_consistent() {
+    let inputs = Inputs::create().await;
+    let groups = inputs.groups();
+    let admit = |claim| AdmittedSplit::try_admit(claim, &groups);
+    admit(claim(1, 0, None))
+        .unwrap()
+        .claim(&groups)
+        .expect("the single pod claims every partition");
+
+    assert!(matches!(
+        admit(claim(2, 1, None)),
+        Err(FenceError::Blocked(FenceBlock::ForeignSplit { found, .. })) if found == split(1, 0)
+    ));
+    assert!(matches!(
+        admit(claim(2, 1, Some(1))),
+        Err(FenceError::Blocked(FenceBlock::ParentRunning { parent })) if parent == split(1, 0)
+    ));
+
+    let parent = admit(claim(2, 0, Some(1))).expect("the parent admits over its own stamps");
+    assert_eq!(parent.source(), StoreSource::Own);
+    parent.claim(&groups).unwrap();
+
+    let child = admit(claim(2, 1, Some(1))).expect("the parent restarted under the new split");
+    assert_eq!(
+        child.source(),
+        StoreSource::TakeOver {
+            parent: split(1, 0)
+        }
+    );
+    child.claim(&groups).unwrap();
+    assert_eq!(
+        admit(claim(2, 1, Some(1))).unwrap().source(),
+        StoreSource::Own,
+        "a child that restarts after its claim finished its takeover",
+    );
+
+    inputs.delete().await;
+}
+
 /// The audit lets a commit without a stamp pass, as an operator's offset reset writes one, and stops
 /// the pod when another split commits one of its partitions. It also revokes the pod's commits, so
 /// the final commits of the stop cannot cover the foreign stamp, and the next boot holds. A
@@ -207,7 +258,7 @@ async fn commit_stamps_round_trip_on_every_group() {
 async fn the_audit_stops_a_pod_whose_partition_another_split_commits() {
     let inputs = Inputs::create().await;
     let groups = inputs.groups();
-    let claimed = AdmittedSplit::try_admit(split(1, 0), &groups)
+    let claimed = AdmittedSplit::try_admit(claim(1, 0, None), &groups)
         .unwrap()
         .claim(&groups)
         .unwrap();
@@ -252,7 +303,7 @@ async fn the_audit_stops_a_pod_whose_partition_another_split_commits() {
         .commit(&committer(&inputs.merges_group()), CommitMode::Sync);
     assert!(final_commit.is_err(), "the audit revokes the pod's commits");
     assert!(
-        AdmittedSplit::try_admit(split(1, 0), &groups).is_err(),
+        AdmittedSplit::try_admit(claim(1, 0, None), &groups).is_err(),
         "the next boot holds in the fence",
     );
     let captured = groups.owned_positions(&claimed, &every_partition());

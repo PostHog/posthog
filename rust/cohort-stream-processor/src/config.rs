@@ -13,7 +13,7 @@ use rdkafka::ClientConfig;
 use tracing::warn;
 
 use crate::partitions::pacing::{AgeMs, Hysteresis, SeedPacingConfig, UsedPct};
-use crate::partitions::PartitionOwnership;
+use crate::partitions::{PartitionOwnership, SplitClaim};
 use crate::store::durability::stage::staging_path;
 use crate::store::durability::{CheckpointLineage, DurabilityConfig, NotAnOrdinalPod, PodOrdinal};
 use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
@@ -331,6 +331,12 @@ pub struct Config {
     /// `COHORT_PARTITION_COUNT`. Set it with the StatefulSet's replica count.
     #[envconfig(from = "COHORT_POD_COUNT", default = "1")]
     pub cohort_pod_count: NonZeroU16,
+
+    /// The pod count before a reshard, which must divide `COHORT_POD_COUNT`. While it is set, each
+    /// pod whose ordinal is below it keeps its store, and every other pod takes its partitions over
+    /// from the pod that owned them. Remove it once the reshard is done.
+    #[envconfig(from = "COHORT_RESHARD_FROM_POD_COUNT")]
+    pub cohort_reshard_from_pod_count: Option<NonZeroU16>,
 
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
@@ -1043,10 +1049,20 @@ impl Config {
         ))
     }
 
-    /// The partitions this pod owns: pod `ordinal` of `COHORT_POD_COUNT`, over
-    /// `COHORT_PARTITION_COUNT` partitions. Only a single pod may run without `POD_NAME`: every
-    /// pod without it would take ordinal 0, and they would all own the same partitions.
-    pub fn partition_ownership(&self) -> anyhow::Result<PartitionOwnership> {
+    /// This pod's split and its place in a reshard: pod `ordinal` of `COHORT_POD_COUNT`, over
+    /// `COHORT_PARTITION_COUNT` partitions, resharded from `COHORT_RESHARD_FROM_POD_COUNT` pods
+    /// when that is set.
+    pub fn split_claim(&self) -> anyhow::Result<SplitClaim> {
+        SplitClaim::new(
+            self.partition_ownership()?,
+            self.cohort_reshard_from_pod_count,
+        )
+        .context("COHORT_RESHARD_FROM_POD_COUNT must divide COHORT_POD_COUNT and be below it")
+    }
+
+    /// The partitions this pod owns. Only a single pod may run without `POD_NAME`: every pod
+    /// without it would take ordinal 0, and they would all own the same partitions.
+    fn partition_ownership(&self) -> anyhow::Result<PartitionOwnership> {
         let ordinal = match self
             .pod_ordinal()
             .context("POD_NAME must end in a StatefulSet ordinal, or be unset outside Kubernetes")?
@@ -1314,6 +1330,7 @@ mod tests {
             kafka_cascade_consumer_group: "cohort-stream-cascade".to_string(),
             pod_name: None,
             cohort_pod_count: NonZeroU16::MIN,
+            cohort_reshard_from_pod_count: None,
             pod_hostname: None,
             cohort_membership_changed_topic: "cohort_membership_changed_shadow".to_string(),
             cohort_reconcile_markers_topic: "cohort_reconcile_markers".to_string(),
@@ -1697,9 +1714,9 @@ mod tests {
     }
 
     #[test]
-    fn partition_ownership_comes_from_the_pod_count_and_the_pod_name_ordinal() {
+    fn the_split_claim_comes_from_the_pod_count_the_pod_name_ordinal_and_the_reshard_marker() {
         type Env = &'static [(&'static str, &'static str)];
-        let cases: [(Env, Result<&str, &str>); 6] = [
+        let cases: [(Env, Result<&str, &str>); 8] = [
             (&[], Ok("pod 0 of 1 over 64 partitions")),
             (
                 &[
@@ -1724,19 +1741,35 @@ mod tests {
                 Err("not below"),
             ),
             (&[("POD_NAME", "cohort-stream-processor")], Err("POD_NAME")),
+            (
+                &[
+                    ("COHORT_POD_COUNT", "2"),
+                    ("COHORT_RESHARD_FROM_POD_COUNT", "1"),
+                    ("POD_NAME", "cohort-stream-processor-1"),
+                ],
+                Ok("pod 1 of 2 over 64 partitions, taking over from pod 0 of 1 over 64 partitions"),
+            ),
+            (
+                &[
+                    ("COHORT_POD_COUNT", "2"),
+                    ("COHORT_RESHARD_FROM_POD_COUNT", "4"),
+                    ("POD_NAME", "cohort-stream-processor-1"),
+                ],
+                Err("must raise the pod count"),
+            ),
         ];
         for (env, expected) in cases {
             let env = env
                 .iter()
                 .map(|&(key, value)| (key.to_string(), value.to_string()))
                 .collect();
-            let ownership = Config::init_from_hashmap(&env)
+            let claim = Config::init_from_hashmap(&env)
                 .unwrap()
-                .partition_ownership()
-                .map(|ownership| ownership.to_string())
+                .split_claim()
+                .map(|claim| claim.to_string())
                 .map_err(|err| format!("{err:#}"));
-            match (ownership, expected) {
-                (Ok(ownership), Ok(expected)) => assert_eq!(ownership, expected, "{env:?}"),
+            match (claim, expected) {
+                (Ok(claim), Ok(expected)) => assert_eq!(claim, expected, "{env:?}"),
                 (Err(err), Err(expected)) => assert!(err.contains(expected), "{env:?}: {err}"),
                 (actual, expected) => panic!("{env:?}: got {actual:?}, expected {expected:?}"),
             }

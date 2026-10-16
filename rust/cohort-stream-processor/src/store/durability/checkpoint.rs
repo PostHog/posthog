@@ -182,6 +182,10 @@ enum UploadKind<'a> {
 #[derive(Debug, PartialEq)]
 enum FullReason {
     NoBaseline,
+    /// The baseline went up under another lineage: a reshard child restored its parent's
+    /// checkpoint. An incremental chain would name objects in the parent's prefix, which the parent
+    /// prunes and expires on its own.
+    OtherLineage,
     /// A created store restarts SST numbering, so a file name from another DB names other data.
     OtherDb,
     /// The chain is older than the full-upload interval, which bounds the age of what a restore
@@ -208,12 +212,16 @@ impl UploadKind<'_> {
 fn upload_kind<'a>(
     baseline: Option<&'a CheckpointMetadata>,
     db: &DbIdentity,
+    lineage: CheckpointLineage,
     now: DateTime<Utc>,
     full_max_age: Duration,
 ) -> UploadKind<'a> {
     let Some(baseline) = baseline else {
         return UploadKind::Full(FullReason::NoBaseline);
     };
+    if baseline.ordinal != lineage.ordinal() {
+        return UploadKind::Full(FullReason::OtherLineage);
+    }
     if &baseline.db_identity != db {
         return UploadKind::Full(FullReason::OtherDb);
     }
@@ -244,7 +252,7 @@ pub struct CheckpointSweeper {
 
 impl CheckpointSweeper {
     /// The first baseline is the lineage's `uploaded.json` when it went to the configured bucket.
-    /// [`upload_kind`] uses it only for the same DB.
+    /// [`upload_kind`] uses it only for the same lineage and DB.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: CohortStore,
@@ -429,6 +437,7 @@ impl CheckpointSweeper {
         let kind = upload_kind(
             baseline.as_ref(),
             &db,
+            self.lineage,
             attempt_timestamp,
             self.config.full_upload_interval,
         );
@@ -716,10 +725,12 @@ mod tests {
     }
 
     #[test]
-    fn an_upload_builds_on_its_baseline_only_for_the_same_db_and_bucket_and_a_young_chain() {
+    fn an_upload_builds_on_its_baseline_only_for_the_same_lineage_db_and_bucket_and_a_young_chain()
+    {
         let now = Utc::now();
         let day = Duration::from_secs(86_400);
         let db = DbIdentity::for_test("db-a");
+        let lineage = CheckpointLineage::new(PodOrdinal::STANDALONE);
         let chain_started = |age: chrono::Duration, db: &str| {
             let mut baseline = CheckpointMetadata::new(
                 PodOrdinal::STANDALONE,
@@ -735,23 +746,34 @@ mod tests {
         let other_db = chain_started(chrono::Duration::hours(1), "db-b");
 
         assert_eq!(
-            upload_kind(None, &db, now, day),
+            upload_kind(None, &db, lineage, now, day),
             UploadKind::Full(FullReason::NoBaseline)
         );
+        // A reshard child's restored store keeps its parent's DB id.
         assert_eq!(
-            upload_kind(Some(&other_db), &db, now, day),
+            upload_kind(
+                Some(&young),
+                &db,
+                CheckpointLineage::new(PodOrdinal::from(1)),
+                now,
+                day
+            ),
+            UploadKind::Full(FullReason::OtherLineage)
+        );
+        assert_eq!(
+            upload_kind(Some(&other_db), &db, lineage, now, day),
             UploadKind::Full(FullReason::OtherDb)
         );
         assert_eq!(
-            upload_kind(Some(&expired), &db, now, day),
+            upload_kind(Some(&expired), &db, lineage, now, day),
             UploadKind::Full(FullReason::ChainExpired)
         );
         assert_eq!(
-            upload_kind(Some(&at_limit), &db, now, day),
+            upload_kind(Some(&at_limit), &db, lineage, now, day),
             UploadKind::Incremental(&at_limit)
         );
         assert_eq!(
-            upload_kind(Some(&young), &db, now, day),
+            upload_kind(Some(&young), &db, lineage, now, day),
             UploadKind::Incremental(&young)
         );
 
