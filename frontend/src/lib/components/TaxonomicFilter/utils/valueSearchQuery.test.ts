@@ -12,9 +12,12 @@ describe('value search queries', () => {
         ['https:', false, true],
         ['HTTPS://', false, true],
         ['www.', false, true],
-        ['example.com', false, true],
+        ['example.com', true, true],
+        ['mail.example.com', true, true],
         ['example.com:8080', false, true],
-        ['  example.com  ', false, true],
+        ['https://example.com', false, true],
+        ['example.com/path', false, true],
+        ['  example.com  ', true, true],
         ['a sentence with example.com', false, false],
     ])('recognizes %s as email=%s and URL=%s', (query, emailLike, urlLike) => {
         expect(isEmailLikeSearch(query)).toBe(emailLike)

@@ -111,6 +111,7 @@ describe('infiniteListLogic', () => {
     it.each([
         [TaxonomicFilterGroupType.EmailAddresses, 'sample', true, false],
         [TaxonomicFilterGroupType.EmailAddresses, 'sample@', true, true],
+        [TaxonomicFilterGroupType.EmailAddresses, 'example.com', true, true],
         [TaxonomicFilterGroupType.EmailAddresses, 'a@', true, false],
         [TaxonomicFilterGroupType.PageviewUrls, 'overview', true, false],
         [TaxonomicFilterGroupType.PageviewUrls, '/overview', true, true],

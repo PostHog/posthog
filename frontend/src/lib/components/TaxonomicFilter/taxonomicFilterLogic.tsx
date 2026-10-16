@@ -1946,7 +1946,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         shouldSearch: featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]
                             ? isEmailLikeSearch
                             : undefined,
-                        searchQueryHint: 'Search for an email address using @.',
+                        searchQueryHint: 'Search for an email address or domain.',
                         searchDescription: 'email addresses seen in person properties',
                     },
                     {

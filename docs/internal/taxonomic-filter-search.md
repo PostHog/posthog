@@ -6,7 +6,7 @@ The classic picker shows its active category in the search input. A person can d
 
 The rail starts undocked. `taxonomic filter category rail toggled` records whether it is docked. `taxonomic filter closed` records the final `categoryRailDocked` state so reports can show which people keep the rail docked.
 
-With `taxonomic-filter-value-search-gating` enabled, email value searches require `@`. Pageview URL and pageview event value searches require URL-like text: a path, an HTTP prefix, a `www.` prefix, or a domain. Existing minimum query lengths still apply. These rules affect remote value searches; property-name searches, cached recents, and pins remain available. A rejected query sends no request and clears earlier remote results.
+With `taxonomic-filter-value-search-gating` enabled, email value searches require `@` or domain-like text, such as `example.com`. Pageview URL and pageview event value searches require URL-like text: a path, an HTTP prefix, a `www.` prefix, or a domain. Existing minimum query lengths still apply. These rules affect remote value searches; property-name searches, cached recents, and pins remain available. A rejected query sends no request and clears earlier remote results.
 
 A category shows results for the current query only. It clears its earlier rows when the current query cannot fetch, such as a query below the category minimum length or a request that failed.
 A failed search with no usable matches shows an error in the classic picker and the rebuilt menu.

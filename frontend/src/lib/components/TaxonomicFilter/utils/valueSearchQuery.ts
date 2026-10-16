@@ -1,5 +1,5 @@
 export function isEmailLikeSearch(query: string): boolean {
-    return query.includes('@')
+    return query.includes('@') || /^[^@\s/:]+\.[a-z][^@\s/:]*$/i.test(query.trim())
 }
 
 export function isUrlLikeSearch(query: string): boolean {

@@ -1045,7 +1045,7 @@ describe('MenuFilterCombobox', () => {
     })
 
     it.each([
-        [TaxonomicFilterGroupType.EmailAddresses, 'Search for an email address using @.'],
+        [TaxonomicFilterGroupType.EmailAddresses, 'Search for an email address or domain.'],
         [TaxonomicFilterGroupType.PageviewUrls, 'Search for a URL, domain, or path.'],
         [TaxonomicFilterGroupType.PageviewEvents, 'Search for a URL, domain, or path.'],
     ])('explains a skipped value search in %s', async (groupType, hint) => {
