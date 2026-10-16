@@ -930,6 +930,14 @@ class ScoutFleetSyncQuerySerializer(serializers.Serializer):
 class RecentRunsPerScoutQuerySerializer(serializers.Serializer):
     """Query parameters for the `recent-per-scout` action."""
 
+    skill_name = serializers.CharField(
+        required=False,
+        max_length=255,
+        help_text=(
+            "Return only this scout's runs. Omit to cover every configured scout. A single-scout "
+            "page passes it so it does not wait on the probes of the rest of the fleet."
+        ),
+    )
     per_scout_limit = serializers.IntegerField(
         required=False,
         min_value=1,
