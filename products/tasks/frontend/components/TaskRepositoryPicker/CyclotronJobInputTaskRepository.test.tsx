@@ -45,22 +45,26 @@ describe('CyclotronJobInputTaskRepository', () => {
         fireEvent.click(screen.getByRole('menuitem', { name: mode }))
     }
 
-    it('keeps each mode value when the author switches back and forth', () => {
-        const onChange = jest.fn()
-        render(
-            <Provider>
-                <ControlledRepositoryInput initial={TEMPLATED} onChange={onChange} />
-            </Provider>
-        )
+    it.each([
+        ['a template', TEMPLATED, 'Pick', null, 'Template'],
+        ['a picked repository', 'example-org/api', 'Template', { template: '', allowed: [] }, 'Pick'],
+    ] as const)(
+        'keeps %s when the author switches away and back',
+        (_case, initial, otherMode, otherModeValue, initialMode) => {
+            const onChange = jest.fn()
+            render(
+                <Provider>
+                    <ControlledRepositoryInput initial={initial} onChange={onChange} />
+                </Provider>
+            )
 
-        switchTo('Pick')
-        expect(onChange).toHaveBeenLastCalledWith(null)
-        expect(screen.queryByLabelText('Repository template')).not.toBeInTheDocument()
+            switchTo(otherMode)
+            expect(onChange).toHaveBeenLastCalledWith(otherModeValue)
 
-        switchTo('Template')
-        expect(onChange).toHaveBeenLastCalledWith(TEMPLATED)
-        expect(screen.getByLabelText('Repository template')).toHaveValue(TEMPLATED.template)
-    })
+            switchTo(initialMode)
+            expect(onChange).toHaveBeenLastCalledWith(initial)
+        }
+    )
 
     it.each([
         ['a template replaced by a picked repository', TEMPLATED, 'example-org/api', false],

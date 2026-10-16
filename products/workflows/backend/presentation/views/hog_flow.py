@@ -1385,8 +1385,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     "inputs": {
                         "repository": (
                             "No GitHub installation in this project reaches these repositories: "
-                            f"{', '.join(unreached)}. Refresh the repository list in the picker, or reconnect "
-                            "GitHub, then save again."
+                            f"{', '.join(unreached)}. Give the PostHog GitHub app access to them, or reconnect "
+                            "GitHub. Repository lists update within an hour, so try saving again later."
                         )
                     }
                 }

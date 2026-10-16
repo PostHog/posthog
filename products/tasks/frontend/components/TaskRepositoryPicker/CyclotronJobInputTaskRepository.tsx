@@ -63,7 +63,7 @@ export default function CyclotronJobInputTaskRepository({
                     />
                 )}
             </div>
-            {mode === 'template' && (
+            {isTemplatedRepository(value) && (
                 <TaskRepositoryTemplateEditor
                     value={value}
                     onChange={onChange}
