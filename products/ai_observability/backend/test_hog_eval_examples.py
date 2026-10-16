@@ -301,6 +301,26 @@ class TestHogEvalExamplesBehavior:
             ),
             ("empty_openai", "Empty or failed output", [{"message": {"role": "assistant", "content": ""}}], False),
             ("empty_otel_parts", "Empty or failed output", [{"role": "assistant", "parts": []}], False),
+            (
+                "json_string_encoded_prose",
+                "Valid JSON output",
+                '[{"role": "assistant", "content": "Here you go"}]',
+                False,
+            ),
+            (
+                "json_string_encoded_json_reply",
+                "Valid JSON output",
+                '[{"role": "assistant", "content": "{\\"ok\\": true}"}]',
+                True,
+            ),
+            (
+                "json_string_encoded_element",
+                "Valid JSON output",
+                ['{"role": "assistant", "content": "Here you go"}'],
+                False,
+            ),
+            ("json_string_reply_that_is_json", "Valid JSON output", "[1, 2]", True),
+            ("empty_string_encoded", "Empty or failed output", '[{"role": "assistant", "content": ""}]', False),
             ("json_structured_with_type_key", "Valid JSON output", [{"type": "invoice", "amount": 10}], True),
             ("non_empty_structured_with_type_key", "Empty or failed output", [{"type": "invoice", "amount": 10}], True),
             (

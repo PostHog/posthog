@@ -179,17 +179,45 @@ def _reply_text_from_content(content: Any) -> str:
     return ""
 
 
+def _is_provider_message(item: Any) -> bool:
+    """Whether a decoded value is unmistakably a provider message or SDK item, not a reply that is JSON."""
+    if not isinstance(item, dict):
+        return False
+    return isinstance(item.get("message"), dict) or _str_value(item.get("role")) is not None or _is_non_reply_item(item)
+
+
+def _decode_provider_messages(value: str) -> Any:
+    """Decode output an SDK sent as a JSON string, but only when it holds provider messages.
+
+    A reply that is itself JSON, such as `[1, 2]` or `{"content": "abc"}`, stays a string.
+    """
+    try:
+        decoded = json.loads(value)
+    except (ValueError, TypeError):
+        return None
+    items = decoded["choices"] if isinstance(decoded, dict) and isinstance(decoded.get("choices"), list) else decoded
+    if not isinstance(items, list):
+        items = [items]
+    return decoded if any(_is_provider_message(item) for item in items) else None
+
+
 def _extract_hog_reply_text(output: Any) -> str:
     """The text of the model's reply alone, without reasoning, tool calls, tool results, or role labels.
 
     `output_text` keeps all of those because LLM judges read it as a conversation. Checks on the
     reply itself, such as "is this valid JSON" or "is it empty", need the reply on its own.
     """
+    if isinstance(output, str):
+        output = _decode_provider_messages(output) or output
     if isinstance(output, dict) and isinstance(output.get("choices"), list):
         output = output["choices"]
 
     replies: list[str] = []
     for choice in output if isinstance(output, list) else [output]:
+        if isinstance(choice, str):
+            decoded = _decode_provider_messages(choice)
+            if isinstance(decoded, dict):
+                choice = decoded
         if not isinstance(choice, dict):
             text = _scalar_text(choice)
             replies.append(text if text is not None else coerce_hog_io_value(choice))
