@@ -300,32 +300,42 @@
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.27]
   '''
   
-  SELECT distinct_id as team,
-         sum(toInt64OrZero(ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)), if(ascii(toString(properties.count)) IN (91, 123)
-                                                                                                                                                                                                                                                                                                                                                              AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count)), '[]'), '{}'), toString(properties.count))), ''))) as sum
-  FROM events_json
-  WHERE team_id = 99999
-    AND event='decide usage'
-    AND timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
-    AND has(['correct'], ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)), if(ascii(toString(properties.token)) IN (91, 123)
-                                                                                                                                                                                                                                                                                                                                                            AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token)), '[]'), '{}'), toString(properties.token))), ''))
+  SELECT team,
+         sum(request_count) as sum
+  FROM
+    (SELECT DISTINCT distinct_id as team,
+                     uuid,
+                     toDate(timestamp),
+                     toInt64OrZero(ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)), if(ascii(toString(properties.count)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                                      AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count)), '[]'), '{}'), toString(properties.count))), '')) as request_count
+     FROM events_json
+     WHERE team_id = 99999
+       AND event='decide usage'
+       AND timestamp >= '2022-01-10 00:00:00'
+       AND timestamp < '2022-01-10 23:59:59'
+       AND has(['correct'], ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)), if(ascii(toString(properties.token)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                               AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token)), '[]'), '{}'), toString(properties.token))), '')))
   GROUP BY team
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.28]
   '''
   
-  SELECT distinct_id as team,
-         sum(toInt64OrZero(ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)), if(ascii(toString(properties.count)) IN (91, 123)
-                                                                                                                                                                                                                                                                                                                                                              AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count)), '[]'), '{}'), toString(properties.count))), ''))) as sum
-  FROM events_json
-  WHERE team_id = 99999
-    AND event='local evaluation usage'
-    AND timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
-    AND has(['correct'], ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)), if(ascii(toString(properties.token)) IN (91, 123)
-                                                                                                                                                                                                                                                                                                                                                            AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token)), '[]'), '{}'), toString(properties.token))), ''))
+  SELECT team,
+         sum(request_count) as sum
+  FROM
+    (SELECT DISTINCT distinct_id as team,
+                     uuid,
+                     toDate(timestamp),
+                     toInt64OrZero(ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^count), '\\/', '/'), toJSONString(properties.^count)), if(ascii(toString(properties.count)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                                      AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.count), '\\/', '/'), toJSONString(properties.count)), '[]'), '{}'), toString(properties.count))), '')) as request_count
+     FROM events_json
+     WHERE team_id = 99999
+       AND event='local evaluation usage'
+       AND timestamp >= '2022-01-10 00:00:00'
+       AND timestamp < '2022-01-10 23:59:59'
+       AND has(['correct'], ifNull(if(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)) != '{}', if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.^token), '\\/', '/'), toJSONString(properties.^token)), if(ascii(toString(properties.token)) IN (91, 123)
+                                                                                                                                                                                                                                                                                                                                                               AND ascii(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token))) IN (91, 123), nullIf(nullIf(if(getSetting('output_format_json_escape_forward_slashes'), replaceAll(toJSONString(properties.token), '\\/', '/'), toJSONString(properties.token)), '[]'), '{}'), toString(properties.token))), '')))
   GROUP BY team
   '''
 # ---

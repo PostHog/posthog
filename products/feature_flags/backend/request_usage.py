@@ -104,17 +104,20 @@ def query_feature_flag_request_usage(
         # nosemgrep: clickhouse-fstring-param-audit - bucket function and table expressions are internal fragments
         rows = sync_execute(
             f"""
-            SELECT
-                {bucket_function}(timestamp) AS bucket,
-                if(event = %(decide_event)s, 'remote_evaluation', 'local_evaluation') AS request_type,
-                toInt64OrZero({count_expr}) AS total_count,
-                {sdk_breakdown_expr} AS sdk_breakdown
-            FROM {events_read_table(use_new)}
-            WHERE team_id = %(internal_team_id)s
-              AND distinct_id = toString(%(team_id)s)
-              AND event IN (%(decide_event)s, %(local_event)s)
-              AND timestamp >= %(date_from)s AND timestamp < %(date_to)s
-              AND has([%(validity_token)s], {token_expr})
+            SELECT bucket, request_type, total_count, sdk_breakdown
+            FROM (
+                SELECT DISTINCT uuid, toDate(timestamp),
+                    {bucket_function}(timestamp) AS bucket,
+                    if(event = %(decide_event)s, 'remote_evaluation', 'local_evaluation') AS request_type,
+                    toInt64OrZero({count_expr}) AS total_count,
+                    {sdk_breakdown_expr} AS sdk_breakdown
+                FROM {events_read_table(use_new)}
+                WHERE team_id = %(internal_team_id)s
+                  AND distinct_id = toString(%(team_id)s)
+                  AND event IN (%(decide_event)s, %(local_event)s)
+                  AND timestamp >= %(date_from)s AND timestamp < %(date_to)s
+                  AND has([%(validity_token)s], {token_expr})
+            )
             ORDER BY bucket, request_type
             """,
             {

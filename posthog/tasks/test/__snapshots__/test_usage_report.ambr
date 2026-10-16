@@ -402,28 +402,38 @@
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.31
   '''
   
-  SELECT distinct_id as team,
-         sum(toInt64OrZero(replaceRegexpAll(JSONExtractRaw(properties, 'count'), '^"|"$', ''))) as sum
-  FROM events
-  WHERE team_id = 99999
-    AND event='decide usage'
-    AND timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
-    AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
+  SELECT team,
+         sum(request_count) as sum
+  FROM
+    (SELECT DISTINCT distinct_id as team,
+                     uuid,
+                     toDate(timestamp),
+                     toInt64OrZero(replaceRegexpAll(JSONExtractRaw(properties, 'count'), '^"|"$', '')) as request_count
+     FROM events
+     WHERE team_id = 99999
+       AND event='decide usage'
+       AND timestamp >= '2022-01-10 00:00:00'
+       AND timestamp < '2022-01-10 23:59:59'
+       AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', '')))
   GROUP BY team
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.32
   '''
   
-  SELECT distinct_id as team,
-         sum(toInt64OrZero(replaceRegexpAll(JSONExtractRaw(properties, 'count'), '^"|"$', ''))) as sum
-  FROM events
-  WHERE team_id = 99999
-    AND event='local evaluation usage'
-    AND timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
-    AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
+  SELECT team,
+         sum(request_count) as sum
+  FROM
+    (SELECT DISTINCT distinct_id as team,
+                     uuid,
+                     toDate(timestamp),
+                     toInt64OrZero(replaceRegexpAll(JSONExtractRaw(properties, 'count'), '^"|"$', '')) as request_count
+     FROM events
+     WHERE team_id = 99999
+       AND event='local evaluation usage'
+       AND timestamp >= '2022-01-10 00:00:00'
+       AND timestamp < '2022-01-10 23:59:59'
+       AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', '')))
   GROUP BY team
   '''
 # ---
