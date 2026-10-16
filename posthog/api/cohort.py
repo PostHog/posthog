@@ -382,6 +382,15 @@ SINGLE_VALUE_OPERATORS = (
     "not_icontains",
     *STRING_PREFIX_SUFFIX_OPERATORS,
     *DATE_OPERATORS,
+    "semver_eq",
+    "semver_neq",
+    "semver_gt",
+    "semver_gte",
+    "semver_lt",
+    "semver_lte",
+    "semver_tilde",
+    "semver_caret",
+    "semver_wildcard",
 )
 
 # Filter variants that inherit PersonValueValidationMixin, and so store an unwrapped value.
