@@ -300,7 +300,7 @@ class PostHogCodeRepoCascadeOutcome:
     reason: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class SlackRepoSelectionOutcome:
     """Discovery-agent result wrapped at the activity boundary.
 
