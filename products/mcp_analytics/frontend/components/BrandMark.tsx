@@ -25,7 +25,7 @@ const ICON_MARKS: Record<
 }
 
 function isIconMark(name: string): name is IconMarkName {
-    return name in ICON_MARKS
+    return Object.prototype.hasOwnProperty.call(ICON_MARKS, name)
 }
 
 // Pass a label only when the mark stands alone. Next to a visible name, an unlabelled mark stays hidden
@@ -42,7 +42,7 @@ export function BrandMark({
 }): JSX.Element {
     const a11y = label ? ({ role: 'img', 'aria-label': label } as const) : ({ 'aria-hidden': true } as const)
     let mark: JSX.Element
-    if (isIconMark(name) || !(name in BRAND_MARKS)) {
+    if (isIconMark(name) || !Object.prototype.hasOwnProperty.call(BRAND_MARKS, name)) {
         const { Icon, className: iconClassName, outline } = ICON_MARKS[isIconMark(name) ? name : 'Other harnesses']
         mark = <Icon className={cn('shrink-0', iconClassName, className)} {...a11y} {...outline} />
     } else {

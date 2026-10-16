@@ -63,13 +63,25 @@ describe('HogQLX', () => {
     })
 
     describe('render', () => {
-        it.each(['Claude', 'Unknown mark'])('renders a query label with %s mark', (mark) => {
-            const { container } = render(
-                renderHogQLX(['__hx_tag', 'BrandMarkLabel', 'label', 'Claude Code', 'mark', mark])
-            )
+        it.each(['Claude', 'Unknown mark', 'constructor', 'toString', '__proto__'])(
+            'renders a query label with %s mark',
+            (mark) => {
+                const { container } = render(
+                    renderHogQLX(['__hx_tag', 'BrandMarkLabel', 'label', 'Claude Code', 'mark', mark])
+                )
 
-            expect(container.textContent).toContain('Claude Code')
-            expect(container.querySelector('svg')).not.toBeNull()
+                expect(container.textContent).toContain('Claude Code')
+                expect(container.querySelector('svg')).not.toBeNull()
+            }
+        )
+
+        it.each([
+            ['label', { toString: 'bad' }, 'Claude'],
+            ['mark', 'Claude Code', { toString: 'bad' }],
+        ])('does not throw for an object %s', (_, label, mark) => {
+            const { container } = render(renderHogQLX({ __hx_tag: 'BrandMarkLabel', label, mark }))
+            expect(container.textContent).toBe(typeof label === 'string' ? label : '')
+            expect(container.querySelector('svg') !== null).toBe(typeof label === 'string')
         })
 
         it('should render Sparkline', () => {
