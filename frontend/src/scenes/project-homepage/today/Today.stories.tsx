@@ -555,6 +555,14 @@ const PERIOD_STARTS = (count: number, unit: 'day' | 'week'): string[] =>
             .format('YYYY-MM-DD')
     )
 
+const KEY_METRIC_URL = (event: string): string =>
+    `/insights/new#q=${encodeURIComponent(
+        JSON.stringify({
+            kind: 'InsightVizNode',
+            source: { kind: 'TrendsQuery', series: [{ kind: 'EventsNode', event }] },
+        })
+    )}`
+
 const HIGHLIGHTS: HighlightsApi = {
     status: 'ready',
     generated_at: '2026-09-28T18:00:00Z',
@@ -581,7 +589,7 @@ const HIGHLIGHTS: HighlightsApi = {
             change_pct: 18.1,
             series: DAILY(170, 7),
             interval: 'day',
-            url: null,
+            url: KEY_METRIC_URL('$signup'),
             value_format: null,
             period_starts: PERIOD_STARTS(28, 'day'),
         },
@@ -593,7 +601,7 @@ const HIGHLIGHTS: HighlightsApi = {
             change_pct: -3.1,
             series: DAILY(48, 5),
             interval: 'day',
-            url: null,
+            url: KEY_METRIC_URL('payment_succeeded'),
             value_format: null,
             period_starts: PERIOD_STARTS(28, 'day'),
         },
@@ -605,7 +613,7 @@ const HIGHLIGHTS: HighlightsApi = {
             change_pct: 1.6,
             series: DAILY(2600, 11),
             interval: 'day',
-            url: null,
+            url: KEY_METRIC_URL('$pageview'),
             value_format: null,
             period_starts: PERIOD_STARTS(28, 'day'),
         },
