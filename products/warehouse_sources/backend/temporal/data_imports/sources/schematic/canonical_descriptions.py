@@ -13,14 +13,17 @@ _DOCS = "https://docs.schematichq.com/api-reference"
 
 _COMMON_COLUMNS = {
     "id": "Unique identifier for the object.",
-    "environment_id": "Identifier of the Schematic environment the object belongs to.",
     "created_at": "Time at which the object was created.",
     "updated_at": "Time at which the object was last updated.",
 }
 
 
-def _columns(**overrides: str) -> dict[str, str]:
-    return {**_COMMON_COLUMNS, **overrides}
+_ENVIRONMENT_ID = "Identifier of the Schematic environment the object belongs to."
+
+
+def _columns(*, with_id: bool = True, **overrides: str) -> dict[str, str]:
+    common = _COMMON_COLUMNS if with_id else {k: v for k, v in _COMMON_COLUMNS.items() if k != "id"}
+    return {**common, **overrides}
 
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
@@ -28,6 +31,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A customer account in Schematic, with its lookup keys, traits, assigned plans and billing subscription.",
         "docs_url": f"{_DOCS}/companies/list-companies",
         "columns": _columns(
+            environment_id=_ENVIRONMENT_ID,
             name="Display name of the company.",
             last_seen_at="Time Schematic last received an event or check for this company.",
             logo_url="URL of the company logo.",
@@ -45,6 +49,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "An end user tracked by Schematic, with its lookup keys, traits and company memberships.",
         "docs_url": f"{_DOCS}/companies/list-users",
         "columns": _columns(
+            environment_id=_ENVIRONMENT_ID,
             name="Display name of the user.",
             last_seen_at="Time Schematic last received an event or check for this user.",
             keys="Lookup keys that identify the user.",
@@ -117,6 +122,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A feature entitlement granted by a plan, with its limit and metering period.",
         "docs_url": f"{_DOCS}/entitlements/list-plan-entitlements",
         "columns": _columns(
+            environment_id=_ENVIRONMENT_ID,
             plan_id="Identifier of the plan that grants the entitlement.",
             feature_id="Identifier of the entitled feature.",
             plan="The plan that grants the entitlement.",
@@ -134,6 +140,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A per-company entitlement override that replaces the plan entitlement for one feature.",
         "docs_url": f"{_DOCS}/entitlements/list-company-overrides",
         "columns": _columns(
+            environment_id=_ENVIRONMENT_ID,
             company_id="Identifier of the company the override applies to.",
             feature_id="Identifier of the overridden feature.",
             company="The company the override applies to.",
@@ -165,6 +172,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "A product synced from the billing provider.",
         "docs_url": f"{_DOCS}/billing/list-billing-products",
         "columns": _columns(
+            with_id=False,
+            environment_id=_ENVIRONMENT_ID,
             product_id="Unique identifier for the billing product.",
             external_id="Identifier of the product in the billing provider.",
             provider_type="Billing provider the product comes from, such as Stripe.",

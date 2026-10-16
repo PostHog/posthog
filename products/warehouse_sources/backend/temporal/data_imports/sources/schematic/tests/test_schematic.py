@@ -12,15 +12,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SchematicSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.schematic.schematic import SchematicResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.schematic.settings import (
-    PAGE_SIZE,
-    SCHEMATIC_ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.schematic.source import SchematicSource
 
 
 def _driver() -> SourceDriver:
     return SourceDriver(SchematicSource(), SchematicSourceConfig(api_key="sch_test_key"))
+
+
+PAGE_SIZE = 100
 
 
 def _page(rows: list[dict[str, Any]]) -> ScriptedResponse:
@@ -31,19 +30,40 @@ def _rows(prefix: str, count: int) -> list[dict[str, Any]]:
     return [{"id": f"{prefix}_{index}", "product_id": f"{prefix}_{index}"} for index in range(count)]
 
 
-_SINGLE_PASS = sorted(name for name, config in SCHEMATIC_ENDPOINTS.items() if not config.include_inactive)
-_TWO_PASS = sorted(name for name, config in SCHEMATIC_ENDPOINTS.items() if config.include_inactive)
+_COMPANIES_ORDER = {"sort_order_column": "created_at", "sort_order_direction": "asc"}
+
+# Paths as the Schematic SDK calls them, so a typo in the endpoint table fails here.
+_SINGLE_PASS = [
+    ("companies", "/companies", _COMPANIES_ORDER),
+    ("users", "/users", {}),
+    ("company_memberships", "/company-memberships", {}),
+    ("features", "/features", {}),
+    ("flags", "/flags", {}),
+    ("plans", "/plans", {}),
+    ("plan_entitlements", "/plan-entitlements", {}),
+    ("company_overrides", "/company-overrides", {}),
+    ("billing_customers", "/billing/customers", {}),
+    ("billing_meters", "/billing/meter", {}),
+]
+_TWO_PASS = [
+    ("billing_products", "/billing/products"),
+    ("billing_prices", "/billing/price"),
+    ("billing_coupons", "/billing/coupons"),
+]
 
 
 class TestSchematicPagination:
-    @pytest.mark.parametrize("endpoint", _SINGLE_PASS)
-    def test_walks_offset_pages_until_a_short_page(self, endpoint: str) -> None:
+    @pytest.mark.parametrize(("endpoint", "path", "order"), _SINGLE_PASS)
+    def test_walks_offset_pages_until_a_short_page(self, endpoint: str, path: str, order: dict[str, str]) -> None:
         result = _driver().run(endpoint, [_page(_rows("a", PAGE_SIZE)), _page(_rows("b", 3))])
 
         assert result.raised is None
-        assert result.paths == [SCHEMATIC_ENDPOINTS[endpoint].path] * 2
-        assert result.params("offset") == ["0", str(PAGE_SIZE)]
-        assert result.params("limit") == [str(PAGE_SIZE)] * 2
+        assert result.paths == [path] * 2
+        assert result.params("offset") == ["0", "100"]
+        assert result.params("limit") == ["100", "100"]
+        assert {name: result.requests[1].param(name) for name in _COMPANIES_ORDER} == {
+            name: order.get(name) for name in _COMPANIES_ORDER
+        }
         assert [request.headers["x-schematic-api-key"] for request in result.requests] == ["sch_test_key"] * 2
         assert result.saved_states == [SchematicResumeConfig(offset=PAGE_SIZE)]
         assert len(result.rows) == PAGE_SIZE + 3
@@ -61,13 +81,14 @@ class TestSchematicPagination:
         assert result.raised is None
         assert result.params("offset") == ["300"]
 
-    @pytest.mark.parametrize("endpoint", _TWO_PASS)
-    def test_reads_active_then_inactive_records(self, endpoint: str) -> None:
+    @pytest.mark.parametrize(("endpoint", "path"), _TWO_PASS)
+    def test_reads_active_then_inactive_records(self, endpoint: str, path: str) -> None:
         result = _driver().run(
             endpoint, [_page(_rows("a", PAGE_SIZE)), _page(_rows("b", 1)), _page(_rows("inactive", 2))]
         )
 
         assert result.raised is None
+        assert result.paths == [path] * 3
         assert result.params("is_active") == ["true", "true", "false"]
         assert result.params("offset") == ["0", str(PAGE_SIZE), "0"]
         assert result.saved_states == [

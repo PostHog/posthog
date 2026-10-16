@@ -50,7 +50,9 @@ def _resource(
     is_active: bool | None,
     initial_offset: int | None,
 ) -> Resource:
-    params: dict[str, Any] = {} if is_active is None else {"is_active": "true" if is_active else "false"}
+    params: dict[str, Any] = dict(config.extra_params)
+    if is_active is not None:
+        params["is_active"] = "true" if is_active else "false"
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_key),
         "resource_defaults": {},
