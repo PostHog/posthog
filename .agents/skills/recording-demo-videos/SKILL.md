@@ -1,0 +1,103 @@
+---
+name: recording-demo-videos
+description: >
+  Records a captioned, PostHog-branded walkthrough video (MP4) of a feature running on the local
+  PostHog stack, for a Loom, a Slack demo, or a PR. Use when asked to record a video, demo,
+  walkthrough, or Loom of a change end to end, including flows that leave the app, such as an API
+  call shown as a terminal card or an email arriving in the local inbox. The recorder drives the
+  real app with Playwright, adds RoundHog captions and a cursor, frames the video with title and end
+  cards that carry the logo and a hedgehog from @posthog/brand, and cuts loading time out. For a
+  short animated WebP of one interaction in a PR description, use the reel mode of qa-frontend.
+---
+
+# Recording demo videos
+
+A demo video shows a feature working, from the first click to the proof that it worked.
+The recorder drives the real app on the local stack, so what the viewer sees is what the code does.
+It writes an MP4 of one to three minutes, a contact sheet of frames to review, and a log.
+
+The output looks like this: a title card with the logo and a hedgehog, the app with a caption bar and a cursor for each step, terminal cards for API calls, and an end card.
+Waits for page loads and data are cut, so the video moves at reading speed.
+
+Use [qa-frontend](../qa-frontend/SKILL.md) instead for a reel: a short animated WebP of one interaction, made from stills, for a PR description.
+For a narrated or musical promo video, see [hogreel](references/branding.md#promo-videos).
+
+## Workflow
+
+### 1. Get the stack ready
+
+The stack must be up and serving the code you want to show.
+Start it with `hogli start -y -d` and `hogli wait`, or follow `/run-posthog`.
+Check the processes the flow needs beyond the web app.
+For example, workflow runs and email sends need the CDP workflow workers, which the default dev stack does not start.
+[references/troubleshooting.md](references/troubleshooting.md) lists the ones that caught us.
+
+The recorder needs `ffmpeg` and the repo's Python environment, which has Playwright.
+It reads the brand assets from `frontend/node_modules/@posthog/brand`, so run `pnpm install` first if that directory is missing.
+
+### 2. Seed the data the demo needs
+
+Record in a local demo workspace, never in a workspace with real data, because the video can end up in a public PR.
+`python manage.py setup_dev --no-data` creates one with the `test@posthog.com` user.
+Seed everything else the flow needs with a short script: feature flags, objects to start from, API keys.
+
+Invent all the data.
+Use reserved domains (`example.com`) or a domain you control for addresses, and invented names.
+Some flows validate a domain, for example the email sender refuses a domain without mail servers, so check what the flow accepts.
+
+Each take changes state: it creates objects, sends emails, and bumps versions.
+Write a reset script with the seed script, so every take starts from the same state.
+
+### 3. Write the storyboard
+
+A storyboard is a JSON file: optional title and end cards, then a list of steps.
+Each step can navigate, click, type, wait, show a caption, or show an HTTP request as a terminal card and send it.
+Read [references/storyboard.md](references/storyboard.md) for the format and a full example.
+
+Plan the beats before you write steps:
+
+1. The title card says what the feature does for the viewer, in one line.
+2. Start in the state just before the new behavior. Skip the navigation a viewer already knows.
+3. One step per action, with a caption that says what is happening and why it matters.
+4. Show proof of the effect: the email in the inbox, the row in the table, the number in the chart.
+5. The end card sums up the change in one line.
+
+Captions are user-facing copy, so `/writing-user-facing-copy` applies: sentence case, one idea each, no em dashes.
+A caption holds for about a third of a second per word, at least two and a half seconds.
+Aim for one to two minutes in total.
+
+### 4. Record
+
+From the root of the checkout:
+
+```bash
+uv run python .agents/skills/recording-demo-videos/scripts/record_demo.py path/to/storyboard.json
+```
+
+The script logs in, loads every page once to warm the dev server, then records.
+It writes `<output>.mp4`, `<output>.sheet.png` and `<output>.log.json` next to the storyboard.
+When a step fails, it writes `<output>.error.png` and `<output>.failed.webm` instead and exits non-zero. The log names the step.
+
+### 5. Review, then record again
+
+Read the contact sheet before you share anything.
+Most first takes need another one. Look for:
+
+- spinners, skeletons or empty tables where the step expected data. Add a `wait_for` on the content.
+- numbers that disagree with what happened in the video.
+- debug chrome, banners and toasts that distract. Add them to `hide_text` or `hide_selectors`.
+- secrets, real names, or anything else that must not be public, in the pixels and in the captions.
+
+Reset the data, then record again. Read individual frames with ffmpeg when the sheet is too small to judge.
+
+### 6. Share
+
+In a PostHog Desktop or cloud task, upload the MP4 as a task artifact.
+For a PR, upload it with `hogli pr:upload-video` and paste the markdown it prints.
+PR assets are public forever, so check the frames for private data before every upload.
+
+## References
+
+- [references/storyboard.md](references/storyboard.md): the storyboard format, targets, variables and secrets, and a full example.
+- [references/branding.md](references/branding.md): where the brand assets come from, the rules for the logo, colors, type and hedgehogs, and hogreel.
+- [references/troubleshooting.md](references/troubleshooting.md): failures we hit while recording, and their fixes.
