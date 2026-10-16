@@ -31,6 +31,7 @@ from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.web_preaggregated.sql import is_eu_cluster
 
@@ -396,10 +397,14 @@ def ensure_web_bounces_dimensional_precomputed(
 DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS = 30 * 60
 
 
-def dimensional_job_ids(
-    team: Team, time_range_start: datetime, time_range_end: datetime
-) -> tuple[list[UUID], list[UUID]] | None:
-    """Return the (stats, bounces) READY job ids that cover the range, or None when either
+@frozen
+class DimensionalJobIds:
+    stats: list[UUID]
+    bounces: list[UUID]
+
+
+def dimensional_job_ids(team: Team, time_range_start: datetime, time_range_end: datetime) -> DimensionalJobIds | None:
+    """Return the READY job ids of both tables that cover the range, or None when either
     table has a gap. Check-only: a read never builds a window, the scheduled job does.
     The framework splits jobs on UTC days, so the bounds should already be in UTC."""
     stats = ensure_web_stats_dimensional_precomputed(
@@ -420,4 +425,4 @@ def dimensional_job_ids(
     )
     if not bounces.ready:
         return None
-    return stats.job_ids, bounces.job_ids
+    return DimensionalJobIds(stats=stats.job_ids, bounces=bounces.job_ids)

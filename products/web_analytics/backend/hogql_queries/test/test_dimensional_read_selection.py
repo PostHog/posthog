@@ -17,6 +17,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
     WEB_STATS_DIMENSIONAL_READ_TABLE,
+    DimensionalJobIds,
     dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
@@ -28,6 +29,7 @@ _READ = "products.web_analytics.backend.hogql_queries.web_dimensional_read"
 _PRECOMPUTE = "products.web_analytics.backend.hogql_queries.web_dimensional_precompute"
 _STATS_IDS = [uuid.uuid4()]
 _BOUNCES_IDS = [uuid.uuid4()]
+_JOB_IDS = DimensionalJobIds(stats=_STATS_IDS, bounces=_BOUNCES_IDS)
 _NEW_YORK = ZoneInfo("America/New_York")
 
 
@@ -67,9 +69,9 @@ class TestDimensionalReadSelection(SimpleTestCase):
     def test_opted_in_query_checks_the_utc_range_up_to_now(self, _name, compare_from, expected_start):
         with (
             patch(f"{_READ}.team_has_property_access_rules", return_value=False),
-            patch(f"{_READ}.dimensional_job_ids", return_value=(_STATS_IDS, _BOUNCES_IDS)) as mock_job_ids,
+            patch(f"{_READ}.dimensional_job_ids", return_value=_JOB_IDS) as mock_job_ids,
         ):
-            assert ready_dimensional_job_ids(_runner(True, compare_from)) == (_STATS_IDS, _BOUNCES_IDS)
+            assert ready_dimensional_job_ids(_runner(True, compare_from)) == _JOB_IDS
 
         _team, start, end = mock_job_ids.call_args.args
         assert (start, end) == (expected_start, datetime(2026, 3, 31, 12, tzinfo=UTC))
@@ -77,9 +79,9 @@ class TestDimensionalReadSelection(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_modifiers", None, False, (_STATS_IDS, _BOUNCES_IDS)),
-            ("opted_out", False, False, (_STATS_IDS, _BOUNCES_IDS)),
-            ("property_access_rules", True, True, (_STATS_IDS, _BOUNCES_IDS)),
+            ("no_modifiers", None, False, _JOB_IDS),
+            ("opted_out", False, False, _JOB_IDS),
+            ("property_access_rules", True, True, _JOB_IDS),
             ("not_ready", True, False, None),
             ("lookup_fails", True, False, RuntimeError("postgres down")),
         ]
@@ -93,7 +95,7 @@ class TestDimensionalReadSelection(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("both_ready", True, True, (_STATS_IDS, _BOUNCES_IDS)),
+            ("both_ready", True, True, _JOB_IDS),
             ("stats_gap", False, True, None),
             ("bounces_gap", True, False, None),
         ]
@@ -128,7 +130,7 @@ class TestDimensionalReadSelection(SimpleTestCase):
     def test_builder_reads_dimensional_tables_filtered_to_their_job_ids(self, _name, table_name, job_ids):
         runner = _runner(True)
         runner.query_date_range.date_from.return_value = datetime(2026, 3, 1, tzinfo=UTC)
-        builder = DimensionalStatsTableQueryBuilder(runner, (_STATS_IDS, _BOUNCES_IDS))
+        builder = DimensionalStatsTableQueryBuilder(runner, _JOB_IDS)
 
         assert (builder.stats_table, builder.bounces_table) == (
             WEB_STATS_DIMENSIONAL_READ_TABLE,

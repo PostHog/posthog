@@ -9,7 +9,6 @@ generation.
 
 from datetime import UTC
 from typing import TYPE_CHECKING, Union
-from uuid import UUID
 
 from django.utils import timezone
 
@@ -25,6 +24,7 @@ from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated imp
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
     WEB_STATS_DIMENSIONAL_READ_TABLE,
+    DimensionalJobIds,
     dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated import (
@@ -40,8 +40,8 @@ logger = structlog.get_logger(__name__)
 
 def ready_dimensional_job_ids(
     runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"],
-) -> tuple[list[UUID], list[UUID]] | None:
-    """The (stats, bounces) job ids to read when the query opted in and both tables cover its
+) -> DimensionalJobIds | None:
+    """The job ids to read when the query opted in and both tables cover its
     whole range, including the compare period. None means the caller uses its next path."""
     web_query_modifiers = runner.query.webQueryModifiers
     if not (web_query_modifiers and web_query_modifiers.useDimensionalTables):
@@ -64,8 +64,7 @@ def ready_dimensional_job_ids(
 
 
 class _DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):
-    stats_job_ids: list[UUID]
-    bounces_job_ids: list[UUID]
+    job_ids: DimensionalJobIds
 
     @property
     def stats_table(self) -> str:
@@ -77,7 +76,7 @@ class _DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):
 
     def _get_filters(self, table_name: str, exclude_pathname: bool = False) -> ast.And:
         filters = super()._get_filters(table_name, exclude_pathname=exclude_pathname)
-        job_ids = self.stats_job_ids if table_name == WEB_STATS_DIMENSIONAL_READ_TABLE else self.bounces_job_ids
+        job_ids = self.job_ids.stats if table_name == WEB_STATS_DIMENSIONAL_READ_TABLE else self.job_ids.bounces
         job_id_filter = ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=[table_name, "job_id"]),
@@ -87,12 +86,12 @@ class _DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):
 
 
 class DimensionalStatsTableQueryBuilder(_DimensionalTablesMixin, StatsTablePreAggregatedQueryBuilder):
-    def __init__(self, runner: "WebStatsTableQueryRunner", job_ids: tuple[list[UUID], list[UUID]]) -> None:
+    def __init__(self, runner: "WebStatsTableQueryRunner", job_ids: DimensionalJobIds) -> None:
         super().__init__(runner)
-        self.stats_job_ids, self.bounces_job_ids = job_ids
+        self.job_ids = job_ids
 
 
 class DimensionalWebOverviewQueryBuilder(_DimensionalTablesMixin, WebOverviewPreAggregatedQueryBuilder):
-    def __init__(self, runner: "WebOverviewQueryRunner", job_ids: tuple[list[UUID], list[UUID]]) -> None:
+    def __init__(self, runner: "WebOverviewQueryRunner", job_ids: DimensionalJobIds) -> None:
         super().__init__(runner)
-        self.stats_job_ids, self.bounces_job_ids = job_ids
+        self.job_ids = job_ids
