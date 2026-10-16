@@ -18,6 +18,7 @@ from posthog.redis import TEST_clear_clients
 from posthog.test.authentication_checks import covers_authentication
 from posthog.token_bucket import Budget, TEST_reset_scripts
 
+from products.workflows.backend.facade.service_jwt import WORKFLOW_EXTRACT_PURPOSE
 from products.workflows.backend.presentation.views.workflow_extractions import (
     WorkflowExtractionRequestSerializer,
     WorkflowExtractJWTAuthentication,
@@ -292,3 +293,17 @@ class TestWorkflowExtractionRequestValidation(SimpleTestCase):
         )
 
         assert not serializer.is_valid()
+
+
+class TestWorkerMintedToken(SimpleTestCase):
+    WORKER_MINTED_TOKEN = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJob2dfZmxvd19pZCI6IjAxOThjOWYxLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDAwMSIsInRlYW1faWQiOjEsImlhd"
+        "CI6MTc5MjEzMjI4MCwiZXhwIjo0MTAyNDQ0Nzk5LCJhdWQiOiJwb3N0aG9nOndvcmtmbG93czpleHRyYWN0In0.Ui6T4TCexWZlOzbVazTBAoM6Ks1CLkEYv5Bw5e4O_Bw"
+    )
+
+    @override_settings(WORKFLOW_EXTRACT_JWT_SECRETS=[SECRET])
+    def test_django_accepts_a_token_the_worker_minted(self) -> None:
+        claims = WORKFLOW_EXTRACT_PURPOSE.verify(self.WORKER_MINTED_TOKEN)
+
+        assert claims["team_id"] == 1
+        assert claims["hog_flow_id"] == "0198c9f1-0000-0000-0000-000000000001"
