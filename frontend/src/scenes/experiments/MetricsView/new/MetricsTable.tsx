@@ -8,7 +8,7 @@ import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
 import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
-import { ExperimentStatsMethod, InsightType } from '~/types'
+import { ExperimentStatsMethod } from '~/types'
 
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 
@@ -37,7 +37,6 @@ interface MetricsTableProps {
     results: (NewExperimentQueryResponse | undefined)[]
     errors: any[]
     isSecondary: boolean
-    getInsightType: (metric: ExperimentMetric) => InsightType
     showDetailsModal?: boolean
     /** Drops the table's own border so it can sit inside a parent panel. */
     embedded?: boolean
@@ -48,7 +47,6 @@ export function MetricsTable({
     results,
     errors,
     isSecondary,
-    getInsightType,
     showDetailsModal = true,
     embedded = false,
 }: MetricsTableProps): JSX.Element {
@@ -211,7 +209,6 @@ export function MetricsTable({
                                             dragHandle={dragHandle}
                                             result={result}
                                             experiment={experiment}
-                                            metricType={getInsightType(metric)}
                                             displayOrder={index}
                                             axisRange={axisRange}
                                             isSecondary={isSecondary}
