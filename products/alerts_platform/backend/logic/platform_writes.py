@@ -144,8 +144,7 @@ def update_owned_copy(
         snoozing = snooze_changed and snooze_until is not None and snooze_until > now
         _, pending = _apply(configuration, change, now=now, snoozing=snoozing)
         if snooze_changed:
-            configuration.snooze_until = snooze_until
-            configuration.save(update_fields=["snooze_until", "updated_at"])
+            platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
         control_plane.announce_after_commit(pending)
 
 

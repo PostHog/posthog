@@ -25,8 +25,8 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.facade.grouping import parts_for
 from products.alerts_platform.backend.logic import source_configs
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow
-from products.alerts_platform.backend.logic.platform_lifecycle import event_row, record_history
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.logic.platform_lifecycle import end_firing_instances, event_row, record_history
+from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
 # The settings whose change makes a firing meaningless, as a threshold or filter change does on the
 # logs stack. A rename or a quiet-hours change leaves it running.
@@ -66,10 +66,7 @@ def end_firings(configuration: PlatformAlertConfiguration, *, reason: str, now: 
     Call it before the change is saved, so the history rows state the settings the firing ran under.
     None when nothing was firing.
     """
-    instances = PlatformAlert.objects.for_team(configuration.team_id, canonical=True).filter(
-        configuration=configuration, state=PlatformAlertState.FIRING
-    )
-    firing = list(instances)
+    firing = end_firing_instances(configuration, now=now)
     if not firing:
         return None
     # Unique per change, because a delivery addresses its rows by this key.
@@ -89,7 +86,6 @@ def end_firings(configuration: PlatformAlertConfiguration, *, reason: str, now: 
         )
         for alert in firing
     )
-    instances.update(state=PlatformAlertState.NOT_FIRING, firing_started_at=None)
     return PendingClose(
         team_id=configuration.team_id,
         source_kind=configuration.source_kind,

@@ -2376,6 +2376,8 @@ class TestLogsAlertAPI(APIBaseTest):
         started = datetime(2026, 10, 1, 9, tzinfo=UTC)
         with team_scope(self.team.id):
             platform_testing.start_firing(copy.id, team_id=self.team.id, at=started)
+            # Due now, as a copy is while a check of it runs.
+            platform_testing.set_due_at(copy.id, datetime.now(UTC) - timedelta(minutes=1))
         return created, copy
 
     @parameterized.expand(
@@ -2414,6 +2416,13 @@ class TestLogsAlertAPI(APIBaseTest):
         with team_scope(self.team.id):
             instance = platform_testing.alert_for(copy.id)
         assert instance is not None and (instance.state, instance.firing_started_at) == ("not_firing", None)
+        # A check already running when the edit landed finds the row no longer due, and a snooze runs
+        # no check until it ends.
+        next_check_at = self._copy(created["id"]).next_check_at
+        earliest = datetime.now(UTC) + (
+            timedelta(minutes=59) if route == "logs" and "snooze" in _name else timedelta(0)
+        )
+        assert next_check_at is not None and next_check_at > earliest
 
     def test_a_resolve_is_sent_inline_when_temporal_cannot_start_it(self) -> None:
         created, _copy = self._firing_on_the_platform_with_pagerduty()
