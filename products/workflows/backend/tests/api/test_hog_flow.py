@@ -411,6 +411,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("automation", "automation", {"Webhook sync"}),
             ("loop", "loop", {"Loop with email action"}),
             ("broadcast", "broadcast", {"Announcement"}),
+            ("transactional_email", "transactional_email", {"Password reset"}),
             # What the workflows page sends: everything except the surfaces with their own page.
             (
                 "everything_but_broadcasts",
@@ -459,6 +460,13 @@ class TestHogFlowAPI(APIBaseTest):
             name="Announcement",
             created_by=self.user,
             origin_product="broadcasts",
+            actions=[{"id": "a", "type": "function_email", "config": {}}],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Password reset",
+            created_by=self.user,
+            origin_product="transactional_emails",
             actions=[{"id": "a", "type": "function_email", "config": {}}],
         )
 

@@ -223,4 +223,7 @@ RUN python3 --version && \
     fi && \
     /scripts/node_modules/.bin/agent-server --help >/dev/null
 
+COPY products/tasks/backend/sandbox/images/task_filesystem.py /opt/posthog/task-filesystem.py
+RUN /usr/bin/python3 -I /opt/posthog/task-filesystem.py seed-home
+
 CMD ["/bin/bash"]
