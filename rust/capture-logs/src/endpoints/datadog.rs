@@ -309,7 +309,10 @@ pub async fn export_datadog_logs_http(
     };
 
     // Datadog agents ship logs, so this shares the logs signal.
-    service.authorizer.authorize_token(&token, Signal::Logs)?;
+    let token = service
+        .authorizer
+        .authorize_token(&token, Signal::Logs)?
+        .into_owned();
 
     tracing::Span::current().record("token", &token);
 

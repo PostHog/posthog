@@ -481,6 +481,38 @@ describe('LogsIngestionConsumer', () => {
                 team_id: 'unknown',
             })
         })
+
+        it.each([
+            { name: 'a key with logs:write', scopes: ['feature_flag:read', 'logs:write'], accepted: true },
+            { name: 'a key without logs:write', scopes: ['feature_flag:read'], accepted: false },
+        ])('resolves a project secret key hash for $name', async ({ scopes, accepted }) => {
+            const secureValue = `sha256$${team.id.toString(16).padStart(64, '0')}`
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_projectsecretapikey (id, team_id, label, secure_value, scopes, created_at)
+                 VALUES ($1, $2, $3, $4, $5, NOW())`,
+                [`psak_${team.id}`, team.id, 'telemetry', secureValue, scopes],
+                'insertProjectSecretApiKey'
+            )
+
+            const messages = await createKafkaMessages([createLogMessage()], { token: secureValue })
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const producedMessages = getProducedKafkaMessages()
+            if (accepted) {
+                expect(producedMessages).toHaveLength(1)
+                expect(producedMessages[0].headers).toMatchObject({
+                    token: team.api_token,
+                    team_id: team.id.toString(),
+                })
+            } else {
+                expect(producedMessages).toHaveLength(0)
+                expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({
+                    reason: 'team_not_found',
+                    team_id: 'unknown',
+                })
+            }
+        })
     })
 
     describe('batch processing', () => {

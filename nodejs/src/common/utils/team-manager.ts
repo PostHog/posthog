@@ -22,6 +22,7 @@ export interface TeamManagerOptions {
  */
 export class TeamManager {
     private lazyLoader: LazyLoader<Team>
+    private projectSecretKeyLoader: LazyLoader<number>
 
     constructor(
         private postgres: PostgresRouter,
@@ -36,6 +37,16 @@ export class TeamManager {
                 return await this.fetchTeams(teamIdOrTokens)
             },
         })
+        // Same refresh age as teams, so a deleted key or a removed scope stops working within it.
+        this.projectSecretKeyLoader = new LazyLoader({
+            name: 'TeamManagerProjectSecretKeys',
+            refreshAgeMs: 2 * 60 * 1000,
+            refreshJitterMs: 30 * 1000,
+            loaderRetry: options?.loaderRetry,
+            loader: async (keys: string[]) => {
+                return await this.fetchProjectSecretKeyTeamIds(keys)
+            },
+        })
     }
 
     public async getTeam(teamId: number): Promise<Team | null> {
@@ -44,6 +55,15 @@ export class TeamManager {
 
     public async getTeamByToken(token: string): Promise<Team | null> {
         return this.lazyLoader.get(token)
+    }
+
+    /**
+     * Resolves a project secret API key to its team, but only when the key holds `scope`.
+     * `secureValue` is the key's stored hash, so callers never handle the raw secret.
+     */
+    public async getTeamByProjectSecretKey(secureValue: string, scope: string): Promise<Team | null> {
+        const teamId = await this.projectSecretKeyLoader.get(`${scope} ${secureValue}`)
+        return teamId === null ? null : this.getTeam(teamId)
     }
 
     public async getTeams(teamIds: number[]): Promise<Record<string, Team | null>> {
@@ -108,6 +128,35 @@ export class TeamManager {
                 logger.error('⚠️', 'Failed to capture first team event ingested', { teamId: team.id, error })
             }
         }
+    }
+
+    private async fetchProjectSecretKeyTeamIds(keys: string[]): Promise<Record<string, number | null>> {
+        const resultRecord: Record<string, number | null> = {}
+        for (const key of keys) {
+            resultRecord[key] = null
+        }
+
+        const keysByScope = new Map<string, string[]>()
+        for (const key of keys) {
+            const [scope, secureValue] = key.split(' ', 2)
+            keysByScope.set(scope, [...(keysByScope.get(scope) ?? []), secureValue])
+        }
+
+        for (const [scope, secureValues] of keysByScope) {
+            const result = await this.postgres.query<{ secure_value: string; team_id: number }>(
+                PostgresUse.COMMON_READ,
+                `SELECT secure_value, team_id
+                FROM posthog_projectsecretapikey
+                WHERE secure_value = ANY($1) AND scopes @> ARRAY[$2]::varchar[]`,
+                [secureValues, scope],
+                'fetch-project-secret-key-team-ids'
+            )
+            for (const row of result.rows) {
+                resultRecord[`${scope} ${row.secure_value}`] = row.team_id
+            }
+        }
+
+        return resultRecord
     }
 
     private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team | null>> {
