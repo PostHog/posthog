@@ -608,7 +608,7 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
         return
 
     activity_started = False
-    if _is_session_update(event) or is_agent_generation_event(event):
+    if is_agent_generation_event(event):
         activity_started = not await redis_stream.set_agent_active(True)
         agent_active = True
     else:
