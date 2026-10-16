@@ -2,6 +2,7 @@
 
 from products.workflows.backend.services.suggestions_scout import (
     PROPOSAL_WRITE_SCOPE,
+    suggestions_scout_no_input_reason,
     suggestions_scout_refusal,
     suggestions_scout_run_reason,
     suggestions_scout_status,
@@ -10,6 +11,7 @@ from products.workflows.backend.services.suggestions_scout import (
 
 __all__ = [
     "PROPOSAL_WRITE_SCOPE",
+    "suggestions_scout_no_input_reason",
     "suggestions_scout_refusal",
     "suggestions_scout_run_reason",
     "suggestions_scout_status",

@@ -27,6 +27,7 @@ from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.precheck import (
     _CODE_PRECHECKS as CODE_PRECHECKS,
     PRECHECK_MAX_ROWS,
+    CodePrecheck,
     evaluate_scout_precheck,
     precheck_interval_minutes,
     resolve_effective_precheck,
@@ -308,14 +309,19 @@ class TestCodeCheckSkillDefault(BaseTest):
         )
         self.calls: list[datetime | None] = []
 
-    def _check(self, answer: str | None | Exception):
-        def check(project_id: int, *, last_run_at: datetime | None, now: datetime) -> str | None:
+    def _check(self, answer: str | None | Exception, no_input: str | None | Exception) -> CodePrecheck:
+        def no_input_reason(project_id: int) -> str | None:
+            if isinstance(no_input, Exception):
+                raise no_input
+            return no_input
+
+        def run_reason(project_id: int, *, last_run_at: datetime | None, now: datetime) -> str | None:
             self.calls.append(last_run_at)
             if isinstance(answer, Exception):
                 raise answer
             return answer
 
-        return check
+        return CodePrecheck(no_input_reason=no_input_reason, run_reason=run_reason)
 
     def _last_run(self, status: str, *, hours_ago: float = 24, check: bool = False, dry_run: bool = False) -> datetime:
         Task = apps.get_model("tasks", "Task")
@@ -336,9 +342,11 @@ class TestCodeCheckSkillDefault(BaseTest):
         SignalScoutRun.all_teams.filter(pk=run.pk).update(created_at=NOW - timedelta(hours=hours_ago))
         return NOW - timedelta(hours=hours_ago)
 
-    def _evaluate(self, answer: str | None | Exception, rollout_percent: int = 100):
+    def _evaluate(
+        self, answer: str | None | Exception, rollout_percent: int = 100, no_input: str | None | Exception = None
+    ):
         with (
-            patch.dict(CODE_PRECHECKS, {WORKFLOWS_SKILL: self._check(answer)}),
+            patch.dict(CODE_PRECHECKS, {WORKFLOWS_SKILL: self._check(answer, no_input)}),
             patch(ROLLOUT_PERCENT, return_value=rollout_percent),
             patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture") as capture,
         ):
@@ -347,17 +355,31 @@ class TestCodeCheckSkillDefault(BaseTest):
 
     @parameterized.expand(
         [
-            ("nothing_new", "completed", None, "skip", "no_new_input", None, True),
-            ("new_input", "completed", "published", "run", "input_changed", "published", True),
-            ("check_raises", "completed", RuntimeError("boom"), "error", "query_error", None, True),
-            ("last_run_failed", "failed", None, "run", "input_changed", "last_run_unsuccessful", False),
-            ("last_run_stranded", "in_progress", None, "run", "input_changed", "last_run_unsuccessful", False),
+            ("nothing_new", "completed", None, None, "skip", "no_new_input", None, True),
+            ("new_input", "completed", "published", None, "run", "input_changed", "published", True),
+            ("check_raises", "completed", RuntimeError("boom"), None, "error", "query_error", None, True),
+            ("last_run_failed", "failed", None, None, "run", "input_changed", "last_run_unsuccessful", False),
+            ("last_run_stranded", "in_progress", None, None, "run", "input_changed", "last_run_unsuccessful", False),
+            ("no_input", "completed", "published", "no_input_here", "skip", "no_input", "no_input_here", False),
+            (
+                "no_input_after_a_failed_run",
+                "failed",
+                None,
+                "no_input_here",
+                "skip",
+                "no_input",
+                "no_input_here",
+                False,
+            ),
+            ("no_input_check_raises", "completed", None, RuntimeError("boom"), "error", "query_error", None, False),
         ]
     )
-    def test_code_check_gates_the_run(self, _name, run_status, answer, outcome, reason, detail, checked) -> None:
+    def test_code_check_gates_the_run(
+        self, _name, run_status, answer, no_input, outcome, reason, detail, checked
+    ) -> None:
         last_run_at = self._last_run(run_status)
 
-        result, capture = self._evaluate(answer)
+        result, capture = self._evaluate(answer, no_input=no_input)
 
         assert result is not None
         assert (result.outcome, result.reason, result.detail, result.query_source) == (
@@ -386,10 +408,12 @@ class TestCodeCheckSkillDefault(BaseTest):
 
         assert self.calls == [NOW - timedelta(hours=cut_off_hours_ago)]
 
-    def test_first_run_passes_no_last_run(self) -> None:
-        self._evaluate(None)
+    @parameterized.expand([("has_input", None, "run", [None]), ("no_input", "no_input_here", "skip", [])])
+    def test_first_run(self, _name, no_input, outcome, calls) -> None:
+        result, _ = self._evaluate("first_run", no_input=no_input)
 
-        assert self.calls == [None]
+        assert result is not None and result.outcome == outcome
+        assert self.calls == calls
 
     def test_project_outside_the_rollout_does_not_check(self) -> None:
         result, capture = self._evaluate(None, rollout_percent=0)

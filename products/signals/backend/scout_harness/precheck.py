@@ -29,9 +29,11 @@ The query comes from the first source that applies (`resolve_effective_precheck`
 
 A canonical scout whose input lives in Postgres tables that HogQL cannot read ships its default as a
 code check in `_CODE_PRECHECKS` instead of a query. The same rollout and the same overrides apply. The
-check gets the time of the last run that ran, or None before the first one, and returns why the
-scout should run, or None to skip it. It is not called when the last run did not complete, so that
-run is retried. An exception runs the scout, like a query error does.
+check first says whether the scout has any input at all, and a scout with none skips every run,
+including its first one and a retry. Otherwise it gets the time of the last run that ran, or None
+before the first one, and returns why the scout should run, or None to skip it. It is not called
+when the last run did not complete, so that run is retried. An exception runs the scout, like a
+query error does.
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ from __future__ import annotations
 import json
 import time
 import dataclasses
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Literal, Protocol
 from zoneinfo import ZoneInfo
@@ -72,7 +75,10 @@ from products.signals.backend.scout_harness.team_limits import (
 )
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade import api as tasks_facade
-from products.workflows.backend.facade.suggestions_scout import suggestions_scout_run_reason
+from products.workflows.backend.facade.suggestions_scout import (
+    suggestions_scout_no_input_reason,
+    suggestions_scout_run_reason,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -83,17 +89,26 @@ PRECHECK_MAX_QUERY_LENGTH = 10_000
 PrecheckOutcome = Literal["run", "skip", "error"]
 # `rows`: the query found rows. `no_rows`: it found none. `false_value`: it returned one false
 # value. `query_error`: the query failed and the run continues.
-PrecheckReason = Literal["rows", "no_rows", "false_value", "query_error", "input_changed", "no_new_input"]
+PrecheckReason = Literal["rows", "no_rows", "false_value", "query_error", "input_changed", "no_new_input", "no_input"]
 # Where the query came from. `off` means no pre-check runs.
 PrecheckQuerySource = Literal["config", "skill_default", "off"]
 
 
-class _CodePrecheck(Protocol):
+class _RunReason(Protocol):
     def __call__(self, project_id: int, *, last_run_at: datetime | None, now: datetime) -> str | None: ...
 
 
-_CODE_PRECHECKS: dict[str, _CodePrecheck] = {
-    "signals-scout-workflows": suggestions_scout_run_reason,
+@frozen
+class CodePrecheck:
+    # Why the scout has nothing to read on any run, or None when it has input.
+    no_input_reason: Callable[[int], str | None]
+    run_reason: _RunReason
+
+
+_CODE_PRECHECKS: dict[str, CodePrecheck] = {
+    "signals-scout-workflows": CodePrecheck(
+        no_input_reason=suggestions_scout_no_input_reason, run_reason=suggestions_scout_run_reason
+    ),
 }
 
 
@@ -301,7 +316,7 @@ def _evaluate_code_precheck(
     started = time.monotonic()
     error_type: str | None = None
     try:
-        reason = _code_precheck_reason(config, now)
+        result = _code_precheck_result(config, now)
     except Exception as error:
         error_type = type(error).__name__
         logger.warning(
@@ -312,12 +327,6 @@ def _evaluate_code_precheck(
             exc_info=True,
         )
         result = PrecheckResult(outcome="error", reason="query_error")
-    else:
-        result = (
-            PrecheckResult(outcome="run", reason="input_changed", detail=reason)
-            if reason is not None
-            else PrecheckResult(outcome="skip", reason="no_new_input")
-        )
     result = dataclasses.replace(result, query_source=effective.source)
     _capture_precheck_evaluated(
         team=team,
@@ -331,7 +340,18 @@ def _evaluate_code_precheck(
     return result
 
 
-def _code_precheck_reason(config: SignalScoutConfig, now: datetime) -> str | None:
+def _code_precheck_result(config: SignalScoutConfig, now: datetime) -> PrecheckResult:
+    check = _CODE_PRECHECKS[config.skill_name]
+    no_input = check.no_input_reason(config.team_id)
+    if no_input is not None:
+        return PrecheckResult(outcome="skip", reason="no_input", detail=no_input)
+    reason = _code_precheck_run_reason(config, check, now)
+    if reason is None:
+        return PrecheckResult(outcome="skip", reason="no_new_input")
+    return PrecheckResult(outcome="run", reason="input_changed", detail=reason)
+
+
+def _code_precheck_run_reason(config: SignalScoutConfig, check: CodePrecheck, now: datetime) -> str | None:
     runs = (
         SignalScoutRun.objects.for_team(config.team_id)
         .filter(skill_name=config.skill_name)
@@ -348,9 +368,7 @@ def _code_precheck_reason(config: SignalScoutConfig, now: datetime) -> str | Non
     # it or let the runner fail a stranded run, so the check never skips after one.
     if latest is not None and latest[1] != tasks_facade.TaskRunStatus.COMPLETED:
         return "last_run_unsuccessful"
-    return _CODE_PRECHECKS[config.skill_name](
-        config.team_id, last_run_at=latest[0] if latest is not None else None, now=now
-    )
+    return check.run_reason(config.team_id, last_run_at=latest[0] if latest is not None else None, now=now)
 
 
 def dry_run_scout_precheck(

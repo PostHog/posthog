@@ -11,7 +11,7 @@ from time import monotonic
 from uuid import UUID
 
 from django.db import connection, transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -55,13 +55,7 @@ def sync_suggestions_scout(team: Team, *, acting_user: User | None, may_grant: b
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_LOCK_NAMESPACE, project.id])
-        environments = Team.objects.filter(Q(id=project.id) | Q(parent_team_id=project.id)).values("id")
-        wanted = (
-            HogFlowOptimization.objects.unscoped()
-            .filter(team_id__in=environments, enabled=True, hog_flow__status=HogFlow.State.ACTIVE)
-            .exists()
-        )
-        if not wanted:
+        if not _live_opt_ins(project.id).exists():
             disable_scout_for_product(team_id=project.id, skill_name=SUGGESTIONS_SCOUT, source_product=SOURCE_PRODUCT)
         elif acting_user is not None and may_grant:
             enable_scout_for_product(
@@ -97,6 +91,21 @@ def suggestions_scout_status(team: Team) -> str:
     return "running" if status is not None else "not_running"
 
 
+def _live_opt_ins(project_id: int) -> QuerySet[HogFlowOptimization]:
+    environments = Team.objects.filter(Q(id=project_id) | Q(parent_team_id=project_id)).values("id")
+    return HogFlowOptimization.objects.unscoped().filter(
+        team_id__in=environments, enabled=True, hog_flow__status=HogFlow.State.ACTIVE
+    )
+
+
+def suggestions_scout_no_input_reason(project_id: int) -> str | None:
+    """`no_opted_in_workflow` when the project has no live workflow that asks for suggestions, else None.
+
+    A scout switched on without one, for example from the Inbox, has nothing to read on any run.
+    """
+    return None if _live_opt_ins(project_id).exists() else "no_opted_in_workflow"
+
+
 @frozen
 class _OptedInWorkflow:
     id: UUID
@@ -127,9 +136,9 @@ def suggestions_scout_run_reason(
     environments = Team.objects.filter(Q(id=project_id) | Q(parent_team_id=project_id)).values("id")
     opted_in = [
         _OptedInWorkflow(id=flow_id, team_id=team_id, version=version, opted_in_at=created_at)
-        for flow_id, team_id, version, created_at in HogFlowOptimization.objects.unscoped()
-        .filter(team_id__in=environments, enabled=True, hog_flow__status=HogFlow.State.ACTIVE)
-        .values_list("hog_flow_id", "hog_flow__team_id", "hog_flow__version", "created_at")
+        for flow_id, team_id, version, created_at in _live_opt_ins(project_id).values_list(
+            "hog_flow_id", "hog_flow__team_id", "hog_flow__version", "created_at"
+        )
     ]
     if not opted_in:
         return None

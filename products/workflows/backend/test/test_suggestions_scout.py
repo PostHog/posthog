@@ -14,6 +14,7 @@ from posthog.test.fixtures import create_app_metric2
 from products.workflows.backend.models import HogFlow, HogFlowOptimization, HogFlowRevision, WorkflowProposal
 from products.workflows.backend.services.suggestions_scout import (
     EMAIL_METRICS_MAX_EXECUTION_S,
+    suggestions_scout_no_input_reason,
     suggestions_scout_run_reason,
 )
 
@@ -166,6 +167,31 @@ class TestSuggestionsScoutRunReason(ClickhouseTestMixin, BaseTest):
             )
 
         assert self._reason() is None
+
+    @parameterized.expand(
+        [
+            ("live_opted_in_workflow", "live", None),
+            ("opted_out", "opted_out", "no_opted_in_workflow"),
+            ("workflow_archived", "archived", "no_opted_in_workflow"),
+            ("only_in_a_child_environment", "child_environment", None),
+            ("only_in_another_project", "other_project", "no_opted_in_workflow"),
+        ]
+    )
+    def test_no_input_reason(self, _name: str, case: str, expected: str | None) -> None:
+        if case == "archived":
+            HogFlow.objects.filter(pk=self.flow.pk).update(status="archived")
+        elif case != "live":
+            HogFlowOptimization.objects.unscoped().filter(hog_flow=self.flow).update(enabled=False)
+        if case == "child_environment":
+            environment = Team.objects.create(
+                organization=self.organization, project=self.team.project, parent_team=self.team, name="Staging"
+            )
+            self._opt_in(self._flow(environment, "active"), days_ago=1)
+        elif case == "other_project":
+            other_team = Team.objects.create(organization=self.organization, name="Other project")
+            self._opt_in(self._flow(other_team, "active"), days_ago=1)
+
+        assert suggestions_scout_no_input_reason(self.team.pk) == expected
 
     def test_reads_workflows_in_every_environment_of_the_project(self) -> None:
         environment = Team.objects.create(
