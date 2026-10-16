@@ -111,6 +111,30 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
 
 
+class HealthExposureInputsStatus(LabeledStrEnum):
+    READY = "ready"
+    # The cached answer is past its age. A recalculation runs in the background, or the last one failed.
+    STALE = "stale"
+    # No cached answer. A calculation runs in the background.
+    CALCULATING = "calculating"
+    NOT_LAUNCHED = "not_launched"
+    NO_QUERY_ACCESS = "no_query_access"
+    # The query could not be built, or no answer is cached and the last background calculation failed.
+    FAILED = "failed"
+
+
+class ExperimentHealthInputsTrafficStatus(LabeledStrEnum):
+    READ = "read"
+    NOT_NEEDED = "not_needed"
+    NO_QUERY_ACCESS = "no_query_access"
+    # The reader is denied a flag call property that the scan reads.
+    DENIED_PROPERTIES = "denied_properties"
+    NO_FLAG_VERSION = "no_flag_version"
+    # The scan failed or was too expensive, which is cached so that it does not run again on every load. Or another
+    # request's scan was still running and did not answer in time.
+    UNKNOWN = "unknown"
+
+
 class ExperimentHealthFindingSeverity(LabeledStrEnum):
     # The values are the severities of the platform's health issues (posthog/models/health_issue.py), so a
     # finding can become a health issue by value. The labels differ on purpose: two choice sets with the same
