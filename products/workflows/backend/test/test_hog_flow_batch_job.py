@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.db.models.signals import post_save
 from django.test import TestCase, override_settings
 
+import requests
 from celery.exceptions import Retry
 from parameterized import parameterized
 
@@ -286,6 +287,29 @@ class TestHogFlowBatchJob(TestCase):
         statuses = sorted(HogFlowBatchJob.objects.filter(pk__in=[j.pk for j in jobs]).values_list("status", flat=True))
         assert statuses == ["queued", "waiting"]
         assert mock_resume.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("rejected", requests.HTTPError("400 Client Error", response=MagicMock(status_code=400)), "failed"),
+            ("never_connected", requests.ConnectTimeout("connect timed out"), "failed"),
+            # The request may have reached the CDP API, so a stop must still reach the resolver.
+            ("no_response", requests.ReadTimeout("read timed out"), "queued"),
+        ]
+    )
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_failed_dispatch_fails_the_run_only_when_no_resolver_was_queued(
+        self, _name, error, expected_status, mock_create_invocation
+    ):
+        mock_create_invocation.return_value.raise_for_status.side_effect = error
+
+        with pytest.raises(type(error)):
+            HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, variables=[])
+
+        assert list(HogFlowBatchJob.objects.filter(hog_flow=self.hog_flow).values_list("status", flat=True)) == [
+            expected_status
+        ]
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"

@@ -4135,6 +4135,8 @@ class TestHogFlowAPI(APIBaseTest):
             # The realtime pipeline has no filter of its own to key this cohort's membership on, so it never
             # becomes ready.
             ("realtime_reference_only", "batch", "reference_only", None, True, 400, "can't evaluate"),
+            # The realtime pipeline doesn't run for the team, so the cohort never becomes ready.
+            ("team_off_realtime_pipeline", "batch", "off_pipeline", None, True, 400, "would never start"),
         ]
     )
     @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
@@ -4181,7 +4183,8 @@ class TestHogFlowAPI(APIBaseTest):
             ],
         }
 
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none" if cohort_kind == "off_pipeline" else "all"):
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
 
         assert response.status_code == expected_status, response.json()
         if expected_detail:
@@ -5056,6 +5059,28 @@ class TestHogFlowAPI(APIBaseTest):
         mock_create_invocation.assert_called_once()
         # The per-team audience cap must ride on the invocation so the consumer enforces the team's limit.
         assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 5000
+
+    @parameterized.expand([("on_realtime_pipeline", "all", 200), ("off_realtime_pipeline", "none", 400)])
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_post_hog_flow_batch_jobs_refuses_a_realtime_cohort_that_never_finishes(
+        self, _name, allowlist, expected_status, mock_create_invocation
+    ):
+        flow_id = self._create_active_hog_flow()
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=False)
+        flow = HogFlow.objects.get(pk=flow_id)
+        flow.trigger = {
+            **flow.trigger,
+            "filters": {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]},
+        }
+        flow.save(update_fields=["trigger"])
+
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=allowlist):
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs", {})
+
+        assert response.status_code == expected_status, response.json()
+        assert mock_create_invocation.called == (expected_status == 200)
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"

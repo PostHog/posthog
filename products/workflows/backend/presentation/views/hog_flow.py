@@ -270,6 +270,7 @@ from products.workflows.backend.facade.validation import (
     is_duration,
     is_signed_duration,
     realtime_audience_cohort,
+    realtime_cohort_cant_finish_error,
 )
 from products.workflows.backend.facade.workflows import (
     BILLABLE_ACTION_TYPES,
@@ -1465,6 +1466,11 @@ class HogFlowActionSerializer(serializers.Serializer):
                         )
                     }
                 )
+            # A stored audience stays editable after its team leaves the realtime pipeline; its runs are refused.
+            if not realtime_cohort.can_finish and realtime_cohort.id not in (
+                self.context.get("stored_realtime_audience_cohort_ids") or set()
+            ):
+                raise serializers.ValidationError({"filters": realtime_cohort_cant_finish_error(realtime_cohort)})
             # A cohort that is still calculating is accepted: a batch run waits until it is ready.
             return
 
@@ -6558,6 +6564,9 @@ class HogFlowViewSet(
             serializer = HogFlowBatchJobSerializer(data={**request.data, "hog_flow": hog_flow.id})
             if not serializer.is_valid():
                 return Response(serializer.errors, status=400)
+            audience_cohort = realtime_audience_cohort(self.team.project_id, hog_flow.trigger_filters)
+            if audience_cohort is not None and not audience_cohort.can_finish:
+                raise exceptions.ValidationError(realtime_cohort_cant_finish_error(audience_cohort))
             self._require_replay_vision_caller_access(request, self._edit_state().actions)
 
             batch_job = create_batch_job(

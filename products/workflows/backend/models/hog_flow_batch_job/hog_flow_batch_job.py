@@ -5,6 +5,7 @@ from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+import requests
 import structlog
 
 from posthog.models.utils import RootTeamMixin, UUIDTModel
@@ -18,8 +19,6 @@ from products.workflows.backend.services.batch_audience_cohorts import (
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit, hog_flow_sends_email
 
 if TYPE_CHECKING:
-    import requests
-
     from products.cohorts.backend.models.cohort import Cohort
 
 logger = structlog.get_logger(__name__)
@@ -111,13 +110,18 @@ def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
             HogFlowBatchJob.objects.filter(pk=instance.pk).update(status=HogFlowBatchJobState.WAITING)
             instance.status = HogFlowBatchJobState.WAITING
         try:
-            dispatch_batch_job(instance, realtime_cohort, wait_for_cohort=wait_for_cohort)
+            dispatch_batch_job(instance, realtime_cohort, wait_for_cohort=wait_for_cohort).raise_for_status()
         except Exception as e:
             logger.exception(
                 "Failed to create batch hogflow job invocation",
                 batch_job_id=instance.id,
                 error=str(e),
             )
+            # A rejected request or one that never connected queued no resolver, so nothing would ever move the
+            # run on. Any other failure may have queued one, so the run stays stoppable.
+            if isinstance(e, requests.HTTPError | requests.ConnectTimeout):
+                HogFlowBatchJob.objects.filter(pk=instance.pk).update(status=HogFlowBatchJobState.FAILED)
+                instance.status = HogFlowBatchJobState.FAILED
             raise
         if wait_for_cohort and realtime_cohort is not None:
             # The cohort can finish between the check above and the park, and its ready signal then finds

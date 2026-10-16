@@ -73,6 +73,8 @@ class RealtimeAudienceCohort:
     id: int
     name: str
     ready: bool
+    # False when the realtime pipeline doesn't run for the cohort's project, so it never becomes ready.
+    can_finish: bool
 
 
 @frozen

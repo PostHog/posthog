@@ -85,13 +85,18 @@ def realtime_audience_cohort(project_id: int, filters: object) -> Cohort | None:
     return find_realtime_behavioral_cohort(project_id, [cohort_id])
 
 
+def realtime_cohort_can_finish(cohort: Cohort) -> bool:
+    """Whether the realtime pipeline runs for this cohort's team, so the cohort can become ready at all."""
+    return is_realtime_cohort_team(cohort.team_id)
+
+
 def realtime_cohort_is_ready(cohort: Cohort) -> bool:
     """Whether the realtime pipeline holds this cohort's full membership and keeps it current.
 
     The backfill stamps stay set when a team leaves the realtime allowlist, but the pipeline then
     stops updating the membership, so the team has to be on the allowlist too.
     """
-    return cohort.is_flag_compatible and is_realtime_cohort_team(cohort.team_id)
+    return cohort.is_flag_compatible and realtime_cohort_can_finish(cohort)
 
 
 # The states the size response declares. Any other state of a cohort that isn't ready yet is building.

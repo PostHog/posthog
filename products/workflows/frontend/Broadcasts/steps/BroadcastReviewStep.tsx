@@ -12,6 +12,7 @@ import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { MissingRecipientEmailBanner } from '../../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
 import { RealtimeCohortCalculatingBanner } from '../../Workflows/hogflows/steps/components/RealtimeCohortCalculatingBanner'
+import { isRealtimeCohortCalculating } from '../../Workflows/hogflows/steps/realtimeCohortStatus'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from '../BroadcastEmailPreview'
@@ -111,7 +112,7 @@ export function BroadcastReviewStep(): JSX.Element {
                 <ReviewRow label="Recipients" step="recipients">
                     {blastRadiusLoading ? (
                         <Spinner />
-                    ) : blastRadius ? (
+                    ) : isRealtimeCohortCalculating(blastRadius?.realtime_cohort) ? null : blastRadius ? (
                         <span>
                             Approximately {humanFriendlyNumber(blastRadius.affected)} of{' '}
                             {humanFriendlyNumber(blastRadius.total)} people
