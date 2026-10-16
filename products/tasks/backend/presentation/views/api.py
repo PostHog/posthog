@@ -213,6 +213,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskSerializer,
     TaskSessionResponseSerializer,
     TaskSessionSyncResponseSerializer,
+    TaskSourcesResponseSerializer,
     TaskStagedArtifactsFinalizeUploadRequestSerializer,
     TaskStagedArtifactsFinalizeUploadResponseSerializer,
     TaskStagedArtifactsPrepareUploadRequestSerializer,
@@ -1011,6 +1012,32 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(serializer.data)
 
     @extend_schema(
+        responses={200: TaskSourcesResponseSerializer},
+        summary="List task sources",
+        description=(
+            "Return the distinct sources of the requester's own non-archived tasks, in the words of the "
+            "task list `sources` filter. Used to populate a source filter picker without being constrained "
+            "by task list pagination."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="sources",
+        required_scopes=["task:read"],
+        pagination_class=None,
+        filter_backends=[],
+    )
+    def sources(self, request, **kwargs):
+        user_id = self._user_id()
+        if user_id is None:
+            raise NotFound()
+        sources = tasks_facade.list_task_sources(
+            self.team_id, user_id, exclude_task_ids=_hidden_scout_trial_task_ids(request, self.team_id)
+        )
+        return Response(TaskSourcesResponseSerializer({"sources": sources}).data)
+
+    @extend_schema(
         responses={200: PinnedTaskIdsResponseSerializer},
         summary="List pinned tasks",
         description="Return the visible tasks pinned by the requester in the current project.",
@@ -1652,7 +1679,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise PermissionDenied("The analytics data in this task run is not available to you.")
         if gate.runtime == tasks_facade.TaskRuntime.PI or not self._warm_enabled(gate.origin_product):
             return Response(status=status.HTTP_200_OK)
-        if access_response := code_access_required_response(request, self.organization, task_id=pk):
+        if not tasks_facade.task_exempt_from_code_access(pk, self.team_id) and (
+            access_response := code_access_required_response(request, self.organization, task_id=pk)
+        ):
             return access_response
 
         user_id = self._user_id()

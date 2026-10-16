@@ -154,6 +154,30 @@ function forcedVariantChecks(input: HealthDebugInput): HealthDebugCheck[] {
     ]
 }
 
+function splitChangedChecks(input: HealthDebugInput): HealthDebugCheck[] {
+    const finding = input.health?.findings.find(({ code }) => code === 'split_changed_mid_run')
+    return [
+        {
+            check: 'split_changed_mid_run',
+            source: 'server',
+            result: serverResult(input.health, (code) => code === 'split_changed_mid_run'),
+            note: finding ? splitChangedNote(finding) : null,
+            differs: false,
+        },
+    ]
+}
+
+function splitChangedNote(finding: ExperimentHealthFindingApi): string {
+    const { evidence } = finding
+    if (finding.subcode === 'not_checked') {
+        return evidence.change_count == null
+            ? `Not checked: ${evidence.reason}.`
+            : `Not checked: ${evidence.reason}. ${evidence.change_count} changes since launch, from ${evidence.from} to ${evidence.to}.`
+    }
+    const exposedBefore = evidence.exposed_before_change
+    return `${evidence.change_count} counted changes, from ${evidence.from} to ${evidence.to}. Exposed before the first: ${exposedBefore == null ? 'unknown' : exposedBefore ? 'yes' : 'no'}.`
+}
+
 function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     const { exposures } = input
     const panelCodes = new Set(input.panelFindings?.map((finding) => finding.code))
@@ -220,6 +244,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
 export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugCheck[] {
     return [
         ...flagStateChecks(input),
+        ...splitChangedChecks(input),
         ...flagVariantsChecks(input),
         ...forcedVariantChecks(input),
         ...noMetricChecks(input),

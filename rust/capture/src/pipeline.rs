@@ -61,9 +61,10 @@ pub enum Address {
 
 /// The pure routing decision for a single event: which address, and which
 /// ordering guarantee. Depends only on [`ProcessedEventMetadata`] (stamped
-/// upstream by the pipeline) and the AI overflow valve — the one piece of
-/// deployment config that changes a routing decision rather than a topic
-/// name. Side effects are not part of the decision: the dlq header set and
+/// upstream by the pipeline) and whether the deployment has an AI overflow
+/// lane — the one piece of deployment config that changes a routing decision
+/// rather than a topic name. Side effects are not part of the decision: the
+/// dlq header set and
 /// the reroute counters follow from the address, and the person-processing
 /// header follows from
 /// [`ProcessedEventMetadata::person_processing_disabled`] — the stamped flag,
@@ -101,7 +102,7 @@ impl AddressDecision {
 /// returned decision is realizable by the sink.
 pub fn resolve(
     metadata: &ProcessedEventMetadata,
-    ai_events_overflow_armed: bool,
+    has_ai_overflow_lane: bool,
 ) -> Result<AddressDecision, CaptureError> {
     if metadata.redirect_to_dlq {
         return Ok(AddressDecision::redirect(Address::Dlq));
@@ -156,21 +157,16 @@ pub fn resolve(
             }
         }
         DataType::AiEvents => {
-            // Valve armed: the AI lanes route overflow like analytics, except
-            // that a burst may spread while person processing is on — the AI
-            // consumer reads persons without writing them, so keyless
-            // person-on records cause no person-update contention there.
-            // Valve unarmed: AI events never overflow —
-            // force_overflow and stamped reasons are deliberately ignored
-            // (the pipeline never stamps a reason on this lane anyway). The
-            // default route keeps the event key regardless of
-            // skip_person_processing.
-            if ai_events_overflow_armed && metadata.force_overflow {
+            // The AI lanes route overflow like analytics, except that a burst
+            // may spread while person processing is on — the AI consumer reads
+            // persons without writing them, so keyless person-on records cause
+            // no person-update contention there.
+            if has_ai_overflow_lane && metadata.force_overflow {
                 AddressDecision::lane(
                     PipelineLane::Ai(AiLane::Overflow),
                     person_ordering(metadata.person_processing_disabled()),
                 )
-            } else if ai_events_overflow_armed {
+            } else if has_ai_overflow_lane {
                 match &metadata.overflow_reason {
                     Some(OverflowReason::ForceLimited) => AddressDecision::lane(
                         PipelineLane::Ai(AiLane::Overflow),
@@ -441,21 +437,21 @@ mod tests {
         #[case] data_type: DataType,
         #[case] overflow: PipelineLane,
     ) {
-        let armed = data_type == DataType::AiEvents;
+        let has_ai_overflow_lane = data_type == DataType::AiEvents;
         let mut m = meta(data_type);
         m.overflow_reason = Some(OverflowReason::RateLimited {
             preserve_locality: true,
         });
 
         assert_eq!(
-            resolve(&m, armed).unwrap().ordering,
+            resolve(&m, has_ai_overflow_lane).unwrap().ordering,
             OrderingGuarantee::PerDistinctId,
             "locality is preserved while person processing is on"
         );
 
         m.skip_person_processing = true;
         assert_eq!(
-            resolve(&m, armed).unwrap(),
+            resolve(&m, has_ai_overflow_lane).unwrap(),
             AddressDecision {
                 address: lane(overflow),
                 ordering: OrderingGuarantee::None,
@@ -464,9 +460,7 @@ mod tests {
     }
 
     #[test]
-    fn ai_events_overflow_gated_on_valve() {
-        // Valve unarmed: force_overflow and stamped reasons are ignored — the
-        // AI lane never overflows and keeps its event key.
+    fn ai_events_overflow_needs_an_overflow_lane() {
         let mut m = meta(DataType::AiEvents);
         m.force_overflow = true;
         assert_eq!(
@@ -477,7 +471,6 @@ mod tests {
             }
         );
 
-        // Valve armed: mirrors the analytics main lane's overflow handling.
         assert_eq!(
             resolve(&m, true).unwrap().address,
             lane(PipelineLane::Ai(AiLane::Overflow))
@@ -510,14 +503,14 @@ mod tests {
         // route: v1 only nulls keys for Main/Overflow-shaped destinations.
         let mut m = meta(DataType::AiEvents);
         m.skip_person_processing = true;
-        for armed in [false, true] {
+        for has_ai_overflow_lane in [false, true] {
             assert_eq!(
-                resolve(&m, armed).unwrap(),
+                resolve(&m, has_ai_overflow_lane).unwrap(),
                 AddressDecision {
                     address: lane(PipelineLane::Ai(AiLane::Main)),
                     ordering: OrderingGuarantee::PerDistinctId,
                 },
-                "armed={armed}"
+                "has_ai_overflow_lane={has_ai_overflow_lane}"
             );
         }
     }

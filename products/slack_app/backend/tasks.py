@@ -11,7 +11,6 @@ from posthog.models.integration import Integration
 from posthog.models.scoping import with_team_scope
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.scoping_audit import skip_team_scope_audit
-from posthog.temporal.ai.slack_app.types import SlackUnfurlChartRequest
 
 from products.slack_app.backend.api import (
     REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS,
@@ -19,7 +18,8 @@ from products.slack_app.backend.api import (
     does_other_region_claim_workspace,
     send_region_proxy_request,
 )
-from products.slack_app.backend.slack_link_unfurl import start_unfurl_charts
+from products.slack_app.backend.slack_link_unfurl import add_artifact_image_to_unfurl, start_unfurl_charts
+from products.slack_app.backend.temporal.types import SlackUnfurlChartRequest
 
 
 @shared_task(ignore_result=True)
@@ -84,4 +84,32 @@ def start_slack_unfurl_charts(
         event=event,
         unfurls=unfurls,
         charts=[SlackUnfurlChartRequest(**chart) for chart in charts],
+    )
+
+
+@shared_task(ignore_result=True)
+@with_team_scope()
+def add_slack_unfurl_artifact_image(
+    *,
+    team_id: int,
+    integration_id: int,
+    user_id: int,
+    event: dict[str, Any],
+    unfurls: dict[str, Any],
+    url: str,
+    title: str,
+) -> None:
+    integration = (
+        Integration.objects.select_related("team__organization").filter(id=integration_id, team_id=team_id).first()
+    )
+    user = User.objects.filter(id=user_id).first()
+    if integration is None or user is None:
+        return
+    add_artifact_image_to_unfurl(
+        integration=integration,
+        user=user,
+        event=event,
+        unfurls=unfurls,
+        url=url,
+        title=title,
     )

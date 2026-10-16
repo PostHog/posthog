@@ -4,7 +4,7 @@ name: Master run traces
 # a span per job beneath it, a span per step beneath those. Covers every workflow,
 # including the ones with no telemetry of their own (Container Images CD, the
 # container CD lane, the Rust image builds). Master pushes are scanned repo-wide;
-# Backend CI's scheduled runs are read from Depot. Depot exposes workflow and job
+# Backend CI's push and scheduled runs are read from Depot. Depot exposes workflow and job
 # timestamps, but not step or job-queue timestamps, so those traces stop at jobs.
 #
 # Complements .github/scripts/report_test_timings.py, which emits per-test traces
@@ -58,7 +58,7 @@ jobs:
                   persist-credentials: false
                   sparse-checkout: |
                       .github/scripts/report_workflow_run_traces.py
-                      .github/scripts/depot_scheduled_runs.py
+                      .github/scripts/depot_backend_runs.py
                       .github/actions/setup-uv
                   sparse-checkout-cone-mode: false
 
@@ -89,6 +89,8 @@ jobs:
             - name: Emit master run traces
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+                  # The commit comparison needs contents read, which github.token has.
+                  GH_TOKEN: ${{ github.token }}
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
                   SINCE: ${{ inputs.since }}
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}

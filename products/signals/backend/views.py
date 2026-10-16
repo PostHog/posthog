@@ -118,7 +118,7 @@ from products.signals.backend.billing import (
     refund_ineligibility_reason,
     report_pr_is_merged,
 )
-from products.signals.backend.briefing_reports import open_report_counts, reports_for_briefing
+from products.signals.backend.briefing_reports import open_report_counts, reports_for_person
 from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.facade.api import emit_signal
@@ -2030,7 +2030,7 @@ class SignalReportViewSet(
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
-        if self.action != "list":
+        if self.action not in {"list", "for_you"}:
             # A by-ID lookup has nothing to order. More importantly, keeping list ordering here
             # forces every detail request to compute status/priority/reviewer annotations that
             # cannot affect which primary-key row is returned.
@@ -2059,6 +2059,9 @@ class SignalReportViewSet(
 
     @cached_property
     def _inbox_ranker(self) -> InboxRanker | None:
+        if self.action == "for_you":
+            # The recommended sort experiment covers the web inbox only, so `for_you` uses its control order.
+            return "priority"
         params = self.request.query_params
         if params.get("ordering") is not None or params.get("sort") != "recommended":
             return None
@@ -2666,8 +2669,8 @@ class SignalReportViewSet(
         summary="List the reports that matter most to the current user",
         description=(
             "One page of the open, actionable reports for the current user, and how many there are in "
-            "total. The ranking picks the page and priority orders it for display. Uses the same ranking and count as the Today briefing, so this is the short "
-            "list to show someone who asks what needs them. Pass `exclude` to leave out reports already "
+            "total, in the inbox priority order: priority, then status, then most recently updated. Uses the "
+            "same ranking and count as the Today briefing, so this is the short list to show someone who asks what needs them. Pass `exclude` to leave out reports already "
             "on screen and `offset` to get the next page. Pass `include_unowned=false` to leave out the "
             "P0 reports nobody owns, which belong to the project rather than to this person."
         ),
@@ -2677,19 +2680,12 @@ class SignalReportViewSet(
         user = cast(User, request.user)
         query = request.validated_query_data
         excluded = [str(report_id) for report_id in query["exclude"]]
-        ranked_ids = [
-            report.report_id
-            for report in reports_for_briefing(
-                team_id=self.team_id,
-                user_id=user.id,
-                limit=query["limit"],
-                include_unowned=query["include_unowned"],
-                offset=query["offset"],
-                exclude_report_ids=excluded,
-            )
-        ]
-        by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=ranked_ids)}
-        reports = [by_id[report_id] for report_id in ranked_ids if report_id in by_id]
+        for_person = reports_for_person(self.team_id, user, include_unowned=query["include_unowned"])
+        queryset = (
+            self.filter_queryset(self.get_queryset()).filter(id__in=for_person.values("id")).exclude(id__in=excluded)
+        )
+        offset = query["offset"]
+        reports = list(queryset[offset : offset + query["limit"]])
         counts = open_report_counts(
             team_id=self.team_id, user=user, exclude_report_ids=excluded, include_unowned=query["include_unowned"]
         )
@@ -5378,7 +5374,9 @@ class SignalReportCheckViewSet(
             "behind the report), status judgments (safety / actionability / priority, repo "
             "selection, suggested reviewers — the newest row of each status type is canonical), "
             "and log entries (code references, commits, task runs, notes). "
-            "`suggested_reviewers` content is enriched with PostHog user info at read time."
+            "`suggested_reviewers` content is enriched with PostHog user info at read time. "
+            "`ranking_score` content keeps only the head fields of each model's metadata; get the "
+            "artefact by id for the full metadata."
         ),
         parameters=[_REPORT_ID_PARAMETER],
         responses={200: SignalReportArtefactSerializer(many=True)},
@@ -5386,7 +5384,10 @@ class SignalReportCheckViewSet(
     ),
     retrieve=extend_schema(
         summary="Get a single artefact",
-        description="Get one artefact by id, content parsed (and reviewers enriched) the same way as the list.",
+        description=(
+            "Get one artefact by id, content parsed (and reviewers enriched) the same way as the list. "
+            "A `ranking_score` keeps its full model metadata."
+        ),
         parameters=[_REPORT_ID_PARAMETER],
         responses={200: SignalReportArtefactSerializer},
         operation_id="signals_report_artefacts_retrieve",
@@ -5516,6 +5517,7 @@ class SignalReportArtefactViewSet(
                 "signals_github_login_to_user_map": login_map,
                 "signals_reviewer_user_uuid_map": uuid_map,
                 "signals_scout_display_names": scout_display_names,
+                "signals_compact_ranking_scores": True,
                 "signals_reviewer_history": [
                     artefact
                     for artefact in real_artefacts

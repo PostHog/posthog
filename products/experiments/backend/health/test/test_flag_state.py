@@ -62,6 +62,9 @@ def _context(
         primary_metric_count=1,
         secondary_metric_count=0,
         exposures=None,
+        split_history=None,
+        condition_set_traffic=None,
+        excluded_variant_keys=frozenset(),
     )
 
 

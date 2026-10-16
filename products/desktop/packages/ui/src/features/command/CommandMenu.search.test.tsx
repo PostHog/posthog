@@ -127,7 +127,7 @@ describe("CommandMenu global search", () => {
     );
 
     await user.type(
-      screen.getByPlaceholderText(/Search commands and tasks/),
+      screen.getByPlaceholderText(/Search commands, channels, and tasks/),
       "run",
     );
 
