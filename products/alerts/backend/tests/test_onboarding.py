@@ -66,7 +66,7 @@ class TestDefaultIngestionAlert(BaseTest):
         alert = alerts.get()
         assert alert.get_subscribed_users_emails() == [self.user.email]
         assert alert.enabled == email_available
-        assert alert.skip_weekend
+        assert not alert.skip_weekend
         assert alert.calculation_interval == "daily"
         assert alert.detector_config is not None
         assert alert.detector_config["type"] == "knn"

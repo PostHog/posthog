@@ -37,7 +37,7 @@ def _create_default_ingestion_alert(team: Team, user: User) -> UUID | None:
         description=(
             "Alert when a complete day has unusually high or low event volume. "
             "Use the KNN detector with recent daily counts. Start after 16 complete days. "
-            "Weekend checks are off. Late events count on their event date. "
+            "Check every day, including weekends. Late events count on their event date. "
             "Edit the insight or alert to change these settings."
         ),
         filters={"default_ingestion_alert": True},
@@ -73,7 +73,7 @@ def _create_default_ingestion_alert(team: Team, user: User) -> UUID | None:
             },
             "detector_config": INGESTION_DETECTOR_CONFIG,
             "enabled": is_email_available(),
-            "skip_weekend": True,
+            "skip_weekend": False,
             "subscribed_users": [user.id],
         },
     )
