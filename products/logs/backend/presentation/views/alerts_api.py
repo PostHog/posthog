@@ -45,14 +45,7 @@ from products.alerts.backend.facade.destinations import (
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
-from products.alerts_platform.backend.facade.api import (
-    delete_owned_copy,
-    history_by_legacy_id,
-    mute_owned_copy,
-    reset_broken,
-    runtime_by_legacy_id,
-    update_owned_copy,
-)
+from products.alerts_platform.backend.facade.api import history_by_legacy_id, reset_broken, runtime_by_legacy_id
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -100,9 +93,8 @@ from products.logs.backend.facade.api import (
     logs_state_of_platform,
     next_allowed_check_at,
 )
+from products.logs.backend.facade.platform_ownership import on_created, on_deleted, on_updated
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
-from products.logs.backend.platform_alert_backfill import platform_change_of
-from products.logs.backend.platform_cutover import hand_over, has_begun_cutover
 
 MAX_ALERTS_PER_TEAM = 20
 # Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
@@ -829,7 +821,10 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
             updated = super().update(instance, validated_data)
             if updated.platform_owned:
-                _write_platform_copy(updated, snooze_changed=snooze_data is not _SENTINEL)
+                try:
+                    on_updated(updated, snooze_changed=snooze_data is not _SENTINEL)
+                except InvalidPlatformAlertEdit as error:
+                    raise ValidationError({error.field_name: str(error)}) from error
             elif enabled_change is True:
                 transaction.on_commit(
                     lambda: follow_logs_alert(team_id=updated.team_id, alert_id=updated.id), robust=True
@@ -862,28 +857,11 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     schedule_restriction=schedule_restriction,
                 )
             created = super().create(validated_data)
-            # A team the platform has begun taking over gets new alerts on the platform too, so it
-            # never has to be cut over again for them. A refused handover leaves the alert with logs.
-            handed_over = has_begun_cutover(created.team_id) and hand_over(created, timezone.now())
-            if not handed_over and created.enabled:
+            if not on_created(created, timezone.now()) and created.enabled:
                 transaction.on_commit(
                     lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
                 )
             return created
-
-
-def _write_platform_copy(alert: LogsAlertConfiguration, *, snooze_changed: bool) -> None:
-    """Writes an edit of an alert the platform owns onto the platform's copy, in the edit's transaction.
-
-    The logs row keeps the edit too: the logs page reads it, the shadow evaluation runs it, and a
-    rollback hands it back.
-    """
-    try:
-        update_owned_copy(team_id=alert.team_id, legacy_configuration_id=alert.id, change=platform_change_of(alert))
-    except InvalidPlatformAlertEdit as error:
-        raise ValidationError({error.field_name: str(error)}) from error
-    if snooze_changed:
-        mute_owned_copy(team_id=alert.team_id, legacy_configuration_id=alert.id, snooze_until=alert.snooze_until)
 
 
 def _validate_filters(filters: dict) -> None:
@@ -1665,6 +1643,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 allowed_event_ids=LOGS_ALERT_EVENT_IDS,
             )
             if locked_instance.platform_owned:
-                delete_owned_copy(team_id=locked_instance.team_id, legacy_configuration_id=locked_instance.id)
+                on_deleted(locked_instance)
             super().perform_destroy(locked_instance)
             transaction.on_commit(lambda: self._track("deleted", locked_instance), robust=True)

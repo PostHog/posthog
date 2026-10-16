@@ -191,6 +191,7 @@ def hand_over(alert: LogsAlertConfiguration, at: datetime) -> bool:
         transaction.savepoint_rollback(savepoint)
         return False
     transaction.savepoint_commit(savepoint)
+    # `update()` rather than `save()`: a handover is not a user's edit, and `save()` would log one.
     LogsAlertConfiguration.objects.filter(id=alert.id).update(owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at)
     alert.owner = PlatformAlertOwner.PLATFORM
     alert.owner_changed_at = at

@@ -852,13 +852,12 @@ class SourceEditMirror(Protocol):
     """Writes an edit made through the platform API onto the source's own row.
 
     While a source keeps its own row for an alert the platform owns, the two must agree: the
-    source's API reads that row, and a rollback hands it back. `lock` runs before the platform
-    locks its copy, because every other writer of both rows takes the source's row first.
+    source's API reads that row, and a rollback hands it back. It runs before the platform locks
+    its copy, because every other writer of both rows takes the source's row first. It locks the
+    source's row and returns the writer for the edit, or None when the row is gone.
     """
 
-    def lock(self, legacy_configuration_id: UUID) -> None: ...
-
-    def write(self, legacy_configuration_id: UUID, edit: PlatformAlertConfigurationEdit) -> None: ...
+    def __call__(self, legacy_configuration_id: UUID) -> Callable[[PlatformAlertConfigurationEdit], None] | None: ...
 
 
 @frozen
