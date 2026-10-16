@@ -11918,6 +11918,14 @@ snapshots:
         hash: v1.k794b7964.b993087e480fc1db681058fc86f14bf1320b761a28da857e794cce6af50b0b99.-nJybLR6PljBiMrTrLZm0x-iWWMqIJHWFKWMe3JQqFI
     scenes-app-inbox-scoutsuggestionsstrip--uneven-motivations--light:
         hash: v1.k794b7964.507bd34c3dfd17859203839ee2b48fde2356feeb39c5ea68a85111e81bde3653.BAUoWqxWUpZedEPIrw8_XyDM2Gpe1d49RqS76agw8H8
+    scenes-app-inbox-scouttoolspicker--new-list--dark:
+        hash: v1.k794b7964.18bf48eade276601c7783528df0fc84ac717e8c0739f52406747aefede33677e.8-nhlqAAYOP5pI-v0HfM8URoqmlVVUdPVQ2bE53MTSM
+    scenes-app-inbox-scouttoolspicker--new-list--light:
+        hash: v1.k794b7964.0a0606a1bf64b6caa050f6c7a5d718b0df423ec14d6bc860e34b5275ff49c9fe.Yvd6rtUmpfIRts4ZVQuHdo1j3Ya1Ww21N-6KLyD0npM
+    scenes-app-inbox-scouttoolspicker--saved-list-with-write-tools--dark:
+        hash: v1.k794b7964.19657b3ef3e0fc42aebbc4b011084746616956255c4c06cc9d5c3be853959119.sac8-fP5Ovs2x8H9ipt-ylomHEfr9OxJeRrBCWwihmE
+    scenes-app-inbox-scouttoolspicker--saved-list-with-write-tools--light:
+        hash: v1.k794b7964.165566360be802cd5609b351f4aaafe0d2ca753fc54eb27289d215a730d2d39b.gr4y0M7qOIGmgB7zeGrLUUHOwynreveUI4yerlVwCYY
     scenes-app-inbox-scoutwriteaccesstag--compact--dark:
         hash: v1.k794b7964.449b1898c216f12c6a62f2c0a1544ce814cdc7e4d519c69287d686e8b9a90b79.yXNYamE5tvB24QXwyniqxYtd3IAlRpo-RoLspp9zOKQ
     scenes-app-inbox-scoutwriteaccesstag--compact--light:
