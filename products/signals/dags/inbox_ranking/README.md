@@ -148,9 +148,9 @@ s3://<bucket>/<prefix>/
 
 - **A model is a `(model_name, model_version, model_role)`.** `model_name` is the family: which features and which learner: `report_embeddings` and `title_embeddings`, both per-head XGBoost, are the two trained here. `nn`, one ONNX network, is trained by the `signals_ml` location, and each `MODEL_FAMILIES` entry names its `learner` and the `location` that trains it. `model_version` is the partition day it was fit on, and `model_role` is the role it was scored or trained under (`candidate` on the training events; `served`, `daily_candidate` or `cross_family` on the online grade). Each family owns a prefix under the models path and its own `champion.json`, so two families trained on the same day cannot collide, and promotion stays inside a family. A second family is a second model graded on the same online rows, not a competitor for another family's pointer.
 - **A feature set is one feature universe.** `products/signals/backend/ranking/features.py` holds a `FeatureSet` per universe: its name, its schema version, its ordered feature names, the report-state columns it reads, `build_matrix`, and how many rows it wants per report and per head. `report_embeddings` and `title_embeddings` are the two today. A candidate records the set it was fit on in its `metadata.json`, so the grader checks a model against its own set rather than one global contract, the examples asset writes one Parquet per set, and the unseen scorer builds one matrix per set and shares it across the families that read it. Adding a set means an entry in `FEATURE_SETS`; a model naming a set this build cannot produce is logged and left unscored.
-- **Examples are one row per report at its birth, by default.** For partition `dt=D` the examples asset reads the report-state and labels snapshots `dt=D-lookback..D` and emits one row per report, on the snapshot of the day it was created, labeled from the snapshot `horizon_days` later (7 for open / pr_created / discuss / thumbs_up, 14 for action / pr_merged / refund / reviewer_fix, 21 for dismiss_wrong / dismiss_lowvalue, 30 for fixed). Features are built by the feature set from that snapshot's state columns plus `age_hours`, the report's age at the snapshot. Labels are aligned to the state spine, so a report with no label event is a negative (all-zero labels), not absent. Label-only rows (no Postgres state) are skipped, as are state rows read long after their snapshot day (backfills carry current Postgres state; see `features_observed_at`) and, for the heads that read the status stream (`dismiss_wrong`, `action`, `fixed` and `dismiss_lowvalue`), rows whose status telemetry fails the dataset's `label_provenance_ok` check. Birth is the moment serving scores a report, and the label that comes out is a per-report probability, which is what the inbox ordering needs. A report born before the window, or one whose birth-day snapshot is missing from it, is no example; `reports_missing_birth_snapshot` on the asset counts the second case, which is a gap in the partitions.
+- **Examples are one row per report at its birth, by default.** For partition `dt=D` the examples asset reads the report-state and labels snapshots `dt=D-lookback..D` and emits one row per report, on the snapshot of the day it was created, labeled from the snapshot `horizon_days` later (7 for open, 14 for action, 30 for fixed). Features are built by the feature set from that snapshot's state columns plus `age_hours`, the report's age at the snapshot. Labels are aligned to the state spine, so a report with no label event is a negative (all-zero labels), not absent. Label-only rows (no Postgres state) are skipped, as are state rows read long after their snapshot day (backfills carry current Postgres state; see `features_observed_at`) and, for the heads that read the status stream (`action` and `fixed`), rows whose status telemetry fails the dataset's `label_provenance_ok` check. Birth is the moment serving scores a report, and the label that comes out is a per-report probability, which is what the inbox ordering needs. A report born before the window, or one whose birth-day snapshot is missing from it, is no example; `reports_missing_birth_snapshot` on the asset counts the second case, which is a gap in the partitions.
 - **An outcome already visible on the birth day is a future positive.** A report born on day D has no scoring moment before D, so an outcome visible at D belongs to the moment being built rather than to an earlier one; the labels of D therefore read as their defaults for a report born on D. Most outcomes land on the birth day, so this is where the positives are: censoring on them costs the `pr_created` head most of its training signal. `<set>_<head>_birth_day_positives` on the examples asset, and `birth_day_positives` on the `inbox_ranking_examples_built` event, say how many positives the rule keeps. These rows carry a hindsight the other rows do not: the state snapshot reads `signal_count`, `total_weight`, `run_count` and the text sizes live from Postgres a few hours after day D ends, so a birth-day outcome happened before its own feature read. Both the holdout AUC and the newborn unseen grade therefore read optimistically on these rows, until the scoring sweep's timestamped score log replaces the daily snapshot as this table's source.
-- **Every head asks whether the outcome happened within N days of the scoring moment.** `pr_merged` includes every report, so the label covers the whole report-to-merge path without requiring a PR at birth or at the horizon.
+- **Every head asks whether the outcome happened within N days of the scoring moment.**
 - **A set may ask for another grain**, and cap the rows one head keeps (`max_examples_per_head`, whole report-creation days, newest first). The scoring-moment grain is one row per (report, snapshot) whose head label is still 0 on that snapshot: the serving situation replayed over history, but its label is a hazard conditional on the report still being live, and one long-lived report contributes dozens of near-duplicate rows. The report grain is the first snapshot of the window where the report is a usable moment, which is later than birth only when a side input landed late. Both stay selectable for re-scoring families; nothing ships on them today. The row budget shortens the history a head is fit on and keeps each kept day whole, so the scores stay calibrated to the population of that window. The lookback is the training job's whatever the grain, so positives accrue over the whole window until the budget binds.
 - **The embedding sets are the serving contract.** Each reads one rendering's vector and nothing else, so the scoring sweep needs only the report's latest vector for that rendering. The sweep must build features through the same module; the booster's `feature_names` are checked against it at load. A model whose metadata names no set is left unscored.
 - **`report_embeddings` is the report's own vector and nothing else**, read from the dt=D `inbox_report_embeddings` snapshot as a side input. Age is deliberately left out: it is the whole signal of the `recency_auc` line the unseen read already reports, so a gap to that line is content rather than recency. The scoring sweep does not serve this set: it is an offline candidate, and serving it needs the report vector at scoring time.
@@ -231,19 +231,15 @@ Both regions read the same flag, so one override applies everywhere, if the regi
 
 ### Outcome heads
 
-| Head               | Cohort at the horizon | Horizon (days) |
-| ------------------ | --------------------- | -------------- |
-| `open`             | Every report          | 7              |
-| `action`           | Every report          | 14             |
-| `dismiss_wrong`    | Every report          | 21             |
-| `pr_created`       | Every report          | 7              |
-| `pr_merged`        | Every report          | 14             |
-| `fixed`            | Every report          | 30             |
-| `discuss`          | Every report          | 7              |
-| `refund`           | Every report          | 14             |
-| `thumbs_up`        | Every report          | 7              |
-| `reviewer_fix`     | Every report          | 14             |
-| `dismiss_lowvalue` | Every report          | 21             |
+| Head     | Cohort at the horizon | Horizon (days) |
+| -------- | --------------------- | -------------- |
+| `open`   | Every report          | 7              |
+| `action` | Every report          | 14             |
+| `fixed`  | Every report          | 30             |
+
+The families train only these three heads, because the inbox reads only these three.
+The dataset still snapshots the label columns of other outcomes, so a head can come back without a labels backfill.
+The promotion gate compares only the heads in `HEADS`, so a champion that carries a retired head does not block a candidate without it.
 
 `action` counts intent from every surface, not only the cloud inbox list.
 A report is a positive when someone clicked an intent action in the inbox UI (create PR, implement, copy the prompt, discuss, open or view a PR, edit the reviewers, restore), or when a person or an external agent claimed it, linked a PR, left a note, discussed it in Slack, or resolved it.
@@ -260,10 +256,6 @@ The Today home sends the same client events as the Inbox, with `surface: 'today'
 Filter on `surface` where a metric must stay Inbox-only.
 Today sets a verdict first and sends its optional reason in a second state call, which does not change the status.
 For that call the server emits `signal_report_status_changed` with `previous_status` equal to `status` and `reason_added: true`, so the reason reaches the status-stream heads.
-
-`thumbs_up` (a positive rating on the report body) and `reviewer_fix` (a suggested reviewer added or removed) are the explicit human-feedback pair.
-Both are rare, so neither clears its holdout bar on a single day.
-They are carried for the pooled newborn grade and as scorer inputs, not for a holdout AUC, and the promotion gate keeps ignoring an unreadable head.
 
 Every training series resets on the first partition after deploy.
 Before and after holdout numbers are not comparable because the example population changes.

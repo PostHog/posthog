@@ -30,6 +30,7 @@ const createKeys = (count: number): ProjectSecretAPIKeyApi[] =>
         last_used_at: null,
         last_rolled_at: null,
         scopes: ['endpoint:read'],
+        ai_credential: null,
     }))
 
 describe('<ProjectSecretAPIKeys />', () => {

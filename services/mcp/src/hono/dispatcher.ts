@@ -244,6 +244,13 @@ class McpDispatcher {
 
         const requests = messages.filter(isRequest)
         if (requests.length === 0) {
+            const responses = messages.filter((message) => this.interviewRecruitment.isLegacyResponse(message))
+            if (!singleModern && responses.length > 0) {
+                const state = await this.stateResolver.resolve(props)
+                for (const response of responses) {
+                    await this.interviewRecruitment.receiveLegacyResponse(response, state, props.userHash)
+                }
+            }
             return new Response(null, { status: 202 })
         }
 
@@ -290,7 +297,32 @@ class McpDispatcher {
         }
 
         if (!wasArray && requests.length === 1) {
-            const result = await this.dispatch(requests[0]!, props, state, getPublicUrl(req).origin)
+            let elicitation: JSONRPCRequest | undefined
+            const canStream =
+                !singleModern &&
+                req.headers
+                    .get('accept')
+                    ?.split(',')
+                    .some((value) => value.trim().split(';')[0] === 'text/event-stream')
+            const result = await this.dispatch(
+                requests[0]!,
+                props,
+                state,
+                getPublicUrl(req).origin,
+                canStream
+                    ? (request) => {
+                          elicitation = request
+                      }
+                    : undefined
+            )
+            if (elicitation) {
+                const body = [elicitation, result]
+                    .map((message) => `event: message\ndata: ${JSON.stringify(message)}\n\n`)
+                    .join('')
+                return new Response(body, {
+                    headers: { ...headers, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+                })
+            }
             // SEP-2575: unsupported RPCs get HTTP 404 in the modern dialect.
             const status =
                 singleModern && 'error' in result && result.error.code === ErrorCode.MethodNotFound ? 404 : 200
@@ -305,7 +337,8 @@ class McpDispatcher {
         request: JSONRPCRequest,
         props: RequestProperties,
         state: ResolvedState | undefined,
-        requestOrigin: string
+        requestOrigin: string,
+        onLegacyElicitation?: (request: JSONRPCRequest) => void
     ): Promise<JsonRpcResponse> {
         const { id, method, params } = request
 
@@ -315,7 +348,16 @@ class McpDispatcher {
         const stateless = protocolMeta.protocolVersion === STATELESS_PROTOCOL_VERSION
 
         try {
-            const result = await this.dispatchMethod(method, params, props, state, stateless, id, requestOrigin)
+            const result = await this.dispatchMethod(
+                method,
+                params,
+                props,
+                state,
+                stateless,
+                id,
+                requestOrigin,
+                onLegacyElicitation
+            )
             if (result === METHOD_NOT_FOUND) {
                 return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
             }
@@ -337,7 +379,8 @@ class McpDispatcher {
         state: ResolvedState | undefined,
         stateless: boolean,
         requestId: string | number,
-        requestOrigin: string
+        requestOrigin: string,
+        onLegacyElicitation?: (request: JSONRPCRequest) => void
     ): Promise<unknown> {
         // SEP-2575 removed `initialize` and `ping` from the modern dialect.
         if (stateless && (method === Method.Initialize || method === Method.Ping)) {
@@ -354,17 +397,39 @@ class McpDispatcher {
                 return await this.toolExecutor.handleToolCall(
                     params,
                     state!,
-                    stateless && params
+                    params
                         ? {
                               beforeExecute: (callState) =>
                                   this.interviewRecruitment.beforeToolCall(
                                       params,
                                       callState,
                                       props.userHash,
-                                      requestOrigin
+                                      requestOrigin,
+                                      onLegacyElicitation ? 'legacy' : 'stateless',
+                                      !!onLegacyElicitation
                                   ),
-                              afterExecute: (callState, result) =>
-                                  this.interviewRecruitment.afterToolCall(params, callState, result, requestId),
+                              afterExecute: async (callState, result) => {
+                                  if (onLegacyElicitation) {
+                                      const request = await this.interviewRecruitment.afterLegacyToolCall(
+                                          params,
+                                          callState,
+                                          result,
+                                          requestId,
+                                          props.userHash,
+                                          requestOrigin
+                                      )
+                                      if (request) {
+                                          onLegacyElicitation(request)
+                                      }
+                                  } else {
+                                      await this.interviewRecruitment.afterToolCall(
+                                          params,
+                                          callState,
+                                          result,
+                                          requestId
+                                      )
+                                  }
+                              },
                           }
                         : undefined
                 )
