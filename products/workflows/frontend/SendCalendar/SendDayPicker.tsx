@@ -17,6 +17,7 @@ import { SendDayPickerStatus } from './SendDayPickerStatus'
 import { describeRule } from './sendSpacing'
 
 const MAX_SENDS_PER_DAY = 2
+const MAX_DOTS_PER_DAY = 6
 
 const HedgehogMailbox = pngHoggie(mailboxPng)
 
@@ -128,7 +129,7 @@ export function SendDayPicker(): JSX.Element {
                                     ) : null}
                                     {/* Names need room. A narrow picker shows one dot for each send. */}
                                     <span className="flex flex-wrap gap-0.5 px-1 @min-[44rem]:hidden">
-                                        {sends.map((send) => (
+                                        {sends.slice(0, MAX_DOTS_PER_DAY).map((send) => (
                                             <span
                                                 key={send.key}
                                                 className={clsx(
@@ -140,6 +141,11 @@ export function SendDayPicker(): JSX.Element {
                                                 )}
                                             />
                                         ))}
+                                        {sends.length > MAX_DOTS_PER_DAY ? (
+                                            <span className="text-xs leading-2 text-secondary">
+                                                +{sends.length - MAX_DOTS_PER_DAY}
+                                            </span>
+                                        ) : null}
                                     </span>
                                     <span className="hidden min-w-0 flex-col gap-0.5 @min-[44rem]:flex">
                                         {sends.slice(0, MAX_SENDS_PER_DAY).map((send) => (
