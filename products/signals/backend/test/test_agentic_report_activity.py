@@ -1637,7 +1637,7 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
         patch(
             "products.tasks.backend.facade.agents.MultiTurnSession.start",
             AsyncMock(return_value=(session, first_finding)),
-        ),
+        ) as start_session,
         patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
         patch("products.signals.backend.report_generation.research.logger.exception") as log_exception,
     ):
@@ -1651,6 +1651,7 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
                 Mock(team_id=1),
                 signal_report_id="report-id",
                 metrics_enabled=_name in ("malformed_optional_checks", "revised_metric_summary"),
+                monitoring_enabled=_name == "revised_metric_summary",
             )
             assert result.effective_findings() == [first_finding]
             assert result.effective_actionability() == actionability_result
@@ -1676,6 +1677,12 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
             else:
                 assert result.verification_note is None
 
+    preferred = _name == "revised_metric_summary"
+    assert ("## Prepare metric-based follow-up checks" in start_session.call_args.kwargs["prompt"]) is preferred
+    prompts = {call.kwargs["label"]: call.args[0] for call in session.send_followup.await_args_list}
+    assert ("## Metrics for follow-up checks" in prompts["presentation"]) is preferred
+    if "fix_verification" in prompts:
+        assert ("70-80% confidence" in prompts["fix_verification"]) is preferred
     labels = [call.kwargs["label"] for call in session.send_followup.await_args_list]
     assert labels == expected_labels
     if failure is asyncio.CancelledError:
