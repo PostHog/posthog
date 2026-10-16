@@ -2272,6 +2272,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `zero_exposures` - Zero Exposures
  * * `forced_variant_release_condition` - Forced Variant Release Condition
  * * `flag_variants_mismatch` - Flag Variants Mismatch
+ * * `split_changed_mid_run` - Split Changed Mid Run
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2287,6 +2288,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     ZeroExposures: 'zero_exposures',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
     FlagVariantsMismatch: 'flag_variants_mismatch',
+    SplitChangedMidRun: 'split_changed_mid_run',
 } as const
 
 /**
@@ -2305,6 +2307,7 @@ export const ExperimentHealthFindingSeverityEnumApi = {
 
 /**
  * * `open_feature_flag` - Open Feature Flag
+ * * `open_feature_flag_history` - Open Feature Flag History
  * * `adjust_distribution` - Adjust Distribution
  * * `use_first_seen_variant` - Use First Seen Variant
  * * `add_primary_metric` - Add Primary Metric
@@ -2317,6 +2320,7 @@ export type ExperimentHealthFindingActionKindEnumApi =
 
 export const ExperimentHealthFindingActionKindEnumApi = {
     OpenFeatureFlag: 'open_feature_flag',
+    OpenFeatureFlagHistory: 'open_feature_flag_history',
     AdjustDistribution: 'adjust_distribution',
     UseFirstSeenVariant: 'use_first_seen_variant',
     AddPrimaryMetric: 'add_primary_metric',
@@ -2328,7 +2332,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
 /**
  * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
  */
-export type ExperimentHealthFindingApiEvidence = { [key: string]: string | number | null }
+export type ExperimentHealthFindingApiEvidence = { [key: string]: string | number | boolean | null }
 
 export interface ExperimentHealthFindingApi {
     /** Stable identifier of the problem. Each code has one meaning across every surface that reports it.
@@ -2342,7 +2346,8 @@ export interface ExperimentHealthFindingApi {
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
-     * * `flag_variants_mismatch` - Flag Variants Mismatch */
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `split_changed_mid_run` - Split Changed Mid Run */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.

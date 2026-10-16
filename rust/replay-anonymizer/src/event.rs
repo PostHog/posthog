@@ -47,8 +47,8 @@ fn contain_panics<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
 
 /// Anonymizes every event in a parsed message (`{ windowId: Event[] }`) in place. `Ok(None)` means
 /// nothing changed (the caller can keep its original). `Err` means an event could not be anonymized —
-/// fail closed, the caller must drop the message. A single `Ctx` spans the whole message so its blur
-/// memo is shared across every event (an image recurring across events is blurred once).
+/// fail closed, the caller must drop the message. A single `Ctx` spans the whole message so its image
+/// memo is shared across every event (an image recurring across events is decoded once).
 pub fn anonymize_message(allow: &AllowLists, json: &mut [u8]) -> Result<Option<String>> {
     contain_panics(|| {
         reject_if_too_deep(json, "eventsByWindowId")?;
@@ -105,8 +105,8 @@ fn require_event_type(event: &Value<'_>) -> Result<()> {
     }
 }
 
-/// [`anonymize_line`] with a caller-owned [`Ctx`], so one blur memo spans a whole session file
-/// (an image recurring across lines is decoded and blurred once, like `anonymize_message` does
+/// [`anonymize_line`] with a caller-owned [`Ctx`], so one image memo spans a whole session file
+/// (an image recurring across lines is decoded once, like `anonymize_message` does
 /// across a message's events). The cumulative cv decompression budget is per line — it resets on
 /// every call, so a long session cannot starve later lines.
 pub fn anonymize_line_with_ctx(ctx: &Ctx<'_>, line: &mut [u8]) -> Result<Option<String>> {
@@ -149,7 +149,7 @@ pub fn anonymize_event_str(allow: &AllowLists, event_json: &str) -> Result<Strin
 
 /// Scrubs a single event in place, returning whether it changed. `Err` = "could not anonymize".
 /// Builds its own `Ctx` (single-event scope); the message path uses [`anonymize_message`] instead so
-/// the blur memo is shared across events.
+/// the image memo is shared across events.
 pub fn anonymize_event(allow: &AllowLists, event: &mut Value<'_>) -> Result<bool> {
     contain_panics(|| route_event(&Ctx::new(allow), event))
 }
@@ -385,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn line_streaming_shares_the_blur_memo_across_lines() {
+    fn line_streaming_shares_the_image_memo_across_lines() {
         use crate::testkit::png_data_uri;
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
         let ctx = Ctx::new(&allow);
@@ -407,7 +407,7 @@ mod tests {
         let second_out = anonymize_line_with_ctx(&ctx, &mut second).unwrap().unwrap();
         assert_eq!(
             first_out, second_out,
-            "a recurring image must blur identically through the shared memo"
+            "a recurring image must scrub identically through the shared memo"
         );
     }
 
@@ -434,11 +434,10 @@ mod tests {
 
     #[test]
     fn recurring_inline_image_is_neutralized_across_windows() {
-        // An inline image can recur across events/windows in one message (the case the per-message blur
+        // An inline image can recur across events/windows in one message (the case the per-message image
         // memo targets). Every occurrence must be neutralized to a data-image — never the raw original —
         // and identical inputs must yield identical output. This drives the real `anonymize_message`
-        // entry (route -> full snapshot -> dom -> blur), which the deterministic JSON fixtures can't
-        // cover (blurred bytes differ from the TS `sharp` output, so image parity is Rust-only).
+        // entry (route -> full snapshot -> dom -> image scrub).
         use crate::testkit::png_data_uri;
         use serde_json::json;
         let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
@@ -464,8 +463,11 @@ mod tests {
                 .unwrap()
                 .to_string()
         };
-        assert!(img("w1").starts_with("data:image/"), "still an image");
-        assert_ne!(img("w1"), uri, "raw inline image must not pass through");
+        assert_eq!(
+            img("w1"),
+            crate::data_uri::blank_image_data_uri(),
+            "blanked without the scrub lane"
+        );
         assert_eq!(
             img("w1"),
             img("w2"),
