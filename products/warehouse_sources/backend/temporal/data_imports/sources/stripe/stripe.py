@@ -351,6 +351,27 @@ def _call_stripe(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         raise
 
 
+def _iter_cleaning_errors(objects: Iterable[Any]) -> Iterator[Any]:
+    """Iterate a Stripe listing and clean errors raised while it pages, as `_call_stripe` does.
+
+    A listing wrapper such as `InvoiceListWithAllLines` makes its first request only when it is
+    iterated, so `_call_stripe` around the method call never sees that request's error.
+    """
+    iterator = iter(objects)
+    try:
+        while True:
+            try:
+                obj = _call_stripe(next, iterator)
+            except StopIteration:
+                return
+            yield obj
+    finally:
+        # Close the inner generator now, so a listing wrapper shuts down its thread pool.
+        close = getattr(iterator, "close", None)
+        if close is not None:
+            close()
+
+
 def _is_stripe_resource_missing_error(error: stripe_lib.StripeError) -> bool:
     """True for Stripe's ``resource_missing`` 404 — e.g. a customer deleted between when we
     listed it and when we fetched its nested resources. The object is genuinely gone, so the
@@ -1106,7 +1127,7 @@ def get_rows(
         else:
 
             def _list_resource(params: dict[str, Any]) -> Any:
-                return _call_stripe(resource.method, params=params).auto_paging_iter()
+                return _iter_cleaning_errors(_call_stripe(resource.method, params=params).auto_paging_iter())
 
             list_params = {**default_params, **resource.params, **resume_params}
             cursor_restarted = False
@@ -1162,7 +1183,7 @@ def get_rows(
                 f"created[lt]": db_incremental_field_earliest_value,
             },
         )
-        yield from _batch_and_yield(stripe_objects.auto_paging_iter(), batcher)
+        yield from _batch_and_yield(_iter_cleaning_errors(stripe_objects.auto_paging_iter()), batcher)
 
     # check for any objects more than the maximum object we already have
     if db_incremental_field_last_value is not None:
@@ -1177,7 +1198,7 @@ def get_rows(
             },
         )
         yield from _batch_and_yield(
-            stripe_objects.auto_paging_iter(),
+            _iter_cleaning_errors(stripe_objects.auto_paging_iter()),
             batcher,
             incremental_field_name=incremental_field_name,
             stop_at_or_before=_coerce_incremental_cursor(db_incremental_field_last_value),

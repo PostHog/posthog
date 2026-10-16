@@ -61,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     HISTORY_PREVIOUS_ATTRIBUTES_COLUMN,
     HISTORY_SNAPSHOT_EVENT_TYPE,
     INVOICE_PAYMENT_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
     PAYMENT_INTENT_RESOURCE_NAME,
     PAYMENT_LINK_RESOURCE_NAME,
     PAYMENT_METHOD_HISTORY_MAPPING_KEY,
@@ -961,6 +962,19 @@ def test_credit_note_rows_carry_lines_past_the_embedded_page():
     lines_column = orjson.loads(rows[0]["lines"])
     assert [line["id"] for line in lines_column["data"]] == [line["id"] for line in all_lines]
     assert lines_column["has_more"] is False
+
+
+@parameterized.expand([(INVOICE_RESOURCE_NAME,), (CREDIT_NOTE_RESOURCE_NAME,)])
+def test_first_page_error_of_a_line_expanding_listing_is_cleaned(endpoint):
+    redacted = "rk_live_" + "*" * 80 + "abcd"
+    message = f"The provided key '{redacted}' does not have the required permissions for this endpoint"
+    forbidden = ScriptedResponse(status=403, json={"error": {"type": "invalid_request_error", "message": message}})
+
+    config = StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test"))
+    result = SourceDriver(StripeSource(), config).run(endpoint, [forbidden])
+
+    assert isinstance(result.raised, stripe_lib.PermissionError)
+    assert "rk_live_***abcd" in str(result.raised)
 
 
 class TestScrubClientSecrets:
