@@ -346,6 +346,7 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     autostart_skip: 'Work not started',
     code_review: 'Code review',
     check_result: 'Follow-up check',
+    check_observation: 'Monitoring measurement',
     check_scheduled: 'Follow-up check scheduled',
     check_expired: 'Follow-up check expired',
     check_cancelled: 'Follow-up check cancelled',

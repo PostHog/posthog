@@ -3258,6 +3258,7 @@ export interface SignalReportStateRequestApi {
  * * `work_release` - Work Release
  * * `pull_request` - Pull Request
  * * `check_result` - Check Result
+ * * `check_observation` - Check Observation
  * * `check_scheduled` - Check Scheduled
  * * `check_expired` - Check Expired
  * * `check_cancelled` - Check Cancelled
@@ -3296,6 +3297,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     WorkRelease: 'work_release',
     PullRequest: 'pull_request',
     CheckResult: 'check_result',
+    CheckObservation: 'check_observation',
     CheckScheduled: 'check_scheduled',
     CheckExpired: 'check_expired',
     CheckCancelled: 'check_cancelled',
