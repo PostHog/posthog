@@ -157,6 +157,10 @@ const RUN_COST_BATCH_LIMIT = 200
 // How many batches are in flight together. Enough to hide the round trips of a materialized fleet,
 // few enough that one poll cannot queue every other roster request behind its own burst.
 const RUN_COST_BATCH_CONCURRENCY = 4
+// The cost endpoint keeps a settled run's total open for 5 minutes after it settles, while its last
+// generations cross ingestion, and it caches a total read in that grace for 60 seconds more. A run
+// that settled before this answers with its final total. The rest covers clock skew.
+const RUN_COST_FINAL_AFTER_MS = 10 * 60_000
 
 // Roster filter state also lives in the URL so a filtered view survives a refresh and is shareable.
 // The search param is written on this debounce, so typing does not rewrite the URL per keystroke.
@@ -243,6 +247,14 @@ function sameTags(a: string[], b: string[]): boolean {
 // Keep the cost map reference-stable when a poll re-derives the same numbers, the way
 // `reconcileById` does for the polled lists. A settled run's total is cached for an hour, so an
 // unchanged poll is the normal case, and every roster card subscribes to this map.
+function runCostIsFinal(run: SignalScoutRunSummary, now: number): boolean {
+    if (!isSettledRun(run)) {
+        return false
+    }
+    // The backend treats a settled run with no completion stamp as final too.
+    return !run.completed_at || now - new Date(run.completed_at).getTime() > RUN_COST_FINAL_AFTER_MS
+}
+
 function reuseCostsIfUnchanged(previous: Map<string, number>, next: Map<string, number>): Map<string, number> {
     if (previous.size !== next.size) {
         return next
@@ -785,7 +797,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         mergeScoutRunCosts: (costs: Map<string, number>) => ({ costs }),
     }),
 
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         scoutConfigs: [
             null as SignalScoutConfig[] | null,
             {
@@ -909,11 +921,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 },
             },
         ],
-        // Per-run model spend, staff only. The roster's own runs are the batch: one request per
-        // `RUN_COST_BATCH_LIMIT` ids, and the endpoint caches a settled run's total, so a poll over
-        // an unchanged fleet costs cache reads rather than a query per run. Runs with nothing
-        // attributed are dropped rather than stored as 0 — the tooltip then says nothing about
-        // cost, instead of claiming the run was free.
+        // Per-run model spend, staff only. The roster's runs are the batch: one request per
+        // `RUN_COST_BATCH_LIMIT` ids. A run whose answer is final is asked once, so a poll over
+        // an unchanged fleet asks only for the live runs. Runs with nothing attributed are dropped
+        // rather than stored as 0 — the tooltip then says nothing about cost, instead of claiming
+        // the run was free.
         scoutRunCosts: [
             new Map<string, number>(),
             {
@@ -922,11 +934,23 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     if (!teamId || !values.isStaff || values.scoutRuns.length === 0) {
                         return values.scoutRunCosts
                     }
+                    const finalRunIds: Set<string> = (cache.finalRunCostIds ??= new Set<string>())
+                    const now = Date.now()
+                    const pending = values.scoutRuns.filter((run) => !finalRunIds.has(run.run_id))
+                    const finalOnAnswer = new Set(
+                        pending.filter((run) => runCostIsFinal(run, now)).map((run) => run.run_id)
+                    )
                     const batches = chunk(
-                        values.scoutRuns.map((run) => run.run_id),
+                        pending.map((run) => run.run_id),
                         RUN_COST_BATCH_LIMIT
                     )
                     const costs = new Map<string, number>()
+                    for (const run of values.scoutRuns) {
+                        const known = values.scoutRunCosts.get(run.run_id)
+                        if (finalRunIds.has(run.run_id) && known !== undefined) {
+                            costs.set(run.run_id, known)
+                        }
+                    }
                     const priceBatch = async (batch: string[]): Promise<Map<string, number> | null> => {
                         const response = await signalsScoutRunsTokenCosts(String(teamId), { run_ids: batch })
                         breakpoint()
@@ -947,21 +971,32 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         }
                         return priced
                     }
+                    // Only after the batch's costs reach the store, so a failed sibling cannot leave a
+                    // run final with no cost on screen.
+                    const markFinal = (batch: string[]): void => {
+                        for (const runId of batch) {
+                            if (finalOnAnswer.has(runId)) {
+                                finalRunIds.add(runId)
+                            }
+                        }
+                    }
                     try {
                         // The first batch also answers whether this deployment prices runs at all,
                         // so it goes on its own. The rest go a wave at a time: a materialized fleet
                         // is several batches, and holding them all back leaves the whole strip
                         // costless until the slowest one answers. Each wave lands as one merge,
                         // because every merge is a store update that the whole roster processes.
-                        const first = await priceBatch(batches[0])
+                        const first = batches.length > 0 ? await priceBatch(batches[0]) : null
                         if (first) {
                             actions.mergeScoutRunCosts(first)
+                            markFinal(batches[0])
                             for (let start = 1; start < batches.length; start += RUN_COST_BATCH_CONCURRENCY) {
                                 const wave = batches.slice(start, start + RUN_COST_BATCH_CONCURRENCY)
                                 const priced = await Promise.all(wave.map(priceBatch))
                                 actions.mergeScoutRunCosts(
                                     new Map(priced.flatMap((batch) => (batch ? [...batch] : [])))
                                 )
+                                wave.forEach((batch, index) => priced[index] && markFinal(batch))
                                 if (priced.includes(null)) {
                                     break
                                 }

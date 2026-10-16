@@ -178,7 +178,13 @@ def test_body_retry_does_not_repeat_transport_retries(status: int, attempts: int
 
 
 @pytest.mark.parametrize(
-    "endpoint,result_key", [("databases", "DatabaseList"), ("jobs", "Jobs"), ("crawlers", "Crawlers")]
+    "endpoint,result_key",
+    [
+        ("databases", "DatabaseList"),
+        ("jobs", "Jobs"),
+        ("crawlers", "Crawlers"),
+        ("data_quality_results", "Results"),
+    ],
 )
 def test_top_level_resume_checkpoints_before_yield_and_clears_after_completion(endpoint: str, result_key: str) -> None:
     resume = manager(glue.AwsGlueDataCatalogResumeConfig(next_token="saved"))
@@ -292,6 +298,79 @@ def test_job_run_full_refresh_keeps_old_runs_and_namespaces_ids_by_job() -> None
     ]
 
 
+@pytest.mark.parametrize(
+    "endpoint,script,expected_requests,expected_keys",
+    [
+        (
+            "crawls",
+            [
+                {"Crawlers": [{"Name": "first"}, {"Name": "second"}]},
+                {"Crawls": [{"CrawlId": "crawl-1", "StartTime": 1735689600, "DPUHour": 0.5}], "NextToken": "older"},
+                {"Crawls": [{"CrawlId": "crawl-0"}]},
+                {"Crawls": [{"CrawlId": "crawl-1"}]},
+            ],
+            [
+                {"MaxResults": 100},
+                {"MaxResults": 100, "CrawlerName": "first"},
+                {"MaxResults": 100, "CrawlerName": "first", "NextToken": "older"},
+                {"MaxResults": 100, "CrawlerName": "second"},
+            ],
+            [
+                ("eu-west-1", "first", "crawl-1"),
+                ("eu-west-1", "first", "crawl-0"),
+                ("eu-west-1", "second", "crawl-1"),
+            ],
+        ),
+        (
+            "workflow_runs",
+            [
+                {"Workflows": ["first"], "NextToken": "more"},
+                {"Runs": [{"Name": "first", "WorkflowRunId": "run-1"}]},
+                {"Workflows": ["second"]},
+                {"Runs": [{"Name": "second", "WorkflowRunId": "run-1"}]},
+            ],
+            [
+                {"MaxResults": 25},
+                {"MaxResults": 100, "Name": "first", "IncludeGraph": False},
+                {"MaxResults": 25, "NextToken": "more"},
+                {"MaxResults": 100, "Name": "second", "IncludeGraph": False},
+            ],
+            [("eu-west-1", "first", "run-1"), ("eu-west-1", "second", "run-1")],
+        ),
+        (
+            "table_versions",
+            [
+                {"DatabaseList": [{"Name": "analytics", "CatalogId": "123456789012"}]},
+                {"TableList": [{"Name": "events"}, {"Name": "users"}]},
+                {"TableVersions": [{"VersionId": "1", "Table": {"Name": "events"}}]},
+                {"TableVersions": [{"VersionId": "1", "Table": {"Name": "users"}}]},
+            ],
+            [
+                {"MaxResults": 100},
+                {"MaxResults": 100, "DatabaseName": "analytics", "CatalogId": "123456789012"},
+                {"MaxResults": 100, "DatabaseName": "analytics", "TableName": "events", "CatalogId": "123456789012"},
+                {"MaxResults": 100, "DatabaseName": "analytics", "TableName": "users", "CatalogId": "123456789012"},
+            ],
+            [("eu-west-1", "analytics", "events", "1"), ("eu-west-1", "analytics", "users", "1")],
+        ),
+    ],
+)
+def test_history_fan_out_pages_each_parent_and_keys_rows_by_parent(
+    endpoint: str,
+    script: list[dict[str, Any]],
+    expected_requests: list[dict[str, Any]],
+    expected_keys: list[tuple[str, ...]],
+) -> None:
+    result = driver().run(endpoint, [ScriptedResponse(json=body) for body in script])
+    assert result.raised is None
+    assert [request.json() for request in result.requests] == expected_requests
+    primary_keys = glue.ENDPOINTS[endpoint].primary_keys
+    assert [tuple(row[key] for key in primary_keys) for row in result.rows] == expected_keys
+    if endpoint == "crawls":
+        assert result.rows[0]["start_time"] == datetime(2025, 1, 1, tzinfo=UTC)
+        assert result.rows[0]["dpu_hour"] == 0.5
+
+
 @pytest.mark.parametrize("schema_name", [None, "databases"])
 @pytest.mark.parametrize(
     "code",
@@ -320,22 +399,33 @@ def test_validation_maps_errors_and_accepts_create_time_permission_denials(schem
     factory.return_value.close.assert_called_once()
 
 
-def test_creation_probes_once_and_selected_child_checks_parent_and_child() -> None:
+def test_creation_probes_once() -> None:
     with scripted_network([ScriptedResponse(json={"DatabaseList": []})]) as creation:
         assert glue.validate_credentials(config(), GLUE_API_VERSION) == (True, None)
     assert len(creation.requests_log) == 1
     assert creation.requests_log[0].json() == {"MaxResults": 1}
 
+
+@pytest.mark.parametrize(
+    "schema_name,parent_body,child_payload",
+    [
+        ("job_runs", {"Jobs": [{"Name": "example"}]}, {"MaxResults": 1, "JobName": "example"}),
+        ("workflow_runs", {"Workflows": ["example"]}, {"MaxResults": 1, "Name": "example", "IncludeGraph": False}),
+    ],
+)
+def test_selected_child_checks_parent_and_child(
+    schema_name: str, parent_body: dict[str, Any], child_payload: dict[str, Any]
+) -> None:
     with scripted_network(
         [
-            ScriptedResponse(json={"Jobs": [{"Name": "example"}]}),
+            ScriptedResponse(json=parent_body),
             ScriptedResponse(status=403, json={"__type": "AccessDeniedException"}),
         ]
     ) as selected:
-        valid, reason = glue.validate_credentials(config(), GLUE_API_VERSION, "job_runs")
+        valid, reason = glue.validate_credentials(config(), GLUE_API_VERSION, schema_name)
     assert not valid and reason
     assert len(selected.requests_log) == 2
-    assert selected.requests_log[1].json() == {"MaxResults": 1, "JobName": "example"}
+    assert selected.requests_log[1].json() == child_payload
 
 
 @pytest.mark.parametrize("endpoint", ["tables", "partitions", "job_runs"])

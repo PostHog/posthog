@@ -3,14 +3,16 @@ from unittest.mock import patch
 
 from django.db import IntegrityError
 
+from parameterized import parameterized
+
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
 from products.data_modeling.backend.facade.models import (
     DAG,
     REVENUE_ANALYTICS_DAG_NAME,
+    DataModelingJob,
     DataWarehouseManagedViewSet,
     DataWarehouseSavedQuery,
-    Edge,
     Node,
     NodeType,
 )
@@ -183,31 +185,26 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         self.assertIsNotNone(saved_query.external_tables)  # Was unset, guarantee we've set it
         self.assertIn("HogQLQuery", saved_query.query.get("kind", ""))  # type: ignore
 
-    def test_sync_views_places_views_in_revenue_analytics_dag(self):
+    def test_sync_views_places_each_view_once_in_the_default_dag(self):
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
             kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
         managed_viewset.sync_views()
 
-        ra_dag = DAG.objects.filter(team=self.team, name=REVENUE_ANALYTICS_DAG_NAME).first()
-        self.assertIsNotNone(ra_dag)
-
+        default_dag = DAG.get_or_create_default(self.team)
         views = DataWarehouseSavedQuery.objects.filter(team=self.team, managed_viewset=managed_viewset).exclude(
             deleted=True
         )
-        node_sq_ids = set(
-            Node.objects.filter(team=self.team, dag=ra_dag, saved_query__isnull=False).values_list(
-                "saved_query_id", flat=True
-            )
-        )
-        # every managed view is represented by a node in the Revenue Analytics DAG, and nowhere else
         for view in views:
-            self.assertIn(view.id, node_sq_ids)
-            other_dag_nodes = Node.objects.filter(team=self.team, saved_query=view).exclude(dag=ra_dag)
-            self.assertFalse(other_dag_nodes.exists())
+            self.assertEqual(
+                list(Node.objects.filter(team=self.team, saved_query=view).values_list("dag", flat=True)),
+                [default_dag.id],
+            )
+        self.assertFalse(DAG.objects.filter(team=self.team, name=REVENUE_ANALYTICS_DAG_NAME).exists())
 
-    def test_sync_views_removes_stale_default_dag_node(self):
+    @parameterized.expand([("only_in_managed_dag", False), ("also_in_default_dag", True)])
+    def test_sync_views_moves_node_out_of_revenue_analytics_dag(self, _name, also_in_default_dag):
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
             kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
@@ -218,18 +215,21 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
             .exclude(deleted=True)
             .first()
         )
-
-        # simulate a legacy placement of this managed view in the Default DAG
         default_dag = DAG.get_or_create_default(self.team)
-        Node.objects.get_or_create(team=self.team, saved_query=sq, dag=default_dag, defaults={"type": NodeType.VIEW})
+        ra_dag = DAG.get_or_create_revenue_analytics(self.team)
+        Node.objects.filter(saved_query=sq).delete()
+        managed_node = Node.objects.create(team=self.team, saved_query=sq, dag=ra_dag, type=NodeType.VIEW)
+        if also_in_default_dag:
+            Node.objects.create(team=self.team, saved_query=sq, dag=default_dag, type=NodeType.VIEW)
 
         managed_viewset.sync_views()
 
-        ra_dag = DAG.objects.get(team=self.team, name=REVENUE_ANALYTICS_DAG_NAME)
-        self.assertTrue(Node.objects.filter(team=self.team, saved_query=sq, dag=ra_dag).exists())
-        self.assertFalse(Node.objects.filter(team=self.team, saved_query=sq, dag=default_dag).exists())
+        nodes = list(Node.objects.filter(team=self.team, saved_query=sq))
+        self.assertEqual([node.dag_id for node in nodes], [default_dag.id])
+        self.assertEqual(nodes[0].id == managed_node.id, not also_in_default_dag)
+        self.assertFalse(Node.objects.filter(dag=ra_dag, saved_query__isnull=False).exists())
 
-    def test_sync_views_keeps_stale_node_with_dependent(self):
+    def test_sync_views_leaves_a_materializing_node_in_the_revenue_analytics_dag(self):
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
             kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
@@ -240,24 +240,17 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
             .exclude(deleted=True)
             .first()
         )
-
-        default_dag = DAG.get_or_create_default(self.team)
-        stale_node, _ = Node.objects.get_or_create(
-            team=self.team, saved_query=sq, dag=default_dag, defaults={"type": NodeType.VIEW}
-        )
-        # a non-managed view in the Default DAG depends on the stale node (stale_node has an outgoing edge)
-        dependent_sq = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="dependent_view", query={"kind": "HogQLQuery", "query": "SELECT 1"}
-        )
-        dependent_node = Node.objects.create(
-            team=self.team, saved_query=dependent_sq, dag=default_dag, type=NodeType.VIEW
-        )
-        Edge.objects.create(team=self.team, dag=default_dag, source=stale_node, target=dependent_node)
+        ra_dag = DAG.get_or_create_revenue_analytics(self.team)
+        Node.objects.filter(saved_query=sq).delete()
+        managed_node = Node.objects.create(team=self.team, saved_query=sq, dag=ra_dag, type=NodeType.MAT_VIEW)
+        DataModelingJob.objects.create(team=self.team, saved_query=sq, status=DataModelingJob.Status.RUNNING)
 
         managed_viewset.sync_views()
 
-        # the stale Default-DAG node is kept because a dependent still relies on it
-        self.assertTrue(Node.objects.filter(id=stale_node.id).exists())
+        self.assertEqual(
+            list(Node.objects.filter(team=self.team, saved_query=sq).values_list("id", "dag_id")),
+            [(managed_node.id, ra_dag.id)],
+        )
 
     def test_delete_with_views(self):
         """Test that delete_with_views properly deletes the managed viewset and marks views as deleted"""

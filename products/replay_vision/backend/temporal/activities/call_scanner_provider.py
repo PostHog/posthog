@@ -15,7 +15,7 @@ import asyncio
 import functools
 import dataclasses
 from collections import Counter
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, TypeVar
@@ -36,6 +36,7 @@ from temporalio import activity
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.session_replay.rasterize_recording.types import NavigationChange, navigation_from_export_context
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
@@ -63,6 +64,7 @@ from products.replay_vision.backend.temporal.metrics import (
     record_provider_call,
     record_tool_round,
 )
+from products.replay_vision.backend.temporal.navigation import navigation_timeline
 from products.replay_vision.backend.temporal.network_capture import SessionNetworkPayload
 from products.replay_vision.backend.temporal.network_tool import NetworkIndex, build_network_index
 from products.replay_vision.backend.temporal.pii_check import keep_unrequested_pii_out
@@ -88,7 +90,6 @@ from products.replay_vision.backend.temporal.scanners.experiment import Experime
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs, load_session_network
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
-    NavigationEntry,
     ScannerCallOutput,
     ScannerLlmInputs,
     ScannerSnapshot,
@@ -171,7 +172,7 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
     scanner = await _inject_known_freeform_tags(scanner, inputs)
     scanner = await _inject_learned_rules(scanner, snapshot, inputs.team_id)
     scanner = await _apply_experiment_scan_context(scanner, inputs)
-    video_clock = await sync_to_async(_load_video_clock)(
+    video_clock, navigation = await sync_to_async(_load_render)(
         inputs.team_id, inputs.exported_asset_id, llm_inputs.metadata.duration_seconds
     )
     return await run_scan(
@@ -183,6 +184,7 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         mime_type=inputs.mime_type,
         team_id=inputs.team_id,
         video_clock=video_clock,
+        navigation=navigation,
         network_payload=network_payload,
         # The observation id, so every step, the lookup round, and retry of a scan reads as a single LLM
         # analytics conversation and the observation id doubles as the trace search key.
@@ -194,8 +196,11 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
 _UNCUT_TOLERANCE_S = 2.0
 
 
-def _load_video_clock(team_id: int, exported_asset_id: int, session_duration_s: float | None) -> VideoClock:
-    """The clock for the video this scan is about to read, from the asset the rasterizer rendered.
+def _load_render(
+    team_id: int, exported_asset_id: int, session_duration_s: float | None
+) -> tuple[VideoClock, list[NavigationChange]]:
+    """The clock for the video this scan is about to read, and the page and tab changes it shows, from the asset
+    the rasterizer rendered.
 
     An asset predating the cut map leaves the clock unknown. The model cites video seconds, so assuming
     nothing was cut would put every citation early by the cut time, which is the failure this conversion
@@ -203,9 +208,11 @@ def _load_video_clock(team_id: int, exported_asset_id: int, session_duration_s: 
     nothing. Refuse rather than emit timestamps we know we cannot place.
     """
     asset = ExportedAsset.objects.filter(team_id=team_id, pk=exported_asset_id).first()
-    clock = video_clock_from_export_context(asset.export_context if asset else None)
+    export_context = asset.export_context if asset else None
+    navigation = navigation_from_export_context(export_context)
+    clock = video_clock_from_export_context(export_context)
     if clock is not None:
-        return clock
+        return clock, navigation
 
     video_duration_s = (asset.export_context or {}).get("video_duration_s") if asset else None
     # Compared both ways: a shorter video lost stretches, and one longer than its own session does not
@@ -215,7 +222,7 @@ def _load_video_clock(team_id: int, exported_asset_id: int, session_duration_s: 
         and session_duration_s
         and abs(session_duration_s - video_duration_s) <= _UNCUT_TOLERANCE_S
     ):
-        return VideoClock(spans=())
+        return VideoClock(spans=()), navigation
 
     logger.warning(
         "replay_vision.video_clock.missing_cut_map",
@@ -228,14 +235,6 @@ def _load_video_clock(team_id: int, exported_asset_id: int, session_duration_s: 
         "The rendered video has no inactivity map, so cited moments cannot be placed in the recording",
         kind=FailureKind.INTERNAL_ERROR,
     )
-
-
-def _navigation_on_video_clock(entry: NavigationEntry, clock: VideoClock) -> dict[str, Any]:
-    """Navigation timeline `t` values, moved onto the clock the model cites in."""
-    payload = entry.model_dump()
-    payload["vid_t"] = int(clock.session_ms_to_video_s(entry.rec_t * 1000))
-    del payload["rec_t"]
-    return payload
 
 
 def _signal_on_session_clock(signal: SignalFinding, clock: VideoClock) -> SignalFinding:
@@ -258,6 +257,7 @@ async def run_scan(
     mime_type: str,
     team_id: int,
     video_clock: VideoClock,
+    navigation: Sequence[NavigationChange] = (),
     network_payload: SessionNetworkPayload | None = None,
     trace_id: str | None = None,
 ) -> ScannerCallOutput:
@@ -273,6 +273,7 @@ async def run_scan(
     # Built before the preamble so one object decides both the wording and what a network lookup returns, which
     # keeps the prompt from promising network data the scan does not carry.
     network_index = build_network_index(network_payload, llm_inputs.metadata.start_time, video_clock)
+    navigation_entries, navigation_dropped = navigation_timeline(navigation)
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     scanner = scanner.bind_session(video_clock, duration_ms)
 
@@ -281,8 +282,8 @@ async def run_scan(
         session_metadata=llm_inputs.metadata.as_prompt_dict(),
         touch=llm_inputs.metadata.touch,
         session_identity=llm_inputs.identity.as_prompt_dict(),
-        navigation=[_navigation_on_video_clock(entry, video_clock) for entry in llm_inputs.navigation],
-        navigation_dropped=llm_inputs.navigation_dropped,
+        navigation=[entry.model_dump() for entry in navigation_entries],
+        navigation_dropped=navigation_dropped,
         events_truncated=llm_inputs.events_truncated,
         product_context=llm_inputs.product_context,
         event_descriptions=llm_inputs.event_descriptions,
@@ -415,31 +416,30 @@ def _is_taglike(slug: str) -> bool:
 
 
 async def _apply_experiment_scan_context(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
-    """Give an experiment scanner the variant and experiment description the workflow resolved.
+    """Give an experiment scanner the experiment description the workflow resolved.
 
     Scan-time context, never persisted (see `ExperimentScanner`). A no-op for the other types.
-    When the inputs carry neither field, the source observation's persisted attribution stands in.
-    Best effort there: a lookup failure must not fail the scan, and a row without attribution simply
-    has nothing persisted to inject."""
+    The session's variant is never injected: the prompt stays blind to it, and the workflow stores
+    it beside the model output. When the inputs carry no attribution, the source observation's
+    persisted attribution stands in. Best effort there: a lookup failure must not fail the scan,
+    and a row without attribution simply has nothing persisted to inject."""
     if not isinstance(scanner, ExperimentScanner):
         return scanner
-    variant, context = inputs.experiment_variant, inputs.experiment_context
-    if variant is None and context is None:
+    context = inputs.experiment_context
+    if context is None and inputs.experiment_variant is None:
         try:
-            variant, context = await sync_to_async(_load_persisted_experiment_context)(
+            context = await sync_to_async(_load_persisted_experiment_context)(
                 inputs.observation_id, inputs.team_id, scanner.experiment_id
             )
         except Exception:
             logger.warning("replay_vision.call_scanner_provider.experiment_context_fallback_failed", exc_info=True)
             return scanner
-        if variant is None and context is None:
-            return scanner
-    return scanner.model_copy(update={"experiment_context": context, "session_variant": variant})
+    if context is None:
+        return scanner
+    return scanner.model_copy(update={"experiment_context": context})
 
 
-def _load_persisted_experiment_context(
-    observation_id: UUID, team_id: int, experiment_id: int
-) -> tuple[str | None, dict[str, Any] | None]:
+def _load_persisted_experiment_context(observation_id: UUID, team_id: int, experiment_id: int) -> dict[str, Any] | None:
     # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
     # back into this package's importers.
     from products.experiments.backend.facade.replay import experiment_prompt_context  # noqa: PLC0415
@@ -451,9 +451,9 @@ def _load_persisted_experiment_context(
     )
     variant = result.get("experiment_variant") if isinstance(result, dict) else None
     if not isinstance(variant, str):
-        return None, None
+        return None
     context = experiment_prompt_context(Team.objects.get(pk=team_id), experiment_id=experiment_id)
-    return variant, dataclasses.asdict(context) if context is not None else None
+    return dataclasses.asdict(context) if context is not None else None
 
 
 def apply_known_freeform_tags(scanner: BaseScanner, tags: list[str]) -> BaseScanner:

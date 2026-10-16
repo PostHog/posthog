@@ -1,10 +1,12 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
 import { searchListsLogic } from './searchListsLogic'
+import { filterSearchItems } from './utils'
 
 describe('searchListsLogic', () => {
     let logic: ReturnType<typeof searchListsLogic.build>
@@ -17,6 +19,36 @@ describe('searchListsLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it.each([
+        [false, false, false],
+        [true, false, true],
+        [false, true, true],
+        [true, true, true],
+    ])('shows Data ops with DuckDB=%s and Trino=%s', (duckdb, trino, visible) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: duckdb,
+            [FEATURE_FLAGS.MANAGED_TRINO_QUERY]: trino,
+        })
+
+        expect(logic.values.productsItems.some((item) => item.id === 'product-Data warehouse')).toBe(visible)
+    })
+
+    it.each(['support', 'tickets', 'contact support', 'help'])('finds Your tickets when searching "%s"', (query) => {
+        const matches = filterSearchItems(logic.values.miscItems, query)
+
+        expect(matches.find((item) => item.id === 'misc-my-tickets')?.href).toBe(urls.myTickets())
+    })
+
+    it('shows only the Inbox Scouts destination', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true })
+
+        expect(
+            logic.values.productsItems
+                .filter((item) => item.displayName === 'Scouts')
+                .map((item) => ({ href: item.href, parentName: item.parentName }))
+        ).toEqual([{ href: urls.inbox('scouts'), parentName: 'Self-driving inbox' }])
     })
 
     it.each([false, true])('gates the command-menu terminal toggle when enabled=%s', (enabled) => {

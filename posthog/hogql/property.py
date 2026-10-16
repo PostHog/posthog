@@ -1707,10 +1707,12 @@ def property_to_expr(
         if not isinstance(property.value, (str, int)):
             raise ValidationError("Cohort property value must be a cohort ID")
         try:
-            cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+            cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value, deleted=False)
         except Cohort.DoesNotExist:
             # The id comes from the request, so a deleted or foreign cohort must read as
-            # bad input rather than escaping as an unhandled DoesNotExist.
+            # bad input rather than escaping as an unhandled DoesNotExist. `cohort()` and the
+            # IN COHORT transform skip deleted cohorts too, so the filter must fail here, not
+            # at print time when the whole query has already been built.
             raise QueryError(f"Cohort {property.value} does not exist")
         # Kludge: negation is outdated but still used in places
         negated = property.negation or property.operator == PropertyOperator.NOT_IN.value

@@ -229,6 +229,7 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
                 sourceRecordName: props.issueName || 'this issue',
                 broadcastName: truncate(`We fixed ${props.issueName || 'an error'}`, MAX_NAME_LENGTH),
                 broadcastEmail: draftMessage({ kind: 'issue_fixed' }),
+                draftSource: { source: 'error_tracking', source_id: props.issueId },
             }
             // The new cohort fills in the background, so counting the overlap now would read zero.
             const check = await checkPreviousRecipients(String(values.currentProjectId), audience, {

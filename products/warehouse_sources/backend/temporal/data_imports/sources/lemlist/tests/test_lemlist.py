@@ -110,6 +110,7 @@ class TestPagination:
     @parameterized.expand(
         [
             ("bare_list", "campaigns", lambda rows: rows),
+            ("campaigns_envelope", "campaigns", lambda rows: {"campaigns": rows, "pagination": {}}),
             ("data_envelope", "contacts", lambda rows: {"data": rows, "total": PAGE_SIZE + 1}),
         ]
     )
@@ -145,6 +146,7 @@ class TestCampaignFanout:
             (
                 "leads_export",
                 "campaign_leads",
+                [{"_id": "cam_1"}],
                 [{"_id": "lea_1", "email": "a@example.com"}],
                 "/v2/campaigns/cam_1/export/leads",
                 {"state": "all", "format": "json"},
@@ -153,6 +155,7 @@ class TestCampaignFanout:
             (
                 "reports_bound_by_query",
                 "campaign_reports",
+                [{"_id": "cam_1"}],
                 [{"_id": "cam_1", "emailsSent": 3}],
                 "/campaigns/reports",
                 {"campaignIds": "cam_1"},
@@ -161,6 +164,7 @@ class TestCampaignFanout:
             (
                 "sequences_keyed_object",
                 "campaign_sequences",
+                [{"_id": "cam_1"}],
                 {"seq_1": {"_id": "seq_1", "steps": []}, "seq_2": {"_id": "seq_2", "steps": [{"_id": "stp_1"}]}},
                 "/campaigns/cam_1/sequences",
                 {},
@@ -169,12 +173,22 @@ class TestCampaignFanout:
                     {"_id": "seq_2", "steps": [{"_id": "stp_1"}], "campaignId": "cam_1"},
                 ],
             ),
+            (
+                "leads_export_campaigns_envelope",
+                "campaign_leads",
+                {"campaigns": [{"_id": "cam_1"}], "pagination": {}},
+                [{"_id": "lea_1", "email": "a@example.com"}],
+                "/v2/campaigns/cam_1/export/leads",
+                {"state": "all", "format": "json"},
+                [{"_id": "lea_1", "email": "a@example.com", "campaignId": "cam_1"}],
+            ),
         ]
     )
     def test_child_rows_per_campaign(
         self,
         _name: str,
         endpoint: str,
+        parent_payload: Any,
         child_payload: Any,
         child_path: str,
         child_params: dict[str, str],
@@ -182,7 +196,7 @@ class TestCampaignFanout:
     ) -> None:
         result = _driver().run(
             endpoint,
-            [ScriptedResponse(json=[{"_id": "cam_1"}]), ScriptedResponse(json=child_payload)],
+            [ScriptedResponse(json=parent_payload), ScriptedResponse(json=child_payload)],
         )
         assert result.raised is None
         assert result.rows == expected_rows

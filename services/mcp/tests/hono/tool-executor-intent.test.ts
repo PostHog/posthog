@@ -31,6 +31,7 @@ vi.mock('@/lib/posthog', async () => {
 
 import { InstructionsBuilder } from '@/hono/instructions'
 import { toolCallsTotal } from '@/hono/metrics'
+import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { getPostHogClient } from '@/lib/posthog'
@@ -480,17 +481,29 @@ describe('ToolExecutor analytics capture', () => {
         const state = statelessState()
         await executor.handleToolsList(state)
 
-        const first = await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, state)
+        const observedHandles: (string | undefined)[] = []
+        const hooks = {
+            beforeExecute: async (callState: ResolvedState): Promise<undefined> => {
+                observedHandles.push(callState.requestContext.mcpConversationId)
+                return undefined
+            },
+            afterExecute: async (): Promise<void> => {},
+        }
+        const first = await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, state, hooks)
         const handle = readConversationHandle(first)
 
         expect(handle).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
         await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
         expect(captureSpy.mock.calls[0]![0].conversationId).toBe(handle)
 
+        const secondState = statelessState()
         const second = await executor.handleToolCall(
             { name: 'exec', arguments: { command: 'tools', conversation_id: handle } },
-            state
+            secondState,
+            hooks
         )
+        expect(observedHandles).toEqual([handle, handle])
+        expect(secondState.requestContext.mcpConversationId).toBe(handle)
 
         await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(2))
         expect(captureSpy.mock.calls[1]![0].conversationId).toBe(handle)

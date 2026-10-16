@@ -2481,6 +2481,25 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
     .describe('OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.')
 
 /**
+ * Soft-delete up to 100 dashboards. Optionally delete insights with no remaining dashboard. Report missing or inaccessible dashboards as skipped.
+ */
+
+export const dashboardsBulkDeleteCreateBodyIdsMax = 100
+
+export const dashboardsBulkDeleteCreateBodyDeleteInsightsDefault = false
+
+export const DashboardsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number().min(1))
+        .max(dashboardsBulkDeleteCreateBodyIdsMax)
+        .describe('Dashboard IDs to soft-delete. At most 100 IDs per request.'),
+    delete_insights: zod
+        .boolean()
+        .default(dashboardsBulkDeleteCreateBodyDeleteInsightsDefault)
+        .describe('Also delete insights that have no remaining dashboard after deletion. Defaults to false.'),
+})
+
+/**
  * Bulk update tags on multiple objects.
  *
  * PAT access: this action has no ``required_scopes=`` on the decorator —

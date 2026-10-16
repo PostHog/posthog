@@ -54,7 +54,7 @@ describe('errorTrackingIssueSceneLogic', () => {
         jest.restoreAllMocks()
     })
 
-    // The catch-all `/error_tracking/:id` route can capture a legacy settings slug. Without the
+    // The catch-all `/error-tracking/:id` route can capture a legacy settings slug. Without the
     // guard the scene fired every loader against a non-UUID id, spraying "issue_id must be a valid
     // UUID" toasts over a blank page.
     it.each(['symbol_sets', 'symbol-sets', 'settings', 'configuration'])(

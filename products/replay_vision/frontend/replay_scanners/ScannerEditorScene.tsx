@@ -47,6 +47,7 @@ import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackBu
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ExampleObservations } from './components/ExampleObservations'
 import { ScannerBudget } from './components/ScannerBudget'
+import { ScannerDraftStatus } from './components/ScannerDraftStatus'
 import { ScannerGoalDraft } from './components/ScannerGoalDraft'
 import { ScannerGoalFlow } from './components/ScannerGoalFlow'
 import { ScannerGoalOverview } from './components/ScannerGoalOverview'
@@ -113,7 +114,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     // Multivariate flag; a truthy check would turn the goal flow on for control too.
-    const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V2] === 'test'
+    const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V3] === 'test'
     // Read once on mount, because the wizard strips the deep-link params as soon as it consumes them.
     const [experimentDeepLink] = useState(() => parseExperimentScannerParams(router.values.searchParams) !== null)
     // Reached a form step by clicking Edit on the goal overview: the overview is home, not a wizard
@@ -123,7 +124,14 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
 
-    const { scanner, scannerLoading, isScannerSubmitting, stepErrors, experimentContext } = useValues(scannerLogic)
+    const {
+        scanner,
+        scannerLoading,
+        isScannerSubmitting,
+        stepErrors,
+        linkedExperimentContext,
+        lockedToExperimentScanner,
+    } = useValues(scannerLogic)
     const { submitScanner } = useActions(scannerLogic)
 
     // An experiment cross-sell entry point has already said what to watch and deep-linked the
@@ -187,9 +195,11 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                             onStepClick={goToStep}
                             stepErrors={stepErrors}
                             disabledSteps={
-                                isNew
-                                    ? undefined
-                                    : { template: 'A saved scanner keeps the template it was created from' }
+                                !isNew
+                                    ? { template: 'A saved scanner keeps the template it was created from' }
+                                    : lockedToExperimentScanner
+                                      ? { template: 'A scanner started from an experiment is an experiment scanner' }
+                                      : undefined
                             }
                             className="flex-wrap justify-center gap-y-1"
                             aria-label="Scanner editor progress"
@@ -204,8 +214,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                     </div>
                                     <h1 className="text-2xl font-bold m-0">What should the scanner find out?</h1>
                                     <p className="text-base text-secondary max-w-2xl mx-auto m-0">
-                                        Describe the goal, set a monthly budget, and the agent drafts the whole scanner
-                                        for you to review.
+                                        Describe the goal, and the agent drafts the whole scanner for you to review.
                                     </p>
                                 </div>
                                 <ScannerGoalFlow />
@@ -222,7 +231,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                         scanner from scratch.
                                     </p>
                                 </div>
-                                <ExperimentScopeNote experimentName={experimentContext?.experiment.name} />
+                                <ExperimentScopeNote experimentName={linkedExperimentContext?.experiment.name} />
                                 <ScannerTemplatePicker />
                                 {/* The goal flow supersedes this box, so someone who has already
                                     turned it down to build by hand should not be offered it again.
@@ -362,10 +371,10 @@ function SelfDrivingOutcomesLine({ scannerId }: { scannerId: string }): JSX.Elem
 
 function ConfigureStep(): JSX.Element {
     const { scannerId } = useValues(scannerEditorSceneLogic)
-    const { scanner, isNew, goalDraft } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, isNew, goalDraft, lockedToExperimentScanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
-    const isTypeSelectable = isNew && !searchParams.template
+    const isTypeSelectable = isNew && !searchParams.template && !lockedToExperimentScanner
     const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
 
     if (!scanner) {
@@ -501,7 +510,9 @@ function EditorFooter({
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
-    const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, durationValidationError, hasUnsavedChanges, lockedToExperimentScanner } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
     const { searchParams } = useValues(router)
     const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
@@ -512,7 +523,7 @@ function EditorFooter({
     const canApproveConsent = !dataProcessingApprovalDisabledReason
     const stepIndex = SCANNER_EDITOR_STEPS.indexOf(step)
     const previous = stepIndex > 0 ? SCANNER_EDITOR_STEPS[stepIndex - 1] : null
-    const prevStep = previous === 'template' && !isNew ? null : previous
+    const prevStep = previous === 'template' && (!isNew || lockedToExperimentScanner) ? null : previous
     const nextStep = stepIndex < SCANNER_EDITOR_STEPS.length - 1 ? SCANNER_EDITOR_STEPS[stepIndex + 1] : null
     // A broken duration filter blocks the save, but only from the triggers step onward: gating an
     // earlier step's button on it blocks the wizard with a reason nothing on screen explains. RBAC
@@ -551,6 +562,7 @@ function EditorFooter({
             {step === 'budget' && durationError ? <div className="text-danger text-sm">{durationError}</div> : null}
             {fromOverview ? (
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                    <ScannerDraftStatus scannerId={scannerId} fromOverview />
                     <LemonButton
                         type="tertiary"
                         onClick={handleCancel}
@@ -580,6 +592,7 @@ function EditorFooter({
                         </LemonButton>
                     ) : null}
                     <div className="flex flex-wrap items-center gap-2 ml-auto">
+                        <ScannerDraftStatus scannerId={scannerId} fromOverview={false} />
                         <LemonButton
                             type="tertiary"
                             onClick={handleCancel}

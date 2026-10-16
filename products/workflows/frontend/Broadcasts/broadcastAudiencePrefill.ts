@@ -4,6 +4,8 @@ import { urls } from 'scenes/urls'
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
+import type { EmailDraftRequestApi } from '../generated/api.schemas'
+import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
 import { EMAIL_PREFILL_PARAM, MessageDraft } from '../MessageAudience/messageDrafts'
 
 // pinned: URL search params, other products link to /broadcasts/new with these
@@ -20,6 +22,7 @@ export interface BroadcastPrefill {
     /** The record the email is about, as "<kind>:<id>". Saved on the broadcast so a later send can skip its recipients. */
     sourceRecord?: string
     email?: MessageDraft
+    draftSource?: EmailDraftRequestApi
 }
 
 export function urlForNewBroadcastWithAudience({
@@ -28,6 +31,7 @@ export function urlForNewBroadcastWithAudience({
     source,
     sourceRecord,
     email,
+    draftSource,
 }: BroadcastPrefill): string {
     return combineUrl(urls.broadcastNew(), {
         [AUDIENCE_PREFILL_PARAM]: JSON.stringify(properties),
@@ -35,6 +39,7 @@ export function urlForNewBroadcastWithAudience({
         ...(source ? { [SOURCE_PREFILL_PARAM]: source } : {}),
         ...(sourceRecord ? { [SOURCE_RECORD_PREFILL_PARAM]: sourceRecord } : {}),
         ...(email ? { [EMAIL_PREFILL_PARAM]: JSON.stringify(email) } : {}),
+        ...(draftSource ? { [DRAFT_SOURCE_PARAM]: JSON.stringify(draftSource) } : {}),
     }).url
 }
 

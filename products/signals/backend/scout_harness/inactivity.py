@@ -130,6 +130,7 @@ _ENGAGEMENT_ARTEFACT_TYPES: frozenset[str] = SignalReportArtefact.LOG_ARTEFACT_T
 _ENGAGED_REPORT_STATUSES: frozenset[str] = frozenset(
     {
         SignalReport.Status.RESOLVED,
+        SignalReport.Status.MONITORING,
         SignalReport.Status.DELETED,
     }
 )

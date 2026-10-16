@@ -107,7 +107,7 @@ class TestRecordTurnMarker(BaseTest):
         self._edit_single_agent_prompt(f"{prompt_name}.md")
         changed = self._record_single_agent(run_index=2)
 
-        assert original.version == "reviewhog-flash-2-2"
+        assert original.version == "reviewhog-flash-2-3"
         assert changed.fingerprint != original.fingerprint
 
     def test_the_coordinator_prompt_splits_only_coordinated_cohorts(self) -> None:

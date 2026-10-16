@@ -651,6 +651,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         String(projectId),
                         experimentId
                     )
+                    if (cache.disposables.isDisposed) {
+                        return
+                    }
                     actions.setCurrentRecalculation(recalculation)
                     applyResults(recalculation)
                     markResultsReviewed(recalculation)
@@ -686,6 +689,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         actions.triggerRecalculation(HEAL_TRIGGER_BY_RESULT_SOURCE[recalculation.result_source])
                     }
                 } catch (error: any) {
+                    if (cache.disposables.isDisposed) {
+                        return
+                    }
                     if (error?.status === 404) {
                         /**
                          * if there are no completed recalculations, kick off a new one.
@@ -697,7 +703,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
 
                     lemonToast.error('Failed to load latest recalculation')
                 } finally {
-                    actions.setRecalculationLoading(false)
+                    if (!cache.disposables.isDisposed) {
+                        actions.setRecalculationLoading(false)
+                    }
                 }
             },
             setCurrentRecalculation: () => {
@@ -990,7 +998,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         }
     }),
     afterMount(({ actions, values, cache }) => {
-        // Fetch the latest completed recalculation on mount; the listener no-ops when the flag is off.
+        // Fetch the latest completed recalculation on mount.
         actions.loadLatestRecalculation()
 
         /**
