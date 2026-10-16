@@ -518,10 +518,7 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
         default=None,
         description="Custom color for this series as a hex string (e.g. `#1d4aff`).",
     )
-    displayType: DisplayType | None = Field(
-        default=None,
-        description=("Chart type. `auto` uses `display`."),
-    )
+    displayType: DisplayType | None = Field(default=None, description="Chart type. `auto` uses `display`.")
     label: str | None = Field(
         default=None,
         description=("Custom label for this series, shown in the legend and tooltips instead of the column name."),
