@@ -1,0 +1,28 @@
+{% extends "email/base.html" %}
+{% block heading %}Your send did not go out{% endblock %}
+{% block section %}
+    <!-- prettier-ignore -->
+    <p>
+        A run of <b>{{ workflow_name }}</b> in project <b>{{ team_name }}</b> waited for its cohort to finish calculating, and nobody got it.
+    </p>
+    {% if timed_out %}
+        <p>The cohort did not finish calculating within 24 hours. Start the send again once the cohort is ready.</p>
+    {% else %}
+        <p>Someone stopped the run while it waited.</p>
+    {% endif %}
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri run_path %}">Open the run</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{% absolute_uri run_path %}">{% absolute_uri run_path %}</a>
+        </p>
+    </div>
+{% endblock %}
+{% block footer %}
+    You get this email because you started this send. You can turn these emails off in your
+    <a href="{% absolute_uri '/settings/user-notifications' %}"
+       target="_blank"><b>notification settings</b></a>.
+{% endblock %}

@@ -60,6 +60,7 @@ class Notifications(TypedDict, total=False):
     project_api_key_exposed: bool
     ai_evaluation_disabled: bool  # One email each time an AI observability evaluation is auto-disabled
     workflow_suggestions: bool  # Email when PostHog suggests a change to a workflow the user opted in or created
+    workflow_batch_run_not_sent: bool  # Email when a run that waited for its cohort fails or is stopped unsent
     materialized_view_sync_failed: bool
     materialized_view_sync_failed_daily: bool  # One digest a day summarizing failing views
     materialized_view_sync_failed_immediate: bool  # One email each time a view starts failing
@@ -91,6 +92,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "project_api_key_exposed": True,  # Private project API key (secure API key) exposure alerts enabled by default
     "ai_evaluation_disabled": True,  # Auto-disabled evaluation emails enabled by default
     "workflow_suggestions": True,
+    "workflow_batch_run_not_sent": True,
     "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
     "materialized_view_sync_failed_daily": True,  # Digest is the default delivery once failures are turned on
     "materialized_view_sync_failed_immediate": False,

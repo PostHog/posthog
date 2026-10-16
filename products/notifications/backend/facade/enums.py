@@ -23,6 +23,7 @@ class NotificationType(str, Enum):
     NOTIFICATION_SETTINGS_CHANGED = "notification_settings_changed"
     DATA_QUALITY_CHECK_FAILURE = "data_quality_check_failure"
     WORKFLOW_SUGGESTION = "workflow_suggestion"
+    WORKFLOW_BATCH_RUN_NOT_SENT = "workflow_batch_run_not_sent"
 
 
 class Priority(str, Enum):

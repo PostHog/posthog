@@ -48,21 +48,25 @@ def _candidate_user_ids(hog_flow: HogFlow, filed_by_user_id: int | None) -> list
     return list(dict.fromkeys(user_id for user_id in candidates if user_id is not None))
 
 
+def user_can_receive(user: User, team: Team, hog_flow: HogFlow) -> bool:
+    if not user.is_active or not team.all_users_with_access().filter(id=user.id).exists():
+        return False
+    if not UserAccessControl(user=user, team=team).check_access_level_for_object(hog_flow, "viewer"):
+        return False
+    # The in-app notification drops anyone without resource-level access, so a person who can see only
+    # this workflow would get nothing.
+    return bool(RecipientsResolver().filter_by_access_control([user.id], "hog_flow", team))
+
+
 def _recipient(team: Team, hog_flow: HogFlow, filed_by_user_id: int | None) -> User | None:
     for user_id in _candidate_user_ids(hog_flow, filed_by_user_id):
-        user = team.all_users_with_access().filter(id=user_id, is_active=True).first()
-        if user is None or not UserAccessControl(user=user, team=team).check_access_level_for_object(
-            hog_flow, "viewer"
-        ):
-            continue
-        # The in-app notification drops anyone without resource-level access, so a person who can see only
-        # this workflow would get nothing; pass over them to the next candidate.
-        if RecipientsResolver().filter_by_access_control([user.id], "hog_flow", team):
+        user = User.objects.filter(id=user_id, is_active=True).first()
+        if user is not None and user_can_receive(user, team, hog_flow):
             return user
     return None
 
 
-def _defanged(text: str) -> str:
+def defanged(text: str) -> str:
     # sanitize_email_string also HTML-escapes. Undo only that step, so the template escapes the text once
     # and the URLs in it stay broken for mail-client auto-linking.
     return html.unescape(sanitize_email_string(text))
@@ -78,7 +82,7 @@ def _send_email(user: User, team: Team, hog_flow: HogFlow, proposal: WorkflowPro
     locks = notification_locks_for_users([user.id], organization_id=team.organization_id).get(user.id, {})
     if not effective_notification_settings(user, locks=locks).get(EMAIL_SETTING, True):
         return
-    workflow_name = _defanged(
+    workflow_name = defanged(
         sanitize_display_name(
             hog_flow.name or "",
             fallback="your workflow",
@@ -87,15 +91,15 @@ def _send_email(user: User, team: Team, hog_flow: HogFlow, proposal: WorkflowPro
     )
     team_context = get_email_team_and_org_context(team=team)
     if "team_name" in team_context:
-        team_context["team_name"] = _defanged(team_context["team_name"])
+        team_context["team_name"] = defanged(team_context["team_name"])
     message = EmailMessage(
         campaign_key=campaign_key,
         template_name="workflow_suggestion_filed",
         subject=f"PostHog suggested a change to {workflow_name}",
         template_context={
             "workflow_name": workflow_name,
-            "suggestion_title": _defanged(proposal.title),
-            "suggestion_rationale": _defanged(proposal.rationale),
+            "suggestion_title": defanged(proposal.title),
+            "suggestion_rationale": defanged(proposal.rationale),
             "suggestion_path": path,
             **team_context,
         },

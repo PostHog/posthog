@@ -40,6 +40,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, { Icon: ComponentType<{ className?
     subscription_nudge: { Icon: IconBell, color: 'text-primary' },
     data_quality_check_failure: { Icon: IconWarning, color: 'text-danger' },
     workflow_suggestion: { Icon: IconSparkles, color: 'text-primary' },
+    workflow_batch_run_not_sent: { Icon: IconWarning, color: 'text-danger' },
 }
 
 export function getNotificationIcon(notificationType: string, className: string = 'size-5'): JSX.Element {
