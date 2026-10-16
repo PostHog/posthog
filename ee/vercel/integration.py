@@ -481,6 +481,18 @@ class VercelIntegration:
         return {"finalized": True}
 
     @staticmethod
+    def _promote_mapped_contact_to_owner(installation: OrganizationIntegration, contact_email: str) -> None:
+        mapped_users = User.objects.filter(pk__in=list(installation.config.get("user_mappings", {}).values()))
+        memberships = OrganizationMembership.objects.filter(
+            organization_id=installation.organization_id,
+            user__in=EmailLookupHandler.users_matching_email(contact_email, mapped_users),
+            level__lt=OrganizationMembership.Level.OWNER,
+        )
+        for membership in memberships:
+            membership.level = OrganizationMembership.Level.OWNER
+            membership.save(update_fields=["level"])
+
+    @staticmethod
     def refresh_installation_account(installation: OrganizationIntegration) -> None:
         installation_id = installation.integration_id
         access_token = VercelIntegration._get_access_token(installation)
@@ -496,13 +508,16 @@ class VercelIntegration:
         # saved while the request to Vercel was in flight is not overwritten.
         with transaction.atomic():
             locked = OrganizationIntegration.objects.select_for_update().get(pk=installation.pk)
-            contact = account.get("contact") or locked.config.get("account", {}).get("contact")
+            live_contact = account.get("contact")
+            contact = live_contact or locked.config.get("account", {}).get("contact")
             refreshed: dict[str, Any] = {"url": account["url"], "name": account.get("name")}
             # The Owner check at SSO reads the contact with `.get`, which a stored None breaks.
             if contact:
                 refreshed["contact"] = {"email": contact["email"], "name": contact.get("name")}
             locked.config["account"] = refreshed
             locked.save(update_fields=["config", "updated_at"])
+            if live_contact:
+                VercelIntegration._promote_mapped_contact_to_owner(locked, live_contact["email"])
         logger.info("Refreshed Vercel installation account", installation_id=installation_id, integration="vercel")
 
     @staticmethod

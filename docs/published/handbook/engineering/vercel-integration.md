@@ -135,6 +135,7 @@ A Vercel user can move a Marketplace install, with its resources, to another Ver
 - Vercel calls `GET /v1/installations/{id}/resources/{resourceId}/plans` during the transfer, and the transfer stalls until that call succeeds.
 - Vercel does not call the installation endpoint. The `integration-configuration.transferred` webhook refreshes `config.account` (team name, dashboard URL, contact) from Vercel's account endpoint instead.
 - Connectable installs cannot be transferred, and the webhook handler leaves them unchanged.
+- The new team's contact becomes an Owner. If they signed in through Vercel before the webhook arrived, the webhook promotes them. If not, they become an Owner when they first sign in.
 - Members of the old team keep their PostHog access. Nothing removes them.
 
 ---

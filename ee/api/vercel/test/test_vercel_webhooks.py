@@ -11,6 +11,7 @@ from parameterized import parameterized
 from requests import HTTPError, RequestException
 
 from posthog.ingress.dispatch.loading import reset_consumer_registry
+from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.vercel.test.base import VercelTestBase
@@ -143,22 +144,30 @@ class TestVercelWebhooks(VercelTestBase):
             (
                 "vercel_returns_a_contact",
                 {"email": "old-owner@example.com", "name": "Old owner"},
-                {"email": "new-owner@example.com", "name": "New owner"},
-                {"email": "new-owner@example.com", "name": "New owner"},
+                {"email": "New-Owner@example.com", "name": "New owner"},
+                {"email": "New-Owner@example.com", "name": "New owner"},
+                OrganizationMembership.Level.OWNER,
             ),
             (
                 "vercel_returns_no_contact",
                 {"email": "old-owner@example.com", "name": "Old owner"},
                 None,
                 {"email": "old-owner@example.com", "name": "Old owner"},
+                OrganizationMembership.Level.MEMBER,
             ),
-            ("no_contact_anywhere", None, None, None),
+            ("no_contact_anywhere", None, None, None, OrganizationMembership.Level.MEMBER),
         ]
     )
     @patch("ee.vercel.client.requests.Session.request", autospec=True)
     def test_a_transfer_stores_the_new_team_from_vercel(
-        self, _name, stored_contact, live_contact, expected_contact, vercel_request
-    ):
+        self,
+        _name: str,
+        stored_contact: dict[str, str] | None,
+        live_contact: dict[str, str] | None,
+        expected_contact: dict[str, str] | None,
+        expected_new_owner_level: OrganizationMembership.Level,
+        vercel_request: MagicMock,
+    ) -> None:
         old_account: dict = {"url": "https://vercel.com/old-team/~/integrations/posthog/icfg_old", "name": "Old team"}
         if stored_contact:
             old_account["contact"] = stored_contact
@@ -169,7 +178,8 @@ class TestVercelWebhooks(VercelTestBase):
         }
         self.installation.sensitive_config = {"credentials": {"access_token": "test_token", "token_type": "Bearer"}}
         self.installation.save()
-        both_mappings = {"vercel_user_1": self.user.pk, "vercel_user_2": self.user.pk}
+        new_owner = self._create_user("new-owner@example.com")
+        both_mappings = {"vercel_user_1": self.user.pk, "vercel_user_2": new_owner.pk}
 
         def answer_while_sso_maps_another_user(session, method, url, **kwargs):
             OrganizationIntegration.objects.filter(pk=self.installation.pk).update(
@@ -203,6 +213,10 @@ class TestVercelWebhooks(VercelTestBase):
         self.assertEqual(
             self.installation.config,
             {"billing_plan_id": "free", "user_mappings": both_mappings, "account": expected_account},
+        )
+        self.assertEqual(
+            dict(self.organization.memberships.values_list("user_id", "level")),
+            {self.user.pk: OrganizationMembership.Level.ADMIN, new_owner.pk: expected_new_owner_level},
         )
 
     @patch("ee.vercel.client.requests.Session.request")
