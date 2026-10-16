@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -28,6 +29,10 @@ func runEvals(streamFD int) int {
 	// The harness owns cancellation. A stray SIGINT must not close the view
 	// while the harness still cleans up sandboxes.
 	signal.Ignore(syscall.SIGINT)
+	// Go's default action for these signals exits without restoring the
+	// terminal, which leaves the shell in raw mode after the run.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGHUP)
 
 	m := tui.NewEvalModel(func(command string) {
 		_, _ = fmt.Fprintln(stream, command)
@@ -44,6 +49,10 @@ func runEvals(streamFD int) int {
 		}
 	}
 	p := tea.NewProgram(m, opts...)
+	go func() {
+		<-sigCh
+		p.Kill()
+	}()
 
 	go func() {
 		scanner := bufio.NewScanner(stream)
@@ -57,9 +66,13 @@ func runEvals(streamFD int) int {
 		p.Send(tui.EvalStreamClosedMsg{})
 	}()
 
-	if _, err := p.Run(); err != nil {
+	final, err := p.Run()
+	if err != nil && !errors.Is(err, tea.ErrProgramKilled) {
 		fmt.Fprintf(os.Stderr, "phrocs: %v\n", err)
 		return 1
+	}
+	if view, ok := final.(tui.EvalModel); ok && view.HarnessLost() {
+		fmt.Fprintln(os.Stderr, "phrocs: the eval run stopped before it reported a result. Read its transcript for details.")
 	}
 	return 0
 }

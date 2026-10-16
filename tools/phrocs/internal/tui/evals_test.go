@@ -92,13 +92,12 @@ func TestEvalCancelAndClose(t *testing.T) {
 	}
 }
 
-func TestEvalStreamCloseLetsTheUserLeave(t *testing.T) {
+func TestEvalStreamCloseWithoutResultReleasesTheTerminal(t *testing.T) {
 	h := newEvalHarness(t)
 	h.keys(keypress('q'))
 	h.update(EvalStreamClosedMsg{})
-	h.keys(keypress('q'))
-	if !h.quit || len(h.replies) != 0 {
-		t.Fatalf("quit = %v, replies = %v; want quit without cancel after the harness exits", h.quit, h.replies)
+	if !h.quit || len(h.replies) != 0 || !h.m.HarnessLost() {
+		t.Fatalf("quit = %v, replies = %v, lost = %v; want an immediate quit without cancel", h.quit, h.replies, h.m.HarnessLost())
 	}
 }
 

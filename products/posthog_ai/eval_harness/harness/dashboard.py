@@ -6,11 +6,13 @@ import time
 import shutil
 import signal
 import socket
+import termios
 import threading
 import subprocess
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TextIO
 
 from ..log_sink import _case_log_slug
 from .progress import TrialProgress
@@ -37,6 +39,23 @@ def resolve_view_command() -> list[str]:
     if installed := shutil.which("phrocs"):
         return [installed]
     raise RuntimeError("phrocs is not installed. Run `hogli phrocs:build` or use --no-tui")
+
+
+TerminalModes = list[int | list[bytes | int]]
+
+
+def _terminal_modes(stream: TextIO) -> TerminalModes | None:
+    try:
+        return termios.tcgetattr(stream.fileno())
+    except (OSError, ValueError, termios.error):
+        return None
+
+
+def _restore_terminal_modes(stream: TextIO, modes: TerminalModes) -> None:
+    try:
+        termios.tcsetattr(stream.fileno(), termios.TCSADRAIN, modes)
+    except (OSError, ValueError, termios.error):
+        pass
 
 
 @contextmanager
@@ -183,6 +202,7 @@ class EvalDashboard:
 
     @contextmanager
     def display(self) -> Iterator[None]:
+        saved_modes = _terminal_modes(self._terminal.input)
         parent, child = socket.socketpair()
         environment = dict(os.environ)
         if environment.get("TERM", "dumb") == "dumb":
@@ -216,6 +236,11 @@ class EvalDashboard:
                     self._process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     self._process.kill()
+                    self._process.wait()
+            # A view that died from a signal cannot restore the terminal, so the shell would
+            # inherit raw mode. Restore the modes from before the view started.
+            if saved_modes is not None:
+                _restore_terminal_modes(self._terminal.input, saved_modes)
             with self._send_lock:
                 self._socket = None
                 parent.close()

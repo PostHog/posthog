@@ -313,6 +313,11 @@ func (m EvalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.stopped.IsZero() {
 			m.stopped = m.now()
 		}
+		// Without a finish event the harness process is gone and the shell has
+		// the terminal again, so the view must give it back now.
+		if m.exitCode == nil {
+			return m, tea.Quit
+		}
 		m.refreshContent()
 
 	case tea.KeyPressMsg:
@@ -479,6 +484,9 @@ func (m EvalModel) selectedTrial() *evalTrial {
 }
 
 func (m EvalModel) finished() bool { return m.exitCode != nil || m.streamClosed }
+
+// HarnessLost reports that the harness closed the stream without a final result.
+func (m EvalModel) HarnessLost() bool { return m.streamClosed && m.exitCode == nil }
 
 func (m EvalModel) handleKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 	m.flash = ""
@@ -1057,9 +1065,6 @@ func (m EvalModel) renderOverview() string {
 	}
 	if m.summary != "" {
 		b.WriteString("\n" + strings.TrimRight(m.summary, "\n") + "\n")
-	}
-	if m.streamClosed && m.exitCode == nil {
-		b.WriteString("\n" + lipgloss.NewStyle().Foreground(colorRed).Render("The eval process stopped before it reported a result. Read the transcript for details.") + "\n")
 	}
 	if m.transcript != "" {
 		b.WriteString("\n" + lipgloss.NewStyle().Foreground(colorBrightBlack).Render("Transcript: "+m.transcript) + "\n")
