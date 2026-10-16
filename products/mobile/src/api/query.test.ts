@@ -1,5 +1,5 @@
 import { setAuthProvider } from './client'
-import { queryKeys, type RunQueryOptions, runQuery } from './query'
+import { QueryTimeoutError, queryKeys, type RunQueryOptions, runQuery } from './query'
 
 const TRENDS = { results: [{ data: [1, 2], days: ['2026-10-12', '2026-10-13'] }] }
 const SCOPE = { host: 'https://app.example.com', projectId: 2 }
@@ -90,6 +90,47 @@ describe('query api', () => {
 
         await expect(running).rejects.toMatchObject({ name: 'AbortError' })
         expect(calls).toHaveLength(1)
+    })
+
+    test('keeps caller cancellation distinct from the deadline during the initial request', async () => {
+        globalThis.fetch = jest.fn(
+            (_url: string, init: RequestInit) =>
+                new Promise<Response>((_resolve, reject) => {
+                    init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+                })
+        ) as unknown as typeof fetch
+        const controller = new AbortController()
+        const running = runQuery({ kind: 'TrendsQuery' }, { signal: controller.signal, timeoutMs: 1000 })
+        controller.abort()
+        await expect(running).rejects.toMatchObject({ name: 'AbortError' })
+    })
+
+    test.each(['POST', 'GET'])('times out while the %s request is still in flight', async (method) => {
+        jest.useFakeTimers()
+        try {
+            globalThis.fetch = jest.fn((_url: string, init: RequestInit) => {
+                if (method === 'GET' && init.method === 'POST') {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        headers: { get: () => null },
+                        text: async () => JSON.stringify({ query_status: { id: 'q', complete: false } }),
+                    } as unknown as Response)
+                }
+                return new Promise<Response>((_resolve, reject) => {
+                    init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+                })
+            }) as unknown as typeof fetch
+            const running = runQuery({ kind: 'TrendsQuery' }, { pollIntervalMs: 0, timeoutMs: 100 })
+            const assertion = expect(running).rejects.toBeInstanceOf(QueryTimeoutError)
+            await jest.advanceTimersByTimeAsync(100)
+            await assertion
+            expect(jest.mocked(globalThis.fetch).mock.calls.map(([, init]) => init?.method ?? 'GET')).toEqual(
+                method === 'POST' ? ['POST'] : ['POST', 'GET']
+            )
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     test('equal queries share a cache key whatever their key order', () => {

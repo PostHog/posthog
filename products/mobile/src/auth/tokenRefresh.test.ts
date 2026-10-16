@@ -1,6 +1,7 @@
+import * as SecureStore from 'expo-secure-store'
 import { apiJson, NotSignedInError, projectPath } from '@/api/client'
 
-import { installAuthProvider, useAuthStore } from './authStore'
+import { addSessionEndTask, addSignOutTask, installAuthProvider, useAuthStore } from './authStore'
 import { OAuthError } from './oauth'
 import { getSessionTokens, loadTokens, saveTokens, setSessionTokens } from './tokens'
 
@@ -31,6 +32,21 @@ jest.mock('expo-secure-store', () => {
 
 const HOST = 'https://us.posthog.com'
 const OLD_HOST = 'https://old-instance.example.com'
+const NEW_HOST = 'https://new-instance.example.com'
+
+function accountResponse(uuid: string): Response {
+    return json(200, {
+        id: 7,
+        uuid,
+        distinct_id: uuid,
+        email: `${uuid}@example.com`,
+        first_name: '',
+        last_name: '',
+        team: null,
+        organization: null,
+        organizations: [],
+    })
+}
 
 function json(status: number, body: unknown): Response {
     return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -193,5 +209,221 @@ describe('token refresh through the API client', () => {
             accountError: null,
         })
         expect(getSessionTokens()).toMatchObject({ accessToken: 'next-access', refreshToken: 'next-refresh' })
+    })
+
+    test('a candidate host and token stay separate until its account is loaded', async () => {
+        let releaseMe: (response: Response) => void = () => undefined
+        let reachedMe: () => void = () => undefined
+        const meStarted = new Promise<void>((resolve) => {
+            reachedMe = resolve
+        })
+        fetchMock.mockImplementation(async (url) => {
+            if (url === `${NEW_HOST}/oauth/token`) {
+                return json(200, { access_token: 'candidate', refresh_token: 'candidate-refresh', expires_in: 3600 })
+            }
+            if (url === `${NEW_HOST}/api/users/@me/`) {
+                reachedMe()
+                return new Promise<Response>((resolve) => {
+                    releaseMe = resolve
+                })
+            }
+            if (url === `${HOST}/oauth/revoke`) {
+                return json(200, {})
+            }
+            throw new Error(`Unexpected request to ${url}`)
+        })
+
+        const signingIn = useAuthStore.getState().signIn(NEW_HOST, 'candidate-client')
+        await meStarted
+        expect(useAuthStore.getState().host).toBe(HOST)
+        expect(getSessionTokens()?.accessToken).toBe('old-access')
+        releaseMe(accountResponse('candidate-user'))
+        await signingIn
+        expect(useAuthStore.getState()).toMatchObject({ host: NEW_HOST, user: { uuid: 'candidate-user' } })
+        expect(getSessionTokens()?.accessToken).toBe('candidate')
+    })
+
+    test('a failed candidate or canceled sign-in leaves the active host and credentials intact', async () => {
+        const { AuthRequest } = jest.requireMock('expo-auth-session') as { AuthRequest: jest.Mock }
+        AuthRequest.mockImplementationOnce(() => ({
+            promptAsync: async () => ({ type: 'cancel' }),
+        }))
+        await expect(useAuthStore.getState().signIn(NEW_HOST, 'candidate-client')).rejects.toBeInstanceOf(OAuthError)
+
+        fetchMock.mockImplementation(async (url) => {
+            if (url === `${NEW_HOST}/api/users/@me/`) {
+                return json(403, { detail: 'Account unavailable' })
+            }
+            throw new Error(`Unexpected request to ${url}`)
+        })
+        await expect(useAuthStore.getState().signInWithPersonalApiKey(NEW_HOST, 'candidate-key')).rejects.toThrow()
+        expect(useAuthStore.getState().host).toBe(HOST)
+        expect(getSessionTokens()?.accessToken).toBe('old-access')
+    })
+
+    test('failed session cleanup keeps the old credentials and a retry can sign out', async () => {
+        const cleanup = jest.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue(undefined)
+        const removeCleanup = addSignOutTask(cleanup)
+        fetchMock.mockResolvedValue(json(200, {}))
+        try {
+            await expect(useAuthStore.getState().signOut()).rejects.toThrow('Offline')
+            expect(useAuthStore.getState()).toMatchObject({ status: 'signed_in', host: HOST })
+            expect(getSessionTokens()?.accessToken).toBe('old-access')
+            await useAuthStore.getState().signOut()
+            expect(cleanup).toHaveBeenCalledTimes(2)
+            expect(useAuthStore.getState().status).toBe('signed_out')
+        } finally {
+            removeCleanup()
+        }
+    })
+
+    test('a failed account switch commit reopens the old session cleanup', async () => {
+        const recover = jest.fn()
+        const cleanup = jest.fn().mockResolvedValue(recover)
+        const removeCleanup = addSignOutTask(cleanup)
+        fetchMock.mockImplementation(async (url) => {
+            if (url === `${NEW_HOST}/api/users/@me/`) {
+                return accountResponse('candidate-user')
+            }
+            return json(200, {})
+        })
+        const storeWrite = jest
+            .spyOn(SecureStore, 'setItemAsync')
+            .mockRejectedValueOnce(new Error('Storage unavailable'))
+        try {
+            await expect(useAuthStore.getState().signInWithPersonalApiKey(NEW_HOST, 'candidate-key')).rejects.toThrow(
+                'Storage unavailable'
+            )
+            expect(cleanup).toHaveBeenCalledTimes(1)
+            expect(recover).toHaveBeenCalledTimes(1)
+            expect(useAuthStore.getState().host).toBe(HOST)
+            expect(getSessionTokens()?.accessToken).toBe('old-access')
+        } finally {
+            storeWrite.mockRestore()
+            removeCleanup()
+        }
+    })
+
+    test('a later concurrent sign-in wins without publishing the first candidate', async () => {
+        let releaseFirst: (response: Response) => void = () => undefined
+        let firstStarted: () => void = () => undefined
+        const started = new Promise<void>((resolve) => {
+            firstStarted = resolve
+        })
+        fetchMock.mockImplementation(async (url, init) => {
+            if (url === `${NEW_HOST}/api/users/@me/`) {
+                if (authorization(init) === 'Bearer first-key') {
+                    firstStarted()
+                    return new Promise<Response>((resolve) => {
+                        releaseFirst = resolve
+                    })
+                }
+                return accountResponse('second-user')
+            }
+            throw new Error(`Unexpected request to ${url}`)
+        })
+        const first = useAuthStore.getState().signInWithPersonalApiKey(NEW_HOST, 'first-key')
+        await started
+        await useAuthStore.getState().signInWithPersonalApiKey(NEW_HOST, 'second-key')
+        releaseFirst(accountResponse('first-user'))
+        await expect(first).rejects.toBeInstanceOf(OAuthError)
+        expect(useAuthStore.getState().user?.uuid).toBe('second-user')
+        expect(getSessionTokens()?.accessToken).toBe('second-key')
+    })
+
+    test('account switch finishes old session cleanup before publishing the new account', async () => {
+        let finishCleanup: () => void = () => undefined
+        let cleanupStarted: () => void = () => undefined
+        const started = new Promise<void>((resolve) => {
+            cleanupStarted = resolve
+        })
+        const removeCleanup = addSessionEndTask(
+            () =>
+                new Promise<void>((resolve) => {
+                    cleanupStarted()
+                    finishCleanup = resolve
+                })
+        )
+        fetchMock.mockImplementation(async (url) => {
+            if (url === `${NEW_HOST}/api/users/@me/`) {
+                return accountResponse('candidate-user')
+            }
+            return json(200, {})
+        })
+        try {
+            const signingIn = useAuthStore.getState().signInWithPersonalApiKey(NEW_HOST, 'candidate-key')
+            await started
+            expect(useAuthStore.getState().host).toBe(HOST)
+            expect(getSessionTokens()?.accessToken).toBe('old-access')
+            finishCleanup()
+            await signingIn
+            expect(useAuthStore.getState().host).toBe(NEW_HOST)
+        } finally {
+            removeCleanup()
+        }
+    })
+
+    test('a candidate canceled during SecureStore write never replaces the later sign-in', async () => {
+        fetchMock.mockImplementation(async (url, init) => {
+            if (url === `${NEW_HOST}/api/users/@me/`) {
+                return accountResponse(authorization(init) === 'Bearer first-key' ? 'first-user' : 'second-user')
+            }
+            throw new Error(`Unexpected request to ${url}`)
+        })
+        const originalWrite = SecureStore.setItemAsync
+        let finishWrite: () => void = () => undefined
+        let writeStarted: () => void = () => undefined
+        const started = new Promise<void>((resolve) => {
+            writeStarted = resolve
+        })
+        const storeWrite = jest.spyOn(SecureStore, 'setItemAsync').mockImplementationOnce(
+            (key, value) =>
+                new Promise<void>((resolve) => {
+                    writeStarted()
+                    finishWrite = () => void originalWrite(key, value).then(resolve)
+                })
+        )
+        try {
+            const first = useAuthStore.getState().signInWithPersonalApiKey(NEW_HOST, 'first-key')
+            await started
+            const second = useAuthStore.getState().signInWithPersonalApiKey(NEW_HOST, 'second-key')
+            finishWrite()
+            await expect(first).rejects.toBeInstanceOf(OAuthError)
+            await second
+            expect(useAuthStore.getState().user?.uuid).toBe('second-user')
+            setSessionTokens(null)
+            expect((await loadTokens())?.accessToken).toBe('second-key')
+        } finally {
+            storeWrite.mockRestore()
+        }
+    })
+
+    test('two sign-out requests share one cleanup and leave one signed-out session', async () => {
+        let finishCleanup: () => void = () => undefined
+        let cleanupStarted: () => void = () => undefined
+        const started = new Promise<void>((resolve) => {
+            cleanupStarted = resolve
+        })
+        const cleanup = jest.fn().mockImplementation(
+            () =>
+                new Promise<void>((resolve) => {
+                    cleanupStarted()
+                    finishCleanup = resolve
+                })
+        )
+        const removeCleanup = addSignOutTask(cleanup)
+        fetchMock.mockResolvedValue(json(200, {}))
+        try {
+            const first = useAuthStore.getState().signOut()
+            const second = useAuthStore.getState().signOut()
+            await started
+            expect(cleanup).toHaveBeenCalledTimes(1)
+            finishCleanup()
+            await Promise.all([first, second])
+            expect(cleanup).toHaveBeenCalledTimes(1)
+            expect(useAuthStore.getState().status).toBe('signed_out')
+        } finally {
+            removeCleanup()
+        }
     })
 })

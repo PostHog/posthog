@@ -122,7 +122,8 @@ export function snapshotChartSeries(snapshot: InsightSnapshot): ChartSeries[] {
     for (const series of previous) {
         const partner = current.find(
             (candidate) =>
-                candidate.seriesIndex === series.seriesIndex && candidate.breakdownValue === series.breakdownValue
+                candidate.seriesIndex === series.seriesIndex &&
+                JSON.stringify(candidate.breakdownValue) === JSON.stringify(series.breakdownValue)
         )
         if (!partner) {
             continue

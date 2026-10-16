@@ -135,6 +135,7 @@ interface CursorEntry {
     /** A later connection with no cursor replays the log again, so the thread rebuilds from it. */
     followed: boolean
     hydrate: boolean
+    pendingFrames: SessionFrame[]
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
@@ -306,7 +307,6 @@ async function readConnection(
     outer.addEventListener('abort', abort, { once: true })
     const cursor = entry.cursor.fork()
     let hydrating = entry.hydrate
-    const frames: SessionFrame[] = []
     let quietTimer: ReturnType<typeof setTimeout> | undefined
     const cancelQuiet = (): void => {
         if (quietTimer) {
@@ -320,11 +320,9 @@ async function readConnection(
             return
         }
         hydrating = false
-        handlers.onHistory([...frames])
-        frames.length = 0
-        entry.cursor = cursor
-    }
-    if (!hydrating) {
+        entry.hydrate = false
+        handlers.onHistory(entry.pendingFrames)
+        entry.pendingFrames = []
         entry.cursor = cursor
     }
     let idleTimer: ReturnType<typeof setTimeout> | undefined
@@ -353,11 +351,12 @@ async function readConnection(
                 }
                 resetIdle()
                 const outcome = cursor.accept(event)
+                entry.cursor = cursor
                 if (outcome.frame) {
                     result.progressed = true
                     if (hydrating) {
                         // Redis frames can also be backlog, so catch-up must not trigger live effects.
-                        frames.push({
+                        entry.pendingFrames.push({
                             frame: outcome.frame.data,
                             context: { ...outcome.frame.context, source: 'replay' },
                         })
@@ -380,6 +379,8 @@ async function readConnection(
                     cancelQuiet()
                     if (outcome.control.type === 'resync') {
                         entry.cursor.resetCursor()
+                        entry.pendingFrames = []
+                        entry.hydrate = true
                     }
                     result.control = outcome.control
                     // The server closes after every control event; stop reading now.
@@ -824,7 +825,7 @@ export function useSession(options: SessionOptions): Session {
         const { runId } = follow
         let entry = cursors.current.get(runId)
         if (!entry) {
-            entry = { cursor: new RunStreamCursor(runId), followed: false, hydrate: !follow.fresh }
+            entry = { cursor: new RunStreamCursor(runId), followed: false, hydrate: !follow.fresh, pendingFrames: [] }
             cursors.current.set(runId, entry)
         }
         if (entry.followed && entry.cursor.cursor === undefined) {

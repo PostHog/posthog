@@ -1,5 +1,6 @@
 import { randomUUID } from 'expo-crypto'
 
+import { abortError } from '@/lib/abort'
 import { isRecord } from '@/lib/records'
 import { sleep } from '@/lib/sleep'
 
@@ -80,33 +81,69 @@ export async function runQuery(query: unknown, options: RunQueryOptions = {}): P
         refresh = 'blocking',
         poll = true,
     } = options
-    const body = await apiJson<unknown>(projectPath('query/'), {
-        method: 'POST',
-        json: { query, client_query_id: randomUUID(), refresh },
-        signal,
-    })
-    let status = queryStatusOf(body)
-    if (!status || status.complete !== false || !poll) {
-        if (status?.error) {
-            throw new QueryFailedError(status.error_message)
-        }
-        return body
-    }
     const deadline = Date.now() + timeoutMs
-    while (status.complete !== true) {
-        if (Date.now() >= deadline) {
+    const controller = new AbortController()
+    let timedOut = false
+    const abortFromCaller = (): void => controller.abort()
+    signal?.addEventListener('abort', abortFromCaller, { once: true })
+    if (signal?.aborted) {
+        controller.abort()
+    }
+    const timer = setTimeout(
+        () => {
+            timedOut = true
+            controller.abort()
+        },
+        Math.max(0, timeoutMs)
+    )
+    try {
+        const body = await apiJson<unknown>(projectPath('query/'), {
+            method: 'POST',
+            json: { query, client_query_id: randomUUID(), refresh },
+            signal: controller.signal,
+        })
+        if (signal?.aborted) {
+            throw abortError()
+        }
+        if (timedOut) {
             throw new QueryTimeoutError()
         }
-        await sleep(pollIntervalMs, signal)
-        const polled: unknown = await apiJson<unknown>(projectPath(`query/${encodeURIComponent(status.id)}/`), {
-            signal,
-        })
-        status = queryStatusOf(polled) ?? status
+        let status = queryStatusOf(body)
+        if (!status || status.complete !== false || !poll) {
+            if (status?.error) {
+                throw new QueryFailedError(status.error_message)
+            }
+            return body
+        }
+        while (status.complete !== true) {
+            if (Date.now() >= deadline) {
+                throw new QueryTimeoutError()
+            }
+            await sleep(Math.min(pollIntervalMs, Math.max(0, deadline - Date.now())), controller.signal)
+            const polled: unknown = await apiJson<unknown>(projectPath(`query/${encodeURIComponent(status.id)}/`), {
+                signal: controller.signal,
+            })
+            if (signal?.aborted) {
+                throw abortError()
+            }
+            if (timedOut) {
+                throw new QueryTimeoutError()
+            }
+            status = queryStatusOf(polled) ?? status
+        }
+        if (status.error) {
+            throw new QueryFailedError(status.error_message)
+        }
+        return status.results
+    } catch (error) {
+        if (timedOut && !signal?.aborted) {
+            throw new QueryTimeoutError()
+        }
+        throw error
+    } finally {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', abortFromCaller)
     }
-    if (status.error) {
-        throw new QueryFailedError(status.error_message)
-    }
-    return status.results
 }
 
 /** JSON with object keys sorted, so two equal queries give the same string whatever their key order. */

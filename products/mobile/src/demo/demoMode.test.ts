@@ -1,4 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { renderHook, waitFor } from '@testing-library/react-native'
+import * as React from 'react'
 
 type DemoStore = typeof import('./demoMode').useDemoMode
 
@@ -50,5 +52,27 @@ describe('demo availability', () => {
 
         store.getState().setEnabled(true)
         expect(store.getState().enabled).toBe(isDev)
+    })
+
+    test('a failed storage read settles the demo routing gate with live data', async () => {
+        globals.__DEV__ = true
+        const read = jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('Storage unavailable'))
+        let demo: typeof import('./demoMode') | undefined
+        try {
+            jest.doMock('react', () => React)
+            jest.isolateModules(() => {
+                demo = jest.requireActual<typeof import('./demoMode')>('./demoMode')
+            })
+            if (!demo) {
+                throw new Error('Demo store did not load')
+            }
+            const loaded = demo
+            const hook = renderHook(() => loaded.useDataMode())
+            await waitFor(() => expect(hook.result.current).toBe('live'))
+            hook.unmount()
+        } finally {
+            jest.dontMock('react')
+            read.mockRestore()
+        }
     })
 })

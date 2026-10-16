@@ -120,6 +120,12 @@ describe('useSession', () => {
     const originalAppState = AppState.currentState
     beforeEach(() => {
         AppState.currentState = 'active'
+        mocked.openTaskRunStream.mockReset().mockImplementation(
+            (_taskId, _runId, options) =>
+                new Promise<Response>((_resolve, reject) => {
+                    options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+                })
+        )
     })
     afterEach(() => {
         AppState.currentState = originalAppState
@@ -231,9 +237,8 @@ describe('useSession', () => {
                     await act(async () => {
                         jest.advanceTimersByTime(2000)
                     })
-                    expect(mocked.openTaskRunStream.mock.calls.at(-1)?.[2]?.lastEventId).toBeUndefined()
+                    expect(mocked.openTaskRunStream.mock.calls.at(-1)?.[2]?.lastEventId).toBe('log-0')
                     await act(async () => {
-                        reconnected.push(first, 'log-0')
                         reconnected.push(last, 'log-1')
                         reconnected.push({}, undefined, 'keepalive')
                     })
@@ -248,6 +253,94 @@ describe('useSession', () => {
             }
         }
     )
+
+    test('keeps buffered history and its cursor when the stream rotates during catch-up', async () => {
+        const firstStream = liveStream(false)
+        const secondStream = liveStream(false)
+        const first = {
+            ...logLine({ sessionUpdate: 'agent_message_chunk', content: { text: 'Saved ' } }),
+            event_id: 'first',
+        }
+        const last = {
+            ...logLine({ sessionUpdate: 'agent_message_chunk', content: { text: 'reply.' } }),
+            event_id: 'last',
+        }
+        mocked.openTaskRunStream
+            .mockResolvedValueOnce(firstStream.response)
+            .mockResolvedValueOnce(secondStream.response)
+        mocked.getTask.mockResolvedValue(task(run({ status: 'in_progress' })))
+        mocked.getTaskRun.mockResolvedValue(run({ status: 'in_progress' }))
+        const { result, unmount } = renderHook(() => useSession({ taskId: TASK_ID }))
+        try {
+            await act(async () => {})
+            await act(async () => {
+                firstStream.push(first, 'log-0')
+                firstStream.push({ type: 'rotated' }, undefined, 'end')
+            })
+            await waitFor(() => expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(2))
+            expect(mocked.openTaskRunStream.mock.calls[1]?.[2]?.lastEventId).toBe('log-0')
+            expect(result.current.items).toEqual([])
+            await act(async () => {
+                secondStream.push(last, 'log-1')
+                secondStream.push({}, undefined, 'keepalive')
+            })
+            expect(result.current.items).toEqual([expect.objectContaining({ kind: 'assistant', text: 'Saved reply.' })])
+        } finally {
+            unmount()
+        }
+    })
+
+    test('treats a new connection backlog as replay after the first hydration', async () => {
+        const firstStream = liveStream()
+        const secondStream = liveStream(false)
+        mocked.openTaskRunStream
+            .mockResolvedValueOnce(firstStream.response)
+            .mockResolvedValueOnce(secondStream.response)
+        mocked.getTask.mockResolvedValue(task(run({ status: 'in_progress' })))
+        mocked.getTaskRun.mockResolvedValue(run({ status: 'in_progress' }))
+        mocked.sendTaskRunCommand.mockResolvedValue({ jsonrpc: '2.0', result: {} })
+        const { result, unmount } = renderHook(() => useSession({ taskId: TASK_ID }))
+        try {
+            await waitFor(() => expect(result.current.history.status).toBe('idle'))
+            await act(async () => {
+                firstStream.push({ type: 'rotated' }, undefined, 'end')
+            })
+            await waitFor(() => expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(2))
+            await act(async () => {
+                secondStream.push(
+                    {
+                        type: 'notification',
+                        notification: {
+                            method: '_posthog/permission_request',
+                            params: {
+                                type: 'permission_request',
+                                requestId: 'old-request',
+                                options: [
+                                    { optionId: 'allow', kind: 'allow_once', name: 'Yes' },
+                                    { optionId: 'reject', kind: 'reject_once', name: 'No' },
+                                ],
+                                toolCall: {
+                                    toolCallId: 'old-tool',
+                                    title: 'Run tests',
+                                    kind: 'execute',
+                                    _meta: { claudeCode: { toolName: 'Bash' } },
+                                },
+                            },
+                        },
+                    },
+                    '101-0'
+                )
+            })
+            expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
+            await act(async () => {
+                secondStream.push({}, undefined, 'keepalive')
+            })
+            expect(result.current.decision?.question.id).toBe('old-request')
+            expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
+        } finally {
+            unmount()
+        }
+    })
 
     test.each<[string, TaskRunApi, ChatRunOptions, Record<string, unknown>]>([
         [

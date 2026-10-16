@@ -24,8 +24,9 @@ Sign in ──► AuthRequest (PKCE S256, state) ──► system browser: {host
   Concurrent 401s share one refresh, because each refresh rotates the token.
 - A refresh rejected with 400, 401 or 403 ends the session: tokens and the query cache are cleared and every screen goes to sign in, which says the session ended.
   A network error or 5xx keeps the session; the request fails and the next one tries again.
-- Sign out unregisters the push token, revokes the refresh token (`POST {host}/oauth/revoke`, form body, `client_id`), then clears tokens, the query cache and the analytics identity.
-  Revocation failures are ignored, so sign out works offline.
+- Sign out waits for the push registration queue, unregisters the device token, revokes the refresh token (`POST {host}/oauth/revoke`, form body, `client_id`), then clears tokens, the query cache and the analytics identity.
+  If push unregistration fails, sign out keeps the session and shows a retry action. OAuth revocation failures are ignored after push cleanup succeeds.
+- OAuth and personal-key sign-in load the candidate account with its own host and credential. The active host, token and account change together only after that succeeds. A canceled or failed attempt leaves the previous session in place.
 - On Android the callback also arrives as a deep link. `app/+native-intent.tsx` drops it so Expo Router does not open an unmatched `/callback` screen.
 
 ## Hosts and client ids
@@ -127,6 +128,7 @@ From `OAUTH2_PROVIDER` in `posthog/settings/web.py` and `OAuthValidator` in `pos
 | Web build | localStorage in dev builds, memory in release builds (a reload signs out) |
 
 Region, host and client id stay after sign out so the sign-in form starts where the user left it.
+If AsyncStorage cannot be read on launch, the auth routing gate settles with its default signed-out state so the splash screen can close.
 
 ## Store shape
 

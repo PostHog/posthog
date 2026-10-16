@@ -12,7 +12,7 @@ export interface ActorsAtPointInput {
     day: string | number
     /** The index of the series in the trends query. */
     series: number
-    breakdown?: string | number | string[] | null
+    breakdown?: string | number | null | (string | number | null)[]
     compare?: 'current' | 'previous' | null
     /** True for "Watch recordings": each row then carries the sessions that matched. */
     includeRecordings: boolean

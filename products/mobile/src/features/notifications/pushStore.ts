@@ -2,7 +2,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
+import { createPersistHydrationGate } from '@/lib/persistHydration'
 import type { PushUnavailableReason } from './pushSupport'
+
+const hydration = createPersistHydrationGate()
 
 /** iOS provisional authorization counts as `granted`. */
 export type PushPermission = 'unknown' | 'undetermined' | 'granted' | 'denied' | 'unavailable'
@@ -39,19 +42,12 @@ export const usePushStore = create<PushState>()(
                 token: state.token,
                 registeredFor: state.registeredFor,
             }),
+            onRehydrateStorage: () => () => hydration.settle(),
         }
     )
 )
 
 /** Resolves once the persisted `prompted` flag and token have loaded, so a cold start never asks twice. */
 export function waitForPushHydration(): Promise<void> {
-    if (usePushStore.persist.hasHydrated()) {
-        return Promise.resolve()
-    }
-    return new Promise((resolve) => {
-        const unsubscribe = usePushStore.persist.onFinishHydration(() => {
-            unsubscribe()
-            resolve()
-        })
-    })
+    return hydration.wait()
 }

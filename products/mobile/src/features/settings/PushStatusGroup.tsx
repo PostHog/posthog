@@ -23,10 +23,13 @@ function statusLabel(push: PushState): string {
         case 'unavailable':
             return push.unavailableReason ? UNAVAILABLE[push.unavailableReason] : 'Not available'
         case 'granted':
+            if (push.error) {
+                return "Couldn't turn on"
+            }
             if (push.token) {
                 return 'On'
             }
-            return push.error ? "Couldn't turn on" : 'Turning on'
+            return 'Turning on'
         case 'denied':
             return push.canAskAgain ? 'Off' : 'Blocked in system settings'
         default:
@@ -49,7 +52,7 @@ export function PushStatusGroup(): ReactElement {
         push.permission === 'unknown' ||
         push.permission === 'undetermined' ||
         push.permission === 'denied' ||
-        (push.permission === 'granted' && !push.token && !push.registering)
+        (push.permission === 'granted' && (!push.token || push.error !== null) && !push.registering)
 
     useEffect(() => {
         void refreshPushPermission()
@@ -98,7 +101,11 @@ export function PushStatusGroup(): ReactElement {
                         testID="settings-push-enable"
                     >
                         <Text style={styles.actionText}>
-                            {openSystemSettings ? 'Open system settings' : 'Enable notifications'}
+                            {openSystemSettings
+                                ? 'Open system settings'
+                                : push.error
+                                  ? 'Try again'
+                                  : 'Enable notifications'}
                         </Text>
                     </Pressable44>
                 </View>

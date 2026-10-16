@@ -28,6 +28,7 @@ interface NavMenuProps {
     /** Replaces the rows with the sign-out confirmation. */
     confirmingSignOut: boolean
     signOutPending: boolean
+    signOutError: string | null
     onCancelSignOut: () => void
     onConfirmSignOut: () => void
 }
@@ -66,6 +67,7 @@ export function NavMenu({
     onSignOut,
     confirmingSignOut,
     signOutPending,
+    signOutError,
     onCancelSignOut,
     onConfirmSignOut,
 }: NavMenuProps): ReactElement {
@@ -123,6 +125,7 @@ export function NavMenu({
                     <SignOutConfirm
                         from="nav_menu"
                         pending={signOutPending}
+                        error={signOutError}
                         onCancel={onCancelSignOut}
                         onConfirm={onConfirmSignOut}
                         style={styles.confirm}

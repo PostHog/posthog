@@ -2,7 +2,7 @@ import type { ReportPriority } from '@/model/types'
 import { type DismissReason, type ResolveReason, VERDICT_NOTE_MAX_LENGTH } from '@/model/verdictReasons'
 import type { PullRequestChecksResponseApi } from '../../../signals/frontend/generated/api.schemas'
 
-import { ApiError, apiJson, projectPath } from './client'
+import { ApiError, apiJson, apiUrl, projectPath } from './client'
 
 // Shapes follow `products/signals/backend/serializers.py` and `report_read_state.py`, keeping the fields the app reads.
 
@@ -164,6 +164,7 @@ export const reportKeys = {
     report: (scope: ProjectScope | null, id: string) => [...reportKeys.all(scope), 'report', id] as const,
     detail: (scope: ProjectScope | null, id: string) => [...reportKeys.report(scope, id), 'detail'] as const,
     artefacts: (scope: ProjectScope | null, id: string) => [...reportKeys.report(scope, id), 'artefacts'] as const,
+    reviewers: (scope: ProjectScope | null, id: string) => [...reportKeys.artefacts(scope, id), 'reviewers'] as const,
     signals: (scope: ProjectScope | null, id: string) => [...reportKeys.report(scope, id), 'signals'] as const,
     page: (scope: ProjectScope | null, id: string) => ['today', ...scopeKey(scope), 'page', id] as const,
     task: (scope: ProjectScope | null, taskId: string | undefined) =>
@@ -204,14 +205,46 @@ export function fetchReportSignals(reportId: string, signal?: AbortSignal): Prom
 export const ARTEFACT_PAGE_SIZE = 100
 
 /** `GET signals/reports/{id}/artefacts/`, newest first. */
-export function fetchReportArtefacts(reportId: string, signal?: AbortSignal): Promise<PaginatedApi<ReportArtefactApi>> {
+export function fetchReportArtefacts(
+    reportId: string,
+    signal?: AbortSignal,
+    offset = 0
+): Promise<PaginatedApi<ReportArtefactApi>> {
     return apiJson<PaginatedApi<ReportArtefactApi>>(
         projectPath(`signals/reports/${encodeURIComponent(reportId)}/artefacts/`),
         {
-            query: { limit: ARTEFACT_PAGE_SIZE },
+            query: { limit: ARTEFACT_PAGE_SIZE, ...(offset ? { offset } : {}) },
             signal,
         }
     )
+}
+
+/** Find the latest full reviewer assignment, which may be older than the first artefact page. */
+export async function fetchLatestReviewerArtefact(
+    reportId: string,
+    signal?: AbortSignal
+): Promise<ReportArtefactApi | null> {
+    const path = projectPath(`signals/reports/${encodeURIComponent(reportId)}/artefacts/`)
+    const firstUrl = new URL(apiUrl(path))
+    let offset = 0
+    for (;;) {
+        const page = await fetchReportArtefacts(reportId, signal, offset)
+        const reviewer = page.results.find((artefact) => artefact.type === 'suggested_reviewers')
+        if (reviewer || !page.next) {
+            return reviewer ?? null
+        }
+        const next = new URL(page.next, firstUrl)
+        const nextOffset = Number(next.searchParams.get('offset'))
+        if (
+            next.origin !== firstUrl.origin ||
+            next.pathname !== firstUrl.pathname ||
+            !Number.isSafeInteger(nextOffset) ||
+            nextOffset <= offset
+        ) {
+            throw new Error('Invalid report artefact page')
+        }
+        offset = nextOffset
+    }
 }
 
 /** `read_state/` accepts at most this many ids per request. */

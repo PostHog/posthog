@@ -44,7 +44,11 @@ export function SignOutSection(): ReactElement {
         <SignOutConfirm
             from="settings"
             pending={signOut.pending}
-            onCancel={() => setConfirming(false)}
+            error={signOut.error}
+            onCancel={() => {
+                signOut.clearError()
+                setConfirming(false)
+            }}
             onConfirm={() => void signOut.run()}
             style={styles.confirm}
             testIDPrefix="settings"

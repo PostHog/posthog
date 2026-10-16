@@ -102,6 +102,22 @@ function notFound(): ApiError {
     return new ApiError(404, { detail: 'Not found.' })
 }
 
+function rejectAborted(signal: AbortSignal): void {
+    if (signal.aborted) {
+        const error = new Error('Read aborted')
+        error.name = 'AbortError'
+        throw error
+    }
+}
+
+function recordResponseStatus(key: string, response: { query_status?: InsightApi['query_status'] }): void {
+    if (response.query_status?.error) {
+        useItemErrors.getState().set(key, 'failed')
+    } else {
+        useItemErrors.getState().clear(key)
+    }
+}
+
 function recordFailure<T extends { readAt: number; refreshFailed: boolean }>(
     context: ItemContext,
     queryKey: QueryKey,
@@ -182,6 +198,7 @@ export function insightItem(context: ItemContext, target: InsightTarget): Refres
                 if (!response) {
                     throw notFound()
                 }
+                rejectAborted(signal)
                 const snapshot = insightSnapshot(response, previous, {
                     readAt: Date.now(),
                     serverNow: serverNow(),
@@ -189,7 +206,7 @@ export function insightItem(context: ItemContext, target: InsightTarget): Refres
                     usesOwnRange: target.usesOwnRange,
                 })
                 setSnapshot(context.client, queryKey, snapshot)
-                useItemErrors.getState().clear(key)
+                recordResponseStatus(key, response)
                 return outcomeOf(response)
             } catch (error) {
                 recordFailure<InsightSnapshot>(context, queryKey, key, error)
@@ -241,12 +258,13 @@ export function compareItem(context: ItemContext, base: InsightSnapshot, query: 
                     timezone: response.timezone,
                     resolved_date_range: response.resolved_date_range,
                 }
+                rejectAborted(signal)
                 setSnapshot(context.client, queryKey, {
                     ...insightSnapshot(asInsight, previous, { readAt: Date.now(), serverNow: serverNow() }),
                     createdBy: base.createdBy,
                     createdAt: base.createdAt,
                 })
-                useItemErrors.getState().clear(key)
+                recordResponseStatus(key, asInsight)
                 return outcomeOf(asInsight)
             } catch (error) {
                 recordFailure<InsightSnapshot>(context, queryKey, key, error)
@@ -280,8 +298,9 @@ export function webOverviewItem(context: ItemContext, query: Record<string, unkn
                           refresh: mode === 'force_blocking' ? 'force_blocking' : 'blocking',
                           signal,
                       })
+                rejectAborted(signal)
                 setSnapshot(context.client, queryKey, webOverviewSnapshot(response, previous, Date.now()))
-                useItemErrors.getState().clear(key)
+                recordResponseStatus(key, response)
                 return outcomeOf(response)
             } catch (error) {
                 recordFailure<WebOverviewSnapshot>(context, queryKey, key, error)
@@ -321,6 +340,7 @@ function writeTiles(
             continue
         }
         const queryKey = insightQueryKey(context.scope, target)
+        const itemKey = freshnessKey(queryKey)
         const previous = getSnapshot<InsightSnapshot>(context.client, queryKey)
         setSnapshot(
             context.client,
@@ -331,6 +351,7 @@ function writeTiles(
                 tileOverrides: tile.filters_overrides,
             })
         )
+        recordResponseStatus(itemKey, tile.insight)
     }
 }
 
@@ -364,6 +385,7 @@ export function dashboardContainer(
                 if (!api) {
                     throw notFound()
                 }
+                rejectAborted(signal)
                 const readAt = Date.now()
                 const view = dashboardView(api)
                 writeTiles(context, ref, api, view, override, readAt)

@@ -9,6 +9,7 @@ import { colors, radii, type } from '@/ui/tokens'
 interface SignOutConfirmProps {
     from: 'settings' | 'nav_menu'
     pending: boolean
+    error?: string | null
     onCancel: () => void
     onConfirm: () => void
     style?: StyleProp<ViewStyle>
@@ -20,6 +21,7 @@ interface SignOutConfirmProps {
 export function SignOutConfirm({
     from,
     pending,
+    error,
     onCancel,
     onConfirm,
     style,
@@ -42,6 +44,7 @@ export function SignOutConfirm({
         <View style={[styles.confirm, style]} testID={`${testIDPrefix}-sign-out-confirm`}>
             <Text style={styles.title}>Sign out of {host ? host.replace(/^https?:\/\//, '') : 'PostHog'}?</Text>
             <Text style={styles.body}>This device stops getting push notifications until you sign in again.</Text>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
             <View style={styles.actions}>
                 <Pressable44
                     onPress={cancel}
@@ -63,7 +66,7 @@ export function SignOutConfirm({
                     {pending ? (
                         <ActivityIndicator color={colors.white} />
                     ) : (
-                        <Text style={styles.destructiveText}>Sign out</Text>
+                        <Text style={styles.destructiveText}>{error ? 'Try again' : 'Sign out'}</Text>
                     )}
                 </Pressable44>
             </View>
@@ -82,6 +85,10 @@ const styles = StyleSheet.create({
     body: {
         ...type.bodySmall,
         color: colors.muted,
+    },
+    error: {
+        ...type.bodySmall,
+        color: colors.orange,
     },
     actions: {
         flexDirection: 'row',

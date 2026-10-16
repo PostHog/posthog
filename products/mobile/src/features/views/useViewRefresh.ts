@@ -31,6 +31,7 @@ import {
     statusLine,
 } from './freshness'
 import { type JobResult, type ReadResult, type RefreshMode, viewsQueue } from './refreshQueue'
+import { useItemErrors } from './viewsCache'
 
 addSessionEndTask(() => {
     viewsQueue.reset()
@@ -181,6 +182,26 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     optionsRef.current = options
     const { enabled } = options
     const group = groupOf(options)
+    const isFocused = useIsFocused()
+    const isFocusedRef = useRef(isFocused)
+    isFocusedRef.current = isFocused
+    const passGeneration = useRef(0)
+    const lastGroup = useRef(group)
+    const lastEnabled = useRef(enabled)
+    if (lastGroup.current !== group || lastEnabled.current !== enabled) {
+        lastGroup.current = group
+        lastEnabled.current = enabled
+        passGeneration.current += 1
+    }
+
+    const stillActive = useCallback((generation: number, passGroup: string): boolean => {
+        return (
+            passGeneration.current === generation &&
+            isFocusedRef.current &&
+            optionsRef.current.enabled &&
+            groupOf(optionsRef.current) === passGroup
+        )
+    }, [])
 
     const busy = useQueueBusy(group)
     const [hintUntil, setHintUntil] = useState<{ text: string; until: number } | null>(null)
@@ -197,6 +218,15 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
 
     const containerReading = useRef<Promise<JobResult> | null>(null)
 
+    const recordEmptyFailure = useCallback((key: string, result: JobResult, hasValue: () => boolean): void => {
+        if ((result.status === 'failed' || result.status === 'capped') && !hasValue()) {
+            const errors = useItemErrors.getState()
+            if (!errors.errors[key]) {
+                errors.set(key, 'failed')
+            }
+        }
+    }, [])
+
     const send = useCallback(
         (
             counters: PassCounters,
@@ -206,11 +236,23 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             read: RefreshItem['read'],
             userRetry = false
         ) => {
-            counters.jobs.push(
-                viewsQueue.enqueue({ key, family, group: groupOf(optionsRef.current), mode, run: read, userRetry })
+            const job = viewsQueue.enqueue({
+                key,
+                family,
+                group: groupOf(optionsRef.current),
+                mode,
+                run: read,
+                userRetry,
+            })
+            counters.jobs.push(job)
+            void job.then((result) =>
+                recordEmptyFailure(key, result, () => {
+                    const item = optionsRef.current.items.find((candidate) => candidate.key === key)
+                    return !item || hasGoodValue(item.snapshot())
+                })
             )
         },
-        []
+        [recordEmptyFailure]
     )
 
     const readContainer = useCallback(
@@ -224,10 +266,11 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 userRetry,
             })
             counters.jobs.push(job)
+            void job.then((result) => recordEmptyFailure(container.key, result, () => container.readAt() !== null))
             containerReading.current = job
             return job
         },
-        []
+        [recordEmptyFailure]
     )
 
     const showHint = useCallback((until: number | null) => {
@@ -283,9 +326,14 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
 
     /** Open path for items seen for the first time: on mount, when they scroll into view, or after a range change. */
     const openItems = useCallback(
-        async (fresh: RefreshItem[], trigger: PassTrigger, counters: PassCounters) => {
+        async (
+            fresh: RefreshItem[],
+            trigger: PassTrigger,
+            counters: PassCounters,
+            generation: number,
+            passGroup: string
+        ) => {
             const current = optionsRef.current
-            const passGroup = groupOf(current)
             const startedAt = Date.now()
             const age = maxAgeSeconds(
                 fresh.map((item) => item.snapshot()),
@@ -293,10 +341,9 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             )
             if (current.container && containerReading.current) {
                 await containerReading.current
-                if (groupOf(optionsRef.current) !== passGroup) {
-                    // The user picked another range while the dashboard read ran. That range has its own pass.
-                    return
-                }
+            }
+            if (!stillActive(generation, passGroup)) {
+                return
             }
             for (const item of fresh) {
                 const snapshot = item.snapshot()
@@ -311,13 +358,15 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             }
             await report(trigger, counters, startedAt, age, null)
         },
-        [report, send]
+        [report, send, stillActive]
     )
 
     const focusPass = useCallback(
         async (trigger: 'focus' | 'foreground') => {
             const current = optionsRef.current
-            if (!current.enabled) {
+            const generation = passGeneration.current
+            const passGroup = groupOf(current)
+            if (!stillActive(generation, passGroup)) {
                 return
             }
             const counters: PassCounters = { jobs: [] }
@@ -332,6 +381,9 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 const readAt = current.container.readAt()
                 if (!readAt || Date.now() - readAt >= RECHECK_MS) {
                     await readContainer(counters, current.container)
+                }
+                if (!stillActive(generation, passGroup)) {
+                    return
                 }
                 for (const item of visibleOf(optionsRef.current)) {
                     const snapshot = item.snapshot()
@@ -348,7 +400,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             }
             await report(trigger, counters, startedAt, age, null)
         },
-        [readContainer, refetchLists, report, send]
+        [readContainer, refetchLists, report, send, stillActive]
     )
 
     const cacheOnlyReads = useCallback(
@@ -436,7 +488,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     const visibleKeyList = options.visibleKeys ? [...options.visibleKeys].sort().join('|') : '*'
     // biome-ignore lint/correctness/useExhaustiveDependencies: the key strings stand for the items, read through the ref.
     useEffect(() => {
-        if (!enabled) {
+        if (!enabled || !isFocused) {
             return
         }
         const current = optionsRef.current
@@ -465,8 +517,8 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         }
         const trigger: PassTrigger = pendingRangeTrigger.current ? 'range' : 'open'
         pendingRangeTrigger.current = false
-        void openItems(fresh, trigger, counters)
-    }, [enabled, group, itemKeys, visibleKeyList, options.container?.key, openItems, readContainer])
+        void openItems(fresh, trigger, counters, passGeneration.current, group)
+    }, [enabled, isFocused, group, itemKeys, visibleKeyList, options.container?.key, openItems, readContainer])
 
     // Screen focus after the first one, which is the mount. Leaving drops what only this screen queued.
     const focusedBefore = useRef(false)
@@ -476,14 +528,14 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 void focusPass('focus')
             }
             focusedBefore.current = true
-            return () => viewsQueue.leave(groupOf(optionsRef.current))
+            return () => {
+                passGeneration.current += 1
+                viewsQueue.leave(groupOf(optionsRef.current))
+            }
         }, [focusPass])
     )
 
     // App foreground after a minute or more in the background, while this screen is the focused one.
-    const isFocused = useIsFocused()
-    const isFocusedRef = useRef(isFocused)
-    isFocusedRef.current = isFocused
     useEffect(() => {
         let backgroundAt: number | null = null
         return focusManager.subscribe((focused) => {
@@ -546,7 +598,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 showHint(blockedState({ snapshots: [snapshot], bulkFloorUntil: null }).until)
                 return false
             }
-            void viewsQueue.enqueue({
+            const job = viewsQueue.enqueue({
                 key: item.key,
                 family: item.family,
                 group: groupOf(current),
@@ -556,9 +608,10 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 // minute floor. It never forces, so it goes out like "Try again".
                 userRetry: mode === 'blocking',
             })
+            void job.then((result) => recordEmptyFailure(item.key, result, () => hasGoodValue(item.snapshot())))
             return true
         },
-        [showHint]
+        [recordEmptyFailure, showHint]
     )
 
     const retry = useCallback(() => {

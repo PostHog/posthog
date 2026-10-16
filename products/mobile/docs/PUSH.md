@@ -9,12 +9,13 @@ Code: `src/features/notifications/`, `src/api/pushTokens.ts`. The root layout in
 | App start | `configureNotifications()` sets the foreground handler (banner and list, no sound, no badge) and creates the Android channel `default`. |
 | After sign in | `usePushRegistration()` asks for permission once (`prompted` is persisted), gets the Expo push token with the EAS project id, and `POST /api/users/@me/push_tokens/` `{ token, platform: 'ios' \| 'android' }`. |
 | Every later launch | Registers again without asking. The server upserts on (user, token), so this only refreshes `last_seen_at`. |
-| OS rotates the token | `addPushTokenListener` registers the new token and unregisters the old one. |
-| App returns to the foreground | Rereads the permission and registers if the user turned notifications on in system settings. |
-| Settings, "Enable notifications" | Asks again when the system allows it, otherwise opens system settings. |
-| Sign out | `POST /api/users/@me/push_tokens/unregister/` `{ token }` before the access token is dropped (sign-out task, 4 second timeout). |
+| OS rotates the token | `addPushTokenListener` unregisters the old token before registering the new one. A failed delete keeps the old token for retry. |
+| App returns to the foreground | Rereads the permission and retries registration after an error, a missing token or a session change. |
+| Settings, "Enable notifications" or "Try again" | Asks when the system allows it, retries a failed registration, or opens system settings when permission is blocked. |
+| Sign out or account switch | Waits for in-flight registration, then sends `POST /api/users/@me/push_tokens/unregister/` `{ token }` before changing credentials. A failed delete keeps the session and offers a retry. |
 
 The server keeps at most 20 tokens per user and evicts the oldest. Both endpoints need `user:write`.
+The app saves a newly issued token before its registration POST, because a lost response does not prove the server rejected it. Registration and unregistration requests have bounded deadlines. A failed storage read lets the launch gate settle with default push state.
 
 Push is unavailable, and the app skips it without errors, on the web, in simulators and emulators, and in Expo Go.
 Settings shows which one applies.

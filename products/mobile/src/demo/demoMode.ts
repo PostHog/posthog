@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-
+import { createPersistHydrationGate } from '@/lib/persistHydration'
 import { MCP_VIA } from '@/model/agent'
 import type { ActivityEvent, DecisionAnswer, ReportPriority } from '@/model/types'
 import {
@@ -77,6 +77,7 @@ function freshState(): DemoMutableState {
 }
 
 let entryCounter = 0
+const hydration = createPersistHydrationGate()
 
 function entry(tag: DemoLogTag, text: string, via?: string): DemoLogEntry {
     entryCounter += 1
@@ -198,19 +199,14 @@ export const useDemoMode = create<DemoModeState>()(
                 enabled:
                     __DEV__ && ((persistedState as { enabled?: boolean } | undefined)?.enabled ?? currentState.enabled),
             }),
+            onRehydrateStorage: () => () => hydration.settle(),
         }
     )
 )
 
 /** True once the persisted `enabled` flag has loaded, so routing does not flash the sign-in screen. */
 export function useDemoHydrated(): boolean {
-    const [hydrated, setHydrated] = useState(() => useDemoMode.persist.hasHydrated())
-    useEffect(() => {
-        const unsubscribe = useDemoMode.persist.onFinishHydration(() => setHydrated(true))
-        setHydrated(useDemoMode.persist.hasHydrated())
-        return unsubscribe
-    }, [])
-    return hydrated
+    return useSyncExternalStore(hydration.subscribe, hydration.isHydrated, hydration.isHydrated)
 }
 
 export type DataMode = 'loading' | 'demo' | 'live'

@@ -454,7 +454,13 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
     const shown = useHeldWhileLoading(current ? { snapshot: current, queryKey: currentKey } : undefined, error)
     return {
         access: context.access,
-        insight: viewState(shown.value?.snapshot, error, context.ready, refresh.button === 'busy', refresh.retry),
+        insight: viewState(
+            error && shown.value?.snapshot && !shown.value.snapshot.lastRefreshAt ? undefined : shown.value?.snapshot,
+            error,
+            context.ready,
+            refresh.button === 'busy',
+            refresh.retry
+        ),
         error,
         range,
         compareAvailable: compareAllowed(range.choice ? rangeValues(range.choice).date_from : saved.dateFrom),
@@ -509,7 +515,13 @@ export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScr
     const shown = useHeldWhileLoading(snapshot, error)
     return {
         access: context.access,
-        overview: viewState(shown.value, error, context.ready, refresh.button === 'busy', refresh.retry),
+        overview: viewState(
+            error && shown.value && !shown.value.lastRefreshAt ? undefined : shown.value,
+            error,
+            context.ready,
+            refresh.button === 'busy',
+            refresh.retry
+        ),
         error,
         range,
         rangeLoading: shown.held,
@@ -569,6 +581,11 @@ export function usePointActors(): PointActors {
                             const response = demo
                                 ? await sleep(DEMO_READ_MS, signal).then(() => demoActorsResponse(input))
                                 : await fetchActorsAtPoint(input, signal)
+                            if (signal.aborted) {
+                                const error = new Error('Read aborted')
+                                error.name = 'AbortError'
+                                throw error
+                            }
                             client.setQueryData(queryKey, actorsFromResponse(response))
                             return { status: 'ok', computed: false }
                         } catch (error) {

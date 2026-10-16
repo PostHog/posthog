@@ -214,9 +214,23 @@ function seriesIndexOf(entry: JsonRecord, fallback: number): number {
     return finite(asRecord(entry.action)?.order) ?? fallback
 }
 
-function breakdownOf(entry: JsonRecord): string | number | null {
+function breakdownOf(entry: JsonRecord): InsightSeriesView['breakdownValue'] {
     const value = entry.breakdown_value
+    if (
+        Array.isArray(value) &&
+        value.every((part) => part === null || typeof part === 'string' || typeof part === 'number')
+    ) {
+        return value
+    }
     return typeof value === 'string' || typeof value === 'number' ? value : null
+}
+
+function seriesIdentity(
+    seriesIndex: number,
+    breakdownValue: InsightSeriesView['breakdownValue'],
+    compare: string | null
+): string {
+    return JSON.stringify([seriesIndex, breakdownValue, compare])
 }
 
 function compareOf(entry: JsonRecord): 'current' | 'previous' | null {
@@ -229,7 +243,7 @@ function seriesViews(entries: JsonRecord[]): InsightSeriesView[] {
         const breakdownValue = breakdownOf(entry)
         const compare = compareOf(entry)
         return {
-            key: `${seriesIndex}:${breakdownValue ?? ''}:${compare ?? ''}`,
+            key: seriesIdentity(seriesIndex, breakdownValue, compare),
             label: typeof entry.label === 'string' ? displaySeriesLabel(entry.label) : `Series ${seriesIndex + 1}`,
             points: pointsOf(entry),
             compare,
@@ -278,7 +292,7 @@ function makeDelta(
     const points = format.valueFormat === 'percentage' || format.valueFormat === 'percentage_scaled'
     return {
         previous,
-        change,
+        change: format.valueFormat === 'percentage_scaled' ? change * 100 : change,
         percent: previous === 0 ? null : (change / Math.abs(previous)) * 100,
         unit: points ? 'points' : 'percent',
         basis,
@@ -329,7 +343,8 @@ export function numberParts(
         (entry) =>
             compareOf(entry) === 'previous' &&
             seriesIndexOf(entry, 0) === seriesIndexOf(current, 0) &&
-            breakdownOf(entry) === breakdownOf(current)
+            seriesIdentity(seriesIndexOf(entry, 0), breakdownOf(entry), null) ===
+                seriesIdentity(seriesIndexOf(current, 0), breakdownOf(current), null)
     )
     const aggregate = finite(current.aggregated_value)
     if (aggregate !== undefined) {

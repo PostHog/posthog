@@ -1,5 +1,5 @@
 import { setAuthProvider } from './client'
-import { dismissReport, fetchInboxPage, INBOX_PAGE_SIZE, resolveReport } from './reports'
+import { dismissReport, fetchInboxPage, fetchLatestReviewerArtefact, INBOX_PAGE_SIZE, resolveReport } from './reports'
 
 describe('reports api', () => {
     const urls: string[] = []
@@ -38,6 +38,41 @@ describe('reports api', () => {
             limit: String(INBOX_PAGE_SIZE),
             offset: String(INBOX_PAGE_SIZE),
         })
+    })
+
+    test('finds the newest reviewer assignment beyond the first artefact page', async () => {
+        const assignment = { id: 'assignment', type: 'suggested_reviewers', content: [{ github_login: 'reviewer' }] }
+        const pages = [
+            {
+                count: 101,
+                next: 'https://app.example.com/api/projects/2/signals/reports/report-1/artefacts/?limit=100&offset=100',
+                results: Array.from({ length: 100 }, (_, index) => ({ id: `newer-${index}`, type: 'note' })),
+            },
+            { count: 101, next: null, results: [assignment] },
+        ]
+        globalThis.fetch = jest.fn(async () => ({
+            ok: true,
+            status: 200,
+            headers: { get: () => null },
+            text: async () => JSON.stringify(pages.shift()),
+        })) as unknown as typeof fetch
+
+        await expect(fetchLatestReviewerArtefact('report-1')).resolves.toMatchObject(assignment)
+        const requests = jest.mocked(globalThis.fetch).mock.calls.map(([url]) => new URL(String(url)))
+        expect(requests.map((url) => url.searchParams.get('offset'))).toEqual([null, '100'])
+    })
+
+    test('rejects an artefact page from another origin', async () => {
+        globalThis.fetch = jest.fn(async () => ({
+            ok: true,
+            status: 200,
+            headers: { get: () => null },
+            text: async () =>
+                JSON.stringify({ count: 101, next: 'https://other.example.com/steal?offset=100', results: [] }),
+        })) as unknown as typeof fetch
+
+        await expect(fetchLatestReviewerArtefact('report-1')).rejects.toThrow('Invalid report artefact page')
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1)
     })
 
     test.each([

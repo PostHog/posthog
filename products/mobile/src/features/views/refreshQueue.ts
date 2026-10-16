@@ -66,6 +66,7 @@ export interface RefreshQueueOptions {
     rateLimitRetryMs?: number
     /** The pause after a 429 or 503 without `Retry-After`. */
     defaultPauseMs?: number
+    requestDeadlineMs?: number
     now?: () => number
     canSpend?: (family: BudgetFamily) => boolean
 }
@@ -80,6 +81,7 @@ export class RefreshQueue {
     private readonly itemFloorMs: number
     private readonly rateLimitRetryMs: number
     private readonly defaultPauseMs: number
+    private readonly requestDeadlineMs: number
     private readonly now: () => number
     private readonly canSpend: (family: BudgetFamily) => boolean
 
@@ -90,12 +92,14 @@ export class RefreshQueue {
     private readonly listeners = new Set<() => void>()
     private running = 0
     private pauseTimer: ReturnType<typeof setTimeout> | null = null
+    private pauseTimerUntil: number | null = null
 
     constructor(options: RefreshQueueOptions = {}) {
         this.maxInFlight = options.maxInFlight ?? 2
         this.itemFloorMs = options.itemFloorMs ?? READ_FLOOR_MS
         this.rateLimitRetryMs = options.rateLimitRetryMs ?? 5_000
         this.defaultPauseMs = options.defaultPauseMs ?? 30_000
+        this.requestDeadlineMs = options.requestDeadlineMs ?? 60_000
         this.now = options.now ?? (() => Date.now())
         this.canSpend = options.canSpend ?? canSpend
     }
@@ -187,6 +191,7 @@ export class RefreshQueue {
             const pauseMs = error.retryAfterSeconds !== undefined ? error.retryAfterSeconds * 1000 : this.defaultPauseMs
             this.pausedUntil.set(family, Math.max(this.pausedUntil.get(family) ?? 0, this.now() + pauseMs))
             this.notify()
+            this.pump()
         }
     }
 
@@ -213,6 +218,7 @@ export class RefreshQueue {
             clearTimeout(this.pauseTimer)
             this.pauseTimer = null
         }
+        this.pauseTimerUntil = null
         this.notify()
     }
 
@@ -261,12 +267,19 @@ export class RefreshQueue {
     }
 
     private schedulePauseEnd(until: number | null): void {
+        if (this.pauseTimer && this.pauseTimerUntil !== null && (until === null || until < this.pauseTimerUntil)) {
+            clearTimeout(this.pauseTimer)
+            this.pauseTimer = null
+            this.pauseTimerUntil = null
+        }
         if (this.pauseTimer || until === null) {
             return
         }
+        this.pauseTimerUntil = until
         this.pauseTimer = setTimeout(
             () => {
                 this.pauseTimer = null
+                this.pauseTimerUntil = null
                 this.pump()
             },
             Math.max(0, until - this.now())
@@ -277,17 +290,31 @@ export class RefreshQueue {
         this.running += 1
         job.state = 'running'
         job.controller = new AbortController()
+        const controller = job.controller
         this.lastSent.set(job.key, this.now())
         let outcome: { status: JobStatus; computed: boolean } | 'retry'
+        let timedOut = false
+        let deadlineTimer: ReturnType<typeof setTimeout> | null = null
         try {
-            const result = await job.run(job.mode, job.controller.signal)
+            const deadline = new Promise<never>((_resolve, reject) => {
+                deadlineTimer = setTimeout(() => {
+                    timedOut = true
+                    controller.abort()
+                    reject(new Error('Views read timed out'))
+                }, this.requestDeadlineMs)
+            })
+            const result = await Promise.race([job.run(job.mode, controller.signal), deadline])
             if (result.status === 'rate_limited' && !job.retried && job.groups.size > 0) {
                 outcome = 'retry'
             } else {
                 outcome = { status: result.status === 'ok' ? 'ok' : 'failed', computed: result.computed }
             }
         } catch (error) {
-            outcome = { status: this.statusForError(job, error), computed: false }
+            outcome = { status: timedOut ? 'failed' : this.statusForError(job, error), computed: false }
+        } finally {
+            if (deadlineTimer) {
+                clearTimeout(deadlineTimer)
+            }
         }
         this.running -= 1
         job.controller = null

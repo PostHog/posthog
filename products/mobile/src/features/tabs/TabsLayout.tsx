@@ -112,7 +112,11 @@ function TabsChrome(): ReactElement {
                 onSignOut={startSignOut}
                 confirmingSignOut={confirmingSignOut}
                 signOutPending={signOut.pending}
-                onCancelSignOut={() => setConfirmingSignOut(false)}
+                signOutError={signOut.error}
+                onCancelSignOut={() => {
+                    signOut.clearError()
+                    setConfirmingSignOut(false)
+                }}
                 onConfirmSignOut={() => void signOut.run()}
             />
         </>

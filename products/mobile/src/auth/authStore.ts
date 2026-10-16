@@ -6,7 +6,7 @@ import { ApiError, NotSignedInError, setAuthProvider } from '@/api/client'
 import { queryClient } from '@/api/queryClient'
 import { identify, resetAnalytics, track } from '@/lib/analytics'
 import { toError } from '@/lib/errors'
-import { sleep } from '@/lib/sleep'
+import { createPersistHydrationGate } from '@/lib/persistHydration'
 
 import {
     type Account,
@@ -14,6 +14,7 @@ import {
     type AuthProject,
     type AuthUser,
     loadAccount,
+    loadAccountWithCredentials,
     pickProjectId,
 } from './account'
 import { authorize, OAuthError, refreshTokens, revokeToken } from './oauth'
@@ -21,10 +22,11 @@ import { type RegionId, regionForHost, validateHost } from './regions'
 import { AccountLoadError, accountLoadKind, SignInInputError } from './signInErrors'
 import {
     clearTokens,
+    commitSessionTokens,
     getSessionTokens,
     loadTokens,
     type SessionTokens,
-    saveTokens,
+    saveRefreshedTokens,
     sessionGeneration,
     setSessionTokens,
 } from './tokens'
@@ -60,11 +62,10 @@ export interface AuthState {
     signOut: () => Promise<void>
 }
 
-const SIGN_OUT_TASK_TIMEOUT_MS = 5_000
 /** Refresh at launch when the access token has less than this left, so the first requests do not all 401. */
 const RESTORE_REFRESH_MARGIN_MS = 60_000
 
-type SignOutTask = () => Promise<void>
+type SignOutTask = () => Promise<undefined | (() => void)>
 type SessionEndTask = () => void | Promise<void>
 
 const signOutTasks = new Set<SignOutTask>()
@@ -133,47 +134,135 @@ interface SessionTask<T> {
 let restoring: Promise<void> | null = null
 let reloading: SessionTask<void> | null = null
 let refreshing: SessionTask<string | null> | null = null
+let signInIntent = 0
+let sessionTransitions: Promise<void> = Promise.resolve()
+const hydration = createPersistHydrationGate()
+
+function serializeSessionTransition<T>(work: () => Promise<T>): Promise<T> {
+    const result = sessionTransitions.then(work, work)
+    sessionTransitions = result.then(
+        () => undefined,
+        () => undefined
+    )
+    return result
+}
+
+async function runSignOutTasks(): Promise<(() => void)[]> {
+    const recoveries: (() => void)[] = []
+    try {
+        for (const task of signOutTasks) {
+            const recover = await task()
+            if (recover) {
+                recoveries.push(recover)
+            }
+        }
+        return recoveries
+    } catch (error) {
+        for (const recover of recoveries) {
+            recover()
+        }
+        throw error
+    }
+}
 
 export const useAuthStore = create<AuthState>()(
     persist(
         (set, get) => {
-            const applyAccount = (account: Account, preferProjectId: number | null): void => {
+            const accountFields = (account: Account, preferProjectId: number | null): Partial<AuthState> => {
                 const projectId = pickProjectId(account.projects, [preferProjectId, account.webTeamId])
-                set({
+                return {
                     user: account.user,
                     organizations: account.organizations,
                     projects: account.projects,
                     projectId,
                     projectName: projectNameFor(account.projects, projectId),
                     accountError: null,
-                })
+                }
             }
 
-            const completeSignIn = async (tokens: SessionTokens, method: AuthMethod): Promise<void> => {
-                setSessionTokens(tokens)
-                const session = sessionGeneration()
+            const applyAccount = (account: Account, preferProjectId: number | null): void => {
+                set(accountFields(account, preferProjectId))
+            }
+
+            const completeSignIn = async (
+                tokens: SessionTokens,
+                method: AuthMethod,
+                host: string,
+                clientId: string | null,
+                intent: number
+            ): Promise<void> => {
                 let account: Account
                 try {
-                    account = await loadAccount()
-                    // A sign out or another sign in replaced these tokens during the load. Saving them now would
-                    // put them under the host of that later session.
-                    if (sessionGeneration() !== session) {
-                        throw new NotSignedInError()
-                    }
+                    account = await loadAccountWithCredentials(host, tokens.accessToken)
                 } catch (error) {
-                    // Clear only this attempt's tokens, so a failed attempt does not end a later session.
-                    if (sessionGeneration() === session) {
-                        setSessionTokens(null)
-                    }
                     throw new AccountLoadError(accountLoadKind(error), accountLoadMessage(error, method))
                 }
-                await saveTokens(tokens)
-                const previous = get().user
-                // Reopen the project this user had last, but never carry one over from another user.
-                applyAccount(account, previous?.uuid === account.user.uuid ? get().projectId : null)
-                set({ status: 'signed_in', signedIn: true, method, signedOutReason: null })
-                identify(account.user.distinctId)
-                track('mobile_signed_in', { method, region: get().region })
+                await serializeSessionTransition(async () => {
+                    if (intent !== signInIntent) {
+                        throw new OAuthError('cancelled')
+                    }
+                    const previous = get()
+                    const previousSession = sessionGeneration()
+                    let recoveries: (() => void)[] = []
+                    if (previous.status === 'signed_in') {
+                        recoveries = await runSignOutTasks()
+                    }
+                    try {
+                        if (intent !== signInIntent) {
+                            throw new OAuthError('cancelled')
+                        }
+                        if (previous.status === 'signed_in') {
+                            await Promise.allSettled([...sessionEndTasks].map(async (task) => task()))
+                        }
+                        const previousTokens = getSessionTokens()
+                        const region = regionForHost(host)
+                        const committed = await commitSessionTokens(
+                            tokens,
+                            () => intent === signInIntent && sessionGeneration() === previousSession,
+                            () => {
+                                const preferProjectId =
+                                    previous.user?.uuid === account.user.uuid ? previous.projectId : null
+                                set({
+                                    ...accountFields(account, preferProjectId),
+                                    status: 'signed_in',
+                                    signedIn: true,
+                                    region,
+                                    host,
+                                    clientId,
+                                    method,
+                                    signedOutReason: null,
+                                })
+                            }
+                        )
+                        if (!committed) {
+                            throw new OAuthError('cancelled')
+                        }
+                        if (previous.status === 'signed_in') {
+                            queryClient.clear()
+                        }
+                        identify(account.user.distinctId)
+                        track('mobile_signed_in', { method, region })
+                        if (
+                            previousTokens?.kind === 'oauth' &&
+                            previousTokens.refreshToken &&
+                            previous.host &&
+                            previous.clientId
+                        ) {
+                            void revokeToken({
+                                host: previous.host,
+                                clientId: previous.clientId,
+                                token: previousTokens.refreshToken,
+                            })
+                        }
+                    } catch (error) {
+                        if (sessionGeneration() === previousSession) {
+                            for (const recover of recoveries) {
+                                recover()
+                            }
+                        }
+                        throw error
+                    }
+                })
             }
 
             return {
@@ -241,15 +330,10 @@ export const useAuthStore = create<AuthState>()(
                     if (!trimmedClientId) {
                         throw new SignInInputError('Enter the OAuth client ID of the PostHog app on this instance.')
                     }
-                    set({
-                        region: regionForHost(validation.host),
-                        host: validation.host,
-                        clientId: trimmedClientId,
-                        signedOutReason: null,
-                    })
+                    const intent = ++signInIntent
                     const tokens = await authorize({ host: validation.host, clientId: trimmedClientId })
                     try {
-                        await completeSignIn(tokens, 'oauth')
+                        await completeSignIn(tokens, 'oauth', validation.host, trimmedClientId, intent)
                     } catch (error) {
                         if (tokens.refreshToken) {
                             void revokeToken({
@@ -274,7 +358,7 @@ export const useAuthStore = create<AuthState>()(
                     if (!trimmedKey) {
                         throw new SignInInputError('Paste a personal API key.')
                     }
-                    set({ region: regionForHost(validation.host), host: validation.host, signedOutReason: null })
+                    const intent = ++signInIntent
                     await completeSignIn(
                         {
                             kind: 'personal_api_key',
@@ -284,7 +368,10 @@ export const useAuthStore = create<AuthState>()(
                             grantedScopes: null,
                             requestedScopes: null,
                         },
-                        'personal_api_key'
+                        'personal_api_key',
+                        validation.host,
+                        null,
+                        intent
                     )
                 },
 
@@ -348,18 +435,21 @@ export const useAuthStore = create<AuthState>()(
                 },
 
                 signOut: async () => {
-                    const { host, clientId, status } = get()
-                    const tokens = getSessionTokens()
-                    if (status === 'signed_in' && signOutTasks.size > 0) {
-                        await Promise.race([
-                            Promise.allSettled([...signOutTasks].map((task) => task())),
-                            sleep(SIGN_OUT_TASK_TIMEOUT_MS),
-                        ])
-                    }
-                    if (tokens?.kind === 'oauth' && tokens.refreshToken && host && clientId) {
-                        await revokeToken({ host, clientId, token: tokens.refreshToken })
-                    }
-                    await endSession('user')
+                    ++signInIntent
+                    await serializeSessionTransition(async () => {
+                        const { host, clientId, status } = get()
+                        if (status === 'signed_out') {
+                            return
+                        }
+                        if (status === 'signed_in') {
+                            await runSignOutTasks()
+                        }
+                        const tokens = getSessionTokens()
+                        if (tokens?.kind === 'oauth' && tokens.refreshToken && host && clientId) {
+                            await revokeToken({ host, clientId, token: tokens.refreshToken })
+                        }
+                        await endSession('user')
+                    })
                 },
             }
         },
@@ -378,20 +468,13 @@ export const useAuthStore = create<AuthState>()(
                 projectId: state.projectId,
                 projectName: state.projectName,
             }),
+            onRehydrateStorage: () => () => hydration.settle(),
         }
     )
 )
 
 function waitForHydration(): Promise<void> {
-    if (useAuthStore.persist.hasHydrated()) {
-        return Promise.resolve()
-    }
-    return new Promise((resolve) => {
-        const unsubscribe = useAuthStore.persist.onFinishHydration(() => {
-            unsubscribe()
-            resolve()
-        })
-    })
+    return hydration.wait()
 }
 
 async function endSession(reason: 'user' | 'expired'): Promise<void> {
@@ -447,8 +530,7 @@ async function refreshOnce(): Promise<string | null> {
         }
         return null
     }
-    await saveTokens(next)
-    return next.accessToken
+    return (await saveRefreshedTokens(next, session)) ? next.accessToken : null
 }
 
 // Concurrent callers share one request, because each refresh rotates the token and a second request with the old

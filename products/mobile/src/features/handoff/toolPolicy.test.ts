@@ -57,6 +57,22 @@ const PLAN = makeRecord({
     input: { plan: '# Plan', toolName: 'ExitPlanMode' },
     options: [{ optionId: 'auto', name: 'Yes, and use "auto" mode', kind: 'allow_always', customInput: false }],
 })
+const NAMED_PLAN = makeRecord({
+    toolName: 'ExitPlanMode',
+    rawServerName: 'claude',
+    rawToolName: 'ExitPlanMode',
+})
+const INPUT_PLAN = makeRecord({
+    toolName: 'Bash',
+    rawServerName: 'claude',
+    rawToolName: 'Bash',
+    input: { toolName: 'ExitPlanMode' },
+})
+const RAW_PLAN = makeRecord({
+    toolName: '',
+    rawServerName: 'claude',
+    rawToolName: 'ExitPlanMode',
+})
 const CONNECTION_CALL = makeRecord({
     input: { command: 'call posthog-connection-call {"connection_id":"1","tool":"execute-sql"}' },
 })
@@ -96,6 +112,9 @@ describe('toolPolicy', () => {
         ['other mcp tool', OTHER_MCP, 'prompt'],
         ['question request', QUESTION, 'prompt'],
         ['plan approval with no tool name', PLAN, 'prompt'],
+        ['named plan approval', NAMED_PLAN, 'prompt'],
+        ['plan approval inside input', INPUT_PLAN, 'prompt'],
+        ['plan approval in raw tool name', RAW_PLAN, 'prompt'],
     ])('defaultPermissionDecision: %s', (_name, record, expected) => {
         expect(defaultPermissionDecision(record)).toBe(expected)
     })
@@ -133,6 +152,20 @@ describe('toolPolicy', () => {
         ],
         ['full auto still asks a question', QUESTION, { mode: 'bypassPermissions', replayed: false }, 'prompt'],
         ['full auto still asks to approve a plan', PLAN, { mode: 'bypassPermissions', replayed: false }, 'prompt'],
+        ['default mode still asks to approve a named plan', NAMED_PLAN, { replayed: false }, 'prompt'],
+        ['auto mode still asks to approve a plan in input', INPUT_PLAN, { mode: 'auto', replayed: false }, 'prompt'],
+        [
+            'full auto still asks to approve a raw plan',
+            RAW_PLAN,
+            { mode: 'bypassPermissions', replayed: false },
+            'prompt',
+        ],
+        [
+            'full auto still asks to approve a named plan',
+            NAMED_PLAN,
+            { mode: 'bypassPermissions', replayed: false },
+            'prompt',
+        ],
         [
             'full auto still asks for a connected project',
             CONNECTION_CALL,

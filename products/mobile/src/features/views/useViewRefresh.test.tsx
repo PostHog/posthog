@@ -6,6 +6,9 @@ import type { Freshness } from '@/model/views'
 import type { ReadResult } from './refreshQueue'
 import { viewsQueue } from './refreshQueue'
 import { type RefreshContainer, type RefreshItem, useViewRefresh, type ViewRefreshOptions } from './useViewRefresh'
+import { useItemErrors } from './viewsCache'
+
+let mockFocused = true
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -13,8 +16,14 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 jest.mock('expo-router', () => {
     const { useEffect } = jest.requireActual<typeof import('react')>('react')
     return {
-        useFocusEffect: (effect: () => undefined | (() => void)) => useEffect(effect, [effect]),
-        useIsFocused: () => true,
+        useFocusEffect: (effect: () => undefined | (() => void)) =>
+            useEffect(() => {
+                if (mockFocused) {
+                    return effect()
+                }
+                return undefined
+            }, [effect, mockFocused]),
+        useIsFocused: () => mockFocused,
     }
 })
 
@@ -80,8 +89,18 @@ describe('useViewRefresh on a dashboard', () => {
     }
 
     beforeEach(() => {
+        mockFocused = true
         reads = []
         waiting = new Map()
+        viewsQueue.reset()
+        useItemErrors.getState().reset()
+    })
+
+    afterEach(async () => {
+        for (const resolve of waiting.values()) {
+            resolve()
+        }
+        await flush()
         viewsQueue.reset()
     })
 
@@ -242,6 +261,76 @@ describe('useViewRefresh on a dashboard', () => {
         await settle('7d-tile-1')
 
         expect(reads).toEqual(['7d-dashboard', '7d-tile-0', '7d-tile-1', '30d-dashboard', '30d-tile-0', '30d-tile-1'])
+        await settle('30d-tile-0')
+        await settle('30d-tile-1')
         unmount()
     })
+
+    test.each(['blur', 'disable'] as const)(
+        'a dashboard read that finishes after %s cannot enqueue its old tiles when active again',
+        async (interruption) => {
+            const held = dashboard('blur')
+            held.read = read('blur-dashboard', true)
+            const old = { ...options('blur', tiles('old', 2, false)), container: held }
+            const { rerender, unmount } = renderHook((props: ViewRefreshOptions) => useViewRefresh(props), {
+                initialProps: old,
+            })
+            await flush()
+            expect(reads).toEqual(['blur-dashboard'])
+
+            if (interruption === 'blur') {
+                mockFocused = false
+                rerender(old)
+            } else {
+                rerender({ ...old, enabled: false })
+            }
+            await flush()
+            if (interruption === 'blur') {
+                mockFocused = true
+            }
+            rerender({ ...old, items: tiles('new', 2, false) })
+            await settle('blur-dashboard')
+
+            expect(reads).toEqual(['blur-dashboard', 'new-tile-0', 'new-tile-1'])
+            unmount()
+        }
+    )
+
+    test.each(['uncached', 'metadata only'] as const)(
+        'a capped %s read exposes an error that the screen can retry',
+        async (state) => {
+            const enqueue = jest.spyOn(viewsQueue, 'enqueue').mockResolvedValue({
+                status: 'capped',
+                computed: false,
+                forced: false,
+                family: 'insights',
+            })
+            try {
+                const item = tiles(`capped-${state}`, 1, false)[0]
+                if (!item) {
+                    throw new Error('Expected one tile')
+                }
+                if (state === 'metadata only') {
+                    item.snapshot = () => ({
+                        lastRefreshAt: null,
+                        cacheTargetAge: null,
+                        nextAllowedRefreshAt: null,
+                        readAt: Date.now() - 5 * 60_000,
+                        refreshFailed: false,
+                    })
+                }
+                const props = { ...options('7d', [item]), container: null }
+                const { result, unmount } = renderHook(() => useViewRefresh(props))
+                await flush()
+
+                expect(useItemErrors.getState().errors[item.key]).toBe('failed')
+                act(() => result.current.retry())
+                await flush()
+                expect(enqueue).toHaveBeenCalledTimes(2)
+                unmount()
+            } finally {
+                enqueue.mockRestore()
+            }
+        }
+    )
 })

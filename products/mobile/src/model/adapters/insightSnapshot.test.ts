@@ -1,7 +1,8 @@
 import type { InsightApi } from '@/api/insights'
-import { insightDisplay, insightRenderState } from '@/features/views/snapshotChart'
+import { pointActorsInput } from '@/features/views/pointSheet/pointActorsInput'
+import { insightDisplay, insightRenderState, snapshotChartSeries } from '@/features/views/snapshotChart'
 
-import { insightSnapshot, usesOwnRange } from './insightSnapshot'
+import { insightSnapshot, numberParts, usesOwnRange } from './insightSnapshot'
 
 const NOW = Date.parse('2026-10-14T12:00:00Z')
 
@@ -135,6 +136,66 @@ describe('insightSnapshot', () => {
         const snapshot = insightSnapshot(insight({ query, result }), undefined, CONTEXT)
 
         expect(snapshot).toMatchObject(expected)
+    })
+
+    test('keeps array breakdown identities distinct and pairs the matching previous period', () => {
+        const result = [
+            {
+                days: DAYS,
+                data: [1, 2, 3, 4],
+                breakdown_value: ['a', 'b'],
+                compare_label: 'current',
+                action: { order: 0 },
+            },
+            {
+                days: DAYS,
+                data: [5, 6, 7, 8],
+                breakdown_value: ['a,b'],
+                compare_label: 'current',
+                action: { order: 0 },
+            },
+            {
+                days: DAYS,
+                data: [9, 10, 11, 12],
+                breakdown_value: ['a,b'],
+                compare_label: 'previous',
+                action: { order: 0 },
+            },
+            {
+                days: DAYS,
+                data: [13, 14, 15, 16],
+                breakdown_value: ['a', 'b'],
+                compare_label: 'previous',
+                action: { order: 0 },
+            },
+        ]
+        const snapshot = insightSnapshot(insight({ result }), undefined, CONTEXT)
+        const chart = snapshotChartSeries(snapshot)
+
+        expect(snapshot.allSeries).toHaveLength(4)
+        expect(new Set(snapshot.allSeries.map((series) => series.key)).size).toBe(4)
+        expect(snapshot.allSeries[0]?.breakdownValue).toEqual(['a', 'b'])
+        expect(chart.map((series) => series.compareOf ?? null)).toEqual([
+            null,
+            null,
+            snapshot.allSeries[1]?.key,
+            snapshot.allSeries[0]?.key,
+        ])
+        expect(pointActorsInput(snapshot, snapshot.allSeries[0]?.key ?? '', 0, false)?.breakdown).toEqual(['a', 'b'])
+    })
+
+    test('matches array breakdown aggregates and scales percentage points without changing relative percent', () => {
+        const entries = [
+            { aggregated_value: 0.35, breakdown_value: ['a', 'b'], compare_label: 'current', action: { order: 0 } },
+            { aggregated_value: 0.1, breakdown_value: ['a,b'], compare_label: 'previous', action: { order: 0 } },
+            { aggregated_value: 0.3, breakdown_value: ['a', 'b'], compare_label: 'previous', action: { order: 0 } },
+        ]
+
+        const parts = numberParts(trends(undefined), entries, { valueFormat: 'percentage_scaled', unit: null }, null)
+
+        expect(parts.delta).toMatchObject({ previous: 0.3, unit: 'points' })
+        expect(parts.delta?.change).toBeCloseTo(5)
+        expect(parts.delta?.percent).toBeCloseTo((0.05 / 0.3) * 100)
     })
 
     // `result: null` is a tile that the cache-only dashboard read found without a cache.

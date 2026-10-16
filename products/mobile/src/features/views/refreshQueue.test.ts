@@ -101,6 +101,50 @@ describe('RefreshQueue', () => {
         expect(calls.map((call) => call.key)).toEqual(['a', 'd', 'b'])
     })
 
+    test('reschedules for a newly paused family with an earlier deadline', async () => {
+        void queue.enqueue(request('a'))
+        void queue.enqueue(request('b', { family: 'dashboards' }))
+        await settle('a', new ApiError(429, {}, { get: () => '30' } as unknown as Headers))
+        await settle('b', new ApiError(429, {}, { get: () => '10' } as unknown as Headers))
+        void queue.enqueue(request('c'))
+        void queue.enqueue(request('d', { family: 'dashboards' }))
+
+        now += 10_000
+        jest.advanceTimersByTime(10_000)
+        expect(calls.map((call) => call.key)).toEqual(['a', 'b', 'd'])
+
+        now += 20_000
+        jest.advanceTimersByTime(20_000)
+        expect(calls.map((call) => call.key)).toEqual(['a', 'b', 'd', 'c'])
+    })
+
+    test('a stalled read fails at its deadline and frees a slot for a queued read', async () => {
+        let signal: AbortSignal | undefined
+        const limited = new RefreshQueue({
+            maxInFlight: 1,
+            requestDeadlineMs: 5_000,
+            now: () => now,
+            canSpend: () => true,
+        })
+        const stalled = limited.enqueue(
+            request('a', {
+                run: (mode, abortSignal) => {
+                    calls.push({ key: 'a', mode })
+                    signal = abortSignal
+                    return new Promise<ReadResult>(() => undefined)
+                },
+            })
+        )
+        void limited.enqueue(request('b'))
+        expect(calls.map((call) => call.key)).toEqual(['a'])
+
+        now += 5_000
+        jest.advanceTimersByTime(5_000)
+        await expect(stalled).resolves.toMatchObject({ status: 'failed' })
+        expect(signal?.aborted).toBe(true)
+        expect(calls.map((call) => call.key)).toEqual(['a', 'b'])
+    })
+
     test('retries a rate-limited read once after 5 s, then reports it failed', async () => {
         const result = queue.enqueue(request('a'))
         await settle('a', { status: 'rate_limited', computed: false })

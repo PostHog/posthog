@@ -5,6 +5,7 @@ import { Platform } from 'react-native'
 import { ApiError } from '@/api/client'
 import { registerPushToken, unregisterPushToken } from '@/api/pushTokens'
 import { useAuthStore } from '@/auth/authStore'
+import { sessionGeneration } from '@/auth/tokens'
 import { track } from '@/lib/analytics'
 import { toError } from '@/lib/errors'
 import { foregroundNotificationBehavior } from './foregroundNotifications'
@@ -16,6 +17,8 @@ import { notificationsSupported, pushUnavailableReason } from './pushSupport'
 export const ANDROID_CHANNEL_ID = 'default'
 
 const UNREGISTER_TIMEOUT_MS = 4_000
+const REGISTER_TIMEOUT_MS = 4_000
+let closingSession: number | null = null
 
 /** `never`: register only if already granted. `once`: ask the first time after sign in. `always`: ask while allowed. */
 export type PromptPolicy = 'never' | 'once' | 'always'
@@ -80,9 +83,34 @@ function registrationKey(): string | null {
     return host && user ? `${host}|${user.uuid}` : null
 }
 
+function isCurrentRegistration(session: number, key: string): boolean {
+    return sessionGeneration() === session && registrationKey() === key && closingSession !== session
+}
+
+async function withTimeout(work: (signal: AbortSignal) => Promise<void>, timeoutMs: number): Promise<void> {
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+        await Promise.race([
+            work(controller.signal),
+            new Promise<never>((_resolve, reject) => {
+                timer = setTimeout(() => {
+                    controller.abort()
+                    reject(new Error('Push request timed out'))
+                }, timeoutMs)
+            }),
+        ])
+    } finally {
+        if (timer) {
+            clearTimeout(timer)
+        }
+    }
+}
+
 async function syncOnce(policy: PromptPolicy): Promise<void> {
+    const session = sessionGeneration()
     const key = registrationKey()
-    if (useAuthStore.getState().status !== 'signed_in' || !key) {
+    if (useAuthStore.getState().status !== 'signed_in' || !key || closingSession === session) {
         return
     }
     const unavailableReason = pushUnavailableReason()
@@ -104,6 +132,9 @@ async function syncOnce(policy: PromptPolicy): Promise<void> {
         })
     }
     const permission = toPermission(status)
+    if (!isCurrentRegistration(session, key)) {
+        return
+    }
     usePushStore.setState({ permission, canAskAgain: status.canAskAgain, unavailableReason: null })
     if (permission !== 'granted') {
         return
@@ -116,18 +147,43 @@ async function syncOnce(policy: PromptPolicy): Promise<void> {
             typeof projectId === 'string' ? { projectId } : {}
         )
         gotToken = true
-        const previous = usePushStore.getState()
-        await registerPushToken(token, Platform.OS === 'ios' ? 'ios' : 'android')
-        if (previous.token && previous.token !== token && previous.registeredFor === key) {
-            // The OS issued a new token. The old row would only collect undeliverable pushes.
-            unregisterPushToken(previous.token).catch(() => undefined)
+        if (!isCurrentRegistration(session, key)) {
+            usePushStore.setState({ registering: false })
+            return
         }
-        usePushStore.setState({ token, registeredFor: key, registering: false })
+        const previous = usePushStore.getState()
+        if (previous.token && previous.token !== token && previous.registeredFor === key) {
+            // Keep the old token until its row is removed, so a failed delete can be retried.
+            await withTimeout(
+                (signal) => unregisterPushToken(previous.token as string, { signal }),
+                UNREGISTER_TIMEOUT_MS
+            )
+        }
+        if (!isCurrentRegistration(session, key)) {
+            usePushStore.setState({ registering: false })
+            return
+        }
+        // A POST may succeed on the server even when its response is lost. Retain the attempted token so sign out
+        // can remove that row before dropping credentials.
+        usePushStore.setState({ token, registeredFor: key })
+        await withTimeout(
+            (signal) => registerPushToken(token, Platform.OS === 'ios' ? 'ios' : 'android', { signal }),
+            REGISTER_TIMEOUT_MS
+        )
+        if (!isCurrentRegistration(session, key)) {
+            usePushStore.setState({ registering: false })
+            return
+        }
+        usePushStore.setState({ registering: false })
         // Every launch re-registers the same token, so only a new registration counts as a success.
         if (previous.token !== token || previous.registeredFor !== key) {
             track('mobile_push_registration_finished', { ok: true, trigger: TRIGGERS[policy] })
         }
     } catch (error) {
+        if (!isCurrentRegistration(session, key)) {
+            usePushStore.setState({ registering: false })
+            return
+        }
         usePushStore.setState({ registering: false, error: toError(error).message })
         track('mobile_push_registration_finished', {
             ok: false,
@@ -139,10 +195,18 @@ async function syncOnce(policy: PromptPolicy): Promise<void> {
 
 let queue: Promise<void> = Promise.resolve()
 
+function enqueue<T>(work: () => Promise<T>): Promise<T> {
+    const result = queue.then(work, work)
+    queue = result.then(
+        () => undefined,
+        () => undefined
+    )
+    return result
+}
+
 // Calls run one after another, so a Settings tap never races the automatic run after sign in.
 export function syncPushRegistration(policy: PromptPolicy): Promise<void> {
-    queue = queue.then(() => syncOnce(policy)).catch(() => undefined)
-    return queue
+    return enqueue(() => syncOnce(policy)).catch(() => undefined)
 }
 
 export async function refreshPushPermission(): Promise<void> {
@@ -159,22 +223,26 @@ export async function refreshPushPermission(): Promise<void> {
     }
 }
 
-// When this fails (offline, or the token was already dead), the server keeps the row and the device keeps getting
-// that user's pushes. Nothing can remove it later, because the app no longer has a token for that user.
-// docs/GAPS.md lists this.
-export async function unregisterPush(): Promise<void> {
-    const { token } = usePushStore.getState()
-    if (!token) {
-        return
-    }
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), UNREGISTER_TIMEOUT_MS)
+export async function unregisterPush(): Promise<() => void> {
+    const session = sessionGeneration()
+    closingSession = session
     try {
-        await unregisterPushToken(token, { signal: controller.signal })
+        await enqueue(async () => {
+            await waitForPushHydration()
+            const { token, registeredFor } = usePushStore.getState()
+            if (token && registeredFor === registrationKey()) {
+                await withTimeout((signal) => unregisterPushToken(token, { signal }), UNREGISTER_TIMEOUT_MS)
+            }
+            usePushStore.setState({ token: null, registeredFor: null, registering: false, error: null })
+        })
     } catch {
-        // Sign out continues; see the comment above.
-    } finally {
-        clearTimeout(timer)
+        closingSession = null
+        throw new Error("Couldn't stop push notifications for this account. Check your connection and try again.")
     }
-    usePushStore.setState({ token: null, registeredFor: null, error: null })
+    return () => {
+        if (closingSession === session) {
+            closingSession = null
+            void syncPushRegistration('never')
+        }
+    }
 }

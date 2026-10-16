@@ -24,6 +24,16 @@ const STORAGE_KEY = 'posthog_mobile_session'
 
 let current: SessionTokens | null = null
 let generation = 0
+let storageQueue: Promise<void> = Promise.resolve()
+
+function serializeStorage<T>(work: () => Promise<T>): Promise<T> {
+    const result = storageQueue.then(work, work)
+    storageQueue = result.then(
+        () => undefined,
+        () => undefined
+    )
+    return result
+}
 
 export function getSessionTokens(): SessionTokens | null {
     return current
@@ -134,15 +144,59 @@ export async function loadTokens(): Promise<SessionTokens | null> {
  * `setSessionTokens` first.
  */
 export async function saveTokens(tokens: SessionTokens): Promise<void> {
-    current = tokens
-    await writeItem(STORAGE_KEY, JSON.stringify(tokens))
+    await serializeStorage(async () => {
+        await writeItem(STORAGE_KEY, JSON.stringify(tokens))
+        current = tokens
+    })
+}
+
+/** Persists and publishes a new session in one storage turn, after its account has loaded. */
+export async function commitSessionTokens(
+    tokens: SessionTokens,
+    canPublish: () => boolean,
+    publish: () => void
+): Promise<boolean> {
+    return serializeStorage(async () => {
+        if (!canPublish()) {
+            return false
+        }
+        await writeItem(STORAGE_KEY, JSON.stringify(tokens))
+        if (!canPublish()) {
+            // A sign out or later sign-in started while SecureStore was writing. Restore the current session before
+            // the queued transition can run, so a relaunch never pairs the earlier candidate with the later host.
+            if (current) {
+                await writeItem(STORAGE_KEY, JSON.stringify(current))
+            } else {
+                await deleteItem(STORAGE_KEY)
+            }
+            return false
+        }
+        setSessionTokens(tokens)
+        publish()
+        return true
+    })
+}
+
+/** A refresh queued behind a new sign-in must not overwrite the new session's stored token. */
+export async function saveRefreshedTokens(tokens: SessionTokens, expectedGeneration: number): Promise<boolean> {
+    return serializeStorage(async () => {
+        if (generation !== expectedGeneration) {
+            return false
+        }
+        await writeItem(STORAGE_KEY, JSON.stringify(tokens))
+        if (generation !== expectedGeneration) {
+            return false
+        }
+        current = tokens
+        return true
+    })
 }
 
 export async function clearTokens(): Promise<void> {
     current = null
     generation += 1
     try {
-        await deleteItem(STORAGE_KEY)
+        await serializeStorage(() => deleteItem(STORAGE_KEY))
     } catch {
         // A failed delete leaves a token that the next restore tries and the server rejects.
     }

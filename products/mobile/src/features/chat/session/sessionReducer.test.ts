@@ -159,8 +159,20 @@ describe('session thread reducer', () => {
         })
         const streaming = play([thought])
         expect(rows(streaming)).toEqual(['thought…: Check the test.'])
-        const settled = play([thought, update({ sessionUpdate: 'tool_call', toolCallId: 'tc-1', title: 'Read test' })])
+        const settled = play(
+            [update({ sessionUpdate: 'tool_call', toolCallId: 'tc-1', title: 'Read test' })],
+            LIVE,
+            streaming
+        )
         expect(rows(settled)).toEqual(['thought: Check the test.', 'tool:  pending "Reading test"'])
+        expect(rows(streaming)).toEqual(['thought…: Check the test.'])
+    })
+
+    test('finalizing an open assistant buffer leaves the previously published state unchanged', () => {
+        const streaming = play([chunk('Working ', 'm1')])
+        const complete = play([message('Working now.', 'm1')], LIVE, streaming)
+        expect(rows(complete)).toEqual(['assistant: Working now.'])
+        expect(rows(streaming)).toEqual(['assistant…: Working '])
     })
 
     test('an optimistic send is drawn once across both echoes, and a queued send stays below the running turn', () => {

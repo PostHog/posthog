@@ -189,7 +189,9 @@ On the next message to a live run, `useSession` first sends one command per chan
   The app buffers catch-up frames and shows the history together, then streams new replies.
   Catch-up ends on a keepalive, stream completion, or 250 ms of silence after a Redis frame; silence during durable-log replay never ends it.
   Opening a thread scrolls straight to the latest message without animation.
-  Reconnects follow the hand-off rules (see [HANDOFF.md](HANDOFF.md)); a replay after a lost cursor rebuilds the thread.
+  Reconnects follow the hand-off rules (see [HANDOFF.md](HANDOFF.md)). A reconnect keeps the cursor and buffered history
+  through a transport rotation, and buffers each new connection's backlog before showing it. A replay after a lost
+  cursor rebuilds the thread.
 - `mobile_session_resumed` is captured with the run status.
 - `mobile_session_load_failed` is captured with `code` (the `ChatError` kind) each time the thread shows "Couldn't load this session".
   `mobile_session_load_retried` is captured when the person taps Try again there.

@@ -5,10 +5,12 @@ import { asRecord, isRecord } from '@/lib/records'
 
 import { stripInjectedContext } from '../contextPrompt'
 import type {
+    SessionAssistantItem,
     SessionErrorItem,
     SessionNoticeItem,
     SessionProgressItem,
     SessionProgressStep,
+    SessionThoughtItem,
     SessionThreadItem,
     SessionToolInvocation,
     SessionToolStatus,
@@ -206,9 +208,27 @@ class Draft {
     replayedHumanTexts: Map<string, number>
     pairedSends: Map<string, number>
     counters: Record<CounterKey, number>
+    private readonly openAssistants = new Set<SessionAssistantItem>()
+    private readonly openThoughts = new Set<SessionThoughtItem>()
+    private readonly toolItemIds = new Set<string>()
 
     constructor(state: SessionThreadState) {
-        this.items = [...state.items]
+        this.items = state.items.map((item) => {
+            if (item.kind === 'assistant' && !item.complete) {
+                const copy = { ...item }
+                this.openAssistants.add(copy)
+                return copy
+            }
+            if (item.kind === 'thought' && !item.complete) {
+                const copy = { ...item }
+                this.openThoughts.add(copy)
+                return copy
+            }
+            if (item.kind === 'tool') {
+                this.toolItemIds.add(item.toolCallId)
+            }
+            return item
+        })
         this.invocations = new Map(state.invocations)
         this.rawToolCalls = new Map(state.rawToolCalls)
         this.waiting = state.waiting.map((send) => ({ ...send }))
@@ -255,33 +275,38 @@ class Draft {
     private push(item: SessionThreadItem): void {
         if (item.kind !== 'thought') {
             // A thought has no closing frame; anything that follows it is where the thought ended.
-            this.items = this.items.map((existing) =>
-                existing.kind === 'thought' && !existing.complete ? { ...existing, complete: true } : existing
-            )
+            for (const thought of this.openThoughts) {
+                thought.complete = true
+            }
+            this.openThoughts.clear()
         }
         this.items.splice(this.footIndex(), 0, item)
-    }
-
-    private turnStartIndex(): number {
-        for (let index = this.items.length - 1; index >= 0; index -= 1) {
-            if (this.items[index]?.kind === 'turn_end') {
-                return index + 1
-            }
+        if (item.kind === 'assistant' && !item.complete) {
+            this.openAssistants.add(item)
+        } else if (item.kind === 'thought' && !item.complete) {
+            this.openThoughts.add(item)
+        } else if (item.kind === 'tool') {
+            this.toolItemIds.add(item.toolCallId)
         }
-        return 0
     }
 
     private closeOpenBuffers(): void {
-        this.items = this.items.map((item) =>
-            (item.kind === 'assistant' || item.kind === 'thought') && !item.complete
-                ? { ...item, complete: true }
-                : item
-        )
+        for (const item of this.openAssistants) {
+            item.complete = true
+        }
+        for (const item of this.openThoughts) {
+            item.complete = true
+        }
+        this.openAssistants.clear()
+        this.openThoughts.clear()
     }
 
     rebuild(): void {
         const waitingIds = new Set(this.waiting.map((send) => send.id))
         this.items = this.items.filter((item) => waitingIds.has(item.id))
+        this.openAssistants.clear()
+        this.openThoughts.clear()
+        this.toolItemIds.clear()
         this.invocations = new Map()
         this.rawToolCalls = new Map()
         this.replayedHumanTexts = new Map()
@@ -404,7 +429,7 @@ class Draft {
         const index = this.continuableBuffer(wireId, kind)
         const existing = this.items[index]
         if ((existing?.kind === 'assistant' || existing?.kind === 'thought') && existing.kind === kind) {
-            this.items[index] = { ...existing, text: existing.text + delta }
+            existing.text += delta
             return
         }
         // The wire often omits `messageId`, so every bubble gets its own sequence suffix to keep ids unique.
@@ -413,26 +438,13 @@ class Draft {
 
     finalizeMessage(wireId: string, text: string): void {
         const prefix = `${wireId}@`
-        const turnStart = this.turnStartIndex()
-        let index = -1
-        let fallback = -1
-        for (let i = this.items.length - 1; i >= turnStart; i -= 1) {
-            const item = this.items[i]
-            if (item?.kind === 'assistant' && !item.complete) {
-                if (item.id.startsWith(prefix)) {
-                    index = i
-                    break
-                }
-                if (fallback === -1) {
-                    fallback = i
-                }
-            }
-        }
+        const open = [...this.openAssistants].reverse()
         // Chunks and their closing message do not always carry the same `messageId`, so close the open buffer.
-        index = index === -1 ? fallback : index
-        const existing = this.items[index]
-        if (existing?.kind === 'assistant') {
-            this.items[index] = { ...existing, text: text || existing.text, complete: true }
+        const existing = open.find((item) => item.id.startsWith(prefix)) ?? open[0]
+        if (existing) {
+            existing.text = text || existing.text
+            existing.complete = true
+            this.openAssistants.delete(existing)
             return
         }
         if (text) {
@@ -444,7 +456,7 @@ class Draft {
     // ---- tools ----
 
     private ensureToolItem(toolCallId: string): void {
-        if (!this.items.some((item) => item.kind === 'tool' && item.toolCallId === toolCallId)) {
+        if (!this.toolItemIds.has(toolCallId)) {
             this.push({ kind: 'tool', id: `tool-${toolCallId}`, toolCallId })
         }
     }

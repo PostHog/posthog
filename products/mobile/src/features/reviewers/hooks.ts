@@ -5,7 +5,7 @@ import { NotSignedInError } from '@/api/client'
 import {
     type AvailableReviewersApi,
     fetchAvailableReviewers,
-    type PaginatedApi,
+    fetchLatestReviewerArtefact,
     putReportReviewers,
     type ReportArtefactApi,
     reportKeys,
@@ -21,8 +21,6 @@ import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
 import { githubOnlyReviewers, reviewersFromArtefacts } from '@/model/adapters/report'
 import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
 import type { Person, QueryState, Reviewer } from '@/model/types'
-
-import { reportArtefactsQuery } from '../report/queries'
 
 /** `SignalReportArtefactWriteSerializer.MAX_ENTRIES`. GitHub-only reviewers count toward it. */
 export const MAX_REVIEWERS = 10
@@ -92,15 +90,16 @@ export function useGithubOnlyReviewerCount(reportId: string): number {
     const mode = useDataMode()
     const scope = useProjectScope()
     const count = useQuery({
-        ...reportArtefactsQuery(scope, reportId),
+        queryKey: reportKeys.reviewers(scope, reportId),
+        queryFn: ({ signal }) => fetchLatestReviewerArtefact(reportId, signal),
         enabled: mode === 'live' && scope !== null,
-        select: (data) => githubOnlyReviewers(data.results).length,
+        select: (data) => githubOnlyReviewers(data ? [data] : []).length,
     })
     return mode === 'live' ? (count.data ?? 0) : 0
 }
 
-function selectReviewers(data: PaginatedApi<ReportArtefactApi>): Reviewer[] {
-    return reviewersFromArtefacts(data.results)
+function selectReviewers(data: ReportArtefactApi | null): Reviewer[] {
+    return reviewersFromArtefacts(data ? [data] : [])
 }
 
 // Reads only the work log, so a caller outside the report screen gets the reviewers without the report's refetches.
@@ -109,7 +108,8 @@ export function useReportReviewers(reportId: string): Reviewer[] | undefined {
     const scope = useProjectScope()
     const demo = useDemoReportQuery(reportId)
     const live = useQuery({
-        ...reportArtefactsQuery(scope, reportId),
+        queryKey: reportKeys.reviewers(scope, reportId),
+        queryFn: ({ signal }) => fetchLatestReviewerArtefact(reportId, signal),
         enabled: mode === 'live' && scope !== null,
         select: selectReviewers,
     })
@@ -134,10 +134,8 @@ export function useSetReviewersAction(reportId: string): AsyncAction<[string[]]>
         }
         // The sheet only lists PostHog users. Reviewers known only by GitHub login go back unchanged,
         // because the PUT replaces the whole list.
-        const artefacts = queryClient.getQueryData<PaginatedApi<ReportArtefactApi>>(
-            reportKeys.artefacts(scope, reportId)
-        )
-        const githubOnly = githubOnlyReviewers(artefacts?.results ?? [])
+        const latest = await fetchLatestReviewerArtefact(reportId)
+        const githubOnly = githubOnlyReviewers(latest ? [latest] : [])
         const content: SuggestedReviewerWriteApi[] = [
             ...[...new Set(uuids)].map((uuid) => ({ user_uuid: uuid })),
             ...githubOnly.map((login) => ({ github_login: login })),

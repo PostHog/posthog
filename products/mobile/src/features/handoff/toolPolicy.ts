@@ -116,7 +116,9 @@ export function isConnectedProjectTool(record: PermissionRecord): boolean {
 export function isPlanPermissionRequest(record: PermissionRecord): boolean {
     return (
         record.toolName === 'ExitPlanMode' ||
+        record.rawToolCall.rawToolName === 'ExitPlanMode' ||
         record.rawToolCall.input.toolName === 'ExitPlanMode' ||
+        extractAgentToolName(record.rawToolCall.meta) === 'ExitPlanMode' ||
         record.rawToolCall.kind === 'plan'
     )
 }
@@ -130,6 +132,9 @@ export function defaultPermissionDecision(record: PermissionRecord): PermissionD
     // A question rides the permission framework but is not an approval. Allowing it picks the
     // first option with no answers, which the agent rejects.
     if (record.questions?.length) {
+        return 'prompt'
+    }
+    if (isPlanPermissionRequest(record)) {
         return 'prompt'
     }
     const { toolName } = record
@@ -165,11 +170,10 @@ export function routePermissionRequest(
     if (context.replayed) {
         return { action: 'prompt' }
     }
-    const fullAuto =
-        isFullAutoMode(context.mode) &&
-        !record.questions?.length &&
-        !isPlanPermissionRequest(record) &&
-        !isConnectedProjectTool(record)
+    if (isPlanPermissionRequest(record)) {
+        return { action: 'prompt' }
+    }
+    const fullAuto = isFullAutoMode(context.mode) && !record.questions?.length && !isConnectedProjectTool(record)
     const decision = fullAuto ? 'auto_allow' : defaultPermissionDecision(record)
     if (decision === 'auto_allow') {
         const optionId = findAllowOptionId(record)

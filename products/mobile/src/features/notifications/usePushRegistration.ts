@@ -38,7 +38,10 @@ export function usePushRegistration(): void {
             }
             void refreshPushPermission().then(() => {
                 const push = usePushStore.getState()
-                if (push.permission === 'granted' && !push.token) {
+                if (
+                    push.permission === 'granted' &&
+                    (!push.token || push.error || push.registeredFor !== `${host}|${userUuid}`)
+                ) {
                     void syncPushRegistration('never')
                 }
             })
@@ -47,5 +50,5 @@ export function usePushRegistration(): void {
             tokenSubscription.remove()
             appStateSubscription.remove()
         }
-    }, [signedIn])
+    }, [signedIn, host, userUuid])
 }

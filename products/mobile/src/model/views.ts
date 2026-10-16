@@ -77,7 +77,7 @@ export interface Freshness {
 
 export interface NumberDelta {
     previous: number
-    /** `value - previous`. */
+    /** `value - previous`, scaled to points for `percentage_scaled`. */
     change: number
     /** Percent change, null when `previous` is 0. */
     percent: number | null
@@ -97,7 +97,7 @@ export interface InsightSeriesView {
     compare: 'current' | 'previous' | null
     /** The series index in the trends query, for the actors query. */
     seriesIndex: number
-    breakdownValue: string | number | null
+    breakdownValue: string | number | null | (string | number | null)[]
 }
 
 export interface ResolvedRange {
