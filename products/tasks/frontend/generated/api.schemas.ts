@@ -3892,9 +3892,10 @@ export interface TaskRunPeerMessageRequestApi {
  * * `target_finished` - target_finished
  * * `rejected` - rejected
  */
-export type ResultEnumApi = (typeof ResultEnumApi)[keyof typeof ResultEnumApi]
+export type TaskRunPeerMessageResponseResultEnumApi =
+    (typeof TaskRunPeerMessageResponseResultEnumApi)[keyof typeof TaskRunPeerMessageResponseResultEnumApi]
 
-export const ResultEnumApi = {
+export const TaskRunPeerMessageResponseResultEnumApi = {
     Accepted: 'accepted',
     TargetFinished: 'target_finished',
     Rejected: 'rejected',
@@ -3906,7 +3907,7 @@ export interface TaskRunPeerMessageResponseApi {
      * * `accepted` - accepted
      * * `target_finished` - target_finished
      * * `rejected` - rejected */
-    result: ResultEnumApi
+    result: TaskRunPeerMessageResponseResultEnumApi
     /** Human-readable explanation of the result. */
     detail: string
     /**

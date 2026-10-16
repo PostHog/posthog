@@ -3,6 +3,7 @@ from typing import Any
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 
 class UnlayerError(Exception):
@@ -73,3 +74,40 @@ class DeliveryUnavailable(Exception):
 @frozen
 class QueuedEmail:
     message_id: str
+
+
+TEMPLATE_KEY_PATTERN = r"^[a-zA-Z0-9_-]+$"
+TEMPLATE_KEY_MAX_LENGTH = 400
+
+
+class TemplateManagedBy(LabeledStrEnum):
+    GUI = "gui", "GUI"
+    CODE = "code", "Code"
+
+
+class TemplateUploadResult(LabeledStrEnum):
+    CREATED = "created", "Created"
+    UPDATED = "updated", "Updated"
+    UNCHANGED = "unchanged", "Unchanged"
+
+
+@frozen
+class TemplateSource:
+    """Where the uploaded file lives. A part that is None leaves the stored part as it is."""
+
+    repository: str | None
+    path: str | None
+    ref: str | None
+
+
+@frozen
+class TemplateUpload:
+    key: str
+    name: str
+    subject: str
+    html: str
+    text: str
+    preheader: str
+    # The editor's design for the html, so the template opens in the visual editor.
+    design: dict[str, Any]
+    source: TemplateSource | None

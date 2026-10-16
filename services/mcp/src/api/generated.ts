@@ -39234,6 +39234,8 @@ export namespace Schemas {
     export interface EmailTemplate {
       /** Email subject line. Supports Liquid templating. Required for email-type templates. */
       subject?: string;
+      /** Inbox preview text shown after the subject. Supports Liquid templating. */
+      preheader?: string;
       /** Plain-text fallback body for clients that can't render the email. */
       text?: string;
       /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
@@ -67145,6 +67147,18 @@ export namespace Schemas {
       email?: EmailTemplate | null;
     }
 
+    /**
+     * * `gui` - GUI
+     * * `code` - Code
+     */
+    export type TemplateManagedByEnum = typeof TemplateManagedByEnum[keyof typeof TemplateManagedByEnum];
+
+
+    export const TemplateManagedByEnum = {
+      Gui: 'gui',
+      Code: 'code',
+    } as const;
+
     export interface MessageTemplate {
       readonly id: string;
       /**
@@ -67176,6 +67190,36 @@ export namespace Schemas {
          * @nullable
          */
       readonly transactional_hog_flow_id: string | null;
+      /**
+         * Stable identifier code uses to upload and send this template, unique within the project. Null for templates that have no key.
+         * @nullable
+         */
+      readonly key: string | null;
+      /** Who owns the content. `code` when it was uploaded from a repository, so the next upload replaces edits made in PostHog. `gui` or null when it is edited in PostHog.
+       *
+       * * `gui` - GUI
+       * * `code` - Code */
+      readonly managed_by: TemplateManagedByEnum | null;
+      /**
+         * Repository the template was last uploaded from, such as `github.com/example/app`.
+         * @nullable
+         */
+      readonly source_repository: string | null;
+      /**
+         * Path of the template file in the source repository.
+         * @nullable
+         */
+      readonly source_path: string | null;
+      /**
+         * Commit or branch the template was last uploaded from.
+         * @nullable
+         */
+      readonly source_ref: string | null;
+      /**
+         * Hash of the published subject, preheader, HTML and text, as `v1:` and 64 hex characters. Changes with every save that changes them.
+         * @nullable
+         */
+      readonly content_hash: string | null;
     }
 
     export interface MessagingError {
@@ -83101,6 +83145,36 @@ export namespace Schemas {
          * @nullable
          */
       readonly transactional_hog_flow_id?: string | null;
+      /**
+         * Stable identifier code uses to upload and send this template, unique within the project. Null for templates that have no key.
+         * @nullable
+         */
+      readonly key?: string | null;
+      /** Who owns the content. `code` when it was uploaded from a repository, so the next upload replaces edits made in PostHog. `gui` or null when it is edited in PostHog.
+       *
+       * * `gui` - GUI
+       * * `code` - Code */
+      readonly managed_by?: TemplateManagedByEnum | null;
+      /**
+         * Repository the template was last uploaded from, such as `github.com/example/app`.
+         * @nullable
+         */
+      readonly source_repository?: string | null;
+      /**
+         * Path of the template file in the source repository.
+         * @nullable
+         */
+      readonly source_path?: string | null;
+      /**
+         * Commit or branch the template was last uploaded from.
+         * @nullable
+         */
+      readonly source_ref?: string | null;
+      /**
+         * Hash of the published subject, preheader, HTML and text, as `v1:` and 64 hex characters. Changes with every save that changes them.
+         * @nullable
+         */
+      readonly content_hash?: string | null;
     }
 
     export interface PatchedMoveTileRequest {
@@ -96956,20 +97030,6 @@ export namespace Schemas {
          */
       agent_response?: string;
     }
-
-    /**
-     * * `accepted` - accepted
-     * * `target_finished` - target_finished
-     * * `rejected` - rejected
-     */
-    export type ResultEnum = typeof ResultEnum[keyof typeof ResultEnum];
-
-
-    export const ResultEnum = {
-      Accepted: 'accepted',
-      TargetFinished: 'target_finished',
-      Rejected: 'rejected',
-    } as const;
 
     export interface ResultReceipt {
       /** Accepted item UUID. */
@@ -111149,13 +111209,27 @@ export namespace Schemas {
       artifact_ids?: string[];
     }
 
+    /**
+     * * `accepted` - accepted
+     * * `target_finished` - target_finished
+     * * `rejected` - rejected
+     */
+    export type TaskRunPeerMessageResponseResultEnum = typeof TaskRunPeerMessageResponseResultEnum[keyof typeof TaskRunPeerMessageResponseResultEnum];
+
+
+    export const TaskRunPeerMessageResponseResultEnum = {
+      Accepted: 'accepted',
+      TargetFinished: 'target_finished',
+      Rejected: 'rejected',
+    } as const;
+
     export interface TaskRunPeerMessageResponse {
       /** Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), 'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid).
        *
        * * `accepted` - accepted
        * * `target_finished` - target_finished
        * * `rejected` - rejected */
-      result: ResultEnum;
+      result: TaskRunPeerMessageResponseResultEnum;
       /** Human-readable explanation of the result. */
       detail: string;
       /**
@@ -112131,6 +112205,61 @@ export namespace Schemas {
       notes: string;
     }
 
+    export interface TemplateSource {
+      /**
+         * Host and path of the repository the file is in, such as `github.com/example/app`.
+         * @maxLength 400
+         * @nullable
+         */
+      repository?: string | null;
+      /**
+         * Path of the template file in the repository, such as `emails/welcome.html`.
+         * @maxLength 400
+         * @nullable
+         */
+      path?: string | null;
+      /**
+         * Commit or branch the file was uploaded from.
+         * @maxLength 400
+         * @nullable
+         */
+      ref?: string | null;
+    }
+
+    export interface TemplateUploadError {
+      /** Error class, such as `invalid_request`. */
+      type: string;
+      /** Stable error code to branch on, such as `invalid_template_key`. */
+      code: string;
+      /** What went wrong. */
+      detail: string;
+      /**
+         * The request field the error is about, if any.
+         * @nullable
+         */
+      attr: string | null;
+      /** Why PostHog refuses the request. */
+      why?: string;
+      /** What to change before you retry. */
+      fix?: string;
+      /** Documentation for this error code. */
+      docs_url?: string;
+    }
+
+    /**
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `unchanged` - Unchanged
+     */
+    export type TemplateUploadResultEnum = typeof TemplateUploadResultEnum[keyof typeof TemplateUploadResultEnum];
+
+
+    export const TemplateUploadResultEnum = {
+      Created: 'created',
+      Updated: 'updated',
+      Unchanged: 'unchanged',
+    } as const;
+
     /**
      * Anthropic text, image, or tool content blocks.
      */
@@ -113081,6 +113210,48 @@ export namespace Schemas {
          * @maxItems 1000
          */
       results: ResultSubmission[];
+    }
+
+    export interface UploadTemplate {
+      /**
+         * Template name shown in the template library.
+         * @maxLength 400
+         */
+      name: string;
+      /** Email subject line. Supports Liquid, such as `{{ variables.first_name }}`. */
+      subject: string;
+      /** Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`. */
+      html: string;
+      /** Plain-text body for email clients that can't show HTML. Leaving it out removes the stored one. */
+      text?: string;
+      /** Inbox preview text shown after the subject. Leaving it out removes the stored one. */
+      preheader?: string;
+      /** Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of it, keeps what is stored. */
+      source?: TemplateSource;
+    }
+
+    export interface UploadTemplateResponse {
+      /** ID of the template. */
+      id: string;
+      /** Key of the template. */
+      key: string;
+      /** `created`: the upload made a new template. `updated`: it published the uploaded content. `unchanged`: the template already had this content, so nothing was published.
+       *
+       * * `created` - Created
+       * * `updated` - Updated
+       * * `unchanged` - Unchanged */
+      result: TemplateUploadResultEnum;
+      /** Hash of the published content, as `v1:` and 64 hex characters. Send it with an email to check PostHog holds the content you hold. */
+      content_hash: string;
+      /** Always `code` after an upload.
+       *
+       * * `gui` - GUI
+       * * `code` - Code */
+      managed_by: TemplateManagedByEnum;
+      /** Where the template file lives, as stored after the upload. */
+      source: TemplateSource;
+      /** The workflow that sends this template. Each upload that changes the content writes a new version of it. */
+      transactional_hog_flow_id: string;
     }
 
     export interface UploadVersionRequest {

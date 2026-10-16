@@ -157,6 +157,50 @@ const workflowsShowEmailTemplate = (): ToolBase<
         },
     })
 
+const WorkflowsUploadEmailTemplateSchema = () => {
+    const MessagingTemplatesByKeyUpdateBody = orvalSchemas.MessagingTemplatesByKeyUpdateBody()
+    const MessagingTemplatesByKeyUpdateParams = orvalSchemas.MessagingTemplatesByKeyUpdateParams()
+    return MessagingTemplatesByKeyUpdateParams.omit({ project_id: true }).extend(
+        MessagingTemplatesByKeyUpdateBody.shape
+    )
+}
+
+const workflowsUploadEmailTemplate = (): ToolBase<
+    ReturnType<typeof WorkflowsUploadEmailTemplateSchema>,
+    WithPostHogUrl<Schemas.UploadTemplateResponse>
+> => ({
+    name: 'workflows-upload-email-template',
+    schema: WorkflowsUploadEmailTemplateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsUploadEmailTemplateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.subject !== undefined) {
+            body['subject'] = params.subject
+        }
+        if (params.html !== undefined) {
+            body['html'] = params.html
+        }
+        if (params.text !== undefined) {
+            body['text'] = params.text
+        }
+        if (params.preheader !== undefined) {
+            body['preheader'] = params.preheader
+        }
+        if (params.source !== undefined) {
+            body['source'] = params.source
+        }
+        const result = await context.api.request<Schemas.UploadTemplateResponse>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/by_key/${encodeURIComponent(String(params.key))}/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/workflows/library/templates/${result.id}`)
+    },
+})
+
 const WorkflowsUpdateEmailTemplateSchema = () => {
     const MessagingTemplatesPartialUpdateBody = orvalSchemas.MessagingTemplatesPartialUpdateBody()
     const MessagingTemplatesPartialUpdateParams = orvalSchemas.MessagingTemplatesPartialUpdateParams()
@@ -208,5 +252,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-list-email-templates': workflowsListEmailTemplates,
     'workflows-patch-email-template': workflowsPatchEmailTemplate,
     'workflows-show-email-template': workflowsShowEmailTemplate,
+    'workflows-upload-email-template': workflowsUploadEmailTemplate,
     'workflows-update-email-template': workflowsUpdateEmailTemplate,
 }

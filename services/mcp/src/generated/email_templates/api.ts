@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 6 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -58,6 +58,10 @@ export const MessagingTemplatesCreateBody = () => zod.object({
                             .describe(
                                 'Email subject line. Supports Liquid templating. Required for email-type templates.'
                             ),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe('Inbox preview text shown after the subject. Supports Liquid templating.'),
                         text: zod
                             .string()
                             .optional()
@@ -160,6 +164,10 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
                             .describe(
                                 'Email subject line. Supports Liquid templating. Required for email-type templates.'
                             ),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe('Inbox preview text shown after the subject. Supports Liquid templating.'),
                         text: zod
                             .string()
                             .optional()
@@ -282,5 +290,71 @@ export const MessagingTemplatesDesignPartialUpdateBody = () => zod.object({
         .optional()
         .describe(
             "Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design."
+        ),
+})
+
+/**
+ * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. An upload keeps the template's sender and never turns a paused template back on.
+ * @summary Upload a template by key
+ */
+export const MessagingTemplatesByKeyUpdateParams = () => zod.object({
+    key: zod
+        .string()
+        .describe(
+            'Key of the template, chosen by you. Letters, digits, hyphens (-) and underscores (_), at most 400 characters. The same key names the template in every project.'
+        ),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingTemplatesByKeyUpdateBodyNameMax = 400
+
+export const messagingTemplatesByKeyUpdateBodySourceOneRepositoryMax = 400
+
+export const messagingTemplatesByKeyUpdateBodySourceOnePathMax = 400
+
+export const messagingTemplatesByKeyUpdateBodySourceOneRefMax = 400
+
+export const MessagingTemplatesByKeyUpdateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(messagingTemplatesByKeyUpdateBodyNameMax)
+        .describe('Template name shown in the template library.'),
+    subject: zod.string().describe('Email subject line. Supports Liquid, such as `{{ variables.first_name }}`.'),
+    html: zod
+        .string()
+        .describe('Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`.'),
+    text: zod
+        .string()
+        .optional()
+        .describe("Plain-text body for email clients that can't show HTML. Leaving it out removes the stored one."),
+    preheader: zod
+        .string()
+        .optional()
+        .describe('Inbox preview text shown after the subject. Leaving it out removes the stored one.'),
+    source: zod
+        .object({
+            repository: zod
+                .string()
+                .max(messagingTemplatesByKeyUpdateBodySourceOneRepositoryMax)
+                .nullish()
+                .describe('Host and path of the repository the file is in, such as `github.com\/example\/app`.'),
+            path: zod
+                .string()
+                .max(messagingTemplatesByKeyUpdateBodySourceOnePathMax)
+                .nullish()
+                .describe('Path of the template file in the repository, such as `emails\/welcome.html`.'),
+            ref: zod
+                .string()
+                .max(messagingTemplatesByKeyUpdateBodySourceOneRefMax)
+                .nullish()
+                .describe('Commit or branch the file was uploaded from.'),
+        })
+        .optional()
+        .describe(
+            'Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of it, keeps what is stored.'
         ),
 })

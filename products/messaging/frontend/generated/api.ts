@@ -35,6 +35,8 @@ import type {
     RemoveOptOutRequestApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
+    UploadTemplateApi,
+    UploadTemplateResponseApi,
     WebhookUrlApi,
 } from './api.schemas'
 
@@ -766,5 +768,27 @@ export const messagingTemplatesSendCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sendTransactionalEmailApi),
+    })
+}
+
+export const getMessagingTemplatesByKeyUpdateUrl = (projectId: string, key: string) => {
+    return `/api/projects/${projectId}/messaging_templates/by_key/${key}/`
+}
+
+/**
+ * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. An upload keeps the template's sender and never turns a paused template back on.
+ * @summary Upload a template by key
+ */
+export const messagingTemplatesByKeyUpdate = async (
+    projectId: string,
+    key: string,
+    uploadTemplateApi: UploadTemplateApi,
+    options?: RequestInit
+): Promise<UploadTemplateResponseApi> => {
+    return apiMutator<UploadTemplateResponseApi>(getMessagingTemplatesByKeyUpdateUrl(projectId, key), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(uploadTemplateApi),
     })
 }

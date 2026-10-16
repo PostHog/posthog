@@ -3,15 +3,13 @@ from django.db import models
 
 from posthog.models.utils import UUIDTModel
 
+from products.messaging.backend.facade.contracts import TemplateManagedBy
+
 
 class MessageTemplate(UUIDTModel):
     """
     A model for storing message templates used for email and eventually other messaging channels.
     """
-
-    class ManagedBy(models.TextChoices):
-        GUI = "gui", "GUI"
-        CODE = "code", "Code"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=400)
@@ -35,7 +33,7 @@ class MessageTemplate(UUIDTModel):
     )
     managed_by = models.CharField(
         max_length=400,
-        choices=ManagedBy,
+        choices=TemplateManagedBy.choices,
         null=True,
         blank=True,
         help_text="Who owns the template content: `gui` for the PostHog app, `code` for uploads from a repository. "

@@ -120,6 +120,26 @@ tools:
             exclude:
                 - content.email.design
                 - created_by
+    workflows-upload-email-template:
+        operation: messaging_templates_by_key_update
+        enabled: true
+        feature_flag: workflows-transactional-email-api
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Upload email template by key
+        description: >
+            Upload an email template kept as an HTML file in a repository, by a key you choose (such as welcome or
+            password-reset). Use this for templates that live in code; use workflows-create-email-template for
+            templates designed in PostHog. Send name, subject, html, and optionally text, preheader and source
+            (repository, path, ref of the file). Use {{ variables.* }} for every value the email needs; templates
+            can't read person properties. The first upload creates the template and makes it sendable over the
+            transactional email API with the project's default verified sender, so verify a sender first. Later uploads
+            publish changed content at once and answer unchanged when nothing changed. Uploading replaces edits made
+            in PostHog. A plain 404 means the transactional email API is not enabled for this project: stop and tell
+            the user.
     workflows-update-email-template:
         operation: messaging_templates_partial_update
         enabled: true
