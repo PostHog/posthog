@@ -124,14 +124,15 @@ class TestConversions:
         result = _run(
             "conversions",
             [_table_page("conversions", [], total=0)],
-            resume_state=EverflowResumeConfig(next_page=4, window_start="2026-08-01"),
+            resume_state=EverflowResumeConfig(next_page=4, window_start="2026-08-01", window_end="2026-10-15"),
             incremental_field="conversion_unix_timestamp",
             db_incremental_field_last_value=int(datetime(2026, 10, 1, tzinfo=UTC).timestamp()),
         )
 
         assert result.raised is None
         assert result.params("page") == ["4"]
-        assert result.requests[0].json()["from"] == "2026-08-01"
+        # A resume after midnight keeps the interrupted window, so page offsets still line up.
+        assert (result.requests[0].json()["from"], result.requests[0].json()["to"]) == ("2026-08-01", "2026-10-15")
 
 
 class TestDailyPerformance:
@@ -200,6 +201,7 @@ class TestFlattenEntityRow:
                 _entity_row("882", "102", 3),
                 {
                     "date": "2026-10-01",
+                    "currency_id": "EUR",
                     "network_offer_id": 882,
                     "offer_name": "Offer 882",
                     "network_affiliate_id": 102,
@@ -212,12 +214,12 @@ class TestFlattenEntityRow:
             ),
             (
                 {"columns": None, "reporting": None},
-                {"date": "2026-10-01", "network_offer_id": None, "network_affiliate_id": None},
+                {"date": "2026-10-01", "currency_id": "EUR", "network_offer_id": None, "network_affiliate_id": None},
             ),
         ],
     )
     def test_flattens_columns_and_metrics(self, row: dict[str, Any], expected: dict[str, Any]) -> None:
-        assert flatten_entity_row(row, "2026-10-01") == expected
+        assert flatten_entity_row(row, "2026-10-01", "EUR") == expected
 
 
 class TestValidateCredentials:
@@ -244,3 +246,16 @@ class TestValidateCredentials:
         else:
             assert message is not None and message_fragment in message
         assert {request.path for request in network.requests_log} == {"/v1/networks/offerstable"}
+
+    @pytest.mark.parametrize(
+        ("currency_code", "valid"), [("USD", True), (" eur ", True), (None, True), ("US", False), ("EURO", False)]
+    )
+    def test_setup_refuses_a_currency_that_is_not_a_three_letter_code(
+        self, currency_code: str | None, valid: bool
+    ) -> None:
+        config = EverflowSourceConfig(api_key="ef_key", region="us", currency_code=currency_code)
+        with scripted_network(always(ScriptedResponse(json={"offers": [], "paging": {"total_count": 0}}))):
+            is_valid, message = EverflowSource().validate_credentials(config, team_id=1)
+
+        assert is_valid is valid
+        assert valid or (message is not None and "three-letter code" in message)

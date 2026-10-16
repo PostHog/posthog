@@ -88,6 +88,9 @@ class EverflowSource(ResumableSource[EverflowSourceConfig, EverflowResumeConfig]
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        currency_code = (config.currency_code or "").strip()
+        if currency_code and not (len(currency_code) == 3 and currency_code.isascii() and currency_code.isalpha()):
+            return False, "Reporting currency must be a three-letter code, such as USD."
         return validate_everflow_credentials(config.api_key, config.region)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[EverflowResumeConfig]:

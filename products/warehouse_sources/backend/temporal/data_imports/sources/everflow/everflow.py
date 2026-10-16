@@ -39,6 +39,8 @@ class EverflowResumeConfig:
     next_page: int | None = None
     # The `from` date the interrupted attempt sent, so resumed pages come from the same result set.
     window_start: str | None = None
+    # The `to` date of the interrupted attempt, so a resume after midnight does not widen the window.
+    window_end: str | None = None
     # The next day of the daily performance report to request.
     next_day: str | None = None
 
@@ -98,9 +100,15 @@ def _as_int(value: Any) -> Any:
     return value
 
 
-def flatten_entity_row(row: dict[str, Any], day: str) -> dict[str, Any]:
+def flatten_entity_row(row: dict[str, Any], day: str, currency_code: str) -> dict[str, Any]:
     """Turn one entity report row into a flat row keyed by day, offer and affiliate."""
-    flat: dict[str, Any] = {"date": day, "network_offer_id": None, "network_affiliate_id": None}
+    flat: dict[str, Any] = {
+        "date": day,
+        "network_offer_id": None,
+        "network_affiliate_id": None,
+        # The currency the amounts are in, which a later change of the setting does not rewrite.
+        "currency_id": currency_code,
+    }
     for column in row.get("columns") or []:
         column_type = column.get("column_type")
         if column_type in ("offer", "affiliate"):
@@ -151,7 +159,9 @@ def _daily_performance(
                     raise EverflowReportTruncatedError(
                         f"Everflow's daily report for {day.isoformat()} hit its 10,000-row limit"
                     )
-                rows.extend(flatten_entity_row(row, day.isoformat()) for row in response_body.get("table") or [])
+                rows.extend(
+                    flatten_entity_row(row, day.isoformat(), currency_code) for row in response_body.get("table") or []
+                )
 
         if next_day <= end:
             manager.save_state(EverflowResumeConfig(next_day=next_day.isoformat()))
@@ -206,16 +216,18 @@ def everflow_source(
 
     body: dict[str, Any] = {}
     start_value: str | None = None
+    end_value: str | None = None
     if endpoint == "conversions":
-        start_value = (
-            resume.window_start
-            if resume is not None and resume.window_start
-            else window_start(is_incremental, db_incremental_field_last_value, today, REREAD_DAYS).isoformat()
-        )
+        if resume is not None and resume.window_start:
+            start_value = resume.window_start
+            end_value = resume.window_end
+        else:
+            start_value = window_start(is_incremental, db_incremental_field_last_value, today, REREAD_DAYS).isoformat()
+        # Everflow reads `to` as midnight, so tomorrow's date includes today's conversions.
+        end_value = end_value or (today + timedelta(days=1)).isoformat()
         body = {
             "from": start_value,
-            # Everflow reads `to` as midnight, so tomorrow's date includes today's conversions.
-            "to": (today + timedelta(days=1)).isoformat(),
+            "to": end_value,
             "timezone_id": UTC_TIMEZONE_ID,
             "show_conversions": True,
             "show_events": True,
@@ -252,7 +264,7 @@ def everflow_source(
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state and state.get("page"):
             resumable_source_manager.save_state(
-                EverflowResumeConfig(next_page=int(state["page"]), window_start=start_value)
+                EverflowResumeConfig(next_page=int(state["page"]), window_start=start_value, window_end=end_value)
             )
 
     resource = rest_api_resource(

@@ -67,6 +67,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "offer_name": "Name of the offer.",
             "network_affiliate_id": "The partner the totals cover.",
             "affiliate_name": "Name of the partner.",
+            "currency_id": "Currency of the payout, revenue and profit amounts.",
             "total_click": "All clicks that day.",
             "unique_click": "Unique clicks that day.",
             "cv": "Conversions that day.",

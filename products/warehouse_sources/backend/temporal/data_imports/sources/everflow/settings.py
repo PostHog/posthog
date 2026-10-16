@@ -21,8 +21,8 @@ HISTORY_DAYS = 365
 # Conversion statuses and payouts change after the conversion, and daily totals follow them, so each
 # incremental run re-reads the last month. The conversions cursor is an epoch integer, which the
 # pipeline's lookback skips, so the source applies that table's re-read itself.
-LOOKBACK_SECONDS = 30 * 24 * 60 * 60
 REREAD_DAYS = 30
+LOOKBACK_SECONDS = REREAD_DAYS * 24 * 60 * 60
 
 
 @frozen
@@ -63,6 +63,7 @@ EVERFLOW_ENDPOINTS: dict[str, EverflowEndpointConfig] = {
         data_selector="conversions",
         primary_keys=("conversion_id",),
         page_size=CONVERSIONS_PAGE_SIZE,
+        partition_key="conversion_unix_timestamp",
         incremental_fields=(
             {
                 "label": "conversion_unix_timestamp",
