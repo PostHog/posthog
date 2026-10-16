@@ -1,10 +1,12 @@
 import gzip
 import json
+import sqlite3
 import tempfile
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import field
 from datetime import UTC, datetime, timedelta
 from itertools import batched
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import parse_qsl, urlsplit
 
@@ -75,7 +77,7 @@ MISSING_MARKETPLACES_MESSAGE = "Vendor reports need marketplace IDs. Add them in
 SELLER_ONLY_MESSAGE = "This table needs a seller account with the role listed in the source description."
 VENDOR_ONLY_MESSAGE = "This table needs a vendor account with the Brand Analytics role."
 
-PROBE_TIMEOUT = (10.0, 30.0)
+REQUEST_TIMEOUT = (10.0, 30.0)
 INVENTORY_ROWS_PER_BATCH = 2000
 REPORT_POLL_INTERVAL_SECONDS = 30
 # A report still pending after this long fails the attempt; the next attempt polls the same report.
@@ -104,11 +106,11 @@ class AmazonSellingPartnerResumeConfig:
     transaction_status: str | None = None
     # Marketplaces whose walk finished.
     completed_marketplaces: list[str] = field(default_factory=list)
-    # The marketplace being handed on, and how many of its rows (or of its report's rows) already were.
     marketplace_id: str | None = None
-    rows_done: int = 0
-    # The report of a vendor report walk, so a resume polls the report it created.
+    last_seller_sku: str | None = None
+    # A vendor report being handed on, so a resume polls it and skips its rows already handed on.
     report_id: str | None = None
+    rows_done: int = 0
 
 
 class LwaAuth(OAuth2Auth):
@@ -399,13 +401,48 @@ def _transactions_resource(
 
 def list_marketplace_ids(region: str, auth: LwaAuth) -> list[str]:
     session = make_tracked_session(redact_values=auth.secret_values())
-    response = session.get(f"{_base_url(region)}{MARKETPLACE_PARTICIPATIONS_PATH}", auth=auth, timeout=PROBE_TIMEOUT)
+    response = session.get(f"{_base_url(region)}{MARKETPLACE_PARTICIPATIONS_PATH}", auth=auth, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
     return [
         entry["marketplace"]["id"]
         for entry in response.json().get("payload") or []
         if (entry.get("participation") or {}).get("isParticipating", True)
     ]
+
+
+def _spool_inventory_pages(
+    session: requests.Session,
+    auth: LwaAuth,
+    url: str,
+    marketplace_id: str,
+    spool: sqlite3.Connection,
+    manager: ResumableSourceManager[AmazonSellingPartnerResumeConfig],
+) -> None:
+    next_token: str | None = None
+    while True:
+        params: dict[str, Any] = {
+            "granularityType": "Marketplace",
+            "granularityId": marketplace_id,
+            "marketplaceIds": marketplace_id,
+            "details": "true",
+        }
+        if next_token:
+            params["nextToken"] = next_token
+        response = session.get(url, params=params, auth=auth, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        body = response.json()
+        spool.executemany(
+            "INSERT OR REPLACE INTO inventory VALUES (?, ?)",
+            [
+                (str(summary.get("sellerSku") or ""), json.dumps({"marketplaceId": marketplace_id, **summary}))
+                for summary in (body.get("payload") or {}).get("inventorySummaries") or []
+            ],
+        )
+        next_token = (body.get("pagination") or {}).get("nextToken")
+        # The staged cursor does not cover this marketplace, so a hand-off here reads it again.
+        manager.safe_point()
+        if not next_token:
+            return
 
 
 def _inventory_rows(
@@ -420,61 +457,57 @@ def _inventory_rows(
     completed = list(resume.completed_marketplaces) if resume is not None else []
     session = make_tracked_session(redact_values=auth.secret_values())
     url = f"{_base_url(region)}{INVENTORY_SUMMARIES_PATH}"
+    discovered = not marketplace_ids
 
     for marketplace_id in marketplace_ids or list_marketplace_ids(region, auth):
         if marketplace_id in completed:
             continue
-        skip = resume.rows_done if resume is not None and resume.marketplace_id == marketplace_id else 0
-        # Pages are read back to back before any row is handed on, because a page token expires
-        # 30 seconds after Amazon issues it. Rows wait in a temporary file so a large catalog
-        # does not have to fit in memory.
-        with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as spool:
-            row_count = 0
-            next_token: str | None = None
-            while True:
-                params: dict[str, Any] = {
-                    "granularityType": "Marketplace",
-                    "granularityId": marketplace_id,
-                    "marketplaceIds": marketplace_id,
-                    "details": "true",
-                }
-                if next_token:
-                    params["nextToken"] = next_token
-                response = session.get(url, params=params, auth=auth, timeout=PROBE_TIMEOUT)
-                response.raise_for_status()
-                body = response.json()
-                for summary in (body.get("payload") or {}).get("inventorySummaries") or []:
-                    spool.write(json.dumps({"marketplaceId": marketplace_id, **summary}) + "\n")
-                    row_count += 1
-                next_token = (body.get("pagination") or {}).get("nextToken")
-                # The staged cursor does not cover this marketplace, so a hand-off here reads it again.
-                manager.safe_point()
-                if not next_token:
-                    break
-
-            done_state = AmazonSellingPartnerResumeConfig(completed_marketplaces=[*completed, marketplace_id])
-            if row_count <= skip:
-                manager.save_state(done_state)
-                manager.safe_point()
-                completed = done_state.completed_marketplaces
-                continue
-            spool.seek(0)
-            # A resumed full refresh would append rows handed on before the hand-off, so they are
-            # skipped. This relies on Amazon listing a marketplace's SKUs in the same order on both reads.
-            for _ in range(skip):
-                spool.readline()
-            handed_on = skip
-            for lines in batched(spool, INVENTORY_ROWS_PER_BATCH, strict=False):
-                handed_on += len(lines)
-                manager.save_state(
-                    done_state
-                    if handed_on >= row_count
-                    else AmazonSellingPartnerResumeConfig(
-                        completed_marketplaces=completed, marketplace_id=marketplace_id, rows_done=handed_on
+        after_sku = resume.last_seller_sku if resume is not None and resume.marketplace_id == marketplace_id else None
+        done_state = AmazonSellingPartnerResumeConfig(completed_marketplaces=[*completed, marketplace_id])
+        # Page tokens expire in 30 seconds and Amazon documents no SKU order, so rows wait on disk
+        # sorted by SKU and a resume continues after the last SKU handed on.
+        with tempfile.TemporaryDirectory() as spool_dir:
+            # The pipeline may resume this generator on another thread.
+            spool = sqlite3.connect(Path(spool_dir) / "inventory.sqlite", check_same_thread=False)
+            try:
+                spool.execute("CREATE TABLE inventory (seller_sku TEXT PRIMARY KEY, row TEXT NOT NULL)")
+                try:
+                    _spool_inventory_pages(session, auth, url, marketplace_id, spool, manager)
+                except requests.HTTPError as error:
+                    status = error.response.status_code if error.response is not None else None
+                    # A discovered marketplace can be a channel FBA inventory does not cover.
+                    if not discovered or status != 400:
+                        raise
+                    logger.warning(
+                        "amazon_selling_partner_inventory_marketplace_skipped", marketplace_id=marketplace_id
                     )
+                    manager.save_state(done_state)
+                    manager.safe_point()
+                    completed = done_state.completed_marketplaces
+                    continue
+                cursor = spool.execute(
+                    "SELECT seller_sku, row FROM inventory WHERE seller_sku > ? ORDER BY seller_sku", (after_sku or "",)
                 )
-                yield [json.loads(line) for line in lines]
-            completed = done_state.completed_marketplaces
+                batch = cursor.fetchmany(INVENTORY_ROWS_PER_BATCH)
+                if not batch:
+                    manager.save_state(done_state)
+                    manager.safe_point()
+                while batch:
+                    following = cursor.fetchmany(INVENTORY_ROWS_PER_BATCH)
+                    manager.save_state(
+                        done_state
+                        if not following
+                        else AmazonSellingPartnerResumeConfig(
+                            completed_marketplaces=completed,
+                            marketplace_id=marketplace_id,
+                            last_seller_sku=batch[-1][0],
+                        )
+                    )
+                    yield [json.loads(row) for _, row in batch]
+                    batch = following
+            finally:
+                spool.close()
+        completed = done_state.completed_marketplaces
 
 
 class VendorReportError(Exception):
@@ -546,7 +579,7 @@ class ReportsClient:
     def create_report(self, body: dict[str, Any], safe_point: Callable[[], None]) -> str:
         for attempt in range(REPORT_CREATE_ATTEMPTS):
             response = self._session.post(
-                f"{self._base_url}{REPORTS_PATH}", json=body, auth=self._auth, timeout=PROBE_TIMEOUT
+                f"{self._base_url}{REPORTS_PATH}", json=body, auth=self._auth, timeout=REQUEST_TIMEOUT
             )
             if response.status_code == 429 and attempt + 1 < REPORT_CREATE_ATTEMPTS:
                 interruptible_wait(REPORT_CREATE_BACKOFF_SECONDS, safe_point=safe_point)
@@ -557,7 +590,7 @@ class ReportsClient:
 
     def get_report(self, report_id: str) -> dict[str, Any]:
         response = self._session.get(
-            f"{self._base_url}{REPORTS_PATH}/{report_id}", auth=self._auth, timeout=PROBE_TIMEOUT
+            f"{self._base_url}{REPORTS_PATH}/{report_id}", auth=self._auth, timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
         return response.json()
@@ -565,7 +598,7 @@ class ReportsClient:
     def get_document(self, document_id: str) -> dict[str, Any]:
         """Read a report document. Rows come back as JSON, unzipped when Amazon compressed them."""
         response = self._session.get(
-            f"{self._base_url}{REPORT_DOCUMENTS_PATH}/{document_id}", auth=self._auth, timeout=PROBE_TIMEOUT
+            f"{self._base_url}{REPORT_DOCUMENTS_PATH}/{document_id}", auth=self._auth, timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
         document = response.json()
@@ -799,12 +832,11 @@ def amazon_selling_partner_source(
     items: Callable[[], Iterable[Any]]
     column_hints: dict[str, Any] | None = None
     if endpoint == INVENTORY_SUMMARIES:
-        inventory_rows = _inventory_rows(
+        items = lambda: _inventory_rows(
             region=region, auth=auth, marketplace_ids=marketplace_ids, resumable_source_manager=resumable_source_manager
         )
-        items = lambda: inventory_rows
     elif endpoint in VENDOR_REPORTS:
-        vendor_rows = _vendor_report_rows(
+        items = lambda: _vendor_report_rows(
             region=region,
             auth=auth,
             marketplace_ids=marketplace_ids,
@@ -813,7 +845,6 @@ def amazon_selling_partner_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         )
-        items = lambda: vendor_rows
     else:
         resource: Resource
         if endpoint in (ORDERS, ORDER_ITEMS):
@@ -849,14 +880,14 @@ def validate_credentials(
     session = make_tracked_session(redact_values=auth.secret_values(), capture=False)
     base_url = _base_url(region)
     try:
-        response = session.get(f"{base_url}{MARKETPLACE_PARTICIPATIONS_PATH}", auth=auth, timeout=PROBE_TIMEOUT)
+        response = session.get(f"{base_url}{MARKETPLACE_PARTICIPATIONS_PATH}", auth=auth, timeout=REQUEST_TIMEOUT)
         if response.status_code == 403:
             # Vendor accounts always get 403 from the Sellers API, so ask the Reports API instead.
             response = session.get(
                 f"{base_url}{REPORTS_PATH}",
                 params={"reportTypes": VENDOR_REPORTS[VENDOR_SALES].report_type, "pageSize": "1"},
                 auth=auth,
-                timeout=PROBE_TIMEOUT,
+                timeout=REQUEST_TIMEOUT,
             )
             if response.status_code == 200 and not marketplace_ids:
                 return False, MISSING_MARKETPLACES_MESSAGE
@@ -874,7 +905,7 @@ def validate_credentials(
 def _probe(session: requests.Session, auth: LwaAuth, url: str, params: dict[str, Any]) -> bool | None:
     """Whether Amazon allows the call. None when the answer says nothing about access."""
     try:
-        response = session.get(url, params=params, auth=auth, timeout=PROBE_TIMEOUT)
+        response = session.get(url, params=params, auth=auth, timeout=REQUEST_TIMEOUT)
     except (OAuth2AuthRequestError, requests.RequestException):
         return None
     if response.status_code in (401, 403):

@@ -765,7 +765,8 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             if (values.autoUpdate && values.generatedQuery) {
                 const dataLogic = dataNodeLogic.findMounted({ key: values.dataNodeKey })
                 if (
-                    !equal(values.lastRunQuery?.source, values.worksheet.source) ||
+                    !values.lastRunQuery ||
+                    !equal(getBIVisualizationSource(values.lastRunQuery), getBIVisualizationSource(values.worksheet)) ||
                     (!dataLogic?.values.responseLoading &&
                         (!dataLogic?.values.response ||
                             dataLogic.values.responseError ||
@@ -777,12 +778,24 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 }
             }
         },
+        setChartType: () => {
+            if (
+                !values.autoUpdate &&
+                values.lastRunQuery &&
+                equal({ ...values.lastRunQuery.config, chartType: values.config.chartType }, values.config) &&
+                equal(getBIVisualizationSource(values.lastRunQuery), getBIVisualizationSource(values.worksheet))
+            ) {
+                actions.setLastRunQuery(values.worksheet)
+            }
+        },
         runQuery: () => {
             if (!values.generatedQuery) {
                 return
             }
             captureBIEditorQueryRun({ editorView: BIEditorView.BI, config: values.config })
-            const unchanged = equal(values.lastRunQuery?.source, values.worksheet.source)
+            const unchanged =
+                !!values.lastRunQuery &&
+                equal(getBIVisualizationSource(values.lastRunQuery), getBIVisualizationSource(values.worksheet))
             actions.setLastRunQuery(values.worksheet)
             if (unchanged) {
                 dataNodeLogic.findMounted({ key: values.dataNodeKey })?.actions.loadData('force_async')

@@ -234,7 +234,7 @@ class TestOrders:
         throttled = ScriptedResponse(status=429, json={"errors": [{"code": "QuotaExceeded"}]})
         result = _driver().run(
             "orders",
-            route({TOKEN_PATH: [TOKEN], ORDERS_PATH: [throttled] * 6 + [_orders_page([_order("1")])]}),
+            route({TOKEN_PATH: [TOKEN], ORDERS_PATH: [throttled] * 9 + [_orders_page([_order("1")])]}),
         )
 
         assert result.raised is None
@@ -323,14 +323,38 @@ class TestTransactions:
         assert result.raised is None
         assert all(request.param("transactionStatus") is None for request in _api_requests(result))
 
-    def test_resume_reuses_the_saved_window_end_with_its_token(self) -> None:
+    @pytest.mark.parametrize(
+        ("saved_window", "expected"),
+        [
+            (
+                ("2026-10-01T00:00:00Z", "2026-10-14T00:00:00Z", "DEFERRED_RELEASED"),
+                [("2026-10-01T00:00:00Z", "2026-10-14T00:00:00Z", "DEFERRED_RELEASED", "n2")],
+            ),
+            (
+                ("2026-09-01T00:00:00Z", "2026-10-01T00:00:00Z", None),
+                [
+                    ("2026-09-01T00:00:00Z", "2026-10-01T00:00:00Z", None, "n2"),
+                    ("2026-10-01T00:00:00Z", "2026-10-15T11:57:00Z", None, None),
+                    ("2026-08-16T11:57:00Z", "2026-10-15T11:57:00Z", "DEFERRED_RELEASED", None),
+                ],
+            ),
+        ],
+    )
+    def test_resume_reuses_the_saved_window_with_its_token(
+        self, saved_window: tuple[str, str, str | None], expected: list[tuple[str, str, str | None, str | None]]
+    ) -> None:
+        window_start, window_end, transaction_status = saved_window
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            return TOKEN if request.path == TOKEN_PATH else _transactions_page(["t"])
+
         result = _driver().run(
             "transactions",
-            route({TOKEN_PATH: [TOKEN], TRANSACTIONS_PATH: [_transactions_page(["t3"])]}),
+            respond,
             resume_state=AmazonSellingPartnerResumeConfig(
-                window_start="2026-10-01T00:00:00Z",
-                window_end="2026-10-14T00:00:00Z",
-                transaction_status="DEFERRED_RELEASED",
+                window_start=window_start,
+                window_end=window_end,
+                transaction_status=transaction_status,
                 next_token="n2",
             ),
             incremental_field="postedDate",
@@ -340,7 +364,7 @@ class TestTransactions:
         assert [
             (r.param("postedAfter"), r.param("postedBefore"), r.param("transactionStatus"), r.param("nextToken"))
             for r in _api_requests(result)
-        ] == [("2026-10-01T00:00:00Z", "2026-10-14T00:00:00Z", "DEFERRED_RELEASED", "n2")]
+        ] == expected
 
 
 class TestInventorySummaries:
@@ -398,6 +422,40 @@ class TestInventorySummaries:
         assert result.raised is None
         assert [request.param("granularityId") for request in _api_requests(result)] == ["B"]
 
+    def test_a_discovered_marketplace_inventory_does_not_cover_is_skipped(self) -> None:
+        participations = ScriptedResponse(
+            json={
+                "payload": [
+                    {"marketplace": {"id": "X"}, "participation": {"isParticipating": True}},
+                    {"marketplace": {"id": "A"}, "participation": {"isParticipating": True}},
+                ]
+            }
+        )
+        invalid_marketplace = ScriptedResponse(
+            status=400, json={"errors": [{"code": "InvalidInput", "message": "Invalid granularityId"}]}
+        )
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == TOKEN_PATH:
+                return TOKEN
+            if request.path == PARTICIPATIONS_PATH:
+                return participations
+            return invalid_marketplace if request.param("granularityId") == "X" else _summaries_page(["sku1"])
+
+        result = _driver().run("inventory_summaries", respond)
+
+        assert result.raised is None
+        assert [(row["marketplaceId"], row["sellerSku"]) for row in result.rows] == [("A", "sku1")]
+        assert result.final_state == AmazonSellingPartnerResumeConfig(completed_marketplaces=["X", "A"])
+
+    def test_a_configured_marketplace_that_amazon_rejects_fails_the_sync(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            return TOKEN if request.path == TOKEN_PATH else ScriptedResponse(status=400, json={"errors": []})
+
+        result = _driver("X").run("inventory_summaries", respond)
+
+        assert isinstance(result.raised, requests.HTTPError)
+
     def test_resume_inside_a_marketplace_skips_rows_already_handed_on(self) -> None:
         result = _driver("A").run(
             "inventory_summaries",
@@ -407,7 +465,7 @@ class TestInventorySummaries:
                     SUMMARIES_PATH: [_summaries_page(["sku1", "sku2"], "next"), _summaries_page(["sku3"])],
                 }
             ),
-            resume_state=AmazonSellingPartnerResumeConfig(marketplace_id="A", rows_done=2),
+            resume_state=AmazonSellingPartnerResumeConfig(marketplace_id="A", last_seller_sku="sku2"),
         )
 
         assert result.raised is None

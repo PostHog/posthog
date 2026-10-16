@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 SP_API_HOSTS = {
@@ -33,8 +34,8 @@ TRANSACTIONS_LOOKBACK_SECONDS = 3 * 24 * 60 * 60
 # re-reads the transactions released in this many days.
 DEFERRED_RELEASE_SWEEP_DAYS = 60
 # searchOrders refills at one request every 179 seconds once its burst is spent, and SP-API sends
-# no Retry-After, so the backoff has to grow past that interval.
-SP_API_MAX_RETRY_ATTEMPTS = 8
+# no Retry-After. Ten attempts wait 1, 2, 4 ... 128 then 180 seconds, 435 in all, past that interval.
+SP_API_MAX_RETRY_ATTEMPTS = 10
 SP_API_RETRY_BACKOFF_MAX_SECONDS = 180.0
 
 ORDERS = "orders"
@@ -165,18 +166,14 @@ PARTITION_KEYS: dict[str, str] = {
 }
 
 
-def _incremental_field(name: str, field_type: IncrementalFieldType) -> IncrementalField:
-    return {"label": name, "type": field_type, "field": name, "field_type": field_type}
-
-
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    ORDERS: [_incremental_field("lastUpdatedTime", IncrementalFieldType.DateTime)],
-    ORDER_ITEMS: [_incremental_field("lastUpdatedTime", IncrementalFieldType.DateTime)],
-    TRANSACTIONS: [_incremental_field("postedDate", IncrementalFieldType.DateTime)],
-    VENDOR_SALES: [_incremental_field("startDate", IncrementalFieldType.Date)],
-    VENDOR_INVENTORY: [_incremental_field("startDate", IncrementalFieldType.Date)],
-    VENDOR_NET_PURE_PRODUCT_MARGIN: [_incremental_field("startDate", IncrementalFieldType.Date)],
-    VENDOR_REAL_TIME_SALES: [_incremental_field("startTime", IncrementalFieldType.DateTime)],
+    ORDERS: [incremental_field("lastUpdatedTime")],
+    ORDER_ITEMS: [incremental_field("lastUpdatedTime")],
+    TRANSACTIONS: [incremental_field("postedDate")],
+    VENDOR_SALES: [incremental_field("startDate", IncrementalFieldType.Date)],
+    VENDOR_INVENTORY: [incremental_field("startDate", IncrementalFieldType.Date)],
+    VENDOR_NET_PURE_PRODUCT_MARGIN: [incremental_field("startDate", IncrementalFieldType.Date)],
+    VENDOR_REAL_TIME_SALES: [incremental_field("startTime")],
 }
 
 DEFAULT_INCREMENTAL_LOOKBACK_SECONDS: dict[str, int] = {TRANSACTIONS: TRANSACTIONS_LOOKBACK_SECONDS}

@@ -52,3 +52,16 @@ A lifecycle op parks when the leader answers a semantic refusal after the point 
 ## Delete retries must present a byte-stable request
 
 A same-op-id delete retry is compared byte-for-byte against the frozen request, so the caller must present the identical `person_ids` list (same order, same duplicates) on every retry; a mismatch is refused `op_id_reused` and the deletion must be reissued under a fresh op id.
+
+## Publish outbox contract
+
+`personhog-publisher` (`src/bin/publisher.rs`, `src/publish/`) is a separate deployment that drains the `person_publish_outbox` table identity writes, and nothing orders the two deployments.
+Everything the publisher reads is a contract between the two binaries:
+
+- the outbox columns and the two row shapes the `CHECK` constraints keep exclusive: a mapping row (`create`, `attach`, carrying `person_uuid`, `distinct_id` and `version`) and an op pointer (`merge_op`, `delete_op`, carrying `op_id`, the cursor `cursor_person_id` and `cursor_mapping_ordinal`, `attempts`, `last_error` and `given_up_at`)
+- the `lifecycle_op` row a pointer resolves against (`op_type`, `completed_at`, `outcome`) and the `lifecycle_op_person.moved` array of `{distinct_id, version}` entries on source and victim rows, published in `(person_id, position in moved)` order
+- the lifecycle GC guard, which keeps an op while a pointer to it exists
+
+A change to any of these lands in the publisher first, in its own PR, and in identity (the writer) in a later PR once that publisher is deployed everywhere.
+Until the identity change has rolled out the publisher reads both the old and the new shape, and a column identity stops writing stays in the table while a pending row can still carry it.
+The schema change itself is a third PR ahead of both, as the migrations check requires.

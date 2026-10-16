@@ -162,6 +162,7 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
             caption=(
                 "Seller accounts sync orders, order items, financial transactions and FBA inventory. "
                 "The app needs the Inventory and Order Tracking, Finance and Accounting and Amazon Fulfillment roles. "
+                "Orders and order items read the same Amazon endpoint, so syncing both takes twice as long. "
                 "Vendor accounts sync daily sales, inventory, net pure product margin, forecasts and hourly sales "
                 "reports, which need the Brand Analytics role and your marketplace IDs."
             ),
@@ -209,7 +210,7 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
                     SourceFieldInputConfig(
                         name="marketplace_ids",
                         label="Marketplace IDs",
-                        caption="Comma-separated. Required for vendor reports. Sellers can leave it blank to sync every marketplace they sell in.",
+                        caption="Comma-separated. Required for vendor reports. For sellers it applies to orders, order items and inventory, while transactions always cover every marketplace. Sellers can leave it blank to use every marketplace they sell in.",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="ATVPDKIKX0DER, A1F83G8C2ARO7P",
