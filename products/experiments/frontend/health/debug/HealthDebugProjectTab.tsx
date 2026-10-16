@@ -27,7 +27,7 @@ export function HealthDebugProjectTab(): JSX.Element {
             </p>
             <SdkProfileSection
                 section={healthInputs.project.sdk_profile}
-                skippedMessage="Skipped, because you may not query events."
+                skippedMessage="Skipped, because you may not query events or are denied a property it reads."
             />
             <TeamDefaultsSection section={healthInputs.project.team_defaults} />
         </div>
