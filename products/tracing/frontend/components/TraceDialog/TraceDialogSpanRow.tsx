@@ -3,18 +3,17 @@ import { IconChevronRight, IconWarning } from '@posthog/icons'
 import { getSeriesColor } from 'lib/colors'
 import { cn } from 'lib/utils/css-classes'
 
-import { parseTimestampUs, type SpanNode } from 'products/tracing/frontend/spanTree'
+import { parseTimestampUs } from 'products/tracing/frontend/spanTree'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
 import type { TraceDialogTimeline } from './traceDialogLogic'
+import type { TraceDialogRow } from './traceDialogRows'
+import { indentPx, MAX_VISUAL_DEPTH, TraceDialogTreeLines } from './TraceDialogTreeLines'
 
-export const INDENT_PX = 12
-// Deeper spans stop indenting, so the name keeps room in the fixed-width span column.
-export const MAX_INDENT_DEPTH = 10
 const ERROR_COLOR = 'var(--danger)'
 
 export interface TraceDialogSpanRowProps {
-    node: SpanNode
+    row: Extract<TraceDialogRow, { kind: 'span' | 'chain' }>
     timeline: TraceDialogTimeline
     serviceColorMap: Map<string, number>
     isSelected: boolean
@@ -25,6 +24,7 @@ export interface TraceDialogSpanRowProps {
     isCollapsed: boolean
     onSelect: (spanId: string) => void
     onToggleCollapsed: (spanId: string) => void
+    onToggleChain: (spanId: string) => void
 }
 
 function percentOfTrace(us: number, timeline: TraceDialogTimeline): number {
@@ -32,7 +32,7 @@ function percentOfTrace(us: number, timeline: TraceDialogTimeline): number {
 }
 
 export function TraceDialogSpanRow({
-    node,
+    row,
     timeline,
     serviceColorMap,
     isSelected,
@@ -41,8 +41,13 @@ export function TraceDialogSpanRow({
     isCollapsed,
     onSelect,
     onToggleCollapsed,
+    onToggleChain,
 }: TraceDialogSpanRowProps): JSX.Element {
+    const node = row.kind === 'chain' ? row.nodes[0] : row.node
+    const chainLast = row.kind === 'chain' ? row.nodes[row.nodes.length - 1] : null
+    const openChainLength = row.kind === 'span' ? row.openChainLength : undefined
     const { span, isMissingParent = false } = node
+    const name = chainLast ? `${span.name} › … › ${chainLast.span.name}` : span.name
     const startUs = parseTimestampUs(span.timestamp)
     const leftPct = Math.max(percentOfTrace(startUs, timeline), 0)
     const widthPct = Math.max(
@@ -52,7 +57,8 @@ export function TraceDialogSpanRow({
         ),
         0.3
     )
-    const isError = span.status_code === 2
+    // A folded chain shows an error when any span in it errored, not only its first.
+    const isError = (row.kind === 'chain' ? row.nodes : [node]).some((member) => member.span.status_code === 2)
     const serviceColor = getSeriesColor(serviceColorMap.get(span.service_name) ?? 0)
     const barColor = isError ? ERROR_COLOR : serviceColor
     const openedAtPct = openedAtUs != null ? Math.min(Math.max(percentOfTrace(openedAtUs, timeline), 0), 100) : null
@@ -73,7 +79,7 @@ export function TraceDialogSpanRow({
                 className="absolute inset-0 cursor-pointer"
                 aria-pressed={isSelected}
                 aria-label={span.name}
-                title={isMissingParent ? span.name : `${span.name} · ${span.service_name}`}
+                title={isMissingParent ? name : `${name} · ${span.service_name}`}
                 onClick={() => onSelect(span.span_id)}
                 data-attr="trace-dialog-span-row"
             />
@@ -81,14 +87,27 @@ export function TraceDialogSpanRow({
                 +{formatDuration(Math.max(startUs - timeline.startUs, 0) * 1_000)}
             </span>
             <span
-                className="pointer-events-none relative w-80 shrink-0 flex items-center gap-1.5 min-w-0 pr-2"
+                className="pointer-events-none relative self-stretch w-96 shrink min-w-48 flex items-center gap-1.5 pr-2"
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{ paddingLeft: Math.min(node.depth, MAX_INDENT_DEPTH) * INDENT_PX }}
+                style={{ paddingLeft: indentPx(row.depth) }}
             >
-                {descendantCount > 0 ? (
+                <TraceDialogTreeLines row={row} />
+                {chainLast ? (
                     <button
                         type="button"
-                        className="pointer-events-auto shrink-0 flex items-center gap-0.5 h-5 pl-0.5 pr-1 rounded border border-primary bg-surface-primary text-[11px] font-semibold text-secondary hover:border-secondary hover:text-primary"
+                        className="pointer-events-auto relative shrink-0 flex items-center gap-0.5 h-5 pl-0.5 pr-1.5 rounded border border-dashed border-accent bg-surface-primary text-[11px] font-semibold text-accent hover:bg-accent-highlight-secondary"
+                        aria-expanded={false}
+                        aria-label={`Show ${row.kind === 'chain' ? row.nodes.length : 0} folded spans`}
+                        onClick={() => onToggleChain(span.span_id)}
+                        data-attr="trace-dialog-span-chain"
+                    >
+                        <IconChevronRight />
+                        {row.kind === 'chain' ? row.nodes.length.toLocaleString() : null}
+                    </button>
+                ) : descendantCount > 0 ? (
+                    <button
+                        type="button"
+                        className="pointer-events-auto relative shrink-0 flex items-center gap-0.5 h-5 pl-0.5 pr-1.5 rounded border border-accent bg-accent-highlight-secondary text-[11px] font-semibold text-accent hover:bg-accent-highlight-primary"
                         aria-expanded={!isCollapsed}
                         aria-label={`${isCollapsed ? 'Show' : 'Hide'} ${descendantCount} nested ${
                             descendantCount === 1 ? 'span' : 'spans'
@@ -99,30 +118,55 @@ export function TraceDialogSpanRow({
                         <IconChevronRight className={cn('transition-transform', !isCollapsed && 'rotate-90')} />
                         {descendantCount.toLocaleString()}
                     </button>
-                ) : (
-                    <span className="w-5 shrink-0" aria-hidden />
-                )}
-                {!isMissingParent && (
+                ) : null}
+                {/* A leaf's dot sits where a parent's toggle would, so the elbow ends at it. */}
+                <span
+                    className={cn(
+                        'relative flex shrink-0 items-center justify-center',
+                        descendantCount === 0 && !chainLast && 'w-4'
+                    )}
+                    aria-hidden
+                >
+                    {!isMissingParent && (
+                        <span
+                            className="size-2 rounded-full"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ backgroundColor: serviceColor }}
+                        />
+                    )}
+                </span>
+                {row.depth > MAX_VISUAL_DEPTH && (
                     <span
-                        className="size-2 rounded-full shrink-0"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ backgroundColor: serviceColor }}
-                        aria-hidden
-                    />
+                        className="relative shrink-0 rounded border px-1 font-mono text-[10px] text-muted"
+                        translate="no"
+                    >
+                        L{row.depth}
+                    </span>
                 )}
                 {isError && <IconWarning className="shrink-0 text-danger" fontSize={14} aria-label="Error" />}
                 <span
                     className={cn(
-                        'truncate font-mono',
+                        'relative truncate font-mono',
                         (isError || isMissingParent) && 'text-danger',
+                        chainLast && 'text-secondary',
                         isSelected && 'font-semibold'
                     )}
                     translate="no"
                 >
-                    {span.name}
+                    {name}
                 </span>
+                {openChainLength && (
+                    <button
+                        type="button"
+                        className="pointer-events-auto relative ml-auto shrink-0 text-[11px] font-medium text-accent hover:underline"
+                        onClick={() => onToggleChain(span.span_id)}
+                        data-attr="trace-dialog-span-chain-fold"
+                    >
+                        Fold {openChainLength}
+                    </button>
+                )}
             </span>
-            <span className="pointer-events-none relative grow self-stretch my-1.5" aria-hidden>
+            <span className="pointer-events-none relative grow min-w-16 self-stretch my-1.5" aria-hidden>
                 {!isMissingParent && (
                     <span
                         className="absolute inset-y-0"

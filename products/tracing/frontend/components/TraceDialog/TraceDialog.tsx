@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { type CSSProperties, useCallback, useRef, useState } from 'react'
 
-import { IconExternal } from '@posthog/icons'
+import { IconCollapse45, IconExpand45, IconExternal, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -9,6 +9,7 @@ import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/res
 import { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
+import { cn } from 'lib/utils/css-classes'
 import { pluralize } from 'lib/utils/strings'
 
 import { SpanInspector } from 'products/tracing/frontend/components/SpanInspector/SpanInspector'
@@ -50,8 +51,11 @@ export function TraceDialog(): JSX.Element | null {
         sessionErrorBadgesEnabled,
         traceIdentity,
         traceSessionId,
+        inspectorOpen,
+        isFullscreen,
     } = useValues(traceDialogLogic)
-    const { closeTraceDialog, loadTraceSpans, setInspectorTab, openInTracing } = useActions(traceDialogLogic)
+    const { closeTraceDialog, loadTraceSpans, setInspectorTab, openInTracing, toggleInspector, toggleFullscreen } =
+        useActions(traceDialogLogic)
     // The dialog sits above popovers, so the inspector's menus and drawers, and the person popover,
     // portal inside it instead.
     const [floatingContainer, setFloatingContainer] = useState<HTMLDivElement | null>(null)
@@ -89,24 +93,42 @@ export function TraceDialog(): JSX.Element | null {
             data-attr={TRACE_DIALOG_DATA_ATTR}
             width="90vw"
             maxWidth={1600}
+            fullScreen={isFullscreen}
             footer={
                 <div className="flex flex-wrap items-center justify-between gap-2 w-full">
                     <TraceDialogShortcuts />
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconExternal />}
-                        to={traceUrl(trace)}
-                        onClick={openInTracing}
-                        data-attr="trace-dialog-open-in-tracing"
-                    >
-                        Open in Tracing
-                    </LemonButton>
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="secondary"
+                            icon={inspectorOpen ? <IconSidebarClose /> : <IconSidebarOpen />}
+                            tooltip={inspectorOpen ? 'Hide span details' : 'Show span details'}
+                            onClick={toggleInspector}
+                            data-attr="trace-dialog-toggle-inspector"
+                        />
+                        <LemonButton
+                            type="secondary"
+                            icon={isFullscreen ? <IconCollapse45 /> : <IconExpand45 />}
+                            tooltip={isFullscreen ? 'Exit full screen' : 'Full screen'}
+                            onClick={toggleFullscreen}
+                            data-attr="trace-dialog-toggle-fullscreen"
+                        />
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconExternal />}
+                            to={traceUrl(trace)}
+                            onClick={openInTracing}
+                            data-attr="trace-dialog-open-in-tracing"
+                        >
+                            Open in Tracing
+                        </LemonButton>
+                    </div>
                 </div>
             }
         >
             <FloatingContainerContext.Provider value={floatingContainer}>
-                {/* The span list virtualizes, so it needs a definite height to measure against. */}
-                <div className="flex flex-col gap-2 h-[65vh]">
+                {/* The span list virtualizes, so it needs a definite height to measure against. Full screen
+                    leaves room for the dialog's header and footer. */}
+                <div className={cn('flex flex-col gap-2', isFullscreen ? 'h-[calc(100vh-12rem)]' : 'h-[65vh]')}>
                     <TraceDialogOpenedFromLog />
                     <TraceIdentityChips
                         identity={traceIdentity}
@@ -141,7 +163,7 @@ export function TraceDialog(): JSX.Element | null {
                                 <div className="flex-1 min-w-0 min-h-0">
                                     <TraceDialogSpanTree />
                                 </div>
-                                {(missingParentSpanId || selectedSpan) && (
+                                {inspectorOpen && (missingParentSpanId || selectedSpan) && (
                                     <div
                                         ref={inspectorRef}
                                         // Half the body at most side by side, so the span tree keeps room for its timeline bars.
