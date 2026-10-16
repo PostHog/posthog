@@ -8,6 +8,7 @@ reviewed in a dry run.
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
+from django.utils import timezone
 
 from posthog.models import Team
 
@@ -41,6 +42,7 @@ class Command(BaseCommand):
 
         deliverable: list[int] = []
         sent = 0
+        started_at = timezone.now()
         teams = Team.objects.in_bulk(affected.keys())
         for team_id, flags in sorted(affected.items()):
             team = teams[team_id]
@@ -63,6 +65,9 @@ class Command(BaseCommand):
                         "  Not delivered: real-time notifications are off for this organization, "
                         "or nobody in the project can view it."
                     )
+                elif event.created_at < started_at:
+                    # The idempotency key returns the notice an earlier run created, unchanged.
+                    self.stdout.write(f"  Already sent notice {event.id} on {event.created_at.date().isoformat()}.")
                 else:
                     sent += 1
                     self.stdout.write(f"  Sent notice {event.id} to {len(event.resolved_user_ids)} people.")

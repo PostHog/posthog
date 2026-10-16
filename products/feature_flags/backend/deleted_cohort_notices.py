@@ -3,11 +3,15 @@
 The flag evaluator loads only the non-deleted cohorts of the flag's project. A release condition
 on any other cohort id fails the flag for every user that the condition is evaluated for. The
 flag API rejects these conditions on new writes. This module finds the flags that already hold one.
+
+It checks only the cohorts a flag names directly. A live cohort that includes a deleted cohort also
+fails the flag, but cohort saves reject that reference and the cohort delete guard blocks deleting
+an included cohort, so no new case can arise.
 """
 
 from collections import defaultdict
 from collections.abc import Collection, Iterator, Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from django.db.models import QuerySet
@@ -254,7 +258,9 @@ def _several_flags_notice(team_id: int, flags: Sequence[AffectedFlag]) -> Notifi
         noun, source_url, resource_type = "surveys", "/surveys", "survey"
     elif kinds == {"product_tour"}:
         noun, source_url = "product tours", "/product_tours"
-    items = [_item_label(flag) for flag in flags[:MAX_LISTED_FLAGS]]
+    # The most recently evaluated flags matter most to the team, so they come first in the capped list.
+    listed = sorted(flags, key=lambda flag: flag.last_called_at or datetime.min.replace(tzinfo=UTC), reverse=True)
+    items = [_item_label(flag) for flag in listed[:MAX_LISTED_FLAGS]]
     if len(flags) > MAX_LISTED_FLAGS:
         items.append(f"and {len(flags) - MAX_LISTED_FLAGS} more")
     body = (
