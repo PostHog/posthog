@@ -2,6 +2,7 @@ import { MakeLogicType, afterMount, connect, kea, listeners, path, reducers, sel
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { withTimeout } from 'lib/utils/async'
 import { VIEW_FILE_SYSTEM_TYPES, baseObjectType, libraryObjectHref } from 'scenes/library/libraryUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -14,6 +15,10 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { canvasesRetrieve } from 'products/canvas/frontend/generated/api'
 
 import { TODAY_RECENTS_LIMIT, newestByName } from './todayRecentOrder'
+
+// How many canvas view logs to scan for live canvases, so deleted ones do not leave the list short.
+const CANVAS_VIEW_SCAN_LIMIT = TODAY_RECENTS_LIMIT * 2
+const CANVAS_LOOKUP_TIMEOUT_MS = 10000
 
 export interface TodayRecentEntry {
     key: string
@@ -62,6 +67,13 @@ export interface todayRecentViewsLogicActions {
         ref: string
         type: string
     } // recentItemsModel
+    loadCurrentTeamSuccess: (
+        currentTeam: null | import('../../types').TeamPublicType,
+        payload?: any
+    ) => {
+        currentTeam: null | import('../../types').TeamPublicType
+        payload?: any
+    } // teamLogic
     loadRecentCanvases: (_: void) => void
     loadRecentCanvasesFailure: (
         error: string,
@@ -98,7 +110,7 @@ export const todayRecentViewsLogic = kea<todayRecentViewsLogicType>([
     path(['layout', 'today', 'todayRecentViewsLogic']),
     connect(() => ({
         values: [recentItemsModel, ['recents'], teamLogic, ['currentTeamId']],
-        actions: [recentItemsModel, ['recordView', 'viewLogged']],
+        actions: [recentItemsModel, ['recordView', 'viewLogged'], teamLogic, ['loadCurrentTeamSuccess']],
     })),
     loaders(({ values }) => ({
         // Canvases are not file system entries, so their views come from the view log instead of the recents fetch.
@@ -110,10 +122,19 @@ export const todayRecentViewsLogic = kea<todayRecentViewsLogicType>([
                     if (!projectId) {
                         return []
                     }
-                    const views = await api.fileSystemLogView.list({ type: 'canvas', limit: TODAY_RECENTS_LIMIT })
+                    // Deleted canvases keep their view logs, so scan past them to still fill the list.
+                    const views = await withTimeout(
+                        (signal) =>
+                            api.fileSystemLogView.list({ type: 'canvas', limit: CANVAS_VIEW_SCAN_LIMIT, signal }),
+                        CANVAS_LOOKUP_TIMEOUT_MS
+                    )
                     const results = await Promise.allSettled(
                         views.map(async ({ ref, viewed_at }): Promise<TodayRecentEntry> => {
-                            const canvas = await canvasesRetrieve(projectId, ref)
+                            // A stalled lookup must not hold back the canvases that did load.
+                            const canvas = await withTimeout(
+                                (signal) => canvasesRetrieve(projectId, ref, { signal }),
+                                CANVAS_LOOKUP_TIMEOUT_MS
+                            )
                             return {
                                 key: `canvas-${canvas.id}`,
                                 type: 'canvas',
@@ -125,13 +146,17 @@ export const todayRecentViewsLogic = kea<todayRecentViewsLogicType>([
                     )
                     breakpoint()
                     // A deleted canvas fails its lookup, so it drops out of the list.
-                    return results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
+                    return results
+                        .flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
+                        .slice(0, TODAY_RECENTS_LIMIT)
                 },
             },
         ],
     })),
     reducers({
         recentCanvases: {
+            // Drop the previous project's canvases at once. The team listener then loads the new ones.
+            loadCurrentTeamSuccess: () => [],
             recordView: (state, { type, ref }) =>
                 type === 'canvas'
                     ? state.map((recent) =>
@@ -155,6 +180,12 @@ export const todayRecentViewsLogic = kea<todayRecentViewsLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
+        // The team can load after this logic mounts, so the mount-time load finds no project.
+        loadCurrentTeamSuccess: ({ currentTeam }) => {
+            if (currentTeam) {
+                actions.loadRecentCanvases()
+            }
+        },
         viewLogged: ({ type }) => {
             if (type === 'canvas') {
                 actions.loadRecentCanvases()
