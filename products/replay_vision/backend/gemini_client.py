@@ -28,7 +28,6 @@ GATEWAY_FLAG = "replay-vision-ai-gateway"
 
 
 async def replay_gemini_client(team_id: int, *, properties: Mapping[str, Any] | None = None) -> "ReplayGemini":
-    """The AI gateway client when gateway mode is on for the team's org, else Google directly with our key."""
     base_properties = dict(properties or {})
     if await _gateway_enabled(team_id) and (
         client := build_gemini_client(
@@ -73,10 +72,8 @@ class ReplayGemini:
 
 
 class _AsyncGatewayModels:
-    """A plain SDK `models` surface taking the analytics wrapper's per-call `posthog_*` kwargs as request headers,
-    since the gateway captures the generation. Groups have no gateway header, so they are dropped. Streams each
-    call, because the gateway cuts a buffered call off at 290s and long scans run past that.
-    """
+    """Takes the analytics wrapper's `posthog_*` kwargs as gateway headers; groups have none, so they drop. Streams
+    every call: the gateway cuts a buffered call at 290s and long scans run past that."""
 
     def __init__(self, models: Any, base_properties: Mapping[str, Any]) -> None:
         self._models = models
