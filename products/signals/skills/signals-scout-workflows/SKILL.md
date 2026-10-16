@@ -117,6 +117,12 @@ File a suggestion through `workflows-suggest` when, and only when, all of these 
 - You can state the change as a concrete edit, not advice.
   "Shorten the subject" is advice.
   The new subject line is a change.
+- The change fits the people who get this step.
+  Read the trigger and the steps before it: a recipient has already done what the trigger event says, so copy that asks them to do it again is wrong.
+  A workflow triggered by a started trial does not need "Start your trial"; it needs a way to the next step of that trial.
+- A new call to action names what its link opens.
+  Read the link before you rename the button.
+  If the link does not lead where the new words promise, the change is incomplete, so name the destination as part of it or do not file.
 
 Send the version you read as `base_version`, and in `actions` only the steps you change, each carrying its `id` and only the fields you change: a new subject line is `{"id": "<step>", "config": {"inputs": {"email": {"value": {"subject": "..."}}}}}` and nothing more.
 Everything you leave out stays as it is, in the step and in the rest of the workflow, so a step someone edits while your suggestion waits is not reverted by approving it.
