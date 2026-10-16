@@ -545,6 +545,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._context: Optional[TaskProcessingContext] = None
         self._slack_thread_context: Optional[dict[str, Any]] = None
+        self._opening_person_message: Optional[str] = None
         self._posthog_mcp_scopes: PosthogMcpScopes = "read_only"
         self._sandbox_id_for_cleanup: Optional[str] = None
         # Captured once the agent server is up, for handing to a continue_as_new continuation.
@@ -1320,6 +1321,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         run_id = input.run_id
         self._sandbox_id_for_cleanup = None
         self._slack_thread_context = input.slack_thread_context
+        # Taken off the context, so the mention rides in the first turn's relay only, not in every
+        # later payload that carries the context.
+        if self._slack_thread_context and "person_message" in self._slack_thread_context:
+            self._slack_thread_context = dict(self._slack_thread_context)
+            self._opening_person_message = self._slack_thread_context.pop("person_message")
         self._prewarmed = input.prewarmed
         credential_refresh_task: asyncio.Task[None] | None = None
         permission_response_task: asyncio.Task[None] | None = None
@@ -1919,7 +1925,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._post_slack_update()
         elif self._slack_thread_context:
             # The first turn's relay starts now, so the plan shows while the sandbox provisions.
-            await self._start_slack_agent_design_relay(self._slack_thread_context, setup_title=sandbox_label)
+            await self._start_slack_agent_design_relay(
+                self._slack_thread_context, setup_title=sandbox_label, person_message=self._opening_person_message
+            )
             self._early_slack_relay_open = True
 
         sandbox_output = await self._get_sandbox_for_repository()
@@ -3665,7 +3673,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await self._start_slack_agent_design_relay(slack_ctx, message_id=payload.get("message_id"))
 
     async def _start_slack_agent_design_relay(
-        self, slack_ctx: dict[str, Any], setup_title: Optional[str] = None, message_id: Optional[str] = None
+        self,
+        slack_ctx: dict[str, Any],
+        setup_title: Optional[str] = None,
+        message_id: Optional[str] = None,
+        person_message: Optional[str] = None,
     ) -> None:
         relay_workflow_id = f"slack-agent-design-relay-{self.context.run_id}-{workflow.uuid4()}"
         self._current_slack_relay_workflow_id = relay_workflow_id
@@ -3676,6 +3688,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 run_id=self.context.run_id,
                 setup_title=setup_title,
                 message_id=message_id,
+                person_message=person_message,
             ),
             id=relay_workflow_id,
             task_queue=workflow.info().task_queue,
