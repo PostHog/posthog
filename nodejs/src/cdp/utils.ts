@@ -441,9 +441,9 @@ export const redactSensitiveValues = (message: string, sensitiveValues?: string[
         secrets.flatMap((secret) => [secret, JSON.stringify(secret).slice(1, -1), ...base64Variants(secret)])
     )
 
-    // Replace every value in one pass over the original text, longest first. Replacing the values one
-    // after another rescans the markers that earlier passes inserted, so a value that occurs inside
-    // the marker, such as `*`, multiplies the message length on every pass.
+    // Replace every value in one pass, longest first. Replacing the values one after another rescans
+    // the markers that earlier passes inserted, so a value that occurs inside the marker, such as `*`,
+    // multiplies the message length on every pass.
     const pattern = new RegExp(
         [...variants]
             .sort((a, b) => b.length - a.length)
@@ -451,15 +451,25 @@ export const redactSensitiveValues = (message: string, sensitiveValues?: string[
             .join('|'),
         'g'
     )
-    return message.replace(pattern, REDACTED)
+    return redactBasicAuthTokens(message, secrets).replace(pattern, REDACTED)
 }
+
+const BASIC_AUTH_TOKEN = /\b(Basic\s+)([A-Za-z0-9+/]+={0,2})/gi
+
+// A Basic auth token encodes the whole `user:secret` pair, so decoding it also finds a secret too
+// short for its encoded fragments to be masked on their own.
+const redactBasicAuthTokens = (message: string, secrets: string[]): string =>
+    message.replace(BASIC_AUTH_TOKEN, (token, scheme: string, credentials: string) => {
+        const decoded = Buffer.from(credentials, 'base64').toString('utf-8')
+        return secrets.some((secret) => decoded.includes(secret)) ? `${scheme}${REDACTED}` : token
+    })
 
 // Shorter fragments of an encoded secret are too common in ordinary base64 text to mask safely.
 const MIN_BASE64_VARIANT_LENGTH = 4
 
-// A credential often travels base64-encoded, for example in the `user:secret` pair of a Basic auth
-// header. Its encoding depends on where it starts within a 3-byte group, so this takes all three
-// alignments and keeps only the characters that the neighboring bytes do not change.
+// A secret also travels base64-encoded inside a longer value, such as an encoded request body. Its
+// encoding depends on where it starts within a 3-byte group, so this takes all three alignments and
+// keeps only the characters that the neighboring bytes do not change.
 const base64Variants = (secret: string): string[] =>
     [0, 1, 2].flatMap((offset) => {
         const encoded = Buffer.concat([Buffer.alloc(offset), Buffer.from(secret)]).toString('base64')

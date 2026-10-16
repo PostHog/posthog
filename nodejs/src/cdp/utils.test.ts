@@ -219,10 +219,22 @@ describe('Utils', () => {
                 '{"key":"***REDACTED***"}',
             ],
             [
-                'a Basic auth pair, keeping the encoded characters it shares with the user part',
+                'a Basic auth pair next to an unrelated encoded value',
                 ['Authorization: Basic ZmFrZS11c2VyLTAwOmZha2Utc2VjcmV0LTAwMDA=', 'ZXhhbXBsZS12YWx1ZQ=='],
                 ['fake-secret-0000'],
-                'Authorization: Basic ZmFrZS11c2VyLTAwOm***REDACTED***A=, ZXhhbXBsZS12YWx1ZQ==',
+                'Authorization: Basic ***REDACTED***, ZXhhbXBsZS12YWx1ZQ==',
+            ],
+            [
+                'a Basic auth pair with a short secret',
+                ['Authorization: Basic ZmFrZS11c2VyOnBpbg=='],
+                ['pin'],
+                'Authorization: Basic ***REDACTED***',
+            ],
+            [
+                'a longer encoded value, keeping the characters it shares with the bytes around the secret',
+                ['payload=eyJrZXkiOiJmYWtlLXNlY3JldC0wMDAwIn0='],
+                ['fake-secret-0000'],
+                'payload=eyJrZXkiOiJ***REDACTED***In0=',
             ],
             [
                 'its base64url encoding',
