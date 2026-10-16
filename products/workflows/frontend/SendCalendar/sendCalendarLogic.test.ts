@@ -84,13 +84,18 @@ describe('sendCalendarLogic', () => {
 
     afterEach(() => logic.unmount())
 
+    // The server keeps what the last save wrote, so the check before Undo sees the moved schedule.
+    const saveOnServer = (): void => {
+        jest.mocked(hogFlowsSchedulesPartialUpdate).mockImplementation(async (_projectId, _id, _scheduleId, fields) => {
+            const saved = { ...SCHEDULE, ...fields }
+            jest.mocked(hogFlowsSchedulesList).mockResolvedValue([saved])
+            return saved
+        })
+    }
+    const TEAMMATE_EDIT = { ...SCHEDULE, rrule: 'FREQ=WEEKLY;BYDAY=TU,TH' }
+
     it('moves a one-time send to the day it was dropped on, and Undo moves it back', async () => {
-        jest.mocked(hogFlowsSchedulesPartialUpdate).mockImplementation(
-            async (_projectId, _id, _scheduleId, fields) => ({
-                ...SCHEDULE,
-                ...fields,
-            })
-        )
+        saveOnServer()
 
         await dropOnMovedDay()
 
@@ -108,6 +113,32 @@ describe('sendCalendarLogic', () => {
             rrule: SCHEDULE.rrule,
         })
         expect(savedStart()).toEqual(SCHEDULE.starts_at)
+    })
+
+    it('refuses a move when a teammate changed the schedule after the calendar loaded, and reloads', async () => {
+        jest.mocked(hogFlowsSchedulesList).mockResolvedValue([TEAMMATE_EDIT])
+
+        await dropOnMovedDay()
+
+        expect(hogFlowsSchedulesPartialUpdate).not.toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalledWith(
+            "Couldn't move October product update. Its schedule changed after the calendar loaded. Check the reloaded calendar and try again."
+        )
+        expect(savedStart()).toEqual(SCHEDULE.starts_at)
+    })
+
+    it('refuses Undo when a teammate changed the schedule after the move', async () => {
+        saveOnServer()
+        await dropOnMovedDay()
+        jest.mocked(hogFlowsSchedulesList).mockResolvedValue([TEAMMATE_EDIT])
+
+        const undo = jest.mocked(lemonToast.success).mock.calls[0][1]?.button?.action
+        await expectLogic(logic, () => undo?.()).toFinishAllListeners()
+
+        expect(hogFlowsSchedulesPartialUpdate).toHaveBeenCalledTimes(1)
+        expect(lemonToast.error).toHaveBeenCalledWith(
+            "Couldn't undo the move. Its schedule changed after the calendar loaded. Check the reloaded calendar and try again."
+        )
     })
 
     it('refuses to move a send whose time passed while the calendar was open, and reloads', async () => {

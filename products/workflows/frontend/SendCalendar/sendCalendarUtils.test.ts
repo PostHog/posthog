@@ -274,6 +274,14 @@ describe('sendCalendarUtils', () => {
             { starts_at: '2026-10-21T09:00:00.000Z', rrule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=WE;COUNT=3' },
         ],
         [
+            'a series that ends on a date keeps its last send',
+            schedule('FREQ=WEEKLY;BYDAY=TU;UNTIL=20261124T235959Z', '2026-10-20T09:00:00Z', 'active', 'UTC'),
+            {
+                starts_at: '2026-10-21T09:00:00.000Z',
+                rrule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=WE;UNTIL=20261125T235959Z',
+            },
+        ],
+        [
             'a one-time send that names a weekday becomes a plain one-time send',
             schedule('FREQ=WEEKLY;BYDAY=TU;COUNT=1', '2026-10-20T09:00:00Z', 'active', 'UTC'),
             { starts_at: '2026-10-21T09:00:00.000Z', rrule: 'FREQ=DAILY;COUNT=1' },

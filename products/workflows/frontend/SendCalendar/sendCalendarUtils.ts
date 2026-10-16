@@ -334,7 +334,10 @@ export function movedScheduleFields(
         state.endType === 'after_count'
             ? Math.max(1, state.endCount - scheduleSendTimes(schedule, { start: startsAt, end: now }).length)
             : state.endCount
-    return { starts_at, rrule: stateToRRule({ ...state, weekdays, endCount }, starts_at) }
+    // The end date moves with the sends, or the last send falls after it. stateToRRule reads the date in the
+    // browser time zone, so pass a plain date, not the UTC instant from parseRRuleToState.
+    const endDate = state.endDate ? dayjs.utc(state.endDate).add(days, 'day').format('YYYY-MM-DD') : null
+    return { starts_at, rrule: stateToRRule({ ...state, weekdays, endCount, endDate }, starts_at) }
 }
 
 /** The days that the grid shows, as YYYY-MM-DD. A month view starts and ends on full weeks. */
