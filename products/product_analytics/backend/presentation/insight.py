@@ -35,6 +35,7 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning, ProductKey, QueryStatus
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import schema
@@ -57,7 +58,7 @@ from posthog.auth import (
 from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import AccessMethod, tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tags_context
 from posthog.constants import INSIGHT, AvailableFeature
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
@@ -1391,6 +1392,7 @@ class InsightSerializer(InsightBasicSerializer):
                     and not self.context.get("require_parsed_results")
                 )
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
+                    is_query_service = get_query_tag_value("access_method") == AccessMethod.PERSONAL_API_KEY
                     insight_result = calculate_for_query_based_insight(
                         insight,
                         team=self.context["get_team"](),
@@ -1404,6 +1406,8 @@ class InsightSerializer(InsightBasicSerializer):
                         cache_age_seconds=shared_cache_age_seconds,
                         analytics_props=get_request_analytics_properties(self.context["request"]),
                         allow_raw_results=allow_raw_results,
+                        is_query_service=is_query_service,
+                        limit_context=LimitContext.QUERY if is_query_service else LimitContext.QUERY_ASYNC,
                     )
                     access_method: DashboardAccessMethod | None = self.context.get("dashboard_access_method")
                     if (

@@ -22,6 +22,7 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+import fakeredis
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
@@ -48,19 +49,21 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, get_api_team_rate_limiter
 from posthog.constants import AvailableFeature
 from posthog.errors import wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
-from posthog.models import OrganizationMembership, SharingConfiguration, Team, User
+from posthog.models import OrganizationMembership, PersonalAPIKey, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.project import Project
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.query_scan.findings import build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.test.slots import stored_slot
@@ -611,6 +614,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 cache_age_seconds=None,
                 analytics_props=ANY,
                 allow_raw_results=False,
+                is_query_service=False,
+                limit_context=LimitContext.QUERY_ASYNC,
             )
             record_outcome.assert_not_called()
 
@@ -634,6 +639,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
                 allow_raw_results=False,
+                is_query_service=False,
+                limit_context=LimitContext.QUERY_ASYNC,
             )
 
     def test_get_shared_insight_with_force_refresh_returns_200(self) -> None:
@@ -692,6 +699,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
                 allow_raw_results=False,
+                is_query_service=False,
+                limit_context=LimitContext.QUERY_ASYNC,
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -4708,3 +4717,65 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
             team=ANY,
             request=ANY,
         )
+
+
+class TestInsightAPIQueryLimits(APIBaseTest):
+    def _headers(self, api_key: bool) -> dict[str, str]:
+        if not api_key:
+            return {}
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="insight limits", user=self.user, secure_value=hash_key_value(value), scopes=["insight:read"]
+        )
+        return {"Authorization": f"Bearer {value}"}
+
+    def _insight_url(self) -> str:
+        insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": "SELECT 1"})
+        return f"/api/projects/{self.team.pk}/insights/{insight.pk}/?refresh=force_blocking"
+
+    @parameterized.expand(
+        [("api_key", True, False, 10), ("session", False, False, 600), ("legacy_api_key", True, True, 60)]
+    )
+    def test_refresh_execution_timeout(
+        self, _name: str, api_key: bool, legacy_team: bool, expected_timeout: int
+    ) -> None:
+        with (
+            patch(
+                "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_LEGACY_TEAM_LIST",
+                {self.team.pk} if legacy_team else {-1},
+            ),
+            patch("posthog.hogql.query.sync_execute", return_value=([(1,)], [("1", "UInt8")])) as execute,
+        ):
+            response = self.client.get(self._insight_url(), headers=self._headers(api_key))
+
+        assert response.status_code == 200, response.content
+        assert response.json()["result"] == [[1]], response.json()
+        assert f"max_execution_time={expected_timeout}," in execute.call_args.args[0]
+
+    @parameterized.expand([("api_key", True), ("session", False)])
+    def test_refresh_respects_occupied_api_slots(self, _name: str, api_key: bool) -> None:
+        limiter = get_api_team_rate_limiter()
+        redis_client = fakeredis.FakeRedis()
+        now = int(limiter.get_time())
+        redis_client.zadd(
+            f"api:query:per-team:{self.team.pk}",
+            {f"occupied-{i}": now + limiter.ttl for i in range(3)},
+        )
+        with (
+            patch("posthog.clickhouse.client.limit.TEST", False),
+            patch.object(limiter, "redis_client", redis_client),
+            patch.object(limiter, "get_time", return_value=now),
+            patch.object(limiter, "retry", None),
+            patch.object(limiter, "allow_team_bypass", False),
+            patch.object(limiter, "apply_clickhouse_kill_switch", False),
+            patch("posthog.hogql.query.sync_execute", return_value=([(1,)], [("1", "UInt8")])) as execute,
+        ):
+            response = self.client.get(self._insight_url(), headers=self._headers(api_key))
+
+        assert response.status_code == 200, response.content
+        if api_key:
+            assert response.json()["query_status"]["error_code"] == "rate_limited", response.json()
+            execute.assert_not_called()
+        else:
+            assert response.json()["result"] == [[1]], response.json()
+        assert redis_client.zcard(f"api:query:per-team:{self.team.pk}") == 3
