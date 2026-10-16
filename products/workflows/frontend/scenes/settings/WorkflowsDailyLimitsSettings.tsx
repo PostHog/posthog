@@ -8,18 +8,40 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { teamLogic } from 'scenes/teamLogic'
 
-const DEFAULT_PER_WORKFLOW_LIMIT = 100
-const DEFAULT_PER_PROJECT_LIMIT = 500
+import { TeamType } from '~/types'
+
+type WorkflowsConfig = NonNullable<TeamType['workflows_config']>
+type LimitField = {
+    [Key in keyof WorkflowsConfig]-?: NonNullable<WorkflowsConfig[Key]> extends number ? Key : never
+}[keyof WorkflowsConfig]
+
+export interface WorkflowsDailyLimitsSettingsProps {
+    perWorkflowField: LimitField
+    perProjectField: LimitField
+    defaultPerWorkflow: number
+    defaultPerProject: number
+    /** What the limits count, in the plural, such as "tasks". */
+    unit: string
+    /** Prefix for the inputs' ids and `data-attr`s. */
+    attrPrefix: string
+}
+
 // Kept in step with the ceilings on TeamWorkflowsConfigSerializer, which reject anything higher.
-const MAX_PER_WORKFLOW_LIMIT = DEFAULT_PER_WORKFLOW_LIMIT * 5
-const MAX_PER_PROJECT_LIMIT = DEFAULT_PER_PROJECT_LIMIT * 5
+const SELF_SERVE_MULTIPLIER = 5
 
 // A cleared number input reports NaN, which must save as null to restore the default.
 function toInputValue(limit: number | null | undefined): number | null {
     return typeof limit === 'number' && Number.isFinite(limit) ? limit : null
 }
 
-export function WorkflowsTaskLimitsSettings(): JSX.Element {
+export function WorkflowsDailyLimitsSettings({
+    perWorkflowField,
+    perProjectField,
+    defaultPerWorkflow,
+    defaultPerProject,
+    unit,
+    attrPrefix,
+}: WorkflowsDailyLimitsSettingsProps): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const restrictedReason = useRestrictedArea({
@@ -27,8 +49,8 @@ export function WorkflowsTaskLimitsSettings(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const savedPerWorkflow = toInputValue(currentTeam?.workflows_config?.workflow_task_rate_limit_per_day)
-    const savedPerProject = toInputValue(currentTeam?.workflows_config?.workflow_task_team_rate_limit_per_day)
+    const savedPerWorkflow = toInputValue(currentTeam?.workflows_config?.[perWorkflowField])
+    const savedPerProject = toInputValue(currentTeam?.workflows_config?.[perProjectField])
 
     const [perWorkflow, setPerWorkflow] = useState<number | null>(savedPerWorkflow)
     const [perProject, setPerProject] = useState<number | null>(savedPerProject)
@@ -50,13 +72,15 @@ export function WorkflowsTaskLimitsSettings(): JSX.Element {
         }
         // Support can set a value above the ceiling; leaving it untouched is not an error.
         if (limit > max && limit !== saved) {
-            return `Contact support to go above ${max.toLocaleString()} tasks a day`
+            return `Contact support to go above ${max.toLocaleString()} ${unit} a day`
         }
         return undefined
     }
 
-    const perWorkflowError = errorFor(perWorkflow, savedPerWorkflow, MAX_PER_WORKFLOW_LIMIT)
-    const perProjectError = errorFor(perProject, savedPerProject, MAX_PER_PROJECT_LIMIT)
+    const maxPerWorkflow = defaultPerWorkflow * SELF_SERVE_MULTIPLIER
+    const maxPerProject = defaultPerProject * SELF_SERVE_MULTIPLIER
+    const perWorkflowError = errorFor(perWorkflow, savedPerWorkflow, maxPerWorkflow)
+    const perProjectError = errorFor(perProject, savedPerProject, maxPerProject)
     const unchanged = perWorkflow === savedPerWorkflow && perProject === savedPerProject
 
     return (
@@ -65,39 +89,39 @@ export function WorkflowsTaskLimitsSettings(): JSX.Element {
                 <LemonField.Pure
                     className="flex-1 min-w-60"
                     label="Per workflow"
-                    htmlFor="workflows-task-limit-per-workflow"
-                    help={`Leave empty to use the default of ${DEFAULT_PER_WORKFLOW_LIMIT}.`}
+                    htmlFor={`${attrPrefix}-limit-per-workflow`}
+                    help={`Leave empty to use the default of ${defaultPerWorkflow}.`}
                     error={perWorkflowError}
                 >
                     <LemonInput
-                        id="workflows-task-limit-per-workflow"
+                        id={`${attrPrefix}-limit-per-workflow`}
                         type="number"
                         min={0}
-                        max={MAX_PER_WORKFLOW_LIMIT}
+                        max={maxPerWorkflow}
                         value={perWorkflow ?? undefined}
                         onChange={(value) => setPerWorkflow(toInputValue(value))}
-                        placeholder={`${DEFAULT_PER_WORKFLOW_LIMIT}`}
+                        placeholder={`${defaultPerWorkflow}`}
                         disabledReason={restrictedReason}
-                        data-attr="workflows-task-limit-per-workflow"
+                        data-attr={`${attrPrefix}-limit-per-workflow`}
                     />
                 </LemonField.Pure>
                 <LemonField.Pure
                     className="flex-1 min-w-60"
                     label="Across the project"
-                    htmlFor="workflows-task-limit-per-project"
-                    help={`Leave empty to use the default of ${DEFAULT_PER_PROJECT_LIMIT}.`}
+                    htmlFor={`${attrPrefix}-limit-per-project`}
+                    help={`Leave empty to use the default of ${defaultPerProject}.`}
                     error={perProjectError}
                 >
                     <LemonInput
-                        id="workflows-task-limit-per-project"
+                        id={`${attrPrefix}-limit-per-project`}
                         type="number"
                         min={0}
-                        max={MAX_PER_PROJECT_LIMIT}
+                        max={maxPerProject}
                         value={perProject ?? undefined}
                         onChange={(value) => setPerProject(toInputValue(value))}
-                        placeholder={`${DEFAULT_PER_PROJECT_LIMIT}`}
+                        placeholder={`${defaultPerProject}`}
                         disabledReason={restrictedReason}
-                        data-attr="workflows-task-limit-per-project"
+                        data-attr={`${attrPrefix}-limit-per-project`}
                     />
                 </LemonField.Pure>
             </div>
@@ -110,8 +134,8 @@ export function WorkflowsTaskLimitsSettings(): JSX.Element {
                             workflows_config: {
                                 capture_workflows_engagement_events:
                                     currentTeam?.workflows_config?.capture_workflows_engagement_events ?? false,
-                                workflow_task_rate_limit_per_day: perWorkflow,
-                                workflow_task_team_rate_limit_per_day: perProject,
+                                [perWorkflowField]: perWorkflow,
+                                [perProjectField]: perProject,
                             },
                         })
                     }
@@ -125,7 +149,7 @@ export function WorkflowsTaskLimitsSettings(): JSX.Element {
                                 ? 'Saving'
                                 : undefined)
                     }
-                    data-attr="workflows-task-limits-save"
+                    data-attr={`${attrPrefix}-limits-save`}
                 >
                     Save
                 </LemonButton>
