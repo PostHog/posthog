@@ -11,6 +11,7 @@ pub mod ledger_rejection;
 pub mod order_sentinel;
 pub mod readiness;
 pub mod routing;
+mod settlement;
 pub mod transport;
 pub mod types;
 pub mod worker_registry;

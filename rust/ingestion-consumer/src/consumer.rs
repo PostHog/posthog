@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{
-    Charge, GroupCompletion, Offset, Partition, Rejection, TopicOffsetLedger, TopicPartition,
+    Charge, GroupCompletion, Offset, Partition, TopicOffsetLedger, TopicPartition,
 };
 use futures::StreamExt;
 use lifecycle::Handle;
@@ -24,6 +24,7 @@ use crate::discovery::DiscoveryMode;
 use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
 use crate::order_sentinel::{OffsetSpan, RevokeHook, SentinelContext};
+use crate::settlement::{self, ChargedSlice, Settlement};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
 /// Batch-wide statistics gathered while collecting, used to emit parity
@@ -192,6 +193,18 @@ impl InFlightPoll {
                     .map(|offset| (topic_partition, offset))
             })
     }
+
+    fn charged_slices(&self) -> Vec<ChargedSlice<'_>> {
+        self.partitions
+            .iter()
+            .map(|(topic_partition, deliveries)| ChargedSlice {
+                topic_partition,
+                generation: deliveries.generation,
+                span: deliveries.span,
+                charges: &deliveries.charges,
+            })
+            .collect()
+    }
 }
 
 /// A partition revocation stamped with the ledger generation started by the
@@ -356,30 +369,6 @@ fn pop_committable(in_flight: &mut VecDeque<InFlightPoll>) -> anyhow::Result<InF
     Ok(poll)
 }
 
-fn settle_run(
-    ledger: &TopicOffsetLedger,
-    pacer: &CommitPacer,
-    topic_partition: &TopicPartition,
-    generation: u64,
-    offsets: &[Offset],
-) {
-    match ledger.settle(topic_partition, generation, offsets.iter().copied()) {
-        Ok(Some(_)) => {
-            hand_over_frontier(ledger, pacer, topic_partition);
-        }
-        Ok(None) => {}
-        Err(rejection) => warn_rejection(
-            "settle",
-            topic_partition,
-            rejection,
-            RejectedSlice::settled(&OffsetSpan {
-                first: offsets[0].0,
-                last: offsets[offsets.len() - 1].0,
-            }),
-        ),
-    }
-}
-
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
 /// Used in integration tests where the Kafka consumer is created externally.
 pub struct IngestionConsumerOptions {
@@ -421,7 +410,7 @@ pub struct IngestionConsumer {
     /// Partitions revoked since the loop last looked, fed by the rebalance
     /// callback.
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
-    completion_granularity: CompletionGranularity,
+    settlement: Arc<dyn Settlement>,
 }
 
 impl IngestionConsumer {
@@ -448,12 +437,17 @@ impl IngestionConsumer {
             Arc::clone(&revoked_partitions),
         ));
         let consumer = Arc::new(consumer);
+        let settlement = settlement::for_granularity(
+            options.completion_granularity,
+            Arc::clone(&topic_offset_ledger),
+            Arc::clone(&commit_pacer),
+        );
         Self {
             commit_pacer,
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
             revoked_partitions,
-            completion_granularity: options.completion_granularity,
+            settlement,
             consumer,
             batcher,
             outputs: Some(outputs),
@@ -524,7 +518,13 @@ impl IngestionConsumer {
             workers = worker_urls.len(),
             batch_size = config.consumer_batch_size,
             batch_size_kb = config.consumer_batch_size_kb,
+            completion_granularity = ?config.consumer_completion_granularity,
             "Kafka consumer subscribed"
+        );
+        let settlement = settlement::for_granularity(
+            config.consumer_completion_granularity,
+            Arc::clone(&topic_offset_ledger),
+            Arc::clone(&commit_pacer),
         );
 
         Ok(Self {
@@ -533,7 +533,7 @@ impl IngestionConsumer {
             debug_recorder,
             topic_offset_ledger,
             revoked_partitions,
-            completion_granularity: config.consumer_completion_granularity,
+            settlement,
             batcher,
             outputs: Some(outputs),
             transport,
@@ -573,10 +573,7 @@ impl IngestionConsumer {
             return;
         }
 
-        info!(
-            completion_granularity = ?self.completion_granularity,
-            "Consumer loop starting"
-        );
+        info!("Consumer loop starting");
         record_if(&self.debug_recorder, || DebugEventKind::ConsumerStarted {
             group_id: self.group_id.clone(),
             workers: self.worker_urls.clone(),
@@ -782,10 +779,8 @@ impl IngestionConsumer {
 
         let poll = pop_committable(in_flight_polls).map_err(Failure::Batch)?;
 
-        if self.completion_granularity == CompletionGranularity::Poll {
-            self.settle_poll(&poll.partitions);
-            self.commit_due().map_err(Failure::Commit)?;
-        }
+        self.settlement.settle_poll(&poll.charged_slices());
+        self.commit_due().map_err(Failure::Commit)?;
         emit_latest_processed_timestamp_metrics(&poll.partitions, &self.group_id);
         record_if(&self.debug_recorder, || DebugEventKind::PollCompleted {
             batch_id: poll.poll_id.clone(),
@@ -826,21 +821,12 @@ impl IngestionConsumer {
         in_flight_polls: &mut VecDeque<InFlightPoll>,
         completion: &GroupCompletion,
     ) -> anyhow::Result<()> {
-        if self.completion_granularity == CompletionGranularity::Poll {
-            apply_completion(in_flight_polls, completion, |_, _, _| {});
-            return Ok(());
-        }
         apply_completion(
             in_flight_polls,
             completion,
             |topic_partition, generation, offsets| {
-                settle_run(
-                    &self.topic_offset_ledger,
-                    &self.commit_pacer,
-                    topic_partition,
-                    generation,
-                    offsets,
-                )
+                self.settlement
+                    .settle_run(topic_partition, generation, offsets)
             },
         );
         self.commit_due()
@@ -1046,110 +1032,6 @@ impl IngestionConsumer {
             stats,
         })
     }
-
-    /// Settle the poll against the ledger and hand each partition's frontier
-    /// over for commit. A partition without a frontier stays on its last
-    /// commit.
-    fn settle_poll(&self, partitions: &HashMap<TopicPartition, PartitionDeliveries>) {
-        if partitions.is_empty() {
-            // Unreachable while batches require messages to be spawned; counted
-            // so "no empty commits" is a measurable guarantee, not an assumption.
-            counter!("ingestion_consumer_commit_violations_total", "kind" => "empty").increment(1);
-            warn!("Poll settled with no partitions");
-            return;
-        }
-
-        let settlement =
-            settle_partitions(&self.topic_offset_ledger, &self.commit_pacer, partitions);
-
-        if settlement.advanced == 0 {
-            // `rejected`: the ledger dropped every slice, expected around a
-            // rebalance. `no_frontier`: a slice landed, but an earlier batch
-            // is still incomplete at the front of every window it settled.
-            let reason = if settlement.settled == 0 {
-                "rejected"
-            } else {
-                "no_frontier"
-            };
-            counter!("ingestion_consumer_commits_skipped_total", "reason" => reason).increment(1);
-            warn!(
-                reason,
-                "No ledger frontier available for completed offsets; skipping commit"
-            );
-        }
-    }
-}
-
-struct PollSettlement {
-    settled: usize,
-    advanced: usize,
-}
-
-fn settle_partitions(
-    ledger: &TopicOffsetLedger,
-    pacer: &CommitPacer,
-    partitions: &HashMap<TopicPartition, PartitionDeliveries>,
-) -> PollSettlement {
-    let mut settlement = PollSettlement {
-        settled: 0,
-        advanced: 0,
-    };
-    for (topic_partition, partition) in partitions {
-        let Ok(frontier) = settle(ledger, topic_partition, partition) else {
-            continue;
-        };
-        settlement.settled += 1;
-        if frontier.is_some() && hand_over_frontier(ledger, pacer, topic_partition) {
-            settlement.advanced += 1;
-        }
-    }
-    settlement
-}
-
-fn hand_over_frontier(
-    ledger: &TopicOffsetLedger,
-    pacer: &CommitPacer,
-    topic_partition: &TopicPartition,
-) -> bool {
-    let Some(taken) = ledger.take_frontier(topic_partition) else {
-        return false;
-    };
-    if taken.gap_offset_count > 0 {
-        warn!(
-            topic = %topic_partition.topic,
-            partition = topic_partition.partition,
-            window_base = taken.first.0,
-            frontier = taken.offset.0,
-            gap_offsets = taken.gap_offset_count,
-            "Commit frontier walked over offsets Kafka never delivered"
-        );
-    }
-    pacer.advance_frontier(topic_partition, taken);
-    true
-}
-
-/// Settle one partition's slice of a batch against the ledger and report
-/// the frontier it reached. `Err` when the ledger rejected the slice,
-/// which it has already counted and this logs.
-fn settle(
-    ledger: &TopicOffsetLedger,
-    topic_partition: &TopicPartition,
-    partition: &PartitionDeliveries,
-) -> Result<Option<Offset>, Rejection> {
-    ledger
-        .settle(
-            topic_partition,
-            partition.generation,
-            partition.charges.iter().map(|(offset, _)| *offset),
-        )
-        .inspect_err(|rejection| {
-            warn_rejection(
-                "settle",
-                topic_partition,
-                *rejection,
-                RejectedSlice::settled(&partition.span),
-            )
-        })
 }
 
 /// Emit the per-poll parity metrics (received counts, batch sizes,
@@ -1296,6 +1178,7 @@ fn emit_latest_processed_timestamp_metrics(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settlement::{charge_offsets, GroupSettlement};
     use common_kafka_consumer::Offset as MessageOffset;
 
     fn poll(epoch: u64, partition: i32, first: i64, last: i64, count: u32) -> InFlightPoll {
@@ -1640,13 +1523,14 @@ mod tests {
 
     #[test]
     fn a_covered_head_is_popped_before_a_redelivered_offset_is_matched() {
-        let ledger = TopicOffsetLedger::new();
-        let pacer = pacer();
+        let ledger = Arc::new(TopicOffsetLedger::new());
+        let pacer = Arc::new(CommitPacer::immediate());
+        let settlement = GroupSettlement::new(Arc::clone(&ledger), Arc::clone(&pacer));
         let partition = TopicPartition::new("test", 0);
         ledger.forget_partitions([("test", 0)]);
         charge_offsets(&ledger, &partition, 1, &[0, 1]);
         let mut settle = |topic_partition: &TopicPartition, generation: u64, offsets: &[Offset]| {
-            settle_run(&ledger, &pacer, topic_partition, generation, offsets)
+            settlement.settle_run(topic_partition, generation, offsets)
         };
 
         // Both polls carry the same offsets: a regain during collection.
@@ -1673,175 +1557,6 @@ mod tests {
         assert_eq!(
             pacer.take_due(Instant::now()),
             Some(HashMap::from([(partition, MessageOffset(2))]))
-        );
-    }
-
-    /// A poll's slice of one partition, charged to the ledger under the
-    /// partition's current generation.
-    fn charged(
-        ledger: &TopicOffsetLedger,
-        topic_partition: &TopicPartition,
-        first: i64,
-        last: i64,
-    ) -> PartitionDeliveries {
-        let generation = ledger.generation(topic_partition);
-        let partition = PartitionDeliveries {
-            span: OffsetSpan { first, last },
-            generation,
-            generations_version_seen: 0,
-            charges: (first..=last)
-                .map(|offset| (MessageOffset(offset), Charge::ZERO))
-                .collect(),
-            latest_kafka_ts: 0,
-            max_lag_ms: None,
-            delivered: (last - first + 1) as u32,
-            covered: 0,
-            accepted: 0,
-            credited: HashSet::default(),
-        };
-        ledger
-            .charge(
-                topic_partition,
-                generation,
-                partition.charges.iter().copied(),
-            )
-            .expect("charge");
-        partition
-    }
-
-    #[test]
-    fn a_settled_poll_hands_its_frontier_to_the_pacer() {
-        let ledger = TopicOffsetLedger::new();
-        let pacer = CommitPacer::immediate();
-        let tp = TopicPartition::new("test", 0);
-        let partitions = HashMap::from([(tp.clone(), charged(&ledger, &tp, 10, 11))]);
-
-        let settlement = settle_partitions(&ledger, &pacer, &partitions);
-
-        assert_eq!((settlement.settled, settlement.advanced), (1, 1));
-        assert_eq!(
-            pacer.take_due(Instant::now()),
-            Some(HashMap::from([(tp, MessageOffset(12))]))
-        );
-    }
-
-    #[test]
-    fn a_rejected_slice_hands_nothing_to_the_pacer() {
-        let ledger = TopicOffsetLedger::new();
-        let pacer = CommitPacer::immediate();
-        let tp = TopicPartition::new("test", 0);
-        let partitions = HashMap::from([(tp.clone(), charged(&ledger, &tp, 10, 11))]);
-        // The partition left and came back while the poll was in flight.
-        ledger.forget_partitions([("test", 0)]);
-
-        let settlement = settle_partitions(&ledger, &pacer, &partitions);
-
-        assert_eq!((settlement.settled, settlement.advanced), (0, 0));
-        assert!(pacer.take_due(Instant::now()).is_none());
-    }
-
-    #[test]
-    fn a_poll_behind_an_incomplete_one_hands_nothing_to_the_pacer() {
-        let ledger = TopicOffsetLedger::new();
-        let pacer = CommitPacer::immediate();
-        let tp = TopicPartition::new("test", 0);
-        let _older = charged(&ledger, &tp, 10, 11);
-        let newer = HashMap::from([(tp.clone(), charged(&ledger, &tp, 12, 13))]);
-
-        let settlement = settle_partitions(&ledger, &pacer, &newer);
-
-        assert_eq!((settlement.settled, settlement.advanced), (1, 0));
-        assert!(pacer.take_due(Instant::now()).is_none());
-    }
-
-    fn charge_offsets(
-        ledger: &TopicOffsetLedger,
-        topic_partition: &TopicPartition,
-        generation: u64,
-        offsets: &[i64],
-    ) {
-        ledger
-            .charge(
-                topic_partition,
-                generation,
-                offsets.iter().map(|&o| (MessageOffset(o), Charge::ZERO)),
-            )
-            .expect("the test ledger accepts the charge");
-    }
-
-    fn pacer() -> CommitPacer {
-        CommitPacer::immediate()
-    }
-
-    #[test]
-    fn a_partition_commits_only_once_its_completed_prefix_is_contiguous() {
-        let ledger = TopicOffsetLedger::new();
-        let pacer = pacer();
-        let p0 = TopicPartition::new("events", 0);
-        charge_offsets(&ledger, &p0, 0, &[10, 11, 12]);
-
-        settle_run(&ledger, &pacer, &p0, 0, &[MessageOffset(12)]);
-        assert!(
-            pacer.take_due(Instant::now()).is_none(),
-            "the window base is still incomplete"
-        );
-
-        settle_run(
-            &ledger,
-            &pacer,
-            &p0,
-            0,
-            &[MessageOffset(10), MessageOffset(11)],
-        );
-        assert_eq!(
-            pacer.take_due(Instant::now()),
-            Some(HashMap::from([(p0, MessageOffset(13))])),
-            "the late completion releases the whole prefix"
-        );
-    }
-
-    #[test]
-    fn a_partition_with_a_held_prefix_does_not_hold_back_another() {
-        let ledger = TopicOffsetLedger::new();
-        let pacer = pacer();
-        let p0 = TopicPartition::new("events", 0);
-        let p1 = TopicPartition::new("events", 1);
-        charge_offsets(&ledger, &p0, 0, &[10, 11]);
-        charge_offsets(&ledger, &p1, 0, &[20, 21]);
-
-        settle_run(
-            &ledger,
-            &pacer,
-            &p0,
-            0,
-            &[MessageOffset(10), MessageOffset(11)],
-        );
-        settle_run(&ledger, &pacer, &p1, 0, &[MessageOffset(21)]);
-
-        assert_eq!(
-            pacer.take_due(Instant::now()),
-            Some(HashMap::from([(p0, MessageOffset(12))])),
-            "partition 1 waits for offset 20"
-        );
-    }
-
-    #[test]
-    fn a_stale_stamp_run_commits_nothing() {
-        let ledger = TopicOffsetLedger::new();
-        let pacer = pacer();
-        let p0 = TopicPartition::new("events", 0);
-        charge_offsets(&ledger, &p0, 0, &[10]);
-
-        ledger.forget_partitions([("events", 0)]);
-        charge_offsets(&ledger, &p0, 1, &[10]);
-
-        settle_run(&ledger, &pacer, &p0, 0, &[MessageOffset(10)]);
-
-        assert!(pacer.take_due(Instant::now()).is_none());
-        assert_eq!(
-            ledger.held(&p0).offsets,
-            1,
-            "the redelivered offset stays uncompleted"
         );
     }
 }
