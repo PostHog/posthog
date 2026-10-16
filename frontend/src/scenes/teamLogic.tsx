@@ -133,7 +133,7 @@ export interface teamLogicActions {
     } // projectLogic
     updateCurrentProjectSuccess: (
         currentProject: ProjectType,
-        payload?: Partial<ProjectType>
+        payload?: Partial<ProjectType> | undefined
     ) => {
         currentProject: ProjectType
         payload?: Partial<ProjectType>
