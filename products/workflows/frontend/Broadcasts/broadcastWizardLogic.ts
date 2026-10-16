@@ -1453,6 +1453,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     actions.applyAiEmailDraft(aiEmailDraft.draft)
                     cache.prefilledEmail = { ...DEFAULT_BROADCAST_EMAIL, ...messageDraftEmail(aiEmailDraft.draft) }
                     cache.prefilledEmailGeneratedBy = 'ai'
+                    // The draft arrives unstyled, so it takes the brand the template already had.
+                    const branded = values.emailBrand ? applyEmailBrand(values.email, values.emailBrand) : null
+                    if (branded) {
+                        actions.brandApplied(branded)
+                        cache.prefilledEmail = { ...cache.prefilledEmail, ...branded }
+                    }
                 }
             }
             captureAiEmailDraft('broadcast', request, aiEmailDraft, skipped)
@@ -2236,6 +2242,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         const draftSource = parseEmailDraftSource(draftSourceParam)
         if (draftSource && values.featureFlags[FEATURE_FLAGS.WORKFLOWS_AI_EMAIL_DRAFT]) {
             actions.loadAiEmailDraft(draftSource)
+            if (!email) {
+                // A link without a template email still gets the brand once the draft fills it.
+                actions.loadEmailBrand()
+            }
         }
     }),
 ])

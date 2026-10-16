@@ -3310,6 +3310,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                       (emailAction.config as Record<string, any>).inputs?.email?.value ?? {}
                                   )
                                 : null
+                            cache.emailBrand = brand
                             return await withDefaultEmailSender(withEmailBrand(prefilled, brand))
                         }
                         return { ...NEW_WORKFLOW }
@@ -4511,12 +4512,17 @@ export const workflowLogic = kea<workflowLogicType>([
                     skipped = 'edited'
                 } else if (values.workflowChanged) {
                     actions.setWorkflowValues({
-                        actions: withPrefilledEmail(values.workflow, aiEmailDraft.draft).actions,
+                        actions: withEmailBrand(
+                            withPrefilledEmail(values.workflow, aiEmailDraft.draft),
+                            cache.emailBrand
+                        ).actions,
                     })
                     actions.markAiEmailDraftApplied()
                 } else {
                     // Untouched, so the draft becomes the baseline and "Clear changes" doesn't offer the template back.
-                    actions.loadWorkflowSuccess(withPrefilledEmail(loaded, aiEmailDraft.draft))
+                    actions.loadWorkflowSuccess(
+                        withEmailBrand(withPrefilledEmail(loaded, aiEmailDraft.draft), cache.emailBrand)
+                    )
                     actions.markAiEmailDraftApplied()
                 }
             }
