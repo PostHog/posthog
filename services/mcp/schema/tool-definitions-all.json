@@ -7316,6 +7316,20 @@
             "readOnlyHint": false
         }
     },
+    "inbox-reports-feedback-create": {
+        "description": "Record a person's thumbs up or thumbs down on a signal report, with their context for why: `positive` means thumbs up and `negative` means thumbs down. Pass the person's verdict, never your own interpretation of the report. The note is forwarded to the scout that authored or edited the report as steering context for its next run; the response says whether it was forwarded. This does not dismiss, resolve, or otherwise change the report's state. Each successful call can create a new steering note, so do not retry after a confirmed success.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Rate a signal report",
+        "title": "Rate a signal report",
+        "required_scopes": ["task:read", "signal_scout:write", "llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-reports-leave-reviewers": {
         "description": "Take the authenticated user off this report's suggested reviewers, leaving the other reviewers in place. Use it when a report was routed to them by mistake, so it stops reaching them without closing it for anyone else. The report's own state does not change: it stays open for whoever is left, and for the project. Succeeds whether or not the user was on the list, so a repeat call is safe. To change who else reviews a report, edit its `suggested_reviewers` artefact instead.",
         "category": "Signals",
@@ -9191,7 +9205,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "llm-analytics-tags"
     },
     "llma-tagger-list": {
         "description": "List AI observability taggers for the current project. Supports filtering by enabled status, id__in, search, and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model configuration, creator, and timestamps.",
@@ -9205,7 +9220,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "llm-analytics-tags"
     },
     "llma-tagger-test-hog": {
         "description": "Test Hog tagger source code against recent $ai_generation events without saving a tagger. The source should return a tag name string, a list of tag name strings, or null. Optionally pass tags as a whitelist; returned tags outside the whitelist are filtered out. Results include input/output previews, selected tags, stdout reasoning, and any execution error for each sampled event.",
@@ -9219,7 +9235,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "llm-analytics-tags"
     },
     "llma-trace-review-create": {
         "description": "Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to clear a matching pending review-queue item after the review is saved.",
