@@ -105,6 +105,7 @@ from products.cohorts.backend.models.dependencies import (
 )
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    close_open_population_attempts,
     cohort_filters_have_values,
     get_all_cohort_dependencies,
     get_friendly_error_message,
@@ -1212,6 +1213,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.NO_VALID_IDS]})
 
         logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(ids)} {id_type}s")
+        # A killed import leaves its history row open. The stuck-cohort sweep resets a cohort whose newest row stays
+        # open past its cutoff. That row stays the newest until the task of this upload starts. A run that is still
+        # alive overwrites this stamp when it finishes.
+        close_open_population_attempts(cohort.pk, finished_at=timezone.now())
         calculate_cohort_from_list.delay(
             cohort.pk,
             ids,
@@ -2625,6 +2630,23 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     started_at = timezone.now()
     start_monotonic = time.monotonic()
     eval_errors_count = 0
+    # The stuck-cohort sweep measures a run that has an open history row from the row's start. Without that row, the
+    # sweep measures the run from created_at. That measure also counts the time that the task waited in the queue. A
+    # failed insert must not stop the population. Django then keeps the row unsaved. The save of the outcome inserts it.
+    history = CohortCalculationHistory(
+        team_id=team_id, cohort=cohort, filters=cohort.filters or {}, started_at=started_at
+    )
+    try:
+        history.save()
+    except Exception as err:
+        logger.warning(
+            "cohort_from_feature_flag_history_open_failed",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            flag_key=feature_flag.key,
+            exc_info=True,
+        )
+        capture_exception(err, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
     try:
         uuids_to_add_to_cohort: list[str] = []
         cursor = 0
@@ -2704,15 +2726,10 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # store the friendly message; raw exception details (internal URLs, instance
         # config) stay in logs and error tracking only. This path only ever populates a
         # static cohort, and nothing re-runs one, so the message must not ask for that.
-        CohortCalculationHistory.objects.create(
-            team_id=team_id,
-            cohort=cohort,
-            filters=cohort.filters or {},
-            started_at=started_at,
-            finished_at=timezone.now(),
-            error=get_friendly_error_message(error_code, will_retry=False),
-            error_code=error_code,
-        )
+        history.finished_at = timezone.now()
+        history.error = get_friendly_error_message(error_code, will_retry=False)
+        history.error_code = error_code
+        history.save()
         raise
 
     # The save above finalized cohort state, including the recomputed count. Recording the run
@@ -2721,14 +2738,11 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     # the block above: the population is already committed, so a failure to record it must not
     # report a finished run as a failed one.
     try:
-        CohortCalculationHistory.objects.create(
-            team_id=team_id,
-            cohort=cohort,
-            filters=cohort.filters or {},
-            started_at=started_at,
-            finished_at=timezone.now(),
-            count=cohort.count,
-        )
+        history.finished_at = timezone.now()
+        history.count = cohort.count
+        # The full save also clears an INTERRUPTED stamp that the stuck-cohort sweep or a CSV upload wrote while this
+        # run was alive.
+        history.save()
     except Exception as err:
         logger.warning(
             "cohort_from_feature_flag_history_write_failed",

@@ -489,23 +489,7 @@ async fn process_events_inner(
     drop_ai_byte_limited(&mut events, ai_byte_rate_limiter.as_ref()).await;
 
     // Per-(token, distinct_id) global rate limiting: skip person processing for
-    // hot distinct_ids and reroute AnalyticsMain events to overflow. Import mode
-    // opts out entirely — historical backfills must never be throttled — so the
-    // limiter is skipped even if one were wired.
-    //
-    // DIVERGENCE from v1 (`v1::analytics::process`), intentional and out of scope
-    // to reconcile here — a future routing refactor must not assume parity:
-    //   1. Ordering: legacy runs this GRL step BEFORE burst overflow stamping
-    //      (`stamp_overflow_reason` below); v1 runs the GRL AFTER its overflow
-    //      stamping. Both set overflow_reason on AnalyticsMain only, so the
-    //      end state matches, but the pass order differs.
-    //   2. Lane assignment is a single `DataType::from_event_name` match in
-    //      legacy versus assign-then-reroute in v1.
-    // Both paths charge the same shared limiter for every non-dropped event,
-    // including events whose person processing is already off, so per-key counts
-    // are identical regardless of which pipeline serves the key.
-    // Import is unaffected by both: the GRL never runs (guard below) and no
-    // overflowable lane is reachable, so behavior is identical across paths.
+    // hot distinct_ids and reroute AnalyticsMain events to overflow.
     if context.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = global_rate_limiter {
             let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
