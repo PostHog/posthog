@@ -10,7 +10,6 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { BroadcastPayload, isBroadcastPayload } from './navPanelAdShared'
 import { NavPanelBroadcastAd } from './NavPanelBroadcastAd'
 import { NavPanelMcpAd } from './NavPanelMcpAd'
-import { isInMcpCardRollout } from './navPanelMcpCardRollout'
 import { NavPanelProductPushAd } from './NavPanelProductPushAd'
 import { navPanelProductPushLogic } from './navPanelProductPushLogic'
 
@@ -40,9 +39,8 @@ export function NavPanelAdvertisement(): JSX.Element | null {
         ) : null
 
     // The MCP server only serves cloud and dev instances. The card outranks the automated push, and
-    // shows the push instead once the user has connected or dismissed it. Control-arm users in the
-    // rollout also go through the card, so exposure counts the same eligible users in both arms.
-    if (isCloudOrDev && user && isInMcpCardRollout()) {
+    // shows the push instead once the user has connected or dismissed it.
+    if (isCloudOrDev && user) {
         return <NavPanelMcpAd fallback={productPushAd} />
     }
 

@@ -1,7 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { mswDecorator } from '~/mocks/browser'
 
 import { NavPanelMcpAd } from './NavPanelMcpAd'
@@ -23,7 +21,6 @@ export const NotConnected: Story = {
         </div>
     ),
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.NAV_PANEL_MCP_CARD]: 'test' },
         testOptions: { waitForSelector: '[aria-label="Copy MCP install command"]' },
     },
 }
