@@ -18,19 +18,18 @@ const UPDATE_TYPES = ['major', 'minor', 'patch']
 const COLUMNS = [...UPDATE_TYPES, 'other', 'total']
 
 export function summarize(reportsByManager) {
-    const packageFilesByManager = {}
-    for (const [manager, report] of Object.entries(reportsByManager)) {
-        const packageFiles = Object.values(report.repositories ?? {})[0]?.packageFiles ?? {}
+    const packageFilesByManager = Object.entries(reportsByManager).flatMap(([manager, report]) => {
+        const packageFiles = Object.entries(Object.values(report.repositories ?? {})[0]?.packageFiles ?? {})
         // Renovate exits 0 when a lookup aborts, leaving no package files.
-        if (Object.keys(packageFiles).length === 0) {
+        if (packageFiles.length === 0) {
             throw new Error(`The Renovate lookup for ${manager} did not complete`)
         }
-        Object.assign(packageFilesByManager, packageFiles)
-    }
+        return packageFiles
+    })
     const branches = new Map()
     const deprecated = new Set()
     const lookupWarnings = new Set()
-    for (const [manager, packageFiles] of Object.entries(packageFilesByManager)) {
+    for (const [manager, packageFiles] of packageFilesByManager) {
         for (const dep of packageFiles.flatMap((packageFile) => packageFile.deps)) {
             const depKey = `${manager}:${dep.depName}`
             if (dep.deprecationMessage) {

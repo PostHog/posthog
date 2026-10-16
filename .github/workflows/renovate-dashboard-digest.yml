@@ -31,7 +31,6 @@ jobs:
         # One Renovate process for every manager keeps its event loop so busy that large
         # npm downloads overrun the 60s request timeout, and that error aborts the whole lookup.
         strategy:
-            fail-fast: false
             matrix:
                 # Keep in sync with enabledManagers in .github/renovate.json5.
                 manager: [npm, github-actions, cargo, pep621, gomod, custom.regex]
@@ -58,6 +57,7 @@ jobs:
               with:
                   name: renovate-report-${{ matrix.manager }}
                   path: ${{ runner.temp }}/renovate-report.json
+                  if-no-files-found: error
                   retention-days: 7
 
     post:
