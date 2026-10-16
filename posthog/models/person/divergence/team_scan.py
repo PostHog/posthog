@@ -1,17 +1,9 @@
-"""Classify every person and mapping of one team in fixed key order, and write a resumable report.
+"""Classify every person and mapping of one team, in ClickHouse primary key order, and write a resumable report.
 
-A scan directory holds a plan, the files of each ClickHouse chunk, the files of each Postgres run, and the
-final report. Each chunk runs two phases in ClickHouse primary key order:
-- persons: ClickHouse persons by (team_id, id), compared with Postgres by uuid.
-- mappings: ClickHouse mappings by (team_id, distinct_id), compared with Postgres by distinct id.
-The Postgres phase then lists Postgres persons by id and reports only what no ClickHouse phase can see:
-persons and mappings ClickHouse has no row for, and live persons with no live mapping. It checks each
-key against the key sets the ClickHouse phases wrote, so it runs after every chunk finished.
-
-Every page is classified completely, appended to the rows file, and only then recorded in the cursor, so a
-run that stops resumes at the first page it did not record. Rows hold the raw keys a repair needs, so the
-scan directory is private to the user who runs the scan. The summary holds counts, and names groups by a
-hash of their persons, so it carries no key.
+Each chunk reads persons by (team_id, id) and mappings by (team_id, distinct_id) and compares them with Postgres.
+A Postgres pass then lists persons by id and reports only what ClickHouse has no row for, so it runs after every
+chunk. A page is recorded in the cursor only after its rows are written, so a stopped run resumes at the first
+unrecorded page. Rows hold raw keys, so the scan directory is private to its owner; the summary carries none.
 """
 
 from __future__ import annotations
