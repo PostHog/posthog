@@ -5066,6 +5066,17 @@ class AgentProxyProcessKilledSerializer(serializers.Serializer):
     memory_limit_bytes = serializers.IntegerField(min_value=0, help_text="Sandbox memory limit, in bytes.")
 
 
+class AgentProxyCallbackKind(models.TextChoices):
+    HEARTBEAT = "heartbeat", "Heartbeat"
+    AWAITING_INPUT = "awaiting_input", "Awaiting input"
+    PERMISSION_REQUESTED = "permission_requested", "Permission requested"
+    TURN_FAILED = "turn_failed", "Turn failed"
+    COMMAND_DISPATCHED = "command_dispatched", "Command dispatched"
+    AGENT_ACTIVITY = "agent_activity", "Agent activity"
+    BUDGET_STEER = "budget_steer", "Budget steer"
+    PROCESS_KILLED = "process_killed", "Process killed"
+
+
 class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     """Request body for the agent-proxy side-effect callback.
 
@@ -5076,16 +5087,7 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     """
 
     kind = serializers.ChoiceField(
-        choices=[
-            "heartbeat",
-            "awaiting_input",
-            "permission_requested",
-            "turn_failed",
-            "command_dispatched",
-            "agent_activity",
-            "budget_steer",
-            "process_killed",
-        ],
+        choices=AgentProxyCallbackKind.choices,
         help_text=(
             "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its "
             "inactivity timer. 'awaiting_input' fires a mobile push notification when an "
