@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from uuid import uuid4
 
@@ -25,6 +26,7 @@ from products.ai_observability.backend.models.offline_evaluations import (
     OfflineExperimentItemPayload,
 )
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
+from products.ai_observability.backend.resource_tags import ResourceTags
 
 
 @pytest.mark.ee
@@ -110,6 +112,56 @@ class TestOfflineExperimentReads(APIBaseTest):
             self._endpoint(f"{self.experiment.id}/scorer_summaries/"),
             self._history(),
         ]
+
+    def test_history_filters_experiment_tags_before_pagination(self) -> None:
+        ResourceTags.set(self.experiment, ["quality", "production"])
+        for index, tags in enumerate((["quality"], []), start=1):
+            timestamp = self.experiment.started_at - timedelta(hours=index)
+            experiment = OfflineExperiment.objects.for_team(self.team.id).create(
+                id=uuid4(),
+                team=self.team,
+                name=f"Earlier run {index}",
+                started_at=timestamp,
+                created_at=timestamp,
+                finished_at=timestamp,
+                status="completed",
+                submission_fingerprint="a" * 64,
+            )
+            ResourceTags.set(experiment, tags)
+            item = OfflineExperimentItem.objects.for_team(self.team.id).create(
+                id=uuid4(),
+                team=self.team,
+                experiment=experiment,
+                submission_fingerprint="b" * 64,
+            )
+            OfflineEvaluationResult.objects.for_team(self.team.id).create(
+                team=self.team,
+                item=item,
+                scorer_definition=self.definition,
+                scorer_version=self.version,
+                status="ok",
+                boolean_value=True,
+                submission_fingerprint="c" * 64,
+            )
+        for tags, mode, expected_count in (
+            (["quality", "production"], "any", 2),
+            (["quality", "production"], "all", 1),
+            (["missing"], "any", 0),
+            ([], "all", 3),
+        ):
+            with self.subTest(tags=tags, mode=mode):
+                query = {"tags": json.dumps(tags), "tag_match": mode, "limit": 1}
+                response = self.client.get(self._history(), query)
+                assert response.status_code == 200, response.data
+                assert response.data["count"] == expected_count
+                if expected_count:
+                    assert response.data["results"][0]["experiment"]["tags"] == ["production", "quality"]
+                seen = [point["experiment"]["id"] for point in response.data["results"]]
+                while response.data["next_cursor"]:
+                    response = self.client.get(self._history(), {**query, "cursor": response.data["next_cursor"]})
+                    assert response.status_code == 200, response.data
+                    seen.extend(point["experiment"]["id"] for point in response.data["results"])
+                assert len(seen) == len(set(seen)) == expected_count
 
     def _authenticate(
         self, auth_kind: str, scopes: list[str], user: User | None = None, team: Team | None = None

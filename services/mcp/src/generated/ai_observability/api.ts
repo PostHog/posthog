@@ -728,6 +728,8 @@ export const aiObservabilityOfflineScorersHistoryListQueryStatusesMax = 32
 
 export const aiObservabilityOfflineScorersHistoryListQuerySuiteKeyMax = 255
 
+export const aiObservabilityOfflineScorersHistoryListQueryTagMatchDefault = `any`
+
 export const AiObservabilityOfflineScorersHistoryListQueryParams = () => zod.object({
     application_version: zod
         .string()
@@ -817,6 +819,16 @@ export const AiObservabilityOfflineScorersHistoryListQueryParams = () => zod.obj
         .max(aiObservabilityOfflineScorersHistoryListQuerySuiteKeyMax)
         .optional()
         .describe('Exact evaluation suite identifier.'),
+    tag_match: zod
+        .enum(['any', 'all'])
+        .default(aiObservabilityOfflineScorersHistoryListQueryTagMatchDefault)
+        .describe('Match any selected tag (OR) or all selected tags (AND).\n\n\* `any` - Any\n\* `all` - All'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON array of tag names, for example [\"quality\",\"production\"]. Up to 20 tags. An empty array disables tag filtering.'
+        ),
 })
 
 /**

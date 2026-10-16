@@ -2090,6 +2090,8 @@ const llmaOfflineScorerHistory = (): ToolBase<
                 search: params.search,
                 statuses: params.statuses,
                 suite_key: params.suite_key,
+                tag_match: params.tag_match,
+                tags: params.tags,
             },
         })
         return withInformationalResponse(

@@ -14,7 +14,7 @@ export type OfflineExperimentFilters = Pick<
 
 export type OfflineOverviewTrendFilters = Pick<
     AiObservabilityOfflineScorersHistoryListParams,
-    'run_source' | 'statuses'
+    'run_source' | 'statuses' | 'tags' | 'tag_match'
 >
 
 export const OFFLINE_ALL_UPLOAD_STATES = 'completed,uploading,failed'

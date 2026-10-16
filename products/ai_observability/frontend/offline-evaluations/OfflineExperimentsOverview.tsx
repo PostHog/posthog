@@ -180,6 +180,7 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                         { value: 'failed', label: 'Failed' },
                     ]}
                 />
+                <ResourceTagFilter filters={cleanTagFilters(filters)} onChange={setFilters} />
                 <LemonButton
                     type="secondary"
                     icon={<IconRefresh />}
@@ -239,7 +240,6 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
             <section aria-label="Recent experiments" className="space-y-3">
                 <div className="flex flex-wrap justify-between items-center gap-2">
                     <h2 className="mb-0">Recent experiments</h2>
-                    <ResourceTagFilter filters={cleanTagFilters(filters)} onChange={setFilters} />
                     <LemonInput
                         type="search"
                         prefix={<IconSearch />}

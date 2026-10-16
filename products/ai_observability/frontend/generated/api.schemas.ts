@@ -5078,7 +5078,27 @@ export type AiObservabilityOfflineScorersHistoryListParams = {
      * @maxLength 255
      */
     suite_key?: string
+    /**
+     * Match any selected tag (OR) or all selected tags (AND).
+     *
+     * * `any` - Any
+     * * `all` - All
+     * @minLength 1
+     */
+    tag_match?: AiObservabilityOfflineScorersHistoryListTagMatch
+    /**
+     * JSON array of tag names, for example ["quality","production"]. Up to 20 tags. An empty array disables tag filtering.
+     */
+    tags?: string
 }
+
+export type AiObservabilityOfflineScorersHistoryListTagMatch =
+    (typeof AiObservabilityOfflineScorersHistoryListTagMatch)[keyof typeof AiObservabilityOfflineScorersHistoryListTagMatch]
+
+export const AiObservabilityOfflineScorersHistoryListTagMatch = {
+    Any: 'any',
+    All: 'all',
+} as const
 
 export type AiObservabilityTracesRetrieveParams = {
     /**

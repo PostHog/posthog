@@ -110,6 +110,14 @@ class OfflineResultCellQuerySerializer(_OfflineQuerySerializer[OfflineResultCell
 
 
 class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
+    tags = ResourceTagFilterField()
+    tag_match = serializers.ChoiceField(
+        choices=TagMatch.choices,
+        required=False,
+        default=TagMatch.ANY,
+        help_text="Match any selected tag (OR) or all selected tags (AND).",
+    )
+
     date_from = serializers.DateTimeField(
         required=False, help_text="Inclusive execution start time, in ISO 8601 format."
     )
@@ -148,6 +156,8 @@ class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
     class Meta(OfflineResultQuerySerializer.Meta):
         fields = [
             *OfflineResultQuerySerializer.Meta.fields,
+            "tags",
+            "tag_match",
             "date_from",
             "date_to",
             "search",
@@ -161,6 +171,9 @@ class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
             "model_version",
             "prompt_version",
         ]
+
+    def validate_tags(self, value: list[str]) -> tuple[str, ...]:
+        return tuple(value)
 
     def validate_statuses(self, value: str) -> tuple[str, ...]:
         values = tuple(value.split(","))
@@ -180,23 +193,12 @@ class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
 
 
 class OfflineExperimentQuerySerializer(OfflineHistoryQuerySerializer):
-    tags = ResourceTagFilterField()
-    tag_match = serializers.ChoiceField(
-        choices=TagMatch.choices,
-        required=False,
-        default=TagMatch.ANY,
-        help_text="Match any selected tag (OR) or all selected tags (AND).",
-    )
-
-    def validate_tags(self, value: list[str]) -> tuple[str, ...]:
-        return tuple(value)
-
     scorer_definition_id = serializers.UUIDField(
         required=False, help_text="Restrict results to this scorer definition."
     )
 
     class Meta(OfflineHistoryQuerySerializer.Meta):
-        fields = [*OfflineHistoryQuerySerializer.Meta.fields, "scorer_definition_id", "tags", "tag_match"]
+        fields = [*OfflineHistoryQuerySerializer.Meta.fields, "scorer_definition_id"]
 
 
 class OfflineExperimentReadSerializer(serializers.Serializer):

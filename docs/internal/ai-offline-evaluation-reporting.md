@@ -258,7 +258,9 @@ Assignments use the shared generic tagged-item relation. List queries use correl
 The three tables have a Tags column before the timestamp columns, showing up to two tags with remaining tags in an overflow popover and a control to edit assignments.
 Tag filters are included in the URL and remembered separately per resource type, project, and user in browser storage.
 Explicit URL filters take precedence over remembered filters, including `tags=[]` to clear them.
-On the offline overview, the tag selector filters the recent experiments table; score trend charts retain their separate filters.
+On the offline overview, the top-level tag selector filters both the recent experiments table and score trend charts.
+Scorer history supports the same tag filters through its UI, API, and MCP tool, including comparison periods. Its tables show experiment tags without editing controls.
+Experiment views share remembered tag filters, while explicit URL filters take precedence.
 
 ## Postgres experiment reads
 
