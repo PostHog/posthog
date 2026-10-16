@@ -1,8 +1,6 @@
-"""Rewrite the stored `fingerprint` of every inline experiment metric to the current calculation key.
+"""Refresh inline experiment metric fingerprints after a calculation-key upgrade.
 
-Run it once after a deploy that changes the calculation key version, first as a dry run. Without the rewrite, the
-first save of each experiment after the deploy changes every fingerprint, and the activity log describes every
-metric as changed. `metric_calculation/stored_fingerprints.py` says what it writes.
+Dry run by default. Historical metric results are never rewritten: the settings that produced them are unknown.
 """
 
 from typing import Any
@@ -16,7 +14,7 @@ from products.experiments.backend.metric_calculation.stored_fingerprints import 
 
 
 class Command(BaseCommand):
-    help = "Rewrite stored inline metric fingerprints to the current calculation key. Dry run unless --apply."
+    help = "Refresh stored inline metric fingerprints. Historical result keys stay unchanged. Dry run unless --apply."
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--apply", action="store_true", help="Write the new fingerprints.")

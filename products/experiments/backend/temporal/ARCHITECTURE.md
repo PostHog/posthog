@@ -83,7 +83,7 @@ Every write also stores its version 1 key in `display_key`, salted for run rows.
 
 The display key omits confidence, baseline and CUPED settings as well as project settings, so it must never authorize calculation reuse. Metric definition, start date, stats method, stored exposure criteria, maturity and excluded-variant edits change the display key too and hide incompatible history.
 
-The stored `fingerprint` of each inline metric holds the calculation key too, but no reader uses it. After a key version change, the `rewrite_experiment_metric_fingerprints` management command rewrites the stored values in place (dry run unless `--apply`), so that the first save of each experiment does not change every fingerprint and confuse the activity log.
+The optional `rewrite_experiment_metric_fingerprints` management command refreshes only inline metric fingerprint metadata. It runs in dry-run mode unless `--apply` is supplied, and preserves experiment versions, timestamps, activity logs, and all historical result keys. It is not required to enable version 2 reuse checks.
 
 This matters because the recalc workflow shares the `ExperimentMetricResult` table with the timeseries workflows. If we used the config fingerprint, every recalc would overwrite the cached daily timeseries row, wrecking the timeseries reads. The constant salt keeps the recalc family distinct from the timeseries family on the same table, so they never collide.
 
