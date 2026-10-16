@@ -17,7 +17,9 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertSnapshot,
     PlatformConfigurationSnapshot,
     SourceCorrespondence,
+    SourceKind,
 )
+from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
@@ -75,6 +77,51 @@ def start_firing(configuration_id: UUID, *, team_id: int, at: datetime) -> None:
         configuration_id=configuration_id,
         grouping_key="",
         defaults={"state": "firing", "firing_started_at": at},
+    )
+
+
+def set_check_status(configuration_id: UUID, check_status: str) -> None:
+    """Mark a configuration's checks as failing or not, as checks outside the test can leave it."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(check_status=check_status)
+
+
+def record_check(
+    configuration_id: UUID,
+    *,
+    team_id: int,
+    at: datetime,
+    previous_state: str,
+    state: str,
+    error_message: str | None = None,
+) -> None:
+    """Write one ungrouped check to the platform's ClickHouse history, as a check that ran at `at`."""
+    insert_events(
+        team_id,
+        [
+            PlatformAlertEventRow(
+                team_id=team_id,
+                source_kind=SourceKind.LOGS.value,
+                configuration_id=configuration_id,
+                alert_id=configuration_id,
+                grouping_key="",
+                evaluation_key=f"slot:{at.isoformat()}",
+                kind="check",
+                alert_name="",
+                previous_state=previous_state,
+                state=state,
+                episode_started_at=None,
+                value=None,
+                labels={},
+                condition_snapshot={},
+                source_config_snapshot={},
+                query_duration_ms=None,
+                error_message=error_message,
+                consecutive_failures=0,
+                muted_notification="",
+                occurred_at=at,
+            )
+        ],
     )
 
 

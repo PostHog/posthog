@@ -54,6 +54,20 @@ describe('insight query shapes', () => {
         expect((result.data as { query: unknown }).query).toEqual(BARE_TRENDS_QUERY)
     })
 
+    it.each(tools)('$tool keeps the pie chart options of a wrapped query', ({ tool, base }) => {
+        const { schema } = GENERATED_TOOLS[tool]!()
+        const query = {
+            kind: 'InsightVizNode',
+            source: { ...BARE_TRENDS_QUERY, trendsFilter: { display: 'ActionsPie' } },
+            vizSpecificOptions: { ActionsPie: { hideAggregation: true } },
+        }
+
+        const result = schema.safeParse({ ...base, query })
+
+        expect(result.success).toBe(true)
+        expect((result.data as { query: unknown }).query).toEqual(query)
+    })
+
     it.each(tools)('$tool rejects a query kind the endpoint refuses to save', ({ tool, base }) => {
         const { schema } = GENERATED_TOOLS[tool]!()
 

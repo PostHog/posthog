@@ -71,7 +71,7 @@ _ANSWER_CACHE_SECONDS = int(timedelta(days=30).total_seconds())
 # unknown answer shows the finding, so it waits an hour.
 _TOO_EXPENSIVE_CACHE_SECONDS = int(timedelta(days=1).total_seconds())
 _FAILED_CACHE_SECONDS = int(timedelta(hours=1).total_seconds())
-_UNKNOWN = "unknown"
+UNKNOWN = "unknown"
 _BEFORE_VARIANTS_PATH = '$.changes[*] ? (@.field == "filters").before.multivariate.variants'
 _AFTER_VARIANTS_PATH = '$.changes[*] ? (@.field == "filters").after.multivariate.variants'
 # Events can arrive after the window ends, so a "nobody" answer for a recent window can still change.
@@ -98,6 +98,17 @@ def load_split_history(
     except Exception as error:
         capture_exception(error)
         return None
+
+
+def cache_failed_scan(cache_key: str, error: Exception) -> None:
+    """Caches the answer of a failed scan as UNKNOWN, and reports an error that is not expected."""
+    # The page calls the endpoint on every load, so a scan that fails must not run again on every load.
+    # Cluster memory pressure subclasses the per-query memory error, but it says nothing about this scan.
+    transient = isinstance(error, CH_TRANSIENT_ERRORS)
+    too_expensive = not transient and isinstance(error, _TOO_EXPENSIVE_ERRORS)
+    if not transient and not too_expensive:
+        capture_exception(error)
+    cache.set(cache_key, UNKNOWN, _TOO_EXPENSIVE_CACHE_SECONDS if too_expensive else _FAILED_CACHE_SECONDS)
 
 
 def query_any_exposure(
@@ -180,7 +191,7 @@ class _ExposureGate:
         cached = self._prefetched.get(cache_key) if cache_key in self._prefetched_keys else cache.get(cache_key)
         if isinstance(cached, bool):
             return cached
-        if cached == _UNKNOWN:
+        if cached == UNKNOWN:
             return None
         if self._stopped:
             return None
@@ -198,13 +209,7 @@ class _ExposureGate:
                 default_exposure_event=self._default_exposure_event,
             )
         except Exception as error:
-            # The page calls the endpoint on every load, so a scan that fails must not run again on every load.
-            # Cluster memory pressure subclasses the per-query memory error, but it says nothing about this scan.
-            transient = isinstance(error, CH_TRANSIENT_ERRORS)
-            too_expensive = not transient and isinstance(error, _TOO_EXPENSIVE_ERRORS)
-            if not transient and not too_expensive:
-                capture_exception(error)
-            cache.set(cache_key, _UNKNOWN, _TOO_EXPENSIVE_CACHE_SECONDS if too_expensive else _FAILED_CACHE_SECONDS)
+            cache_failed_scan(cache_key, error)
             self._stopped = True
             return None
         settled = answer or timezone.now() - window.end > _SETTLED_AFTER
