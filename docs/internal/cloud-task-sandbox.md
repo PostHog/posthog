@@ -30,6 +30,16 @@ Product and Storybook builds still run from source.
 In `products/desktop`, the backend starts `pnpm bootstrap:cloud-task` in the background while the agent boots.
 Run `pnpm bootstrap:cloud-task:wait` there before any other `pnpm` command, so a second install does not race it.
 
+The memory watchdog stops a process tree when the sandbox reaches 85% of its memory limit.
+The running dev stack uses about 15 GiB, so a full frontend check must stay under about 12 GiB.
+
+- `pnpm --filter=@posthog/frontend typescript:check` detects the sandbox and runs `tsgo` with one checker and `GOMEMLIMIT=8GiB`.
+  A cold run uses about 10 GiB and takes about 2.5 minutes. The default run uses about 23 GiB, which the watchdog stops.
+- Do not pass extra `--checkers` to that script, and do not call `tsgo` directly.
+- Use `typegen:file <logic-file>` for kea types. A full `typegen:write` uses about 7 GiB.
+  If you must run it, do not run it at the same time as the TypeScript check.
+- If the watchdog stops a check, do not retry it unchanged. Report that full validation did not complete and let CI run it.
+
 ## Tests
 
 Scope every run to what you changed, with `hogli test --changed` or the test files that cover the touched code.
