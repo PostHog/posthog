@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 import httpx
-from anthropic import APITimeoutError
+from anthropic import APIStatusError, APITimeoutError
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -32,6 +32,12 @@ def _model_reply(payload: Any) -> MagicMock:
         content=[SimpleNamespace(type="text", text=text)]
     )
     return client
+
+
+def _gateway_error(status: int, headers: dict[str, str] | None = None) -> APIStatusError:
+    body = {"type": "error", "error": {"type": "billing_error", "message": "Payment required"}}
+    response = httpx.Response(status, headers=headers, json=body, request=httpx.Request("POST", "http://gateway"))
+    return APIStatusError("Payment required", response=response, body=body)
 
 
 class TestEmailDrafts(APIBaseTest):
@@ -109,6 +115,8 @@ class TestEmailDrafts(APIBaseTest):
             ("gateway_unconfigured", {"build_error": GatewayNotConfiguredError("unset")}),
             ("timeout", {"call_error": APITimeoutError(httpx.Request("POST", "http://gateway"))}),
             ("model_error", {"call_error": RuntimeError("gateway 502")}),
+            ("ai_credits_exhausted", {"call_error": _gateway_error(402, {"X-PostHog-Denial": "insufficient_credits"})}),
+            ("model_error", {"call_error": _gateway_error(402)}),
             ("invalid_output", {"reply": "Sure! Here is your email."}),
             ("invalid_output", {"reply": {"subject": "Hi {{ person.name }}", "paragraphs": ["Hi there,"]}}),
             ("invalid_output", {"reply": {"subject": "x" * 121, "paragraphs": ["Hi there,"]}}),
@@ -119,7 +127,10 @@ class TestEmailDrafts(APIBaseTest):
     @patch(f"{SERVICE}._draft_flag_enabled", return_value=True)
     @patch(f"{SERVICE}.build_ai_gateway_anthropic_client")
     @patch(f"{SERVICE}.consume")
-    def test_falls_back_to_the_template(self, reason: str, case: dict, consume, build_client, _flag) -> None:
+    @patch(f"{SERVICE}.capture_exception")
+    def test_falls_back_to_the_template(
+        self, reason: str, case: dict, capture_exception, consume, build_client, _flag
+    ) -> None:
         self.organization.is_ai_data_processing_approved = case.get("approved", True)
         self.organization.save()
         consume.return_value = BucketDecision(
@@ -141,6 +152,7 @@ class TestEmailDrafts(APIBaseTest):
         )
         if reason in ("ai_not_approved", "rate_limited"):
             client.with_options.return_value.messages.create.assert_not_called()
+        assert capture_exception.called == (reason == "model_error")
 
     @parameterized.expand([("error_tracking",), ("early_access",), ("survey",), ("feature_flag",), ("cohort",)])
     def test_another_teams_source_is_not_found(self, source: str) -> None:

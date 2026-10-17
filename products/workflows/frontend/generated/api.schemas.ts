@@ -2314,6 +2314,7 @@ export const EmailDraftOriginEnumApi = {
  * * `ai_not_approved` - The organization has not approved AI data processing
  * * `gateway_unconfigured` - The AI gateway is not configured
  * * `rate_limited` - The project used its hourly AI drafts
+ * * `ai_credits_exhausted` - The organization used its monthly PostHog AI credits
  * * `timeout` - The model took too long
  * * `model_error` - The model call failed
  * * `invalid_output` - The model returned an unusable draft
@@ -2326,6 +2327,7 @@ export const EmailDraftFallbackReasonEnumApi = {
     AiNotApproved: 'ai_not_approved',
     GatewayUnconfigured: 'gateway_unconfigured',
     RateLimited: 'rate_limited',
+    AiCreditsExhausted: 'ai_credits_exhausted',
     Timeout: 'timeout',
     ModelError: 'model_error',
     InvalidOutput: 'invalid_output',
@@ -2351,6 +2353,7 @@ export interface EmailDraftApi {
      * * `ai_not_approved` - The organization has not approved AI data processing
      * * `gateway_unconfigured` - The AI gateway is not configured
      * * `rate_limited` - The project used its hourly AI drafts
+     * * `ai_credits_exhausted` - The organization used its monthly PostHog AI credits
      * * `timeout` - The model took too long
      * * `model_error` - The model call failed
      * * `invalid_output` - The model returned an unusable draft */
