@@ -116,6 +116,18 @@ The service extracts the SDK type from the request's user-agent header and incre
 | `posthog-flutter`      | Flutter SDK             |
 | `other`                | Unknown or unrecognized |
 
+### Legacy Django endpoint
+
+The legacy `/api/feature_flag/` list endpoint counts personal-API-key requests as local evaluation requests.
+It keeps the existing Redis increment and enqueues a `feature_flag_local_evaluation_requests` usage record on the default Celery queue.
+The `feature-flags-django` producer gives each request a UUID and timestamp before enqueueing, so worker delivery preserves its identity and occurrence time.
+Browser-session and unauthenticated requests do not emit these records.
+
+Both the web service and the default Celery workers need `USAGE_INGESTION_ADDR` and an enabled `USAGE_INGESTION_REPORT_TEAMS` allowlist.
+The worker uses the shared usage-ingestion client for delivery and retries.
+Enqueue and delivery failures are logged without failing the API request; delivery remains best effort.
+The counter's existing source-selection guard still keeps legacy totals authoritative during comparison rollout.
+
 ### Redis pipelining
 
 Both the team-level and SDK-level counters are incremented in a single Redis round-trip using pipelining:

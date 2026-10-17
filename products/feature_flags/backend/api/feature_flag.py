@@ -11,6 +11,7 @@ from contextlib import nullcontext
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn, Optional, cast
+from uuid import uuid4
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -87,6 +88,8 @@ from posthog.rate_limit import (
     ProjectSecretApiKeyTeamRateThrottle,
 )
 from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
+from posthog.tasks.usage_ingestion import enqueue_usage_records
+from posthog.usage_ingestion.client import UsageRecord
 from posthog.utils import is_valid_regex, str_to_bool
 from posthog.views import format_bytes
 
@@ -4201,6 +4204,19 @@ class FeatureFlagViewSet(
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             # Add request for analytics only if request coming with personal API key authentication
             increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
+            enqueue_usage_records(
+                [
+                    UsageRecord(
+                        record_id=str(uuid4()),
+                        producer_id="feature-flags-django",
+                        team_id=self.team.pk,
+                        usage_key="feature_flag_local_evaluation_requests",
+                        unit="requests",
+                        quantity=1,
+                    )
+                ],
+                site="legacy_flag_definitions",
+            )
 
         response = super().list(request, *args, **kwargs)
         feature_flags_data = response.data.get("results", [])

@@ -25,6 +25,7 @@ from . import (
     sync_billing,
     tasks,
     team_access_cache_tasks,
+    usage_ingestion,
     usage_report,
 )
 
@@ -53,5 +54,6 @@ __all__ = [
     "sync_billing",
     "tasks",
     "team_access_cache_tasks",
+    "usage_ingestion",
     "usage_report",
 ]
