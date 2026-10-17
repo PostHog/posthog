@@ -90,6 +90,7 @@ import type {
 } from '../../types'
 import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeLogic'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
+import { ccParticipantsEqual, normalizeCcParticipants } from './ccParticipants'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
 /** Discussions ride the message timer at 1/4 the rate, so ~20s. */
@@ -296,6 +297,7 @@ export interface supportTicketSceneLogicValues {
     aiDraftApplying: boolean
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
+    ccParticipants: string[]
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
     composerPrefillAt: number
@@ -494,6 +496,9 @@ export interface supportTicketSceneLogicActions {
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
     }
+    setCcParticipants: (ccParticipants: string[]) => {
+        ccParticipants: string[]
+    }
     setDraftContent: (content: string | JSONContent | null) => {
         content: string | JSONContent | null
     }
@@ -564,6 +569,9 @@ export interface supportTicketSceneLogicActions {
         messageId: string
         rating: AiReplyFeedbackRating
     }
+    updateCcParticipants: (addresses: string[]) => {
+        addresses: string[]
+    }
     updateTicket: () => {
         value: true
     }
@@ -595,6 +603,7 @@ export interface supportTicketSceneLogicMeta {
             assignee: TicketAssignee,
             tags: string[],
             snoozedUntil: string | null,
+            ccParticipants: string[],
             ticket: Ticket | null,
             resolveAssignee: (assignee: TicketAssignee) => Assignee // assigneeSelectLogic
         ) => string[]
@@ -688,6 +697,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setAssignee: (assignee: TicketAssignee) => ({ assignee }),
         setTags: (tags: string[]) => ({ tags }),
         setSnoozedUntil: (snoozedUntil: string | null) => ({ snoozedUntil }),
+        updateCcParticipants: (addresses: string[]) => ({ addresses }),
+        setCcParticipants: (ccParticipants: string[]) => ({ ccParticipants }),
 
         // Session context actions
         loadPerson: true,
@@ -892,6 +903,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             {
                 setTags: (_, { tags }) => tags,
                 setTicket: (_, { ticket }) => ticket?.tags || [],
+            },
+        ],
+        ccParticipants: [
+            [] as string[],
+            {
+                setCcParticipants: (_, { ccParticipants }) => ccParticipants,
+                setTicket: (_, { ticket }) => [...(ticket?.cc_participants ?? [])],
             },
         ],
         snoozedUntil: [
@@ -1102,12 +1120,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // Human-readable list of unsaved edits other than status, shown in the send-and-set-status
         // confirmation. Status is excluded because that action overrides it anyway.
         unsavedTicketChanges: [
-            (s) => [s.priority, s.assignee, s.tags, s.snoozedUntil, s.ticket, s.resolveAssignee],
+            (s) => [s.priority, s.assignee, s.tags, s.snoozedUntil, s.ccParticipants, s.ticket, s.resolveAssignee],
             (
                 priority: TicketPriority | null,
                 assignee: TicketAssignee,
                 tags: string[],
                 snoozedUntil: string | null,
+                ccParticipants: string[],
                 ticket: Ticket | null,
                 resolveAssignee: (assignee: TicketAssignee) => Assignee
             ): string[] => {
@@ -1142,6 +1161,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             ? `Snoozed until ${dayjs(snoozedUntil).format('D MMM YYYY, h:mm A')}`
                             : 'Snooze removed'
                     )
+                }
+                if (!ccParticipantsEqual(ccParticipants, ticket.cc_participants || [])) {
+                    changes.push(ccParticipants.length > 0 ? `CC: ${ccParticipants.join(', ')}` : 'CC: none')
                 }
                 return changes
             },
@@ -1325,6 +1347,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
+        updateCcParticipants: ({ addresses }) => {
+            const { participants, invalid, alreadyReceiving } = normalizeCcParticipants(addresses, [
+                values.ticket?.email_from,
+                values.ticket?.email_to,
+            ])
+            if (invalid.length > 0) {
+                lemonToast.error(`Couldn't add ${invalid.join(', ')}. Enter a valid email address.`)
+            }
+            if (alreadyReceiving.length > 0) {
+                lemonToast.info(`${alreadyReceiving.join(', ')} already gets every reply.`)
+            }
+            actions.setCcParticipants(participants)
+        },
         loadTicket: async () => {
             if (values.editingMessageId) {
                 actions.cancelEditingMessage()
@@ -1408,6 +1443,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             data.assignee = values.assignee
             data.tags = values.tags
             data.snoozed_until = values.snoozedUntil
+            // Sent only when edited, so a save of another field can't drop an address a new inbound email added.
+            if (!ccParticipantsEqual(values.ccParticipants, values.ticket?.cc_participants || [])) {
+                data.cc_participants = values.ccParticipants
+            }
 
             const request = conversationsTicketsPartialUpdate(String(getCurrentTeamId()), props.id.toString(), data)
             cache.ticketUpdateRequest = request

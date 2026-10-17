@@ -45,6 +45,7 @@ from products.conversations.backend.api.ticket_filters import query_params_to_vi
 from products.conversations.backend.api.tickets import (
     ComposeTicketSerializer,
     TicketReplyRequestSerializer,
+    TicketUpdateRequestSerializer,
     TicketViewSet,
 )
 from products.conversations.backend.models import (
@@ -66,6 +67,42 @@ from products.conversations.backend.reply_dedupe import (
 )
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
+
+
+class TestTicketUpdateCcParticipants(SimpleTestCase):
+    def _ticket(self, channel_source: str = Channel.EMAIL) -> Ticket:
+        config = EmailChannel(from_email="support@example.com", inbound_token="tok123")
+        return Ticket(channel_source=channel_source, email_from="requester@example.com", email_config=config)
+
+    @parameterized.expand(
+        [
+            ("dedupes_case_insensitively", ["A@Example.com", "a@example.com"], ["a@example.com"]),
+            (
+                "drops_requester_and_support_inbox",
+                ["Requester@example.com", "support@example.com", "team-tok123@inbound.example.com", "b@example.com"],
+                ["b@example.com"],
+            ),
+            ("empty_list_clears", [], []),
+        ]
+    )
+    def test_normalizes_email_ticket_cc(self, _name: str, submitted: list[str], expected: list[str]) -> None:
+        serializer = TicketUpdateRequestSerializer(self._ticket(), data={"cc_participants": submitted}, partial=True)
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["cc_participants"] == expected
+
+    @parameterized.expand(
+        [
+            ("non_email_ticket", Channel.WIDGET, ["a@example.com"]),
+            ("invalid_address", Channel.EMAIL, ["not-an-email"]),
+            ("too_many", Channel.EMAIL, [f"user{i}@example.com" for i in range(51)]),
+        ]
+    )
+    def test_rejects_invalid_cc(self, _name: str, channel_source: str, submitted: list[str]) -> None:
+        serializer = TicketUpdateRequestSerializer(
+            self._ticket(channel_source), data={"cc_participants": submitted}, partial=True
+        )
+        assert not serializer.is_valid()
+        assert "cc_participants" in serializer.errors
 
 
 class TestComposeTicketSerializer(SimpleTestCase):
@@ -395,6 +432,38 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(
             {change["field"]: (change["before"], change["after"]) for change in changes},
             expected_changes,
+        )
+
+    def test_update_cc_participants_on_email_ticket(self, mock_on_commit):
+        self.ticket.channel_source = Channel.EMAIL
+        self.ticket.email_from = "requester@example.com"
+        self.ticket.email_config = EmailChannel.objects.create(
+            team=self.team,
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            inbound_token="test-token-cc",
+        )
+        self.ticket.cc_participants = ["old@example.com"]
+        self.ticket.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"cc_participants": ["New@example.com"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["cc_participants"], ["new@example.com"])
+
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.cc_participants, ["new@example.com"])
+        entry = ActivityLog.objects.get(
+            team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id), activity="updated"
+        )
+        assert entry.detail is not None
+        self.assertEqual(
+            [(c["field"], c["before"], c["after"]) for c in entry.detail["changes"]],
+            [("cc_participants", ["old@example.com"], ["new@example.com"])],
         )
 
     @parameterized.expand(

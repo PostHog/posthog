@@ -102,6 +102,7 @@ from products.conversations.backend.models import (
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status, TicketMessageType
 from products.conversations.backend.person_lookup import _get_persons_by_email
 from products.conversations.backend.services.delivery import cancel_open_deliveries_for_ticket
+from products.conversations.backend.services.mailgun_events import MAX_EMAIL_ADDRESS_LENGTH
 from products.conversations.backend.services.messages import ticket_message_type
 from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket
 
@@ -111,6 +112,9 @@ if TYPE_CHECKING:
     from posthog.models import Organization, User
 
 logger = structlog.get_logger(__name__)
+
+# Every CC address receives every later reply, so a long list turns one reply into a mass mailing.
+MAX_CC_PARTICIPANTS = 50
 
 
 class UserTicketAssignee(TypedDict):
@@ -412,6 +416,11 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
+    cc_participants = serializers.ListField(
+        child=serializers.EmailField(),
+        read_only=True,
+        help_text="Email addresses copied on every reply to an email ticket. Empty for other channels.",
+    )
     session_context = TicketSessionContextField(read_only=True)
 
     class Meta:
@@ -583,6 +592,16 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
         required=False,
         help_text="Tag names to set on the ticket.",
     )
+    cc_participants = serializers.ListField(
+        child=serializers.EmailField(max_length=MAX_EMAIL_ADDRESS_LENGTH),
+        required=False,
+        max_length=MAX_CC_PARTICIPANTS,
+        help_text=(
+            "Email addresses to copy on every later reply. Replaces the current list. "
+            "Only email tickets accept this. The requester and the support inbox are dropped, "
+            "because replies already go to them."
+        ),
+    )
 
     class Meta:
         model = Ticket
@@ -596,6 +615,7 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "sla_due_at",
             "snoozed_until",
             "tags",
+            "cc_participants",
         ]
         extra_kwargs = {
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved."},
@@ -606,6 +626,24 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "sla_due_at": {"help_text": "SLA deadline. Pass null to clear it."},
             "snoozed_until": {"help_text": "Time to reopen the ticket. Pass null to reopen it now."},
         }
+
+    def validate_cc_participants(self, value: list[str]) -> list[str]:
+        ticket = self.instance
+        if ticket is None or ticket.channel_source != Channel.EMAIL:
+            raise serializers.ValidationError("Only email tickets have CC recipients.")
+        excluded = {(ticket.email_from or "").lower()}
+        config = ticket.email_config
+        if config is not None:
+            excluded.add(config.from_email.lower())
+        inbound_prefix = f"team-{config.inbound_token}@" if config is not None else None
+        participants: list[str] = []
+        for address in value:
+            normalized = address.strip().lower()
+            if normalized in excluded or (inbound_prefix and normalized.startswith(inbound_prefix)):
+                continue
+            if normalized not in participants:
+                participants.append(normalized)
+        return participants
 
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
@@ -681,6 +719,7 @@ class _TicketFields:
     priority: str | None
     sla_due_at: datetime | None
     snoozed_until: datetime | None
+    cc_participants: tuple[str, ...]
 
     @classmethod
     def read_from(cls, ticket: Ticket) -> _TicketFields:
@@ -689,6 +728,7 @@ class _TicketFields:
             priority=ticket.priority,
             sla_due_at=ticket.sla_due_at,
             snoozed_until=ticket.snoozed_until,
+            cc_participants=tuple(ticket.cc_participants or ()),
         )
 
 
@@ -711,6 +751,10 @@ class _TicketUpdateDiff:
         return self.before.priority != self.after.priority
 
     @property
+    def cc_changed(self) -> bool:
+        return self.before.cc_participants != self.after.cc_participants
+
+    @property
     def crosses_resolved(self) -> bool:
         return self.status_changed and Status.RESOLVED in (self.before.status, self.after.status)
 
@@ -725,6 +769,7 @@ class _TicketUpdateDiff:
             ("priority", self.before.priority, self.after.priority),
             ("sla_due_at", self.before.sla_due_at, self.after.sla_due_at),
             ("snoozed_until", self.before.snoozed_until, self.after.snoozed_until),
+            ("cc_participants", list(self.before.cc_participants), list(self.after.cc_participants)),
         ]
         # Compare the raw values, so two datetimes for the same instant in different
         # timezones do not register as a change, then render for the log.
@@ -1301,6 +1346,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         if diff.has_changes:
             self._report_ticket_updated(request, instance)
 
+        if diff.cc_changed:
+            self._report_cc_updated(request, instance, diff)
+
     def _capture_update_events(self, request, instance: Ticket, diff: _TicketUpdateDiff) -> None:
         """Emit the analytics events that workflow triggers listen for."""
         try:
@@ -1344,6 +1392,25 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 request.user,
                 "support ticket updated",
                 _ticket_action_properties(instance),
+                team=self.team,
+                request=request,
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
+
+    def _report_cc_updated(self, request, instance: Ticket, diff: _TicketUpdateDiff) -> None:
+        before = set(diff.before.cc_participants)
+        after = set(diff.after.cc_participants)
+        try:
+            report_user_action(
+                request.user,
+                "support ticket cc updated",
+                {
+                    **_ticket_action_properties(instance),
+                    "added_count": len(after - before),
+                    "removed_count": len(before - after),
+                    "cc_count": len(after),
+                },
                 team=self.team,
                 request=request,
             )
