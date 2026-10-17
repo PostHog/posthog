@@ -1,9 +1,10 @@
-import dataclasses
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -40,7 +41,7 @@ EVENTS_FULL_REFRESH_SINCE = "2000-01-01T00:00:00Z"
 EVENTS_SINCE_OVERLAP = timedelta(hours=1)
 
 
-@dataclasses.dataclass
+@frozen
 class SmartsheetResumeConfig:
     # 1-based number of the next unfetched page — Smartsheet list endpoints page with `page`.
     next_page: Optional[int] = None

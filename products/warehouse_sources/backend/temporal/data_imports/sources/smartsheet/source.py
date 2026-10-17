@@ -103,7 +103,7 @@ You can generate a personal access token under **Personal Settings → API Acces
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=["events"])
 
     def validate_credentials(
         self,
