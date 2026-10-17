@@ -440,7 +440,26 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         assert log.detail is not None
         self.assertEqual(log.detail.get("name"), "delete_test")
 
-    def test_delete_endpoint_is_refused_when_a_model_depends_on_it(self):
+    @parameterized.expand(
+        [
+            ("delete", "delete", None, "Can't delete blocked_endpoint_v1 yet."),
+            (
+                "disable_materialization",
+                "patch",
+                {"is_materialized": False},
+                "Can't turn off materialization for blocked_endpoint yet.",
+            ),
+            (
+                "deactivate_endpoint",
+                "patch",
+                {"is_active": False},
+                "Can't turn off materialization for blocked_endpoint yet.",
+            ),
+        ]
+    )
+    def test_removing_endpoint_materialization_is_refused_when_a_model_depends_on_it(
+        self, _name: str, method: str, body: dict[str, Any] | None, refusal: str
+    ):
         endpoint = create_endpoint_with_version(
             name="blocked_endpoint",
             team=self.team,
@@ -474,19 +493,21 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
         Edge.objects.create(team=self.team, dag=dag, source=endpoint_node, target=downstream_node)
 
-        response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", body, format="json"
+        )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "has_dependents")
         self.assertEqual(response.json()["extra"], {"node_id": str(endpoint_node.id)})
         self.assertEqual(
-            response.json()["detail"],
-            "Can't delete blocked_endpoint_v1 yet. Something else reads from it. Update or delete it first.",
+            response.json()["detail"], f"{refusal} Something else reads from it. Update or delete it first."
         )
         endpoint.refresh_from_db()
         backing_query.refresh_from_db()
         version.refresh_from_db()
         self.assertFalse(endpoint.deleted)
+        self.assertTrue(endpoint.is_active)
         self.assertFalse(backing_query.deleted)
         self.assertEqual(version.saved_query_id, backing_query.id)
         self.assertTrue(Node.objects.filter(id=endpoint_node.id).exists())

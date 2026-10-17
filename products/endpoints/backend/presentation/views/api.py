@@ -552,7 +552,14 @@ class EndpointViewSet(
             data, self.team, cast(User, request.user), endpoint=endpoint, version_number=version_number
         )
 
-        outcome = EndpointCrudService(self.team, request).update(endpoint, data, request.data, version_number)
+        try:
+            outcome = EndpointCrudService(self.team, request).update(endpoint, data, request.data, version_number)
+        except HasDependentsError as error:
+            raise self._dependents_error(
+                f"Can't turn off materialization for {endpoint.name} yet. Something else reads from it. "
+                "Update or delete it first.",
+                error,
+            )
 
         # When targeting a specific version, return version data; otherwise return endpoint data
         if outcome.version_targeted and outcome.target_version is not None:
@@ -571,13 +578,14 @@ class EndpointViewSet(
         try:
             EndpointCrudService(self.team, request).destroy(endpoint)
         except HasDependentsError as error:
-            can_read_lineage = self.user_access_control.check_access_level_for_resource(
-                "warehouse_view", required_level="viewer"
-            )
-            raise EndpointDependentsValidationError(
-                str(error), node_id=error.fallback_node_id if can_read_lineage else None
-            )
+            raise self._dependents_error(str(error), error)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _dependents_error(self, detail: str, error: HasDependentsError) -> EndpointDependentsValidationError:
+        can_read_lineage = self.user_access_control.check_access_level_for_resource(
+            "warehouse_view", required_level="viewer"
+        )
+        return EndpointDependentsValidationError(detail, node_id=error.fallback_node_id if can_read_lineage else None)
 
     # ------------------------------------------------------------------
     # Execution

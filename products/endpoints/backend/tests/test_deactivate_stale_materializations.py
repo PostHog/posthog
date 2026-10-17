@@ -8,7 +8,14 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJob,
+    DataWarehouseSavedQuery,
+    Edge,
+    Node,
+    NodeType,
+)
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tasks.tasks import (
     STALE_THRESHOLD_DAYS,
@@ -298,6 +305,39 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         deactivated_ids = {call.args[0].id for call in mock_deactivate.call_args_list}
         assert deactivated_ids == {old_version.id}
         assert current_version.id not in deactivated_ids
+
+    @parameterized.expand([("lineage_edge",), ("view_without_lineage",), ("endpoint_query",)])
+    def test_keeps_stale_version_that_another_query_reads(self, reader: str):
+        now = timezone.now()
+        _, version = self._create_materialized_endpoint(
+            "upstream_endpoint_v1",
+            last_run_at=now - timedelta(hours=1),
+            last_executed_at=now - timedelta(days=45),
+            materialization_created_at=now - timedelta(days=45),
+        )
+        reader_query = {"kind": "HogQLQuery", "query": "SELECT count() FROM upstream_endpoint_v1"}
+        if reader == "endpoint_query":
+            reader_endpoint = Endpoint.objects.create(name="reader", team=self.team, created_by=self.user)
+            EndpointVersion.objects.create(
+                endpoint=reader_endpoint, version=1, query=reader_query, created_by=self.user
+            )
+        else:
+            dag = DAG.get_or_create_default(self.team)
+            source = Node.objects.create(
+                team=self.team, dag=dag, saved_query=version.saved_query, type=NodeType.ENDPOINT
+            )
+            downstream = DataWarehouseSavedQuery.objects.create(
+                team=self.team, name="downstream_view", query=reader_query
+            )
+            target = Node.objects.create(team=self.team, dag=dag, saved_query=downstream, type=NodeType.VIEW)
+            if reader != "view_without_lineage":
+                Edge.objects.create(team=self.team, dag=dag, source=source, target=target)
+
+        deactivate_stale_materializations()
+
+        version.refresh_from_db()
+        assert version.saved_query is not None
+        assert version.saved_query.deleted is False
 
 
 class TestDeactivateEndpointMaterialization(BaseTest):
