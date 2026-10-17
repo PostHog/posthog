@@ -1,6 +1,7 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import type { LogicWrapper } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
@@ -15,6 +16,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { urls } from 'scenes/urls'
 
+import { concurrencyController } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     FunnelsQuery,
@@ -169,7 +171,11 @@ export interface insightDataChecksLogicActions {
 export interface insightDataChecksLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        checkedQuery: (query: Node<Record<string, any>> | null, featureFlags: FeatureFlagsSet) => DataChecksQuery | null
+        checkedQuery: (
+            query: Node<Record<string, any>> | null,
+            featureFlags: FeatureFlagsSet,
+            hasOverrides: boolean
+        ) => DataChecksQuery | null
         status: (
             checkedQuery: DataChecksQuery | null,
             requestedQuery: DataChecksQuery | null,
@@ -197,6 +203,8 @@ export type insightDataChecksLogicType = MakeLogicType<
 >
 
 const FORCED_REFRESHES: (RefreshType | undefined)[] = ['force_async', 'force_blocking']
+// The checks run up to four queries of 20 seconds each, after a wait for server slots.
+const DATA_CHECKS_TIMEOUT_MS = 120_000
 
 export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = kea<insightDataChecksLogicType>([
     props({} as InsightLogicProps),
@@ -232,9 +240,25 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             {
                 loadDataChecks: async (query: DataChecksQuery): Promise<DataChecksRun | null> => {
                     try {
-                        const result = await insightsDataChecksCreate(String(getCurrentTeamId()), {
-                            query,
-                        } as unknown as InsightDataChecksRequestApi)
+                        // The checks hold the same server slots as charts, so they wait behind the charts in the queue.
+                        const result = await concurrencyController.run({
+                            debugTag: 'InsightDataChecks',
+                            fn: async () => {
+                                // A stalled request would block every later run, which waits for this one to end.
+                                const abortController = new AbortController()
+                                const timeout = setTimeout(() => abortController.abort(), DATA_CHECKS_TIMEOUT_MS)
+                                try {
+                                    return await insightsDataChecksCreate(
+                                        String(getCurrentTeamId()),
+                                        { query } as unknown as InsightDataChecksRequestApi,
+                                        undefined,
+                                        { signal: abortController.signal }
+                                    )
+                                } finally {
+                                    clearTimeout(timeout)
+                                }
+                            },
+                        })
                         return { ok: true, result }
                     } catch (error) {
                         return { ok: false, denied: error instanceof ApiError && error.status === 403 }
@@ -263,9 +287,10 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         // The server only checks insights whose series are all events, so no request goes out for the rest.
         // Compared by value, so a render that rebuilds the same query is not a new query.
         checkedQuery: [
-            (s) => [s.query, s.featureFlags],
-            (query: Node | null, featureFlags: FeatureFlagsSet): DataChecksQuery | null => {
-                if (!featureFlags[FEATURE_FLAGS.INSIGHT_DATA_CHECKS] || !isInsightVizNode(query)) {
+            (s) => [s.query, s.featureFlags, s.hasOverrides],
+            (query: Node | null, featureFlags: FeatureFlagsSet, hasOverrides: boolean): DataChecksQuery | null => {
+                // The server applies a chart's overrides, so the page does not hold the query the chart runs.
+                if (!featureFlags[FEATURE_FLAGS.INSIGHT_DATA_CHECKS] || !isInsightVizNode(query) || hasOverrides) {
                     return null
                 }
                 const source = query.source
@@ -379,10 +404,13 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             })
         },
     })),
-    // The chart can finish loading before this logic mounts.
-    afterMount(({ actions, values }) => {
-        if (!values.insightDataLoading) {
-            actions.checkData()
-        }
-    }),
+    // Also on mount, because the chart can finish loading before this logic mounts. A change such as the chart
+    // type can reuse the chart's result, so no chart load follows it.
+    subscriptions(({ actions, values }) => ({
+        checkedQuery: () => {
+            if (!values.insightDataLoading) {
+                actions.checkData()
+            }
+        },
+    })),
 ])
