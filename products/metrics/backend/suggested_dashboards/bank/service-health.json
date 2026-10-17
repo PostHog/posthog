@@ -1,0 +1,926 @@
+{
+    "name": "Service and host health",
+    "description": "CPU, memory, swap and threads of services and their hosts from OpenTelemetry process and system metrics, with a section for each language runtime.",
+    "panels": [
+        {
+            "key": "right_now",
+            "title": "",
+            "text": "## Right now\nThe current value for each host. Check these first.",
+            "layout": {
+                "x": 0,
+                "y": 0,
+                "w": 12,
+                "h": 2
+            }
+        },
+        {
+            "key": "host_cpu_busy",
+            "title": "Host CPU busy",
+            "description": "Share of the host CPU in use right now.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ],
+                        "metricName": "system.cpu.utilization",
+                        "aggregation": "avg",
+                        "filters": [
+                            {
+                                "key": "cpu.mode",
+                                "op": "eq",
+                                "value": "idle"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "%",
+                    "reduce": "last",
+                    "thresholds": [
+                        {
+                            "color": "success",
+                            "value": 0
+                        },
+                        {
+                            "color": "warning",
+                            "value": 70
+                        },
+                        {
+                            "color": "danger",
+                            "value": 90
+                        }
+                    ]
+                },
+                "formula": "(1 - a) * 100",
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 2,
+                "w": 3,
+                "h": 3
+            }
+        },
+        {
+            "key": "memory_available",
+            "title": "Memory available",
+            "description": "Memory the host can still hand out. Lowest is the closest call.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.memory.usage",
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "system.memory.state",
+                                "op": "eq",
+                                "value": "used"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.memory.usage",
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "system.memory.state",
+                                "op": "not_regex",
+                                "value": "slab_.*"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "b - a",
+                "display": {
+                    "type": "stat",
+                    "unit": "By",
+                    "reduce": "last",
+                    "thresholds": [
+                        {
+                            "color": "danger",
+                            "value": 0
+                        },
+                        {
+                            "color": "warning",
+                            "value": 1073741824
+                        },
+                        {
+                            "color": "success",
+                            "value": 2147483648
+                        }
+                    ]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 3,
+                "y": 2,
+                "w": 3,
+                "h": 3
+            }
+        },
+        {
+            "key": "total_memory",
+            "title": "Total memory",
+            "description": "Physical memory installed on the host.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.memory.limit",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "By",
+                    "reduce": "last"
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 2,
+                "w": 2,
+                "h": 3
+            }
+        },
+        {
+            "key": "memory_pressure",
+            "title": "Memory pressure",
+            "description": "macOS memory pressure level: 1 normal, 2 warning, 4 critical.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ],
+                        "metricName": "app.system.memory.pressure",
+                        "aggregation": "max"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "reduce": "last",
+                    "thresholds": [
+                        {
+                            "color": "success",
+                            "value": 0
+                        },
+                        {
+                            "color": "warning",
+                            "value": 2
+                        },
+                        {
+                            "color": "danger",
+                            "value": 4
+                        }
+                    ]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 8,
+                "y": 2,
+                "w": 2,
+                "h": 3
+            }
+        },
+        {
+            "key": "swap_used",
+            "title": "Swap used",
+            "description": "Swap in use on the host. Swap that keeps growing means the host is short of memory.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "filters": [
+                            {
+                                "op": "eq",
+                                "key": "system.paging.state",
+                                "value": "used"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ],
+                        "metricName": "system.paging.usage",
+                        "aggregation": "avg"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "By",
+                    "reduce": "last"
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 10,
+                "y": 2,
+                "w": 2,
+                "h": 3
+            }
+        },
+        {
+            "key": "is_anything_waiting",
+            "title": "",
+            "text": "## Is anything waiting?\nSigns that processes compete for the CPU or that the host is moving memory to swap.",
+            "layout": {
+                "x": 0,
+                "y": 5,
+                "w": 12,
+                "h": 2
+            }
+        },
+        {
+            "key": "context_switches_by_process",
+            "title": "Context switches by process",
+            "description": "How often each process was switched off the CPU, split into voluntary and involuntary switches. Involuntary switches mean it was waiting for a CPU.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "service.name"
+                            },
+                            {
+                                "key": "service.instance.id"
+                            },
+                            {
+                                "key": "process.context_switch.type"
+                            }
+                        ],
+                        "metricName": "process.context_switches",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "legendCalcs": ["mean", "max"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 7,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "swap_io_by_host",
+            "title": "Swap I/O by host",
+            "description": "Swap-in and swap-out operations each second. Sustained swap-ins mean the host is thrashing.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            },
+                            {
+                                "key": "system.paging.direction"
+                            }
+                        ],
+                        "metricName": "system.paging.operations",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "legendCalcs": ["mean", "max"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 7,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "which_service",
+            "title": "",
+            "text": "## Which service?\nThe CPU, memory and threads each service and process uses.",
+            "layout": {
+                "x": 0,
+                "y": 11,
+                "w": 12,
+                "h": 2
+            }
+        },
+        {
+            "key": "process_cpu_by_service",
+            "title": "Process CPU by service",
+            "description": "CPU cores each service uses, split into user and system time.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "service.name"
+                            },
+                            {
+                                "key": "cpu.mode"
+                            }
+                        ],
+                        "metricName": "process.cpu.time",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "area",
+                    "unit": "cores",
+                    "legendCalcs": ["mean", "max"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 13,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "process_memory_by_process",
+            "title": "Process memory by process",
+            "description": "Resident memory of each process.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "service.name"
+                            },
+                            {
+                                "key": "service.instance.id"
+                            }
+                        ],
+                        "metricName": "process.memory.usage",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "By",
+                    "legendCalcs": ["last", "max"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 13,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "process_share_of_host_memory",
+            "title": "Process share of host memory",
+            "description": "Resident memory of each service across all its processes, as a share of the host total.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "service.name"
+                            }
+                        ],
+                        "metricName": "process.memory.utilization",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "%",
+                    "legendCalcs": ["last", "max"]
+                },
+                "formula": "a * 100",
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 17,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "threads_by_process",
+            "title": "Threads by process",
+            "description": "Native threads in each process, including threads that C extensions start.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "service.name"
+                            },
+                            {
+                                "key": "service.instance.id"
+                            }
+                        ],
+                        "metricName": "process.thread.count",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "legendCalcs": ["last", "max"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 17,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "process_cpu_share_of_host_by_service",
+            "title": "Process CPU share of host by service",
+            "description": "CPU each service uses across all its processes, as a share of all the host CPUs, split into user and system time. 100% means every core is busy.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "service.name"
+                            },
+                            {
+                                "key": "cpu.mode"
+                            }
+                        ],
+                        "metricName": "process.cpu.utilization",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "area",
+                    "unit": "%",
+                    "legendCalcs": ["mean", "max"]
+                },
+                "formula": "a * 100",
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 21,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "process_cpu_percent_by_process",
+            "title": "Process CPU percent by process",
+            "description": "CPU each process uses. 100% is one fully busy core, so a process using several cores goes above 100%.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "service.name"
+                            },
+                            {
+                                "key": "service.instance.id"
+                            }
+                        ],
+                        "metricName": "process.cpu.time",
+                        "aggregation": "rate"
+                    }
+                ],
+                "formula": "a * 100",
+                "display": {
+                    "type": "line",
+                    "unit": "%",
+                    "legendCalcs": ["mean", "max"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 21,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "is_it_getting_worse_python",
+            "title": "",
+            "text": "## Is it getting worse? · Python\nPython garbage collection trends. A steady rise points to a memory leak. Delete this section if you don't run Python.",
+            "layout": {
+                "x": 0,
+                "y": 25,
+                "w": 12,
+                "h": 2
+            }
+        },
+        {
+            "key": "gc_collections_by_generation",
+            "title": "GC collections by generation",
+            "description": "Python garbage collections each second. A rise in generation 2 often means memory is growing.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "cpython.gc.generation"
+                            }
+                        ],
+                        "metricName": "cpython.gc.collections",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "legendCalcs": ["mean", "max"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 27,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "gc_collected_objects_by_generation",
+            "title": "GC collected objects by generation",
+            "description": "Objects the Python garbage collector frees each second. This is GC activity, not heap size.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "cpython.gc.generation"
+                            }
+                        ],
+                        "metricName": "cpython.gc.collected_objects",
+                        "aggregation": "rate"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "legendCalcs": ["mean", "max"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 27,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "uncollectable_objects",
+            "title": "Uncollectable objects",
+            "description": "Objects the Python garbage collector could not free. Any steady rise is a leak.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "service.name"
+                            }
+                        ],
+                        "metricName": "cpython.gc.uncollectable_objects",
+                        "aggregation": "increase"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "legendCalcs": ["last", "max"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 31,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "gc_duration_p95_by_generation",
+            "title": "GC duration p95 by generation",
+            "description": "How long Python garbage collections take, at the 95th percentile. This measures collection time, not exact application pauses.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "app.cpython.gc.duration",
+                        "aggregation": "histogram_quantile",
+                        "quantile": 0.95,
+                        "groupBy": [
+                            {
+                                "key": "cpython.gc.generation"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "ms",
+                    "legendCalcs": ["mean", "max"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 31,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "host_detail",
+            "title": "",
+            "text": "## Host detail\nThe same host signals over time.",
+            "layout": {
+                "x": 0,
+                "y": 35,
+                "w": 12,
+                "h": 2
+            }
+        },
+        {
+            "key": "host_cpu_busy_over_time",
+            "title": "Host CPU busy over time",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ],
+                        "metricName": "system.cpu.utilization",
+                        "aggregation": "avg",
+                        "filters": [
+                            {
+                                "key": "cpu.mode",
+                                "op": "eq",
+                                "value": "idle"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "%",
+                    "yAxis": {
+                        "max": 100,
+                        "min": 0,
+                        "startAtZero": true
+                    },
+                    "goalLines": [
+                        {
+                            "label": "Saturated",
+                            "value": 90
+                        }
+                    ],
+                    "legendCalcs": ["last", "max"]
+                },
+                "formula": "(1 - a) * 100",
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 37,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "memory_available_over_time",
+            "title": "Memory available over time",
+            "description": "Memory left before the host runs out.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.memory.usage",
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "system.memory.state",
+                                "op": "eq",
+                                "value": "used"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.memory.usage",
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "system.memory.state",
+                                "op": "not_regex",
+                                "value": "slab_.*"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "b - a",
+                "display": {
+                    "type": "line",
+                    "unit": "By",
+                    "legendCalcs": ["last", "min"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 37,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "memory_pressure_over_time",
+            "title": "Memory pressure over time",
+            "description": "1 normal, 2 warning, 4 critical.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ],
+                        "metricName": "app.system.memory.pressure",
+                        "aggregation": "max"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "legendCalcs": ["last", "max"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 41,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "swap_used_over_time",
+            "title": "Swap used over time",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "filters": [
+                            {
+                                "op": "eq",
+                                "key": "system.paging.state",
+                                "value": "used"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ],
+                        "metricName": "system.paging.usage",
+                        "aggregation": "avg"
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "By",
+                    "legendCalcs": ["last", "max"]
+                },
+                "dateRange": {
+                    "date_from": "-1h"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 41,
+                "w": 6,
+                "h": 4
+            }
+        }
+    ]
+}
