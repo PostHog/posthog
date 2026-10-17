@@ -16,8 +16,11 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.hogql.errors import QueryError
+
 from posthog.models import Team
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
 from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
@@ -146,6 +149,39 @@ async def test_export_asset_activity_timeout_errors_are_retryable(
         await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
 
     assert exc_info.value.non_retryable is expected_non_retryable
+
+
+@pytest.mark.parametrize(
+    "exception,expected_reported",
+    [
+        (QueryError("Unknown table"), False),
+        (ExcelColumnLimitExceeded(), False),
+        (ValueError("render failed"), True),
+    ],
+)
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_export_asset_activity_reports_only_non_user_errors(
+    mock_exporter: MagicMock,
+    activity_environment: ActivityEnvironment,
+    team: Team,
+    exception: Exception,
+    expected_reported: bool,
+) -> None:
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        export_format=ExportedAsset.ExportFormat.PNG,
+    )
+
+    def fake_export(_exported_asset: ExportedAsset, **_kwargs: object) -> None:
+        raise exception
+
+    mock_exporter.export_asset_direct = fake_export
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
+
+    assert exc_info.value.type == type(exception).__name__
+    assert is_expected_activity_failure(exc_info.value) is not expected_reported
 
 
 @patch("posthog.temporal.exports.activities.exporter")
