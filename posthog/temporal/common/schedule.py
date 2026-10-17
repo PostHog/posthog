@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from asgiref.sync import async_to_sync
@@ -186,24 +187,30 @@ async def a_trigger_schedule(temporal: Client, schedule_id: str, note: str | Non
     await handle.trigger()
 
 
+# These statuses say nothing about the schedule. FAILED_PRECONDITION is what Temporal returns when
+# no worker polls its internal scheduler queue, and it clears once a worker polls again.
+_TRANSIENT_DESCRIBE_STATUSES = frozenset({RPCStatusCode.FAILED_PRECONDITION, RPCStatusCode.UNAVAILABLE})
+_SCHEDULE_EXISTS_ATTEMPTS = 3
+_SCHEDULE_EXISTS_BACKOFF_SECONDS = 0.5
+
+
 @async_to_sync
 async def schedule_exists(temporal: Client, schedule_id: str) -> bool:
-    """Check whether a schedule exists."""
-    try:
-        await temporal.get_schedule_handle(schedule_id).describe()
-        return True
-    except RPCError as e:
-        if e.status == RPCStatusCode.NOT_FOUND:
-            return False
-        raise
+    """Check whether a schedule exists. See :func:`a_schedule_exists`."""
+    return await a_schedule_exists(temporal, schedule_id)
 
 
 async def a_schedule_exists(temporal: Client, schedule_id: str) -> bool:
-    """Check whether a schedule exists. See :func:`schedule_exists`."""
-    try:
-        await temporal.get_schedule_handle(schedule_id).describe()
-        return True
-    except RPCError as e:
-        if e.status == RPCStatusCode.NOT_FOUND:
-            return False
-        raise
+    """Check whether a schedule exists, retrying a transient status before it raises."""
+    attempt = 1
+    while True:
+        try:
+            await temporal.get_schedule_handle(schedule_id).describe()
+            return True
+        except RPCError as e:
+            if e.status == RPCStatusCode.NOT_FOUND:
+                return False
+            if e.status not in _TRANSIENT_DESCRIBE_STATUSES or attempt >= _SCHEDULE_EXISTS_ATTEMPTS:
+                raise
+        await asyncio.sleep(_SCHEDULE_EXISTS_BACKOFF_SECONDS * attempt)
+        attempt += 1
