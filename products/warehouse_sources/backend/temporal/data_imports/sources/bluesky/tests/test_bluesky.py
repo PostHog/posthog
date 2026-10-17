@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -7,8 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.bl
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.source import BlueskySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.source import PRIMARY_KEYS, BlueskySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -117,3 +119,93 @@ class TestBlueskySourceResumeBehavior:
 
         assert result.raised is None
         assert result.items == [[{"uri": "at://x", "indexedAt": "2026-01-01T00:00:00Z"}]]
+
+
+POST_1 = "at://did:plc:abc/app.bsky.feed.post/1"
+# A did:web AT-URI can carry a percent-encoded port, which must reach the API unchanged.
+POST_2 = "at://did:web:example.com%3A8080/app.bsky.feed.post/2"
+
+
+def _post_fanout_script(
+    list_key: str, child_row: Callable[[int], dict[str, Any]]
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("getAuthorFeed"):
+            if request.param("cursor") is None:
+                return ScriptedResponse(json={"feed": [{"post": {"uri": POST_1}}], "cursor": "feed-2"})
+            return ScriptedResponse(json={"feed": [{"post": {"uri": POST_2}}]})
+        if request.param("cursor") is None:
+            body: dict[str, Any] = {list_key: [child_row(1)]}
+            if request.param("uri") == POST_1:
+                body["cursor"] = "child-2"
+            return ScriptedResponse(json=body)
+        return ScriptedResponse(json={list_key: [child_row(2)]})
+
+    return respond
+
+
+POST_FANOUT_CASES = [
+    (
+        "Likes",
+        "likes",
+        lambda n: {"actor": {"did": f"did:plc:liker{n}"}, "indexedAt": "2026-01-01T00:00:00Z"},
+        [(POST_1, "did:plc:liker1"), (POST_1, "did:plc:liker2"), (POST_2, "did:plc:liker1")],
+    ),
+    (
+        "Quotes",
+        "posts",
+        lambda n: {"uri": f"at://did:plc:quoter/app.bsky.feed.post/{n}", "indexedAt": "2026-01-01T00:00:00Z"},
+        [
+            (POST_1, "at://did:plc:quoter/app.bsky.feed.post/1"),
+            (POST_1, "at://did:plc:quoter/app.bsky.feed.post/2"),
+            (POST_2, "at://did:plc:quoter/app.bsky.feed.post/1"),
+        ],
+    ),
+]
+
+
+class TestBlueskyPostFanout:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(BlueskySource(), BlueskySourceConfig(actor="jay.bsky.team"))
+
+    @pytest.mark.parametrize(("endpoint", "list_key", "child_row", "expected_keys"), POST_FANOUT_CASES)
+    def test_walks_every_post_and_child_page(
+        self,
+        endpoint: str,
+        list_key: str,
+        child_row: Callable[[int], dict[str, Any]],
+        expected_keys: list[tuple[str, str]],
+    ) -> None:
+        result = self._driver().run(endpoint, _post_fanout_script(list_key, child_row))
+
+        assert result.raised is None
+        assert [tuple(row[key] for key in PRIMARY_KEYS[endpoint]) for row in result.rows] == expected_keys
+        child_requests = [r for r in result.requests if not r.path.endswith("getAuthorFeed")]
+        assert [(r.param("uri"), r.param("cursor")) for r in child_requests] == [
+            (POST_1, None),
+            (POST_1, "child-2"),
+            (POST_2, None),
+        ]
+
+    @pytest.mark.parametrize(("endpoint", "list_key", "child_row", "expected_keys"), POST_FANOUT_CASES)
+    def test_resume_skips_posts_already_synced(
+        self,
+        endpoint: str,
+        list_key: str,
+        child_row: Callable[[int], dict[str, Any]],
+        expected_keys: list[tuple[str, str]],
+    ) -> None:
+        script = _post_fanout_script(list_key, child_row)
+        first_run = self._driver().run(endpoint, script)
+        after_post_1 = next(
+            state
+            for state in first_run.saved_states
+            if state.fanout_state and len(state.fanout_state["completed"]) == 1
+        )
+
+        resumed = self._driver().run(endpoint, script, resume_state=after_post_1)
+
+        assert resumed.raised is None
+        assert [r.param("uri") for r in resumed.requests if not r.path.endswith("getAuthorFeed")] == [POST_2]
+        assert [tuple(row[key] for key in PRIMARY_KEYS[endpoint]) for row in resumed.rows] == expected_keys[2:]

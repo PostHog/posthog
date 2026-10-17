@@ -1732,16 +1732,16 @@ Note: The OpenAPI file linked from the official REST reference lists all collect
 
 ## Bluesky — gaps
 
-Today (4): `Followers`, `Follows`, `Posts`, `Profile`
+Today (6): `Followers`, `Follows`, `Likes`, `Posts`, `Profile`, `Quotes`
 
 Diffed against: <https://github.com/bluesky-social/atproto/tree/main/lexicons/app/bsky>
 
-- [ ] `getLikes (GET /xrpc/app.bsky.feed.getLikes)` — identify people who like synced posts for audience attribution and engagement analysis (high)
-- [ ] `searchPosts (GET /xrpc/app.bsky.feed.searchPosts)` — find brand mentions and relevant conversations beyond the selected account posts (high)
+- [x] `getLikes (GET /xrpc/app.bsky.feed.getLikes)` — identify people who like synced posts for audience attribution and engagement analysis (high). Added as `Likes` (fan-out over `Posts`).
+- [ ] `searchPosts (GET /xrpc/app.bsky.feed.searchPosts)` — find brand mentions and relevant conversations beyond the selected account posts (high); skipped, the public AppView this source uses answers it with 403 without an authenticated session, and it needs a search query the source has no field for
 - [ ] `getRepostedBy (GET /xrpc/app.bsky.feed.getRepostedBy)` — identify accounts that amplify posts and connect reposts to audience growth (medium)
 - [ ] `getPostThread (GET /xrpc/app.bsky.feed.getPostThread)` — analyze replies and conversation structure around synced posts (medium)
-- [ ] `getQuotes (GET /xrpc/app.bsky.feed.getQuotes)` — analyze quoted posts and commentary that aggregate quote counts cannot explain (medium)
-- [ ] `listNotifications (GET /xrpc/app.bsky.notification.listNotifications)` — track engagement notifications with timestamps, including mentions, likes, reposts, and follows (medium)
+- [x] `getQuotes (GET /xrpc/app.bsky.feed.getQuotes)` — analyze quoted posts and commentary that aggregate quote counts cannot explain (medium). Added as `Quotes` (fan-out over `Posts`).
+- [ ] `listNotifications (GET /xrpc/app.bsky.notification.listNotifications)` — track engagement notifications with timestamps, including mentions, likes, reposts, and follows (medium); skipped, it returns the authenticated account's own notifications and needs an account session, while this source only takes a public handle
 - [ ] `getLists (GET /xrpc/app.bsky.graph.getLists)` — analyze named audience lists created by the selected account (medium)
 - [ ] `getList (GET /xrpc/app.bsky.graph.getList)` — analyze list membership and connections between curated audiences (medium)
 

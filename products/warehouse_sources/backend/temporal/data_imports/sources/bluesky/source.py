@@ -34,12 +34,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Every table is keyed on the id the AT Protocol guarantees is globally unique: post AT-URIs are
-# scoped by the author's own DID, and account DIDs are unique across the whole network.
+# scoped by the author's own DID, and account DIDs are unique across the whole network. Post
+# fan-out tables also carry the parent post's URI, since one account can like many posts.
 PRIMARY_KEYS: dict[str, list[str]] = {
     "Profile": ["did"],
     "Posts": ["uri"],
     "Followers": ["did"],
     "Follows": ["did"],
+    "Likes": ["post_uri", "actor_did"],
+    "Quotes": ["quoted_post_uri", "uri"],
 }
 
 # Stable, top-level datetime fields only (see partition-key-stability guidance): `indexedAt` is
@@ -51,6 +54,8 @@ PARTITION_FIELDS: dict[str, list[str]] = {
     "Posts": ["indexedAt"],
     "Followers": ["createdAt"],
     "Follows": ["createdAt"],
+    "Likes": ["indexedAt"],
+    "Quotes": ["indexedAt"],
 }
 
 
@@ -141,7 +146,8 @@ class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Bluesky",
             caption=(
-                "Sync a Bluesky account's profile, posts, followers, and follows. Uses Bluesky's "
+                "Sync a Bluesky account's profile, posts, followers, follows, and the likes and quotes "
+                "on its posts. Uses Bluesky's "
                 "public AppView API, so you only need the handle or DID you want to track, not an "
                 "account password or app password."
             ),
