@@ -3,6 +3,7 @@ import { ComponentType, Suspense, useState } from 'react'
 
 import { Spinner } from '@posthog/quill'
 
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -12,9 +13,13 @@ import { SidePanelTab } from '~/types'
 import { TodayAiPanel } from './TodayAiPanel'
 import { todayContextPanelLogic } from './todayContextPanelLogic'
 
-// The quill rebuilds of the side panel tabs. Every other tab keeps its own panel.
+// The quill rebuilds of the side panel tabs. Every other tab keeps its own panel. Support is lazy because the ticket
+// editor pulls in tiptap extensions and lowlight.
 const QUILL_TAB_PANELS: Partial<Record<SidePanelTab, ComponentType>> = {
     [SidePanelTab.Max]: TodayAiPanel,
+    [SidePanelTab.Support]: lazyWithRetry(() =>
+        import('./TodaySupportPanel').then((m) => ({ default: m.TodaySupportPanel }))
+    ),
 }
 
 type SwitchDirection = 'forward' | 'backward'
