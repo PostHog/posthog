@@ -424,6 +424,50 @@ CONSTANCE_CONFIG = {
         "run rather than at the end of the cache TTL.",
         bool,
     ),
+    "CACHE_WARMING_EXPENSIVE_SECONDS": (
+        get_from_env("CACHE_WARMING_EXPENSIVE_SECONDS", default=60, type_cast=int),
+        "Insight cache warming treats an insight as expensive when its last fresh warm took longer than this "
+        "many seconds. An expensive insight is warmed only if someone viewed it within "
+        "CACHE_WARMING_EXPENSIVE_VIEWED_HOURS. Set to 0 to warm expensive insights like any other insight. "
+        "Applies at the next hourly warming run.",
+        int,
+    ),
+    "CACHE_WARMING_EXPENSIVE_VIEWED_HOURS": (
+        get_from_env("CACHE_WARMING_EXPENSIVE_VIEWED_HOURS", default=24, type_cast=int),
+        "How recently someone must have viewed an expensive insight, or opened its dashboard, for cache warming "
+        "to keep it warm. Other insights use CACHE_WARMING_LAST_VIEWED_DAYS.",
+        int,
+    ),
+    "CACHE_WARMING_MAX_SECONDS": (
+        get_from_env("CACHE_WARMING_MAX_SECONDS", default=0, type_cast=int),
+        "Insight cache warming never warms an insight whose last fresh warm took longer than this many seconds, "
+        "even if someone viewed it recently. Use it to shed load from the offline ClickHouse cluster during high "
+        "load. 0 turns it off.",
+        int,
+    ),
+    "CACHE_WARMING_EXCLUDED_TEAMS": (
+        get_from_env("CACHE_WARMING_EXCLUDED_TEAMS", default=[], type_cast=list[int]),
+        "Comma-separated team IDs that insight cache warming always skips, including the largest teams and teams "
+        "with shared dashboards.",
+        list[int],
+    ),
+    "CACHE_WARMING_MAX_INSIGHTS_PER_TEAM": (
+        get_from_env("CACHE_WARMING_MAX_INSIGHTS_PER_TEAM", default=500, type_cast=int),
+        "Maximum number of stale insights that one hourly cache warming run considers for each team. Minimum 1.",
+        int,
+    ),
+    "CACHE_WARMING_LARGEST_TEAMS": (
+        get_from_env("CACHE_WARMING_LARGEST_TEAMS", default=10, type_cast=int),
+        "Number of teams with the most events in the last 7 days that insight cache warming always includes. "
+        "Set to 0 to warm only the teams that opt in.",
+        int,
+    ),
+    "CACHE_WARMING_LAST_VIEWED_DAYS": (
+        get_from_env("CACHE_WARMING_LAST_VIEWED_DAYS", default=7, type_cast=int),
+        "Insight cache warming keeps an insight warm only if someone viewed it, or opened its dashboard, within "
+        "this many days. Minimum 1.",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -495,6 +539,13 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_SHARD_THREADS",
     "WEB_ANALYTICS_WARMING_SHARDS",
     "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED",
+    "CACHE_WARMING_EXPENSIVE_SECONDS",
+    "CACHE_WARMING_EXPENSIVE_VIEWED_HOURS",
+    "CACHE_WARMING_MAX_SECONDS",
+    "CACHE_WARMING_EXCLUDED_TEAMS",
+    "CACHE_WARMING_MAX_INSIGHTS_PER_TEAM",
+    "CACHE_WARMING_LARGEST_TEAMS",
+    "CACHE_WARMING_LAST_VIEWED_DAYS",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
