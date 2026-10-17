@@ -22899,6 +22899,7 @@ export namespace Schemas {
      * * `row_count` - row_count
      * * `freshness` - freshness
      * * `custom_sql` - custom_sql
+     * * `question` - question
      */
     export type CheckTypeEnum = typeof CheckTypeEnum[keyof typeof CheckTypeEnum];
 
@@ -22911,6 +22912,7 @@ export namespace Schemas {
       RowCount: 'row_count',
       Freshness: 'freshness',
       CustomSql: 'custom_sql',
+      Question: 'question',
     } as const;
 
     /**
@@ -29257,7 +29259,8 @@ export namespace Schemas {
        * * `relationships` - relationships
        * * `row_count` - row_count
        * * `freshness` - freshness
-       * * `custom_sql` - custom_sql */
+       * * `custom_sql` - custom_sql
+       * * `question` - question */
       check_type: CheckTypeEnum;
       /** Type-specific configuration, validated against the check type's JSON schema. */
       config?: DataQualityCheckConfig;
@@ -29360,7 +29363,8 @@ export namespace Schemas {
        * * `relationships` - relationships
        * * `row_count` - row_count
        * * `freshness` - freshness
-       * * `custom_sql` - custom_sql */
+       * * `custom_sql` - custom_sql
+       * * `question` - question */
       check_type: CheckTypeEnum;
       /** Type-specific configuration, validated against the check type's JSON schema. */
       config?: DataQualityCheckCreateConfig;
@@ -29429,6 +29433,32 @@ export namespace Schemas {
      */
     export type DataQualityCheckRunCheckConfig = { [key: string]: unknown } | null;
 
+    export interface QuestionRunResult {
+      /** passed, failed, errored, or skipped. */
+      status: string;
+      /** Source rows covered by completed checkpoints. */
+      examined_row_count: number;
+      /** Rows below the probability threshold, including null column inputs. */
+      failed_row_count: number;
+      /**
+         * Failed divided by examined rows; null without complete nonempty coverage.
+         * @nullable
+         */
+      failure_rate: number | null;
+      /** Distinct non-null evaluator inputs covered. */
+      unique_input_count: number;
+      /** Distinct decisions reused from the validated cache. */
+      reused_decision_count: number;
+      /** Distinct decisions newly published by completed chunks. */
+      new_decision_count: number;
+      /** Durable chunks completed exactly once. */
+      completed_chunk_count: number;
+      /** Chunks in the complete frozen snapshot. */
+      total_chunk_count: number;
+      /** Only complete coverage can pass or fail; partial coverage errors. */
+      coverage_complete: boolean;
+    }
+
     export interface DataQualityCheckRun {
       readonly id: string;
       /**
@@ -29441,6 +29471,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly check_name: string | null;
+      /** Question coverage and decision reuse counters; null for SQL checks. */
+      readonly question_result: QuestionRunResult | null;
       readonly suite_run: string;
       readonly subject_type: SubjectTypeEnum;
       readonly subject_uuid: string;
@@ -29453,7 +29485,8 @@ export namespace Schemas {
        * * `relationships` - relationships
        * * `row_count` - row_count
        * * `freshness` - freshness
-       * * `custom_sql` - custom_sql */
+       * * `custom_sql` - custom_sql
+       * * `question` - question */
       readonly check_type: CheckTypeEnum;
       readonly column_name: string;
       /**
@@ -29639,7 +29672,8 @@ export namespace Schemas {
        * * `relationships` - relationships
        * * `row_count` - row_count
        * * `freshness` - freshness
-       * * `custom_sql` - custom_sql */
+       * * `custom_sql` - custom_sql
+       * * `question` - question */
       check_type: CheckTypeEnum;
       /** Type-specific configuration, validated against the check type's JSON schema. */
       config?: DataQualityOverviewCheckConfig;
@@ -80106,7 +80140,8 @@ export namespace Schemas {
        * * `relationships` - relationships
        * * `row_count` - row_count
        * * `freshness` - freshness
-       * * `custom_sql` - custom_sql */
+       * * `custom_sql` - custom_sql
+       * * `question` - question */
       check_type?: CheckTypeEnum;
       /** Type-specific configuration, validated against the check type's JSON schema. */
       config?: PatchedDataQualityCheckConfig;
@@ -122789,6 +122824,7 @@ export namespace Schemas {
       CustomSql: 'custom_sql',
       Freshness: 'freshness',
       NotNull: 'not_null',
+      Question: 'question',
       Relationships: 'relationships',
       RowCount: 'row_count',
       Unique: 'unique',

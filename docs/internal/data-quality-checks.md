@@ -32,12 +32,13 @@ The family scope `warehouse_objects` reaches every warehouse kind. A per-kind sc
 
 The table above applies to the REST routes only. The MCP tools declare `query:read` alone, because a tool's scope list must be met in full and the two subject families are authorized independently; a token with no subject family is refused by the route. A raw HogQL query against `system.information_schema.data_quality_*` needs `query:read` and no other scope. The user's own permissions still apply to each row. A token with `query:read` reads metric checks only if its user has catalog access.
 
-## Question execution foundation
+## Question checks
 
-The question execution primitives in `products/data_quality/backend/logic/jev_*.py` are not yet registered as an authorable check type.
-They provide the warehouse-table execution foundation before the check registry, Temporal orchestration, durable run checkpoints, previews, and editor are wired.
-`WarehouseQuestionExecutor` connects source preparation, manifests, Redis, and the gateway.
-Its caller supplies atomic persistence callbacks for manifest selection and checkpoints, plus a durable reservation for inference inputs.
+`question` checks are authorable through the existing checks API for warehouse tables only, with warning severity.
+They run separate prepare, chunk, and finalize Temporal activities alongside SQL checks.
+`DurableQuestionRunner` stores one definition, executing principal, selected manifest, persistent 15-minute deadline, and inference reservations per suite/check.
+A unique constraint retains each chunk checkpoint once, and finalization records one history row.
+The current SQL check path is unchanged. Views, staged refreshes, PostHog tables, previews, and the editor are not yet supported.
 Query and inference tags carry check and run identifiers without source values.
 
 `QuestionConfig` accepts a column input or explicitly selected row fields, a yes/no assertion, an inclusive minimum probability (default 0.8), and an inclusive allowed failure rate (default 0).
@@ -64,19 +65,22 @@ The default TTL is 30 days and reads do not renew it.
 Malformed or expired entries miss; Redis errors stop evaluation.
 Leases use ownership tokens, bounded renewal that outlasts the inference wait, and atomic publication and release.
 A crash between the model response and cache publication can still cause duplicate billed inference.
-So can a failed gateway batch: the runner waits for every batch in a chunk, so one failure discards the decisions the other batches already returned and the retry pays for them again.
+Successful gateway batches retain their validated decisions when another batch fails, but the chunk stays incomplete and records no checkpoint. Retries reuse those decisions. Reservations count attempted inference inputs rather than charged credits; decision counters describe the completed checkpoints, not every billed attempt.
 
 The chunk evaluator reuses `PromptJevRunner` and the billed gateway.
 Chunk limits, an inference input budget, and execution deadlines raise errors with incomplete coverage; they never produce a successful result from fewer rows.
 Checkpoint callbacks must atomically retain the first result under `(run, chunk)`.
 Finalization counts each checkpoint once and verifies total row and input coverage before evaluating the failure rate.
 
-Before enabling this path in the checks system, persist manifest references and chunk checkpoints through the checks models, reserve the inference budget durably across activity retries, and add object-store lifecycle cleanup for expired or abandoned prefixes.
-The caller must resolve an immutable model revision, or configure a deployment revision that changes with the served model.
-Authorization must run before replaying any checkpoint or reading decisions.
-The run deadline is checked before every chunk and before the final result, so a replayed checkpoint or a fully cached chunk cannot outlast it.
-An inference reservation is spent only after the gateway accepts the run, so a disabled flag, an exhausted credit budget, or a missing gateway leaves the allowance untouched.
-Staged views, PostHog tables, warning-only authoring, and results UI require the subsequent integration.
+Snapshot attempts are registered in Postgres before any object write, including attempts that lose manifest selection or crash while freezing.
+The existing daily cleanup removes completed snapshots after a short grace period and expired attempts after 24 hours; metadata survives deletion of the suite or team so it can still own cleanup.
+Raw inputs are stored only in the configured object store; Postgres checkpoints and Temporal payloads contain references and aggregates.
+
+Set `DATA_QUALITY_JEV_MODEL_REVISION` to an immutable deployment revision and change it whenever the served model changes.
+The model id uses `HOGQL_PROMPT_JEV_MODEL`; an unset revision fails closed, and retries after a revision or evaluator-contract change error rather than mixing decisions.
+The cold-inference budget is 10,000 attempted distinct inputs per run, reserved atomically across retries. Frozen inputs are bounded at 100,000; values are never truncated.
+Authorization runs before freezing, reading cache decisions, replaying each checkpoint, and finalization, including current project membership and source grants.
+Only complete coverage can pass or fail. Empty input skips; partial execution errors and has no failure rate or successful status.
 
 ## Lookback window
 

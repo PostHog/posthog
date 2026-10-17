@@ -48,6 +48,7 @@ from products.data_quality.backend.logic.jev_manifest import (
     warehouse_question_inputs,
 )
 from products.data_quality.backend.logic.jev_question import (
+    PartialQuestionDecisionsError,
     QuestionChunkEvaluator,
     QuestionChunkResult,
     QuestionConfig,
@@ -857,3 +858,39 @@ def test_executor_reserves_no_inference_when_the_gateway_refuses_the_run() -> No
                 save_checkpoint=lambda index, result: result,
             )
     assert reserved == []
+
+
+def test_successful_gateway_batches_are_retained_when_a_sibling_batch_fails() -> None:
+    team = cast(
+        "Team", SimpleNamespace(pk=42, id=42, uuid=UUID(int=42), organization_id=7, api_token="example-api-token")
+    )
+
+    async def send(request: httpx.Request, **kwargs: object) -> httpx.Response:
+        body = json.loads(request.content)
+        state = body["state"]
+        if len(state) == 1:
+            return httpx.Response(503, json={"error": "unavailable"})
+        return httpx.Response(200, json={"model": "example-model", "answers": {key: {"noul": 0.9} for key in state}})
+
+    with (
+        override_settings(
+            AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
+            AI_GATEWAY_API_KEY="phs_test",
+            CLICKHOUSE_USE_HTTP=False,
+            CLICKHOUSE_USE_HTTP_PER_TEAM=[],
+        ),
+        patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True),
+        patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", return_value=False),
+        patch.object(httpx.AsyncClient, "send", side_effect=send),
+    ):
+        gateway = QuestionGatewayEvaluator(
+            team=team,
+            model_id="example-model",
+            question="Is this valid?",
+            check_id="example-check",
+            run_id="example-run",
+            distinct_id="example-user",
+        )
+        with pytest.raises(PartialQuestionDecisionsError) as error:
+            gateway([f"example input {index}" for index in range(17)])
+        assert error.value.decisions == {f"example input {index}": 0.9 for index in range(16)}
