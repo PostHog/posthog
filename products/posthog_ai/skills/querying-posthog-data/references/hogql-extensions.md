@@ -2,6 +2,18 @@
 
 These functions are unique to HogQL and not available in standard ClickHouse.
 
+## Contents
+
+- [Visualization](#visualization)
+- [Version handling](#version-handling)
+- [Session replays](#session-replays)
+- [Actions](#actions)
+- [Localization](#localization)
+- [HTML rendering](#html-rendering)
+- [Embeddings](#embeddings)
+- [Text effects](#text-effects)
+- [Funnel functions](#funnel-functions)
+
 ## Visualization
 
 ### `sparkline(array)`
