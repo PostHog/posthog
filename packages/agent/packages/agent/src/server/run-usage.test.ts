@@ -17,7 +17,7 @@ describe("RunUsageAccumulator", () => {
         totalTokens: 165,
       }),
     ).toBe(true);
-    // Codex-shaped turn: null cache writes, reasoning as thought tokens.
+    // Codex-shaped turn: null cache writes, reasoning included in output.
     expect(
       acc.add({
         inputTokens: 200,
@@ -25,7 +25,7 @@ describe("RunUsageAccumulator", () => {
         cachedReadTokens: null,
         cachedWriteTokens: null,
         thoughtTokens: 40,
-        totalTokens: 320,
+        totalTokens: 280,
       }),
     ).toBe(true);
 
@@ -35,7 +35,7 @@ describe("RunUsageAccumulator", () => {
       cache_read_tokens: 10,
       cache_write_tokens: 5,
       thought_tokens: 40,
-      total_tokens: 485,
+      total_tokens: 445,
       turns: 2,
     });
   });

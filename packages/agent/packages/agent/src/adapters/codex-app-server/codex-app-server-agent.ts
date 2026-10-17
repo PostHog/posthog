@@ -323,6 +323,8 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private readonly refreshChatgptAuthTokens?: () => Promise<ChatgptAuthTokens>;
   private chatgptAuthRefreshFailure?: string;
   private threadId?: string;
+  /** Usage payloads that arrive while a thread setup request is in flight. */
+  private threadSetupUsage?: Array<{ threadId?: string; params: unknown }>;
   /** JSON schema constraining the final message; set per session via `_meta`. */
   private jsonSchema?: Record<string, unknown>;
   /** Final assistant message text for the in-flight turn (structured output). */
@@ -678,6 +680,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       additionalDirectories?: string[];
     },
   ): Promise<{ threadId: string; thread: AppServerThread | undefined }> {
+    this.usage.resetForThread();
     this.cancelNextGoalTurn = false;
     this.nativeGoalTurnId = undefined;
     this.subagentParents.clear();
@@ -739,17 +742,21 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       );
     }
 
-    const result = await this.rpc.request<{ thread?: AppServerThread }>(
-      method,
-      {
+    const setupUsage: Array<{ threadId?: string; params: unknown }> = [];
+    this.threadSetupUsage = setupUsage;
+    let result: { thread?: AppServerThread } | undefined;
+    try {
+      result = await this.rpc.request<{ thread?: AppServerThread }>(method, {
         model: this.config.model,
         cwd: params.cwd,
         ...(this.serviceTier ? { serviceTier: this.serviceTier } : {}),
         ...(params.threadId ? { threadId: params.threadId } : {}),
         ...(developerInstructions ? { developerInstructions } : {}),
         ...(config ? { config } : {}),
-      },
-    );
+      });
+    } finally {
+      this.threadSetupUsage = undefined;
+    }
     const thread = result?.thread;
     const threadId = thread?.id ?? params.threadId;
     if (!threadId) {
@@ -757,6 +764,10 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     }
     this.threadId = threadId;
     this.sessionId = threadId;
+    const replayedUsage = setupUsage.findLast(
+      (entry) => !entry.threadId || entry.threadId === threadId,
+    );
+    if (replayedUsage) this.usage.setCumulativeBaseline(replayedUsage.params);
     this.restoreSubagentRelationships(thread);
     if (method === APP_SERVER_METHODS.THREAD_START && params.meta?.nativeGoal) {
       await this.restoreGoal(params.meta.nativeGoal);
@@ -1201,7 +1212,6 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         }
         return steerDeclined("continuation_failed");
       }
-      this.usage.carryForNativeTurn();
       if (this.session.cancelled) {
         const orphanId = this.turns.markInterrupted(started?.turn?.id);
         this.logger.warn(
@@ -1627,6 +1637,14 @@ export class CodexAppServerAgent extends BaseAcpAgent {
 
   private handleNotification(method: string, params: unknown): void {
     const notificationThreadId = readNotificationThreadId(params);
+    // A resume can replay the thread's totals before its response resolves the thread id.
+    if (
+      this.threadSetupUsage &&
+      method === APP_SERVER_NOTIFICATIONS.TOKEN_USAGE_UPDATED
+    ) {
+      this.threadSetupUsage.push({ threadId: notificationThreadId, params });
+      return;
+    }
     const isMainThread =
       !notificationThreadId || notificationThreadId === this.threadId;
     const relatedSubagentThreadIds = this.captureSubagentRelationship(
@@ -2152,7 +2170,6 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       this.emitCompactionBoundary();
     }
     const message = this.lastAgentMessage;
-    // Per-turn usage is codex's own `tokenUsage.last` (not a reconstructed delta).
     const usage = this.usage.perTurnUsage();
     const contextUsed = this.usage.contextTokens();
 
