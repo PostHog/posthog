@@ -17,6 +17,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
 
 import { NewProductTourModal } from './components/NewProductTourModal'
+import { ProductToursDeprecationBanner } from './components/ProductToursDeprecationBanner'
 import { ProductToursTable } from './components/ProductToursTable'
 import { ProductToursTabs, productToursLogic } from './productToursLogic'
 
@@ -68,6 +69,7 @@ function ProductTours(): JSX.Element {
                 resourceType={{ type: 'product_tour' }}
                 actions={<NewTourButton />}
             />
+            <ProductToursDeprecationBanner />
             <LemonTabs
                 activeKey={tab}
                 onChange={(newTab) => setTab(newTab as ProductToursTabs)}
