@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useId, useMemo } from 'react'
 
 import {
     IconC,
@@ -22,7 +22,7 @@ import {
     IconRust,
     IconSwift,
 } from '@posthog/icons'
-import { LemonInputSelect, LemonInputSelectOption, LemonTag } from '@posthog/lemon-ui'
+import { LemonInputSelect, LemonInputSelectProps, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -31,7 +31,7 @@ import { IntegrationType } from '~/types'
 
 import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
-import { githubIntegrationLogic } from './githubIntegrationLogic'
+import { githubRepositorySearchLogic } from './githubRepositorySearchLogic'
 
 /**
  * The project's GitHub integration for anything that runs on the team's behalf rather than one
@@ -58,13 +58,19 @@ export function resolveTeamGitHubIntegration(integrations: IntegrationType[]): I
 
 export type GitHubRepositoryPickerProps = {
     integrationId: number
-    value: string
-    onChange: (value: string) => void
+    /** Selected key. Leave it out for a picker that only adds, so it resets after each pick. */
+    value?: string
+    /** Receives the selected key and, when it is one of the loaded options, the full repository. */
+    onChange: (value: string, repository?: GitHubRepoApi) => void
     className?: string
     /** Which repo field the picker stores and returns. Default 'name' keeps existing callers'
      * stored short names working; 'full_name' is for callers matching a webhook delivery's
      * "owner/repo" property, which carries no owner otherwise. */
     valueKey?: 'name' | 'full_name'
+    /** Hides repositories that are not valid choices here, such as ones already added. */
+    repositoryFilter?: (repository: GitHubRepoApi) => boolean
+    placeholder?: string
+    disabledReason?: string
 }
 
 export const GitHubRepositoryPicker = ({
@@ -72,35 +78,43 @@ export const GitHubRepositoryPicker = ({
     onChange,
     integrationId,
     className,
-    valueKey,
+    valueKey = 'name',
+    repositoryFilter,
+    placeholder = 'Select a repository...',
+    disabledReason,
 }: GitHubRepositoryPickerProps): JSX.Element => {
-    const { options, loading } = useRepositories(integrationId, { valueKey })
+    const { repositories, selectProps } = useRepositories(integrationId, { valueKey, repositoryFilter })
 
     return (
         <LemonInputSelect
-            onChange={(val) => onChange?.(val[0] ?? null)}
+            {...selectProps}
+            onChange={(val) => {
+                const key = val[0] ?? null
+                onChange?.(
+                    key,
+                    repositories.find((repository) => repositoryKey(repository, valueKey) === key)
+                )
+            }}
             value={value ? [value] : []}
             mode="single"
             data-attr="select-github-repository"
-            placeholder="Select a repository..."
-            options={options}
-            loading={loading}
+            placeholder={placeholder}
             className={className}
+            disabledReason={disabledReason}
         />
     )
 }
 
 export const GitHubRepositorySelectField = ({ integrationId }: { integrationId: number }): JSX.Element => {
-    const { options, loading } = useRepositories(integrationId)
+    const { selectProps } = useRepositories(integrationId)
 
     return (
         <LemonField name="repositories" label="Repository">
             <LemonInputSelect
+                {...selectProps}
                 mode="single"
                 data-attr="select-github-repository"
                 placeholder="Select a repository..."
-                options={options}
-                loading={loading}
             />
         </LemonField>
     )
@@ -184,34 +198,61 @@ function RepoOptionLabel({ repo }: { repo: GitHubRepoApi }): JSX.Element {
     )
 }
 
+// A qualified-name key is lowercased because the stored value is. The API lowercases a repository
+// filter on save, while GitHub reports `full_name` in the owner's casing. Compared as-is, the stored
+// value matches no option, so LemonInputSelect shows it as a custom value beside the real repository
+// and drops the rich label.
+function repositoryKey(repository: GitHubRepoApi, valueKey: 'name' | 'full_name'): string {
+    return valueKey === 'full_name' ? repository.full_name.toLowerCase() : repository.name
+}
+
+interface RepositoryOptions {
+    repositories: GitHubRepoApi[]
+    searchQuery: string
+    /** Spread into a LemonInputSelect so typing searches the installation on the server. */
+    selectProps: Required<Pick<LemonInputSelectProps, 'options' | 'loading'>> &
+        Pick<LemonInputSelectProps, 'onInputChange' | 'disableFiltering' | 'title' | 'emptyStateComponent'>
+}
+
+/** Repository options for one integration, searched on the server so large installations are not cut off. */
 export function useRepositories(
     integrationId: number,
-    { valueKey = 'name' }: { valueKey?: 'name' | 'full_name' } = {}
-): { options: LemonInputSelectOption[]; loading: boolean } {
-    const logic = githubIntegrationLogic({ id: integrationId })
-    const { repositories, repositoriesLoading } = useValues(logic)
-    const { loadRepositories } = useActions(logic)
-
-    useEffect(() => {
-        loadRepositories()
-    }, [loadRepositories])
+    {
+        valueKey = 'name',
+        repositoryFilter,
+    }: { valueKey?: 'name' | 'full_name'; repositoryFilter?: (repository: GitHubRepoApi) => boolean } = {}
+): RepositoryOptions {
+    // Each picker gets its own search state, so typing in one does not refilter another on the same page.
+    const logic = githubRepositorySearchLogic({ id: integrationId, instanceKey: useId() })
+    const { repositories, loading, hasMore, searchQuery, error } = useValues(logic)
+    const { setSearchQuery } = useActions(logic)
 
     const options = useMemo(
         () =>
             // Most-recently-pushed first so the repo the user is working in floats to the top.
-            [...repositories]
+            repositories
+                .filter((r) => !repositoryFilter || repositoryFilter(r))
                 .sort((a, b) => pushedAtMs(b.pushed_at) - pushedAtMs(a.pushed_at))
-                // A qualified-name key is lowercased because the stored value is. The API lowercases
-                // a repository filter on save, while GitHub reports `full_name` in the owner's
-                // casing. Compared as-is, the stored value matches no option, so LemonInputSelect
-                // shows it as a custom value beside the real repository and drops the rich label.
                 .map((r) => ({
-                    key: valueKey === 'full_name' ? r[valueKey].toLowerCase() : r[valueKey],
+                    key: repositoryKey(r, valueKey),
                     label: r.full_name,
                     labelComponent: <RepoOptionLabel repo={r} />,
                 })),
-        [repositories, valueKey]
+        [repositories, valueKey, repositoryFilter]
     )
 
-    return { options, loading: repositoriesLoading }
+    return {
+        repositories,
+        searchQuery,
+        selectProps: {
+            options,
+            loading,
+            // Skip input changes that leave the search unchanged, such as a trailing space or the clear
+            // after a pick when nothing was typed. Each search clears the list and refetches it.
+            onInputChange: (query) => query.trim() !== searchQuery.trim() && setSearchQuery(query),
+            disableFiltering: true,
+            title: hasMore ? 'Type to search all repositories' : undefined,
+            emptyStateComponent: error ?? undefined,
+        },
+    }
 }

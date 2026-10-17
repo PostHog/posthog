@@ -12,7 +12,7 @@ import { useRepositories } from './GitHubIntegrationHelpers'
 const REPOS = [{ id: 1, name: 'HouseWatch', full_name: 'PostHog/HouseWatch', pushed_at: '2026-01-02T00:00:00Z' }]
 
 function OptionKeysProbe({ valueKey }: { valueKey?: 'name' | 'full_name' }): JSX.Element {
-    const { options, loading } = useRepositories(1, { valueKey })
+    const { options, loading } = useRepositories(1, { valueKey }).selectProps
     return <div data-attr="option-keys">{loading ? 'LOADING' : options.map((o) => o.key).join(',')}</div>
 }
 
@@ -20,7 +20,7 @@ describe('useRepositories', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations/:id/github_repos': () => [
+                '/api/projects/:team_id/integrations/:id/github_repos/': () => [
                     200,
                     { repositories: REPOS, has_more: false, total: 1 },
                 ],

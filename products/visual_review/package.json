@@ -22,6 +22,7 @@
         "@posthog/react": "catalog:",
         "@storybook/react": "catalog:",
         "@testing-library/dom": "*",
+        "@testing-library/react": "*",
         "@testing-library/user-event": "*",
         "@types/react": "*",
         "react": "*"
