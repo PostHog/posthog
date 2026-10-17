@@ -100,7 +100,7 @@ html[data-today-transition]::view-transition-new(root) {
     padding-block: 40px 60px;
 
     @container main-content (max-width: 600px) {
-        padding-block: 20px 40px;
+        padding-block: 16px 24px;
     }
 }
 
@@ -111,8 +111,8 @@ html[data-today-transition]::view-transition-new(root) {
     margin-top: 28px;
 
     @container main-content (max-width: 600px) {
-        gap: 32px;
-        margin-top: 24px;
+        gap: 28px;
+        margin-top: 20px;
     }
 }
 
@@ -191,8 +191,19 @@ html[data-today-transition]::view-transition-new(root) {
     list-style: none;
 
     @container main-content (max-width: 600px) {
-        grid-auto-flow: row;
-        gap: 0;
+        display: flex;
+        gap: 8px;
+        padding: 0 20px;
+        margin: 0 -20px;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scroll-padding-inline: 20px;
+        scroll-snap-type: x mandatory;
+        scrollbar-width: none;
+
+        &::-webkit-scrollbar {
+            display: none;
+        }
     }
 }
 
@@ -203,28 +214,12 @@ html[data-today-transition]::view-transition-new(root) {
     min-width: 0;
 
     @container main-content (max-width: 600px) {
-        padding-block: 10px;
-
-        & + & {
-            border-top: 1px solid var(--today-line);
-        }
-
-        &:first-child {
-            padding-top: 0;
-        }
-
-        &:last-child {
-            padding-bottom: 0;
-        }
-    }
-}
-
-:is(.TodayPulse__metric, .TodayPulse__trigger, .TodayPulse__link):has(> .TodayPulse__name) {
-    @container main-content (max-width: 600px) {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 44%;
-        column-gap: 16px;
-        align-items: center;
+        flex: 0 0 clamp(152px, 46%, 200px);
+        padding: 10px 12px 8px;
+        scroll-snap-align: start;
+        background: var(--today-card);
+        border: 1px solid var(--today-line);
+        border-radius: 10px;
     }
 }
 
@@ -234,13 +229,6 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.TodayPulse__name,
-.TodayPulse__row {
-    @container main-content (max-width: 600px) {
-        grid-column: 1;
-    }
 }
 
 .TodayPulse__trigger {
@@ -293,11 +281,9 @@ html[data-today-transition]::view-transition-new(root) {
     margin-top: 4px;
 
     @container main-content (max-width: 600px) {
-        grid-row: 1 / span 2;
-        grid-column: 2;
         max-width: none;
-        height: 28px;
-        margin-top: 0;
+        height: 24px;
+        margin-top: 6px;
     }
 }
 
@@ -382,6 +368,10 @@ html[data-today-transition]::view-transition-new(root) {
 
     &[data-done] .TodayRow__label {
         color: inherit;
+    }
+
+    @container main-content (max-width: 600px) {
+        padding-block: 8px;
     }
 }
 
@@ -561,6 +551,10 @@ html[data-today-transition]::view-transition-new(root) {
         opacity 0.12s var(--today-ease),
         transform 0.12s var(--today-ease);
     transform: translateX(-3px);
+
+    @media (hover: none) {
+        display: none;
+    }
 }
 
 .TodayRows__footer {
@@ -656,6 +650,10 @@ html[data-today-transition]::view-transition-new(root) {
 .TodayHome__intro {
     margin-top: 8px;
     color: var(--today-faint);
+
+    @container main-content (max-width: 600px) {
+        margin-top: 0;
+    }
 }
 
 .TodayHome__greeting {
@@ -701,6 +699,7 @@ html[data-today-transition]::view-transition-new(root) {
     .TodayJumpList:not(.TodayJumpList--explore) > & {
         @container main-content (max-width: 480px) {
             align-items: center;
+            padding-block: 6px;
         }
     }
 
