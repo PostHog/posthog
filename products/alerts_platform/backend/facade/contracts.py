@@ -17,7 +17,7 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.alerts_platform.backend.facade.enums import PlatformAlertCheckStatus, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertCheckStatus, PlatformAlertState
 
 if TYPE_CHECKING:
     # facade.lifecycle imports this module, so the policy type stays off the runtime import path.
@@ -101,6 +101,11 @@ def source_condition(source_config: dict[str, Any]) -> dict[str, Any]:
     """A source's bound, or an empty one when the stored value is missing or not an object."""
     condition = source_config.get(SOURCE_CONDITION_KEY)
     return condition if isinstance(condition, dict) else {}
+
+
+def source_filters(source_config: dict[str, Any]) -> dict[str, Any]:
+    """A source's own configuration, without the bound `source_condition` reads."""
+    return {key: value for key, value in source_config.items() if key != SOURCE_CONDITION_KEY}
 
 
 class GroupingMode(StrEnum):
@@ -1054,6 +1059,46 @@ class LegacyWebhookBody(Protocol):
         consecutive_failures: int,
         transition: AnnouncedTransition,
     ) -> dict[str, Any]: ...
+
+
+class DeliveryPathChooser(Protocol):
+    """Which path an alert's destinations allow now. The product that owns destinations registers it.
+
+    Answers `HOG_FUNCTION` whenever it is unsure, because that path sends what the source's own
+    stack sent. It reads destinations and flags, so it runs once per delivery, not per destination.
+    """
+
+    def __call__(
+        self, *, source: SourceKind, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+    ) -> DeliveryPath: ...
+
+
+@frozen
+class LegacyEventEmission:
+    """One transition the platform hands to its source on the HogFunction path."""
+
+    transition: AnnouncedTransition
+    # The source emits the transition's message event, as its own stack did when it notified.
+    sends_message: bool
+    # The source emits the incident event for this action too, when it is set.
+    incident_action: IncidentAction | None
+
+
+class LegacyEventEmitter(Protocol):
+    """Emits the internal events a source's own stack emitted, for transitions on the HogFunction path.
+
+    Returns only once the broker has every event, and raises otherwise, so delivery can retry. A
+    retry emits the events again, so each event carries an id stable across attempts that a
+    receiver can deduplicate on. The source's destinations match on `request.destination_alert_id`.
+    """
+
+    def __call__(
+        self,
+        *,
+        request: AlertDeliveryRequest,
+        announcement: EvaluationAnnouncement,
+        emissions: Sequence[LegacyEventEmission],
+    ) -> None: ...
 
 
 # Comparison against a source's own stack.
