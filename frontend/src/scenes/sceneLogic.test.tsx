@@ -6,8 +6,9 @@ import {
     MOCK_USER_UUID,
 } from 'lib/api.mock'
 
-import { afterMount, kea, path } from 'kea'
+import { afterMount, kea, key, path, props, reducers } from 'kea'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -37,7 +38,7 @@ import {
 import { inboxSceneLogic } from 'products/signals/frontend/inbox/inboxSceneLogic'
 
 import { sceneLogic } from './sceneLogic'
-import type { testLogicType } from './sceneLogic.testType'
+import type { testKeyedLogicType, testLogicType } from './sceneLogic.testType'
 
 jest.mock('lib/api', () => ({
     __esModule: true,
@@ -57,6 +58,14 @@ const failingLogic = kea<testLogicType>([
     afterMount(() => {
         throw new Error('scene logic mount failed')
     }),
+])
+
+const testKeyedLogic = kea<testKeyedLogicType>([
+    props({} as { id: string; timestamp?: string }),
+    key((props) => props.id),
+    path((key) => ['testKeyedSceneLogic', key]),
+    reducers({ count: [0, {}] }),
+    subscriptions({ count: () => {} }),
 ])
 
 // Held so a test can reject a still-pending scene import after navigating somewhere else.
@@ -81,6 +90,13 @@ const testScenes: Record<string, () => any> = {
     [Scene.ProjectFiles]: sceneImport,
     [Scene.Surveys]: (): any => Promise.reject(new Error('scene import failed')),
     [Scene.Cohorts]: (): any => ({ scene: { component: Component, logic: failingLogic } }),
+    [Scene.ErrorTrackingIssue]: (): any => ({
+        scene: {
+            component: Component,
+            logic: testKeyedLogic,
+            paramsToProps: ({ params: { id }, searchParams: { timestamp } }: any) => ({ id, timestamp }),
+        },
+    }),
     [Scene.Experiments]: (): any =>
         new Promise((_resolve, reject) => {
             pendingImportRejection = reject
@@ -164,6 +180,27 @@ describe('sceneLogic', () => {
 
             expect(logic.values.activeSceneId).toEqual(Scene.Settings)
         })
+    })
+
+    // A props change under the same key remounts the scene logic. If the remounted instance is not the
+    // one kea caches, components mount a second instance and the first one's subscriptions read a
+    // detached store path on every action after the scene closes.
+    it('releases the scene logic subscriptions when props change under the same key', async () => {
+        router.actions.push(urls.errorTrackingIssue('issue-1'))
+        await expectLogic(logic).delay(1)
+        router.actions.push(urls.errorTrackingIssue('issue-1', { timestamp: '2026-01-01T00:00:00Z' }))
+        await expectLogic(logic).delay(1)
+        const unmountComponentLogic = testKeyedLogic({ id: 'issue-1' }).mount()
+
+        router.actions.push(urls.settings('user'))
+        await expectLogic(logic).delay(1)
+        unmountComponentLogic()
+
+        const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+        router.actions.push(urls.eventDefinitions())
+        await expectLogic(logic).delay(1)
+        expect(consoleError).not.toHaveBeenCalledWith(expect.stringContaining('Subscription Failed'))
+        consoleError.mockRestore()
     })
 
     it('keeps teamLogic mounted after every other mount reference is released', () => {

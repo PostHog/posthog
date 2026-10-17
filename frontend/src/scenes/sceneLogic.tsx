@@ -847,15 +847,19 @@ export const sceneLogic = kea<sceneLogicType>([
                         equal(mountedLogic.logicProps, builtLogicProps)
 
                     if (!canKeepMountedLogic) {
-                        const builtLogic = exportedScene.logic(builtLogicProps)
-
                         if (mountedLogic) {
                             try {
                                 mountedLogic.unmount()
                             } catch (error) {
                                 console.error('Error unmounting previous scene logic:', error)
                             }
+                            cache.mountedSceneLogic = null
                         }
+
+                        // Build only after the unmount. With the same key, an earlier build returns the
+                        // instance the unmount evicts from kea's cache, so components then build a second
+                        // instance and the first one's subscriptions outlive the scene.
+                        const builtLogic = exportedScene.logic(builtLogicProps)
 
                         cache.mountedSceneLogic = {
                             logic: exportedScene.logic,
