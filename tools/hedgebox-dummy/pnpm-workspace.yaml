@@ -3,4 +3,19 @@ packages:
 
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
+trustLockfile: true
+
+# These install without their build scripts.
+allowBuilds:
+    core-js: false
+    protobufjs: false
+    sharp: false
+    unrs-resolver: false
 minimumReleaseAge: 10080
+
+overrides:
+    protobufjs: '>=8.2.0'
+    postcss: '>=8.5.10'
+    flatted: '>=3.4.2'
+    glob@>=10.0.0: '>=10.5.0'
+    minimatch@<3.1.4: '>=3.1.4'
