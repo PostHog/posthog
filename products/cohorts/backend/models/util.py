@@ -155,7 +155,7 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
         case PydanticValidationError() | ValidationError():
             return CohortErrorCode.VALIDATION_ERROR
 
-    code_name = getattr(e, "code_name", "").lower()
+    code_name = (getattr(e, "code_name", None) or "").lower()
     if code_name in _CLICKHOUSE_ERROR_MAPPING:
         return _CLICKHOUSE_ERROR_MAPPING[code_name]
 
