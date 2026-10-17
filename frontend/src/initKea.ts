@@ -142,6 +142,7 @@ purpose, so each caller that degrades has to name itself here, next to the toast
 const NOT_FOUND_SELF_HANDLED = new Set([
     'loadRecordingMeta', // The player renders RecordingNotFound off sessionRecordingMetaLogic's isNotFound
     'loadLineage', // A metric has no lineage node until the sync task runs; the panel says so and retries
+    'loadTableDetails', // A data modeling node can keep the ID of a deleted warehouse table; the summary shows an error with a retry
 ])
 
 /*
