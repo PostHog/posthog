@@ -1803,10 +1803,26 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('dead root frame', () => {
+        it('drops a root frame whose document went away instead of throwing when the tab shows again', () => {
+            const rootFrame = document.body.appendChild(document.createElement('div'))
+            logic.actions.setRootFrame(rootFrame)
+            // Firefox throws on any read of an element whose document was removed.
+            Object.defineProperty(rootFrame, 'isConnected', {
+                get: () => {
+                    throw new TypeError("can't access dead object")
+                },
+            })
+
+            expect(() => logic.actions.tryInitReplayer()).not.toThrow()
+            expect(logic.values.rootFrame).toBeNull()
+        })
+    })
+
     describe('exportRecording', () => {
         it('uses the player skip-inactivity setting', () => {
             // setRootFrame clears innerHTML, so append the iframe after it runs
-            const rootFrame = document.createElement('div')
+            const rootFrame = document.body.appendChild(document.createElement('div'))
             logic.actions.setRootFrame(rootFrame)
             rootFrame.appendChild(document.createElement('iframe'))
 

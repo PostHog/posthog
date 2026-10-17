@@ -174,6 +174,16 @@ function isReplayerDocumentUnavailable(replayer: Replayer | undefined): boolean 
     return !!replayer && !replayer.iframe?.contentDocument?.head
 }
 
+// The root frame lives in the player frame's document. Firefox turns an element of a document that went away
+// into a dead object, which stays truthy but throws on any property read.
+function liveRootFrame(rootFrame: HTMLDivElement | null): HTMLDivElement | null {
+    try {
+        return rootFrame?.isConnected && rootFrame.ownerDocument.defaultView ? rootFrame : null
+    } catch {
+        return null
+    }
+}
+
 interface RenderedScrollDiagnostic {
     rendered_doc_scroll_y: number | null
     rendered_doc_scroll_x: number | null
@@ -2765,12 +2775,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             actions.setPlayer(null)
 
-            if (values.rootFrame) {
-                values.rootFrame.innerHTML = '' // Clear the previously drawn frames
+            const rootFrame = liveRootFrame(values.rootFrame)
+            if (values.rootFrame && !rootFrame) {
+                actions.setRootFrame(null)
+                return
+            }
+
+            if (rootFrame) {
+                rootFrame.innerHTML = '' // Clear the previously drawn frames
             }
 
             if (
-                !values.rootFrame ||
+                !rootFrame ||
                 windowId === undefined ||
                 !values.sessionPlayerData.snapshotsByWindowId[windowId] ||
                 values.sessionPlayerData.snapshotsByWindowId[windowId].length < 2
@@ -2823,7 +2839,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             )
 
             const config: Partial<playerConfig> & { onError: (error: any) => void } = {
-                root: values.rootFrame,
+                root: rootFrame,
                 ...COMMON_REPLAYER_CONFIG,
                 insertStyleRules: [
                     ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
@@ -3236,7 +3252,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // try initializing it now. This handles the race condition where
             // setRootFrame fired before data was available (e.g. in modals where
             // the DOM is ready before network requests complete).
-            if (!values.player && values.rootFrame) {
+            if (!values.player && liveRootFrame(values.rootFrame)) {
                 actions.tryInitReplayer()
             }
 
@@ -3700,7 +3716,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache._frameState = initialFrameState()
         },
         pauseIframePlayback: () => {
-            const iframe = values.rootFrame?.querySelector('iframe')
+            const iframe = liveRootFrame(values.rootFrame)?.querySelector('iframe')
             const iframeDocument = iframe?.contentWindow?.document
             if (!iframeDocument) {
                 return
@@ -3817,7 +3833,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         openExplorer: () => {
             actions.setPause()
-            const iframe = values.rootFrame?.querySelector('iframe')
+            const iframe = liveRootFrame(values.rootFrame)?.querySelector('iframe')
             const iframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
             if (!iframeHtml) {
                 return
@@ -3837,7 +3853,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             filename = '',
         }) => {
             actions.setPause()
-            const iframe = values.rootFrame?.querySelector('iframe')
+            const iframe = liveRootFrame(values.rootFrame)?.querySelector('iframe')
             if (!iframe) {
                 lemonToast.error('Cannot export recording. Please try again.')
                 return
@@ -3876,7 +3892,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         openHeatmap: () => {
             actions.setPause()
-            const iframe = values.rootFrame?.querySelector('iframe')
+            const iframe = liveRootFrame(values.rootFrame)?.querySelector('iframe')
             const rawIframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
             const resolution = values.resolution
             if (!rawIframeHtml || !resolution) {

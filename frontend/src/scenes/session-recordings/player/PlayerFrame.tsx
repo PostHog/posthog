@@ -115,6 +115,15 @@ export const PlayerFrame = (): JSX.Element => {
         return () => clearTimeout(timer)
     }, [frameSrc, playerFrameDocumentLoadFailed])
 
+    // A retry swaps the frame's document and an unmount removes it, and either one leaves the old mount
+    // point dead, so the player must not keep it.
+    useEffect(() => {
+        return () => {
+            frameRef.current = null
+            setRootFrame(null)
+        }
+    }, [frameSrc, setRootFrame])
+
     // Need useEffect to populate replayer on component paint. On the first paint the frame is still
     // loading, in which case handleFrameLoad does this instead.
     useEffect(() => {
