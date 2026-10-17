@@ -274,10 +274,36 @@ class TestRoutineInsights(BaseTest):
 
         self.assertEqual(
             [
-                (m.name, m.value, m.change_pct, m.interval, m.url, m.value_format and m.value_format.format)
+                (
+                    m.name,
+                    m.value,
+                    m.change_pct,
+                    m.interval,
+                    m.url,
+                    m.value_format and m.value_format.format,
+                    m.reason,
+                    m.opened_days,
+                    m.last_opened,
+                    [(mover.label, mover.value, mover.change_pct) for mover in m.movers],
+                    m.previous_value,
+                )
                 for m in pulse
             ],
-            [("Files opened (Exported report)", 14.0, 100.0, "day", "/insights/abc", "currency")],
+            [
+                (
+                    "Files opened (Exported report)",
+                    14.0,
+                    100.0,
+                    "day",
+                    "/insights/abc",
+                    "currency",
+                    "routine",
+                    10,
+                    TODAY,
+                    [("Exported report", 14.0, 100.0), ("Pageview", 7.0, 100.0)],
+                    7.0,
+                )
+            ],
         )
 
     @parameterized.expand(
@@ -285,18 +311,21 @@ class TestRoutineInsights(BaseTest):
             (
                 "a session",
                 None,
-                [("insight:signups", "/dashboard/7"), ("insight:old", "/insights/old")],
+                [
+                    ("insight:signups", "/dashboard/7", "Growth", 2, TODAY - timedelta(days=1)),
+                    ("insight:old", "/insights/old", None, 0, TODAY - timedelta(days=20)),
+                ],
             ),
             (
                 "a key without dashboard access",
                 frozenset({"insight:read"}),
-                [("insight:old", "/insights/old")],
+                [("insight:old", "/insights/old", None, 0, TODAY - timedelta(days=20))],
             ),
         ]
     )
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
     def test_the_frecency_ranking_shows_a_dashboard_opened_often_as_its_first_working_tile(
-        self, _name: str, scopes: frozenset[str] | None, expected: list[tuple[str, str]]
+        self, _name: str, scopes: frozenset[str] | None, expected: list[tuple[str, str, str | None, int, date]]
     ) -> None:
         for kind, ref, ages in (("insight", "old", (20,)), ("dashboard", "7", (1, 2))):
             FileSystemViewLog.objects.create(
@@ -336,4 +365,5 @@ class TestRoutineInsights(BaseTest):
         ):
             pulse = routine.find(Context(self.team, self.user, TODAY, scopes)).pulse
 
-        self.assertEqual([(m.key, m.url) for m in pulse], expected)
+        self.assertEqual([(m.key, m.url, m.dashboard_name, m.opened_days, m.last_opened) for m in pulse], expected)
+        self.assertEqual([m.movers for m in pulse], [[]] * len(expected))

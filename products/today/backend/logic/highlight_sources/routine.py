@@ -13,7 +13,7 @@ from products.product_analytics.backend.facade.api import get_insight_series
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext
 
 from ...facade import contracts
-from ...facade.enums import HighlightInterval, HighlightUnit
+from ...facade.enums import HighlightInterval, HighlightMetricReason, HighlightUnit
 from ...feature_flags import FRECENCY_RANKING, pulse_ranking
 from ..highlight_rules import short
 from ..highlight_series import pretty, usable_series
@@ -33,6 +33,8 @@ FRECENCY_LOOKBACK_DAYS = VIEW_DAYS_KEPT
 FRECENCY_CANDIDATES = 8
 FRECENCY_TILES = 4
 DASHBOARD_TILES_TRIED = 6
+OPENED_DAYS_WINDOW = 14
+MOVERS_SHOWN = 4
 
 
 @frozen
@@ -47,7 +49,7 @@ def find(context: Context) -> Found:
         return Found(pulse=tuple(_frecent_metrics(context)))
     metrics: list[contracts.HighlightMetric] = []
     for item in _routine_insights(context):
-        metric = context.guard(f"routine {item.ref}", partial(_metric, context, item.ref), None)
+        metric = context.guard(f"routine {item.ref}", partial(_metric, context, item.ref, viewed=item), None)
         if metric is not None:
             metrics.append(metric)
         if len(metrics) == ROUTINE_TILES:
@@ -128,7 +130,7 @@ def _frecent_views(context: Context) -> list[ViewedItem]:
 
 def _frecent_metric(context: Context, item: ViewedItem, shown: frozenset[str]) -> contracts.HighlightMetric | None:
     if item.kind == "insight":
-        return None if f"insight:{item.ref}" in shown else _metric(context, item.ref)
+        return None if f"insight:{item.ref}" in shown else _metric(context, item.ref, viewed=item)
     if not item.ref.isdigit():
         return None
     dashboard = dashboard_insights(
@@ -148,7 +150,9 @@ def _frecent_metric(context: Context, item: ViewedItem, shown: frozenset[str]) -
                 dashboard=InsightDashboardContext(
                     filters=dashboard.filters, tile_filters=tile.filters_overrides, variables=dashboard.variables
                 ),
+                viewed=item,
                 url=f"/dashboard/{dashboard.dashboard_id}",
+                dashboard_name=dashboard.name,
             ),
             None,
         )
@@ -161,8 +165,10 @@ def _metric(
     context: Context,
     short_id: str,
     *,
+    viewed: ViewedItem | None = None,
     dashboard: InsightDashboardContext | None = None,
     url: str | None = None,
+    dashboard_name: str | None = None,
 ) -> contracts.HighlightMetric | None:
     insight = get_insight_series(team=context.team, user=context.user, short_id=short_id, dashboard=dashboard)
     if insight is None:
@@ -207,7 +213,38 @@ def _metric(
         interval=HighlightInterval(period),
         url=url or f"/insights/{short_id}",
         value_format=value_format,
+        reason=HighlightMetricReason.ROUTINE if dashboard is None else HighlightMetricReason.DASHBOARD,
+        dashboard_name=dashboard_name,
+        opened_days=_opened_days(viewed, context.today) if viewed else None,
+        last_opened=max(viewed.days) if viewed and viewed.days else None,
+        movers=_movers(series, insight.averaged_series, period, context.today),
+        previous_value=values[-2],
     )
+
+
+def _movers(
+    series: dict[str, list[tuple[date, float]]], averaged: Sequence[str], period: str, today: date
+) -> list[contracts.HighlightMover]:
+    if len(series) < 2:
+        return []
+    moves: list[tuple[float, contracts.HighlightMover]] = []
+    for name, points in series.items():
+        _, values = detect(points, period, today, period == "day" and name in averaged)
+        if len(values) < 2:
+            continue
+        now, before = values[-1], values[-2]
+        mover = contracts.HighlightMover(
+            label=short(pretty(name), 32),
+            value=now,
+            change_pct=round((now - before) / abs(before) * 100, 1) if before else None,
+        )
+        moves.append((abs(now - before), mover))
+    moves.sort(key=lambda move: move[0], reverse=True)
+    return [mover for _, mover in moves[:MOVERS_SHOWN]] if len(moves) > 1 else []
+
+
+def _opened_days(viewed: ViewedItem, today: date) -> int:
+    return sum(1 for day in viewed.days if 0 <= (today - day).days < OPENED_DAYS_WINDOW)
 
 
 SOURCE = Source(name="routine", find=find, scopes=("insight:read",), pulse_order=1)
