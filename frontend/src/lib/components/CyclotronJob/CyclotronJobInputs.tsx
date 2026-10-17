@@ -47,6 +47,13 @@ import { CUSTOM_INPUT_RENDERERS } from './customInputRenderers'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
 import { CyclotronJobTemplateSuggestionsButton, useTemplateEditorCursor } from './CyclotronJobTemplateSuggestions'
 import { insertTemplateReference, templateReferenceForOption } from './cyclotronJobTemplateSuggestionsLogic'
+import {
+    DictionaryRow,
+    dictionaryRowsFromInputs,
+    dictionaryRowsToInputs,
+    findSecretRowsCompanion,
+    isSecretRowsCompanion,
+} from './dictionarySecretRows'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputIntegrationMulti } from './integrations/CyclotronJobInputIntegrationMulti'
@@ -119,6 +126,8 @@ function isValidNonFailureStatusCode(entry: string): boolean {
 
 export type CyclotronJobInputsProps = {
     onInputChange?: (key: string, input: CyclotronJobInputType) => void
+    // Applies changes to several inputs in one update, for a host that builds each update from a snapshot
+    onInputsChange?: (inputs: Record<string, CyclotronJobInputType>) => void
     configuration: CyclotronJobInputConfiguration
     errors?: Record<string, string>
     warnings?: Record<string, string>
@@ -143,6 +152,7 @@ export function CyclotronJobInputs({
     parentConfiguration,
     onInputSchemaChange,
     onInputChange,
+    onInputsChange,
     errors,
     warnings,
     emailFieldErrors,
@@ -175,7 +185,10 @@ export function CyclotronJobInputs({
                 <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
                     <div className={clsx('flex flex-col gap-3', className)}>
                         {configuration.inputs_schema
-                            ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden)
+                            ?.filter(
+                                (i: CyclotronJobInputSchemaType) =>
+                                    !i.hidden && !isSecretRowsCompanion(i, configuration)
+                            )
                             .map((schema: CyclotronJobInputSchemaType) => {
                                 return (
                                     <CyclotronJobInputWithSchema
@@ -185,6 +198,7 @@ export function CyclotronJobInputs({
                                         parentConfiguration={parentConfiguration}
                                         onInputSchemaChange={onInputSchemaChange}
                                         onInputChange={onInputChange}
+                                        onInputsChange={onInputsChange}
                                         showSource={showSource}
                                         sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                         errors={errors}
@@ -482,6 +496,165 @@ function DictionaryField({
     )
 }
 
+function DictionaryFieldWithSecretRows({
+    input,
+    secretInput,
+    onChange,
+    templating,
+    sampleGlobalsWithInputs,
+}: {
+    input: CyclotronJobInputType
+    secretInput: CyclotronJobInputType
+    onChange: (value: CyclotronJobInputType, secretValue: CyclotronJobInputType) => void
+    templating: boolean
+    sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+}): JSX.Element {
+    const [rows, setRows] = useState<DictionaryRow[]>(() => dictionaryRowsFromInputs(input, secretInput))
+    const initialSecretInput = useRef(secretInput)
+    const lastEmitted = useRef<string>(JSON.stringify(dictionaryRowsToInputs(rows, secretInput)))
+    const incoming = JSON.stringify({ value: input.value ?? {}, secretInput })
+    const lastIncoming = useRef(incoming)
+
+    // A save response or a form reset replaces the inputs. Rebuild the rows from them, but not from an echo of our own update.
+    useEffect(() => {
+        if (incoming === lastIncoming.current) {
+            return
+        }
+        lastIncoming.current = incoming
+        if (incoming === lastEmitted.current) {
+            return
+        }
+        const nextRows = dictionaryRowsFromInputs(input, secretInput)
+        initialSecretInput.current = secretInput
+        lastEmitted.current = JSON.stringify(dictionaryRowsToInputs(nextRows, secretInput))
+        setRows(nextRows)
+    }, [incoming]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        const next = dictionaryRowsToInputs(rows, initialSecretInput.current)
+        const serialized = JSON.stringify(next)
+        if (serialized === lastEmitted.current) {
+            return
+        }
+        lastEmitted.current = serialized
+        onChange({ ...input, value: next.value }, next.secretInput) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [rows]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const updateRow = (index: number, patch: Partial<DictionaryRow>): void => {
+        setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+    }
+
+    return (
+        <div className="deprecated-space-y-2">
+            {templating && !rows.some((row) => row.key === EXTEND_OBJECT_KEY) ? (
+                <LemonButton
+                    icon={<IconPlus />}
+                    size="small"
+                    type="secondary"
+                    onClick={() =>
+                        setRows((prev) => [
+                            { key: EXTEND_OBJECT_KEY, value: '{event.properties}', secret: false, masked: false },
+                            ...prev,
+                        ])
+                    }
+                >
+                    Include properties from an entire object
+                </LemonButton>
+            ) : null}
+            {rows.map((row, index) => {
+                const extendsObject = row.key === EXTEND_OBJECT_KEY
+                return (
+                    <div className="flex gap-2 items-center" key={index}>
+                        <Tooltip title={extendsObject ? 'Include properties from an entire object' : undefined}>
+                            <LemonInput
+                                value={extendsObject ? 'INCLUDE ENTIRE OBJECT' : row.key}
+                                disabled={row.masked || extendsObject}
+                                className="flex-1 min-w-60"
+                                onChange={(key) => updateRow(index, { key })}
+                                placeholder="Key"
+                            />
+                        </Tooltip>
+                        {row.masked ? (
+                            <div className="flex flex-2 gap-2 items-center px-2 min-w-0 h-10 rounded border border-dashed overflow-hidden">
+                                <span className="flex-1 min-w-0 italic truncate text-secondary">
+                                    Secret value is hidden
+                                </span>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => updateRow(index, { value: '', masked: false })}
+                                >
+                                    Replace
+                                </LemonButton>
+                            </div>
+                        ) : row.secret ? (
+                            <LemonInput
+                                type="password"
+                                className="flex-2 min-w-0 ph-no-capture"
+                                value={row.value ?? ''}
+                                onChange={(value) => updateRow(index, { value })}
+                                placeholder="Secret value"
+                            />
+                        ) : (
+                            <CyclotronJobTemplateInput
+                                className="overflow-hidden flex-2"
+                                placeholder="Value"
+                                input={{ ...input, value: row.value }}
+                                onChange={(val) => {
+                                    if (val.templating && val.templating !== input.templating) {
+                                        onChange({ ...input, templating: val.templating }, secretInput)
+                                    }
+                                    updateRow(index, { value: val.value ?? '' })
+                                }}
+                                templating={templating}
+                                sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                            />
+                        )}
+                        {extendsObject ? null : (
+                            <Tooltip
+                                title={
+                                    row.secret
+                                        ? 'Secret: stored encrypted and hidden after saving. Click to make it a plain value.'
+                                        : 'Mark as secret, for API tokens and other credentials'
+                                }
+                            >
+                                <LemonButton
+                                    icon={<IconLock />}
+                                    size="small"
+                                    type={row.secret ? 'primary' : 'tertiary'}
+                                    active={row.secret}
+                                    data-attr="dictionary-row-secret-toggle"
+                                    onClick={() =>
+                                        updateRow(
+                                            index,
+                                            row.secret
+                                                ? { secret: false, masked: false, value: row.masked ? '' : row.value }
+                                                : { secret: true }
+                                        )
+                                    }
+                                />
+                            </Tooltip>
+                        )}
+                        <LemonButton
+                            icon={<IconX />}
+                            size="small"
+                            onClick={() => setRows((prev) => prev.filter((_, i) => i !== index))}
+                        />
+                    </div>
+                )
+            })}
+            <LemonButton
+                icon={<IconPlus />}
+                size="small"
+                type="secondary"
+                onClick={() => setRows((prev) => [...prev, { key: '', value: '', secret: false, masked: false }])}
+            >
+                Add entry
+            </LemonButton>
+        </div>
+    )
+}
+
 function BooleanField({
     input,
     onChange,
@@ -580,6 +753,7 @@ type CyclotronJobInputProps = {
     input: CyclotronJobInputType
     onChange?: (value: CyclotronJobInputType) => void
     onInputChange?: (key: string, input: CyclotronJobInputType) => void
+    onInputsChange?: (inputs: Record<string, CyclotronJobInputType>) => void
     disabled?: boolean
     configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
@@ -632,6 +806,7 @@ function NonFailureStatusCodesField({
 function CyclotronJobInputRenderer({
     onChange,
     onInputChange,
+    onInputsChange,
     schema,
     disabled,
     input,
@@ -689,7 +864,28 @@ function CyclotronJobInputRenderer({
                     disabled={disabled}
                 />
             )
-        case 'dictionary':
+        case 'dictionary': {
+            // A caller with only `onChange` (the schema default editor) cannot write the companion input.
+            const secretSchema =
+                onInputsChange || onInputChange ? findSecretRowsCompanion(schema, configuration) : undefined
+            if (secretSchema) {
+                return (
+                    <DictionaryFieldWithSecretRows
+                        input={input}
+                        secretInput={configuration.inputs?.[secretSchema.key] ?? { value: null }}
+                        onChange={(value, secretValue) => {
+                            const changes = { [schema.key]: value, [secretSchema.key]: secretValue }
+                            if (onInputsChange) {
+                                onInputsChange(changes)
+                            } else {
+                                Object.entries(changes).forEach(([key, change]) => onInputChange?.(key, change))
+                            }
+                        }}
+                        templating={templating}
+                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                    />
+                )
+            }
             return (
                 <DictionaryField
                     input={input}
@@ -698,6 +894,7 @@ function CyclotronJobInputRenderer({
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
+        }
         case 'boolean':
             return (
                 <BooleanField
@@ -937,6 +1134,7 @@ function CyclotronJobInputWithSchema({
     parentConfiguration,
     onInputSchemaChange,
     onInputChange,
+    onInputsChange,
     showSource,
     sampleGlobalsWithInputs,
     errors,
@@ -948,7 +1146,11 @@ function CyclotronJobInputWithSchema({
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
     const value = configuration.inputs?.[schema.key] ?? { value: null }
-    const error = errors?.[schema.key]
+    const secretRowsSchema = findSecretRowsCompanion(schema, configuration)
+    const error =
+        [errors?.[schema.key], secretRowsSchema ? errors?.[secretRowsSchema.key] : undefined]
+            .filter(Boolean)
+            .join(' ') || undefined
     const warning = warnings?.[schema.key]
 
     const onSchemaChange = (newSchema: CyclotronJobInputSchemaType | null): void => {
@@ -1100,6 +1302,7 @@ function CyclotronJobInputWithSchema({
                                 input={value ?? { value: '' }}
                                 onChange={onChange}
                                 onInputChange={onInputChange}
+                                onInputsChange={onInputsChange}
                                 configuration={configuration}
                                 parentConfiguration={parentConfiguration}
                                 sampleGlobalsWithInputs={sampleGlobalsWithInputs}
