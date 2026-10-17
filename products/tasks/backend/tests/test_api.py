@@ -2404,40 +2404,99 @@ class TestTaskAPI(BaseTaskAPITest):
             send_feature_flag_events=False,
         )
 
+    def _sandbox_start(self, client: APIClient, path: str, target: Task | None = None):
+        if path == "create":
+            return client.post(
+                "/api/projects/@current/tasks/", {"description": "Child task", "start_run": True}, format="json"
+            )
+        assert target is not None
+        return client.post(f"/api/projects/@current/tasks/{target.id}/run/", {"run_source": "manual"}, format="json")
+
+    @parameterized.expand(["create", "run"])
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_sandbox_oauth_starts_agent_run_for_task_owner(self, path, mock_workflow, _mock_internal_team):
+        parent = self.create_task()
+        parent_run = parent.create_run(environment=TaskRun.Environment.CLOUD)
+        client = self._sandbox_oauth_client(parent.id, internal_scope=True)
+        target = self.create_task(title="Existing task")
+
+        response = self._sandbox_start(client, path, target)
+
+        self.assertIn(response.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json())
+        child = Task.objects.get(id=response.json()["id"])
+        run = child.runs.get()
+        self.assertEqual(run.state["run_source"], "agent")
+        self.assertEqual(run.state["agent_parent_task_id"], str(parent.id))
+        self.assertEqual(run.state["agent_parent_run_id"], str(parent_run.id))
+        parent.refresh_from_db()
+        self.assertEqual(parent.state["agent_started_run_count"], 1)
+        mock_workflow.assert_called_once()
+
+        # The child is agent-started, so its own sandbox cannot start more runs.
+        child_client = self._sandbox_oauth_client(child.id, client_id=ARRAY_APP_CLIENT_ID_US, internal_scope=True)
+        response = self._sandbox_start(child_client, path, target)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "nested")
+
     @parameterized.expand(
         [
-            (payload, forwarded)
-            for payload in ({}, {"run_source": "manual"}, {"run_source": "agent"})
-            for forwarded in (False, True)
+            (path, case)
+            for path in ("create", "run")
+            for case in ("forwarded", "unbound", "other_owner", "nested", "own_task", "not_internal")
+            if (path, case) != ("create", "own_task")
         ]
     )
-    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
-    def test_sandbox_oauth_cannot_start_agent_runs(self, run_payload, forwarded, _mock_internal_team):
-        parent = self.create_task()
-        if forwarded:
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_sandbox_oauth_cannot_start_agent_run(self, path, case, mock_workflow, mock_internal_team):
+        mock_internal_team.return_value = case != "not_internal"
+        parent = self.create_task(created_by=self.create_organization_user("owner") if case == "other_owner" else None)
+        if case == "nested":
+            parent.create_run(extra_state={"agent_parent_task_id": str(uuid.uuid4())})
+        if case == "forwarded":
             client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
             client.defaults["HTTP_X_POSTHOG_SANDBOX_ORIGIN"] = "1"
         else:
-            client = self._sandbox_oauth_client(parent.id, internal_scope=True)
+            client = self._sandbox_oauth_client(parent.id, bound=case != "unbound", internal_scope=True)
+        target = parent if case == "own_task" else self.create_task(title="Existing task")
         task_count = Task.objects.count()
 
-        response = client.post(
-            "/api/projects/@current/tasks/",
-            {"description": "Child task", "start_run": True},
-            format="json",
-        )
+        response = self._sandbox_start(client, path, target)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        expected_code = {"nested": "nested", "own_task": "nested", "not_internal": None}.get(case, "no_actor")
+        if expected_code is not None:
+            self.assertEqual(response.json()["code"], expected_code)
         self.assertEqual(Task.objects.count(), task_count)
+        self.assertFalse(TaskRun.objects.filter(task=target).exists())
+        mock_workflow.assert_not_called()
 
-        response = client.post(
-            f"/api/projects/@current/tasks/{parent.id}/run/",
-            run_payload,
-            format="json",
-        )
+    @parameterized.expand(
+        [(path, limit) for path in ("create", "run") for limit in ("agent_run_fanout_cap", "agent_run_rate_limited")]
+    )
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_sandbox_oauth_agent_run_limits(self, path, limit, mock_workflow, _mock_internal_team):
+        parent = self.create_task()
+        if limit == "agent_run_fanout_cap":
+            parent.state = {"agent_started_run_count": 10}
+            parent.save(update_fields=["state"])
+        client = self._sandbox_oauth_client(parent.id, internal_scope=True)
+        target = self.create_task(title="Existing task")
+        task_count = Task.objects.count()
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertFalse(parent.runs.exists())
+        with patch(
+            "products.tasks.backend.presentation.views.api.SandboxAgentRunStartBurstThrottle.allow_request",
+            return_value=limit != "agent_run_rate_limited",
+        ):
+            response = self._sandbox_start(client, path, target)
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], limit)
+        self.assertEqual(Task.objects.count(), task_count)
+        self.assertFalse(target.runs.exists())
+        mock_workflow.assert_not_called()
 
     @parameterized.expand(
         [(origin, forwarded) for origin in ("user_created", "posthog_ai") for forwarded in (False, True)]

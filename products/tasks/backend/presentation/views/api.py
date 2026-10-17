@@ -69,6 +69,7 @@ if TYPE_CHECKING:
     from products.exports.backend.facade.api import ExportedAsset
 from products.tasks.backend.facade import (
     access as tasks_access,
+    agent_run_starts as tasks_agent_run_starts,
     api as tasks_facade,
     cancellation as tasks_cancellation,
     contracts as tasks_contracts,
@@ -271,8 +272,39 @@ def _pi_cloud_runtime_disabled_response() -> Response:
 
 def _agent_run_disabled_response() -> Response:
     return Response(
-        TaskRunErrorResponseSerializer({"error": "Agent-started task runs are not available for this project"}).data,
+        TaskRunErrorResponseSerializer({"error": "Agent-started task runs are not enabled for this project"}).data,
         status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def _sandbox_run_disabled_response() -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer({"error": "Task sandboxes cannot start this kind of run"}).data,
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+_SANDBOX_RUN_START_DENIAL_MESSAGES: dict[tasks_contracts.SandboxRunStartDenial, str] = {
+    tasks_contracts.SandboxRunStartDenial.NO_ACTOR: (
+        "No user is behind this sandbox, so it cannot start task runs. A person must start this run."
+    ),
+    tasks_contracts.SandboxRunStartDenial.NESTED: (
+        "This run was started from inside a task, so it cannot start more task runs. A person must start this run."
+    ),
+}
+
+
+def _sandbox_run_start_denied_response(denial: tasks_contracts.SandboxRunStartDenial) -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer({"error": _SANDBOX_RUN_START_DENIAL_MESSAGES[denial], "code": denial}).data,
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def _agent_run_rate_limited_response(code: str, detail: str) -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer({"type": "rate_limit", "code": code, "error": detail}).data,
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
     )
 
 
@@ -460,6 +492,18 @@ class SignalReportTaskWarmBurstThrottle(_SignalReportTaskThrottle):
 class SignalReportTaskWarmSustainedThrottle(_SignalReportTaskThrottle):
     scope = "signal_report_task_warm_day"
     rate = "120/day"
+
+
+class SandboxAgentRunStartBurstThrottle(UserRateThrottle):
+    """Per-user bound on runs that task sandboxes start. The view calls it only on that path."""
+
+    scope = "sandbox_agent_run_start_burst"
+    rate = "30/hour"
+
+
+class SandboxAgentRunStartSustainedThrottle(UserRateThrottle):
+    scope = "sandbox_agent_run_start_day"
+    rate = "100/day"
 
 
 @extend_schema(tags=["tasks"])
@@ -767,7 +811,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
-                    "Agent-started runs are limited to the internal project and cannot start from a sandbox token. "
+                    "Agent-started runs are limited to the internal project. A task sandbox can start a run only "
+                    "for the person who created its task (code `no_actor`), and a run that a sandbox started "
+                    "cannot start more runs (code `nested`). "
                     "Immediate runs also require PostHog Desktop access and an enabled Pi cloud runtime."
                 ),
             ),
@@ -775,7 +821,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description=(
                     "Organization reached its PostHog Desktop usage limit, the signal report reached its "
-                    "task limit (code `signal_report_task_cap`), or the per-user creation rate limit fired"
+                    "task limit (code `signal_report_task_cap`), or the per-user creation rate limit fired. "
+                    "A task sandbox gets code `agent_run_fanout_cap` when its task started its maximum number "
+                    "of runs, or code `agent_run_rate_limited` when its user starts runs too fast"
                 ),
             ),
             503: OpenApiResponse(
@@ -796,7 +844,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         origin_product = validated_data.get("origin_product", tasks_facade.TaskOriginProduct.USER_CREATED)
         relationship = serializer.validated_data.get("signal_report_task_relationship")
 
-        if start_run and (not self._agent_run_enabled(request) or is_sandbox_origin_request(request)):
+        sandbox_starter: tasks_contracts.SandboxRunStarter | None = None
+        if start_run and is_sandbox_origin_request(request):
+            sandbox_starter_or_response = self._sandbox_run_starter(request)
+            if isinstance(sandbox_starter_or_response, Response):
+                return sandbox_starter_or_response
+            sandbox_starter = sandbox_starter_or_response
+        if start_run and not self._agent_run_enabled(request):
             return _agent_run_disabled_response()
 
         if (
@@ -814,8 +868,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # discussion is one of them and stays code-access exempt below, matching how the warm endpoint gates.
         # `origin_product` is optional on the wire; `create_task` defaults it the same way.
         can_activate_warm_run = "branch" in validated_data and origin_product in WARMABLE_ORIGIN_PRODUCTS
-        if can_activate_warm_run and is_sandbox_origin_request(request):
-            return _agent_run_disabled_response()
+        # An agent run never activates a warm run (see `run_task`), so only a create without a run is refused.
+        if can_activate_warm_run and not start_run and is_sandbox_origin_request(request):
+            return _sandbox_run_disabled_response()
         if start_run or can_activate_warm_run:
             is_code_access_exempt = (
                 origin_product == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
@@ -832,6 +887,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 return access_response
             if limit_response := usage_limit_response(request.user, self.team_id):
                 return limit_response
+        if sandbox_starter is not None:
+            if limit_response := self._reserve_sandbox_agent_run(request, sandbox_starter):
+                return limit_response
+            run_data = {**run_data, **self._sandbox_run_attribution(sandbox_starter)}
 
         discussion_question = validated_data.pop("signal_report_discussion_question", None)
 
@@ -1407,7 +1466,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
+                description=(
+                    "PostHog Desktop access is required, Pi cloud runtime is disabled, or agent-started runs are "
+                    "not enabled for this project. A task sandbox can start a run only for the person who created "
+                    "its task (code `no_actor`), and a run that a sandbox started cannot start more runs "
+                    "(code `nested`)."
+                ),
             ),
             404: OpenApiResponse(description="Task not found"),
             503: OpenApiResponse(
@@ -1422,7 +1486,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description=(
                     "Team is over its posthog_code usage limit, or the task's signal report has "
-                    "reached its task limit (code `signal_report_task_cap`)"
+                    "reached its task limit (code `signal_report_task_cap`). A task sandbox gets code "
+                    "`agent_run_fanout_cap` when its task started its maximum number of runs, or code "
+                    "`agent_run_rate_limited` when its user starts runs too fast"
                 ),
             ),
         },
@@ -1444,9 +1510,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             previous_source = tasks_facade.get_task_run_source(resume_id, pk, self.team_id)
             if previous_source == RunSource.AGENT:
                 run_source = previous_source
-        if is_sandbox_origin_request(request) or (
-            run_source == RunSource.AGENT and not self._agent_run_enabled(request)
-        ):
+        sandbox_starter: tasks_contracts.SandboxRunStarter | None = None
+        if is_sandbox_origin_request(request):
+            sandbox_starter_or_response = self._sandbox_run_starter(request, target_task_id=pk)
+            if isinstance(sandbox_starter_or_response, Response):
+                return sandbox_starter_or_response
+            sandbox_starter = sandbox_starter_or_response
+            run_source = RunSource.AGENT
+        if run_source == RunSource.AGENT and not self._agent_run_enabled(request):
             return _agent_run_disabled_response()
 
         # Original order: 404 if the task isn't visible, then gate (always cloud) before the run.
@@ -1472,6 +1543,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
+        sandbox_run_data: dict = {}
+        if sandbox_starter is not None:
+            if limit_response := self._reserve_sandbox_agent_run(request, sandbox_starter):
+                return limit_response
+            sandbox_run_data = {"run_source": RunSource.AGENT, **self._sandbox_run_attribution(sandbox_starter)}
 
         from products.signals.backend.facade.api import (  # noqa: PLC0415 — keeps the signals stack off this module's import path
             ReportTaskCapExceeded,
@@ -1484,6 +1560,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 self._user_id(),
                 validated_data={
                     **request.validated_data,
+                    **sandbox_run_data,
                     "client_platform": "mobile"
                     if request.headers.get("X-PostHog-Client-Platform") == "mobile"
                     else None,
@@ -1525,6 +1602,50 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _agent_run_enabled(self, request) -> bool:
         return _agent_run_enabled(request, self.team)
+
+    def _sandbox_run_starter(
+        self, request, *, target_task_id: str | None = None
+    ) -> tasks_contracts.SandboxRunStarter | Response:
+        """Resolve the task behind a sandbox credential, or the 403 that explains why it cannot start runs.
+
+        The credential user must be the creator of that task, so the gates that follow run as that person.
+        """
+        token = get_oauth_access_token(request) if is_sandbox_oauth_request(request) else None
+        starter = tasks_agent_run_starts.resolve_sandbox_run_starter(
+            self.team_id,
+            sandbox_task_id=getattr(token, "sandbox_task_id", None),
+            token_id=getattr(token, "id", None),
+            user_id=self._user_id(),
+            target_task_id=target_task_id,
+        )
+        if isinstance(starter, tasks_contracts.SandboxRunStartDenial):
+            return _sandbox_run_start_denied_response(starter)
+        return starter
+
+    def _reserve_sandbox_agent_run(self, request, starter: tasks_contracts.SandboxRunStarter) -> Response | None:
+        for throttle in (SandboxAgentRunStartBurstThrottle(), SandboxAgentRunStartSustainedThrottle()):
+            if not throttle.allow_request(request, self):
+                return _agent_run_rate_limited_response(
+                    "agent_run_rate_limited", "Task sandboxes started too many runs for this user. Try again later."
+                )
+        if not tasks_agent_run_starts.reserve_agent_run_slot(self.team_id, starter.parent_task_id):
+            return _agent_run_rate_limited_response(
+                "agent_run_fanout_cap",
+                f"This task already started {tasks_agent_run_starts.AGENT_RUN_FANOUT_CAP} runs, "
+                "which is the limit. A person must start more runs.",
+            )
+        return None
+
+    @staticmethod
+    def _sandbox_run_attribution(starter: tasks_contracts.SandboxRunStarter) -> dict[str, str]:
+        return {
+            tasks_agent_run_starts.AGENT_PARENT_TASK_ID_STATE_KEY: str(starter.parent_task_id),
+            **(
+                {tasks_agent_run_starts.AGENT_PARENT_RUN_ID_STATE_KEY: str(starter.parent_run_id)}
+                if starter.parent_run_id
+                else {}
+            ),
+        }
 
     def _warm_enabled(self, origin_product: str) -> bool:
         """Person + org level gate for the sandbox-warming feature. Fail-closed on any error.
@@ -1587,7 +1708,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["post"], url_path="warm", required_scopes=["task:write"])
     def warm(self, request, **kwargs):
         if is_sandbox_origin_request(request):
-            return _agent_run_disabled_response()
+            return _sandbox_run_disabled_response()
         origin_product = request.validated_data["origin_product"]
         if not self._warm_enabled(origin_product):
             return Response(status=status.HTTP_200_OK)
@@ -1666,7 +1787,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def warm_resume(self, request, pk=None, **kwargs):
         _reject_scout_trial_run_creation(str(pk), self.team_id)
         if is_sandbox_origin_request(request):
-            return _agent_run_disabled_response()
+            return _sandbox_run_disabled_response()
         gate = tasks_facade.task_control_runtime_and_origin(pk, self.team_id, self._user_id())
         if gate is None:
             raise NotFound()
@@ -2088,7 +2209,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Gate cloud runs before the run row is created; local runs aren't limited.
         if environment == tasks_facade.TaskRunEnvironment.CLOUD:
             if is_sandbox_origin_request(request):
-                return _agent_run_disabled_response()
+                return _sandbox_run_disabled_response()
             if access_response := self._cloud_run_access_response(task_id):
                 return access_response
 
@@ -2128,9 +2249,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         startable, run_source = tasks_facade.check_task_run_startable(pk, task_id, self.team_id)
         if startable == "not_found":
             raise NotFound()
-        if is_sandbox_origin_request(request) or (
-            run_source == RunSource.AGENT and not _agent_run_enabled(request, self.team)
-        ):
+        if is_sandbox_origin_request(request):
+            return _sandbox_run_disabled_response()
+        if run_source == RunSource.AGENT and not _agent_run_enabled(request, self.team):
             return _agent_run_disabled_response()
 
         if tasks_facade.task_runtime(
@@ -4093,7 +4214,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def resume_in_cloud(self, request, pk=None, **kwargs):
         if is_sandbox_origin_request(request):
-            return _agent_run_disabled_response()
+            return _sandbox_run_disabled_response()
         task_id = self._ensure_task_accessible()
         _reject_scout_trial_run_creation(task_id, self.team_id)
         if tasks_facade.get_task_run_detail(pk, task_id, self.team_id) is None:

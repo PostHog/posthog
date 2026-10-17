@@ -9574,6 +9574,8 @@ def run_task(
         ("benjamin_enabled", validated_data.get("benjamin_enabled")),
         ("claude_model_access", claude_model_access),
         ("codex_model_access", codex_model_access),
+        ("agent_parent_task_id", validated_data.get("agent_parent_task_id")),
+        ("agent_parent_run_id", validated_data.get("agent_parent_run_id")),
     ):
         if value is not None:
             extra_state = extra_state or {}
