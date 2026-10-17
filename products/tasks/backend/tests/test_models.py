@@ -626,7 +626,7 @@ class TestTask(TestCase):
     ):
         user = User.objects.create(email="test@test.com")
         for index, reachable in enumerate(installation_repositories):
-            self._create_github_installation(f"install-{index}", reachable)
+            self._create_github_installation(f"install-{index}", reachable, synced_minutes_ago=10)
 
         with self.assertRaises(ValueError) as cm:
             Task.create_and_run(
@@ -696,10 +696,7 @@ class TestTask(TestCase):
         self, _name, cached_repositories, github_listing, mock_execute_workflow
     ):
         user = User.objects.create(email="test@test.com")
-        installation = self._create_github_installation("install-0", cached_repositories)
-        Integration.objects.filter(id=installation.id).update(
-            repository_cache_updated_at=django_timezone.now() - timedelta(minutes=10)
-        )
+        installation = self._create_github_installation("install-0", cached_repositories, synced_minutes_ago=10)
 
         with patch(LIST_GITHUB_REPOSITORIES, **github_listing), self.captureOnCommitCallbacks(execute=True):
             task = Task.create_and_run(
@@ -713,6 +710,31 @@ class TestTask(TestCase):
 
         self.assertEqual(task.github_integration, installation)
 
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_skips_an_installation_github_reports_gone(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        self._create_github_installation("install-0", ["acme/other"], synced_minutes_ago=10)
+
+        def installation_gone(github, **_kwargs):
+            github.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            github.integration.save(update_fields=["errors"])
+            raise ConnectionError("installation token refresh failed")
+
+        with (
+            patch(LIST_GITHUB_REPOSITORIES, autospec=True, side_effect=installation_gone),
+            self.assertRaises(ValueError) as cm,
+        ):
+            Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
+
+        self.assertIn("does not have a GitHub integration", str(cm.exception))
+
     @patch(LIST_GITHUB_REPOSITORIES, return_value=[])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_bot_task_keeps_off_personal_github_when_the_team_has_an_installation(
@@ -720,7 +742,7 @@ class TestTask(TestCase):
     ):
         user = User.objects.create(email="signal-report@test.com")
         OrganizationMembership.objects.create(user=user, organization=self.organization)
-        self._create_github_installation("install-0", ["acme/other"])
+        self._create_github_installation("install-0", ["acme/other"], synced_minutes_ago=10)
         UserIntegration.objects.create(
             user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,
@@ -743,7 +765,9 @@ class TestTask(TestCase):
         self.assertIn("can access posthog/posthog", str(cm.exception))
         mock_execute_workflow.assert_not_called()
 
-    def _create_github_installation(self, installation_id: str, repositories: list[str] | None) -> Integration:
+    def _create_github_installation(
+        self, installation_id: str, repositories: list[str] | None, synced_minutes_ago: int = 0
+    ) -> Integration:
         return Integration.objects.create(
             team=self.team,
             kind="github",
@@ -753,7 +777,9 @@ class TestTask(TestCase):
                 {"id": index, "name": full_name.split("/")[1], "full_name": full_name}
                 for index, full_name in enumerate(repositories or [])
             ],
-            repository_cache_updated_at=None if repositories is None else django_timezone.now(),
+            repository_cache_updated_at=(
+                None if repositories is None else django_timezone.now() - timedelta(minutes=synced_minutes_ago)
+            ),
         )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")

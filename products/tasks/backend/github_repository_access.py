@@ -7,6 +7,8 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
 
+from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
+
 logger = logging.getLogger(__name__)
 
 _MISS_REFRESH_INTERVAL_SECONDS = 60
@@ -34,13 +36,18 @@ def usable_team_github_integrations(team_id: int) -> QuerySet[Integration]:
 
 
 def team_github_integration_for_repositories(team_id: int, repositories: Iterable[str]) -> Integration | None:
-    """The first working team installation that reaches every one of ``repositories``.
+    """The first working team installation that reaches every private one of ``repositories``.
+
+    Public sandbox repositories need no credential, so they never decide the pick, and a task with
+    only those gets None.
 
     The cache answers first. An installation that has never synced its cache comes next, because its
     access is unknown rather than missing. Only then does GitHub confirm the miss, so a cache that
     predates a repository does not fail task creation.
     """
-    wanted = {repository.lower() for repository in repositories}
+    wanted = {repository.lower() for repository in repositories if not is_public_sandbox_repo(repository)}
+    if not wanted:
+        return None
     integrations = list(working_team_github_integrations(team_id))
     for integration in integrations:
         if wanted <= _cached_full_names(integration):
@@ -51,17 +58,24 @@ def team_github_integration_for_repositories(team_id: int, repositories: Iterabl
     unconfirmed: Integration | None = None
     for integration in integrations:
         refreshed = _refreshed_full_names(integration)
-        if refreshed is None:
-            unconfirmed = unconfirmed or integration
-        elif wanted <= refreshed:
+        if refreshed is not None and wanted <= refreshed:
             return integration
+        if refreshed is None and unconfirmed is None and _still_working(integration):
+            unconfirmed = integration
     return unconfirmed
+
+
+def _still_working(integration: Integration) -> bool:
+    """False once a failed refresh marked the installation gone on the row it holds."""
+    return integration.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in (
+        integration.config or {}
+    )
 
 
 def default_team_github_integration(team_id: int, repositories: list[str]) -> Integration | None:
     """The installation a task gets when its caller names none: the one that reaches ``repositories``,
     else the team's first, so a caller that reports access problems at run time keeps doing so."""
-    reaching = team_github_integration_for_repositories(team_id, repositories) if repositories else None
+    reaching = team_github_integration_for_repositories(team_id, repositories)
     return reaching or Integration.objects.filter(team_id=team_id, kind="github").first()
 
 

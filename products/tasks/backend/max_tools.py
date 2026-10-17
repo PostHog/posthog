@@ -74,12 +74,12 @@ By default, the task will be created and immediately executed. Set run=false to 
         self, title: str, description: str, repository: str, run: bool = True
     ) -> tuple[str, dict[str, Any]]:
         slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
+        # Resolved before the transaction: a cache miss syncs from GitHub and saves the integration row.
+        github_integration = await sync_to_async(default_team_github_integration)(self._team.id, [repository])
 
         @sync_to_async
         @transaction.atomic
         def create_task_and_maybe_run():
-            github_integration = default_team_github_integration(self._team.id, [repository])
-
             task = Task.objects.create(
                 team=self._team,
                 created_by=self._user,

@@ -1204,12 +1204,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # as a private first one.
         private_repositories = [name for name in resolved_repositories if not is_public_sandbox_repo(name)]
         team_github_installations = working_team_github_integrations(team.id)
-        team_has_github_installation = team_github_installations.exists()
         github_integration = None
         if github_resolution_allowed and private_repositories:
             github_integration = team_github_integration_for_repositories(team.id, private_repositories)
         elif github_resolution_allowed:
             github_integration = team_github_installations.first()
+        # Read after the pick: a refresh during it can mark an installation gone.
+        team_has_github_installation = team_github_installations.exists()
         github_user_integration = None
         task_stub = Task(
             team=team,
