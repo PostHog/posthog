@@ -121,6 +121,7 @@ def get_direct_connection_source(
 
     if (
         user is not None
+        and not isinstance(user, SyntheticUser | SharedLinkUser)
         and managed_warehouse_mode != ManagedWarehouseSQLMode.BUILT_IN
         and not UserAccessControl(user=user, team=team).check_access_level_for_object(source, required_level="viewer")
     ):
