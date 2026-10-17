@@ -497,13 +497,29 @@ describe('messageTemplateLogic', () => {
 
     describe('claimed back by an upload while editing', () => {
         let serverTemplate: Record<string, unknown>
+        let reloadStatus: number
         let createBodies: Record<string, unknown>[]
+
+        const refuseSave = async (): Promise<void> => {
+            serverTemplate = CODE_MANAGED
+            await expectLogic(logic, () => {
+                logic.actions.submitTemplate()
+            })
+                .toDispatchActions([
+                    'saveTemplateFailure',
+                    reloadStatus === 200 ? 'loadTemplateSuccess' : 'loadTemplateFailure',
+                ])
+                .toFinishAllListeners()
+        }
 
         beforeEach(async () => {
             serverTemplate = { ...CODE_MANAGED, managed_by: 'gui' }
+            reloadStatus = 200
             createBodies = []
             useMocks({
-                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, serverTemplate] },
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': () => [reloadStatus, serverTemplate],
+                },
                 patch: {
                     '/api/environments/:team_id/messaging_templates/:id/': () => [
                         403,
@@ -523,15 +539,15 @@ describe('messageTemplateLogic', () => {
 
             logic.actions.setTemplateValue('name', 'Welcome, edited here')
             logic.actions.setTemplateValue('content.email.subject', 'Edited subject')
-            serverTemplate = CODE_MANAGED
-            await expectLogic(logic, () => {
-                logic.actions.submitTemplate()
-            })
-                .toDispatchActions(['saveTemplateFailure', 'loadTemplateSuccess'])
-                .toFinishAllListeners()
         })
 
-        it('reloads the template read-only and offers to duplicate the unsaved edits', async () => {
+        it.each([
+            { reload: 'succeeds', status: 200 },
+            { reload: 'fails', status: 500 },
+        ])('turns read-only and offers to duplicate the unsaved edits when the reload $reload', async ({ status }) => {
+            reloadStatus = status
+            await refuseSave()
+
             await expectLogic(logic).toMatchValues({
                 isCodeManaged: true,
                 templateChanged: false,
@@ -541,6 +557,8 @@ describe('messageTemplateLogic', () => {
         })
 
         it('duplicates the unsaved edits without its key, ownership, source or hash', async () => {
+            await refuseSave()
+
             await expectLogic(logic, () => {
                 logic.actions.duplicateWithMyChanges()
             }).toFinishAllListeners()

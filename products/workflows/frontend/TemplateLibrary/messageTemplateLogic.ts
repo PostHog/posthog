@@ -418,15 +418,14 @@ export type messageTemplateLogicType = MakeLogicType<
     messageTemplateLogicMeta
 >
 
-async function openCopyOf(source: MessageTemplate): Promise<boolean> {
+async function createCopyOf(source: MessageTemplate): Promise<MessageTemplate | null> {
     try {
-        const duplicatedTemplate = await api.messaging.createTemplate(templateCopy(source))
+        const copy = await api.messaging.createTemplate(templateCopy(source))
         lemonToast.success('Template duplicated successfully')
-        router.actions.push(urls.workflowsLibraryTemplate(duplicatedTemplate.id))
-        return true
+        return copy
     } catch (error: any) {
         lemonToast.error(error?.detail || 'Failed to duplicate template')
-        return false
+        return null
     }
 }
 
@@ -712,6 +711,17 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
         },
         saveTemplateFailure: ({ errorObject }) => {
+            if (errorObject?.code === 'immutable') {
+                // An upload claimed the template back for code. The page locks at once, so a failed reload
+                // can't leave it editable. Only the offered duplicate keeps the refused edits.
+                const claimed = { ...values.originalTemplate, managed_by: 'code' as const }
+                actions.setRefusedEdits(values.template)
+                actions.setExternallyEdited(false)
+                actions.setOriginalTemplate(claimed)
+                actions.resetTemplate(claimed)
+                actions.loadTemplate()
+                return
+            }
             actions.replayDeferredExternalEdit()
             // A 404 means the template no longer resolves for this environment - it was soft-deleted,
             // or it belongs to a different environment than the one currently selected.
@@ -722,12 +732,6 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                         action: () => router.actions.push(urls.workflows('library')),
                     },
                 })
-                return
-            }
-            if (errorObject?.code === 'immutable') {
-                // An upload claimed the template back for code. Reloading turns the page read-only.
-                actions.setRefusedEdits(values.template)
-                actions.syncExternalEdit()
                 return
             }
             lemonToast.error('Failed to save template. Please try again.')
@@ -761,21 +765,27 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
             })
         },
-        duplicateTemplate: async () => {
+        duplicateTemplate: async (_, breakpoint) => {
             if (values.templateChanged) {
                 lemonToast.error('Please save your changes before duplicating')
                 actions.duplicateTemplateDone()
                 return
             }
-            await openCopyOf(values.template)
+            const copy = await createCopyOf(values.template)
+            breakpoint()
             actions.duplicateTemplateDone()
+            if (copy) {
+                router.actions.push(urls.workflowsLibraryTemplate(copy.id))
+            }
         },
-        duplicateWithMyChanges: async () => {
+        duplicateWithMyChanges: async (_, breakpoint) => {
             const edits = values.refusedEdits
-            const copied = edits !== null && (await openCopyOf(edits))
+            const copy = edits && (await createCopyOf(edits))
+            breakpoint()
             actions.duplicateTemplateDone()
-            if (copied) {
+            if (copy) {
                 actions.setRefusedEdits(null)
+                router.actions.push(urls.workflowsLibraryTemplate(copy.id))
             }
         },
         deleteTemplate: async () => {
