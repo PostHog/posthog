@@ -76,6 +76,7 @@ the row lists both.
 | alguna                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | alpha_vantage                    | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads                       | HTTP                        | requests                                                        | ✅                          |
+| amazon_selling_partner           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | amplemarket                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | amplitude                        | HTTP                        | requests                                                        | ✅                          |
 | anthropic                        | HTTP                        | requests                                                        | ✅                          |
@@ -1011,7 +1012,6 @@ doesn't conflict with concurrent PRs.
 - amazon_eventbridge
 - amazon_kinesis
 - amazon_s3
-- amazon_selling_partner
 - amazon_sns
 - amazon_sqs
 - anodot_cost
