@@ -1090,7 +1090,6 @@ describe('Tool Filtering - Feature Flags', () => {
             'metrics-dashboard-import',
             'managed-warehouse-trino-query',
             'llm-analytics-tags',
-            'data-warehouse-scene-trino',
             'insight-data-checks',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))

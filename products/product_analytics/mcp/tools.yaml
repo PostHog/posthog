@@ -175,11 +175,15 @@ tools:
             the project is hidden from you. It is `no_events` when no event matches the insight.
 
 
-            Each check has a `level` (`passed`, `warning`, `problem` or `skipped`), a `result` sentence, and a `fix`
-            when it found something. When `action` is `filter_internal_users`, the fix is to set `filterTestAccounts` to
-            true on the query with `insight-update`. A large insight is checked on a sample: when `sample_rate` is below
-            1, `events_checked` and the `events` of each check count the sample only. The internal users check reads a
-            smaller sample of its own, so its `events` is an estimate on the same scale.
+            Each check has a `level` (`passed`, `warning`, `problem` or `skipped`), the `events` it found with their
+            `share`, and the `top_events` it found most often. When `action` is `filter_internal_users`, the fix is to
+            set `filterTestAccounts` to true on the query with `insight-update`. When it is `open_filter_settings`, the
+            project's internal and test users filter misses the team, and the user must change it in the project
+            settings. The checks read the newest days of the date range, up to 7, and `coverage` says which days and how
+            many events. Each check's `method` says whether it counted every event on those days or read a sample, and
+            `scaled` is true when its `events` is an estimate from a sample. The internal users check matches the
+            organization's member emails only with the `organization_member:read` scope, and its verified domains only
+            with `organization:read`.
         agent_note: >
             When a check has the level `warning` or `problem`, tell the user what it found in one sentence, with its
             share of the events, and offer the fix. Do not change the insight or the project's filter settings before
@@ -467,11 +471,14 @@ tools:
             ```
 
 
-            Each check has a `level` (`passed`, `warning`, `problem` or `skipped`), a `result` sentence, and a `fix`
-            when it found something. When `action` is `filter_internal_users`, the fix is to set `filterTestAccounts` to
-            true on the query. A large query is checked on a sample: when `sample_rate` is below 1, `events_checked` and
-            the `events` of each check count the sample only. The internal users check reads a smaller sample of its
-            own, so its `events` is an estimate on the same scale.
+            Each check has a `level` (`passed`, `warning`, `problem` or `skipped`), the `events` it found with their
+            `share`, and the `top_events` it found most often. When `action` is `filter_internal_users`, the fix is to
+            set `filterTestAccounts` to true on the query. When it is `open_filter_settings`, the project's internal and
+            test users filter misses the team, and the user must change it in the project settings. The checks read the
+            newest days of the date range, up to 7, and `coverage` says which days and how many events. Each check's
+            `method` says whether it counted every event on those days or read a sample, and `scaled` is true when its
+            `events` is an estimate from a sample. The internal users check matches the organization's member emails
+            only with the `organization_member:read` scope, and its verified domains only with `organization:read`.
         agent_note: >
             When a check has the level `warning` or `problem`, tell the user what it found in one sentence, with its
             share of the events, and offer the fix. Do not change the query or the project's filter settings before the
