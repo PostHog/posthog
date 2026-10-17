@@ -41,6 +41,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
     META_GROUP_TYPES,
+    withoutSearchOnlyGroups,
 } from 'lib/components/TaxonomicFilter/types'
 import { isQuickFilterItem } from 'lib/components/TaxonomicFilter/types'
 import { buildTaxonomicGroups } from 'lib/components/TaxonomicFilter/utils/buildTaxonomicGroups'
@@ -425,21 +426,32 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         [groupTypes]
     )
 
+    // Tab cycling moves between the offered categories, so it skips search-only groups as the tabs do.
+    const categoryGroupTypes = useMemo(
+        () =>
+            withoutSearchOnlyGroups(
+                groupTypes,
+                (type) => type,
+                (type) => META_GROUP_TYPES.has(type)
+            ),
+        [groupTypes]
+    )
+
     const tabLeft = useCallback(() => {
-        const idx = groupTypes.indexOf(activeGroupType)
+        const idx = categoryGroupTypes.indexOf(activeGroupType)
         if (idx <= 0) {
             return
         }
-        setExplicitActiveGroup(groupTypes[idx - 1])
-    }, [groupTypes, activeGroupType])
+        setExplicitActiveGroup(categoryGroupTypes[idx - 1])
+    }, [categoryGroupTypes, activeGroupType])
 
     const tabRight = useCallback(() => {
-        const idx = groupTypes.indexOf(activeGroupType)
-        if (idx === -1 || idx >= groupTypes.length - 1) {
+        const idx = categoryGroupTypes.indexOf(activeGroupType)
+        if (idx === -1 || idx >= categoryGroupTypes.length - 1) {
             return
         }
-        setExplicitActiveGroup(groupTypes[idx + 1])
-    }, [groupTypes, activeGroupType])
+        setExplicitActiveGroup(categoryGroupTypes[idx + 1])
+    }, [categoryGroupTypes, activeGroupType])
 
     const activeGroup = useMemo(() => groups.find((g) => g.type === activeGroupType), [groups, activeGroupType])
 

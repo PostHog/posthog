@@ -382,8 +382,8 @@ export enum TaxonomicFilterGroupType {
 }
 
 /**
- * Groups whose items people pick from the All list and search, almost never from their own tab.
- * They stay searched and feed All, but are not offered as categories.
+ * Value shortcut groups that stay searched and keep feeding the All list, but are not offered as categories.
+ * Their items are found through All and search, so a separate category only adds a place to come up empty.
  */
 export const SEARCH_ONLY_GROUP_TYPES: ReadonlySet<TaxonomicFilterGroupType> = new Set([
     TaxonomicFilterGroupType.EmailAddresses,
@@ -391,6 +391,16 @@ export const SEARCH_ONLY_GROUP_TYPES: ReadonlySet<TaxonomicFilterGroupType> = ne
     TaxonomicFilterGroupType.PageviewEvents,
     TaxonomicFilterGroupType.ScreenEvents,
 ])
+
+/** The categories to offer: everything except search-only groups, unless that leaves no real category. */
+export function withoutSearchOnlyGroups<T>(
+    items: T[],
+    groupTypeOf: (item: T) => TaxonomicFilterGroupType,
+    isMetaGroupType: (groupType: TaxonomicFilterGroupType) => boolean
+): T[] {
+    const kept = items.filter((item) => !SEARCH_ONLY_GROUP_TYPES.has(groupTypeOf(item)))
+    return kept.some((item) => !isMetaGroupType(groupTypeOf(item))) ? kept : items
+}
 
 export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.HogQLExpression,

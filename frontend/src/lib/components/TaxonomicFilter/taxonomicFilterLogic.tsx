@@ -40,7 +40,7 @@ import {
     ListStorage,
     QuickFilterItem,
     META_GROUP_TYPES,
-    SEARCH_ONLY_GROUP_TYPES,
+    withoutSearchOnlyGroups,
     OPEN_AS_SELF_ON_REOPEN,
     SelectedProperties,
     SimpleOption,
@@ -2320,9 +2320,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type !== TaxonomicFilterGroupType.RecentFilters &&
                         type !== TaxonomicFilterGroupType.PinnedFilters
                 )
-                const withoutSearchOnly = categories.filter((type) => !SEARCH_ONLY_GROUP_TYPES.has(type))
-                // A picker made only of search-only groups still needs a category to show.
-                return withoutSearchOnly.some((type) => !metaGroupTypes.has(type)) ? withoutSearchOnly : categories
+                return withoutSearchOnlyGroups(
+                    categories,
+                    (type) => type,
+                    (type) => metaGroupTypes.has(type) || META_GROUP_TYPES.has(type)
+                )
             },
             { resultEqualityCheck: objectsEqual },
         ],

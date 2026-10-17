@@ -273,12 +273,13 @@ describe('useTaxonomicFilter', () => {
         expect(result.current.activeGroupType).toBe(TaxonomicFilterGroupType.Events)
     })
 
-    it('tabLeft / tabRight cycle through visible groups', () => {
+    it('tabLeft / tabRight cycle through visible groups, skipping search-only groups', () => {
         const { result } = renderHook(
             () =>
                 useTaxonomicFilter({
                     taxonomicGroupTypes: [
                         TaxonomicFilterGroupType.Events,
+                        TaxonomicFilterGroupType.AutocaptureEvents,
                         TaxonomicFilterGroupType.Actions,
                         TaxonomicFilterGroupType.PersonProperties,
                     ],

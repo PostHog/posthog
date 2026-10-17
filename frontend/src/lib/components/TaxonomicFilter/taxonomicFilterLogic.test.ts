@@ -1168,6 +1168,12 @@ describe('taxonomicFilterLogic', () => {
                 shown: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
             },
             {
+                picker: 'picker of a search-only group and a meta group',
+                groupTypes: [TaxonomicFilterGroupType.EmailAddresses, TaxonomicFilterGroupType.HogQLExpression],
+                hidden: [],
+                shown: [TaxonomicFilterGroupType.EmailAddresses],
+            },
+            {
                 picker: 'picker of only a search-only group',
                 groupTypes: [TaxonomicFilterGroupType.EmailAddresses],
                 hidden: [],
