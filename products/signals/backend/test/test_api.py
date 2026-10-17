@@ -16,7 +16,7 @@ from products.signals.backend.facade.api import (
 )
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
-from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
+from products.signals.backend.temporal.emitter import SUBMIT_TO_BUFFER_TIMEOUT, SignalEmitterWorkflow
 
 
 @pytest.fixture
@@ -120,6 +120,8 @@ class TestEmitSignalValidation:
         assert client.start_workflow.call_args_list[0].args[0] == BufferSignalsWorkflow.run
         # Second call: emitter workflow
         assert client.start_workflow.call_args_list[1].args[0] == SignalEmitterWorkflow.run
+        # A run that ends before its submit activity can't record the drop, so the signal vanishes
+        assert client.start_workflow.call_args_list[1].kwargs["run_timeout"] > SUBMIT_TO_BUFFER_TIMEOUT
 
     @pytest.mark.parametrize(
         "source_product, source_type, extra",

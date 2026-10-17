@@ -87,7 +87,7 @@ Defined in `backend/temporal/emitter.py`.
    b. If the buffer is full (`>= BUFFER_MAX_SIZE`), **polls with jittered sleep** until space is available, heartbeating while it waits
    c. **Signals** the buffer workflow’s `submit_signal` handler with the signal
 
-This keeps `emit_signal()` fire-and-forget while the emitter workflow absorbs backpressure. The activity currently uses a **3-hour** `start_to_close_timeout` and **10-minute** `heartbeat_timeout`.
+This keeps `emit_signal()` fire-and-forget while the emitter workflow absorbs backpressure. The activity uses a **3-hour** `schedule_to_close_timeout` across all attempts and a **10-minute** `heartbeat_timeout`. The workflow run timeout is 10 minutes longer than the activity budget. When the activity fails, the workflow records `signal_dropped` with `stage=emission`, so a signal that never reaches the buffer still has an outcome event.
 
 ### `BufferSignalsWorkflow` (`buffer-signals`)
 

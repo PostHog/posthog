@@ -798,7 +798,11 @@ async def emit_signal(
     # importing these workflows at module scope forms a circular import and drags the whole
     # temporal stack onto the Django startup path. Resolved lazily at call time instead.
     from products.signals.backend.temporal.buffer import BufferSignalsWorkflow  # noqa: PLC0415
-    from products.signals.backend.temporal.emitter import SignalEmitterInput, SignalEmitterWorkflow  # noqa: PLC0415
+    from products.signals.backend.temporal.emitter import (  # noqa: PLC0415
+        EMITTER_RUN_TIMEOUT,
+        SignalEmitterInput,
+        SignalEmitterWorkflow,
+    )
     from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs  # noqa: PLC0415
 
     organization = await database_sync_to_async(lambda: team.organization)()
@@ -922,7 +926,7 @@ async def emit_signal(
             SignalEmitterInput(team_id=team.id, signal=signal_input),
             id=SignalEmitterWorkflow.workflow_id_for(team.id, emitter_idempotency_key),
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            run_timeout=timedelta(minutes=10),
+            run_timeout=EMITTER_RUN_TIMEOUT,
             id_reuse_policy=(
                 WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
                 if emitter_idempotency_key is not None
