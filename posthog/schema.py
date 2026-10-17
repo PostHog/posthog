@@ -2788,21 +2788,6 @@ class MetricsThreshold(BaseModel):
     )
 
 
-class MetricsVariableValue(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    all: bool | None = Field(
-        default=None,
-        description=(
-            "True when the variable is set to All. PromQL gets `allValue` or `.*`,"
-            " builder filters drop the filter, and SQL gets `values`."
-        ),
-    )
-    allValue: str | None = None
-    values: list[str]
-
-
 class MetricsYAxisSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7138,6 +7123,26 @@ class MetricsQueryClause(BaseModel):
         default=None,
         description=("Applied to each series before `aggregation`, like `rate()` in PromQL"),
     )
+
+
+class MetricsVariableValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    all: bool | None = Field(
+        default=None,
+        description=(
+            "True when the variable is set to All. PromQL gets `allValue` or `.*`,"
+            " builder filters drop the filter, and SQL gets `values`, which the"
+            " dashboard fills with every option of the variable."
+        ),
+    )
+    allValue: str | None = None
+    definition: MetricsDashboardVariable | None = Field(
+        default=None,
+        description=("The definition of a variable set to All, so that a SQL query can load its options."),
+    )
+    values: list[str]
 
 
 class MultiQuestionFormField(BaseModel):

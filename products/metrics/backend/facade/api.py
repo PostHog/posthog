@@ -9,9 +9,12 @@ import math
 import datetime as dt
 from collections.abc import Sequence
 from dataclasses import replace
+from functools import partial
 from typing import Any
 
 import structlog
+
+from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -24,6 +27,7 @@ from posthog.models import Team, User
 
 from products.error_tracking.backend.facade.api import list_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
+from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     DashboardImportRequest,
@@ -63,6 +67,9 @@ from products.metrics.backend.metric_names_query_runner import MetricNamesQueryR
 from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.query_concurrency import query_concurrency_slots
+from products.metrics.backend.variable_options import check_options_window, list_variable_options
+from products.metrics.backend.variables import from_dashboard
 
 logger = structlog.get_logger(__name__)
 
@@ -494,6 +501,43 @@ def list_metric_attribute_values(
         team=team, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
     )
     return runner.run()
+
+
+def list_metric_variable_options(
+    *,
+    team: Team,
+    source: MetricsDashboardVariableSource,
+    query: str | None = None,
+    custom_values: list[str] | None = None,
+    variables: Sequence[MetricsDashboardVariable] = (),
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[str]:
+    """List the options of one metrics dashboard variable.
+
+    `variables` are the other dashboard variables with their current selection. The query can refer
+    to them as `$name`, which is how one variable depends on another. `date_from` and `date_to` are a
+    dashboard date filter, such as `-7d`, which resolves to the same window as the tiles. Returns at
+    most 1,000 options. Raises `ValueError` for a bad query, a bad or too wide window, or for a
+    reference to a variable that has no value. Raises `ConcurrencyLimitExceeded` when too many
+    queries of the organization are running.
+    """
+    try:
+        window = metrics_query_date_range(team, DateRange(date_from=date_from, date_to=date_to))
+        resolved_from, resolved_to = window.date_from(), window.date_to()
+    except (ValueError, OverflowError) as exc:
+        raise ValueError("The window of the variable options is not a valid date range.") from exc
+    check_options_window(resolved_from, resolved_to)
+    return list_variable_options(
+        team=team,
+        source=source,
+        query=query,
+        custom_values=custom_values,
+        variables=from_dashboard(variables),
+        date_from=resolved_from,
+        date_to=resolved_to,
+        slot=partial(query_concurrency_slots, team),
+    )
 
 
 def list_metric_event_samples(
