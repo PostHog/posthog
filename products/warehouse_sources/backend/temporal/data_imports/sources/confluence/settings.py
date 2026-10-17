@@ -1,10 +1,11 @@
-from dataclasses import dataclass
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class ConfluenceEndpointConfig:
     name: str
     path: str  # Path relative to the v2 API base, e.g. "/pages"
@@ -15,6 +16,7 @@ class ConfluenceEndpointConfig:
     # a top-level creation timestamp (labels, comments).
     partition_key: Optional[str] = None
     limit: int = 250  # v2 list endpoints accept up to 250 results per page
+    response_params: tuple[tuple[str, str], ...] = ()
 
 
 # Confluence Cloud REST API v2 top-level list endpoints. All use cursor-based
@@ -31,16 +33,19 @@ CONFLUENCE_ENDPOINTS: dict[str, ConfluenceEndpointConfig] = {
         name="spaces",
         path="/spaces",
         partition_key="createdAt",
+        response_params=(("description-format", "plain"), ("include-icon", "true")),
     ),
     "pages": ConfluenceEndpointConfig(
         name="pages",
         path="/pages",
         partition_key="createdAt",
+        response_params=(("body-format", "storage"),),
     ),
     "blogposts": ConfluenceEndpointConfig(
         name="blogposts",
         path="/blogposts",
         partition_key="createdAt",
+        response_params=(("body-format", "storage"),),
     ),
     "attachments": ConfluenceEndpointConfig(
         name="attachments",
@@ -51,6 +56,7 @@ CONFLUENCE_ENDPOINTS: dict[str, ConfluenceEndpointConfig] = {
         name="tasks",
         path="/tasks",
         partition_key="createdAt",
+        response_params=(("body-format", "storage"),),
     ),
     # Labels and comments don't carry a top-level creation timestamp, so they
     # have no stable partition key.
@@ -61,10 +67,12 @@ CONFLUENCE_ENDPOINTS: dict[str, ConfluenceEndpointConfig] = {
     "footer_comments": ConfluenceEndpointConfig(
         name="footer_comments",
         path="/footer-comments",
+        response_params=(("body-format", "storage"),),
     ),
     "inline_comments": ConfluenceEndpointConfig(
         name="inline_comments",
         path="/inline-comments",
+        response_params=(("body-format", "storage"),),
     ),
 }
 

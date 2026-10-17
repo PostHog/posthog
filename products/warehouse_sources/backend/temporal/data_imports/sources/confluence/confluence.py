@@ -3,7 +3,7 @@ import base64
 import dataclasses
 from typing import Any, Optional
 
-from requests import Response
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -66,9 +66,25 @@ class ConfluenceLinkPaginator(JSONResponsePaginator):
     (e.g. ``/wiki/api/v2/pages?cursor=...``); resolve it against the site origin so the
     client requests an absolute URL. Absence of the key signals the last page."""
 
-    def __init__(self, site_origin: str) -> None:
+    def __init__(self, site_origin: str, response_params: tuple[tuple[str, str], ...] = ()) -> None:
         super().__init__(next_url_path="_links.next")
         self._site_origin = site_origin
+        self._response_params = dict(response_params)
+
+    def _add_response_params(self, request: Request) -> None:
+        # Confluence next links can contain only the cursor, so the optional
+        # representations must be added again on later and resumed pages.
+        if request.params is None:
+            request.params = {}
+        request.params.update(self._response_params)
+
+    def init_request(self, request: Request) -> None:
+        super().init_request(request)
+        self._add_response_params(request)
+
+    def update_request(self, request: Request) -> None:
+        super().update_request(request)
+        self._add_response_params(request)
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)
@@ -96,14 +112,14 @@ def confluence_source(
             # redacted from logs; only the non-secret Accept header is set here.
             "headers": {"Accept": "application/json"},
             "auth": {"type": "http_basic", "username": email, "password": api_token},
-            "paginator": ConfluenceLinkPaginator(_site_origin(subdomain)),
+            "paginator": ConfluenceLinkPaginator(_site_origin(subdomain), config.response_params),
         },
         "resources": [
             {
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
-                    "params": {"limit": config.limit},
+                    "params": {"limit": config.limit, **dict(config.response_params)},
                     # v2 list endpoints wrap rows in `results`; a missing key means an empty page.
                     "data_selector": "results",
                 },
