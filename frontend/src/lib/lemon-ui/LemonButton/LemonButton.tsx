@@ -4,13 +4,16 @@ import clsx from 'clsx'
 import React, { useContext } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
+import { ButtonGroup, ButtonGroupSeparator } from '@posthog/quill'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { INTERACTIVE_CLOSE_DELAY_MS } from '../LemonInput/LemonInput'
 import { Link } from '../Link'
 import { PopoverOverlayContext, PopoverReferenceContext } from '../Popover'
+import { QuillTransitionContext } from '../QuillTransition/QuillTransitionContext'
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip, TooltipProps } from '../Tooltip'
+import { LemonButtonQuill } from './LemonButtonQuill'
 
 export type LemonButtonDropdown = Omit<LemonDropdownProps, 'children'>
 
@@ -183,13 +186,17 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             const [popoverVisibility, popoverPlacement] = useContext(PopoverReferenceContext) || [false, null]
             const [, parentPopoverLevel] = useContext(PopoverOverlayContext)
             const within3000PageHeader = useContext(WithinPageHeaderContext)
+            const quillTransition = useContext(QuillTransitionContext)
+            // Inline unpadded buttons keep LemonUI: quill has no unpadded button.
+            const renderAsQuill = quillTransition && !noPadding
+            const quillRow = renderAsQuill && parentPopoverLevel !== -1 && !!fullWidth
 
             if (!active && popoverVisibility) {
                 active = true
             }
 
             const usingSideActionDivider = sideAction && (sideAction.divider ?? !fullWidth)
-            if (sideAction) {
+            if (sideAction && !renderAsQuill) {
                 // Bogus `sideIcon` div prevents overflow under the side button.
                 sideIcon = (
                     <span
@@ -209,7 +216,9 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 }
             }
             if (loading) {
-                icon = <Spinner textColored />
+                if (!renderAsQuill) {
+                    icon = <Spinner textColored />
+                }
                 disabled = true // Cannot interact with a loading button
             }
             if (within3000PageHeader && parentPopoverLevel === -1) {
@@ -246,7 +255,50 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 buttonProps['aria-label'] = tooltip
             }
 
-            let workingButton: JSX.Element = (
+            const handleClick = (event: React.MouseEvent<HTMLElement>): void => {
+                if (stopPropagation) {
+                    event.stopPropagation()
+                }
+                if (disabled) {
+                    event.preventDefault()
+                    return
+                }
+                onClick?.(event)
+            }
+
+            const trailingIcon = sideIcon ? (
+                sideIcon
+            ) : targetBlank && !hideExternalLinkIcon && !icon ? (
+                <IconExternal />
+            ) : null
+
+            let workingButton: JSX.Element = renderAsQuill ? (
+                <LemonButtonQuill
+                    ref={ref}
+                    type={type}
+                    status={status}
+                    size={size}
+                    loading={loading}
+                    fullWidth={fullWidth}
+                    center={center}
+                    className={className}
+                    active={active}
+                    disabled={disabled}
+                    htmlType={to ? 'button' : htmlType}
+                    targetBlank={targetBlank}
+                    disableClientSideRouting={disableClientSideRouting}
+                    linkTo={to && !disabled ? to : undefined}
+                    iconOnly={!children}
+                    row={quillRow}
+                    onClick={handleClick}
+                    {...buttonProps}
+                    data-attr-id={buttonProps['data-attr-id'] ?? buttonProps['data-attr']}
+                >
+                    {icon}
+                    {children ? <span className={clsx('min-w-0', truncate && 'truncate')}>{children}</span> : null}
+                    {trailingIcon}
+                </LemonButtonQuill>
+            ) : (
                 <ButtonComponent
                     ref={ref as any}
                     className={clsx(
@@ -263,16 +315,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         truncate && 'LemonButton--truncate',
                         className
                     )}
-                    onClick={(event) => {
-                        if (stopPropagation) {
-                            event.stopPropagation()
-                        }
-                        if (disabled) {
-                            event.preventDefault()
-                            return
-                        }
-                        onClick?.(event)
-                    }}
+                    onClick={handleClick}
                     // We are using the ARIA disabled instead of native HTML because of this:
                     // https://css-tricks.com/making-disabled-buttons-more-inclusive/
                     aria-disabled={!!disabled}
@@ -283,11 +326,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                     <span className="LemonButton__chrome">
                         {icon ? <span className="LemonButton__icon">{icon}</span> : null}
                         {children ? <span className="LemonButton__content">{children}</span> : null}
-                        {sideIcon ? (
-                            <span className="LemonButton__icon">{sideIcon}</span>
-                        ) : targetBlank && !hideExternalLinkIcon && !icon ? (
-                            <IconExternal />
-                        ) : null}
+                        {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : trailingIcon}
                     </span>
                 </ButtonComponent>
             )
@@ -314,7 +353,25 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 )
             }
 
-            if (sideAction) {
+            if (sideAction && renderAsQuill) {
+                const { dropdown: sideDropdown, divider: _, ...sideActionRest } = sideAction
+                const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton
+
+                workingButton = (
+                    <ButtonGroup onMouseEnter={buttonProps.onMouseEnter} className={clsx(fullWidth && 'w-full')}>
+                        {workingButton}
+                        {usingSideActionDivider ? <ButtonGroupSeparator /> : null}
+                        <SideComponent
+                            type={type}
+                            size={size}
+                            status={status}
+                            dropdown={sideDropdown as LemonButtonDropdown}
+                            active={active}
+                            {...sideActionRest}
+                        />
+                    </ButtonGroup>
+                )
+            } else if (sideAction) {
                 const { dropdown: sideDropdown, divider: _, ...sideActionRest } = sideAction
                 const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton
 

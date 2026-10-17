@@ -10,6 +10,7 @@ import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { QuillTransitionProvider } from 'lib/lemon-ui/QuillTransition/QuillTransitionProvider'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
 import { OAuthCallback } from 'lib/oauth/OAuthCallback'
@@ -112,14 +113,16 @@ export function App(): JSX.Element | null {
         <ErrorBoundary>
             <PostHogProvider client={posthog}>
                 <BaseTooltip.Provider delay={500} closeDelay={0} timeout={400}>
-                    {showApp ? (
-                        <>
-                            <AppScene />
-                            {showingDevTools ? <KeaDevtoolsLoader /> : null}
-                        </>
-                    ) : (
-                        <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
-                    )}
+                    <QuillTransitionProvider>
+                        {showApp ? (
+                            <>
+                                <AppScene />
+                                {showingDevTools ? <KeaDevtoolsLoader /> : null}
+                            </>
+                        ) : (
+                            <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
+                        )}
+                    </QuillTransitionProvider>
                 </BaseTooltip.Provider>
             </PostHogProvider>
         </ErrorBoundary>
