@@ -10892,7 +10892,9 @@ name = "replay-core-v4"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "aws-sdk-dynamodb",
  "base64 0.22.1",
+ "chrono",
  "hkdf",
  "hmac 0.12.1",
  "md5",
