@@ -53,7 +53,7 @@ class KalshiSource(ResumableSource[KalshiSourceConfig, KalshiResumeConfig]):
             name=ExternalDataSourceType.KALSHI,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Kalshi",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Kalshi's market data endpoints are public, so this source needs no API key.
 
 It syncs markets, events, series, trades, milestones, and daily market candlesticks. It also syncs the historical archive of markets and trades. Portfolio data (your own orders, fills, and positions) needs a signed API key and is not supported yet.""",

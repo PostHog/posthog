@@ -117,11 +117,11 @@ Follow this order. Each step maps to TODOs in `source.template`.
 12. **Regenerate frontend API types**: `hogli build:openapi`. This regenerates `products/warehouse_sources/frontend/generated/api.schemas.ts` from the source-config contract in `source_config.py` and makes the source appear in frontend dropdowns. Re-run whenever `source_config.py` or a source's fields change.
 13. **Release status — a finished source has no `unreleasedSource` flag.** The default for the deliverable this skill produces is **no `unreleasedSource`** — a completed, working source ships visible and connectable. You don't need anyone's sign-off to ship it released; that's just the finished state. The scaffolded stub ships with `unreleasedSource=True` pre-set, so deleting that line is part of finishing the source — go ahead and remove it. (Why it matters: `unreleasedSource=True` **hides the connector from users entirely** — the frontend filters out every source where it's truthy; see `InlineSourceSetup.tsx` and the "coming soon / Notify me" path in `nonHogFunctionTemplatesLogic.tsx`.)
 
-    **Deleting that line is mandatory, and it is not gated on anything you can't do in your environment.** In particular, "I couldn't curl the live API" or "I couldn't verify against a real account" is NOT a reason to keep the flag — that is exactly what `releaseStatus=ReleaseStatus.ALPHA` is for (a soft "new, lightly tested" label on a _visible_ source). The only time `unreleasedSource=True` legitimately stays is when the source physically cannot sync yet because it is being landed across several PRs and the implementing code isn't all there. A source with working `get_schemas` / `source_for_pipeline` and passing tests is finished — the flag comes out. **Never write a test that asserts `unreleasedSource is True`** — that locks the bug in and is what kept 166 finished sources hidden until they had to be released in bulk.
+    **Deleting that line is mandatory, and it is not gated on anything you can't do in your environment.** In particular, "I couldn't curl the live API" or "I couldn't verify against a real account" is NOT a reason to keep the flag — that is exactly what `releaseStatus=ReleaseStatus.BETA` is for (a soft "new, still being validated" label on a _visible_ source). The only time `unreleasedSource=True` legitimately stays is when the source physically cannot sync yet because it is being landed across several PRs and the implementing code isn't all there. A source with working `get_schemas` / `source_for_pipeline` and passing tests is finished — the flag comes out. **Never write a test that asserts `unreleasedSource is True`** — that locks the bug in and is what kept 166 finished sources hidden until they had to be released in bulk.
 
     So a newly finished, tested source ships with:
     - **no `unreleasedSource`** (visible and connectable),
-    - `releaseStatus=ReleaseStatus.ALPHA` for a new source that hasn't been extensively tested (`ReleaseStatus.BETA` once rough edges are ironed out; `ReleaseStatus.GA`, or omit `releaseStatus` entirely, for general availability) — a soft label on a _visible_ source, not a gate,
+    - `releaseStatus=ReleaseStatus.BETA` for every new source — it is promoted to `ReleaseStatus.GA` (or `releaseStatus` omitted) once at least one customer sync completes and loads data — a soft label on a _visible_ source, not a gate,
     - optional `featureFlag="dwh-{source_name}"` (kebab-case) **only** if you want a controlled rollout to flagged users instead of releasing to everyone.
 
     Whenever you set `releaseStatus`, use the `ReleaseStatus` enum from `products.warehouse_sources.backend.facade.source_config` — never a bare string literal. Add `ReleaseStatus` to your existing import block from that module.
@@ -877,12 +877,12 @@ Tooling & assets:
 
 Release status (a finished source has NO unreleasedSource flag — it hides the source from users entirely):
 - [ ] REQUIRED: delete `unreleasedSource=True` from the finished source (the scaffolded stub ships with it).
-      Not being able to curl the live API is NOT a reason to keep it — use releaseStatus=ALPHA.
+      Not being able to curl the live API is NOT a reason to keep it — use releaseStatus=BETA.
       Keep it ONLY when the code genuinely can't sync yet (landed across multiple PRs).
 - [ ] No test asserts `unreleasedSource is True` (that anti-pattern locks the source hidden)
 - [ ] When set, releaseStatus uses the `ReleaseStatus` enum, never a string literal
-- [ ] releaseStatus=ReleaseStatus.ALPHA for a new source not yet extensively tested
-      (ReleaseStatus.BETA later; ReleaseStatus.GA or omit for GA)
+- [ ] releaseStatus=ReleaseStatus.BETA for a new source
+      (ReleaseStatus.GA or omit once a customer sync has completed and loaded data)
 - [ ] featureFlag="dwh-{source_name}" ONLY if you want a controlled rollout instead of releasing to all
 
 Tests & handoff:

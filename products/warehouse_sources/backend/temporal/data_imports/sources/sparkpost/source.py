@@ -84,7 +84,7 @@ class SparkPostSource(
             name=ExternalDataSourceType.SPARKPOST,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="SparkPost",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             # Kept hidden for now: the implementation follows the public SparkPost docs but its
             # end-to-end sync behaviour hasn't been exercised against a live account yet.
             caption="""Connect your SparkPost account to sync message events, suppression lists, recipient lists, templates, sending domains, subaccounts, and webhooks into the PostHog Data warehouse.

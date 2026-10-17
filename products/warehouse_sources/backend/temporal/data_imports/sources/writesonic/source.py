@@ -69,7 +69,7 @@ You'll need:
 """,
             iconPath="/static/services/writesonic.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/writesonic",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["seo", "geo", "ai visibility", "content marketing"],
             fields=cast(
                 list[FieldType],

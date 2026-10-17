@@ -62,7 +62,7 @@ class MuxSource(ResumableSource[MuxSourceConfig, MuxResumeConfig]):
             name=ExternalDataSourceType.MUX,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Mux",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Mux Access Token ID and Secret Key to pull your Mux Video and Mux Data into the PostHog Data warehouse.
 
 Create an access token under [Settings → Access Tokens](https://dashboard.mux.com/settings/access-tokens) in your Mux dashboard. Tokens are scoped to a single Mux environment.

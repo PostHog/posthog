@@ -64,7 +64,7 @@ class AdRollSource(ResumableSource[AdRollSourceConfig, AdRollResumeConfig]):
 Create a personal access token and an app in the [NextRoll developer console](https://developers.nextroll.com/) — the app's Client ID is sent as the `apikey` on every request. Note that NextRoll's default quota is 100 API requests per day; contact NextRoll support to raise it for larger accounts.""",
             iconPath="/static/services/adroll.png",
             docsUrl="https://posthog.com/docs/cdp/sources/adroll",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

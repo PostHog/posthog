@@ -54,7 +54,7 @@ class AsknicelySource(ResumableSource[AsknicelySourceConfig, AskNicelyResumeConf
             name=ExternalDataSourceType.ASKNICELY,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="AskNicely",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["nps", "csat", "survey"],
             caption="""Sync your AskNicely survey responses (NPS, CSAT, 5-star), daily stats and unsubscribed contacts into the PostHog Data warehouse.
 

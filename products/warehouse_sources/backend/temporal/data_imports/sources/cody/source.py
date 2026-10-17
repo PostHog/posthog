@@ -60,7 +60,7 @@ class CodySource(ResumableSource[CodySourceConfig, CodyResumeConfig]):
             name=ExternalDataSourceType.CODY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cody",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Sourcegraph Analytics access token to pull Cody and Sourcegraph usage reports into the PostHog Data warehouse.
 
 Sourcegraph Analytics is available to Sourcegraph Enterprise customers. Create an access token at [analytics.sourcegraph.com/access-tokens](https://analytics.sourcegraph.com/access-tokens). The instance URL is your Sourcegraph instance's host, e.g. `example.sourcegraphcloud.com`.

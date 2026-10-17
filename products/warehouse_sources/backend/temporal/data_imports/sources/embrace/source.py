@@ -173,7 +173,7 @@ class EmbraceSource(ResumableSource[EmbraceSourceConfig, EmbraceResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Embrace (Embrace.io)",
             iconPath="/static/services/embrace.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Get your Metrics API token from Embrace Settings > Organization > API. "
             "Imports cover the latest 30 days of hourly metrics, with a one-hour delay. "
             "Incremental syncs retain older imported rows. Full refresh replaces them with the latest 30 days.",

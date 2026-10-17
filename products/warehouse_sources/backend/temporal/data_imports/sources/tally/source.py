@@ -102,7 +102,7 @@ Submissions are fetched one form at a time and Tally allows 100 requests per min
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

@@ -109,5 +109,5 @@ You can find your API key in your SmartEngage account settings.
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

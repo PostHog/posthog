@@ -119,7 +119,7 @@ class ProofpointTapSource(ResumableSource[ProofpointTapSourceConfig, TapResumeSt
             "A TAP subscription is required. The API retains seven days of events. Sync at least once each day.",
             docsUrl=API_DOCS_URL,
             iconPath="/static/services/proofpoint_tap.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

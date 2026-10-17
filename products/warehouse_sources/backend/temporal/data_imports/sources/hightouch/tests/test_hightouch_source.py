@@ -22,7 +22,7 @@ class TestHightouchSource:
         assert config.name.value == "Hightouch"
         assert config.label == "Hightouch"
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.GA
         # The source ships visible: unreleasedSource hides the connector from every user.
         assert not config.unreleasedSource
         assert config.iconPath == "/static/services/hightouch.png"

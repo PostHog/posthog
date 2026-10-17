@@ -123,7 +123,7 @@ class KestraSource(ResumableSource[KestraSourceConfig, KestraResumeState]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Kestra",
             iconPath="/static/services/kestra.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "For Kestra Cloud or Enterprise, create a token in Settings → API Tokens. "
                 "Grant read access to flows, executions, and triggers in your tenant. "

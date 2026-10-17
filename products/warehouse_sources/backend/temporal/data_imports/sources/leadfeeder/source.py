@@ -64,7 +64,7 @@ class LeadfeederSource(ResumableSource[LeadfeederSourceConfig, LeadfeederResumeC
             name=ExternalDataSourceType.LEADFEEDER,
             category=DataWarehouseSourceCategory.CRM,
             label="Leadfeeder",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["dealfront"],
             caption="""Enter your Dealfront (Leadfeeder) API key to pull your website visitor and lead data into the PostHog data warehouse. This syncs the **Accounts**, **Custom feeds**, **Leads**, and **Visits** tables.
 

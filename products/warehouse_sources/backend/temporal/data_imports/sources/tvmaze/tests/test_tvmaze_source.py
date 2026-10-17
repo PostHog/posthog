@@ -18,7 +18,7 @@ class TestTVMazeSource:
 
         assert config.name.value == "TVMaze"
         assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         assert config.iconPath == "/static/services/tvmaze.png"
         # Doc slug and docsUrl must agree (see /documenting-warehouse-sources).
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/tvmaze"

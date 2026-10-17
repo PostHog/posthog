@@ -22,7 +22,7 @@ class TestTeachableSource:
         assert config.name.value == "Teachable"
         assert config.label == "Teachable"
         assert config.category == DataWarehouseSourceCategory.E_COMMERCE
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.GA
         assert config.iconPath == "/static/services/teachable.png"
         # The source ships visible — a truthy unreleasedSource hides it from every user.
         assert not config.unreleasedSource

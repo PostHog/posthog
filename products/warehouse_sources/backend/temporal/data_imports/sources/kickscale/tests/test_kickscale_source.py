@@ -22,7 +22,7 @@ class TestKickscaleSource:
         assert config.name.value == "Kickscale"
         assert config.label == "Kickscale"
         assert config.category == DataWarehouseSourceCategory.SALES
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.GA
         assert config.iconPath == "/static/services/kickscale.png"
         # The source ships visible — a truthy unreleasedSource hides it from every user.
         assert not config.unreleasedSource

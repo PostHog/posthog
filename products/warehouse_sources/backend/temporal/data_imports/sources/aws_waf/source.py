@@ -121,7 +121,7 @@ Select a region for regional resources. CloudFront resources use us-east-1.
 All tables use full refresh. This source imports configuration data only, without request samples or traffic logs.""",
             iconPath="/static/services/aws_waf.png",
             docsUrl="https://docs.aws.amazon.com/waf/latest/APIReference/Welcome.html",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "waf", "firewall", "security"],
             fields=cast(
                 list[FieldType],

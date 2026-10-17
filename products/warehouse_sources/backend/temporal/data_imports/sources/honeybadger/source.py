@@ -90,7 +90,7 @@ class HoneybadgerSource(ResumableSource[HoneybadgerSourceConfig, HoneybadgerResu
             name=ExternalDataSourceType.HONEYBADGER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Honeybadger",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Honeybadger personal authentication token to pull your error monitoring data (projects, environments, errors, occurrences, affected users, comments, deployments, uptime checks and their results, outages, check-ins, and alarm history) into the PostHog Data warehouse.
 
 You can find your personal authentication token on your [Honeybadger profile page](https://app.honeybadger.io/users/edit).

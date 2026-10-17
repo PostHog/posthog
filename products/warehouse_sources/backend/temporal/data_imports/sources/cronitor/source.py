@@ -55,7 +55,7 @@ class CronitorSource(ResumableSource[CronitorSourceConfig, CronitorResumeConfig]
             name=ExternalDataSourceType.CRONITOR,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cronitor",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Import your Cronitor monitors, monitor groups, recent job invocations, time-series reliability metrics, issues, and RUM sites with their JavaScript errors into the PostHog Data warehouse.
 
 Create an API key under **Settings → API keys** in your Cronitor account, and enter it here. The key needs `monitor:read` to connect. Add `issue:read` to sync issues, and `site:read` to sync sites and site errors.""",

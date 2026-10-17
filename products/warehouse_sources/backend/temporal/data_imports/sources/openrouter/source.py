@@ -68,7 +68,7 @@ class OpenRouterSource(ResumableSource[OpenRouterSourceConfig, OpenRouterResumeC
             name=ExternalDataSourceType.OPENROUTER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="OpenRouter",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your OpenRouter API key to pull your OpenRouter usage and account data into the PostHog Data warehouse.
 
 Use a **management API key** (create one under [Settings -> Management Keys](https://openrouter.ai/settings/keys)) so the activity, API keys, credits, organization members, and workspaces tables can sync. A regular inference key can only read the models and providers catalogs.""",

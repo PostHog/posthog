@@ -108,7 +108,7 @@ class PromptingCompanySource(ResumableSource[PromptingCompanySourceConfig, Promp
             label="The Prompting Company",
             iconPath="/static/services/prompting_company.png",
             keywords=["geo", "ai visibility", "llm", "share of voice"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create an API key in your organization's Settings > API keys. "
                 "Grant `content:read`, `prompts:read`, `simulations:read`, and `analytics:read` for the tables you select. "

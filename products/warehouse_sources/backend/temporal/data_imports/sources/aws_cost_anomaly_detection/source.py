@@ -151,7 +151,7 @@ Create an IAM user or role with the `ce:GetAnomalies`, `ce:GetAnomalyMonitors` a
 Cost Explorer has to be enabled once in the AWS console, and it can take up to 24 hours before data is ready. AWS keeps anomalies for 90 days, so that is as far back as a first sync reaches. You only see the monitors and subscriptions created by the account you connect, so connect the management (payer) account for organization-wide coverage.""",
             iconPath="/static/services/aws_cost_anomaly_detection.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-cost-anomaly-detection",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["aws", "finops", "cloud spend", "cost explorer", "cost anomaly detection"],
             fields=cast(
                 list[FieldType],

@@ -45,7 +45,7 @@ class ShipmailSource(ResumableSource[ShipmailSourceConfig, ShipmailResumeConfig]
             name=ExternalDataSourceType.SHIPMAIL,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Shipmail",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Shipmail API key to sync message analytics, mailboxes, domains, and suppressions into the PostHog Data warehouse.
 
 Grant the key the read scopes for the tables you want to sync: `messages:read`, `mailboxes:read`, `domains:read`, and `suppressions:read`.""",

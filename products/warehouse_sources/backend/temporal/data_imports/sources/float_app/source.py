@@ -51,7 +51,7 @@ class FloatAppSource(ResumableSource[FloatAppSourceConfig, FloatAppResumeConfig]
             name=ExternalDataSourceType.FLOATAPP,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Float",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Float access token to automatically pull your Float resource-management data into the PostHog Data warehouse.
 
 You can create an access token in Float under **Team Settings → Integrations → API**. The token has the same access as its account owner.

@@ -144,5 +144,5 @@ Create an API key in Cloudsmith under **Account settings → API settings**. The
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

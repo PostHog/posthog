@@ -69,7 +69,7 @@ class CustomerlySource(ResumableSource[CustomerlySourceConfig, CustomerlyResumeC
 You can find your access token in your Customerly project under **Project Settings** > **Installation** > **Public API** — see the [Customerly guide](https://docs.customerly.io/en/api/how-to-obtain-your-api-access-token-in-customerly).""",
             iconPath="/static/services/customerly.png",
             docsUrl="https://posthog.com/docs/cdp/sources/customerly",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

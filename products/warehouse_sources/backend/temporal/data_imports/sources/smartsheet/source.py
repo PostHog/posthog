@@ -78,7 +78,7 @@ class SmartsheetSource(ResumableSource[SmartsheetSourceConfig, SmartsheetResumeC
 You can generate a personal access token under **Personal Settings → API Access** in your [Smartsheet account](https://app.smartsheet.com). The token inherits your account's read access; the `users` table additionally requires a system administrator account.""",
             iconPath="/static/services/smartsheet.png",
             docsUrl="https://posthog.com/docs/cdp/sources/smartsheet",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

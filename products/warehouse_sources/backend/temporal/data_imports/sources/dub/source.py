@@ -138,7 +138,7 @@ class DubSource(ResumableSource[DubSourceConfig, DubResumeConfig]):
             caption="Create a workspace API key in your Dub workspace under Settings > API Keys. Event tables (clicks, leads, sales) and payouts require a Dub Business plan or higher.",
             docsUrl="https://posthog.com/docs/cdp/sources/dub",
             iconPath="/static/services/dub.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["dub.co", "short links", "attribution", "affiliate"],
             fields=cast(
                 list[FieldType],

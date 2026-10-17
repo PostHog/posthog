@@ -4,15 +4,11 @@ sidebar: Docs
 showTitle: true
 availability: { free: full, selfServe: full, enterprise: full }
 sourceId: Scaleway
-beta: true
 ---
 
 import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../\_snippets/alpha-release.mdx"
-
-<AlphaRelease />
 
 Sync your [Scaleway](https://www.scaleway.com) organization data — billing invoices and consumption, IAM identities, projects, audit trail events, compute instances, Kubernetes clusters, and managed databases — into PostHog to build cost, security, and infrastructure reporting alongside your product data.
 

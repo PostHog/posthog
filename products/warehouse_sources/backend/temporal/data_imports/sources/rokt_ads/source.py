@@ -176,7 +176,7 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
             caption="Generate an app ID and app secret on the Profile Settings page in [One Platform](https://my.rokt.com). Both the advertiser and partner reports read through the Rokt Query API.",
             docsUrl="https://posthog.com/docs/cdp/sources/rokt-ads",
             iconPath="/static/services/rokt_ads.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

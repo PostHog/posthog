@@ -57,7 +57,7 @@ class BitbucketSource(ResumableSource[BitbucketSourceConfig, BitbucketResumeConf
             name=ExternalDataSourceType.BITBUCKET,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Atlassian Bitbucket Cloud",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["atlassian", "git", "ci"],
             caption="""Connect your Bitbucket Cloud workspace to sync repositories, pull requests, commits, pipelines, and more.
 

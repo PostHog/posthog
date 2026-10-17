@@ -57,7 +57,7 @@ class PretixSource(ResumableSource[PretixSourceConfig, PretixResumeConfig]):
             name=ExternalDataSourceType.PRETIX,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Pretix",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["ticketing", "events", "tickets"],
             caption="""Enter your pretix API token to pull your event ticketing data into the PostHog Data warehouse.
 

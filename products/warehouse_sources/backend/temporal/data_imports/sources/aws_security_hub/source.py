@@ -135,7 +135,7 @@ Enable Security Hub CSPM in the selected region.
 If you select an aggregation region, AWS can also return findings from linked regions.""",
             iconPath="/static/services/aws_security_hub.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-security-hub",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

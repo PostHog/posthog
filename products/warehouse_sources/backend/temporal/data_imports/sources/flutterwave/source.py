@@ -69,7 +69,7 @@ class FlutterwaveSource(ResumableSource[FlutterwaveSourceConfig, FlutterwaveResu
             name=ExternalDataSourceType.FLUTTERWAVE,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Flutterwave",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Flutterwave secret key to sync your payments data into the PostHog Data warehouse.
 
 You can find your secret key under Settings > API in the [Flutterwave dashboard](https://app.flutterwave.com/dashboard/settings/apis). Test keys only return sandbox records, so use your live secret key to sync live data.""",

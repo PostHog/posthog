@@ -192,7 +192,7 @@ class AzureApplicationInsightsSource(
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Microsoft Azure (Application Insights)",
             iconPath="/static/services/azure_application_insights.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Use a Microsoft Entra app registration with the Reader role on your Application Insights resource. "
                 "Create its client secret under **App registrations > Certificates & secrets**. "

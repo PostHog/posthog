@@ -52,7 +52,7 @@ class SageHRSource(ResumableSource[SageHRSourceConfig, SageHRResumeConfig]):
             name=ExternalDataSourceType.SAGEHR,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Sage HR",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["cakehr", "hris"],
             caption="""Enter your Sage HR company subdomain and API key to pull your HR data into the PostHog Data warehouse.
 

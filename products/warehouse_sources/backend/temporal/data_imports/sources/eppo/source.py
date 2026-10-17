@@ -114,7 +114,7 @@ class EppoSource(SimpleSource[EppoSourceConfig]):
             "Create an API key under Admin > API Keys in Eppo (distinct from SDK/client keys).",
             docsUrl="https://posthog.com/docs/cdp/sources/eppo",
             iconPath="/static/services/eppo.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

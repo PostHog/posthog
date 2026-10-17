@@ -65,7 +65,7 @@ Create an API key in your Anvil organization settings, under API settings. Devel
 Only metadata is synced. Filled PDFs, signed documents, and submission form data never leave Anvil.""",
             iconPath="/static/services/anvil.png",
             docsUrl="https://posthog.com/docs/cdp/sources/anvil",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

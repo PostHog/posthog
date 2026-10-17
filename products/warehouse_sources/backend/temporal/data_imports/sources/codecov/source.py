@@ -87,7 +87,7 @@ class CodecovSource(ResumableSource[CodecovSourceConfig, CodecovResumeConfig]):
             name=ExternalDataSourceType.CODECOV,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Codecov (Sentry)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Codecov API token to automatically pull your code coverage data into the PostHog Data warehouse.
 
 You can generate a personal API token under **Settings → Access** in your [Codecov account](https://app.codecov.io/). The token mirrors your own permissions on the git provider, so it can read every repository you can.

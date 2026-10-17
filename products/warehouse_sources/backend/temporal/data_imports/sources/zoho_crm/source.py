@@ -92,7 +92,7 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
             category=DataWarehouseSourceCategory.CRM,
             keywords=["zoho"],
             label="Zoho CRM",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Connect your Zoho CRM account to pull leads, contacts, deals, and your other modules into the PostHog Data warehouse.
 
 In the [Zoho API console](https://api-console.zoho.com), create a **Self Client** and generate a refresh token for the scopes `ZohoCRM.modules.ALL`, `ZohoCRM.settings.fields.READ`, and `ZohoCRM.settings.modules.READ`. Paste the client ID, client secret, and refresh token below, then pick the data center your Zoho account lives in.""",

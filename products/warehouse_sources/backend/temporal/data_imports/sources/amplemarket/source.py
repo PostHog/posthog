@@ -62,7 +62,7 @@ class AmplemarketSource(ResumableSource[AmplemarketSourceConfig, AmplemarketResu
 You can generate an API key from your Amplemarket dashboard. See the [Amplemarket quickstart guide](https://docs.amplemarket.com/guides/quickstart) for details.""",
             iconPath="/static/services/amplemarket.png",
             docsUrl="https://posthog.com/docs/cdp/sources/amplemarket",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

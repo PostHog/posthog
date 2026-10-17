@@ -110,7 +110,7 @@ class ClaySource(ResumableSource[ClaySourceConfig, ClayResumeConfig]):
             docsUrl="https://posthog.com/docs/cdp/sources/clay",
             iconPath="/static/services/clay.png",
             keywords=["enrichment", "clay.com"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

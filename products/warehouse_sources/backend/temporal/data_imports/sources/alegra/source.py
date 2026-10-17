@@ -132,5 +132,5 @@ class AlegraSource(ResumableSource[AlegraSourceConfig, AlegraResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

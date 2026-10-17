@@ -65,7 +65,7 @@ class GNewsSource(ResumableSource[GNewsSourceConfig, GNewsResumeConfig]):
             name=ExternalDataSourceType.GNEWS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="GNews",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your GNews API key to pull worldwide news articles into the PostHog Data warehouse.
 
 You can find your API key in your [GNews dashboard](https://gnews.io/dashboard).

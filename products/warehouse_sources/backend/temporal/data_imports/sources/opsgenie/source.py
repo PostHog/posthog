@@ -86,7 +86,7 @@ Note that Atlassian has announced Opsgenie's end of support: its APIs are schedu
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

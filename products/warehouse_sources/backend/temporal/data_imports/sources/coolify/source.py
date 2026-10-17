@@ -119,7 +119,7 @@ class CoolifySource(SimpleSource[CoolifySourceConfig]):
             name=ExternalDataSourceType.COOLIFY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Coolify",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Coolify instance URL and an API token to pull your servers, projects, applications, databases, services, deployments, and teams into the PostHog Data warehouse.
 
 Create a token under **Keys & Tokens > API tokens** in your Coolify dashboard. A read-only token is enough, because this source never writes or deploys.

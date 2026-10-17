@@ -108,7 +108,7 @@ class ZeroSource(ResumableSource[ZeroSourceConfig, ZeroResumeConfig]):
         return SourceConfig(
             name=ExternalDataSourceType.ZERO,
             category=DataWarehouseSourceCategory.CRM,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             label="Zero",
             caption="Connect Zero to sync companies, contacts, deals, and activity into your warehouse. "
             "Create an API key at [Workspace settings > API keys](https://app.zero.inc/settings/workspace/api).",

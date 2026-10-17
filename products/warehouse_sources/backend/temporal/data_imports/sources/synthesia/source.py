@@ -116,5 +116,5 @@ class SynthesiaSource(ResumableSource[SynthesiaSourceConfig, SynthesiaResumeConf
                     )
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

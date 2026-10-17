@@ -148,7 +148,7 @@ class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
             docsUrl="https://posthog.com/docs/cdp/sources/bluesky",
             iconPath="/static/services/bluesky.png",
             keywords=["social", "atproto", "at protocol"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

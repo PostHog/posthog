@@ -37,13 +37,16 @@ sidebar: Docs
 showTitle: true
 availability: { free: full, selfServe: full, enterprise: full }
 sourceId: <EnumValue> # MUST equal the ExternalDataSourceType value, e.g. ActiveCampaign, Stripe
-beta: true # optional — only for beta sources
 ---
 ```
 
 `sourceId` is what links the doc to its API config (icon, fields, tables). Get it wrong and the doc
 renders with no `<SourceParameters />` / `<SourceTables />` data. It must be a real
 `ExternalDataSourceType` value (PascalCase, e.g. `ActiveCampaign`, not `Active Campaign`).
+
+`sourceId` also drives the release-status callout and the nav badge: posthog.com reads the source's
+`releaseStatus` from the API and renders them itself. Don't add a status snippet, a status callout, or
+"this source is in beta" text, and don't set `beta:` in frontmatter — posthog.com CI rejects all of them.
 
 ## Canonical template
 
@@ -59,8 +62,6 @@ sourceId: <EnumValue>
 import SourceSetupIntro from "../_snippets/source-setup-intro.mdx"
 import SyncModes from "../_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../_snippets/dw-troubleshooting-link.mdx"
-
-<!-- Alpha/beta only: import AlphaRelease from "../_snippets/alpha-release.mdx" and render <AlphaRelease /> here -->
 
 One or two sentences: what this connector syncs and the typical use case.
 
@@ -99,7 +100,7 @@ Source-specific errors and fixes (optional but encouraged), then:
 
 ### Essential sections (every source)
 
-Status callout (alpha/beta only) → intro → Prerequisites → Adding a data source → Sync modes →
+Intro → Prerequisites → Adding a data source → Sync modes →
 Configuration → Supported tables → Troubleshooting.
 
 ### Optional sections (when applicable)
@@ -115,7 +116,6 @@ Reuse these instead of re-writing the same prose (they live in `contents/docs/cd
 
 - `source-setup-intro.mdx` — the standard "Adding a data source" steps.
 - `sync-modes.mdx` — sync-mode summary linking to the canonical explanation.
-- `alpha-release.mdx` / `beta-release.mdx` — status callouts (also set `beta: true` in frontmatter).
 - `dw-troubleshooting-link.mdx` — the troubleshooting/support footer.
 - `inbound-ip-addresses.mdx` — IP allowlist table for DB sources.
 - `feedback-questions.mdx` — feedback/FAQ footer.
@@ -148,7 +148,7 @@ Renaming a published doc also needs a 301 in `posthog.com/vercel.json` for both
 
 - [ ] Frontmatter `sourceId` matches the `ExternalDataSourceType` value exactly
 - [ ] Intro, Prerequisites, Adding a data source, Sync modes, Configuration, Supported tables, Troubleshooting
-- [ ] Status snippet + `beta: true` if alpha/beta
+- [ ] No status snippet, callout, or `beta:` frontmatter (posthog.com renders them from `releaseStatus`)
 - [ ] Shared snippets used instead of bespoke prose
 - [ ] `<SourceParameters />` and `<SourceTables />` present (don't hand-write fields or the table list)
 - [ ] If the rendered table list is empty/thin and the source is fixed-schema, enrich its code

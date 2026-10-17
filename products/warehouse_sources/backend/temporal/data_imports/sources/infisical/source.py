@@ -76,7 +76,7 @@ class InfisicalSource(ResumableSource[InfisicalSourceConfig, InfisicalResumeConf
             name=ExternalDataSourceType.INFISICAL,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Infisical",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Connect an Infisical machine identity to pull your organization's audit logs, projects, environments, identities, memberships, roles, groups, secret syncs, and secret scanning findings into the PostHog Data warehouse. Secret values are never synced.
 
 In Infisical, create a machine identity under **Organization settings > Access control > Identities**, add a **Universal Auth** method to it, and grant it read permissions for the data you want to sync (audit logs, projects, environments, identities, memberships, roles, groups, secret syncs, and secret scanning findings). Note that audit log access and secret scanning are plan-gated on Infisical Cloud.

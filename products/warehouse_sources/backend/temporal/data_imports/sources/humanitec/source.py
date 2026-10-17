@@ -96,7 +96,7 @@ class HumanitecSource(ResumableSource[HumanitecSourceConfig, HumanitecResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Humanitec",
             iconPath="/static/services/humanitec.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "In Humanitec, open Service users. Select a user. Select Add new API token. "
                 "Use a service user with read access to the applications and environments you want to sync. "

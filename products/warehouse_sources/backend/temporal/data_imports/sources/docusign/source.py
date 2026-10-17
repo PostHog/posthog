@@ -98,7 +98,7 @@ class DocusignSource(ResumableSource[DocusignSourceConfig, DocusignResumeConfig]
 Create an integration key in [DocuSign Apps and Keys](https://apps.docusign.com/admin/apps-and-keys). JWT grant is the option to pick: add an RSA keypair to the key, grant consent once for the user you want to impersonate, and paste that user's API user ID. Production keys have to pass DocuSign's go-live review before they work outside the demo environment.""",
             iconPath="/static/services/docusign.png",
             docsUrl="https://posthog.com/docs/cdp/sources/docusign",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["esignature", "e-signature", "contracts", "agreements"],
             fields=cast(
                 list[FieldType],

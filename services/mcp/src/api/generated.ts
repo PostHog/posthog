@@ -95718,7 +95718,6 @@ export namespace Schemas {
 
 
     export const ReleaseStatus = {
-      Alpha: 'alpha',
       Beta: 'beta',
       Ga: 'ga',
     } as const;

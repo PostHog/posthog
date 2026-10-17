@@ -121,5 +121,5 @@ class CalendarificSource(SimpleSource[CalendarificSourceConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

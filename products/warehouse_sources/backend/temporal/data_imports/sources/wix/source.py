@@ -68,7 +68,7 @@ Find the site ID in the Wix dashboard URL for your site, in the part after `/das
             iconPath="/static/services/wix.png",
             docsUrl="https://posthog.com/docs/cdp/sources/wix",
             keywords=["wix", "website builder", "ecommerce"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

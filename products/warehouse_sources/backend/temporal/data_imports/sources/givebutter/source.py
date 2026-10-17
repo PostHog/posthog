@@ -114,5 +114,5 @@ class GivebutterSource(ResumableSource[GivebutterSourceConfig, GivebutterResumeC
                     )
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

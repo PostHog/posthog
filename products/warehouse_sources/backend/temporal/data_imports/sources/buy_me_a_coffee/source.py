@@ -118,5 +118,5 @@ class BuyMeACoffeeSource(ResumableSource[BuyMeACoffeeSourceConfig, BuyMeACoffeeR
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

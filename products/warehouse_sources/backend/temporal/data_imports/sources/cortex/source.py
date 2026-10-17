@@ -114,5 +114,5 @@ Create an API key in your Cortex workspace under **Settings → API Keys**. The 
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

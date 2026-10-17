@@ -53,7 +53,7 @@ class AppfiguresSource(ResumableSource[AppfiguresSourceConfig, AppfiguresResumeC
             name=ExternalDataSourceType.APPFIGURES,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Appfigures",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter an Appfigures Personal Access Token to pull your app-store analytics into the PostHog Data warehouse.
 
 Create an API client and Personal Access Token at [appfigures.com/developers/keys](https://appfigures.com/developers/keys). When creating the client, grant the data sets you want to sync:

@@ -88,7 +88,7 @@ class TrustradiusSource(SimpleSource[TrustradiusSourceConfig]):
             caption="Get your API key from your TrustRadius Client Success Manager. "
             "Your license must include access to the selected tables.",
             iconPath="/static/services/trustradius.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -68,7 +68,7 @@ class BabelforceSource(ResumableSource[BabelforceSourceConfig, BabelforceResumeC
 You can create an access ID and access token pair in your babelforce manager app - see babelforce's [authentication guide](https://help.babelforce.com/hc/en-us/articles/6418329977108-Authentication-Best-Practice). The environment is the subdomain your account is served from - usually `services`, unless you are on a dedicated environment with a custom subdomain.""",
             iconPath="/static/services/babelforce.png",
             docsUrl="https://posthog.com/docs/cdp/sources/babelforce",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

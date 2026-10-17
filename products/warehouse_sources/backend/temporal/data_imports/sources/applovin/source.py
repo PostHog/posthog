@@ -124,7 +124,7 @@ Find your **Report Key** in the AppLovin dashboard: click your account in the to
 AppLovin only serves the last 45 days of report data, so anything older than that can't be backfilled.""",
             iconPath="/static/services/applovin.png",
             docsUrl="https://posthog.com/docs/cdp/sources/applovin",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["max", "appdiscovery", "axon", "mobile ads"],
             fields=cast(
                 list[FieldType],

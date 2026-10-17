@@ -71,7 +71,7 @@ class OnePasswordSource(ResumableSource[OnePasswordSourceConfig, OnePasswordResu
             name=ExternalDataSourceType.ONEPASSWORD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="1Password",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Pull your 1Password security event streams — sign-in attempts, item usages, and audit events — into the PostHog Data warehouse.
 
 This uses the 1Password Events API, which requires a 1Password Business or Enterprise plan. [Create an Events Reporting integration](https://support.1password.com/events-reporting/) in your 1Password admin console and issue a bearer token with the event types you want to sync:

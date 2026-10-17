@@ -187,7 +187,7 @@ class GrowthBookSource(ResumableSource[GrowthBookSourceConfig, GrowthBookResumeC
             docsUrl="https://posthog.com/docs/cdp/sources/growthbook",
             iconPath="/static/services/growthbook.png",
             keywords=["feature flags", "experiments", "ab testing", "growthbook"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Connect with a readonly secret API key from Settings > API Keys, or a personal access token with read access to the selected tables.",
             fields=cast(
                 list[FieldType],

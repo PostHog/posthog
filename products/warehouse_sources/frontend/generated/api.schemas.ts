@@ -14325,7 +14325,6 @@ export interface SourceFieldSwitchGroupConfigApi {
 export type ReleaseStatusApi = (typeof ReleaseStatusApi)[keyof typeof ReleaseStatusApi]
 
 export const ReleaseStatusApi = {
-    Alpha: 'alpha',
     Beta: 'beta',
     Ga: 'ga',
 } as const

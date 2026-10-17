@@ -76,7 +76,7 @@ class CoupaSource(ResumableSource[CoupaSourceConfig, CoupaResumeConfig], Validat
 A Coupa admin can create an OIDC client under Setup > Integrations > OAuth2/OpenID Connect Clients with the client credentials grant. Grant it the read scopes for the objects you want to sync (e.g. `core.invoice.read`, `core.purchase_order.read`). The instance URL is your Coupa host, e.g. `https://myorg.coupahost.com`.""",
             iconPath="/static/services/coupa.png",
             docsUrl="https://posthog.com/docs/cdp/sources/coupa",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -124,7 +124,7 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
             name=ExternalDataSourceType.ALPHAVANTAGE,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Alpha Vantage",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["stocks", "market data", "financial", "equities", "fundamentals"],
             caption="""Enter your Alpha Vantage API key and the stock symbols you want to track to pull market data and company fundamentals into the PostHog Data warehouse.
 

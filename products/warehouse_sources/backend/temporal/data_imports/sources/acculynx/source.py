@@ -56,7 +56,7 @@ class AcculynxSource(ResumableSource[AcculynxSourceConfig, AcculynxResumeConfig]
             label="AccuLynx",
             iconPath="/static/services/acculynx.png",
             docsUrl="https://posthog.com/docs/cdp/sources/acculynx",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Create an API key in [AccuLynx API settings](https://my.acculynx.com/apikeys) "
             "with a company or location administrator account. Tables use full refresh. "
             "Jobs include leads. Calendar appointments cover the date range below.",

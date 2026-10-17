@@ -55,7 +55,7 @@ class ZenloopSource(ResumableSource[ZenloopSourceConfig, ZenloopResumeConfig]):
             name=ExternalDataSourceType.ZENLOOP,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Zenloop",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Zenloop API token to pull your Zenloop data into the PostHog Data warehouse.
 
 You can generate an API token under **Settings → API** in the [Zenloop app](https://app.zenloop.com/settings/api). The token inherits the generating user's account permissions and grants read access to surveys, survey groups, and properties.

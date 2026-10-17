@@ -49,7 +49,7 @@ class OpenAQSource(ResumableSource[OpenAQSourceConfig, OpenAQResumeConfig]):
             name=ExternalDataSourceType.OPENAQ,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="OpenAQ",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your OpenAQ API key to pull global air-quality data into the PostHog Data warehouse.
 
 You can create a free API key from your [OpenAQ Explorer account](https://explore.openaq.org/account).

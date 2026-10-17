@@ -98,7 +98,7 @@ class DebugbearSource(SimpleSource[DebugbearSourceConfig]):
             caption="Sync DebugBear's monitored projects and synthetic Lighthouse / Core Web Vitals test results into your warehouse.",
             docsUrl="https://posthog.com/docs/cdp/sources/debugbear",
             iconPath="/static/services/debugbear.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["core web vitals", "lighthouse", "web performance"],
             fields=cast(
                 list[FieldType],

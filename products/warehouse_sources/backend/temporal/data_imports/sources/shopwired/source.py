@@ -52,7 +52,7 @@ class ShopWiredSource(ResumableSource[ShopWiredSourceConfig, ShopWiredResumeConf
             name=ExternalDataSourceType.SHOPWIRED,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="ShopWired",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your ShopWired API credentials to pull your store data into the PostHog Data warehouse.
 
 You can create an API key and secret under **Account > API keys** in your [ShopWired](https://www.shopwired.co.uk) account. The credentials grant read access to your products, categories, brands, tags, customers, orders, and vouchers.

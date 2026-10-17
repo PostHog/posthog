@@ -163,7 +163,7 @@ Create an IAM user or role with the `ses:GetAccount`, `ses:ListConfigurationSets
 SES data is regional, so connect one source per AWS Region you send email from. This source syncs account-level data. Per-message send, bounce, and complaint events are only available through SES event destinations, not the SES API.""",
             iconPath="/static/services/aws_ses.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-ses",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["aws", "ses", "simple email service", "email"],
             fields=cast(
                 list[FieldType],

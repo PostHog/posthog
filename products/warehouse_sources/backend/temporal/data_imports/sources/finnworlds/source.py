@@ -114,7 +114,7 @@ class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
             name=ExternalDataSourceType.FINNWORLDS,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Finnworlds",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Finnworlds API key to pull financial market data into the PostHog Data warehouse.
 
 You can find your API key in your [Finnworlds dashboard](https://finnworlds.com/dashboard/).

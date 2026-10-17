@@ -54,7 +54,7 @@ class LemlistSource(ResumableSource[LemlistSourceConfig, LemlistResumeConfig]):
             name=ExternalDataSourceType.LEMLIST,
             category=DataWarehouseSourceCategory.SALES,
             label="Lemlist",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your lemlist API key to sync your lemlist data into the PostHog Data warehouse.
 
 You can generate an API key in your lemlist **Settings > Integrations** page.""",

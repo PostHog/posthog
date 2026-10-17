@@ -83,7 +83,7 @@ class QualtricsSource(ResumableSource[QualtricsSourceConfig, QualtricsResumeConf
             name=ExternalDataSourceType.QUALTRICS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Qualtrics",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["surveys", "xm", "experience management"],
             caption="""Enter your Qualtrics datacenter ID and credentials to pull surveys, responses and account metadata into the PostHog Data warehouse.
 

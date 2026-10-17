@@ -55,7 +55,7 @@ class SendowlSource(ResumableSource[SendowlSourceConfig, SendowlResumeConfig]):
             name=ExternalDataSourceType.SENDOWL,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Sendowl",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your SendOwl API credentials to pull your SendOwl data into the PostHog Data warehouse.
 
 You can create an API key and secret under **Settings → API credentials** in the [SendOwl dashboard](https://dashboard.sendowl.com/settings/api_keys). Grant the key the **Manager** permission for read access to products, orders, subscriptions, and discount codes.

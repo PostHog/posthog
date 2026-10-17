@@ -52,7 +52,7 @@ class MentionSource(ResumableSource[MentionSourceConfig, MentionResumeConfig]):
             name=ExternalDataSourceType.MENTION,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Mention",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["social listening", "media monitoring", "brand monitoring"],
             caption="""Enter your Mention API access token to pull your monitored accounts, alerts, mentions, tags, authors, tasks, and daily alert statistics into the PostHog Data warehouse.
 

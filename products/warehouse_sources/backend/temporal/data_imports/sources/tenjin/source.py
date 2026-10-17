@@ -143,7 +143,7 @@ Generate a token in the Tenjin dashboard under Automate > API Access Tokens. The
 Tenjin's Reporting Metrics API returns metrics aggregated per day, so these tables are daily time series rather than user-level events.""",
             iconPath="/static/services/tenjin.png",
             docsUrl="https://posthog.com/docs/cdp/sources/tenjin",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["mobile attribution", "user acquisition", "mmp"],
             fields=cast(
                 list[FieldType],

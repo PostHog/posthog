@@ -63,7 +63,7 @@ class SolarwindsServiceDeskSource(
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="SolarWinds Service Desk",
             keywords=["samanage", "swsd", "solarwinds", "itsm", "service desk"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             # Kept hidden for now: the implementation follows the public API docs but its
             # end-to-end sync behavior hasn't been exercised against a live account yet.
             caption="""Enter your SolarWinds Service Desk JSON web token to pull your service desk data into the PostHog Data warehouse.

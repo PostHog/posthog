@@ -55,7 +55,7 @@ class CampaynSource(SimpleSource[CampaynSourceConfig]):
             name=ExternalDataSourceType.CAMPAYN,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Campayn",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Campayn subdomain and API key to pull your Campayn email-marketing data into the PostHog Data warehouse.
 
 Your subdomain is the first part of your account host — for `acme.campayn.com`, enter `acme`. You can find and regenerate your API key in your Campayn account settings.""",

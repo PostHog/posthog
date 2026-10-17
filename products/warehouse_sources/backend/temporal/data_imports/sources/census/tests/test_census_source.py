@@ -16,7 +16,7 @@ class TestCensusSource:
         assert config.name.value == "Census"
         assert config.label == "Census (Fivetran)"
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         # The source ships visible: unreleasedSource hides the connector from every user.
         assert not config.unreleasedSource
         assert config.iconPath == "/static/services/census.png"
