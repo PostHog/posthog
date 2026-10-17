@@ -262,6 +262,7 @@ export const MODELS: readonly CatalogModel[] = [
     costSummary: "Input $5 · Output $25 per 1M tokens",
     supports1MContext: true,
     supportsFastMode: true,
+    retired: true,
   },
   {
     id: "claude-opus-5",
