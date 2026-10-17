@@ -2,13 +2,17 @@ from collections.abc import Collection
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, IntegerField, OuterRef, Q, QuerySet, Subquery
+from django.db.models.functions import Coalesce
 
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
-from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.models.session_recording_playlist import (
+    SessionRecordingPlaylist,
+    SessionRecordingPlaylistViewed,
+)
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade.api import query_new_error_issues as query_new_error_issues
@@ -132,6 +136,17 @@ def query_new_feature_flags(period_start: datetime, period_end: datetime) -> Que
 
 
 def query_saved_filters(period_start: datetime, period_end: datetime) -> QuerySet:
+    # A join with a filtered Count reads every view a playlist ever had. The correlated
+    # subquery reads only the period's views through the (playlist, viewed_at) index.
+    period_views = (
+        SessionRecordingPlaylistViewed.objects.filter(
+            playlist_id=OuterRef("pk"), viewed_at__gt=period_start, viewed_at__lte=period_end
+        )
+        .order_by()
+        .values("playlist_id")
+        .annotate(count=Count("*"))
+        .values("count")
+    )
     return (
         SessionRecordingPlaylist.objects.exclude(
             (Q(name__isnull=True) | Q(name="Unnamed") | Q(name=""))
@@ -146,15 +161,7 @@ def query_saved_filters(period_start: datetime, period_end: datetime) -> QuerySe
         .exclude(name__in=DEFAULT_PLAYLIST_NAMES)
         .exclude(type="collection")
         .exclude(type__isnull=True)
-        .annotate(
-            view_count=Count(
-                "sessionrecordingplaylistviewed",
-                filter=(
-                    Q(sessionrecordingplaylistviewed__viewed_at__gt=period_start)
-                    & Q(sessionrecordingplaylistviewed__viewed_at__lte=period_end)
-                ),
-            ),
-        )
+        .annotate(view_count=Coalesce(Subquery(period_views, output_field=IntegerField()), 0))
         .values("team_id", "name", "short_id", "view_count")
         .order_by("-view_count")
     )
