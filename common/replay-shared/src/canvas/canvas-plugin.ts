@@ -80,6 +80,13 @@ function toCanvasMutationError(error: unknown, context: CanvasPluginErrorContext
     return new CanvasMutationError(`Canvas mutation failed in ${context.canvas_context} context: ${String(error)}`)
 }
 
+// `instanceof HTMLCanvasElement` is false for nodes in the replay iframe, so check the shape instead.
+function isCanvasElement(node: unknown): node is HTMLCanvasElement {
+    return (
+        !!node && (node as Node).nodeName === 'CANVAS' && typeof (node as HTMLCanvasElement).getContext === 'function'
+    )
+}
+
 export const CanvasReplayerPlugin = (
     events: eventWithTime[],
     onError: CanvasPluginErrorHandler = noOpErrorHandler
@@ -214,7 +221,11 @@ export const CanvasReplayerPlugin = (
         void preload(e)
 
         const data = e.data as canvasMutationData
-        const source = replayer.getMirror().getNode(data.id) as HTMLCanvasElement
+        const source = replayer.getMirror().getNode(data.id)
+        // A recording can point a canvas mutation at a node that is not a canvas, and drawing on it throws.
+        if (source && !isCanvasElement(source)) {
+            return
+        }
         const target = canvases.get(data.id) || (source && cloneCanvas(data.id, source))
 
         if (!target) {
