@@ -693,14 +693,20 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         and (inputs.latest_error not in (WORKER_RESTART_ERROR_MESSAGE, CANCELLED_RUN_MESSAGE))
     )
 
-    await database_sync_to_async_pool(update_external_job_status)(
-        job_id=job_id,
-        status=ExternalDataJob.Status(inputs.status),
-        latest_error=inputs.latest_error,
-        logger=logger,
-        team_id=inputs.team_id,
-        counts_as_source_failure=counts_as_source_failure,
-    )
+    try:
+        await database_sync_to_async_pool(update_external_job_status)(
+            job_id=job_id,
+            status=ExternalDataJob.Status(inputs.status),
+            latest_error=inputs.latest_error,
+            logger=logger,
+            team_id=inputs.team_id,
+            counts_as_source_failure=counts_as_source_failure,
+        )
+    except ExternalDataJob.DoesNotExist:
+        # A cascade delete (of the team, source, or schema) can remove the job row while the run is
+        # in flight. Nothing is left to record the outcome on, so this is not an error to report.
+        logger.warning("Job deleted before finalization", job_id=job_id)
+        return
 
     if has_non_retryable_error:
         # A non-retryable failure does not count toward the failure streak, so the status write
