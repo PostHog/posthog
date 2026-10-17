@@ -38,7 +38,7 @@ Below that bar, write a `baseline:` / `noise:` scratchpad entry instead — don'
 | `suggested_reviewers`       | list of objects                   | Who owns the metric/dashboard — routes the report. Each entry is `{github_login}` and/or `{user_uuid}` (not a bare string). High-leverage — set it (see below). |
 | `priority`                  | `P0`–`P4`                         | Optional; pair with `priority_explanation`. Needed for an autostart draft PR.                                                                                   |
 | `priority_explanation`      | string                            | Required when `priority` is set.                                                                                                                                |
-| `repository`                | string                            | `owner/repo` for a code fix, the `NO_REPO` sentinel for a pure metric move, omitted for free-form.                                                              |
+| `repository`                | string                            | `owner/repo` for the repository that emits the metric, omitted when you can't tell, `NO_REPO` only when no code could change it.                                |
 | `charts`                    | list, optional                    | Queries the inbox draws on the report itself — see _Charts on the report_ below.                                                                                |
 
 The result carries `report_id` (always set when a report was persisted — even when suppressed,
@@ -110,19 +110,23 @@ the durable artifact the human opens.
 
 ### Actionability, priority, repository
 
-- **Actionability.** A metric anomaly is usually `requires_human_input` — a human investigates
-  the move and decides whether it's a real regression (surfaces as PENDING_INPUT). Use
-  `immediately_actionable` only when there's a concrete, obvious fix (e.g. a tracking
-  regression from a named deploy — surfaces as READY). `not_actionable` is suppressed; the
-  safety judge can suppress regardless, so don't inflate.
+- **Actionability.** A quantified anomaly with a dated onset is an investigation with a starting
+  point, so it is usually `immediately_actionable` (surfaces as READY): an agent can correlate the
+  onset with deploys, check whether the instrumentation still fires, and restore it. That holds when
+  the cause is still a hypothesis. "Confirm whether this is a real regression" is the agent's work,
+  not a human decision. Use `requires_human_input` (PENDING_INPUT) only when a person must make a
+  call before code can change, for example whether a deliberate pricing change explains the drop,
+  and name that call in `actionability_explanation`. `not_actionable` is suppressed; the safety
+  judge can suppress regardless, so don't inflate.
 - **Priority** (the old severity, now an autostart input). `P0` active critical (outage / data
   loss); `P1` active material (a revenue/conversion drop hitting the business now); `P2`
   confirmed contained; `P3` suspected or minor; `P4` FYI. A sustained drop-to-zero on a key
   metric is typically P1; a one-bucket spike already receding is P2–P3. Set it (with
   `priority_explanation`) when the move is concrete enough to justify urgency.
-- **Repository.** Most metric anomalies have no single code fix — pass the `NO_REPO` sentinel.
-  Pass `owner/repo` only when the anomaly is a tracking/instrumentation regression you can point
-  at a repo. Don't leave it to free-form selection unless you genuinely don't know.
+- **Repository.** Pass `owner/repo` when you can say which repository emits the metric's events or
+  serves the flow. Omit the field when you can't tell which repository it is, so selection can find
+  it. Keep the `NO_REPO` sentinel for a move nothing under version control could change, such as a
+  marketing campaign that ended.
 
 ### Suggested reviewers
 
@@ -281,16 +285,17 @@ the summary.
 ```yaml
 # scout-emit-report
 title: 'Daily signups dropped ~60% vs same-weekday baseline (2026-06-06)'
-actionability: requires_human_input
+actionability: immediately_actionable
 actionability_explanation: >
-  A human needs to confirm whether this is a broken signup flow or a tracking regression and
-  decide the fix.
+  The drop has a dated onset on a single complete day and is broad across segments, so an agent can
+  correlate it with that day's deploys and check whether the signup events still fire. No product
+  decision blocks that work.
 priority: P1
 priority_explanation: >
   Signups are a top-of-funnel business metric; a sustained ~60% drop is active material impact.
 suggested_reviewers:
   - github_login: octocat
-repository: NO_REPO
+repository: octocat/web-app
 evidence:
   - source_id: 9aBcDeF
     description: >
@@ -311,8 +316,8 @@ summary: |
   same weekdays were all within ±1.5 z, so it's not seasonality, and it's not a pipeline gap (other
   insights are unaffected at the same timestamp).
   **Hypothesis** — likely a broken signup flow or a tracking regression from a recent deploy.
-  Recommend: open the insight, check whether the drop is broad or segment-specific, and correlate
-  with today's deploys. Full write-up with charts:
+  Next step: correlate the onset with that day's deploys, check whether the signup events still
+  fire, and restore the flow or the instrumentation. Full write-up with charts:
   [notebook](https://us.posthog.com/project/41233/notebooks/aB12cD34).
 ```
 
@@ -322,5 +327,6 @@ summary: |
 Why it's good: quantified title and hook with the baseline and z, a plain-text headline line with
 every entity linked in the body below it, seasonality and pipeline-gap explicitly ruled out,
 partial bucket excluded, actionable recommendation, the notebook cited in evidence and linked from
-the summary, `requires_human_input` (a human decides the fix) with P1 justified by business
-impact, and a reviewer set so it routes to an owner.
+the summary, `immediately_actionable` with a repository (the onset and the deploy window are a
+starting point, so nothing waits on a person) with P1 justified by business impact, and a reviewer
+set so it routes to an owner.

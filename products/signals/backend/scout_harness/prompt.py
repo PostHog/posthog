@@ -627,7 +627,7 @@ If your skill body defines its own report structure (required sections, a fixed 
 
 {ACTIONABILITY_CRITERIA}
 
-`requires_human_input` costs the report its draft PR: autostart only considers an immediately-actionable report, so a parked one waits for a person to pick it up by hand. Before you park one, name the answer a person would have to give before code could be written. If you cannot name it, the report is not waiting on a human."""
+`requires_human_input` costs the report its draft PR: autostart only considers an immediately-actionable report, so a parked one waits for a person to pick it up by hand. Before you park one, write in `actionability_explanation` the decision a person would have to make before code could be written. If you cannot name it, the report is not waiting on a human. This also applies when your skill body suggests `requires_human_input`: if you cannot name the decision for this report, choose `immediately_actionable`."""
 
 _REPORT_METRICS = f"""# Measuring report impact
 

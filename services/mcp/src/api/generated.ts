@@ -38968,7 +38968,7 @@ export namespace Schemas {
        * * `not_actionable` - not_actionable */
       actionability?: ActionabilityEnum | null;
       /**
-         * 2-3 sentence evidence-grounded justification for `actionability`. Required when you set it.
+         * 2-3 sentence evidence-grounded justification for `actionability`. Required when you set it. For `requires_human_input`, name the decision a person must make before code can change.
          * @nullable
          */
       actionability_explanation?: string | null;
@@ -39535,7 +39535,7 @@ export namespace Schemas {
          * @minItems 1
          */
       evidence: ReportEvidence[];
-      /** 2-3 sentence evidence-grounded justification for the actionability call below. */
+      /** 2-3 sentence evidence-grounded justification for the actionability call below. For `requires_human_input`, name the decision a person must make before code can change. */
       actionability_explanation: string;
       /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless. A root cause you have not found is not human input: a report that names the evidence, the code surface, or a reproducible failure path is `immediately_actionable`, because investigating it is the action. Reserve `requires_human_input` for a report blocked on a decision only a person can make.
        *
