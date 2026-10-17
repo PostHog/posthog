@@ -542,13 +542,24 @@ describe('HogFunctionHandler', () => {
     // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
     // (roughly half of email), so a completed invocation must emit exactly one billable_invocation
     // carrying the handler's billing type — never fall back to another channel's kind.
-    it.each([
-        ['fetch', 'workflow_billable_invocations'],
-        ['email', 'workflow_emails_sent'],
-        ['sms', 'workflow_sms_sent'],
-    ] as const)(
-        'emits a single billable_invocation with %s kind matching the handler billing type',
-        async (billingType, usageKey) => {
+    it.each(
+        (
+            [
+                ['fetch', 'workflow_billable_invocations'],
+                ['email', 'workflow_emails_sent'],
+                ['push', 'workflow_push_sent'],
+                ['sms', 'workflow_sms_sent'],
+            ] as const
+        ).flatMap(([billingType, usageKey]) =>
+            [
+                { mode: 'production', isTest: false, mockFunctions: false },
+                { mode: 'unmocked test', isTest: true, mockFunctions: false },
+                { mode: 'mocked test', isTest: true, mockFunctions: true },
+            ].map((options) => ({ billingType, usageKey, ...options }))
+        )
+    )(
+        'emits $billingType metrics and only excludes mocked usage in $mode mode',
+        async ({ billingType, usageKey, isTest, mockFunctions }) => {
             const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
                 reportBillableInvocation: jest.fn(),
             }
@@ -565,7 +576,17 @@ describe('HogFunctionHandler', () => {
                 queuePriority: 0,
             })
 
-            await handler.execute({ invocation, action, result: invocationResult })
+            await handler.execute({
+                invocation,
+                action,
+                result: invocationResult,
+                hogExecutorOptions: {
+                    isTest,
+                    ...(mockFunctions
+                        ? { asyncFunctionsNames: [], functions: { fetch: () => ({ status: 200, body: {} }) } }
+                        : {}),
+                },
+            })
 
             const billableMetrics = invocationResult.metrics.filter(
                 (metric) => metric.metric_name === 'billable_invocation'
@@ -581,9 +602,14 @@ describe('HogFunctionHandler', () => {
                 metric_name: 'billable_invocation',
                 count: 1,
             })
-            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
-                expect.objectContaining({ teamId: team.id, usageKey })
-            )
+            if (isTest && mockFunctions) {
+                expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
+            } else {
+                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(1)
+                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
+                    expect.objectContaining({ teamId: team.id, usageKey })
+                )
+            }
         }
     )
 
