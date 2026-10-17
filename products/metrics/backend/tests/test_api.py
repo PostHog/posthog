@@ -304,6 +304,19 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
         request.assert_not_called()
         run.assert_not_called()
 
+    def test_a_selection_set_to_all_without_options_is_an_empty_set(self) -> None:
+        with patch("products.metrics.backend.variable_options.run_metrics_sql_values", return_value=["a"]) as run:
+            response = self._post(
+                {
+                    "source": "sql",
+                    "query": f"{OPTIONS_SQL} WHERE service_name IN $zone",
+                    "variables": [{"name": "zone", "values": [], "all": True}],
+                }
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert run.call_args.args[5] == {"metric_variable_zone": ast.Tuple(exprs=[])}
+
     def test_all_without_options_is_an_empty_set(self) -> None:
         with patch("products.metrics.backend.variable_options.run_metrics_sql_values", return_value=[]):
             filled = fill_all_values(
