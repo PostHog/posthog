@@ -17,8 +17,14 @@ import {
 // in one place so URL changes can't drift between the two surfaces.
 // encodeURLComponent mirrors JS encodeURIComponent, which leaves `(` and `)` unescaped — a `)` in a
 // fingerprint would close the surrounding markdown link `[text](url)` early, so encode them too.
+// encodeURLComponent leaves `(` and `)` alone, so an encoded value placed in a markdown
+// [text](url) link could close it early. Encoding both keeps the link intact in every chat format.
+function markdownSafeEncodeExpr(expression: string): string {
+    return `replaceAll(replaceAll(encodeURLComponent(${expression}), '(', '%28'), ')', '%29')`
+}
+
 export const errorTrackingIssueLinkHogTemplate = (medium: string): string =>
-    `{project.url}/error-tracking/fingerprint/{replaceAll(replaceAll(encodeURLComponent(event.properties.fingerprint), '(', '%28'), ')', '%29')}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
+    `{project.url}/error-tracking/fingerprint/{${markdownSafeEncodeExpr('event.properties.fingerprint')}}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=${medium}`
 
 // PagerDuty has no high, medium or low severity, so the issue severity maps onto its scale.
 // The template sends error for an issue without a severity.
@@ -86,6 +92,14 @@ const MCP_ALERT_MASKING_TTL_SECONDS = 30 * 60
 // otherwise escape deduplication entirely. Nameless events all collapse into one bucket instead.
 const MCP_ALERT_MASKING_HASH =
     `{concat(${MCP_EFFECTIVE_TOOL_EXPR}) != '' ` + `? concat(${MCP_EFFECTIVE_TOOL_EXPR}) : 'unknown-tool'}`
+
+// An issue is a durable artifact, so one per broken tool per day beats a chat ping every 30 minutes.
+const MCP_GITHUB_ISSUE_MASKING_TTL_SECONDS = 24 * 60 * 60
+
+// Tool names are producer-controlled, so keying issues on the raw name lets anyone with the project
+// token open one issue per invented name. Keying on the first hex digit of its md5 caps that at 16
+// issues a day, while two real tools share a key only 1 time in 16.
+const MCP_GITHUB_ISSUE_MASKING_HASH = `{substring(md5Hex(concat(${MCP_EFFECTIVE_TOOL_EXPR})), 1, 1)}`
 
 // Every MCP failure notification triggers on an errored $mcp_tool_call. SDK versions stamp
 // $mcp_is_error as a boolean, the string 'true', or 1, so all three encodings are matched (CDP
@@ -474,6 +488,7 @@ function buildHealthAlertSubTemplates(
 // Discord worst case: message (template text + 3 fields x 200 + intent 600, all post-escape,
 // ~1260) + link (base ~80 + encoded tool name up to 480) = ~1820 < 2000.
 const MCP_INTENT_MAX_LENGTH = 600
+const MCP_ERROR_MESSAGE_MAX_LENGTH = 1000
 const MCP_FIELD_MAX_LENGTH = 200
 // The tool name is never shortened for the link. Truncating changes the tool's identity — the
 // detail page exact-matches the full event property, so a shortened link resolves to nothing —
@@ -506,6 +521,19 @@ function markdownEscapeExpr(expression: string, maxLength: number = MCP_FIELD_MA
     // Discord and Teams; Discord mass mentions are already suppressed by the destination
     // template's allowed_mentions, and Teams mentions can't be triggered from text.
     return `substring(replaceAll(${boundedExpr(expression, maxLength)}, '](', '] ('), 1, ${maxLength})`
+}
+
+// GitHub notifies on @mentions and links #123 references, but renders neither inside a code span.
+// Backticks and line breaks are replaced one-for-one so the value cannot close the span or end the
+// paragraph, which keeps the bound from boundedExpr valid. The padding spaces keep an empty value
+// a code span instead of a literal pair of backticks.
+function githubCodeExpr(expression: string, maxLength: number = MCP_FIELD_MAX_LENGTH): string {
+    const flattened = `replaceAll(replaceAll(replaceAll(${boundedExpr(expression, maxLength)}, '\`', '\\''), '\\n', ' '), '\\r', ' ')`
+    return `concat('\` ', ${flattened}, ' \`')`
+}
+
+function githubFenceExpr(expression: string, maxLength: number): string {
+    return `concat('\\n\`\`\`\\n', replaceAll(${boundedExpr(expression, maxLength)}, '\`', '\\''), '\\n\`\`\`')`
 }
 
 /** The producer-controlled values a notification message interpolates. */
@@ -627,7 +655,7 @@ const PA_RAGECLICK_LINK =
     `{length(${PA_ENCODED_SESSION_EXPR}) > 0 and length(${PA_ENCODED_SESSION_EXPR}) <= ${MCP_URL_ENCODED_TOOL_BUDGET}` +
     ` ? concat('/', ${PA_ENCODED_SESSION_EXPR}) : '/home'}`
 
-const MCP_ENCODED_EFFECTIVE_TOOL_EXPR = `encodeURLComponent(concat(${MCP_EFFECTIVE_TOOL_EXPR}))`
+const MCP_ENCODED_EFFECTIVE_TOOL_EXPR = markdownSafeEncodeExpr(`concat(${MCP_EFFECTIVE_TOOL_EXPR})`)
 // Deep-links to the failing tool, falling back to the tool list when the encoded name would
 // blow the Discord budget (see MCP_URL_ENCODED_TOOL_BUDGET). project.url stays a plain
 // substitution so only the path suffix is conditional.
@@ -711,6 +739,31 @@ function notificationVariants({
     ]
 }
 
+const mcpGithubField = hogFieldRenderer(githubCodeExpr)
+
+const MCP_TOOL_ERROR_GITHUB_VARIANT: HogFunctionSubTemplateType = {
+    ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['mcp-tool-error'],
+    masking: {
+        hash: MCP_GITHUB_ISSUE_MASKING_HASH,
+        ttl: MCP_GITHUB_ISSUE_MASKING_TTL_SECONDS,
+        threshold: null,
+    },
+    template_id: 'template-github',
+    name: 'Open a GitHub issue when an MCP tool call fails',
+    description: 'Open an issue the first time a tool breaks, then at most one per tool per day',
+    inputs: {
+        title: { value: `MCP tool ${mcpGithubField('toolName')} is failing` },
+        description: {
+            value:
+                `${mcpToolFailureMessage(mcpGithubField, '**')}\n\n` +
+                `**Error:** {${githubCodeExpr('event.properties.$mcp_error_type')}}: ` +
+                `{${githubFenceExpr('event.properties.$mcp_error_message', MCP_ERROR_MESSAGE_MAX_LENGTH)}}`,
+        },
+        posthog_issue_id: { value: '{event.uuid}' },
+        posthog_issue_url: { value: MCP_TOOL_ERROR_LINK },
+    },
+}
+
 // batch_export_name is user-controlled and error can embed whatever the destination returned, so
 // both get the same Slack escaping + bounds as the other producer-controlled notification fields
 // (a raw value could smuggle <!channel> mentions or <url|text> masked links into the message).
@@ -766,16 +819,19 @@ function dwhBillingLimitMessage(fields: DwhMessageFields, bold: string): string 
 }
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
-    'mcp-tool-error': notificationVariants({
-        subTemplateId: 'mcp-tool-error',
-        nameSuffix: 'when an MCP tool call fails',
-        description: 'Know the moment agents hit an error on one of your tools',
-        webhookDescription: 'Send failing tool calls to your own endpoint',
-        slackMessage: MCP_TOOL_ERROR_SLACK_MESSAGE,
-        slackFallbackText: 'An MCP tool call failed',
-        markdownMessage: `${MCP_TOOL_ERROR_MARKDOWN_MESSAGE}\n\n${MCP_TOOL_ERROR_LINK}`,
-        slackButton: { url: MCP_TOOL_ERROR_LINK, label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-tool-error'] },
-    }),
+    'mcp-tool-error': [
+        ...notificationVariants({
+            subTemplateId: 'mcp-tool-error',
+            nameSuffix: 'when an MCP tool call fails',
+            description: 'Know the moment agents hit an error on one of your tools',
+            webhookDescription: 'Send failing tool calls to your own endpoint',
+            slackMessage: MCP_TOOL_ERROR_SLACK_MESSAGE,
+            slackFallbackText: 'An MCP tool call failed',
+            markdownMessage: `${MCP_TOOL_ERROR_MARKDOWN_MESSAGE}\n\n${MCP_TOOL_ERROR_LINK}`,
+            slackButton: { url: MCP_TOOL_ERROR_LINK, label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-tool-error'] },
+        }),
+        MCP_TOOL_ERROR_GITHUB_VARIANT,
+    ],
     'data-warehouse-sync-failed': notificationVariants({
         subTemplateId: 'data-warehouse-sync-failed',
         nameSuffix: 'when a table sync fails',

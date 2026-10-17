@@ -4,7 +4,7 @@ sidebar: Docs
 showTitle: true
 ---
 
-MCP analytics can reach you in Slack, Microsoft Teams, Discord, email, or any webhook, in two ways: a recurring written summary, or an instant alert on a single event.
+MCP analytics can reach you in Slack, Microsoft Teams, Discord, email, GitHub, or any webhook, in two ways: a recurring written summary, or an instant alert on a single event.
 
 Which one you want depends on the question.
 Use a recurring report for anything you'd think about periodically, like what agents keep trying to do.
@@ -41,13 +41,16 @@ Because a report summarizes a window of time, it stays useful on a low-volume se
 
 An instant alert reaches you as soon as something happens that you'd want to know about right away: **a failed tool call**, captured as `$mcp_tool_call` with `$mcp_is_error`.
 
-To create one, select **Set up** on the **A tool call failed** row, then choose a channel.
+To create one, select **Set up** on the **A tool call failed** row, then choose a channel or a GitHub repository.
 PostHog prefills the message with the tool, your server, the agent's client, and its intent.
 You can customize it later from the alert's own page.
 
 The alert is deduplicated per failing tool: if one tool fails a hundred times in a row you get one message, not a hundred, and each additional tool that starts failing still gets its own.
 A tool that is still broken reappears after 30 minutes.
 You can change this under **Trigger options** on the alert's page, including turning deduplication off.
+
+A GitHub alert opens an issue in the repository you pick, with the tool, server, client, the agent's intent, and the error.
+Because an issue stays open until someone closes it, a tool that is still broken opens a new issue at most once a day.
 
 ## Manage alerts and reports
 
@@ -56,4 +59,5 @@ To use another destination type, create it manually with the same MCP events and
 Recurring reports appear alongside your other subscriptions, where you can edit, pause, or delete them.
 
 Slack requires the PostHog Slack integration.
+GitHub requires the PostHog GitHub integration.
 Microsoft Teams, Discord, and webhook destinations only need a webhook URL.

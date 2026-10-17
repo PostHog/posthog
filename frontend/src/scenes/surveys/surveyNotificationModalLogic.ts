@@ -9,7 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { convertToHogFunctionInvocationGlobals } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
-import { DESTINATION_OPTIONS, DestinationKey } from 'scenes/hog-functions/list/newNotificationDialogLogic'
+import { CHAT_DESTINATION_OPTIONS, ChatDestinationKey } from 'scenes/hog-functions/list/newNotificationDialogLogic'
 import {
     HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
     HOG_FUNCTION_SUB_TEMPLATES,
@@ -86,7 +86,7 @@ export type SurveyQuestionForNotification = {
 }
 
 export interface SurveyNotificationForm {
-    destination: DestinationKey
+    destination: ChatDestinationKey
     slackIntegrationId: number | null
     slackChannel: string | null
     slackMessage: string
@@ -442,7 +442,7 @@ async function buildSurveyNotificationPayload({
     editingNotification: HogFunctionType | null
     copiedNotification: HogFunctionType | null
 }): Promise<Partial<HogFunctionType>> {
-    const templateId = DESTINATION_OPTIONS.find((option) => option.value === form.destination)?.templateId
+    const templateId = CHAT_DESTINATION_OPTIONS.find((option) => option.value === form.destination)?.templateId
     const template = await api.hogFunctions.getTemplate(templateId || 'template-slack')
 
     if (editingNotification) {
@@ -476,8 +476,9 @@ async function buildSurveyNotificationPayload({
     })
 }
 
-function notificationNameFor(destination: DestinationKey, surveyName?: string | null): string {
-    const destinationLabel = DESTINATION_OPTIONS.find((option) => option.value === destination)?.label || 'Notification'
+function notificationNameFor(destination: ChatDestinationKey, surveyName?: string | null): string {
+    const destinationLabel =
+        CHAT_DESTINATION_OPTIONS.find((option) => option.value === destination)?.label || 'Notification'
     const baseName = surveyName?.trim() || 'Survey'
     return `${baseName} → ${destinationLabel}`
 }
@@ -596,9 +597,9 @@ function getInputNumber(inputs: HogFunctionType['inputs'], key: string): number 
     return typeof value === 'number' ? value : null
 }
 
-function getDestinationForNotification(notification: HogFunctionType): DestinationKey {
+function getDestinationForNotification(notification: HogFunctionType): ChatDestinationKey {
     const templateId = notification.template_id || notification.template?.id
-    return DESTINATION_OPTIONS.find((option) => option.templateId === templateId)?.value ?? 'webhook'
+    return CHAT_DESTINATION_OPTIONS.find((option) => option.templateId === templateId)?.value ?? 'webhook'
 }
 
 function getSlackMessageFromNotification(notification: HogFunctionType, defaultMessage: string): string {
@@ -687,7 +688,7 @@ function buildSurveyNotificationFormFromNotification(
     }
 }
 
-export function destinationDeliveryDescription(destination: DestinationKey): string {
+export function destinationDeliveryDescription(destination: ChatDestinationKey): string {
     switch (destination) {
         case 'slack':
             return 'Slack messages are sent as a formatted post with buttons to view the survey and person.'
@@ -709,13 +710,13 @@ function createSurveyNotificationPayload({
     form,
 }: {
     template: HogFunctionTemplateType
-    destination: DestinationKey
+    destination: ChatDestinationKey
     surveyName?: string | null
     surveyId: string
     emitsPartialSentEvents: boolean
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
-    const destinationOption = DESTINATION_OPTIONS.find((option) => option.value === destination)
+    const destinationOption = CHAT_DESTINATION_OPTIONS.find((option) => option.value === destination)
     if (!destinationOption) {
         throw new Error('Unsupported destination')
     }
@@ -853,7 +854,7 @@ function updateSurveyNotificationPayload({
 }: {
     notification: HogFunctionType
     template: HogFunctionTemplateType
-    destination: DestinationKey
+    destination: ChatDestinationKey
     surveyId: string
     emitsPartialSentEvents: boolean
     form: SurveyNotificationForm
@@ -888,7 +889,7 @@ function updateSurveyNotificationPayload({
 
 function getSurveyNotificationDestinationLabel(notification: HogFunctionType): string {
     const templateId = notification.template_id ?? notification.template?.id
-    return DESTINATION_OPTIONS.find((option) => option.templateId === templateId)?.label ?? 'Notification'
+    return CHAT_DESTINATION_OPTIONS.find((option) => option.templateId === templateId)?.label ?? 'Notification'
 }
 
 function createCopiedSurveyNotificationPayload({
@@ -900,7 +901,7 @@ function createCopiedSurveyNotificationPayload({
 }: {
     notification: HogFunctionType
     template: HogFunctionTemplateType
-    destination: DestinationKey
+    destination: ChatDestinationKey
     survey: SurveyNotificationContext
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
@@ -1593,7 +1594,7 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
     })),
 ])
 
-export function getMessageFieldForDestination(destination: DestinationKey): SurveyMessageField | null {
+export function getMessageFieldForDestination(destination: ChatDestinationKey): SurveyMessageField | null {
     switch (destination) {
         case 'slack':
             return 'slackMessage'
