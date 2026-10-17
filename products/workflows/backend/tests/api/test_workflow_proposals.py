@@ -1,9 +1,10 @@
 import json
 from copy import deepcopy
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -685,6 +686,7 @@ class TestWorkflowProposals(APIBaseTest):
             ("a member widening another person's scout", "widen", "running"),
             ("api key without the proposal scope turning one off", "key_off", "not_running"),
             ("a scout a person set up", "own", "running"),
+            ("a scout a person set to dry run", "dry_run", "dry_run"),
         ]
     )
     def test_suggestions_scout_gains_no_grant(self, _mock_flag, _name: str, case: str, scout_status: str):
@@ -716,9 +718,9 @@ class TestWorkflowProposals(APIBaseTest):
                 created_by=other,
                 enabled_by=other,
             )
-        elif case == "own":
+        elif case in ("own", "dry_run"):
             SignalScoutConfig.objects.for_team(self.team.id).create(
-                team=self.team, skill_name="signals-scout-workflows", enabled=True
+                team=self.team, skill_name="signals-scout-workflows", enabled=True, emit=case != "dry_run"
             )
         elif case == "key_off":
             key = generate_random_token_personal()
@@ -755,6 +757,52 @@ class TestWorkflowProposals(APIBaseTest):
         assert response["scout_status"] == scout_status
         if case == "system_paused":
             assert scout is not None and scout.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+
+    @parameterized.expand(
+        [
+            ("too few sends", True, {"email_sent": 12}, 72, False, 12),
+            ("untracked sends do not count", True, {"email_sent": 25, "email_untracked": 10}, 72, False, 15),
+            ("a version live under two days", True, {"email_sent": 30}, 24, False, 30),
+            ("enough sends on a settled version", True, {"email_sent": 30}, 72, True, 30),
+            ("too few sends before suggestions are on", False, {"email_sent": 4}, 72, False, 4),
+        ]
+    )
+    def test_optimization_reports_the_sample_floor_of_the_live_version(
+        self, _mock_flag, _name: str, optimize: bool, totals: dict, hours_live: int, reached: bool, tracked_sends: int
+    ):
+        flow_id = self._create_active_flow(optimize=optimize)
+        flow = HogFlow.objects.get(pk=flow_id)
+        with (
+            time_machine.travel(timezone.now() + timedelta(hours=hours_live), tick=False),
+            patch("products.workflows.backend.services.suggestions_scout.fetch_app_metric_totals") as mock_totals,
+        ):
+            mock_totals.return_value = SimpleNamespace(totals=totals)
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization")
+
+        assert response.status_code == 200, response.json()
+        sample = response.json()["sample"]
+        assert (sample["reached"], sample["tracked_sends"], sample["required_sends"]) == (reached, tracked_sends, 20)
+        assert {(call.kwargs["app_source_id"], call.kwargs["instance_id"]) for call in mock_totals.call_args_list} == {
+            (f"{flow_id}/{flow.version}", "email_1")
+        }
+
+    @parameterized.expand(
+        [("scout in dry run", {"emit": False}), ("scout paused", {"enabled": False, "status": "paused_by_user"})]
+    )
+    def test_optimization_skips_the_sample_when_no_suggestion_could_be_filed(
+        self, _mock_flag, _name: str, scout_change: dict
+    ):
+        flow_id = self._create_active_flow()
+        SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name="signals-scout-workflows").update(
+            **scout_change
+        )
+
+        with patch("products.workflows.backend.services.suggestions_scout.fetch_app_metric_totals") as mock_totals:
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["sample"] is None
+        mock_totals.assert_not_called()
 
     @parameterized.expand(
         [

@@ -1687,6 +1687,16 @@ def scout_status_for_product(*, team_id: int, skill_name: str) -> str | None:
     )
 
 
+def scout_emits_for_product(*, team_id: int, skill_name: str) -> bool | None:
+    """Whether the scout config for the skill writes what it finds, or None when the project has no config for it.
+
+    False is a dry run: the scout runs and logs, but gets no write scopes, so it files nothing.
+    """
+    return (
+        SignalScoutConfig.objects.for_team(team_id).filter(skill_name=skill_name).values_list("emit", flat=True).first()
+    )
+
+
 def disable_scout_for_product(*, team_id: int, skill_name: str, source_product: str) -> bool:
     """Remove the config a product created when it switched a scout on.
 

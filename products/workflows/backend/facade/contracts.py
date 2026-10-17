@@ -481,6 +481,17 @@ class Workflow:
 
 
 @frozen
+class SuggestionsSample:
+    """Whether the live version has sent enough email for the suggestions scout to judge it."""
+
+    reached: bool
+    # Tracked sends (sent minus untracked) from the live version's busiest email step in the window.
+    tracked_sends: int
+    required_sends: int
+    version_live_since: datetime
+
+
+@frozen
 class WorkflowRef:
     """A workflow's identity and dispatch settings, for an action that does not return the workflow.
 

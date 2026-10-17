@@ -256,6 +256,7 @@ from products.workflows.backend.facade.secrets import (
 )
 from products.workflows.backend.facade.suggestions_scout import (
     PROPOSAL_WRITE_SCOPE,
+    suggestions_sample,
     suggestions_scout_refusal,
     suggestions_scout_status,
     sync_suggestions_scout,
@@ -3844,7 +3845,27 @@ class SuggestionsScoutStatus(models.TextChoices):
     RUNNING = "running"
     PAUSED_BY_USER = "paused_by_user"
     PAUSED_BY_SYSTEM = "paused_by_system"
+    DRY_RUN = "dry_run"
     NOT_RUNNING = "not_running"
+
+
+class SuggestionsSampleSerializer(serializers.Serializer):
+    reached = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether an email step of the live version has enough tracked sends, over enough time, for "
+        "PostHog to judge it.",
+    )
+    tracked_sends = serializers.IntegerField(
+        read_only=True,
+        help_text="Tracked sends (sends with open tracking on) from the live version's busiest email step in the "
+        "last 7 days.",
+    )
+    required_sends = serializers.IntegerField(
+        read_only=True, help_text="Tracked sends an email step needs before PostHog judges it."
+    )
+    version_live_since = serializers.DateTimeField(
+        read_only=True, help_text="When the live version was published. PostHog waits 48 hours before judging it."
+    )
 
 
 class HogFlowOptimizationSerializer(serializers.Serializer):
@@ -3853,7 +3874,14 @@ class HogFlowOptimizationSerializer(serializers.Serializer):
         choices=SuggestionsScoutStatus.choices,
         read_only=True,
         help_text="Whether the project's suggestions scout runs. A paused scout files no suggestions, even for "
-        "workflows that have suggestions on.",
+        "workflows that have suggestions on. A scout in dry run runs but files nothing until someone turns on "
+        "writing to the inbox in its scout settings.",
+    )
+    sample = SuggestionsSampleSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="How close the live version is to the sample PostHog needs before it suggests anything. Null "
+        "while suggestions are on but the scout is not running, or when the workflow has no email step.",
     )
 
 
@@ -5858,10 +5886,19 @@ class HogFlowViewSet(
         else:
             enabled = is_optimization_enabled(instance.id)
 
+        scout_status = suggestions_scout_status(self.team)
+        sample = None
+        # Off, the sample tells the person what to expect before they turn it on. On, only a running scout is
+        # held back by it, so the metrics read is skipped while the scout is paused or in dry run.
+        if not enabled or scout_status == SuggestionsScoutStatus.RUNNING:
+            tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+            try:
+                sample = suggestions_sample(team_id=self.team_id, hog_flow_id=instance.id)
+            except Exception as error:
+                # The sample only adds a line of copy, so a failed metrics read must not fail the setting.
+                capture_exception(error)
         return Response(
-            HogFlowOptimizationSerializer(
-                {"enabled": enabled, "scout_status": suggestions_scout_status(self.team)}
-            ).data
+            HogFlowOptimizationSerializer({"enabled": enabled, "scout_status": scout_status, "sample": sample}).data
         )
 
     def _may_grant_scout(self, request: Request) -> bool:

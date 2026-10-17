@@ -1294,6 +1294,7 @@ export interface AppMetricsTotalsResponseApi {
  * * `running` - Running
  * * `paused_by_user` - Paused By User
  * * `paused_by_system` - Paused By System
+ * * `dry_run` - Dry Run
  * * `not_running` - Not Running
  */
 export type SuggestionsScoutStatusEnumApi =
@@ -1303,19 +1304,34 @@ export const SuggestionsScoutStatusEnumApi = {
     Running: 'running',
     PausedByUser: 'paused_by_user',
     PausedBySystem: 'paused_by_system',
+    DryRun: 'dry_run',
     NotRunning: 'not_running',
 } as const
+
+export interface SuggestionsSampleApi {
+    /** Whether an email step of the live version has enough tracked sends, over enough time, for PostHog to judge it. */
+    readonly reached: boolean
+    /** Tracked sends (sends with open tracking on) from the live version's busiest email step in the last 7 days. */
+    readonly tracked_sends: number
+    /** Tracked sends an email step needs before PostHog judges it. */
+    readonly required_sends: number
+    /** When the live version was published. PostHog waits 48 hours before judging it. */
+    readonly version_live_since: string
+}
 
 export interface HogFlowOptimizationApi {
     /** Whether PostHog may suggest changes to this workflow. */
     enabled: boolean
-    /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on.
+    /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on. A scout in dry run runs but files nothing until someone turns on writing to the inbox in its scout settings.
      *
      * * `running` - Running
      * * `paused_by_user` - Paused By User
      * * `paused_by_system` - Paused By System
+     * * `dry_run` - Dry Run
      * * `not_running` - Not Running */
     readonly scout_status: SuggestionsScoutStatusEnumApi
+    /** How close the live version is to the sample PostHog needs before it suggests anything. Null while suggestions are on but the scout is not running, or when the workflow has no email step. */
+    readonly sample: SuggestionsSampleApi | null
 }
 
 /**
