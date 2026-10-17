@@ -2473,14 +2473,14 @@ class TestSQLV2KernelServerHTTP(SimpleTestCase):
 class TestSQLV2KernelPackage(SimpleTestCase):
     def test_arrow_contract_round_trip(self):
         # Where backend encoding and kernel decoding actually meet: duplicate column
-        # names must survive, a mixed-type column falls back to strings, and the
-        # declared HogQL types ride through as schema metadata.
-        columns = ["value", "value", "mixed"]
-        rows = [(1, "a", 1), (2, "b", "two")]
-        types = [["value", "Int64"], ["value", "String"], ["mixed", "String"]]
+        # names must survive, a mixed-type or out-of-int64 column falls back to strings,
+        # and the declared HogQL types ride through as schema metadata.
+        columns = ["value", "value", "mixed", "hash"]
+        rows = [(1, "a", 1, 2**64), (2, "b", "two", None)]
+        types = [["value", "Int64"], ["value", "String"], ["mixed", "String"], ["hash", "UInt64"]]
         decoded_columns, decoded_rows, decoded_types = decode_arrow_stream(_rows_to_arrow_bytes(columns, rows, types))
         self.assertEqual(decoded_columns, columns)
-        self.assertEqual(decoded_rows, [(1, "a", "1"), (2, "b", "two")])
+        self.assertEqual(decoded_rows, [(1, "a", "1", str(2**64)), (2, "b", "two", None)])
         self.assertEqual(decoded_types, types)
 
     def test_types_fall_back_to_arrow_schema_without_metadata(self):

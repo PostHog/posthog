@@ -68,14 +68,14 @@ def _rows_to_arrow_bytes(
     import pyarrow as pa  # noqa: PLC0415 — keeps the heavy dep off the urls.py import path
 
     # Column-by-column with a per-column string fallback: HogQL results can contain
-    # values Arrow can't infer (UUIDs, mixed types, tuples) and one odd column must
+    # values Arrow can't infer (UUIDs, mixed types, tuples, ints outside int64) and one odd column must
     # not fail the whole response.
     arrays = []
     for index in range(len(columns)):
         values = [row[index] for row in rows]
         try:
             arrays.append(pa.array(values))
-        except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError):
+        except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError, OverflowError):
             arrays.append(pa.array([None if value is None else str(value) for value in values], type=pa.string()))
     table = pa.Table.from_arrays(arrays, names=columns)
     # Carry the HogQL/ClickHouse type names alongside the Arrow schema — the FE viz
