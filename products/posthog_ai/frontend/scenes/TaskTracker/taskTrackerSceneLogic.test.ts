@@ -1,6 +1,7 @@
 import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -629,6 +630,31 @@ describe('taskTrackerSceneLogic', () => {
             toast.mockRestore()
         }
     )
+
+    it('tells the user and captures the error when task creation fails for any other reason', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/': () => [500, { code: 'error', detail: 'Something went wrong' }],
+            },
+        })
+        const toast = jest.spyOn(lemonToast, 'error')
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation()
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'do the thing' })
+
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(logic.values.activeCreation).toBeNull()
+        expect(logic.values.newTaskData.description).toBe('do the thing')
+        expect(toast).toHaveBeenCalledWith("Couldn't send your message. Please try again.")
+        expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+            feature: 'posthog_ai_task_create',
+            error_code: 'error',
+            status: 500,
+        })
+        toast.mockRestore()
+        captureException.mockRestore()
+    })
 
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
     // sent under the created task's id — otherwise the run's first follow-up (sent via
