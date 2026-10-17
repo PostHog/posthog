@@ -534,12 +534,15 @@ export function applyVisualizationType(
 ): VisualizationNode {
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
     const chartSettings: ChartSettings = { ...query.chartSettings }
+    // The backend schema allows null axes, so a saved query can hold null where the type says undefined.
+    chartSettings.xAxis ??= undefined
+    chartSettings.yAxis ??= undefined
 
     const columnNames = new Set(columns.map((column) => column.name))
     const invalidX = chartSettings.xAxis !== undefined && !columnNames.has(chartSettings.xAxis.column)
     const invalidY =
         chartSettings.yAxis?.some(
-            (series) => !columns.find((column) => column.name === series.column)?.type.isNumerical
+            (series) => !columns.find((column) => column.name === series?.column)?.type.isNumerical
         ) ?? false
 
     if (columns.length > 0 && (invalidX || invalidY)) {
