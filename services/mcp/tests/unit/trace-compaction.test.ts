@@ -53,6 +53,70 @@ describe('compactTrace', () => {
         expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_CHARS)
     })
 
+    describe('when large early prompts fill the budget', () => {
+        const prompt = Array.from({ length: 20 }, () => ({ role: 'user', content: 'p'.repeat(5_000) }))
+        const promptEvents = Array.from({ length: 28 }, (_, i) => ({
+            id: `e${i}`,
+            event: '$ai_generation',
+            properties: { $ai_input: prompt, $ai_output_choices: [{ role: 'assistant', content: `step ${i}` }] },
+        }))
+        const trace = {
+            id: 'trace-1',
+            inputState: { messages: prompt },
+            outputState: { answer: 'final state' },
+            events: [
+                ...promptEvents,
+                {
+                    id: 'failed',
+                    event: '$ai_span',
+                    properties: { $ai_input: prompt, $ai_is_error: true, $ai_error: 'tool timed out' },
+                },
+                {
+                    id: 'final',
+                    event: '$ai_generation',
+                    properties: {
+                        $ai_tools: prompt,
+                        $ai_input: prompt,
+                        $ai_output_choices: [{ role: 'assistant', content: 'final answer' }],
+                    },
+                },
+            ],
+        }
+
+        it.each(['full', 'summary'] as const)('keeps the failed and final events at %s detail', (detail) => {
+            const [result] = compactTraceResponse({ results: [trace] }, detail).results as any[]
+            const ids = result.events.map((event: { id: string }) => event.id)
+
+            expect(ids).toContain('failed')
+            expect(ids).toContain('final')
+            expect(ids).toEqual(trace.events.map((event) => event.id).filter((id) => ids.includes(id)))
+            expect(result.events.find((event: { id: string }) => event.id === 'failed').properties.$ai_is_error).toBe(
+                true
+            )
+        })
+
+        it('keeps outputs and errors ahead of the prompts in the same event', () => {
+            const result = compactTrace(trace) as any
+            const byId = (id: string): any => result.events.find((event: { id: string }) => event.id === id)
+
+            expect(byId('final').properties.$ai_output_choices).toEqual([
+                { role: 'assistant', content: 'final answer' },
+            ])
+            expect(byId('failed').properties.$ai_error).toBe('tool timed out')
+            expect(result.outputState).toEqual({ answer: 'final state' })
+            expect(JSON.stringify(result).length).toBeLessThanOrEqual(MAX_TRACE_CHARS)
+        })
+
+        it('lists the IDs of the omitted events', () => {
+            const result = compactTrace(trace) as any
+            const keptIds = result.events.map((event: { id: string }) => event.id)
+
+            expect(result._truncated.omittedEventIds).toEqual(
+                trace.events.map((event) => event.id).filter((id) => !keptIds.includes(id))
+            )
+        })
+    })
+
     it('caps a single event whose value is a large collection of individually-small strings', () => {
         // No single string exceeds the per-value limit, so per-value truncation
         // alone would let this event through at ~2MB. The budget must still bind.
