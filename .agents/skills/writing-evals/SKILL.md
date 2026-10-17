@@ -167,7 +167,7 @@ hogli evals eval_skill_distribution --skill-delivery exec  # exec-distributed sk
 - Every real eval invocation mirrors its complete stdout and stderr to `products/posthog_ai/eval_harness/logs/harness/<timestamp>_<id>.log`. The ending label identifies it as the full run transcript, the last terminal line is its absolute path, and `logs/harness/latest.log` points to the newest transcript. `--list` and argument errors do not create one.
 - The plain-text summary is stable for people and agents: only the overall run says `PASS` or `FAIL`; completed suites, experiments, and cases say `DONE`; experiment blocks label scores, URLs, and agent-log directories.
 - `EXPORT_EVAL_RESULTS=1` additionally appends one structured Braintrust summary per experiment to `eval_results.jsonl`. It does not replace the always-on transcript.
-- Start debugging with the transcript path on the last line. Then open the experiment's `Agent logs` directory for `<case>.jsonl` (raw agent log), `<case>.artifacts.json`, and `<case>.summary.txt`. `logs/runs.jsonl` indexes historical case runs.
+- Start debugging with the transcript path on the last line. Then open the experiment's `Agent logs` directory for `<case>.trial-<id>.jsonl` (raw agent log), `<case>.trial-<id>.artifacts.json`, and `<case>.trial-<id>.summary.txt`. Each trial writes its own files, so pick the trial by the `trial_id` line at the top of the summary. The filename uses a slugified case name, which the harness shortens when it is long. `--eval` still takes the full case name. `logs/runs.jsonl` indexes historical case runs.
 
 ## Verification checklist
 
