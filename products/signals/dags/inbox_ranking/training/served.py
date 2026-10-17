@@ -1,7 +1,7 @@
 """The scoring sweep's own birth-day scores, graded per model key.
 
 The sweep scores each report with every model the serving manifest names: the served model, the
-daily candidate of its `model_name`, and the other families' champions. This module reads the sweep's
+recent versions of its `model_name`, and the other families' champions. This module reads the sweep's
 `inbox_ranking_report_scored` events for D's newborn pool and writes them in `SCORES_SCHEMA`, so
 `inbox_ranking_unseen_graded` grades every model key on live scores through one path.
 
