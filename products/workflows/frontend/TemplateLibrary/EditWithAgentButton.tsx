@@ -21,7 +21,9 @@ export function EditWithAgentButton(props: MessageTemplateLogicProps): JSX.Eleme
             visible={agentPromptOpen}
             // Popover reports a press on its own trigger as outside, so the trigger's click alone toggles it.
             onClickOutside={(event) => {
-                if (!triggerRef.current?.contains(event.target as Node)) {
+                const pressedTrigger =
+                    !(event instanceof KeyboardEvent) && triggerRef.current?.contains(event.target as Node)
+                if (!pressedTrigger) {
                     setAgentPromptOpen(false)
                 }
             }}

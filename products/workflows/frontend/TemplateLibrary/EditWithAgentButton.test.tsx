@@ -49,6 +49,13 @@ describe('EditWithAgentButton', () => {
                 user.click(screen.getByText('Edit with your agent').closest('button') as HTMLButtonElement),
         },
         {
+            closedBy: 'Escape with focus on the button',
+            close: async (user: ReturnType<typeof userEvent.setup>) => {
+                ;(screen.getByText('Edit with your agent').closest('button') as HTMLButtonElement).focus()
+                await user.keyboard('{Escape}')
+            },
+        },
+        {
             closedBy: 'Copy prompt',
             close: async (user: ReturnType<typeof userEvent.setup>) => {
                 await user.keyboard(' the button to green')
