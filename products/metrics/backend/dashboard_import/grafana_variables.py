@@ -38,6 +38,7 @@ MAX_LIVE_VARIABLES = 50
 # An item holds `text : value`, so it can be longer than a value, but not much.
 _MAX_CUSTOM_ITEM_LENGTH = 4 * MAX_VALUE_LENGTH
 _CUSTOM_SEPARATOR = re.compile(r"\s:\s")
+_REGEX_SYNTAX = re.compile(r"[\\^$.|?*+()\[\]{}]")
 # Private use characters, which stand for variables while dependencies are checked.
 _MARKER_START = 0xF0000
 _MAX_MARKERS = 0xFFFD
@@ -319,7 +320,7 @@ class TemplateVariables:
             is_all = ALL_VALUE in values or (current.get("text") == "All" and bool(item.get("includeAll")))
             selected = tuple(value for value in values if value != ALL_VALUE)
             # Grafana puts the value of a text box into a regex matcher as it is, so it can hold a regex.
-            as_written = kind in ("textbox", "constant") and any(regex_escape(value) != value for value in selected)
+            as_written = kind in ("textbox", "constant") and any(_REGEX_SYNTAX.search(value) for value in selected)
             variable = Variable(
                 values=selected,
                 is_all=is_all,
