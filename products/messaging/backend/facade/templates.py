@@ -11,6 +11,7 @@ from posthog.dataclasses import frozen
 
 from products.messaging.backend.facade.contracts import (
     ContentHashState,
+    TemplateChangePrompt,
     TemplateManagedBy,
     TemplateReference,
     TemplateUpload,
@@ -20,6 +21,7 @@ from products.messaging.backend.facade.contracts import (
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.services import (
     message_templates as templates_service,
+    template_change_prompt,
     template_keys,
     template_ownership,
     template_saves,
@@ -197,6 +199,11 @@ def save_template_content(
 def check_template_write(template: MessageTemplateRow, intent: TemplateWriteIntent) -> None:
     """Raise TemplateManagedByCode when the template is managed by code and refuses `intent`."""
     template_ownership.check_write(template, intent)
+
+
+def change_prompt(team_id: int, template: MessageTemplateRow) -> TemplateChangePrompt | None:
+    """The starter sentence and the "About this file" block for a template managed by code. None for any other."""
+    return template_change_prompt.change_prompt(team_id, template)
 
 
 def is_release(intent: TemplateWriteIntent) -> bool:

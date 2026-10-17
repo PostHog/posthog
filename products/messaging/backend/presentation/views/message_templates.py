@@ -52,6 +52,7 @@ from products.messaging.backend.facade.templates import (
     MessageTemplateRow,
     UploadedTemplate,
     adopt_template,
+    change_prompt,
     check_template_key_write,
     check_template_write,
     create_template,
@@ -255,6 +256,21 @@ class MessageTemplateSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Hash of the published subject, preheader, HTML and text, as `v1:` and 64 hex characters. Changes "
         "with every save that changes them.",
+    )
+    change_prompt_starter = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The start of a sentence that asks a coding agent to change this template's file, such as "
+        "``In `emails/welcome.html`, change ``. Complete the sentence, then add a blank line and "
+        "`change_prompt_context`. Null unless `managed_by` is `code`.",
+    )
+    change_prompt_context = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="What a coding agent needs to change this template's file, as a block that starts with "
+        "`About this file:`: the key, repository and commit, the file format, the `{{ variables.* }}` the file uses, "
+        "how the change goes live, and a link to the template. An agent that can reach the repository edits the file "
+        "following it. Null unless `managed_by` is `code`.",
     )
 
     def validate(self, data: Any) -> Any:
@@ -517,7 +533,7 @@ class MessageTemplatesViewSet(
             return Response(TemplateErrorSerializer(refusal).data, status=refused_status)
         return super().handle_exception(exc)
 
-    def _with_creators(self, templates: Sequence[MessageTemplateRow]) -> list[SimpleNamespace]:
+    def _serializable(self, templates: Sequence[MessageTemplateRow]) -> list[SimpleNamespace]:
         creator_ids = {template.created_by_id for template in templates if template.created_by_id}
         creators = {user.id: user for user in User.objects.filter(id__in=creator_ids)} if creator_ids else {}
         return [
@@ -525,19 +541,27 @@ class MessageTemplatesViewSet(
                 **{field.name: getattr(template, field.name) for field in dataclass_fields(template)},
                 created_by=creators.get(template.created_by_id) if template.created_by_id else None,
                 message_category=template.message_category_id,
+                **self._change_prompt_fields(template),
             )
             for template in templates
         ]
 
+    def _change_prompt_fields(self, template: MessageTemplateRow) -> dict[str, str | None]:
+        prompt = change_prompt(self.team_id, template)
+        return {
+            "change_prompt_starter": prompt.starter if prompt else None,
+            "change_prompt_context": prompt.context if prompt else None,
+        }
+
     def _serialize(self, template: MessageTemplateRow) -> Any:
-        return self.get_serializer(self._with_creators([template])[0]).data
+        return self.get_serializer(self._serializable([template])[0]).data
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         templates = list_templates(self.team_id)
         page = self.paginate_queryset(templates)
         if page is not None:
-            return self.get_paginated_response(self.get_serializer(self._with_creators(page), many=True).data)
-        return Response(self.get_serializer(self._with_creators(list(templates)), many=True).data)
+            return self.get_paginated_response(self.get_serializer(self._serializable(page), many=True).data)
+        return Response(self.get_serializer(self._serializable(list(templates)), many=True).data)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(self._serialize(self.get_object()))
@@ -566,7 +590,7 @@ class MessageTemplatesViewSet(
         if is_adoption(intent):
             return self._adopt(template, intent)
         check_template_key_write(template, intent)
-        serializer = self.get_serializer(self._with_creators([template])[0], data=request.data, partial=partial)
+        serializer = self.get_serializer(self._serializable([template])[0], data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         try:
             updated = save_template_fields(
@@ -670,9 +694,7 @@ class MessageTemplatesViewSet(
             email.pop("html", None)
             content["email"] = email
 
-            serializer = self.get_serializer(
-                self._with_creators([template])[0], data={"content": content}, partial=True
-            )
+            serializer = self.get_serializer(self._serializable([template])[0], data={"content": content}, partial=True)
             serializer.is_valid(raise_exception=True)
             return serializer.validated_data["content"]
 

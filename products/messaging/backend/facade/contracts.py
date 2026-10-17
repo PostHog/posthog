@@ -152,6 +152,15 @@ class TemplateSource:
 
 
 @frozen
+class TemplateChangePrompt:
+    """What a person hands their coding agent to change a template managed by code: the start of the sentence that
+    asks for the change, and the "About this file" block that follows it after a blank line."""
+
+    starter: str
+    context: str
+
+
+@frozen
 class TemplateUpload:
     key: str
     name: str
