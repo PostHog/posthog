@@ -45,6 +45,7 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.session_recording_links import locked_replay_gate_write
 
 from . import (
     conversations_settings,
@@ -290,9 +291,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(settings_validation._format_serializer_errors(serializer.errors))
         return serializer.validated_data
 
-    @staticmethod
-    def validate_session_recording_linked_flag(value) -> dict | None:
-        return session_recording_settings.validate_session_recording_linked_flag(value)
+    def validate_session_recording_linked_flag(self, value: Any) -> dict | None:
+        project_id = self.instance.project_id if self.instance is not None else self.context.get("project_id")
+        return session_recording_settings.validate_session_recording_linked_flag(
+            value,
+            stored=self.instance.session_recording_linked_flag if self.instance is not None else None,
+            project_id=project_id,
+            user_access_control=self.user_access_control,
+        )
 
     @staticmethod
     def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:
@@ -621,23 +627,29 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
         # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
         # bouncing freshly onboarded users back into onboarding.
-        other_team_fields = [
-            attr for attr in validated_data if attr not in conversations_settings.LOCKED_CONVERSATIONS_COLUMNS
-        ]
-        for attr in other_team_fields:
-            setattr(instance, attr, validated_data[attr])
+        with locked_replay_gate_write(
+            instance,
+            validated_data,
+            self.user_access_control,
+            can_read_flags=session_recording_settings.can_read_feature_flags(self.context.get("request")),
+        ):
+            other_team_fields = [
+                attr for attr in validated_data if attr not in conversations_settings.LOCKED_CONVERSATIONS_COLUMNS
+            ]
+            for attr in other_team_fields:
+                setattr(instance, attr, validated_data[attr])
 
-        # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
-        if conversations_lock_applied:
-            locked_conversations = conversations_settings.merge_conversations_settings_locked(
-                instance, validated_data, patch_conversations_settings, other_team_fields
-            )
-            # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
-            before_update["conversations_settings"] = locked_conversations["conversations_settings"]
-            before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
-        elif other_team_fields:
-            # auto_now fields only refresh when included in update_fields
-            instance.save(update_fields=[*other_team_fields, "updated_at"])
+            # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
+            if conversations_lock_applied:
+                locked_conversations = conversations_settings.merge_conversations_settings_locked(
+                    instance, validated_data, patch_conversations_settings, other_team_fields
+                )
+                # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
+                before_update["conversations_settings"] = locked_conversations["conversations_settings"]
+                before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
+            elif other_team_fields:
+                # auto_now fields only refresh when included in update_fields
+                instance.save(update_fields=[*other_team_fields, "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         after_update = instance.__dict__.copy()
