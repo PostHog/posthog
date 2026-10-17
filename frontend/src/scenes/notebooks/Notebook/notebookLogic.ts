@@ -2247,7 +2247,14 @@ export const notebookLogic = kea<notebookLogicType>([
                     return
                 }
 
-                actions.setLocalContent(JSON.parse(base64Decode(hashParams['🦔'])))
+                let content: JSONContent
+                try {
+                    content = JSON.parse(base64Decode(hashParams['🦔']))
+                } catch {
+                    // A truncated or edited link can carry a value that is not valid base64 JSON
+                    return
+                }
+                actions.setLocalContent(content)
             }
         },
     })),
