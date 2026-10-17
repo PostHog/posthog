@@ -45,6 +45,7 @@ export interface todayAiChatLogicValues {
     activeItemId: string | null
     chatTitle: string
     fullScreenUrl: string | null
+    onTaskRunner: boolean
     recentGroups: TodayWorkGroup[]
 }
 
@@ -75,6 +76,9 @@ export interface todayAiChatLogicActions {
     setHistoryExpanded: (expanded: boolean) => {
         expanded: boolean
     } // runnerPanelLogic
+    setSidePanelOptions: (options: string | null) => {
+        options: string | null
+    } // sidePanelStateLogic
     markSessionRead: (
         marker: import('../../../../products/tasks/frontend/generated/api.schemas').TaskActivityReadMarkerApi,
         activityIds: string[]
@@ -109,9 +113,9 @@ export interface todayAiChatLogicMeta {
             pinnedItems: TodayWorkItem[],
             legacyChatTitle: string | null
         ) => string
+        onTaskRunner: (effectivePhaiView: PhaiViewMode, selectedTabOptions: string | null) => boolean
         fullScreenUrl: (
-            effectivePhaiView: PhaiViewMode,
-            selectedTabOptions: string | null,
+            onTaskRunner: boolean,
             activeCreation: ActiveCreation | null,
             conversationId: string | null
         ) => string | null
@@ -172,6 +176,8 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
             ['selectedTabOptions'],
         ],
         actions: [
+            sidePanelStateLogic,
+            ['setSidePanelOptions'],
             todaySpacesLogic,
             ['markSessionRead'],
             maxLogic({ panelId: SIDE_PANEL_PANEL_ID }),
@@ -221,27 +227,25 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
             },
         ],
         // Report and scout chats run on the task runner in either view, the same as the side panel's own header.
+        onTaskRunner: [
+            (s) => [s.effectivePhaiView, s.selectedTabOptions],
+            (effectivePhaiView: PhaiViewMode, selectedTabOptions: string | null): boolean =>
+                effectivePhaiView === 'new' ||
+                selectedTabOptions === REPORT_AI_PANEL ||
+                selectedTabOptions === SCOUT_AI_PANEL,
+        ],
         fullScreenUrl: [
-            (s) => [s.effectivePhaiView, s.selectedTabOptions, s.activeCreation, s.conversationId],
+            (s) => [s.onTaskRunner, s.activeCreation, s.conversationId],
             (
-                effectivePhaiView: PhaiViewMode,
-                selectedTabOptions: string | null,
+                onTaskRunner: boolean,
                 activeCreation: ActiveCreation | null,
                 conversationId: string | null
-            ): string | null =>
-                mainFocusUrl({
-                    isNewView:
-                        effectivePhaiView === 'new' ||
-                        selectedTabOptions === REPORT_AI_PANEL ||
-                        selectedTabOptions === SCOUT_AI_PANEL,
-                    activeCreation,
-                    conversationId,
-                }),
+            ): string | null => mainFocusUrl({ isNewView: onTaskRunner, activeCreation, conversationId }),
         ],
     }),
     listeners(({ actions, values, cache }) => ({
         startNewChat: () => {
-            if (values.effectivePhaiView === 'new') {
+            if (values.onTaskRunner) {
                 actions.clearActiveCreation()
                 // An expanded task history would otherwise stay in place of the composer.
                 actions.setHistoryExpanded(false)
@@ -252,6 +256,10 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
         openRecentItem: ({ item }) => {
             // pinned: analytics event name
             posthog.capture('today context panel recent opened', { kind: item.kind })
+            // A report or scout panel attaches its own entity's context, so it must not stay mounted on another chat.
+            if (values.selectedTabOptions) {
+                actions.setSidePanelOptions(null)
+            }
             const newView = values.effectivePhaiView === 'new'
             if (item.kind === 'session') {
                 if (newView && item.latestRunId) {
