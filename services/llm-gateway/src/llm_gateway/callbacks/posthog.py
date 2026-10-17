@@ -154,6 +154,19 @@ def _normalize_trace_id(raw: Any) -> str:
         return str(uuid5(_TRACE_ID_NAMESPACE, raw))
 
 
+def _latency_seconds(standard_logging_object: dict[str, Any]) -> float:
+    """Return the full request duration for `$ai_latency`.
+
+    For a stream, LiteLLM's `response_time` measures only up to the first chunk,
+    so `$ai_latency` uses `endTime - startTime`, which covers the whole stream.
+    """
+    start = standard_logging_object.get("startTime")
+    end = standard_logging_object.get("endTime")
+    if standard_logging_object.get("stream") and isinstance(start, int | float) and isinstance(end, int | float):
+        return end - start
+    return standard_logging_object.get("response_time", 0.0)
+
+
 def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
     serialized = json.dumps(properties, default=str)
     if len(serialized) <= _MAX_CAPTURE_SIZE:
@@ -245,7 +258,7 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_input": _replace_binary_content(standard_logging_object.get("messages")),
             "$ai_input_tokens": standard_logging_object.get("prompt_tokens", 0),
             "$ai_output_tokens": standard_logging_object.get("completion_tokens", 0),
-            "$ai_latency": standard_logging_object.get("response_time", 0.0),
+            "$ai_latency": _latency_seconds(standard_logging_object),
             "$ai_stream": is_streaming,
             "$ai_trace_id": trace_id,
             # Stamped explicitly to bypass the SDK's group_type_index lookup.
