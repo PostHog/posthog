@@ -95,3 +95,20 @@ class TestSpanCountErrorHandling(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, 400, response.content)
+
+
+class TestSpanFilterKeyValidation(APIBaseTest):
+    @parameterized.expand([("span_list_loop", "query"), ("aggregation_loop", "aggregate")])
+    def test_unknown_span_filter_key_returns_400_not_500(self, _name, endpoint):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/{endpoint}/",
+            {
+                "query": {
+                    "dateRange": {"date_from": "-1h"},
+                    "filterGroup": [{"key": "span_name", "type": "span", "operator": "exact", "value": ["x"]}],
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("span_attribute", response.json()["detail"])
