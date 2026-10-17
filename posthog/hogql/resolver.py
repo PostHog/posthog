@@ -2623,6 +2623,9 @@ class Resolver(CloningVisitor):
             )
         elif isinstance(node.type, ast.PropertyType):
             property_alias = "__".join(str(s) for s in node.type.chain)
+            # An empty property key gives an empty alias, and ClickHouse rejects `AS ``.
+            if property_alias == "":
+                return node
             return ast.Alias(
                 alias=property_alias,
                 expr=node,

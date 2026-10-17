@@ -1131,6 +1131,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "null": None,
                     "str_zero": "0",
                     "num_zero": 0,
+                    "": "empty key",
                 },
             )
 
@@ -1140,7 +1141,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     properties.`null`,
                     properties.undefined,
                     properties.str_zero,
-                    properties.num_zero
+                    properties.num_zero,
+                    properties.``
                 FROM events
                 WHERE events.event='empty event'
             """
@@ -1158,6 +1160,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         None,  # undefined
                         "0",  # zero string
                         "0",  # zero number (not typecast)
+                        "empty key",
                     )
                 ],
             )
