@@ -149,6 +149,8 @@ describe('scoutSuggestionsLogic', () => {
         // The strip's collapsed and closed state persists per user and project, so one test's
         // chevron would otherwise decide how the next one opens.
         localStorage.clear()
+        jest.mocked(posthog.get_distinct_id).mockReturnValue('test-user')
+        jest.mocked(posthog.get_session_id).mockReturnValue('test-session')
         initKeaTests()
         mockList.mockReset().mockResolvedValue(suggestionSet())
         mockDismiss.mockReset().mockResolvedValue(CANONICAL_ITEM)
@@ -581,5 +583,120 @@ describe('scoutSuggestionsLogic', () => {
                 suggestion_kind: 'custom',
             }),
         ])
+    })
+
+    it('counts a suggestion once across remounts and surfaces, and counts a refreshed batch again', async () => {
+        await mountWithBatch()
+        jest.mocked(posthog.capture).mockClear()
+        logic.actions.reportSuggestionViewed(CUSTOM_ITEM, 'strip')
+        logic.actions.reportSuggestionViewed(CUSTOM_ITEM, 'empty_state')
+        logic.unmount()
+        await mountWithBatch()
+        logic.actions.reportSuggestionViewed(CUSTOM_ITEM, 'strip')
+
+        const impressions = (): unknown[][] =>
+            jest.mocked(posthog.capture).mock.calls.filter(([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_VIEWED)
+        expect(impressions()).toHaveLength(1)
+        expect(impressions()[0][1]).toEqual(
+            expect.objectContaining({
+                suggestion_id: CUSTOM_ITEM.id,
+                suggestion_position: 2,
+                batch_id: `${MOCK_TEAM_ID}:2026-09-01T00:00:00Z`,
+                exposure_id: expect.any(String),
+                surface: 'strip',
+            })
+        )
+
+        logic.actions.loadSuggestionsSuccess(suggestionSet({ generated_at: '2026-09-02T00:00:00Z' }))
+        logic.actions.reportSuggestionViewed(CUSTOM_ITEM, 'strip')
+        expect(impressions()).toHaveLength(2)
+        expect(impressions()[1][1]).toEqual(
+            expect.objectContaining({
+                batch_id: `${MOCK_TEAM_ID}:2026-09-02T00:00:00Z`,
+            })
+        )
+        expect((impressions()[1][1] as { exposure_id: string }).exposure_id).not.toEqual(
+            (impressions()[0][1] as { exposure_id: string }).exposure_id
+        )
+    })
+
+    it.each(['session', 'user'])('counts a new impression when the SDK %s changes', async (scope) => {
+        await mountWithBatch()
+        jest.mocked(posthog.capture).mockClear()
+        logic.actions.reportSuggestionViewed(CUSTOM_ITEM, 'strip')
+        if (scope === 'session') {
+            jest.mocked(posthog.get_session_id).mockReturnValue('another-session')
+        } else {
+            jest.mocked(posthog.get_distinct_id).mockReturnValue('another-user')
+        }
+        logic.actions.reportSuggestionViewed(CUSTOM_ITEM, 'strip')
+        expect(
+            jest.mocked(posthog.capture).mock.calls.filter(([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_VIEWED)
+        ).toHaveLength(2)
+    })
+
+    it('still counts once and links the click when browser storage is blocked', async () => {
+        await mountWithBatch()
+        jest.mocked(posthog.get_session_id).mockReturnValue('storage-blocked-session')
+        jest.mocked(posthog.capture).mockClear()
+        const read = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+            throw new Error('Storage blocked')
+        })
+        const write = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new Error('Storage blocked')
+        })
+        try {
+            logic.actions.reportSuggestionViewed(CUSTOM_ITEM, 'strip')
+            logic.actions.reportSuggestionViewed(CUSTOM_ITEM, 'strip')
+            logic.actions.openCreateFromSuggestion(CUSTOM_ITEM, 'strip')
+            const captures = jest
+                .mocked(posthog.capture)
+                .mock.calls.filter(
+                    ([event]) =>
+                        event === INBOX_EVENTS.SCOUT_SUGGESTION_VIEWED ||
+                        event === INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED
+                )
+            expect(captures).toHaveLength(2)
+            expect(captures[1][1]).toEqual(
+                expect.objectContaining({
+                    exposure_id: (captures[0][1] as { exposure_id: string }).exposure_id,
+                })
+            )
+        } finally {
+            read.mockRestore()
+            write.mockRestore()
+        }
+    })
+
+    it.each([true, false])('keeps the clicked exposure through creation after refresh (viewed=%s)', async (viewed) => {
+        await mountWithBatch()
+        jest.mocked(posthog.capture).mockClear()
+        if (viewed) {
+            logic.actions.reportSuggestionViewed(CUSTOM_ITEM, 'strip')
+        }
+        logic.actions.openCreateFromSuggestion(CUSTOM_ITEM, 'strip')
+        const click = jest
+            .mocked(posthog.capture)
+            .mock.calls.find(([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED)![1] as {
+            batch_id: string
+            exposure_id: string | null
+            suggestion_position: number
+        }
+        expect(click.exposure_id).toEqual(viewed ? expect.any(String) : null)
+
+        logic.actions.loadSuggestionsSuccess(suggestionSet({ generated_at: '2026-09-02T00:00:00Z' }))
+        logic.actions.reportSuggestionViewed(CUSTOM_ITEM, 'strip')
+        logic.actions.suggestionCreated(CUSTOM_ITEM, 'strip', { ...CONFIG, id: 'config-9', skill_name: 'renamed' })
+        const created = jest
+            .mocked(posthog.capture)
+            .mock.calls.find(([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_CREATED)![1]
+        expect(created).toEqual(
+            expect.objectContaining({
+                batch_id: click.batch_id,
+                exposure_id: click.exposure_id,
+                suggestion_position: click.suggestion_position,
+                config_id: 'config-9',
+            })
+        )
     })
 })

@@ -71,6 +71,7 @@ export const INBOX_EVENTS = {
     // The pre-computed "Suggested for this project" strip. Cloud-only for now — desktop has no
     // suggestions surface — so these carry `inbox_client: 'cloud'` on every row.
     SCOUT_SUGGESTIONS_SHOWN: 'Scout suggestions shown',
+    SCOUT_SUGGESTION_VIEWED: 'Scout suggestion viewed',
     SCOUT_SUGGESTION_CLICKED: 'Scout suggestion clicked',
     SCOUT_SUGGESTION_CREATED: 'Scout suggestion created',
     SCOUT_SUGGESTION_DISMISSED: 'Scout suggestion dismissed',
@@ -1238,6 +1239,28 @@ export function captureScoutSuggestionsShown(params: {
     })
 }
 
+export interface ScoutSuggestionExposure {
+    batch_id: string | null
+    exposure_id: string | null
+    suggestion_position: number | null
+}
+
+export function captureScoutSuggestionViewed(params: {
+    suggestionId: string
+    kind: ScoutSuggestionKind
+    skillName: string
+    surface: ScoutSuggestionSurface
+    exposure: ScoutSuggestionExposure
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_VIEWED, {
+        suggestion_id: params.suggestionId,
+        suggestion_kind: params.kind,
+        skill_name: params.skillName,
+        surface: params.surface,
+        ...params.exposure,
+    })
+}
+
 /** One of a suggestion card's actions was pressed. `via` separates the card body from the button. */
 export function captureScoutSuggestionClicked(params: {
     suggestionId: string
@@ -1246,6 +1269,7 @@ export function captureScoutSuggestionClicked(params: {
     target: ScoutSuggestionClickTarget
     via: ScoutSuggestionClickVia
     surface: ScoutSuggestionSurface
+    exposure?: ScoutSuggestionExposure
 }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED, {
         suggestion_id: params.suggestionId,
@@ -1254,6 +1278,7 @@ export function captureScoutSuggestionClicked(params: {
         click_target: params.target,
         via: params.via,
         surface: params.surface,
+        ...params.exposure,
     })
 }
 
@@ -1285,6 +1310,7 @@ export function captureScoutSuggestionCreated(params: {
     skillName: string
     via: ScoutSuggestionCreatedVia
     surface: ScoutSuggestionSurface
+    exposure?: ScoutSuggestionExposure
 }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_CREATED, {
         suggestion_id: params.suggestionId,
@@ -1293,6 +1319,7 @@ export function captureScoutSuggestionCreated(params: {
         skill_name: params.skillName,
         via: params.via,
         surface: params.surface,
+        ...params.exposure,
     })
 }
 
