@@ -5,7 +5,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -15,7 +15,7 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
@@ -337,12 +337,31 @@ _NO_INTERNAL_USERS = _InternalUsersMatch(
 )
 
 
+class _PersonFromEvent(CloningVisitor):
+    def __init__(self, *, person_id_from_event: bool) -> None:
+        super().__init__()
+        self.person_id_from_event = person_id_from_event
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        if node.chain[:1] == ["person"]:
+            return ast.Field(chain=["poe", *node.chain[1:]])
+        if self.person_id_from_event and node.chain == ["person_id"]:
+            return ast.Field(chain=["poe", "id"])
+        return super().visit_field(node)
+
+
 def _passes_internal_users_filter(events: ChartEvents, team: Team) -> ast.Expr:
     # An insight that applies the filter has already dropped the events it removes.
     if events.filters_test_accounts or not team.test_account_filters:
         return ast.Constant(value=True)
+    # A persons join can drop the events that have no person, which the insight counts, so read the event's copy.
+    # Without persons on events, `person_id` also comes from that join.
+    person_from_event = _PersonFromEvent(
+        person_id_from_event=events.modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED
+    )
+    project_filter = person_from_event.visit(property_to_expr(team.test_account_filters, team))
     # The insight's own WHERE drops an event whose filter is NULL, so NULL counts as removed.
-    return ast.Call(name="ifNull", args=[property_to_expr(team.test_account_filters, team), ast.Constant(value=False)])
+    return ast.Call(name="ifNull", args=[project_filter, ast.Constant(value=False)])
 
 
 def _internal_users_match(

@@ -609,8 +609,17 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
         assert (internal_users.events, internal_users.action) == expected
 
-    def test_matching_team_emails_keeps_events_without_a_person_when_persons_are_not_on_events(self) -> None:
-        self.team.test_account_filters = []
+    @parameterized.expand(
+        [("without_a_project_filter", None), ("with_a_person_filter", "person"), ("with_a_cohort_filter", "cohort")]
+    )
+    def test_keeps_events_without_a_person_when_persons_are_not_on_events(
+        self, _name: str, filter_type: str | None
+    ) -> None:
+        if filter_type is None:
+            self.team.test_account_filters = []
+        elif filter_type == "cohort":
+            staff = Cohort.objects.create(team=self.team, name="staff", is_static=True)
+            self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": staff.id, "operator": "not_in"}]
         self.team.save()
         self._events(20, distinct_id="no person", event=WIDELY_SENT_EVENT)
         flush_persons_and_events()
@@ -620,7 +629,9 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             modifiers={"personsOnEventsMode": "disabled"},
         )
 
-        assert self._events_checked(query) == 20
+        result = self._check(query)
+
+        assert (self._coverage(result).events_checked, self._internal_users(result).events) == (20, 0)
 
     @parameterized.expand([("on_a_deleted_cohort", "cohort"), ("on_a_field_that_does_not_exist", "hogql")])
     def test_reports_the_other_checks_when_the_projects_filter_cannot_run(self, _name: str, filter_type: str) -> None:
