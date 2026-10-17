@@ -89,7 +89,7 @@ const LIST_UNAVAILABLE_COPY: Record<ExperimentRecordingsListUnavailableReason, {
     },
     group_aggregated: {
         dataAttr: 'experiment-recordings-unavailable-group-aggregated',
-        copy: "Recordings aren't available for this experiment. It counts groups rather than individual people, so recordings can't be matched to a variant.",
+        copy: "This tab can't list recordings for this experiment, because it counts groups rather than individual people. To watch recordings of a variant, click a step in a funnel metric's chart on the Metrics tab: each group in that list links to its recordings.",
     },
     no_variants: {
         dataAttr: 'experiment-recordings-unavailable-no-variants',
