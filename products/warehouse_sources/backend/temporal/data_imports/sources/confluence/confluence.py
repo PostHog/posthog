@@ -1,10 +1,12 @@
 import re
 import base64
-import dataclasses
 from typing import Any, Optional
 
 from requests import Response
 
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -13,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -25,7 +28,7 @@ _SUBDOMAIN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}$")
 _ATLASSIAN_HOST_SUFFIX = ".atlassian.net"
 
 
-@dataclasses.dataclass
+@frozen
 class ConfluenceResumeConfig:
     next_url: str
 
@@ -61,19 +64,51 @@ def _get_headers(email: str, api_token: str) -> dict[str, str]:
     }
 
 
+def _get_nested_value(row: dict[str, Any], path: tuple[str, ...]) -> Any:
+    value: Any = row
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
+def _with_updated_at(row: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]:
+    return {**row, "updated_at": _get_nested_value(row, path)}
+
+
 class ConfluenceLinkPaginator(JSONResponsePaginator):
     """Confluence v2 returns the next page as a site-relative path in ``_links.next``
     (e.g. ``/wiki/api/v2/pages?cursor=...``); resolve it against the site origin so the
     client requests an absolute URL. Absence of the key signals the last page."""
 
-    def __init__(self, site_origin: str) -> None:
+    def __init__(
+        self,
+        site_origin: str,
+        updated_at_path: tuple[str, ...] | None = None,
+        stop_when_updated_at_or_before: Any = None,
+    ) -> None:
         super().__init__(next_url_path="_links.next")
         self._site_origin = site_origin
+        self._updated_at_path = updated_at_path
+        self._stop_when_updated_at_or_before = parse_datetime_value(stop_when_updated_at_or_before)
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)
         if self._has_next_page and self._next_url and not self._next_url.startswith(("http://", "https://")):
             self._next_url = f"{self._site_origin}{self._next_url}"
+
+        if not self._has_next_page or not data or not self._updated_at_path or not self._stop_when_updated_at_or_before:
+            return
+
+        timestamps = [
+            parsed
+            for item in data
+            if isinstance(item, dict)
+            if (parsed := parse_datetime_value(_get_nested_value(item, self._updated_at_path))) is not None
+        ]
+        if timestamps and max(timestamps) <= self._stop_when_updated_at_or_before:
+            self._has_next_page = False
 
 
 def confluence_source(
@@ -84,10 +119,34 @@ def confluence_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[ConfluenceResumeConfig],
+    should_use_incremental_field: bool = False,
+    incremental_field: str | None = None,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = CONFLUENCE_ENDPOINTS[endpoint]
+    updated_at_path = config.updated_at_path
     subdomain = normalize_subdomain(subdomain)
+    incremental_watermark = (
+        db_incremental_field_last_value
+        if updated_at_path and should_use_incremental_field and incremental_field == "updated_at"
+        else None
+    )
+
+    params: dict[str, Any] = {"limit": config.limit}
+    if config.sort_mode == "desc":
+        params["sort"] = "-modified-date"
+
+    endpoint_resource: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {
+            "path": config.path,
+            "params": params,
+            # v2 list endpoints wrap rows in `results`; a missing key means an empty page.
+            "data_selector": "results",
+        },
+    }
+    if updated_at_path:
+        endpoint_resource["data_map"] = lambda row: _with_updated_at(row, updated_at_path)
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -96,19 +155,13 @@ def confluence_source(
             # redacted from logs; only the non-secret Accept header is set here.
             "headers": {"Accept": "application/json"},
             "auth": {"type": "http_basic", "username": email, "password": api_token},
-            "paginator": ConfluenceLinkPaginator(_site_origin(subdomain)),
+            "paginator": ConfluenceLinkPaginator(
+                _site_origin(subdomain),
+                updated_at_path=updated_at_path if config.sort_mode == "desc" else None,
+                stop_when_updated_at_or_before=incremental_watermark,
+            ),
         },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": {"limit": config.limit},
-                    # v2 list endpoints wrap rows in `results`; a missing key means an empty page.
-                    "data_selector": "results",
-                },
-            }
-        ],
+        "resources": [endpoint_resource],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -132,10 +185,21 @@ def confluence_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+    if incremental_watermark is not None and updated_at_path is not None:
+        parsed_watermark = parse_datetime_value(incremental_watermark)
+        if parsed_watermark is not None:
+            resource.add_filter(
+                lambda row: (
+                    (updated_at := parse_datetime_value(_get_nested_value(row, updated_at_path))) is None
+                    or updated_at >= parsed_watermark
+                )
+            )
+
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
         primary_keys=[config.primary_key],
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
