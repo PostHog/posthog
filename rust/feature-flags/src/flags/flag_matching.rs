@@ -55,7 +55,6 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::time::Instant;
 use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
@@ -675,9 +674,9 @@ impl FeatureFlagMatcher {
         self
     }
 
-    /// Gives all persons DB work in this evaluation one shared budget, which starts now.
-    pub fn with_persons_db_deadline(mut self, budget: Option<Duration>) -> Self {
-        self.persons_db_deadline = budget.map(|budget| Instant::now() + budget);
+    /// Gives all persons DB work in this evaluation one shared deadline.
+    pub fn with_persons_db_deadline(mut self, deadline: Option<Instant>) -> Self {
+        self.persons_db_deadline = deadline;
         self
     }
 

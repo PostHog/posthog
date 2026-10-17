@@ -8238,7 +8238,7 @@ mod tests {
             Arc::new(GroupTypeCacheManager::new(stalled_db.clone(), None, None)),
             Some(HashMap::from([("project".to_string(), json!("p1"))])),
         )
-        .with_persons_db_deadline(Some(deadline));
+        .with_persons_db_deadline(Some(tokio::time::Instant::now() + deadline));
 
         let rollout_flag = mock!(FeatureFlag, id: 1, key: "rollout_flag".mock_into());
         let person_flag = mock!(FeatureFlag,
