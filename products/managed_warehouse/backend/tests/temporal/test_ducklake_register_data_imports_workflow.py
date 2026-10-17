@@ -9,6 +9,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
+from psycopg import sql as psql
 from temporalio.exceptions import ApplicationError
 
 from posthog.sync import database_sync_to_async
@@ -203,6 +204,7 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     active_transaction: object | None = None
     transaction_tokens: list[object] = []
     executed_with_transactions: list[tuple[str, object | None]] = []
+    rendered_queries: list[str] = []
 
     @contextlib.contextmanager
     def transaction() -> Iterator[None]:
@@ -220,6 +222,8 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     def execute(query: object) -> MagicMock:
         query_text = str(query)
         executed_with_transactions.append((query_text, active_transaction))
+        if isinstance(query, psql.Composable):
+            rendered_queries.append(query.as_string())
         if "SELECT count(*) FROM read_parquet" in query_text:
             return MagicMock(fetchone=MagicMock(return_value=(2,)))
         if "SELECT count(*) FROM" in query_text:
@@ -322,7 +326,13 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     cancel_timer.join.assert_called_once_with(timeout=registration_module._DUCKGRES_CANCEL_TIMEOUT_SECONDS + 1)
     cancel_timer_factory.call_args.args[1]()
     conn.cancel_safe.assert_not_called()
-    assert any("SET PARTITIONED BY" in query for query in executed)
+    shadow_table_queries = [
+        query
+        for query in rendered_queries
+        if query.startswith(("CREATE TABLE", "ALTER TABLE", 'SELECT count(*) FROM "', "DROP TABLE"))
+    ]
+    assert any("SET PARTITIONED BY" in query for query in shadow_table_queries)
+    assert all('"ducklake"."posthog_data_imports_team_1".' in query for query in shadow_table_queries)
     workload_metrics.files_getter.assert_called_once_with(team_id=1, schema_id="schema")
     workload_metrics.rows_getter.assert_called_once_with(team_id=1, schema_id="schema")
     workload_metrics.bytes_getter.assert_called_once_with(team_id=1, schema_id="schema")

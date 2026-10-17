@@ -92,6 +92,9 @@ _DUCKGRES_REGISTER_WORKER_OPTIONS = "-c duckgres.worker_cpu=4 -c duckgres.worker
 # StartToClose timeout has an unknown catalog outcome, so a retry could race
 # the original CALL.
 _REGISTER_COPY_START_TO_CLOSE = dt.timedelta(hours=4)
+# Qualify every registration table with the catalog: an unqualified name resolves
+# against the session default catalog, which is not always the DuckLake catalog.
+_DUCKLAKE_CATALOG = "ducklake"
 _SOURCE_JOB_STATE_PATCH_ID = "ducklake-register-source-job-state-2026-08"
 _CLEANUP_FINALIZER_PATCH_ID = "ducklake-register-cleanup-finalizer-2026-08"
 
@@ -715,14 +718,16 @@ def _register_prepared_parquet_files(
     try:
         with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
             _raise_if_duckgres_cancel_requested(cancel_requested)
-            conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(schema_name)))
+            conn.execute(
+                psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(_DUCKLAKE_CATALOG, schema_name))
+            )
             _raise_if_duckgres_cancel_requested(cancel_requested)
             conn.execute(
                 psql.SQL(
                     "CREATE TABLE {}.{} AS SELECT * FROM "
                     "read_parquet({}, union_by_name=true, hive_partitioning=true) LIMIT 0"
                 ).format(
-                    psql.Identifier(schema_name),
+                    psql.Identifier(_DUCKLAKE_CATALOG, schema_name),
                     psql.Identifier(registration_names.shadow_name),
                     parquet_glob,
                 )
@@ -731,7 +736,7 @@ def _register_prepared_parquet_files(
                 _raise_if_duckgres_cancel_requested(cancel_requested)
                 conn.execute(
                     psql.SQL("ALTER TABLE {}.{} SET PARTITIONED BY ({})").format(
-                        psql.Identifier(schema_name),
+                        psql.Identifier(_DUCKLAKE_CATALOG, schema_name),
                         psql.Identifier(registration_names.shadow_name),
                         psql.SQL(", ").join(psql.Identifier(column) for column in partition_columns),
                     )
@@ -744,7 +749,7 @@ def _register_prepared_parquet_files(
                         "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
                         "allow_missing => true, hive_partitioning => true)"
                     ).format(
-                        psql.Literal("ducklake"),
+                        psql.Literal(_DUCKLAKE_CATALOG),
                         psql.Literal(registration_names.shadow_name),
                         _duckdb_varchar_list_literal(path_batch),
                         psql.Literal(schema_name),
@@ -761,7 +766,7 @@ def _register_prepared_parquet_files(
             _raise_if_duckgres_cancel_requested(cancel_requested)
             registered_row = conn.execute(
                 psql.SQL("SELECT count(*) FROM {}.{}").format(
-                    psql.Identifier(schema_name),
+                    psql.Identifier(_DUCKLAKE_CATALOG, schema_name),
                     psql.Identifier(registration_names.shadow_name),
                 )
             ).fetchone()
@@ -785,7 +790,7 @@ def _register_prepared_parquet_files(
                 with conn.transaction():
                     conn.execute(
                         psql.SQL("ALTER TABLE IF EXISTS {}.{} RENAME TO {}").format(
-                            psql.Identifier(schema_name),
+                            psql.Identifier(_DUCKLAKE_CATALOG, schema_name),
                             psql.Identifier(table_name),
                             psql.Identifier(registration_names.previous_name),
                         )
@@ -793,7 +798,7 @@ def _register_prepared_parquet_files(
                     _raise_if_duckgres_cancel_requested(cancel_requested)
                     conn.execute(
                         psql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
-                            psql.Identifier(schema_name),
+                            psql.Identifier(_DUCKLAKE_CATALOG, schema_name),
                             psql.Identifier(registration_names.shadow_name),
                             psql.Identifier(table_name),
                         )
@@ -838,7 +843,7 @@ _CLEANUP_DROP_RETRY_SECONDS = 2.0
 def _drop_registration_table(conn: psycopg.Connection, schema_name: str, table_name: str) -> None:
     conn.execute(
         psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
-            psql.Identifier(schema_name),
+            psql.Identifier(_DUCKLAKE_CATALOG, schema_name),
             psql.Identifier(table_name),
         )
     )
