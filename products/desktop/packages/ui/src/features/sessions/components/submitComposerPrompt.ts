@@ -1,10 +1,18 @@
 import {
   contentToXml,
   type EditorContent,
+  type FileAttachment,
 } from "@posthog/core/message-editor/content";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 
 type ComposerEditor = Pick<EditorHandle, "clear" | "isEmpty" | "setContent">;
+
+export function getNewAttachments(
+  previousIds: ReadonlySet<string>,
+  attachments: FileAttachment[],
+): FileAttachment[] {
+  return attachments.filter(({ id }) => !previousIds.has(id));
+}
 
 export function isSubmittedContentUnchanged(
   content: EditorContent,

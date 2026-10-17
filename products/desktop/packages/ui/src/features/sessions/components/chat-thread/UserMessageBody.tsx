@@ -1,10 +1,12 @@
 import { CaretDown } from "@phosphor-icons/react";
+import { parseVoiceTranscript } from "@posthog/core/voice/conversationTranscript";
 import { cn } from "@posthog/quill";
 import { ChatMarkdown } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
 import {
   hasFileMentions,
   parseFileMentions,
 } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
+import { VoiceMessage } from "@posthog/ui/features/voice/VoiceMessage";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -17,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
  * pre-transcript view never grows past what the live bubble would show.
  */
 export function UserMessageBody({ content }: { content: string }) {
+  const voiceTranscript = parseVoiceTranscript(content);
   const containsFileMentions = hasFileMentions(content);
 
   const [isExpanded, setIsExpanded] = useState(false);
@@ -38,6 +41,8 @@ export function UserMessageBody({ content }: { content: string }) {
     observer.observe(el);
     return () => observer.disconnect();
   }, [content, isExpanded]);
+
+  if (voiceTranscript) return <VoiceMessage turns={voiceTranscript} />;
 
   return (
     <>
