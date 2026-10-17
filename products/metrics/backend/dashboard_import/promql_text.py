@@ -205,7 +205,7 @@ def drop_match_all_matchers(expr: str) -> str:
             if len(kept) != len(elements):
                 inner = ", ".join(expr[element[0].start : element[-1].end] for element in kept)
                 previous = _previous_significant(tokens, index)
-                if not inner and previous is not None and previous.kind == "ident":
+                if not inner and previous is not None and _is_metric_name(previous):
                     edits.append((token.start, tokens[end].end, ""))
                 elif not inner:
                     # PromQL rejects `{}`, so a selector without a metric name keeps one matcher.
@@ -219,6 +219,10 @@ def drop_match_all_matchers(expr: str) -> str:
     for start, end, replacement in reversed(edits):
         rewritten = rewritten[:start] + replacement + rewritten[end:]
     return rewritten
+
+
+def _is_metric_name(token: Token) -> bool:
+    return token.kind == "ident" and token.text.lower() not in KEYWORDS
 
 
 def _previous_significant(tokens: list[Token], index: int) -> Token | None:
