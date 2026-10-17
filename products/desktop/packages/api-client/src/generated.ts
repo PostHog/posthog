@@ -8910,12 +8910,6 @@ export namespace Schemas {
      */
     export type DesktopAccessReasonEnum = "startup_plan" | "prepaid_credits";
     /**
-     * * `Desktop` - Desktop
-     * * `Mobile` - Mobile
-     * * `Tablet` - Tablet
-     */
-    export type DeviceTypesEnum = "Desktop" | "Mobile" | "Tablet";
-    /**
      * * `off` - Off
      * * `opt_out` - Opt Out
      * * `opt_in` - Opt In
@@ -19484,7 +19478,7 @@ export namespace Schemas {
         seenSurveyWaitPeriodInDays: number;
         urlMatchType: SurveyMatchTypeEnum;
         events: SurveyEventsConditionSchema;
-        deviceTypes: Array<DeviceTypesEnum>;
+        deviceTypes: Array<string>;
         deviceTypesMatchType: SurveyMatchTypeEnum;
         linkedFlagVariant: string;
     }>;

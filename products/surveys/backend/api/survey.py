@@ -775,7 +775,6 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
     )
 
 
-SURVEY_DEVICE_TYPE_CHOICES = ["Desktop", "Mobile", "Tablet"]
 SURVEY_MATCH_TYPE_HELP_TEXT = (
     "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), "
     "'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), "
@@ -815,8 +814,12 @@ class SurveyConditionsSchemaSerializer(serializers.Serializer):
     events = SurveyEventsConditionSchemaSerializer(required=False)
     deviceTypes = serializers.ListField(
         required=False,
-        child=serializers.ChoiceField(choices=SURVEY_DEVICE_TYPE_CHOICES),
-        help_text="Device types that should match for this survey to be shown.",
+        child=serializers.CharField(),
+        help_text=(
+            "Device types that should match for this survey to be shown. "
+            "Canonical values are 'Desktop', 'Mobile' and 'Tablet'. "
+            "Any string or regex pattern is accepted and is matched with deviceTypesMatchType."
+        ),
     )
     deviceTypesMatchType = serializers.ChoiceField(
         required=False,

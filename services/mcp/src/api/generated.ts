@@ -36205,20 +36205,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `Desktop` - Desktop
-     * * `Mobile` - Mobile
-     * * `Tablet` - Tablet
-     */
-    export type DeviceTypesEnum = typeof DeviceTypesEnum[keyof typeof DeviceTypesEnum];
-
-
-    export const DeviceTypesEnum = {
-      Desktop: 'Desktop',
-      Mobile: 'Mobile',
-      Tablet: 'Tablet',
-    } as const;
-
-    /**
      * * `passed` - passed
      * * `warned` - warned
      * * `failed` - failed
@@ -86475,8 +86461,8 @@ export namespace Schemas {
        * * `not_icontains` - not_icontains */
       urlMatchType?: SurveyMatchTypeEnum;
       events?: SurveyEventsConditionSchema;
-      /** Device types that should match for this survey to be shown. */
-      deviceTypes?: DeviceTypesEnum[];
+      /** Device types that should match for this survey to be shown. Canonical values are 'Desktop', 'Mobile' and 'Tablet'. Any string or regex pattern is accepted and is matched with deviceTypesMatchType. */
+      deviceTypes?: string[];
       /** URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).
        *
        * * `regex` - regex
