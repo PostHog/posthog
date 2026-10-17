@@ -130,6 +130,16 @@ export interface SkillLoadError {
     /** Undefined when the request never reached the server: a `NetworkError` carries no status. */
     status: number | undefined
     code: string | null
+    /** Near-miss names a 404 offers, so a stale or mistyped link can still reach the skill. */
+    suggestions: string[]
+}
+
+// A skill name ends in [a-z0-9], so anything after that comes from a link copied out of a sentence.
+const TRAILING_LINK_PUNCTUATION = /[^a-z0-9]+$/i
+
+function parseSkillNameSuggestions(data: unknown): string[] {
+    const suggestions = (data as { suggestions?: unknown } | undefined)?.suggestions
+    return Array.isArray(suggestions) ? suggestions.filter((name): name is string => typeof name === 'string') : []
 }
 
 // Sorted by path so a reorder that ends up byte-identical on the server is not presented as a change.
@@ -516,6 +526,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 loadSkillFailure: (_, { errorObject }) => ({
                     status: errorObject?.status,
                     code: errorObject?.code ?? null,
+                    suggestions: parseSkillNameSuggestions(errorObject?.data),
                 }),
             },
         ],
@@ -1265,8 +1276,13 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         }
     ),
 
-    afterMount(({ actions, values, cache }) => {
-        if (values.isNewSkill) {
+    afterMount(({ actions, values, cache, props }) => {
+        const trimmedSkillName = props.skillName.replace(TRAILING_LINK_PUNCTUATION, '')
+        if (!values.isNewSkill && trimmedSkillName && trimmedSkillName !== props.skillName) {
+            router.actions.replace(
+                combineUrl(urls.skill(trimmedSkillName), router.values.searchParams, router.values.hashParams).url
+            )
+        } else if (values.isNewSkill) {
             actions.setSkill(DEFAULT_SKILL_FORM_VALUES)
             actions.resetSkillForm(DEFAULT_SKILL_FORM_VALUES)
         } else {
