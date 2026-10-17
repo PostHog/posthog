@@ -3,6 +3,7 @@ import json
 import uuid
 import random
 import asyncio
+import importlib
 import dataclasses
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -60,7 +61,6 @@ from products.tasks.backend.temporal.process_task.activities import (
     create_sandbox_for_repository,
     emit_progress_activity,
     forward_pending_user_message,
-    get_sandbox_for_repository as get_sandbox_for_repository_module,
     get_task_processing_context,
     inject_fresh_tokens_on_resume,
     invalidate_resume_snapshot,
@@ -178,6 +178,12 @@ def test_activity_error_properties_names_the_application_failure_class():
     properties = ProcessTaskWorkflow._activity_error_properties(error)
 
     assert properties["cause_error_type"] == "SandboxProvisionError"
+
+
+# The activities package exports a function under the submodule's name.
+get_sandbox_for_repository_module = importlib.import_module(
+    "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository"
+)
 
 
 @pytest.mark.django_db(transaction=True)

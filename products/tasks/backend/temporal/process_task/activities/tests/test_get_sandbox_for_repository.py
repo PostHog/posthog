@@ -1,5 +1,6 @@
 import os
 import uuid
+import importlib
 
 import pytest
 
@@ -7,14 +8,16 @@ from asgiref.sync import async_to_sync
 
 from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.temporal.process_task.activities import (
-    get_sandbox_for_repository as get_sandbox_for_repository_module,
-)
 from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository import (
     GetSandboxForRepositoryInput,
     get_sandbox_for_repository,
 )
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+
+# The activities package exports a function under the submodule's name.
+get_sandbox_for_repository_module = importlib.import_module(
+    "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository"
+)
 
 
 @pytest.mark.skipif(
