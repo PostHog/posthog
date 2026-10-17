@@ -6,6 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { templateCopy } from './templateCopy'
 import { MessageTemplate } from './types'
 
 export type { MessageTemplate }
@@ -209,11 +210,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 duplicateTemplate: async (template: MessageTemplate) => {
                     try {
-                        const duplicatedTemplate = await api.messaging.createTemplate({
-                            name: `${template.name} (copy)`,
-                            description: template.description,
-                            content: template.content,
-                        })
+                        const duplicatedTemplate = await api.messaging.createTemplate(templateCopy(template))
                         lemonToast.success('Template duplicated successfully')
                         return [...values.templates, duplicatedTemplate]
                     } catch {

@@ -331,6 +331,252 @@ describe('messageTemplateLogic', () => {
         })
     })
 
+    const CODE_MANAGED = {
+        id: 'existing-id',
+        name: 'Welcome',
+        description: 'Sent after signup',
+        content: {
+            templating: 'liquid',
+            email: { subject: 'Welcome', html: '<p>Hi</p>', text: 'Hi', design: null, from: '', to: '' },
+        },
+        key: 'welcome',
+        managed_by: 'code',
+        source_repository: 'github.com/example/app',
+        source_path: 'emails/welcome.html',
+        source_ref: '3f2c1ab9d4e5f60718293a4b5c6d7e8f90a1b2c3',
+        content_hash: 'v1:0000000000000000000000000000000000000000000000000000000000000000',
+    }
+
+    describe('code-managed source', () => {
+        it.each([
+            {
+                description: 'a template made in PostHog has no source',
+                served: { id: 'existing-id', name: 'Existing', managed_by: null },
+                isCodeManaged: false,
+                templateSource: null,
+            },
+            {
+                description: 'a keyed template that PostHog still manages has no source',
+                served: { ...CODE_MANAGED, managed_by: 'gui' },
+                isCodeManaged: false,
+                templateSource: null,
+            },
+            {
+                description: 'a known host links the file, the repository and the shortened commit',
+                served: CODE_MANAGED,
+                isCodeManaged: true,
+                templateSource: {
+                    path: 'emails/welcome.html',
+                    fileUrl:
+                        'https://github.com/example/app/blob/3f2c1ab9d4e5f60718293a4b5c6d7e8f90a1b2c3/emails/welcome.html',
+                    repository: 'github.com/example/app',
+                    repositoryUrl: 'https://github.com/example/app',
+                    ref: '3f2c1ab',
+                    refUrl: 'https://github.com/example/app/commit/3f2c1ab9d4e5f60718293a4b5c6d7e8f90a1b2c3',
+                },
+            },
+            {
+                description: 'a branch links to the branch',
+                served: { ...CODE_MANAGED, source_ref: 'main' },
+                isCodeManaged: true,
+                templateSource: expect.objectContaining({
+                    ref: 'main',
+                    refUrl: 'https://github.com/example/app/tree/main',
+                }),
+            },
+            {
+                description: 'an unknown host stays plain text',
+                served: { ...CODE_MANAGED, source_repository: 'git.example.com/team/app' },
+                isCodeManaged: true,
+                templateSource: {
+                    path: 'emails/welcome.html',
+                    fileUrl: undefined,
+                    repository: 'git.example.com/team/app',
+                    repositoryUrl: undefined,
+                    ref: '3f2c1ab',
+                    refUrl: undefined,
+                },
+            },
+            {
+                description: 'an upload without a source shows none',
+                served: { ...CODE_MANAGED, source_repository: null, source_path: null, source_ref: null },
+                isCodeManaged: true,
+                templateSource: null,
+            },
+        ])('$description', async ({ served, isCodeManaged, templateSource }) => {
+            useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': served } })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadTemplateSuccess'])
+                .toMatchValues({ isCodeManaged, templateSource })
+        })
+    })
+
+    describe('code-managed template', () => {
+        let patchBodies: Record<string, unknown>[]
+        let createBodies: Record<string, unknown>[]
+
+        beforeEach(async () => {
+            patchBodies = []
+            createBodies = []
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': CODE_MANAGED },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': async ({
+                        request,
+                    }: {
+                        request: Request
+                    }) => {
+                        patchBodies.push(await request.json())
+                        return [200, { ...CODE_MANAGED, managed_by: 'gui' }]
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/messaging_templates/': async ({ request }: { request: Request }) => {
+                        createBodies.push(await request.json())
+                        return [201, { id: 'copy-id' }]
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+        })
+
+        it('keeps its fields and never saves when they change', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setTemplateValue('content.email.subject', 'Edited here')
+                logic.actions.setTemplateValues({ name: 'Renamed here' })
+                logic.actions.submitTemplate()
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({ templateChanged: false })
+            expect(logic.values.template.name).toBe('Welcome')
+            expect(patchBodies).toEqual([])
+        })
+
+        it('duplicates as a copy without its key, ownership, source or hash', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.duplicateTemplate()
+            }).toFinishAllListeners()
+
+            expect(createBodies).toEqual([
+                { name: 'Welcome (copy)', description: 'Sent after signup', content: CODE_MANAGED.content },
+            ])
+        })
+
+        it('becomes editable once released', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.releaseTemplate()
+            })
+                .toDispatchActions(['releaseTemplateSuccess'])
+                .toFinishAllListeners()
+
+            expect(patchBodies).toEqual([{ managed_by: 'gui' }])
+            logic.actions.setTemplateValue('name', 'Edited here')
+            await expectLogic(logic).toMatchValues({ isCodeManaged: false, templateChanged: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitTemplate()
+            })
+                .toDispatchActions(['saveTemplateSuccess'])
+                .toFinishAllListeners()
+            expect(patchBodies[1]).toMatchObject({ name: 'Edited here' })
+            const serverOwnedFieldsSent = [
+                'key',
+                'managed_by',
+                'source_repository',
+                'source_path',
+                'source_ref',
+            ].filter((field) => field in patchBodies[1])
+            expect(serverOwnedFieldsSent).toEqual([])
+        })
+    })
+
+    describe('claimed back by an upload while editing', () => {
+        let serverTemplate: Record<string, unknown>
+        let reloadStatus: number
+        let createBodies: Record<string, unknown>[]
+
+        const refuseSave = async (): Promise<void> => {
+            serverTemplate = CODE_MANAGED
+            await expectLogic(logic, () => {
+                logic.actions.submitTemplate()
+            })
+                .toDispatchActions([
+                    'saveTemplateFailure',
+                    reloadStatus === 200 ? 'loadTemplateSuccess' : 'loadTemplateFailure',
+                ])
+                .toFinishAllListeners()
+        }
+
+        beforeEach(async () => {
+            serverTemplate = { ...CODE_MANAGED, managed_by: 'gui' }
+            reloadStatus = 200
+            createBodies = []
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': () => [reloadStatus, serverTemplate],
+                },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': () => [
+                        403,
+                        { type: 'invalid_request', code: 'immutable', detail: 'This template is managed by code.' },
+                    ],
+                },
+                post: {
+                    '/api/environments/:team_id/messaging_templates/': async ({ request }: { request: Request }) => {
+                        createBodies.push(await request.json())
+                        return [201, { id: 'copy-id' }]
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            logic.actions.setTemplateValue('name', 'Welcome, edited here')
+            logic.actions.setTemplateValue('content.email.subject', 'Edited subject')
+        })
+
+        it.each([
+            { reload: 'succeeds', status: 200 },
+            { reload: 'fails', status: 500 },
+        ])('turns read-only and offers to duplicate the unsaved edits when the reload $reload', async ({ status }) => {
+            reloadStatus = status
+            await refuseSave()
+
+            await expectLogic(logic).toMatchValues({
+                isCodeManaged: true,
+                templateChanged: false,
+                refusedEdits: expect.objectContaining({ name: 'Welcome, edited here' }),
+            })
+            expect(logic.values.template.name).toBe('Welcome')
+        })
+
+        it('duplicates the unsaved edits without its key, ownership, source or hash', async () => {
+            await refuseSave()
+
+            await expectLogic(logic, () => {
+                logic.actions.duplicateWithMyChanges()
+            }).toFinishAllListeners()
+
+            expect(createBodies).toEqual([
+                {
+                    name: 'Welcome, edited here (copy)',
+                    description: 'Sent after signup',
+                    content: {
+                        ...CODE_MANAGED.content,
+                        email: { ...CODE_MANAGED.content.email, subject: 'Edited subject' },
+                    },
+                },
+            ])
+            await expectLogic(logic).toMatchValues({ refusedEdits: null })
+        })
+    })
+
     describe('make transactional', () => {
         it('keeps edits made while the conversion runs', async () => {
             useMocks({
