@@ -6,6 +6,7 @@ import { allowedCdcSyncFrequencies, clampSyncFrequency } from 'products/data_war
 import {
     buildBulkEnablePayloads,
     bulkSyncMethodDisabledReason,
+    effectiveAttributionSettings,
     effectiveLookbackDays,
     isSensitiveCredentialField,
     removeEmptySensitiveValues,
@@ -277,6 +278,27 @@ describe('effectiveLookbackDays', () => {
 
     it('does not prompt when raising past a max that is already reached', () => {
         expect(effectiveLookbackDays(10_000) > effectiveLookbackDays(3 * 365)).toBe(false)
+    })
+})
+
+describe('effectiveAttributionSettings', () => {
+    it.each([
+        ['an unset config and the default option', undefined, { use_unified_attribution_setting: '' }, true],
+        [
+            'extra whitespace and blank entries',
+            { action_attribution_windows: '7d_click,1d_view' },
+            { action_attribution_windows: ' 7d_click, ,1d_view ' },
+            true,
+        ],
+        [
+            'a new window',
+            { action_attribution_windows: '7d_click' },
+            { action_attribution_windows: '7d_click,1d_view' },
+            false,
+        ],
+        ['the unified flag turned on', {}, { use_unified_attribution_setting: 'true' }, false],
+    ])('compares %s', (_label, before, after, expected) => {
+        expect(effectiveAttributionSettings(before) === effectiveAttributionSettings(after)).toBe(expected)
     })
 })
 
